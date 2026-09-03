@@ -114,76 +114,63 @@ test.describe('admin verification page — authenticated (E2E_FULL_STACK=1)', ()
     });
   }
 
-  test('purpose edit dialog exposes the immutable baseline and gates', async ({ page, context }) => {
+  // The 5 scenarios below share ONE page/session rather than each doing
+  // their own page.goto — every mount fires 3+ real /api/admin/* GETs
+  // (overview, audit, template preview), and adminRateLimiter (30/min/IP,
+  // server/middleware/security.ts) is real, correct, and NOT weakened for
+  // this suite; four separate full reloads was enough admin traffic from
+  // one IP to trip it. Reusing the page cuts that traffic to what an
+  // actual admin session touching 4 purposes back-to-back would generate.
+  test('editing a purpose: baseline/gates, weakening rejection, tightening + audit, revision conflict, reset', async ({ page, context }) => {
     await withSiteDefault(page, 'en');
     await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
     await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { name: 'Verification & OTP' })).toBeVisible({ timeout: 15_000 });
     await page.getByRole('tab', { name: 'Purposes' }).click();
+
+    // 1. Baseline + gates are exposed.
     await page.getByRole('row', { name: /Signup — Email/ }).getByRole('button', { name: 'Edit' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await expect(page.getByText('Activation gates')).toBeVisible();
     await expect(page.getByText(/Purpose baseline:/).first()).toBeVisible();
-  });
 
-  test('a weakening submission is rejected VISIBLY and Save is disabled — no server round-trip needed', async ({ page, context }) => {
-    await withSiteDefault(page, 'en');
-    await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
-    await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
-    await page.getByRole('tab', { name: 'Purposes' }).click();
-    await page.getByRole('row', { name: /Signup — Email/ }).getByRole('button', { name: 'Edit' }).click();
-    await expect(page.getByRole('dialog')).toBeVisible();
-
-    const otpLengthInput = page.getByLabel('OTP length (digits)');
-    await otpLengthInput.fill('1');
-
+    // 2. A weakening submission is rejected VISIBLY, Save disabled, no round-trip.
+    await page.getByLabel('OTP length (digits)').fill('1');
     await expect(page.getByText(/Cannot save: .* value\(s\) would weaken this purpose/)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Save changes' })).toBeDisabled();
-  });
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.getByRole('dialog')).toBeHidden();
 
-  test('a valid tightening submission saves, bumps revision, and appears in the audit log', async ({ page, context }) => {
-    await withSiteDefault(page, 'en');
-    await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
-    await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
-    await page.getByRole('tab', { name: 'Purposes' }).click();
+    // 3. A valid tightening submission saves, bumps revision, appears in the audit log.
     await page.getByRole('row', { name: /Password reset/ }).getByRole('button', { name: 'Edit' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
-
     const resendCooldown = page.getByLabel('Resend cooldown (seconds)');
-    const current = await resendCooldown.inputValue();
-    await resendCooldown.fill(String(Number(current) + 5));
+    const currentCooldown = await resendCooldown.inputValue();
+    await resendCooldown.fill(String(Number(currentCooldown) + 5));
     await page.getByRole('button', { name: 'Save changes' }).click();
     await expect(page.getByRole('dialog')).toBeHidden({ timeout: 10_000 });
 
     await page.getByRole('tab', { name: 'Audit history' }).click();
     await expect(page.getByRole('row', { name: /Password reset/ }).first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('Update').first()).toBeVisible();
-  });
-
-  test('a stale expectedRevision is rejected as a visible revision conflict', async ({ page, context }) => {
-    await withSiteDefault(page, 'en');
-    await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
-    await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
     await page.getByRole('tab', { name: 'Purposes' }).click();
+
+    // 4. A stale expectedRevision is rejected as a visible revision conflict.
     await page.getByRole('row', { name: /Change email/ }).getByRole('button', { name: 'Edit' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
-
     // Out-of-band mutation via a raw DB bump of `revision` while the dialog
     // is open, simulating a second admin's concurrent change — the open
     // dialog still holds the now-stale revision it loaded with.
     await db.query(`UPDATE public.verification_purpose_settings SET revision = revision + 1 WHERE purpose = 'change_email'`);
-
-    const resendCooldown = page.getByLabel('Resend cooldown (seconds)');
-    const current = await resendCooldown.inputValue();
-    await resendCooldown.fill(String(Number(current) + 5));
+    const changeEmailCooldown = page.getByLabel('Resend cooldown (seconds)');
+    const currentChangeEmailCooldown = await changeEmailCooldown.inputValue();
+    await changeEmailCooldown.fill(String(Number(currentChangeEmailCooldown) + 5));
     await page.getByRole('button', { name: 'Save changes' }).click();
     await expect(page.getByText('Someone else changed these settings. Reload and try again.')).toBeVisible({ timeout: 10_000 });
-  });
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.getByRole('dialog')).toBeHidden();
 
-  test('reset restores platform defaults and turns admin_enabled back off', async ({ page, context }) => {
-    await withSiteDefault(page, 'en');
-    await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
-    await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
-    await page.getByRole('tab', { name: 'Purposes' }).click();
+    // 5. Reset restores platform defaults and turns admin_enabled back off.
     await page.getByRole('row', { name: /Change phone/ }).getByRole('button', { name: 'Edit' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await page.getByRole('button', { name: /Reset to defaults/ }).click();

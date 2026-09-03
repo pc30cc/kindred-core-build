@@ -23,8 +23,9 @@ import {
   billingV2DepositPreview,
   billingV2DepositCheckout,
   type WalletView,
-  type DepositPreview,
 } from '@/lib/billingV2Api';
+
+type DepositDraft = { id: string; documentNumber: string; amountIrr: number };
 import { billingDate, money, Ltr, ErrorState, EmptyState, Pager, errorMessage } from './shared';
 
 const RIAL_PER_TOMAN = 10;
@@ -49,7 +50,7 @@ export default function WalletTab({
 
   const [depositOpen, setDepositOpen] = useState(false);
   const [amountToman, setAmountToman] = useState('');
-  const [preview, setPreview] = useState<DepositPreview | null>(null);
+  const [preview, setPreview] = useState<DepositDraft | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = () => {
@@ -94,7 +95,8 @@ export default function WalletTab({
     }
     setBusy(true);
     try {
-      setPreview(await billingV2DepositPreview(workspaceId, toman * RIAL_PER_TOMAN));
+      const res = await billingV2DepositPreview(workspaceId, toman * RIAL_PER_TOMAN);
+      setPreview(res.deposit);
     } catch (e) {
       toast.error(errorMessage(e, t));
     } finally {
@@ -107,7 +109,7 @@ export default function WalletTab({
     setBusy(true);
     try {
       const callbackUrl = `${window.location.origin}${window.location.pathname}`;
-      const res = await billingV2DepositCheckout(workspaceId, preview.amountIrr, callbackUrl);
+      const res = await billingV2DepositCheckout(workspaceId, preview.id, callbackUrl);
       const url = res.checkoutUrl || res.url;
       if (!url) throw new Error('NO_PROVIDER_CONFIGURED');
       window.location.href = url;
@@ -177,12 +179,12 @@ export default function WalletTab({
           <CardTitle className="text-base">{t('billingV2.wallet.ledger')}</CardTitle>
         </CardHeader>
         <CardContent>
-          {data.ledger.length === 0 ? (
+          {data.ledger.entries.length === 0 ? (
             <EmptyState message={t('billingV2.wallet.ledgerEmpty')} />
           ) : (
             <>
               <div className="space-y-2">
-                {data.ledger.map((entry) => (
+                {data.ledger.entries.map((entry) => (
                   <div key={entry.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
                     <div className="min-w-0">
                       <p className="text-sm font-medium">
@@ -203,13 +205,13 @@ export default function WalletTab({
               </div>
               <Pager
                 page={page}
-                pageSize={data.pageSize}
-                total={data.total}
+                pageSize={data.ledger.pageSize}
+                total={data.ledger.total}
                 onPage={setPage}
                 labels={{
                   page: t('billingV2.common.page', {
                     page,
-                    pages: Math.max(1, Math.ceil(data.total / data.pageSize)),
+                    pages: Math.max(1, Math.ceil(data.ledger.total / data.ledger.pageSize)),
                   }),
                   prev: t('billingV2.common.prev'),
                   next: t('billingV2.common.next'),
@@ -253,8 +255,8 @@ export default function WalletTab({
                 <span>{t('billingV2.wallet.depositReceipt')}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">{t('billingV2.wallet.balanceAfter')}</span>
-                <span>{money(preview.balanceAfterIrr, locale)}</span>
+                <span className="text-muted-foreground">{t('billingV2.wallet.documentNumber')}</span>
+                <Ltr>{preview.documentNumber}</Ltr>
               </div>
             </div>
           )}

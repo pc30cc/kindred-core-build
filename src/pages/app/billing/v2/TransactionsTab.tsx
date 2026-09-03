@@ -12,7 +12,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { SkeletonTable } from '@/components/common/Skeletons';
 import { useTranslation } from '@/i18n';
-import { billingV2Transactions, type TransactionRow } from '@/lib/billingV2Api';
+import { billingV2Transactions, type CustomerTransaction } from '@/lib/billingV2Api';
 import { billingDate, money, Ltr, ErrorState, EmptyState, Pager, errorMessage } from './shared';
 
 function statusVariant(status: string, needsReview?: boolean) {
@@ -24,7 +24,7 @@ function statusVariant(status: string, needsReview?: boolean) {
 
 export default function TransactionsTab({ workspaceId, reloadKey }: { workspaceId: string; reloadKey: number }) {
   const { t, locale } = useTranslation();
-  const [rows, setRows] = useState<TransactionRow[]>([]);
+  const [rows, setRows] = useState<CustomerTransaction[]>([]);
   const [total, setTotal] = useState(0);
   const [pageSize, setPageSize] = useState(10);
   const [page, setPage] = useState(1);
@@ -74,7 +74,7 @@ export default function TransactionsTab({ workspaceId, reloadKey }: { workspaceI
                     <tr key={row.id} className="border-b last:border-0">
                       <td className="p-2">{billingDate(row.createdAt, locale)}</td>
                       <td className="p-2">{t(`billingV2.transactions.types.${row.purchaseType}` as any)}</td>
-                      <td className="p-2">{row.reference ? <Ltr>{row.reference}</Ltr> : '—'}</td>
+                      <td className="p-2">{row.providerReference || row.documentNumber ? <Ltr>{row.providerReference || row.documentNumber}</Ltr> : '—'}</td>
                       <td className="p-2">
                         <Badge variant={statusVariant(row.status, row.needsReview)}>
                           {row.needsReview
@@ -106,9 +106,9 @@ export default function TransactionsTab({ workspaceId, reloadKey }: { workspaceI
                     <span>{billingDate(row.createdAt, locale)}</span>
                     <span className="font-semibold text-foreground">{money(row.amountIrr, locale)}</span>
                   </div>
-                  {row.reference && (
+                  {(row.providerReference || row.documentNumber) && (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      <Ltr>{row.reference}</Ltr>
+                      <Ltr>{row.providerReference || row.documentNumber}</Ltr>
                     </p>
                   )}
                 </div>

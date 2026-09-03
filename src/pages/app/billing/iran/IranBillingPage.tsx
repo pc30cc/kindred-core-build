@@ -516,7 +516,11 @@ function PlansGrid({
             : 0;
           const planName = ((plan.localized || {}).fa?.name || '').trim() || plan.name;
           const isHigher = !isCurrent && currentPlan && (plan.sort_order ?? 0) > (currentPlan.sort_order ?? 0);
-          const aiAllowance = Number((plan.limits || {}).included_ai_allowance_irr ?? 0) || 0;
+          // The plan editor exposes both the monetary allowance and the legacy
+          // "AI Credits / month" limit; show whichever the plan actually declares.
+          const aiAllowance = Number((plan.limits || {}).included_ai_allowance_irr ?? 0)
+            || Number((plan.limits || {}).ai_credits_per_month ?? 0)
+            || 0;
 
 
           return (

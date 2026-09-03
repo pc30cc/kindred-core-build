@@ -188,11 +188,29 @@ export default function InboxPage() {
     statusParam === 'all'
       ? statusParam
       : 'open';
-  const extraChip: ExtraChip | null =
+  // Plan gating for the Inbox tab strip. Unknown / still-loading entitlements
+  // stay allowed so tabs never flicker away on a slow snapshot.
+  const { data: inboxEnts } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
+  const inboxCapAllowed = useCallback((key: string): boolean => {
+    if (!inboxEnts) return true;
+    const f = (inboxEnts.features as any)?.[key] ?? (inboxEnts.modules as any)?.[key];
+    return f ? f.value !== false : true;
+  }, [inboxEnts]);
+  const aiTabAllowed = inboxCapAllowed('inbox_ai_queue');
+  const needsHumanTabAllowed = inboxCapAllowed('inbox_needs_human');
+  const colleaguesTabAllowed = inboxCapAllowed('inbox_team_chat');
+
+  const rawExtraChip: ExtraChip | null =
     filterParam === 'needs_human' ? 'needs_human'
       : filterParam === 'assigned_to_me' ? 'assigned_to_me'
       : filterParam === 'colleagues' ? 'colleagues'
       : null;
+  const extraChip: ExtraChip | null =
+    (rawExtraChip === 'needs_human' && !needsHumanTabAllowed) ||
+    (rawExtraChip === 'colleagues' && !colleaguesTabAllowed)
+      ? null
+      : rawExtraChip;
+
 
   // Legacy URL redirect: /inbox?queue=needs_human → /inbox?filter=needs_human.
   useEffect(() => {

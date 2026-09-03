@@ -51,7 +51,21 @@ if (!DSN && process.env.REQUIRE_GV_DB === '1') {
 }
 const suite = DSN ? describe : describe.skip;
 
-type PgTestClient = PgQueryable & { end(): Promise<void>; connect?(): Promise<any> };
+/**
+ * `pg` cannot infer a row shape from a SQL string. The shared migration helper
+ * deliberately exposes rows as `unknown`, while this acceptance suite reads
+ * many ad-hoc scalar/JSON projections. Keep the permissive default local to
+ * this test client (callers can still supply an explicit row type) instead of
+ * weakening `PgQueryable` for every integration suite.
+ */
+type PgTestClient = Omit<PgQueryable, 'query'> & {
+  query<Row extends Record<string, any> = Record<string, any>>(
+    text: string,
+    values?: unknown[],
+  ): Promise<{ rows: Row[]; rowCount: number | null }>;
+  end(): Promise<void>;
+  connect?(): Promise<any>;
+};
 let db: PgTestClient;
 
 process.env.GENERIC_VERIFICATION_PEPPER ||= 'test-gv-pepper-value-at-least-32-bytes!!';

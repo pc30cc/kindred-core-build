@@ -145,10 +145,25 @@ async function makeInvoice(
 }
 
 async function makePayment(ws: string, amount: number): Promise<string> {
+  // The shipped table calls the column `amount`; older self-host bases used
+  // `amount_irr`. The invariants under test are identical on both.
+  const col = (await one(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='billing_payments'
+        AND column_name IN ('amount','amount_irr') ORDER BY column_name LIMIT 1`,
+  ))?.column_name ?? 'amount';
+  const hasProvider = Boolean(
+    await one(
+      `SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='billing_payments' AND column_name='provider_name'`,
+    ),
+  );
+  const cols = ['workspace_id', col, 'status', ...(hasProvider ? ['provider_name'] : [])];
+  const vals = [ws, amount, 'succeeded', ...(hasProvider ? ['test'] : [])];
   const r = await one(
-    `INSERT INTO public.billing_payments (workspace_id, amount_irr, status)
-     VALUES ($1, $2, 'succeeded') RETURNING id`,
-    [ws, amount],
+    `INSERT INTO public.billing_payments (${cols.join(', ')})
+     VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING id`,
+    vals,
   );
   return r.id;
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,10 +13,12 @@ import {
   Database, Download, Clock, HardDrive,
   Cloud, Server, FolderSync, CalendarDays, CalendarRange,
   Calendar, ArrowRightLeft,
-  AlertCircle, CheckCircle, Loader2, Trash2,
+  AlertCircle, CheckCircle, Loader2, Trash2, ShieldAlert, Upload,
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { downloadDatabaseBackup, restoreDatabaseBackup, purgeDatabase } from '@/lib/api';
 
 interface BackupRecord {
   id: string;
@@ -241,6 +243,8 @@ function BackupTab() {
 
   return (
     <div dir={dir} className="space-y-6 text-start">
+      <MaintenanceCard />
+
       <Card className="bg-card border-border">
         <CardHeader>
           <CardTitle className={cn('text-foreground text-sm flex items-center gap-2', isRtl && 'flex-row-reverse justify-end')}>

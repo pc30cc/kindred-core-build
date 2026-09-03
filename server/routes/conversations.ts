@@ -983,6 +983,11 @@ const listQuerySchema = z.object({
   status: z.string().max(200).optional(),
   needs_human: z.enum(['true', 'false']).optional(),
   assigned_to_me: z.string().uuid().optional(),
+  // Assignment scope. Default 'mine': every operator — owners and admins
+  // included — only sees unassigned threads plus the ones assigned to them,
+  // so a transferred conversation leaves the sender's Inbox immediately.
+  // 'all' is the explicit full-workspace view, allowed for privileged roles.
+  scope: z.enum(['mine', 'all']).optional().default('mine'),
 });
 
 conversationsRouter.get('/', async (req: any, res: any) => {
@@ -992,12 +997,15 @@ conversationsRouter.get('/', async (req: any, res: any) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid query', details: parsed.error.flatten().fieldErrors });
     }
-    const { workspace_id, queue, status, assigned_to_me } = parsed.data;
+    const { workspace_id, queue, status, assigned_to_me, scope } = parsed.data;
     const needsHuman = parsed.data.needs_human === 'true';
     const auth = await authorizeWorkspaceMember(req, res, config, workspace_id);
     if (!auth) return;
-    const canSeeAllAssignments =
+    const isPrivileged =
       auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead';
+    // Privileged roles keep the full view ONLY when they explicitly ask for
+    // it (scope=all). Otherwise their Inbox behaves like an operator's.
+    const canSeeAllAssignments = isPrivileged && scope === 'all';
 
     const sb = getServiceClient(config);
     let q = sb
@@ -1229,7 +1237,8 @@ conversationsRouter.get('/inbox-counts', async (req: any, res: any) => {
 
     const sb = getServiceClient(config);
     const seesAll =
-      auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead';
+      (auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead')
+      && String(req.query.scope || 'mine') === 'all';
     const base = () => {
       const q = sb.from('conversations').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId);
       return seesAll ? q : q.or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`);
@@ -1263,7 +1272,8 @@ conversationsRouter.get('/inbox-tab-counts', async (req: any, res: any) => {
 
     const sb = getServiceClient(config);
     const seesAll =
-      auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead';
+      (auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead')
+      && String(req.query.scope || 'mine') === 'all';
     const scopeAssignment = (q: any) =>
       seesAll ? q : q.or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`);
     const base = () =>

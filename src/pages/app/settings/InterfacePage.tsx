@@ -22,7 +22,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { CheckCircle2, Loader2, Languages, Palette, Monitor, Sun, Moon } from 'lucide-react';
+import { CheckCircle2, Loader2, Languages, Palette, Monitor, Sun, Moon, Type, Droplet, Contrast, LayoutGrid, RotateCcw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { useUiPreferences } from '@/features/ui-preferences/UiPreferencesContext';
+import { UI_ACCENT_SWATCH, UI_FONT_SIZE_PX, type UiChroma, type UiFontSize, type UiPreferences, type UiSkin } from '@/lib/ui-preferences';
 import { updateAccount } from '@/lib/account-api';
 import { toast } from '@/hooks/use-toast';
 
@@ -33,6 +36,8 @@ const LOCALE_FLAGS: Record<Locale, string> = {
 };
 
 type Appearance = 'light' | 'dark' | 'system';
+
+const FONT_SIZES: UiFontSize[] = ['xs', 'sm', 'md', 'lg', 'xl'];
 
 const APPEARANCE_ICONS: Record<Appearance, typeof Sun> = {
   light: Sun,
@@ -45,6 +50,7 @@ export default function InterfacePage() {
   const { locale, setLocale } = useI18n();
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
   const { theme, setTheme, resolvedTheme } = useTheme();
+  const { preferences, setPreference, reset } = useUiPreferences();
 
   const [savingLocale, setSavingLocale] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -91,6 +97,11 @@ export default function InterfacePage() {
     } finally {
       setSavingLocale(false);
     }
+  }
+
+  function handlePref<K extends keyof UiPreferences>(key: K, value: UiPreferences[K]) {
+    setPreference(key, value);
+    setSavedAt(Date.now());
   }
 
   function handleThemeChange(value: string) {

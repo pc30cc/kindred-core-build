@@ -117,7 +117,7 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
   },
   {
     label: '108 — SEO / Website Audit core schema (generic job queue + seo_* tables)',
-    selfHost: 'database/migrations/110_seo_audit_core.sql',
+    selfHost: 'database/migrations/121_seo_audit_core.sql',
     hosted: 'supabase/migrations/20260906000000_seo_audit_core.sql',
   },
 

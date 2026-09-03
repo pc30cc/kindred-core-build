@@ -22,7 +22,7 @@ function randomId(): string {
 // Only join spec this codebase's read queries actually use.
 const JOIN_TABLE_BY_FK: Record<string, string> = { source_page_id: 'seo_pages' };
 
-// A trimmed mirror of each table's real column DEFAULTs (108_seo_audit_core.sql),
+// A trimmed mirror of each table's real column DEFAULTs (121_seo_audit_core.sql),
 // applied on insert so app code that (correctly) relies on the DB default for a
 // column it doesn't set explicitly behaves the same against this fake.
 const TABLE_DEFAULTS: Record<string, Record<string, unknown>> = {

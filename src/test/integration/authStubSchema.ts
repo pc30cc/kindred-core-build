@@ -78,7 +78,7 @@ async function applyCallCenterSettingsStub(db: PgQueryable): Promise<void> {
  * state_machine.sql) — the SAME kind of self-host/hosted parity gap as
  * `call_center_settings` above (created with full history only in
  * supabase/migrations/, never in database/migrations/), discovered while
- * verifying the SEO feature's own migration (110_seo_audit_core.sql)
+ * verifying the SEO feature's own migration (121_seo_audit_core.sql)
  * replays against the full chain. Same rationale, same scope: unblocks the
  * chain far enough for unrelated suites to run; not a substitute for a real
  * self-host migration reconstructing either table's full hosted history.

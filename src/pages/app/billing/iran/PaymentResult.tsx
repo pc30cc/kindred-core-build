@@ -19,11 +19,13 @@ interface Props {
   dateIso?: string;
   trackingNumber?: string;
   orderNumber?: string;
+  /** New subscription end date, for plan purchases. */
+  periodEndIso?: string;
   onBack: () => void;
   onRetry?: () => void;
 }
 
-export default function PaymentResult({ status, amountIrr, purpose, dateIso, trackingNumber, orderNumber, onBack, onRetry }: Props) {
+export default function PaymentResult({ status, amountIrr, purpose, dateIso, trackingNumber, orderNumber, periodEndIso, onBack, onRetry }: Props) {
   const { t } = useTranslation();
 
   return (
@@ -42,6 +44,12 @@ export default function PaymentResult({ status, amountIrr, purpose, dateIso, tra
 
           {status === 'failure' && (
             <p className="text-sm text-muted-foreground">{t('billingIran.result.failureHint')}</p>
+          )}
+
+          {/* The customer HAS paid; the server is still finalizing. Never
+              present this as a failure and never ask them to pay again. */}
+          {status === 'pending' && (
+            <p className="text-sm text-muted-foreground">{t('billingIran.result.pendingHint')}</p>
           )}
 
           {status === 'success' && (
@@ -68,6 +76,12 @@ export default function PaymentResult({ status, amountIrr, purpose, dateIso, tra
                 <div className="flex justify-between gap-4">
                   <dt className="text-muted-foreground">{t('billingIran.result.trackingNumberLabel')}</dt>
                   <dd className="font-medium text-foreground font-mono">{trackingNumber}</dd>
+                </div>
+              )}
+              {periodEndIso && (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">{t('billingIran.result.periodEndLabel')}</dt>
+                  <dd className="font-medium text-foreground">{jalaliDate(periodEndIso)}</dd>
                 </div>
               )}
               {orderNumber && (

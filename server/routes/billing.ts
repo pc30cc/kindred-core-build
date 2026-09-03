@@ -29,12 +29,68 @@ import {
   createSubscriptionIntent,
   getPaymentIntent,
   setPaymentIntentProviderRef,
-  claimPaymentIntent,
+  claimIntentForProcessing,
+  markIntentSucceeded,
   markPaymentIntentFailed,
+  markPaymentIntentExpired,
+  noteIntentFailureAttempt,
+  providerRefMatchesIntent,
   isIntentUsable,
   IRAN_PROVIDERS,
+  type PaymentIntentRow,
 } from '../services/billing/paymentIntent.js';
+import {
+  applySubscriptionPayment,
+  recordCustomerPayment,
+} from '../services/billing/applyPayment.js';
 import * as aiLedger from '../services/ai-billing/ledger.js';
+
+/**
+ * Customer-friendly receipt for a finalized intent. Everything here comes from
+ * server state (intent + resulting payment/subscription/wallet) — the success
+ * screen must never trust anything from the redirect query string.
+ */
+async function buildReceipt(config: ServerConfig, intent: PaymentIntentRow) {
+  const supabase = getServiceClient(config);
+  const { data: payment } = await supabase
+    .from('billing_payments')
+    .select('id, amount, currency, paid_at, provider_payment_id, plan_name_snapshot, action_type, billing_interval, created_at')
+    .eq('payment_intent_id', intent.id)
+    .maybeSingle();
+
+  const receipt: Record<string, unknown> = {
+    status: intent.status,
+    intentId: intent.id,
+    amountIrr: intent.amount_irr,
+    purchaseType: intent.purchase_type,
+    actionType: (payment?.action_type as string | null) || intent.action_type || null,
+    providerName: intent.provider_name,
+    providerRef: (payment?.provider_payment_id as string | null) || intent.provider_ref || null,
+    orderId: (payment?.id as string | undefined) || intent.id,
+    paidAt: (payment?.paid_at as string | null) || intent.succeeded_at || null,
+    planName: (payment?.plan_name_snapshot as string | null) || null,
+    billingInterval: (payment?.billing_interval as string | null) || intent.billing_interval || null,
+  };
+
+  if (intent.purchase_type === 'ai_credit_topup') {
+    try {
+      receipt.newAiBalanceIrr = await aiLedger.availableBalance(config, intent.workspace_id);
+    } catch { /* balance is a nicety, never a blocker */ }
+  } else {
+    const { data: sub } = await supabase
+      .from('workspace_subscriptions')
+      .select('current_period_end, plan_id, billing_plans(name)')
+      .eq('workspace_id', intent.workspace_id)
+      .maybeSingle();
+    receipt.periodEnd = (sub?.current_period_end as string | null) || null;
+    if (!receipt.planName) {
+      receipt.planName = ((sub as any)?.billing_plans?.name as string | undefined) || null;
+    }
+  }
+
+  return receipt;
+}
+
 
 export const billingRouter = Router();
 
@@ -52,6 +108,41 @@ function getConfig(req: any) {
 function serverConfigOf(req: any): ServerConfig {
   return (req as any).serverConfig as ServerConfig;
 }
+
+/**
+ * The gateway return URL must belong to this deployment. Accepts the request's
+ * own origin (the normal same-origin reverse-proxy topology) plus any
+ * explicitly configured CORS origin. Everything else is an open redirect.
+ */
+function isAllowedCallbackUrl(req: any, raw: string): boolean {
+  let target: URL;
+  try {
+    target = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (target.protocol !== 'https:' && target.hostname !== 'localhost' && target.hostname !== '127.0.0.1') {
+    return false;
+  }
+
+  const allowed = new Set<string>();
+  const host = req.get?.('host');
+  if (host) allowed.add(`${req.protocol}://${host}`);
+  const originHeader = req.get?.('origin');
+  if (originHeader) {
+    // Only trusted because mutating requests already passed the origin check
+    // in workspaceAuth (verifyOriginForMutation).
+    allowed.add(originHeader);
+  }
+  for (const o of serverConfigOf(req)?.corsOrigins || []) {
+    if (o && o !== '*') {
+      try { allowed.add(new URL(o).origin); } catch { /* ignore malformed config */ }
+    }
+  }
+
+  return allowed.has(target.origin);
+}
+
 
 /** Resolves the calling user from the session cookie. Writes 401 and returns null on failure. */
 async function requireUser(req: any, res: any): Promise<string | null> {
@@ -179,6 +270,17 @@ billingRouter.post('/checkout', async (req, res) => {
     if (!Number.isFinite(amount) || amount < 0) {
       return res.status(400).json({ error: `Plan has no ${currency} price for interval ${input.interval}` });
     }
+    // A zero-price (free) plan must never open a payment gateway: gateways
+    // reject 0 amounts and the customer would land on a broken bank page.
+    if (amount <= 0) {
+      return res.status(400).json({ error: 'FREE_PLAN_NO_CHECKOUT' });
+    }
+
+    // Open-redirect guard: the return URL is attacker-controllable input and
+    // is handed to the bank, so it must point back at this deployment.
+    if (!isAllowedCallbackUrl(req, input.callbackUrl)) {
+      return res.status(400).json({ error: 'Invalid callbackUrl' });
+    }
 
     let callbackUrl = input.callbackUrl;
     let intentId: string | undefined;
@@ -194,6 +296,7 @@ billingRouter.post('/checkout', async (req, res) => {
       const sep = callbackUrl.includes('?') ? '&' : '?';
       callbackUrl = `${callbackUrl}${sep}intent=${intent.id}&provider=${encodeURIComponent(resolved.provider.name)}`;
     }
+
 
     const result = await resolved.provider.createCheckoutSession(resolved.config, {
       workspaceId: input.workspaceId,
@@ -232,13 +335,21 @@ billingRouter.post('/checkout', async (req, res) => {
 // ─── POST /api/billing/verify-callback — verify callback from gateway ──
 //
 // `params` are the raw, untrusted redirect query params from the gateway
-// (Authority/Status, trackId, RefNum, ...). For the Iranian one-time
-// gateways an `intentId` is REQUIRED: the amount handed to `verifyPayment`
-// is always read back from the server-created intent row, never from
-// anything the client supplies, and the intent's `purchase_type` decides
-// whether a successful verify applies a subscription period or grants AI
-// credit. `claimPaymentIntent` makes this idempotent — a replayed callback
-// (double submit, provider retry) can never double-apply the result.
+// (Authority/Status, trackId, RefNum, ...). For the Iranian one-time gateways
+// an `intentId` is REQUIRED and the whole finalization is a state machine:
+//
+//   1. re-read the server-created intent (amount/plan/interval/purpose);
+//   2. bind the callback to the payment reference stored on that intent
+//      (fail-closed: intent A can never be finalized with payment B);
+//   3. ask the gateway to verify, with the SERVER amount;
+//   4. atomically claim `pending → processing`;
+//   5. apply the idempotent financial side effect (plan period or AI credit)
+//      and write the customer-facing `billing_payments` row;
+//   6. only then mark the intent `succeeded`.
+//
+// If step 5 crashes the intent stays `processing` and is recoverable: a retry
+// re-runs the same idempotent side effect and completes. No replay can ever
+// apply a period, a credit or a payment row twice.
 billingRouter.post('/verify-callback', async (req, res) => {
   const { workspaceId, provider: providerName, params, intentId } = req.body;
   if (!workspaceId || !providerName) return res.status(400).json({ error: 'Missing workspaceId or provider' });
@@ -257,20 +368,38 @@ billingRouter.post('/verify-callback', async (req, res) => {
     }
 
     if (IRAN_PROVIDERS.has(providerName)) {
+      const cfg = serverConfigOf(req);
       if (typeof intentId !== 'string' || !intentId) {
         return res.status(400).json({ error: 'Missing intentId' });
       }
-      const intent = await getPaymentIntent(serverConfigOf(req), intentId);
+      const intent = await getPaymentIntent(cfg, intentId);
+      // Cross-workspace / cross-provider finalization is impossible.
       if (!intent || intent.workspace_id !== workspaceId || intent.provider_name !== providerName) {
         return res.status(400).json({ error: 'Invalid payment intent' });
       }
-      if (intent.status !== 'pending') {
-        // Already finalized (success or failure) — replay-safe no-op.
-        return res.json({ success: true, verified: intent.status === 'succeeded', duplicate: true });
+
+      if (intent.status === 'succeeded') {
+        return res.json({
+          success: true,
+          verified: true,
+          duplicate: true,
+          receipt: await buildReceipt(cfg, intent),
+        });
       }
-      if (!isIntentUsable(intent)) {
-        await markPaymentIntentFailed(serverConfigOf(req), intent.id);
+      if (intent.status === 'failed' || intent.status === 'canceled' || intent.status === 'expired') {
+        return res.json({ success: true, verified: false, status: intent.status });
+      }
+      if (intent.status === 'pending' && !isIntentUsable(intent)) {
+        await markPaymentIntentExpired(cfg, intent.id);
         return res.status(400).json({ error: 'Payment intent expired' });
+      }
+
+      // Identity binding — the callback must carry the same provider
+      // reference the checkout session produced for THIS intent.
+      const binding = providerRefMatchesIntent(intent, params);
+      if (binding.ok === false) {
+        await markPaymentIntentFailed(cfg, intent.id, binding.reason);
+        return res.status(400).json({ error: 'Payment reference does not match this order' });
       }
 
       const result = await provider.verifyPayment(resolved.config, {
@@ -278,46 +407,114 @@ billingRouter.post('/verify-callback', async (req, res) => {
         amount: String(intent.amount_irr),
       });
       if (!result.verified) {
-        await markPaymentIntentFailed(serverConfigOf(req), intent.id);
+        await markPaymentIntentFailed(cfg, intent.id, 'gateway_not_verified');
         return res.json({ success: true, ...result });
       }
 
-      const claimed = await claimPaymentIntent(serverConfigOf(req), intent.id);
-      if (!claimed) return res.json({ success: true, verified: true, duplicate: true });
-
-      if (intent.purchase_type === 'ai_credit_topup') {
-        await aiLedger.purchaseCredit(serverConfigOf(req), {
-          workspaceId,
-          amount: String(intent.amount_irr),
-          commandKey: `intent:${intent.id}`,
-          reason: 'ai_credit_topup',
-        });
-        await logBillingEvent(url, key, {
-          workspace_id: workspaceId,
-          event_type: 'ai_credit_topup',
-          provider_name: providerName,
-          provider_event_id: result.providerRef,
-          amount: intent.amount_irr,
-          currency: 'IRR',
-          status: 'success',
-          metadata: { intentId: intent.id },
-        });
-      } else {
-        await processWebhookEvent(url, key, providerName, {
-          type: 'payment_succeeded',
-          providerEventId: result.providerRef || intent.id,
-          providerPaymentId: result.providerRef,
-          workspaceId,
-          planId: intent.plan_id || undefined,
-          interval: intent.billing_interval || undefined,
-          amount: intent.amount_irr,
-          currency: 'IRR',
-          raw: params,
+      // pending → processing (or resume a crashed finalization).
+      const claim = await claimIntentForProcessing(cfg, intent.id);
+      if (claim.claimed === false) {
+        if (claim.reason === 'in_flight') {
+          // Another request is finalizing right now — genuinely pending.
+          return res.json({ success: true, verified: true, pending: true });
+        }
+        const latest = await getPaymentIntent(cfg, intent.id);
+        return res.json({
+          success: true,
+          verified: latest?.status === 'succeeded',
+          duplicate: true,
+          receipt: latest ? await buildReceipt(cfg, latest) : undefined,
         });
       }
 
-      return res.json({ success: true, ...result });
+      const providerRef = result.providerRef || intent.provider_ref || null;
+
+      try {
+        if (intent.purchase_type === 'ai_credit_topup') {
+          await aiLedger.purchaseCredit(cfg, {
+            workspaceId,
+            amount: String(intent.amount_irr),
+            commandKey: `intent:${intent.id}`,
+            reason: 'ai_credit_topup',
+          });
+          await recordCustomerPayment(cfg, {
+            workspaceId,
+            providerName,
+            providerPaymentId: providerRef,
+            paymentIntentId: intent.id,
+            amount: intent.amount_irr,
+            currency: 'IRR',
+            purchaseType: 'ai_credit_topup',
+            actionType: 'ai_credit_topup',
+            metadata: { intentId: intent.id, providerRef },
+          });
+          await logBillingEvent(url, key, {
+            workspace_id: workspaceId,
+            event_type: 'ai_credit_topup',
+            provider_name: providerName,
+            provider_event_id: providerRef || undefined,
+            amount: intent.amount_irr,
+            currency: 'IRR',
+            status: 'success',
+            metadata: { intentId: intent.id },
+          });
+        } else {
+          const applied = await applySubscriptionPayment(cfg, {
+            workspaceId,
+            planId: intent.plan_id as string,
+            interval: (intent.billing_interval || 'monthly') as 'monthly' | 'yearly',
+            providerName,
+            paymentIntentId: intent.id,
+          });
+          await recordCustomerPayment(cfg, {
+            workspaceId,
+            providerName,
+            providerPaymentId: providerRef,
+            paymentIntentId: intent.id,
+            amount: intent.amount_irr,
+            currency: 'IRR',
+            purchaseType: 'subscription',
+            actionType: applied.actionType,
+            planId: applied.planId,
+            planNameSnapshot: applied.planName,
+            billingInterval: applied.interval,
+            metadata: {
+              intentId: intent.id,
+              providerRef,
+              periodStart: applied.periodStart,
+              periodEnd: applied.periodEnd,
+              stacked: applied.stacked,
+            },
+          });
+          await logBillingEvent(url, key, {
+            workspace_id: workspaceId,
+            event_type: 'payment_succeeded',
+            provider_name: providerName,
+            provider_event_id: providerRef || intent.id,
+            amount: intent.amount_irr,
+            currency: 'IRR',
+            status: 'success',
+            metadata: { intentId: intent.id, actionType: applied.actionType },
+          });
+        }
+      } catch (sideEffectError: any) {
+        // The customer HAS paid. Keep the intent recoverable and tell the UI
+        // this is pending, never "failed" — a retry finishes the job.
+        await noteIntentFailureAttempt(cfg, intent, String(sideEffectError?.message || sideEffectError));
+        // eslint-disable-next-line no-console
+        console.error('[billing] finalization failed, intent recoverable', intent.id);
+        return res.status(202).json({ success: true, verified: true, pending: true });
+      }
+
+      await markIntentSucceeded(cfg, intent.id);
+      const finalIntent = await getPaymentIntent(cfg, intent.id);
+      return res.json({
+        success: true,
+        ...result,
+        receipt: finalIntent ? await buildReceipt(cfg, finalIntent) : undefined,
+      });
     }
+
 
     const result = await provider.verifyPayment(
       resolved.config,
@@ -512,6 +709,26 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
   await finalizeBillingWebhookEvent(url, key, claim.eventRowId, 'success').catch(() => {});
   return res.json({ received: true });
 });
+
+// ─── GET /api/billing/payment-intent/:intentId — status polling ──
+//
+// The success/failure screen polls this instead of guessing from the redirect
+// query string, so a callback that arrived while finalization was still
+// `processing` resolves to the real outcome a moment later.
+billingRouter.get('/payment-intent/:intentId', async (req, res) => {
+  const cfg = serverConfigOf(req);
+  const intent = await getPaymentIntent(cfg, req.params.intentId);
+  if (!intent) return res.status(404).json({ error: 'Not found' });
+  if (!(await authorizeWorkspace(req, res, intent.workspace_id, { manage: true }))) return;
+
+  return res.json({
+    status: intent.status,
+    pending: intent.status === 'pending' || intent.status === 'processing',
+    receipt: intent.status === 'succeeded' ? await buildReceipt(cfg, intent) : null,
+    failureReason: intent.failure_reason || null,
+  });
+});
+
 
 // ─── POST /api/billing/subscription/cancel ───────────────────────
 billingRouter.post('/subscription/cancel', async (req, res) => {

@@ -17,7 +17,7 @@ import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
 import { billingError } from '@/lib/billing-i18n';
 import { formatToman } from '@/lib/money';
-import { billingCheckout, billingVerifyCallback, billingGetPortal } from '@/lib/api';
+import { billingCheckout, billingVerifyCallback, billingGetPortal, billingGetPaymentIntent, type BillingReceipt } from '@/lib/api';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { SkeletonStats, SkeletonCard } from '@/components/common/Skeletons';
 import { useIranBilling } from './useIranBilling';
@@ -34,14 +34,18 @@ export default function IranBillingPage() {
   const { workspaceId, loading, plans, subscription, payments, effective, providerCapabilities, reload } = state;
   const { data: members } = useWorkspaceMembers(workspaceId || undefined);
 
-  const [result, setResult] = useState<{ status: PaymentResultStatus; amountIrr?: number; purpose?: string; date?: string } | null>(null);
+  const [result, setResult] = useState<{ status: PaymentResultStatus; receipt?: BillingReceipt | null } | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [interval, setInterval_] = useState<Interval>('monthly');
   const [renewalPlan, setRenewalPlan] = useState<any | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
 
-  // ── Return & Verify (Phase 2/10) — status ALWAYS comes from the server. ──
+  // ── Return & Verify — status ALWAYS comes from the server. ──
+  //
+  // A verify can answer `pending`: the customer paid and the server is still
+  // applying the result (or recovering from a crash mid-finalization). In that
+  // case we must NEVER show a failure — we poll the intent until it settles.
   useEffect(() => {
     if (!workspaceId) return;
     const qs = new URLSearchParams(window.location.search);
@@ -52,21 +56,57 @@ export default function IranBillingPage() {
     const params: Record<string, string> = {};
     qs.forEach((v, k) => { if (k !== 'intent' && k !== 'provider') params[k] = v; });
 
+    let cancelled = false;
     setVerifying(true);
-    billingVerifyCallback({ workspaceId, provider, params, intentId })
-      .then((res) => {
-        if (res.verified) {
-          setResult({ status: 'success', amountIrr: res.amount, date: new Date().toISOString() });
+
+    async function pollIntent(attempt = 0): Promise<void> {
+      if (cancelled) return;
+      if (attempt >= 10) {
+        setResult({ status: 'pending' });
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+      if (cancelled) return;
+      try {
+        const s = await billingGetPaymentIntent(intentId as string);
+        if (cancelled) return;
+        if (s.status === 'succeeded') {
+          setResult({ status: 'success', receipt: s.receipt });
           reload();
-        } else {
-          setResult({ status: 'failure' });
+          return;
         }
+        if (!s.pending) {
+          setResult({ status: 'failure' });
+          return;
+        }
+      } catch { /* transient — keep polling */ }
+      return pollIntent(attempt + 1);
+    }
+
+    billingVerifyCallback({ workspaceId, provider, params, intentId })
+      .then(async (res) => {
+        if (cancelled) return;
+        if (res.verified && !res.pending) {
+          setResult({ status: 'success', receipt: res.receipt });
+          reload();
+          return;
+        }
+        if (res.pending) {
+          setVerifying(false);
+          setResult({ status: 'pending' });
+          await pollIntent();
+          return;
+        }
+        setResult({ status: 'failure' });
       })
-      .catch(() => setResult({ status: 'failure' }))
+      .catch(() => { if (!cancelled) setResult({ status: 'failure' }); })
       .finally(() => {
+        if (cancelled) return;
         setVerifying(false);
         window.history.replaceState({}, '', window.location.pathname);
       });
+
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId]);
 
@@ -103,17 +143,28 @@ export default function IranBillingPage() {
   }
 
   if (result) {
+    const r = result.receipt;
     return (
       <PaymentResult
         status={result.status}
-        amountIrr={result.amountIrr}
-        purpose={result.purpose}
-        dateIso={result.date}
+        amountIrr={r?.amountIrr}
+        purpose={
+          r?.purchaseType === 'ai_credit_topup'
+            ? t('billingIran.result.purposeAiCredit')
+            : r?.planName
+              ? t('billingIran.result.purposePlan', { plan: r.planName })
+              : undefined
+        }
+        dateIso={r?.paidAt || undefined}
+        trackingNumber={r?.providerRef || undefined}
+        orderNumber={r?.orderId}
+        periodEndIso={r?.periodEnd || undefined}
         onBack={() => setResult(null)}
         onRetry={result.status === 'failure' ? () => setResult(null) : undefined}
       />
     );
   }
+
 
   if (loading || !workspaceId) {
     return (

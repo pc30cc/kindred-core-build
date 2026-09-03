@@ -8,7 +8,10 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
-    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    // Server-side units (billing math, policy gates) are covered too — these
+    // are pure modules, so the jsdom environment costs nothing here.
+    include: ["src/**/*.{test,spec}.{ts,tsx}", "server/**/*.{test,spec}.ts"],
+
   },
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },

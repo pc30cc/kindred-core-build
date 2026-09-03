@@ -41,6 +41,8 @@ const tr: TranslationKeys = {
       backCta: 'Plan ve Ödemeye dön', viewInvoiceCta: 'Faturayı görüntüle', retryCta: 'Tekrar dene',
       amountLabel: 'Tutar', purposeLabel: 'Açıklama', dateLabel: 'Tarih', trackingNumberLabel: 'Takip numarası', orderNumberLabel: 'Sipariş numarası',
       purposeRenewal: '{{plan}} planını yenileme', purposeUpgrade: '{{plan}} planına yükseltme', purposeTopup: 'AI kredisi satın alma',
+      purposePlan: '{{plan}} planı', purposeAiCredit: 'AI kredisi yüklemesi', periodEndLabel: 'Geçerlilik tarihi',
+      pendingHint: 'Ödemeniz alındı ve tamamlanıyor. Bu sayfa otomatik olarak güncellenir; tekrar ödeme yapmayın.',
     },
     transactions: {
       title: 'İşlemler', date: 'Tarih', description: 'Açıklama', amount: 'Tutar', status: 'Durum', details: 'Detaylar',

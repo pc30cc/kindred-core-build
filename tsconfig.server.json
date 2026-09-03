@@ -7,7 +7,7 @@
     "types": ["node"],
     "rootDir": "./",
     "outDir": "./server/dist",
-    "baseUrl": "./server",
+    "paths": { "*": ["./server/*"] },
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,

@@ -27,6 +27,8 @@ import {
   handleWorkspaceEntitlementChanged,
   type EntitlementChangeSource,
 } from './entitlementChange.js';
+import { addBillingInterval } from './periods.js';
+
 
 // Provider registry
 const providers: Record<string, BillingProviderHandler> = {
@@ -277,27 +279,18 @@ export async function finalizeBillingWebhookEvent(
 }
 
 /**
- * Adds one billing interval to `from`, using real calendar month/year
- * arithmetic (not a fixed day count) so a monthly period always ends on the
- * same day-of-month and a yearly one on the same day-of-year.
- */
-function addBillingInterval(from: Date, interval: 'monthly' | 'yearly'): Date {
-  const d = new Date(from.getTime());
-  if (interval === 'yearly') d.setUTCFullYear(d.getUTCFullYear() + 1);
-  else d.setUTCMonth(d.getUTCMonth() + 1);
-  return d;
-}
-
-/**
  * The new subscription period end for a payment event. Prefers the real
  * billing interval carried on the event (set from the payment intent for
  * Iranian gateways); only falls back to a flat 30 days for providers whose
  * webhook payload does not carry an interval.
+ *
+ * Calendar arithmetic (month-end clamping, leap years) lives in ./periods.ts.
  */
 export function computePeriodEnd(now: Date, interval: WebhookEvent['interval']): Date {
   if (interval === 'monthly' || interval === 'yearly') return addBillingInterval(now, interval);
   return new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 }
+
 
 /**
  * Process a verified webhook event — update subscription state
@@ -333,8 +326,24 @@ export async function processWebhookEvent(
     case 'subscription_created':
     case 'payment_succeeded':
     case 'invoice_paid': {
-      // Upsert subscription
-      const periodStart = new Date();
+      const now = new Date();
+
+      // Early renewal of the SAME plan must not burn the remaining paid days:
+      // the new period starts at the current period end.
+      const { data: existing } = await supabase
+        .from('workspace_subscriptions')
+        .select('plan_id, status, current_period_end')
+        .eq('workspace_id', event.workspaceId)
+        .maybeSingle();
+
+      const sameActivePlan =
+        !!event.planId &&
+        existing?.plan_id === event.planId &&
+        (existing?.status === 'active' || existing?.status === 'trialing');
+      const currentEnd = existing?.current_period_end ? new Date(existing.current_period_end) : null;
+      const stack = sameActivePlan && !!currentEnd && currentEnd.getTime() > now.getTime();
+      const periodStart = stack ? (currentEnd as Date) : now;
+
       await supabase.from('workspace_subscriptions').upsert({
         workspace_id: event.workspaceId,
         provider_name: providerName,
@@ -342,24 +351,37 @@ export async function processWebhookEvent(
         provider_customer_id: event.providerCustomerId || null,
         status: 'active',
         plan_id: event.planId || null,
+        ...(event.interval === 'monthly' || event.interval === 'yearly'
+          ? { billing_interval: event.interval }
+          : {}),
         current_period_start: periodStart.toISOString(),
         current_period_end: computePeriodEnd(periodStart, event.interval).toISOString(),
         updated_at: new Date().toISOString(),
       }, { onConflict: 'workspace_id' });
 
-      // Record payment
+      // Record payment — customer-facing transaction, replay-safe via the
+      // unique index on (provider_name, provider_payment_id).
       if (event.amount) {
-        await supabase.from('billing_payments').insert({
+        const { error: paymentError } = await supabase.from('billing_payments').insert({
           workspace_id: event.workspaceId,
           provider_name: providerName,
           provider_payment_id: event.providerPaymentId || event.providerEventId,
           amount: event.amount,
           currency: event.currency || 'USD',
           status: 'succeeded',
+          purchase_type: 'subscription',
+          action_type: stack ? 'plan_renewal' : sameActivePlan ? 'plan_renewal' : 'plan_new',
+          plan_id: event.planId || null,
+          billing_interval:
+            event.interval === 'monthly' || event.interval === 'yearly' ? event.interval : null,
+          paid_at: new Date().toISOString(),
         });
+        // A replayed provider payment id is expected and must not fail the event.
+        if (paymentError && paymentError.code !== '23505') throw new Error(paymentError.message);
       }
       break;
     }
+
 
     case 'subscription_canceled': {
       await supabase.from('workspace_subscriptions')

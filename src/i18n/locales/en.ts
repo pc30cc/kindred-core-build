@@ -7,7 +7,7 @@ const en = {
       activeUntil: 'Active until {{date}}', daysLeft: '{{days}} days left in this period', perMonth: '/ mo', perYear: '/ yr',
       renewCta: 'Renew plan', changeCta: 'Change plan', upgradeCta: 'Upgrade plan', managePortal: 'Manage payment',
       usageTitle: 'Usage summary', conversations: 'Conversations', operators: 'Operators', storage: 'Storage',
-      callMinutes: 'Call minutes', unlimited: 'Unlimited', gb: 'GB',
+      callMinutes: 'Call minutes', unlimited: 'Unlimited', gb: 'GB', remaining: 'Remaining',
     },
     plans: {
       monthly: 'Monthly', yearly: 'Yearly', yearlyHint: 'Yearly billing — better value', discountBadge: '{{percent}}% off',

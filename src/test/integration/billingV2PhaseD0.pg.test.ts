@@ -520,15 +520,17 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
       planId: small, interval: 'yearly', periodStart: inDays(-10), periodEnd: inDays(355),
     });
     const first = await makePeriod(ws, sub.id, {
-      planId: small, interval: 'yearly', start: inDays(-10), end: inDays(355), monthlyAllowance: 300_000,
+      planId: small, interval: 'yearly', start: inDays(-10), monthlyAllowance: 300_000,
     });
     await client.query(`SELECT public.billing_activate_period($1)`, [first.id]);
     expect(await grantedTotal(ws)).toBe(300_000);
 
     // Immediate upgrade: same service window end, new plan snapshot.
     const upgrade = await makePeriod(ws, sub.id, {
-      planId: big, interval: 'yearly', start: inDays(-0.01), end: inDays(355), monthlyAllowance: 900_000,
+      planId: big, interval: 'yearly', start: inDays(-0.01),
+      end: new Date(first.period_end).toISOString(), monthlyAllowance: 900_000,
     });
+
     await client.query(`SELECT public.billing_activate_period($1)`, [upgrade.id]);
 
     const cs = await q(

@@ -177,8 +177,8 @@ export async function assertHopAllowed(
   return null;
 }
 
-/** Reads a response body with a hard streaming byte cap. */
-async function readCapped(res: Response, maxBytes: number): Promise<string | null> {
+/** Reads a response body with a hard streaming byte cap. Exported for other hardened-transport callers (e.g. the SEO crawler). */
+export async function readCapped(res: Response, maxBytes: number): Promise<string | null> {
   const body = res.body as any;
   if (!body || typeof body.getReader !== 'function') {
     const buf = await res.arrayBuffer();

@@ -110,6 +110,7 @@ selected via `WORKER_KIND`:
 | `source-sync` | `worker/source-sync/` | Data Hub source sync (`public.ai_source_sync_jobs`) |
 | `file-ingest` | `worker/source-sync/` | Alias of `source-sync` (production isolation) |
 | `regression-runner` | `worker/regression-runner/` | AI agent regression batches/schedules |
+| `seo-crawler` | `worker/seo-crawler/` | SEO / Website Audit crawler (`public.background_jobs`, `job_type='seo_crawl'`) — see `docs/SEO_AUDIT.md` |
 | `all` | all of the above | Dev / small deploys only |
 
 Operators run one Coolify service per kind for isolation. The legacy

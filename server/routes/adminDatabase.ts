@@ -36,6 +36,8 @@ adminDatabaseRouter.get('/backup', async (req, res) => {
   if (!actorId) return;
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
+  // ?full=1 → include the schema (DDL) so the dump can rebuild an empty database.
+  const includeSchema = req.query.full === '1' || req.query.full === 'true';
 
   const { data: tables, error: listError } = await sb.rpc('admin_list_export_tables', {
     _actor_user_id: actorId,
@@ -43,15 +45,34 @@ adminDatabaseRouter.get('/backup', async (req, res) => {
   });
   if (listError) return res.status(500).json({ error: listError.message });
 
+  let schema: string[] = [];
+  if (includeSchema) {
+    const { data: ddl, error: ddlError } = await sb.rpc('admin_export_schema_ddl', {
+      _actor_user_id: actorId,
+    });
+    if (ddlError) return res.status(500).json({ error: ddlError.message });
+    schema = ((ddl as unknown as (string | { admin_export_schema_ddl: string })[]) ?? []).map((s) =>
+      typeof s === 'string' ? s : s.admin_export_schema_ddl,
+    );
+  }
+
   const tableNames: string[] = ((tables as unknown as (string | { admin_list_export_tables: string })[]) ?? []).map(
     (t) => (typeof t === 'string' ? t : t.admin_list_export_tables),
   );
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="backup_${stamp}.json"`);
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${includeSchema ? 'full_' : ''}backup_${stamp}.json"`,
+  );
 
-  res.write(`{"version":1,"scope":"all","exported_at":${JSON.stringify(new Date().toISOString())},"tables":{`);
+  res.write(
+    `{"version":1,"scope":${JSON.stringify(includeSchema ? 'full' : 'all')},"exported_at":${JSON.stringify(new Date().toISOString())},` +
+      (includeSchema ? `"schema":${JSON.stringify(schema)},` : '') +
+      `"tables":{`,
+  );
+
 
   let first = true;
   try {

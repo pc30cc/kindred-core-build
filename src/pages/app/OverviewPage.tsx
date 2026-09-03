@@ -438,7 +438,7 @@ export default function OverviewPage() {
             {[
               { label: tr('dashboard.statContacts'), used: contactUsed, limit: contactLimit, grad: 'from-amber-500 to-orange-500' },
               { label: tr('dashboard.statTeamOnline'), used: seatUsed, limit: seatLimit, grad: 'from-rose-500 to-pink-500' },
-              { label: tr('dashboard.statKbArticles'), used: articles?.length ?? 0, limit: limitNum('ai_kb_max_articles', 'max_kb_articles', 'kb_articles'), grad: 'from-cyan-500 to-sky-500' },
+              { label: tr('dashboard.statKbArticles'), used: articles?.length ?? 0, limit: limitNum('max_kb_articles', 'ai_kb_max_articles', 'kb_articles'), grad: 'from-cyan-500 to-sky-500' },
             ].map((row) => {
               const unlimited = isUnlimited(row.limit);
               const pct = unlimited || row.limit === 0 ? 0 : Math.min(100, Math.round((row.used / row.limit) * 100));

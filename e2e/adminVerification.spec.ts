@@ -127,6 +127,7 @@ test.describe('admin verification page — authenticated (E2E_FULL_STACK=1)', ()
   // over and the whole budget is free again — a real admin doing this
   // many edits by hand would never come close to 30/min anyway.
   test('editing a purpose (baseline/gates, weakening, tightening+audit, revision conflict, reset), then preview + no-secret-leak checks on the same session', async ({ page, context }) => {
+    test.setTimeout(150_000);
     await page.waitForTimeout(65_000);
     await withSiteDefault(page, 'en');
     await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);

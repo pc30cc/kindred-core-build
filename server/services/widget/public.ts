@@ -211,8 +211,9 @@ export async function getWorkspaceOriginRules(config: ServerConfig, workspaceId:
 
   const result = {
     domains,
-    allowSubdomains: widgetData?.allow_subdomains ?? false,
+    allowSubdomains: allowlistGranted ? (widgetData?.allow_subdomains ?? false) : false,
   };
+
 
   originRulesCache.set(workspaceId, { ...result, ts: Date.now() });
   return result;

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useWorkspaces } from '@/hooks/useWorkspace';
+import { useWorkspaces, useWorkspacePath } from '@/hooks/useWorkspace';
 import { billingGetPlans, billingGetStatus, billingCheckout, billingCancel, billingResume, billingGetPortal, API_BASE } from '@/lib/api';
 import { CreditCard, Check, AlertCircle, ArrowRight, Loader2, ExternalLink, Clock, Shield, Sparkles, Calendar, Gauge, LayoutGrid, Receipt } from 'lucide-react';
 import { toast } from '@/lib/toast';
@@ -63,6 +63,7 @@ export default function BillingPage() {
 function LegacyBillingPage() {
   const { locale: uiLocale, dir } = useTranslation();
   const { data: workspaces } = useWorkspaces();
+  const wsPath = useWorkspacePath();
   const workspace = workspaces?.[0];
   const { capabilities } = useCapabilityCatalog();
   const [plans, setPlans] = useState<any[]>([]);
@@ -116,7 +117,7 @@ function LegacyBillingPage() {
         planId: plan.provider_price_ids?.[currency]?.[interval] || plan.id,
         interval,
         currency,
-        callbackUrl: `${window.location.origin}/app/billing?callback=true`,
+        callbackUrl: `${window.location.origin}${wsPath('/billing')}?callback=true`,
         customerEmail: undefined,
       });
       if (result.paymentUrl) {

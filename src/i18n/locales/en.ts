@@ -2876,7 +2876,7 @@ const en = {
     brandingPage: {
       title: 'Platform branding',
       subtitle: 'Visual identity, localized text, email configuration and domain URLs applied globally across the platform.',
-      tabs: { identity: 'Visual identity', settings: 'Settings', emailSettings: 'Email settings', emailTemplates: 'Email templates', domains: 'Domain URLs'         uiDefaults: 'Interface defaults',
+      tabs: { identity: 'Visual identity', settings: 'Settings', emailSettings: 'Email settings', emailTemplates: 'Email templates', domains: 'Domain URLs', uiDefaults: 'Interface defaults',
       },
       uiDefaults: {
         title: 'Interface defaults',

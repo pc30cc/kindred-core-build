@@ -2864,7 +2864,7 @@ const fa: TranslationKeys = {
     brandingPage: {
       title: 'برندینگ پلتفرم',
       subtitle: 'هویت بصری، متن‌های چندزبانه، تنظیمات ایمیل و آدرس دامنه‌ها که به‌صورت سراسری روی پلتفرم اعمال می‌شوند.',
-      tabs: { identity: 'هویت بصری', settings: 'تنظیمات', emailSettings: 'تنظیمات ایمیل', emailTemplates: 'قالب‌های ایمیل', domains: 'آدرس دامنه‌ها'         uiDefaults: 'پیش‌فرض رابط کاربری',
+      tabs: { identity: 'هویت بصری', settings: 'تنظیمات', emailSettings: 'تنظیمات ایمیل', emailTemplates: 'قالب‌های ایمیل', domains: 'آدرس دامنه‌ها', uiDefaults: 'پیش‌فرض رابط کاربری',
       },
       uiDefaults: {
         title: 'پیش‌فرض رابط کاربری',

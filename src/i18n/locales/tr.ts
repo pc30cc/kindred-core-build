@@ -2868,7 +2868,7 @@ const tr: TranslationKeys = {
     brandingPage: {
       title: 'Platform markası',
       subtitle: 'Platform genelinde uygulanan görsel kimlik, yerelleştirilmiş metinler, e-posta yapılandırması ve alan adı URL’leri.',
-      tabs: { identity: 'Görsel kimlik', settings: 'Ayarlar', emailSettings: 'E-posta ayarları', emailTemplates: 'E-posta şablonları', domains: 'Alan adı URL’leri'         uiDefaults: 'Arayüz varsayılanları',
+      tabs: { identity: 'Görsel kimlik', settings: 'Ayarlar', emailSettings: 'E-posta ayarları', emailTemplates: 'E-posta şablonları', domains: 'Alan adı URL’leri', uiDefaults: 'Arayüz varsayılanları',
       },
       uiDefaults: {
         title: 'Arayüz varsayılanları',

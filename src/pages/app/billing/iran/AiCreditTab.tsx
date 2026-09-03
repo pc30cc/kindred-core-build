@@ -289,3 +289,99 @@ function TopupDialog({
     </Dialog>
   );
 }
+
+function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={mono ? 'font-mono text-foreground' : 'text-foreground'} dir={mono ? 'ltr' : undefined}>{value}</span>
+    </div>
+  );
+}
+
+const PAGE_SIZE = 10;
+
+/** Read-only ledger view — every credit movement, newest first, paginated. */
+function UsageHistoryDialog({
+  workspaceId, open, onOpenChange,
+}: { workspaceId: string; open: boolean; onOpenChange: (v: boolean) => void }) {
+  const { t } = useTranslation();
+  const [entries, setEntries] = useState<AiLedgerEntry[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => { if (open) setPage(0); }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    aiCreditHistory(workspaceId, { limit: PAGE_SIZE, offset: page * PAGE_SIZE })
+      .then((r) => { setEntries(r.entries || []); setTotal(r.total || 0); })
+      .catch(() => { setEntries([]); setTotal(0); })
+      .finally(() => setLoading(false));
+  }, [open, workspaceId, page]);
+
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const typeLabel = (raw: string) => {
+    const key = `billingIran.aiCredit.history.type${raw.charAt(0).toUpperCase()}${raw.slice(1).toLowerCase()}`;
+    const label = t(key);
+    return label === key ? raw : label;
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent dir="rtl" className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{t('billingIran.aiCredit.history.title')}</DialogTitle>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        ) : entries.length === 0 ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">{t('billingIran.aiCredit.history.empty')}</p>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-border/60">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-xs text-muted-foreground">
+                <tr>
+                  <th className="p-2.5 text-start font-medium">{t('billingIran.aiCredit.history.date')}</th>
+                  <th className="p-2.5 text-start font-medium">{t('billingIran.aiCredit.history.type')}</th>
+                  <th className="p-2.5 text-start font-medium">{t('billingIran.aiCredit.history.reason')}</th>
+                  <th className="p-2.5 text-end font-medium">{t('billingIran.aiCredit.history.amount')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((e) => (
+                  <tr key={e.id} className="border-t border-border/50">
+                    <td className="p-2.5 whitespace-nowrap">{jalaliDate(e.created_at)}</td>
+                    <td className="p-2.5">{typeLabel(String(e.entry_type || ''))}</td>
+                    <td className="p-2.5 text-muted-foreground">{e.reason || '—'}</td>
+                    <td className="p-2.5 text-end font-medium">{formatToman(Number(e.amount) || 0, 'fa')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <DialogFooter className="flex-row items-center justify-between gap-2 sm:justify-between">
+          <span className="text-xs text-muted-foreground">
+            {t('billingIran.aiCredit.history.totalCount', { count: total.toLocaleString('fa-IR') })}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
+              {t('billingIran.aiCredit.history.prev')}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {t('billingIran.aiCredit.history.page', { page: (page + 1).toLocaleString('fa-IR'), total: pages.toLocaleString('fa-IR') })}
+            </span>
+            <Button variant="outline" size="sm" disabled={page + 1 >= pages} onClick={() => setPage((p) => p + 1)}>
+              {t('billingIran.aiCredit.history.next')}
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

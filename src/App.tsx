@@ -143,6 +143,17 @@ import HelpSearchPage from "@/pages/public/kb/HelpSearchPage";
 
 const queryClient = new QueryClient();
 
+/**
+ * Legacy URL shape `/app/w/<slug>/<rest>` → short URL `/<slug>/<rest>`.
+ * Kept permanently so bookmarks, emails and gateway callbacks never 404.
+ */
+const LegacyWorkspaceUrlRedirect = () => {
+  const params = useParams();
+  const location = useLocation();
+  const rest = params['*'] ? `/${params['*']}` : '';
+  return <Navigate to={`/${params.slug}${rest}${location.search}${location.hash}`} replace />;
+};
+
 interface AppProps {
   initialLocale?: Locale;
   initialTranslations?: TranslationKeys;

@@ -11924,6 +11924,15 @@ export type Database = {
         Args: { _actor_user_id: string; _scope?: string }
         Returns: Json
       }
+      admin_export_table: {
+        Args: {
+          _actor_user_id: string
+          _limit?: number
+          _offset?: number
+          _table: string
+        }
+        Returns: Json
+      }
       admin_get_user_detail: {
         Args: { _actor_user_id: string; _user_id: string }
         Returns: Json
@@ -11931,6 +11940,10 @@ export type Database = {
       admin_get_workspace_detail: {
         Args: { _actor_user_id: string; _workspace_id: string }
         Returns: Json
+      }
+      admin_list_export_tables: {
+        Args: { _actor_user_id: string; _scope?: string }
+        Returns: string[]
       }
       admin_list_login_attempts: {
         Args: { _email: string; _limit?: number }

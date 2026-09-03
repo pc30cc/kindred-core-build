@@ -74,8 +74,17 @@ vi.mock('@supabase/supabase-js', () => ({
         }),
       };
       // Make a bare `await supabase.from(x).insert(...)` resolve too.
+      // The webhook route now reads the platform default config with
+      // `.select().in('key', [...])` and awaits the builder directly, so this
+      // terminator must serve `app_runtime_config` rows as well.
       builder.then = (resolve: (v: unknown) => void) =>
-        resolve({ data: [], error: null });
+        resolve({
+          data:
+            table === 'app_runtime_config' && globalConfigValue
+              ? [{ key: 'default_billing_provider', value: globalConfigValue }]
+              : [],
+          error: null,
+        });
       return builder;
     },
   }),

@@ -1163,8 +1163,10 @@ export default function InboxPage() {
               <span className={headTabAccent(allActive)} />
               <span className={headTabSeam(allActive)} />
             </button>
-            {/* AI (Automated queue) — AI-managed conversations */}
+            {/* AI (Automated queue) — AI-managed conversations. Plan-gated. */}
+            {aiTabAllowed ? (
             <button
+
               role="tab"
               aria-selected={queue === 'automated'}
               onClick={() => setQueueTab(queue === 'automated' ? null : 'automated')}

@@ -121,7 +121,7 @@ test.describe('admin verification page — authenticated (E2E_FULL_STACK=1)', ()
   // this suite; four separate full reloads was enough admin traffic from
   // one IP to trip it. Reusing the page cuts that traffic to what an
   // actual admin session touching 4 purposes back-to-back would generate.
-  test('editing a purpose: baseline/gates, weakening rejection, tightening + audit, revision conflict, reset', async ({ page, context }) => {
+  test('editing a purpose (baseline/gates, weakening, tightening+audit, revision conflict, reset), then preview + no-secret-leak checks on the same session', async ({ page, context }) => {
     await withSiteDefault(page, 'en');
     await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
     await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
@@ -180,28 +180,14 @@ test.describe('admin verification page — authenticated (E2E_FULL_STACK=1)', ()
 
     const { rows } = await db.query(`SELECT admin_enabled FROM public.verification_purpose_settings WHERE purpose = 'change_phone'`);
     expect(rows[0].admin_enabled).toBe(false);
-  });
 
-  test('notification preview is fully sandboxed and sends nothing', async ({ page, context }) => {
-    await withSiteDefault(page, 'en');
-    await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
-    await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
+    // 6. Notification preview is sandboxed, no secrets leak, zero provider
+    // calls — checked on the SAME page/session (no new page.goto) for the
+    // same adminRateLimiter budget reason documented above.
     await page.getByRole('tab', { name: 'Notification preview' }).click();
     await expect(page.getByText('Test code shown: 123456')).toBeVisible({ timeout: 10_000 });
     const iframe = page.locator('iframe[title*="Sandboxed"]');
     await expect(iframe).toHaveAttribute('sandbox', '');
-  });
-
-  test('zero provider calls and zero verification challenge rows exist after this whole session', async () => {
-    const { rows: challenges } = await db.query(`SELECT count(*)::int AS n FROM public.verification_challenges`);
-    expect(challenges[0].n).toBe(0);
-  });
-
-  test('no secret leaks into the DOM, cookies, or storage', async ({ page, context }) => {
-    await withSiteDefault(page, 'en');
-    await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
-    await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('heading', { name: 'Verification & OTP' })).toBeVisible({ timeout: 15_000 });
 
     const bodyHtml = await page.content();
     expect(bodyHtml).not.toContain('SERVICE_ROLE');
@@ -220,5 +206,8 @@ test.describe('admin verification page — authenticated (E2E_FULL_STACK=1)', ()
     const serialized = JSON.stringify(storageDump);
     expect(serialized).not.toContain(runtime.superAdmin.token);
     expect(serialized.toUpperCase()).not.toContain('SERVICE_ROLE');
+
+    const { rows: challenges } = await db.query(`SELECT count(*)::int AS n FROM public.verification_challenges`);
+    expect(challenges[0].n).toBe(0);
   });
 });

@@ -380,6 +380,17 @@ function PlansGrid({
                   </div>
                 </div>
 
+                {/* Monthly AI credit included in this plan (billing_plans.limits.included_ai_allowance_irr) */}
+                <div className="rounded-xl border border-border/60 bg-muted/30 p-3">
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Sparkles className="w-3.5 h-3.5 text-primary" /> {t('billingIran.plans.aiCreditIncluded')}
+                  </div>
+                  <div className="mt-1 text-sm font-semibold text-foreground">
+                    {aiAllowance > 0 ? formatToman(aiAllowance, 'fa') : t('billingIran.plans.aiCreditNone')}
+                  </div>
+                </div>
+
+
                 {isCurrent ? (
                   <Button className="w-full" variant="outline" disabled>{t('billingIran.plans.currentCta')}</Button>
                 ) : isFree ? null : (

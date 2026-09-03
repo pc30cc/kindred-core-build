@@ -40,14 +40,14 @@ function MaintenanceCard() {
   const { t, dir } = useTranslation();
   const isRtl = dir === 'rtl';
   const fileRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState<null | 'backup' | 'restore' | 'data' | 'full'>(null);
+  const [busy, setBusy] = useState<null | 'backup' | 'fullBackup' | 'restore' | 'fullRestore' | 'data' | 'full'>(null);
   const [confirmScope, setConfirmScope] = useState<null | 'data' | 'full'>(null);
   const [confirmText, setConfirmText] = useState('');
 
-  const handleBackup = async () => {
-    setBusy('backup');
+  const handleBackup = async (full = false) => {
+    setBusy(full ? 'fullBackup' : 'backup');
     try {
-      await downloadDatabaseBackup();
+      await downloadDatabaseBackup(full);
       toast.success(t('admin.database.backupDownloaded'));
     } catch (e: any) {
       toast.error(e?.message || t('admin.database.opFailed'));
@@ -55,6 +55,7 @@ function MaintenanceCard() {
       setBusy(null);
     }
   };
+
 
   const handleRestoreFile = async (file: File) => {
     setBusy('restore');

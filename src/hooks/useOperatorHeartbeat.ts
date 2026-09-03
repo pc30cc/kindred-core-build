@@ -1,12 +1,12 @@
 /**
- * Sends a lightweight presence heartbeat every 60s while the operator panel
+ * Sends a lightweight presence heartbeat every 30s while the operator panel
  * is open and the tab is visible. The server converts heartbeats into
  * minute buckets used by the "Operator activity" report.
  */
 import { useEffect } from 'react';
 import { sendOperatorHeartbeat } from '@/lib/operator-activity-api';
 
-const INTERVAL_MS = 60_000;
+const INTERVAL_MS = 30_000;
 
 export function useOperatorHeartbeat(workspaceId: string | undefined) {
   useEffect(() => {

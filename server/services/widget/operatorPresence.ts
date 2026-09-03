@@ -37,7 +37,10 @@ export interface OperatorPresence {
     | 'within_schedule'
     | 'outside_schedule'
     | 'day_disabled'
+    | 'not_connected'
     | 'no_prefs';
+  /** Last heartbeat bucket seen for this operator (null when never/stale). */
+  last_seen_at?: string | null;
 }
 
 interface RawPrefs {
@@ -126,6 +129,12 @@ export function computeOperatorState(
  * that mirrors the Account › Availability default ("Available when using
  * the app").
  */
+/**
+ * How long a heartbeat keeps an operator "connected". The panel beats every
+ * 60s (minute buckets), so 3 minutes tolerates one missed beat + clock skew.
+ */
+export const PRESENCE_LIVENESS_MS = 3 * 60 * 1000;
+
 export async function listWorkspacePresence(
   config: ServerConfig,
   workspaceId: string,
@@ -160,19 +169,45 @@ export async function listWorkspacePresence(
     profileById.set(p.id, { full_name: p.full_name ?? null, email: p.email ?? null, avatar_url: p.avatar_url ?? null });
   }
 
+  // Liveness: prefs say "may be online", heartbeats say "actually connected".
+  // Without this, a member who never opens the panel (or has no prefs row at
+  // all) would render as online forever.
+  const liveSince = new Date(now.getTime() - PRESENCE_LIVENESS_MS).toISOString();
+  const connected = new Set<string>();
+  const lastSeenById = new Map<string, string>();
+  const { data: beats } = await sb
+    .from('operator_activity_samples')
+    .select('user_id, bucket')
+    .eq('workspace_id', workspaceId)
+    .in('user_id', ids)
+    .gte('bucket', liveSince)
+    .order('bucket', { ascending: false })
+    .limit(500);
+  for (const b of (beats || []) as any[]) {
+    connected.add(b.user_id);
+    if (!lastSeenById.has(b.user_id)) lastSeenById.set(b.user_id, b.bucket);
+  }
+
   return ids.map((id: string) => {
-    const { state, reason } = computeOperatorState(byUser.get(id) || null, now);
+    const computed = computeOperatorState(byUser.get(id) || null, now);
+    const isConnected = connected.has(id);
+    const state: 'online' | 'offline' =
+      computed.state === 'online' && isConnected ? 'online' : 'offline';
+    const reason: OperatorPresence['reason'] =
+      computed.state === 'online' && !isConnected ? 'not_connected' : computed.reason;
     const prof = profileById.get(id);
     return {
       user_id: id,
       state,
       reason,
+      last_seen_at: lastSeenById.get(id) ?? null,
       full_name: prof?.full_name ?? null,
       email: prof?.email ?? null,
       avatar_url: prof?.avatar_url ?? null,
     };
   });
 }
+
 
 /**
  * Cheap predicate for the widget bootstrap path: are there any operators

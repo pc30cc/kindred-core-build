@@ -3,8 +3,18 @@
  * Left: workspace operator directory (presence, unread, last message).
  * Right: 1:1 thread with the selected colleague.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Send, Users, MessageSquare, Loader2, ArrowLeft } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Search, Send, Users, MessageSquare, Loader2, ArrowLeft,
+  Paperclip, Mic, Square, Trash2, FileText, ImageIcon, X,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import { toast } from '@/hooks/use-toast';
+import { conversationsApi } from '@/lib/conversations-api';
+import { EmojiPicker } from '@/components/inbox/EmojiPicker';
+import { MessageAttachmentView, humanSize } from '@/components/inbox/MessageAttachmentView';
+import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -21,6 +31,19 @@ import {
   type Colleague,
 } from '@/hooks/useTeamChat';
 import { formatTime, formatRelative, formatLongDate } from '@/lib/date';
+
+const ALLOWED_TEAM_MIMES = new Set([
+  'image/png', 'image/jpeg', 'image/webp', 'image/gif',
+  'application/pdf', 'text/plain',
+  'audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav',
+]);
+const MAX_TEAM_BYTES = 25 * 1024 * 1024;
+
+function clock(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s < 10 ? '0' : ''}${s}`;
+}
 
 function initials(name?: string | null, email?: string | null) {
   const src = (name || email || '?').trim();

@@ -242,9 +242,7 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/check
       } catch (bindError: any) {
         await markPaymentIntentFailed(cfg, intent.id, String(bindError?.message || 'binding_failed'));
         if (bindingRequired) {
-          await releaseCollection(cfg, { collectionId: hold.collection_id, reason: 'binding_failed' }).catch(
-            () => undefined,
-          );
+          await releaseCollection(cfg, hold.collection_id, 'binding_failed').catch(() => undefined);
           return res.status(502).json({ error: 'CHECKOUT_REFERENCE_BINDING_FAILED' });
         }
       }
@@ -263,10 +261,9 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/check
     res.json({ success: true, ...result, intentId: intent.id, invoiceNumber: (invoice as any).invoice_number });
   } catch (e) {
     if (hold) {
-      await releaseCollection(serverConfigOf(req), {
-        collectionId: hold.collection_id,
-        reason: 'checkout_failed',
-      }).catch(() => undefined);
+      await releaseCollection(serverConfigOf(req), hold.collection_id, 'checkout_failed').catch(
+        () => undefined,
+      );
     }
     fail(res, e);
   }
@@ -324,7 +321,8 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/plan-change/preview', asy
   const parsed = planChangeSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   try {
-    res.json(await previewPlanChange(serverConfigOf(req), req.params.workspaceId, parsed.data));
+    const { planId, interval, mode } = parsed.data;
+    res.json(await previewPlanChange(serverConfigOf(req), req.params.workspaceId, { planId, interval, mode }));
   } catch (e) {
     fail(res, e);
   }
@@ -336,7 +334,15 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/plan-change', async (req,
   const parsed = planChangeSchema.extend({ expectedAmountIrr: z.number().int().min(0) }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   try {
-    res.json(await applyPlanChange(serverConfigOf(req), req.params.workspaceId, parsed.data));
+    const { planId, interval, mode, expectedAmountIrr } = parsed.data;
+    res.json(
+      await applyPlanChange(serverConfigOf(req), req.params.workspaceId, {
+        planId,
+        interval,
+        mode,
+        expectedAmountIrr,
+      }),
+    );
   } catch (e) {
     fail(res, e);
   }

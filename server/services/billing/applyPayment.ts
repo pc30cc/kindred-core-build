@@ -35,7 +35,7 @@ export interface CustomerPaymentInput {
   invoiceNumber?: string | null;
   amount: number;
   currency: string;
-  purchaseType: 'subscription' | 'ai_credit_topup';
+  purchaseType: 'subscription' | 'ai_credit_topup' | 'wallet_deposit';
   actionType: PurchaseActionType;
   planId?: string | null;
   planNameSnapshot?: string | null;

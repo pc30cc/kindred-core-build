@@ -98,10 +98,10 @@ async function authorizeWorkspaceMember(
   res: any,
   _config: ServerConfig,
   workspaceId: string,
-): Promise<{ userId: string } | null> {
+): Promise<{ userId: string; isAdmin: boolean; role: string | null } | null> {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return null;
-  return { userId: auth.userId };
+  return { userId: auth.userId, isAdmin: auth.isAdmin, role: auth.role };
 }
 
 /**
@@ -380,6 +380,21 @@ conversationsRouter.post('/send-message', async (req, res) => {
       config, parsed.data.workspace_id, [inserted as any]
     );
 
+    // Operator identity must travel WITH the realtime envelope — otherwise the
+    // visitor sees the reply instantly but with a blank avatar until a reload
+    // hits /poll or /history (which enrich the sender server-side).
+    let senderProfile: { name: string | null; avatar: string | null } | null = null;
+    if (auth.userId) {
+      try {
+        const { data: prof } = await sb
+          .from('profiles')
+          .select('full_name, avatar_url')
+          .eq('id', auth.userId)
+          .maybeSingle();
+        if (prof) senderProfile = { name: (prof as any).full_name || null, avatar: (prof as any).avatar_url || null };
+      } catch { /* avatar is cosmetic — never block the send */ }
+    }
+
     // Publish to realtime — fire-and-forget semantics. A replayed request must
     // not emit a second message envelope.
     const pub = duplicate
@@ -388,8 +403,14 @@ conversationsRouter.post('/send-message', async (req, res) => {
           config,
           parsed.data.workspace_id,
           parsed.data.conversation_id,
-          buildMessageEnvelope(enriched as any),
+          buildMessageEnvelope({
+            ...(enriched as any),
+            sender_id: auth.userId ?? null,
+            sender_name: senderProfile?.name ?? null,
+            sender_avatar: senderProfile?.avatar ?? null,
+          }),
         );
+
 
     // Phase 3 — record attachment_added event (timeline-only) when applicable.
     if (!duplicate && parsed.data.attachment_id) {
@@ -930,6 +951,8 @@ conversationsRouter.get('/', async (req: any, res: any) => {
     const needsHuman = parsed.data.needs_human === 'true';
     const auth = await authorizeWorkspaceMember(req, res, config, workspace_id);
     if (!auth) return;
+    const canSeeAllAssignments =
+      auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead';
 
     const sb = getServiceClient(config);
     let q = sb
@@ -949,7 +972,14 @@ conversationsRouter.get('/', async (req: any, res: any) => {
       } else {
         q = q.or('ai_state.is.null,ai_state.neq.ai_managed');
       }
-      if (assigned_to_me) q = q.eq('assigned_to', assigned_to_me);
+      if (assigned_to_me) {
+        q = q.eq('assigned_to', assigned_to_me);
+      } else if (!canSeeAllAssignments) {
+        // A claimed conversation belongs to the operator who took it: other
+        // agents must not keep seeing it in their Inbox. Owners/admins and
+        // team leads still get the full workspace view.
+        q = q.or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`);
+      }
       if (status && status !== 'all') {
         const parts = status.split(',').map((x) => x.trim()).filter(Boolean);
         q = parts.length > 1 ? q.in('status', parts) : q.eq('status', parts[0]);
@@ -964,7 +994,7 @@ conversationsRouter.get('/', async (req: any, res: any) => {
     if (ids.length > 0) {
       const { data: msgs } = await sb
         .from('conversation_messages')
-        .select('conversation_id, body, created_at, sender_type, seen_at, metadata')
+        .select('conversation_id, body, created_at, sender_type, sender_id, seen_at, metadata')
         .in('conversation_id', ids)
         // Bot menu/button taps are navigation, not chat content — keep them
         // out of the fetch window entirely so a visitor browsing the bot menu
@@ -974,7 +1004,10 @@ conversationsRouter.get('/', async (req: any, res: any) => {
         .limit(2000);
 
       const byConv: Record<string, { body: string; created_at: string; seen_at: string | null }> = {};
-      const lastByConv: Record<string, { body: string; created_at: string; sender_type: string; attachment_id?: string | null; attachment_kind?: 'image' | 'audio' | 'video' | 'file' | null }> = {};
+      const lastByConv: Record<string, { body: string; created_at: string; sender_type: string; sender_id?: string | null; sender_name?: string | null; attachment_id?: string | null; attachment_kind?: 'image' | 'audio' | 'video' | 'file' | null }> = {};
+      // Human operators who ever wrote in the thread — drives "who handled
+      // this" visibility for resolved threads and the list preview label.
+      const agentParticipants: Record<string, Set<string>> = {};
       const unreadByConv: Record<string, number> = {};
       // Needs Reply is derived from the message stream, never stored. Rows
       // arrive newest-first, so the FIRST conversational turn we see per
@@ -1001,11 +1034,16 @@ conversationsRouter.get('/', async (req: any, res: any) => {
             body: m.body ?? '',
             created_at: m.created_at,
             sender_type: m.sender_type,
+            sender_id: m.sender_id ?? null,
+            sender_name: null,
             // A file-only message has an empty body: the list preview must
             // describe the media instead of claiming "no messages yet".
             attachment_id: (meta as any)?.attachment_id ? String((meta as any).attachment_id) : null,
             attachment_kind: null,
           };
+        }
+        if (m.sender_type === 'agent' && m.sender_id) {
+          (agentParticipants[m.conversation_id] ||= new Set<string>()).add(String(m.sender_id));
         }
 
 
@@ -1064,10 +1102,35 @@ conversationsRouter.get('/', async (req: any, res: any) => {
         }
       }
 
+      // Resolve display names for the operators whose message is the list
+      // preview, so the row reads "Ali: …" instead of always "You: …".
+      const agentSenderIds = Array.from(new Set(
+        Object.values(lastByConv)
+          .filter((l) => l.sender_type === 'agent' && l.sender_id)
+          .map((l) => String(l.sender_id)),
+      ));
+      if (agentSenderIds.length) {
+        const { data: profs } = await sb
+          .from('profiles')
+          .select('id, full_name, email')
+          .in('id', agentSenderIds);
+        const nameById = new Map<string, string>(
+          ((profs || []) as any[]).map((p) => [
+            String(p.id),
+            String(p.full_name || String(p.email || '').split('@')[0] || ''),
+          ]),
+        );
+        for (const last of Object.values(lastByConv)) {
+          if (last.sender_type !== 'agent' || !last.sender_id) continue;
+          last.sender_name = nameById.get(String(last.sender_id)) || null;
+        }
+      }
+
       for (const c of convos) {
         c.last_visitor_message = byConv[c.id] ?? null;
         c.last_message = lastByConv[c.id] ?? null;
         c.unread_count = unreadByConv[c.id] ?? 0;
+        c.handled_by = Array.from(agentParticipants[c.id] ?? []);
         // Only an `open` thread can owe the customer an answer: `pending`
         // means we are waiting for THEM, `resolved`/`closed` are done.
         c.needs_reply = c.status === 'open' && (needsReplyByConv[c.id] ?? false);
@@ -1089,6 +1152,20 @@ conversationsRouter.get('/', async (req: any, res: any) => {
       });
     }
 
+    // A finished thread belongs to whoever actually handled it. An operator
+    // must not see resolved/closed threads that another operator answered,
+    // even when nobody claimed them (`assigned_to` stays null on the
+    // "send & resolve" path). Owners/admins/team leads keep the full view.
+    if (!canSeeAllAssignments) {
+      result = result.filter((c) => {
+        if (c.status !== 'resolved' && c.status !== 'closed') return true;
+        if (c.assigned_to && c.assigned_to !== auth.userId) return false;
+        const handled: string[] = Array.isArray(c.handled_by) ? c.handled_by : [];
+        if (handled.length === 0) return true; // AI/system resolved → shared
+        return handled.includes(auth.userId);
+      });
+    }
+
     return res.json({ conversations: result });
   } catch (err: any) {
     console.error('[conversations list] error:', err);
@@ -1106,8 +1183,12 @@ conversationsRouter.get('/inbox-counts', async (req: any, res: any) => {
     if (!auth) return;
 
     const sb = getServiceClient(config);
-    const base = () =>
-      sb.from('conversations').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId);
+    const seesAll =
+      auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead';
+    const base = () => {
+      const q = sb.from('conversations').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId);
+      return seesAll ? q : q.or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`);
+    };
     const [mainRes, autoRes, needsRes, spamRes] = await Promise.all([
       base().eq('is_spam', false).neq('status', 'closed').or('ai_state.is.null,ai_state.neq.ai_managed'),
       base().eq('is_spam', false).neq('status', 'closed').eq('ai_state', 'ai_managed').is('assigned_to', null),
@@ -1136,13 +1217,17 @@ conversationsRouter.get('/inbox-tab-counts', async (req: any, res: any) => {
     if (!auth) return;
 
     const sb = getServiceClient(config);
+    const seesAll =
+      auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead';
+    const scopeAssignment = (q: any) =>
+      seesAll ? q : q.or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`);
     const base = () =>
-      sb.from('conversations').select('id', { count: 'exact', head: true })
-        .eq('workspace_id', workspaceId).eq('is_spam', false).or('ai_state.is.null,ai_state.neq.ai_managed');
+      scopeAssignment(sb.from('conversations').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId).eq('is_spam', false).or('ai_state.is.null,ai_state.neq.ai_managed'));
     /* The AI tab lives outside `base()` scope: it counts exactly the
        ai_managed threads that base() excludes. */
-    const automatedQuery = sb.from('conversations').select('id', { count: 'exact', head: true })
-      .eq('workspace_id', workspaceId).eq('is_spam', false).eq('ai_state', 'ai_managed');
+    const automatedQuery = scopeAssignment(sb.from('conversations').select('id', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId).eq('is_spam', false).eq('ai_state', 'ai_managed'));
     const [openRes, pendingRes, resolvedRes, allRes, needsRes, automatedRes] = await Promise.all([
       base().eq('status', 'open'),
       base().eq('status', 'pending'),
@@ -1151,10 +1236,43 @@ conversationsRouter.get('/inbox-tab-counts', async (req: any, res: any) => {
       base().eq('ai_state', 'needs_human'),
       automatedQuery,
     ]);
+    // Same ownership rule as the list: a finished thread another operator
+    // handled is not part of this operator's Resolved tab.
+    let resolvedCount = resolvedRes.count ?? 0;
+    if (!seesAll && resolvedCount > 0) {
+      const { data: resolvedRows } = await sb
+        .from('conversations')
+        .select('id, assigned_to')
+        .eq('workspace_id', workspaceId)
+        .eq('is_spam', false)
+        .in('status', ['resolved', 'closed'])
+        .or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`)
+        .limit(2000);
+      const rows = (resolvedRows || []) as any[];
+      const ids = rows.map((r) => r.id);
+      const handled: Record<string, Set<string>> = {};
+      if (ids.length) {
+        const { data: agentMsgs } = await sb
+          .from('conversation_messages')
+          .select('conversation_id, sender_id')
+          .in('conversation_id', ids)
+          .eq('sender_type', 'agent')
+          .limit(5000);
+        for (const m of (agentMsgs || []) as any[]) {
+          if (!m.sender_id) continue;
+          (handled[m.conversation_id] ||= new Set<string>()).add(String(m.sender_id));
+        }
+      }
+      resolvedCount = rows.filter((r) => {
+        if (r.assigned_to && r.assigned_to !== auth.userId) return false;
+        const set = handled[r.id];
+        return !set || set.size === 0 || set.has(auth.userId);
+      }).length;
+    }
     return res.json({
       open: openRes.count ?? 0,
       pending: pendingRes.count ?? 0,
-      resolved: resolvedRes.count ?? 0,
+      resolved: resolvedCount,
       all: allRes.count ?? 0,
       needs_human: needsRes.count ?? 0,
       automated: automatedRes.count ?? 0,

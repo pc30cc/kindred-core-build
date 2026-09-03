@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/build-smart-engine.mjs && vite build && node scripts/widget-hash.js",
+    "build": "node scripts/build-smart-engine.mjs && vite build && node scripts/widget-hash.js && node scripts/call-widget-hash.js",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "lint:changed": "node scripts/lint-changed.mjs",

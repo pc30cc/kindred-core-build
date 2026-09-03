@@ -42,6 +42,7 @@ export interface CallCenterWorkspaceSettings {
   allowed_domains: string[];
   widget_position: string;
   widget_theme: Record<string, unknown>;
+  widget_template_id?: string;
   display_name: string | null;
   avatar_url: string | null;
   voice_enabled: boolean;

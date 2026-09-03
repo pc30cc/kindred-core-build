@@ -12,6 +12,7 @@ import {
   type PerfRange,
 } from '@/lib/admin-perf-api';
 import { RefreshCw, Activity, Cpu, MemoryStick } from 'lucide-react';
+import { useTranslation } from '@/i18n';
 
 function formatBytes(n: number): string {
   if (!n || n <= 0) return '0 B';
@@ -38,6 +39,7 @@ function errorRateTone(rate: number): string {
 }
 
 export default function PerformancePanel() {
+  const { t } = useTranslation();
   const [range, setRange] = useState<PerfRange>('1h');
 
   const summaryQ = useQuery({
@@ -61,8 +63,8 @@ export default function PerformancePanel() {
         <div className="flex items-center gap-2">
           <Tabs value={range} onValueChange={(v) => setRange(v as PerfRange)}>
             <TabsList>
-              <TabsTrigger value="1h">Last hour</TabsTrigger>
-              <TabsTrigger value="24h">24h</TabsTrigger>
+              <TabsTrigger value="1h">{t('admin.observability.ranges.hour' as any)}</TabsTrigger>
+              <TabsTrigger value="24h">{t('admin.observability.ranges.day' as any)}</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
@@ -74,39 +76,39 @@ export default function PerformancePanel() {
             await summaryQ.refetch();
           }}
         >
-          <RefreshCw className="mr-2 h-3 w-3" /> Run rollup
+          <RefreshCw className="me-2 h-3 w-3" /> {t('admin.observability.performance.runRollup' as any)}
         </Button>
       </div>
 
       <Card className="bg-card border-border">
         <CardHeader>
           <CardTitle className="text-foreground text-sm">
-            Endpoint latency ({range})
+            {t('admin.observability.performance.endpointLatency' as any, { range })}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {summaryQ.isLoading && (
-            <p className="text-muted-foreground text-sm">Loading…</p>
+            <p className="text-muted-foreground text-sm">{t('admin.common.loading' as any)}</p>
           )}
           {summaryQ.error && (
-            <p className="text-destructive text-sm">Failed to load summary.</p>
+            <p className="text-destructive text-sm">{t('admin.observability.metrics.loadFailed' as any)}</p>
           )}
           {!summaryQ.isLoading && rows.length === 0 && (
             <p className="text-muted-foreground text-sm">
-              No instrumented requests recorded in this range.
+              {t('admin.observability.performance.empty' as any)}
             </p>
           )}
           {rows.length > 0 && (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Endpoint</TableHead>
-                  <TableHead className="text-right">Count</TableHead>
-                  <TableHead className="text-right">p50</TableHead>
-                  <TableHead className="text-right">p95</TableHead>
-                  <TableHead className="text-right">p99</TableHead>
-                  <TableHead className="text-right">Max</TableHead>
-                  <TableHead className="text-right">Errors</TableHead>
+                  <TableHead>{t('admin.security.endpoint' as any)}</TableHead>
+                  <TableHead className="text-end">{t('admin.observability.performance.count' as any)}</TableHead>
+                  <TableHead className="text-end">p50</TableHead>
+                  <TableHead className="text-end">p95</TableHead>
+                  <TableHead className="text-end">p99</TableHead>
+                  <TableHead className="text-end">{t('admin.observability.performance.max' as any)}</TableHead>
+                  <TableHead className="text-end">{t('admin.observability.performance.errors' as any)}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -118,20 +120,20 @@ export default function PerformancePanel() {
                         {r.method}
                       </div>
                     </TableCell>
-                    <TableCell className="text-right text-xs">{r.count}</TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-end text-xs">{r.count}</TableCell>
+                    <TableCell className="text-end">
                       <Badge className={latencyTone(r.p50)}>{r.p50} ms</Badge>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-end">
                       <Badge className={latencyTone(r.p95)}>{r.p95} ms</Badge>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-end">
                       <Badge className={latencyTone(r.p99)}>{r.p99} ms</Badge>
                     </TableCell>
-                    <TableCell className="text-right text-xs text-muted-foreground">
+                    <TableCell className="text-end text-xs text-muted-foreground">
                       {r.max_ms} ms
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-end">
                       <Badge className={errorRateTone(r.error_rate)}>
                         {r.error_count} ({(r.error_rate * 100).toFixed(2)}%)
                       </Badge>
@@ -147,23 +149,23 @@ export default function PerformancePanel() {
       <Card className="bg-card border-border">
         <CardHeader>
           <CardTitle className="text-foreground text-sm flex items-center gap-2">
-            <Activity className="h-4 w-4" /> Process metrics (latest sample)
+            <Activity className="h-4 w-4" /> {t('admin.observability.performance.processMetrics' as any)}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {processQ.isLoading && (
-            <p className="text-muted-foreground text-sm">Loading…</p>
+            <p className="text-muted-foreground text-sm">{t('admin.common.loading' as any)}</p>
           )}
           {!processQ.isLoading && !latest && (
             <p className="text-muted-foreground text-sm">
-              No process samples yet (sampled every 60s).
+              {t('admin.observability.performance.noSamples' as any)}
             </p>
           )}
           {latest && (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-md border border-border p-3">
                 <div className="text-muted-foreground text-xs flex items-center gap-1">
-                  <Cpu className="h-3 w-3" /> Event loop lag
+                  <Cpu className="h-3 w-3" /> {t('admin.system.eventLoopLag' as any)}
                 </div>
                 <div className="text-foreground text-lg font-semibold">
                   {latest.event_loop_lag_ms.toFixed(2)} ms
@@ -178,7 +180,7 @@ export default function PerformancePanel() {
                 </div>
               </div>
               <div className="rounded-md border border-border p-3">
-                <div className="text-muted-foreground text-xs">Heap used</div>
+                <div className="text-muted-foreground text-xs">{t('admin.observability.performance.heapUsed' as any)}</div>
                 <div className="text-foreground text-lg font-semibold">
                   {formatBytes(latest.heap_used_bytes)}{' '}
                   <span className="text-muted-foreground text-xs">
@@ -187,17 +189,16 @@ export default function PerformancePanel() {
                 </div>
               </div>
               <div className="rounded-md border border-border p-3">
-                <div className="text-muted-foreground text-xs">Uptime</div>
+                <div className="text-muted-foreground text-xs">{t('admin.system.uptime' as any)}</div>
                 <div className="text-foreground text-lg font-semibold">
-                  {Math.floor(latest.uptime_seconds / 3600)}h{' '}
-                  {Math.floor((latest.uptime_seconds % 3600) / 60)}m
+                  {t('admin.observability.performance.duration' as any, { hours: Math.floor(latest.uptime_seconds / 3600), minutes: Math.floor((latest.uptime_seconds % 3600) / 60) })}
                 </div>
               </div>
             </div>
           )}
           {processQ.data && processQ.data.samples.length > 1 && (
             <p className="text-muted-foreground text-xs mt-3">
-              {processQ.data.samples.length} samples in selected range.
+              {t('admin.observability.performance.sampleCount' as any, { count: processQ.data.samples.length })}
             </p>
           )}
         </CardContent>

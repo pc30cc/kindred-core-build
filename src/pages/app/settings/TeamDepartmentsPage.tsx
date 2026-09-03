@@ -620,6 +620,12 @@ function DepartmentDialog({
     cc_video_enabled: department?.cc_video_enabled ?? false,
     cc_callback_enabled: department?.cc_callback_enabled ?? false,
   });
+  /* Standalone Call Center master — scoped to THIS department only.
+     The general pool (members without a department) is never affected. */
+  const [deptCcEnabled, setDeptCcEnabled] = useState(
+    !!(department?.cc_voice_enabled || department?.cc_video_enabled || department?.cc_callback_enabled),
+  );
+
 
   const save = useMutation({
     mutationFn: () => mode === 'create'
@@ -691,9 +697,19 @@ function DepartmentDialog({
               <div className="rounded-md border border-border/60 bg-background/60 p-2.5 space-y-1">
                 <ToggleRow
                   label={t('teamDept.ccMasterTitle')}
-                  checked={ccPlatformEnabled && ccEnabled}
-                  disabled={!ccPlatformEnabled || ccBusy}
-                  onChange={onToggleCc}
+                  checked={ccPlatformEnabled && deptCcEnabled}
+                  disabled={!ccPlatformEnabled}
+                  onChange={(v) => {
+                    setDeptCcEnabled(v);
+                    if (!v) {
+                      setForm((f) => ({
+                        ...f,
+                        cc_voice_enabled: false,
+                        cc_video_enabled: false,
+                        cc_callback_enabled: false,
+                      }));
+                    }
+                  }}
                 />
                 <p className="text-[11px] text-muted-foreground">
                   {ccPlatformEnabled ? t('teamDept.ccMasterHint') : t('teamDept.ccMasterPlatformOff')}
@@ -704,21 +720,22 @@ function DepartmentDialog({
               </p>
               {planCaps.ccVoice && (
                 <ToggleRow label={t('teamDept.tgCcVoice')} checked={form.cc_voice_enabled}
-                  disabled={!ccEnabled}
+                  disabled={!ccPlatformEnabled || !deptCcEnabled}
                   onChange={(v) => setForm({ ...form, cc_voice_enabled: v })} />
               )}
               {planCaps.ccVideo && (
                 <ToggleRow label={t('teamDept.tgCcVideo')} checked={form.cc_video_enabled}
-                  disabled={!ccEnabled}
+                  disabled={!ccPlatformEnabled || !deptCcEnabled}
                   onChange={(v) => setForm({ ...form, cc_video_enabled: v })} />
               )}
               {planCaps.ccCallback && (
                 <ToggleRow label={t('teamDept.tgCcCallback')} checked={form.cc_callback_enabled}
-                  disabled={!ccEnabled}
+                  disabled={!ccPlatformEnabled || !deptCcEnabled}
                   onChange={(v) => setForm({ ...form, cc_callback_enabled: v })} />
               )}
             </div>
           )}
+
           <div className="rounded-md border border-border/60 p-3">
             <ToggleRow label={t('teamDept.deptEnabled')} checked={form.enabled}
               onChange={(v) => setForm({ ...form, enabled: v })} />

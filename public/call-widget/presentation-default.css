@@ -1,0 +1,9 @@
+/* Default Call Widget presentation tokens. The structural CSS remains in
+ * runtime.css for backwards compatibility during the v1 contract rollout. */
+.ccw-presentation-default[data-radius="sm"] { --ccw-radius-panel: 12px; --ccw-radius-control: 8px; }
+.ccw-presentation-default[data-radius="md"] { --ccw-radius-panel: 18px; --ccw-radius-control: 10px; }
+.ccw-presentation-default[data-radius="lg"] { --ccw-radius-panel: 24px; --ccw-radius-control: 14px; }
+.ccw-presentation-default[data-density="compact"] .ccw-body { padding: 10px; }
+.ccw-presentation-default[data-density="compact"] .ccw-btn { min-height: 34px; padding-block: 6px; }
+.ccw-presentation-default .ccw-panel { border-radius: var(--ccw-radius-panel, 18px); }
+.ccw-presentation-default .ccw-btn { border-radius: var(--ccw-radius-control, 10px); }

@@ -89,10 +89,15 @@ const HARD_MAX_BYTES = 25 * 1024 * 1024;
 const GLOBAL_ALLOWED_MIMES = new Set([
   'image/png', 'image/jpeg', 'image/webp', 'image/gif',
   'application/pdf', 'text/plain',
+  // Voice notes recorded by operators (MediaRecorder): Chrome/Firefox emit
+  // audio/webm, Safari audio/mp4 — mirrors the widget's allowed set.
+  'audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/wav',
 ]);
 const EXT_BY_MIME: Record<string, string> = {
   'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp',
   'image/gif': 'gif', 'application/pdf': 'pdf', 'text/plain': 'txt',
+  'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a',
+  'audio/mpeg': 'mp3', 'audio/wav': 'wav',
 };
 
 function safeFileName(name: string, mime: string): string {

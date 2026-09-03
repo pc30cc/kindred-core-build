@@ -5,6 +5,7 @@
 import crypto from 'crypto';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import type { CallWidgetFormField, CallWidgetOfflineBehavior, CallWidgetTheme } from './presentation.js';
 
 export interface PlatformCallCenterSettings {
   call_center_enabled: boolean;
@@ -57,7 +58,8 @@ export interface WorkspaceCallCenterSettings {
   public_key: string | null;
   allowed_domains: string[];
   widget_position: string;
-  widget_theme: Record<string, unknown>;
+  widget_template_id: string;
+  widget_theme: CallWidgetTheme;
   display_name: string | null;
   avatar_url: string | null;
   avatar_storage_path: string | null;
@@ -65,9 +67,9 @@ export interface WorkspaceCallCenterSettings {
   video_enabled: boolean;
   callback_enabled: boolean;
   pre_call_form_enabled: boolean;
-  pre_call_form_schema: unknown[];
+  pre_call_form_schema: CallWidgetFormField[];
   business_hours: Record<string, unknown>;
-  offline_behavior: string;
+  offline_behavior: CallWidgetOfflineBehavior;
   recording_enabled: boolean;
   recording_consent_required: boolean;
   /** When false, the visitor's widget does not render the operator's camera (audio still flows). */

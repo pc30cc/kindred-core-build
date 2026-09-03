@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
+import { useTranslation } from '@/i18n';
 import {
   fetchAgoraConfig,
   updateAgoraConfig,
@@ -31,6 +32,7 @@ import { Cloud, ExternalLink, Loader2, Save, ShieldAlert } from 'lucide-react';
 
 export function AgoraExternalProviderPanel() {
   const { toast } = useToast();
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [cfg, setCfg] = useState<AgoraConfigPublicView | null>(null);
@@ -46,7 +48,7 @@ export function AgoraExternalProviderPanel() {
       setCfg(r.agora);
     } catch (e: any) {
       toast({
-        title: 'Failed to load Agora settings',
+        title: t('admin.voiceVideo.agora.loadFailed' as any),
         description: e.message,
         variant: 'destructive',
       });
@@ -67,9 +69,9 @@ export function AgoraExternalProviderPanel() {
       // Clear secret edit buffers after a successful save.
       if ('app_certificate' in patch) setAppCertEdit('');
       if ('token_secret' in patch) setTokenSecretEdit('');
-      toast({ title: 'Agora settings saved' });
+      toast({ title: t('admin.voiceVideo.agora.saved' as any) });
     } catch (e: any) {
-      toast({ title: 'Save failed', description: e.message, variant: 'destructive' });
+      toast({ title: t('admin.voiceVideo.agora.saveFailed' as any), description: e.message, variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -95,19 +97,18 @@ export function AgoraExternalProviderPanel() {
             <CardTitle className="flex items-center gap-2">
               <Cloud className="h-5 w-5" /> Agora
               <Badge variant="outline" className="gap-1">
-                <ExternalLink className="h-3 w-3" /> External / Cloud
+                <ExternalLink className="h-3 w-3" /> {t('admin.voiceVideo.agora.externalCloud' as any)}
               </Badge>
-              <Badge variant="secondary">Not self-hosted</Badge>
+              <Badge variant="secondary">{t('admin.voiceVideo.agora.notSelfHosted' as any)}</Badge>
             </CardTitle>
             <CardDescription>
-              Optional cloud-backed voice/video provider. Disabled by default and never
-              auto-selected — you must explicitly choose <code>agora_cloud</code> as the
-              primary or secondary provider above for it to be used.
+              {t('admin.voiceVideo.agora.descriptionBefore' as any)} <code>agora_cloud</code>{' '}
+              {t('admin.voiceVideo.agora.descriptionAfter' as any)}
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
             <Label htmlFor="agora-enabled" className="text-sm">
-              Enabled
+              {t('admin.voiceVideo.agora.enabled' as any)}
             </Label>
             <Switch
               id="agora-enabled"
@@ -123,18 +124,14 @@ export function AgoraExternalProviderPanel() {
         {cfg.enabled && (
           <Alert>
             <ShieldAlert className="h-4 w-4" />
-            <AlertTitle>External dependency active</AlertTitle>
-            <AlertDescription>
-              Enabling Agora routes call media through Agora's cloud infrastructure. This
-              breaks the self-hosted-first guarantee. Self-hosted providers (LiveKit, Jitsi,
-              Janus) remain available and preferred unless you explicitly select Agora.
-            </AlertDescription>
+            <AlertTitle>{t('admin.voiceVideo.agora.externalActive' as any)}</AlertTitle>
+            <AlertDescription>{t('admin.voiceVideo.agora.externalWarning' as any)}</AlertDescription>
           </Alert>
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <Label>App ID</Label>
+            <Label>{t('admin.voiceVideo.agora.appId' as any)}</Label>
             <Input
               value={cfg.app_id ?? ''}
               onChange={(e) => setCfg({ ...cfg, app_id: e.target.value })}
@@ -142,11 +139,11 @@ export function AgoraExternalProviderPanel() {
                 const v = e.target.value.trim();
                 if (v !== (cfg.app_id ?? '')) save({ app_id: v || null });
               }}
-              placeholder="Agora project App ID"
+              placeholder={t('admin.voiceVideo.agora.appIdPlaceholder' as any)}
             />
           </div>
           <div>
-            <Label>Region (optional)</Label>
+            <Label>{t('admin.voiceVideo.agora.region' as any)}</Label>
             <Input
               value={cfg.region ?? ''}
               onChange={(e) => setCfg({ ...cfg, region: e.target.value })}
@@ -154,7 +151,7 @@ export function AgoraExternalProviderPanel() {
                 const v = e.target.value.trim();
                 if (v !== (cfg.region ?? '')) save({ region: v || null });
               }}
-              placeholder="e.g. GLOBAL, EU, NA"
+              placeholder={t('admin.voiceVideo.agora.regionPlaceholder' as any)}
             />
           </div>
         </div>
@@ -164,9 +161,11 @@ export function AgoraExternalProviderPanel() {
         <div className="space-y-3">
           <div>
             <div className="flex items-center justify-between">
-              <Label>App Certificate</Label>
+              <Label>{t('admin.voiceVideo.agora.appCertificate' as any)}</Label>
               <Badge variant={cfg.app_certificate_present ? 'default' : 'secondary'}>
-                {cfg.app_certificate_present ? 'configured' : 'not set'}
+                {cfg.app_certificate_present
+                  ? t('admin.voiceVideo.agora.configured' as any)
+                  : t('admin.voiceVideo.agora.notSet' as any)}
               </Badge>
             </div>
             <div className="flex gap-2 mt-1">
@@ -176,8 +175,8 @@ export function AgoraExternalProviderPanel() {
                 onChange={(e) => setAppCertEdit(e.target.value)}
                 placeholder={
                   cfg.app_certificate_present
-                    ? 'Leave blank to keep current value'
-                    : 'Paste Agora App Certificate'
+                    ? t('admin.voiceVideo.agora.keepCurrent' as any)
+                    : t('admin.voiceVideo.agora.pasteCertificate' as any)
                 }
               />
               <Button
@@ -185,15 +184,11 @@ export function AgoraExternalProviderPanel() {
                 disabled={saving || appCertEdit === ''}
                 onClick={() => save({ app_certificate: appCertEdit })}
               >
-                <Save className="h-4 w-4 mr-2" /> Save
+                <Save className="h-4 w-4 me-2" /> {t('admin.voiceVideo.agora.save' as any)}
               </Button>
               {cfg.app_certificate_present && (
-                <Button
-                  variant="ghost"
-                  disabled={saving}
-                  onClick={() => save({ app_certificate: '' })}
-                >
-                  Clear
+                <Button variant="ghost" disabled={saving} onClick={() => save({ app_certificate: '' })}>
+                  {t('admin.voiceVideo.agora.clear' as any)}
                 </Button>
               )}
             </div>
@@ -201,9 +196,11 @@ export function AgoraExternalProviderPanel() {
 
           <div>
             <div className="flex items-center justify-between">
-              <Label>Token broker secret (alternative)</Label>
+              <Label>{t('admin.voiceVideo.agora.tokenSecret' as any)}</Label>
               <Badge variant={cfg.token_secret_present ? 'default' : 'secondary'}>
-                {cfg.token_secret_present ? 'configured' : 'not set'}
+                {cfg.token_secret_present
+                  ? t('admin.voiceVideo.agora.configured' as any)
+                  : t('admin.voiceVideo.agora.notSet' as any)}
               </Badge>
             </div>
             <div className="flex gap-2 mt-1">
@@ -213,8 +210,8 @@ export function AgoraExternalProviderPanel() {
                 onChange={(e) => setTokenSecretEdit(e.target.value)}
                 placeholder={
                   cfg.token_secret_present
-                    ? 'Leave blank to keep current value'
-                    : 'Optional — only if you mint via a custom broker'
+                    ? t('admin.voiceVideo.agora.keepCurrent' as any)
+                    : t('admin.voiceVideo.agora.tokenSecretPlaceholder' as any)
                 }
               />
               <Button
@@ -222,15 +219,11 @@ export function AgoraExternalProviderPanel() {
                 disabled={saving || tokenSecretEdit === ''}
                 onClick={() => save({ token_secret: tokenSecretEdit })}
               >
-                <Save className="h-4 w-4 mr-2" /> Save
+                <Save className="h-4 w-4 me-2" /> {t('admin.voiceVideo.agora.save' as any)}
               </Button>
               {cfg.token_secret_present && (
-                <Button
-                  variant="ghost"
-                  disabled={saving}
-                  onClick={() => save({ token_secret: '' })}
-                >
-                  Clear
+                <Button variant="ghost" disabled={saving} onClick={() => save({ token_secret: '' })}>
+                  {t('admin.voiceVideo.agora.clear' as any)}
                 </Button>
               )}
             </div>
@@ -240,7 +233,7 @@ export function AgoraExternalProviderPanel() {
         <Separator />
 
         <div>
-          <Label>Webhook URL (optional)</Label>
+          <Label>{t('admin.voiceVideo.agora.webhookUrl' as any)}</Label>
           <Input
             value={cfg.webhook_url ?? ''}
             onChange={(e) => setCfg({ ...cfg, webhook_url: e.target.value })}
@@ -250,27 +243,19 @@ export function AgoraExternalProviderPanel() {
             }}
             placeholder="https://your-host/api/calls/agora/webhook"
           />
-          <p className="text-xs text-muted-foreground mt-1">
-            Admin-managed callback. No domain is hardcoded — supply the URL that Agora
-            should call back into.
-          </p>
+          <p className="text-xs text-muted-foreground mt-1">{t('admin.voiceVideo.agora.webhookHint' as any)}</p>
         </div>
 
         <Separator />
 
         <div className="flex items-center justify-between">
           <div>
-            <Label>Cloud recording</Label>
-            <p className="text-xs text-muted-foreground">
-              Uses Agora Cloud Recording. Storage destination is supplied below and is not
-              hardcoded.
-            </p>
+            <Label>{t('admin.voiceVideo.agora.cloudRecording' as any)}</Label>
+            <p className="text-xs text-muted-foreground">{t('admin.voiceVideo.agora.cloudRecordingHint' as any)}</p>
           </div>
           <Switch
             checked={cfg.recording_config.enabled}
-            onCheckedChange={(v) =>
-              save({ recording_config: { ...cfg.recording_config, enabled: v } })
-            }
+            onCheckedChange={(v) => save({ recording_config: { ...cfg.recording_config, enabled: v } })}
             disabled={saving}
           />
         </div>
@@ -278,7 +263,7 @@ export function AgoraExternalProviderPanel() {
         {cfg.recording_config.enabled && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <Label>Storage vendor</Label>
+              <Label>{t('admin.voiceVideo.agora.storageVendor' as any)}</Label>
               <Input
                 value={cfg.recording_config.storage_vendor ?? ''}
                 onChange={(e) =>
@@ -295,11 +280,11 @@ export function AgoraExternalProviderPanel() {
                     });
                   }
                 }}
-                placeholder="e.g. s3, gcs, oss"
+                placeholder={t('admin.voiceVideo.agora.storageVendorPlaceholder' as any)}
               />
             </div>
             <div>
-              <Label>Storage bucket</Label>
+              <Label>{t('admin.voiceVideo.agora.storageBucket' as any)}</Label>
               <Input
                 value={cfg.recording_config.storage_bucket ?? ''}
                 onChange={(e) =>
@@ -324,10 +309,11 @@ export function AgoraExternalProviderPanel() {
 
         <div className="flex flex-wrap gap-2 pt-2">
           <Badge variant={fullySetUp ? 'default' : 'secondary'}>
-            Status: {fullySetUp ? 'ready (opt-in)' : 'not ready'}
+            {t('admin.voiceVideo.agora.status' as any)}:{' '}
+            {fullySetUp ? t('admin.voiceVideo.agora.readyOptIn' as any) : t('admin.voiceVideo.agora.notReady' as any)}
           </Badge>
-          <Badge variant="outline">Self-hosted: no</Badge>
-          <Badge variant="outline">Auto-selected: never</Badge>
+          <Badge variant="outline">{t('admin.voiceVideo.agora.selfHostedNo' as any)}</Badge>
+          <Badge variant="outline">{t('admin.voiceVideo.agora.autoSelectedNever' as any)}</Badge>
         </div>
       </CardContent>
     </Card>

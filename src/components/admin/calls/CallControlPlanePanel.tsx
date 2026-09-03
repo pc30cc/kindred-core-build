@@ -28,24 +28,21 @@ import {
 import { Loader2, Phone, Video, Save, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { AgoraExternalProviderPanel } from './AgoraExternalProviderPanel';
 import { RolePermissionsPanel } from './RolePermissionsPanel';
+import { useTranslation } from '@/i18n';
 
 /** Self-hosted family — first-class providers, default-eligible. */
 const SELF_HOSTED_PROVIDERS: CallProviderId[] = ['livekit', 'jitsi', 'janus'];
 /** External / cloud-backed adapters — opt-in only. */
 const EXTERNAL_PROVIDERS: CallProviderId[] = ['agora_cloud'];
 /** Full select list — self-hosted first, then external, then disabled. */
-const PROVIDERS: CallProviderId[] = [
-  ...SELF_HOSTED_PROVIDERS,
-  ...EXTERNAL_PROVIDERS,
-  'disabled',
-];
+const PROVIDERS: CallProviderId[] = [...SELF_HOSTED_PROVIDERS, ...EXTERNAL_PROVIDERS, 'disabled'];
 
 function providerLabel(p: CallProviderId): string {
-  if (p === 'agora_cloud') return 'agora_cloud (external)';
   return p;
 }
 
 export function CallControlPlanePanel() {
+  const { t } = useTranslation();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -61,13 +58,15 @@ export function CallControlPlanePanel() {
       setNetwork(r.network);
       setReadiness(r.readiness ?? {});
     } catch (e: any) {
-      toast({ title: 'Failed to load call settings', description: e.message, variant: 'destructive' });
+      toast({ title: t('admin.voiceVideo.control.loadFailed' as any), description: e.message, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    void load();
+  }, []);
 
   async function saveCp(patch: Partial<CallControlPlane>) {
     if (!cp) return;
@@ -76,9 +75,9 @@ export function CallControlPlanePanel() {
       const r = await updateCallControlPlane(patch);
       setCp(r.control_plane);
       setReadiness(r.readiness ?? {});
-      toast({ title: 'Settings saved' });
+      toast({ title: t('admin.voiceVideo.control.saved' as any) });
     } catch (e: any) {
-      toast({ title: 'Save failed', description: e.message, variant: 'destructive' });
+      toast({ title: t('admin.voiceVideo.control.saveFailed' as any), description: e.message, variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -96,10 +95,10 @@ export function CallControlPlanePanel() {
         region: network.region || null,
         turn: network.turn,
       });
-      toast({ title: 'Network endpoints saved' });
+      toast({ title: t('admin.voiceVideo.control.networkSaved' as any) });
       await load();
     } catch (e: any) {
-      toast({ title: 'Save failed', description: e.message, variant: 'destructive' });
+      toast({ title: t('admin.voiceVideo.control.saveFailed' as any), description: e.message, variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -123,14 +122,14 @@ export function CallControlPlanePanel() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <Video className="h-5 w-5" /> Voice / Video calls
+                <Video className="h-5 w-5" /> {t('admin.voiceVideo.control.title' as any)}
               </CardTitle>
-              <CardDescription>
-                Self-hosted call layer. Provider-driven, no cloud dependency.
-              </CardDescription>
+              <CardDescription>{t('admin.voiceVideo.control.description' as any)}</CardDescription>
             </div>
             <div className="flex items-center gap-2">
-              <Label htmlFor="cp-enabled" className="text-sm">Enabled</Label>
+              <Label htmlFor="cp-enabled" className="text-sm">
+                {t('admin.voiceVideo.enabled' as any)}
+              </Label>
               <Switch
                 id="cp-enabled"
                 checked={cp.enabled}
@@ -143,19 +142,25 @@ export function CallControlPlanePanel() {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <Label>Primary provider</Label>
-              <Select value={cp.primary_provider} onValueChange={(v) => saveCp({ primary_provider: v as CallProviderId })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Label>{t('admin.voiceVideo.control.primaryProvider' as any)}</Label>
+              <Select
+                value={cp.primary_provider}
+                onValueChange={(v) => saveCp({ primary_provider: v as CallProviderId })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   {PROVIDERS.map((p) => (
                     <SelectItem key={p} value={p}>
                       <div className="flex items-center gap-2">
                         {providerLabel(p)}
-                        {p !== 'disabled' && (
-                          readiness[p]
-                            ? <CheckCircle2 className="h-3 w-3 text-success" />
-                            : <AlertTriangle className="h-3 w-3 text-warning" />
-                        )}
+                        {p !== 'disabled' &&
+                          (readiness[p] ? (
+                            <CheckCircle2 className="h-3 w-3 text-success" />
+                          ) : (
+                            <AlertTriangle className="h-3 w-3 text-warning" />
+                          ))}
                       </div>
                     </SelectItem>
                   ))}
@@ -163,30 +168,44 @@ export function CallControlPlanePanel() {
               </Select>
             </div>
             <div>
-              <Label>Secondary (fallback)</Label>
-              <Select value={cp.secondary_provider} onValueChange={(v) => saveCp({ secondary_provider: v as CallProviderId })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Label>{t('admin.voiceVideo.control.secondaryProvider' as any)}</Label>
+              <Select
+                value={cp.secondary_provider}
+                onValueChange={(v) => saveCp({ secondary_provider: v as CallProviderId })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   {PROVIDERS.map((p) => (
-                    <SelectItem key={p} value={p}>{providerLabel(p)}</SelectItem>
+                    <SelectItem key={p} value={p}>
+                      {providerLabel(p)}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label>Fallback policy</Label>
-              <Select value={cp.fallback_policy} onValueChange={(v) => saveCp({ fallback_policy: v as 'lenient' | 'strict' })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Label>{t('admin.voiceVideo.control.fallbackPolicy' as any)}</Label>
+              <Select
+                value={cp.fallback_policy}
+                onValueChange={(v) => saveCp({ fallback_policy: v as 'lenient' | 'strict' })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="lenient">Lenient (try secondary)</SelectItem>
-                  <SelectItem value="strict">Strict (primary only)</SelectItem>
+                  <SelectItem value="lenient">{t('admin.voiceVideo.control.lenient' as any)}</SelectItem>
+                  <SelectItem value="strict">{t('admin.voiceVideo.control.strict' as any)}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label>Max participants</Label>
+              <Label>{t('admin.voiceVideo.control.maxParticipants' as any)}</Label>
               <Input
-                type="number" min={1} max={100}
+                type="number"
+                min={1}
+                max={100}
                 defaultValue={cp.max_participants}
                 onBlur={(e) => {
                   const n = parseInt(e.target.value, 10);
@@ -197,14 +216,20 @@ export function CallControlPlanePanel() {
           </div>
 
           <div className="flex flex-wrap gap-2 pt-2">
-            {SELF_HOSTED_PROVIDERS.map(p => (
+            {SELF_HOSTED_PROVIDERS.map((p) => (
               <Badge key={p} variant={readiness[p] ? 'default' : 'secondary'} className="gap-1">
-                {p}: {readiness[p] ? 'ready' : 'not configured'}
+                {p}:{' '}
+                {readiness[p]
+                  ? t('admin.voiceVideo.control.ready' as any)
+                  : t('admin.voiceVideo.control.notConfigured' as any)}
               </Badge>
             ))}
-            {EXTERNAL_PROVIDERS.map(p => (
+            {EXTERNAL_PROVIDERS.map((p) => (
               <Badge key={p} variant="outline" className="gap-1">
-                {p} (external): {readiness[p] ? 'ready' : 'not configured'}
+                {p} ({t('admin.voiceVideo.control.external' as any)}):{' '}
+                {readiness[p]
+                  ? t('admin.voiceVideo.control.ready' as any)
+                  : t('admin.voiceVideo.control.notConfigured' as any)}
               </Badge>
             ))}
           </div>
@@ -214,15 +239,15 @@ export function CallControlPlanePanel() {
       {/* RTC / TURN endpoints */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Phone className="h-5 w-5" /> RTC & TURN endpoints</CardTitle>
-          <CardDescription>
-            All hostnames are admin-managed. The runtime never hardcodes a domain.
-          </CardDescription>
+          <CardTitle className="flex items-center gap-2">
+            <Phone className="h-5 w-5" /> {t('admin.voiceVideo.control.endpoints' as any)}
+          </CardTitle>
+          <CardDescription>{t('admin.voiceVideo.control.endpointsHint' as any)}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <Label>RTC base URL (wss://)</Label>
+              <Label>{t('admin.voiceVideo.control.rtcBaseUrl' as any)}</Label>
               <Input
                 value={network.rtc_url ?? ''}
                 onChange={(e) => setNetwork({ ...network, rtc_url: e.target.value })}
@@ -230,15 +255,15 @@ export function CallControlPlanePanel() {
               />
             </div>
             <div>
-              <Label>WebSocket URL (optional override)</Label>
+              <Label>{t('admin.voiceVideo.control.websocketUrl' as any)}</Label>
               <Input
                 value={network.ws_url ?? ''}
                 onChange={(e) => setNetwork({ ...network, ws_url: e.target.value })}
-                placeholder="defaults to RTC URL"
+                placeholder={t('admin.voiceVideo.control.defaultsRtc' as any)}
               />
             </div>
             <div>
-              <Label>Recording URL (optional)</Label>
+              <Label>{t('admin.voiceVideo.control.recordingUrl' as any)}</Label>
               <Input
                 value={network.recording_url ?? ''}
                 onChange={(e) => setNetwork({ ...network, recording_url: e.target.value })}
@@ -246,12 +271,17 @@ export function CallControlPlanePanel() {
               />
             </div>
             <div>
-              <Label>ICE policy</Label>
-              <Select value={network.ice_policy} onValueChange={(v) => setNetwork({ ...network, ice_policy: v as 'all' | 'relay' })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Label>{t('admin.voiceVideo.overview.icePolicy' as any)}</Label>
+              <Select
+                value={network.ice_policy}
+                onValueChange={(v) => setNetwork({ ...network, ice_policy: v as 'all' | 'relay' })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  <SelectItem value="relay">Relay only (force TURN)</SelectItem>
+                  <SelectItem value="all">{t('admin.voiceVideo.control.all' as any)}</SelectItem>
+                  <SelectItem value="relay">{t('admin.voiceVideo.control.relayOnly' as any)}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -260,45 +290,72 @@ export function CallControlPlanePanel() {
           <Separator />
 
           <div className="space-y-2">
-            <Label>TURN URLs (one per line)</Label>
+            <Label>{t('admin.voiceVideo.control.turnUrls' as any)}</Label>
             <textarea
               className="w-full min-h-[80px] rounded-md border bg-background p-2 text-sm"
               value={(network.turn?.urls ?? []).join('\n')}
-              onChange={(e) => setNetwork({
-                ...network,
-                turn: {
-                  ...(network.turn ?? { urls: [], username: null, credential: null, credential_type: 'password', static_secret_present: false }),
-                  urls: e.target.value.split('\n').map(s => s.trim()).filter(Boolean),
-                },
-              })}
+              onChange={(e) =>
+                setNetwork({
+                  ...network,
+                  turn: {
+                    ...(network.turn ?? {
+                      urls: [],
+                      username: null,
+                      credential: null,
+                      credential_type: 'password',
+                      static_secret_present: false,
+                    }),
+                    urls: e.target.value
+                      .split('\n')
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  },
+                })
+              }
               placeholder={'turn:turn.example:3478\nturns:turn.example:5349?transport=tcp'}
             />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <Label>TURN username</Label>
+                <Label>{t('admin.voiceVideo.control.turnUsername' as any)}</Label>
                 <Input
                   value={network.turn?.username ?? ''}
-                  onChange={(e) => setNetwork({
-                    ...network,
-                    turn: {
-                      ...(network.turn ?? { urls: [], username: null, credential: null, credential_type: 'password', static_secret_present: false }),
-                      username: e.target.value,
-                    },
-                  })}
+                  onChange={(e) =>
+                    setNetwork({
+                      ...network,
+                      turn: {
+                        ...(network.turn ?? {
+                          urls: [],
+                          username: null,
+                          credential: null,
+                          credential_type: 'password',
+                          static_secret_present: false,
+                        }),
+                        username: e.target.value,
+                      },
+                    })
+                  }
                 />
               </div>
               <div>
-                <Label>TURN credential</Label>
+                <Label>{t('admin.voiceVideo.control.turnCredential' as any)}</Label>
                 <Input
                   type="password"
                   value={network.turn?.credential ?? ''}
-                  onChange={(e) => setNetwork({
-                    ...network,
-                    turn: {
-                      ...(network.turn ?? { urls: [], username: null, credential: null, credential_type: 'password', static_secret_present: false }),
-                      credential: e.target.value,
-                    },
-                  })}
+                  onChange={(e) =>
+                    setNetwork({
+                      ...network,
+                      turn: {
+                        ...(network.turn ?? {
+                          urls: [],
+                          username: null,
+                          credential: null,
+                          credential_type: 'password',
+                          static_secret_present: false,
+                        }),
+                        credential: e.target.value,
+                      },
+                    })
+                  }
                 />
               </div>
             </div>
@@ -306,7 +363,7 @@ export function CallControlPlanePanel() {
 
           <div className="flex justify-end">
             <Button onClick={saveNet} disabled={saving}>
-              <Save className="h-4 w-4 mr-2" /> Save endpoints
+              <Save className="h-4 w-4 me-2" /> {t('admin.voiceVideo.control.saveEndpoints' as any)}
             </Button>
           </div>
         </CardContent>
@@ -315,14 +372,16 @@ export function CallControlPlanePanel() {
       {/* Recording / retention */}
       <Card>
         <CardHeader>
-          <CardTitle>Recording & retention</CardTitle>
-          <CardDescription>Workspace overrides can disable recording per workspace.</CardDescription>
+          <CardTitle>{t('admin.voiceVideo.control.recordingTitle' as any)}</CardTitle>
+          <CardDescription>{t('admin.voiceVideo.control.recordingDescription' as any)}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <Label>Recording enabled by default</Label>
-              <p className="text-xs text-muted-foreground">Applied when a call is created without an explicit choice.</p>
+              <Label>{t('admin.voiceVideo.control.recordingDefault' as any)}</Label>
+              <p className="text-xs text-muted-foreground">
+                {t('admin.voiceVideo.control.recordingDefaultHint' as any)}
+              </p>
             </div>
             <Switch
               checked={cp.recording_default_enabled}
@@ -333,23 +392,29 @@ export function CallControlPlanePanel() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <Label>Recording type</Label>
+              <Label>{t('admin.voiceVideo.control.recordingType' as any)}</Label>
               <Select
                 value={cp.recording_default_type}
-                onValueChange={(v) => saveCp({ recording_default_type: v as 'composite' | 'individual' | 'audio_only' })}
+                onValueChange={(v) =>
+                  saveCp({ recording_default_type: v as 'composite' | 'individual' | 'audio_only' })
+                }
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="composite">Composite</SelectItem>
-                  <SelectItem value="individual">Individual tracks</SelectItem>
-                  <SelectItem value="audio_only">Audio only</SelectItem>
+                  <SelectItem value="composite">{t('admin.voiceVideo.control.composite' as any)}</SelectItem>
+                  <SelectItem value="individual">{t('admin.voiceVideo.control.individual' as any)}</SelectItem>
+                  <SelectItem value="audio_only">{t('admin.voiceVideo.control.audioOnly' as any)}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label>Retention (days)</Label>
+              <Label>{t('admin.voiceVideo.control.retentionDays' as any)}</Label>
               <Input
-                type="number" min={0} max={3650}
+                type="number"
+                min={0}
+                max={3650}
                 defaultValue={cp.retention_default_days}
                 onBlur={(e) => {
                   const n = parseInt(e.target.value, 10);
@@ -361,8 +426,10 @@ export function CallControlPlanePanel() {
 
           <div className="flex items-center justify-between">
             <div>
-              <Label>Require visitor verification before calls</Label>
-              <p className="text-xs text-muted-foreground">Visitors must complete contact verification before joining a call.</p>
+              <Label>{t('admin.voiceVideo.control.requireVerification' as any)}</Label>
+              <p className="text-xs text-muted-foreground">
+                {t('admin.voiceVideo.control.requireVerificationHint' as any)}
+              </p>
             </div>
             <Switch
               checked={cp.verification_required_for_visitor_calls}
@@ -384,31 +451,51 @@ export function CallControlPlanePanel() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Phone className="h-5 w-5" /> Channel gates (platform global)
+            <Phone className="h-5 w-5" /> {t('admin.voiceVideo.control.channelGates' as any)}
           </CardTitle>
-          <CardDescription>
-            Hard upper bounds. If a gate is off, no workspace can enable that channel.
-          </CardDescription>
+          <CardDescription>{t('admin.voiceVideo.control.channelGatesHint' as any)}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-1">
-          {([
-            ['voice_calls_enabled_global', 'Voice calls', 'Allow audio calls platform-wide.'],
-            ['video_calls_enabled_global', 'Video calls', 'Allow video calls platform-wide.'],
-            ['call_queue_enabled_global', 'Call queue', 'Allow visitors to be parked in a queue.'],
-            ['call_recording_enabled_global', 'Recording', 'Allow recording on any workspace.'],
-            ['visitor_initiated_audio_enabled_global', 'Visitor → audio', 'Visitors may start audio calls from the widget.'],
-            ['visitor_initiated_video_enabled_global', 'Visitor → video', 'Visitors may start video calls from the widget.'],
-          ] as Array<[keyof typeof cp, string, string]>).map(([key, label, hint]) => (
+          {(
+            [
+              [
+                'voice_calls_enabled_global',
+                t('admin.voiceVideo.control.voiceCalls' as any),
+                t('admin.voiceVideo.control.voiceCallsHint' as any),
+              ],
+              [
+                'video_calls_enabled_global',
+                t('admin.voiceVideo.control.videoCalls' as any),
+                t('admin.voiceVideo.control.videoCallsHint' as any),
+              ],
+              [
+                'call_queue_enabled_global',
+                t('admin.voiceVideo.control.callQueue' as any),
+                t('admin.voiceVideo.control.callQueueHint' as any),
+              ],
+              [
+                'call_recording_enabled_global',
+                t('admin.voiceVideo.control.recording' as any),
+                t('admin.voiceVideo.control.recordingHint' as any),
+              ],
+              [
+                'visitor_initiated_audio_enabled_global',
+                t('admin.voiceVideo.control.visitorAudio' as any),
+                t('admin.voiceVideo.control.visitorAudioHint' as any),
+              ],
+              [
+                'visitor_initiated_video_enabled_global',
+                t('admin.voiceVideo.control.visitorVideo' as any),
+                t('admin.voiceVideo.control.visitorVideoHint' as any),
+              ],
+            ] as Array<[keyof typeof cp, string, string]>
+          ).map(([key, label, hint]) => (
             <div key={key as string} className="flex items-start justify-between gap-3 py-2">
               <div className="flex-1 min-w-0">
                 <Label className="text-sm">{label}</Label>
                 <p className="text-xs text-muted-foreground">{hint}</p>
               </div>
-              <Switch
-                checked={!!cp[key]}
-                disabled={saving}
-                onCheckedChange={(v) => saveCp({ [key]: v } as any)}
-              />
+              <Switch checked={!!cp[key]} disabled={saving} onCheckedChange={(v) => saveCp({ [key]: v } as any)} />
             </div>
           ))}
         </CardContent>

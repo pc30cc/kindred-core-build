@@ -14,10 +14,12 @@ import RealtimeControlPanel from '@/components/admin/observability/RealtimeContr
 import EffectivePolicyPanel from '@/components/admin/observability/EffectivePolicyPanel';
 import ReliabilityPanel from '@/components/admin/observability/ReliabilityPanel';
 import EnforcementPanel from '@/components/admin/observability/EnforcementPanel';
+import { useTranslation } from '@/i18n';
 
 type Range = '1h' | '24h' | '7d';
 
 export default function AdminObservabilityPage() {
+  const { t } = useTranslation();
   const [range, setRange] = useState<Range>('1h');
   const [filter, setFilter] = useState<string>('');
   const [tab, setTab] = useState<
@@ -41,7 +43,7 @@ export default function AdminObservabilityPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-foreground">Realtime Observability</h1>
+      <div><h1 className="text-2xl font-bold text-foreground">{t('admin.observability.title' as any)}</h1><p className="mt-1 text-sm text-muted-foreground">{t('admin.observability.subtitle' as any)}</p></div>
       <SystemDegradedBanner />
       <EffectivePolicyPanel />
       <Tabs
@@ -59,37 +61,37 @@ export default function AdminObservabilityPage() {
           )
         }
       >
-        <TabsList>
-          <TabsTrigger value="metrics">Metrics</TabsTrigger>
-          <TabsTrigger value="performance">Performance</TabsTrigger>
-          <TabsTrigger value="alerts">Alerts</TabsTrigger>
-          <TabsTrigger value="auto-actions">Auto-actions</TabsTrigger>
-          <TabsTrigger value="realtime-control">Realtime control</TabsTrigger>
-          <TabsTrigger value="reliability">SLA &amp; Health</TabsTrigger>
-          <TabsTrigger value="enforcement">Enforcement</TabsTrigger>
+        <TabsList className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-xl bg-muted/70 p-1.5">
+          <TabsTrigger value="metrics">{t('admin.observability.tabs.metrics' as any)}</TabsTrigger>
+          <TabsTrigger value="performance">{t('admin.observability.tabs.performance' as any)}</TabsTrigger>
+          <TabsTrigger value="alerts">{t('admin.observability.tabs.alerts' as any)}</TabsTrigger>
+          <TabsTrigger value="auto-actions">{t('admin.observability.tabs.autoActions' as any)}</TabsTrigger>
+          <TabsTrigger value="realtime-control">{t('admin.observability.tabs.realtimeControl' as any)}</TabsTrigger>
+          <TabsTrigger value="reliability">{t('admin.observability.tabs.reliability' as any)}</TabsTrigger>
+          <TabsTrigger value="enforcement">{t('admin.observability.tabs.enforcement' as any)}</TabsTrigger>
         </TabsList>
         <TabsContent value="metrics" className="space-y-6">
           <div className="flex items-center justify-end">
             <Tabs value={range} onValueChange={(v) => setRange(v as Range)}>
               <TabsList>
-                <TabsTrigger value="1h">Last hour</TabsTrigger>
-                <TabsTrigger value="24h">24h</TabsTrigger>
-                <TabsTrigger value="7d">7 days</TabsTrigger>
+                <TabsTrigger value="1h">{t('admin.observability.ranges.hour' as any)}</TabsTrigger>
+                <TabsTrigger value="24h">{t('admin.observability.ranges.day' as any)}</TabsTrigger>
+                <TabsTrigger value="7d">{t('admin.observability.ranges.week' as any)}</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
 
       <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle className="text-foreground text-sm">Metric counters ({range})</CardTitle>
+          <CardTitle className="text-foreground text-sm">{t('admin.observability.metrics.counters' as any, { range })}</CardTitle>
         </CardHeader>
         <CardContent>
-          {summaryQ.isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
+          {summaryQ.isLoading && <p className="text-muted-foreground text-sm">{t('admin.common.loading' as any)}</p>}
           {summaryQ.error && (
-            <p className="text-destructive text-sm">Failed to load summary.</p>
+            <p className="text-destructive text-sm">{t('admin.observability.metrics.loadFailed' as any)}</p>
           )}
           {!summaryQ.isLoading && metricNames.length === 0 && (
-            <p className="text-muted-foreground text-sm">No events recorded in this range.</p>
+            <p className="text-muted-foreground text-sm">{t('admin.observability.metrics.emptyRange' as any)}</p>
           )}
           <div className="space-y-2">
             {metricNames.map((m) => (
@@ -103,7 +105,7 @@ export default function AdminObservabilityPage() {
                 >
                   <span className="font-mono text-sm text-foreground">{m}</span>
                   {filter === m && (
-                    <Badge variant="outline" className="ml-2">filtered</Badge>
+                    <Badge variant="outline" className="ms-2">{t('admin.observability.metrics.filtered' as any)}</Badge>
                   )}
                 </button>
                 <div className="flex items-center gap-2">
@@ -123,11 +125,11 @@ export default function AdminObservabilityPage() {
       <Card className="bg-card border-border">
         <CardHeader className="flex-row items-center justify-between">
           <CardTitle className="text-foreground text-sm">
-            Recent events {filter ? `· ${filter}` : ''}
+            {t('admin.observability.metrics.recentEvents' as any)} {filter ? `· ${filter}` : ''}
           </CardTitle>
           {filter && (
             <Button size="sm" variant="ghost" onClick={() => setFilter('')}>
-              Clear filter
+              {t('admin.observability.metrics.clearFilter' as any)}
             </Button>
           )}
         </CardHeader>
@@ -135,11 +137,11 @@ export default function AdminObservabilityPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Time</TableHead>
-                <TableHead>Metric</TableHead>
-                <TableHead>Driver</TableHead>
-                <TableHead>Source</TableHead>
-                <TableHead>Tags</TableHead>
+                <TableHead>{t('admin.common.time' as any)}</TableHead>
+                <TableHead>{t('admin.observability.metrics.metric' as any)}</TableHead>
+                <TableHead>{t('admin.observability.metrics.driver' as any)}</TableHead>
+                <TableHead>{t('admin.observability.metrics.source' as any)}</TableHead>
+                <TableHead>{t('admin.observability.metrics.tags' as any)}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -161,7 +163,7 @@ export default function AdminObservabilityPage() {
               {!eventsQ.isLoading && (eventsQ.data?.events.length ?? 0) === 0 && (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center text-muted-foreground text-sm">
-                    No events.
+                    {t('admin.observability.metrics.noEvents' as any)}
                   </TableCell>
                 </TableRow>
               )}

@@ -12,7 +12,6 @@
     OFFLINE: 'offline',
     PRE_CALL: 'pre_call_form',
     QUEUE: 'queue_waiting',
-    RINGING: 'ringing',
     IN_CALL: 'in_call',
     ENDED: 'ended',
     CALLBACK: 'callback_form',
@@ -27,7 +26,7 @@
   };
   var I18N = {
     en: {
-      talk_now: 'Talk now', callback: 'Callback', live_support: 'Live support', leave_details: 'Leave details', support: 'Support',
+      talk_now: 'Talk now', callback: 'Callback', live_support: 'Live support', leave_details: 'Leave details', support: 'Support', required: 'Required',
       operators_available: 'Operators available', callback_desk: 'Callback desk', loading: 'Loading…', offline: 'Offline',
       leave_callback_request: 'Leave a callback request', offline_copy: 'Our team is offline right now, but we can call you back.', request_callback: 'Request callback',
       live_now: 'Live now', channels: 'Voice · Video · Callback', talk_to_team: 'Talk to our team', online_copy: 'Start a secure voice or video call with the next available operator.',
@@ -54,7 +53,7 @@
       rate_thanks: 'Thank you for your feedback!'
     },
     fa: {
-      talk_now: 'همین حالا تماس بگیرید', callback: 'درخواست تماس', live_support: 'پشتیبانی آنلاین', leave_details: 'ثبت اطلاعات', support: 'پشتیبانی',
+      talk_now: 'همین حالا تماس بگیرید', callback: 'درخواست تماس', live_support: 'پشتیبانی آنلاین', leave_details: 'ثبت اطلاعات', support: 'پشتیبانی', required: 'الزامی',
       operators_available: 'اپراتورها آماده‌اند', callback_desk: 'میز درخواست تماس', loading: 'در حال بارگذاری…', offline: 'آفلاین',
       leave_callback_request: 'درخواست تماس ثبت کنید', offline_copy: 'تیم ما الان آفلاین است، اما می‌توانیم با شما تماس بگیریم.', request_callback: 'درخواست تماس',
       live_now: 'آنلاین', channels: 'صوتی · تصویری · درخواست تماس', talk_to_team: 'با تیم ما صحبت کنید', online_copy: 'یک تماس صوتی یا تصویری امن را با اولین اپراتور آزاد شروع کنید.',
@@ -81,7 +80,7 @@
       rate_thanks: 'از بازخورد شما متشکریم!'
     },
     tr: {
-      talk_now: 'Şimdi konuş', callback: 'Geri arama', live_support: 'Canlı destek', leave_details: 'Bilgilerini bırak', support: 'Destek',
+      talk_now: 'Şimdi konuş', callback: 'Geri arama', live_support: 'Canlı destek', leave_details: 'Bilgilerini bırak', support: 'Destek', required: 'Zorunlu',
       operators_available: 'Operatörler müsait', callback_desk: 'Geri arama masası', loading: 'Yükleniyor…', offline: 'Çevrimdışı',
       leave_callback_request: 'Geri arama isteği bırakın', offline_copy: 'Ekibimiz şu anda çevrimdışı, ancak sizi geri arayabiliriz.', request_callback: 'Geri arama iste',
       live_now: 'Canlı', channels: 'Ses · Video · Geri arama', talk_to_team: 'Ekibimizle konuşun', online_copy: 'İlk uygun operatörle güvenli sesli veya görüntülü arama başlatın.',
@@ -109,22 +108,6 @@
     },
   };
 
-  function el(tag, attrs, children) {
-    var n = document.createElement(tag);
-    if (attrs) Object.keys(attrs).forEach(function (k) {
-      if (k === 'class') n.className = attrs[k];
-      else if (k === 'on') Object.keys(attrs[k]).forEach(function (ev) { n.addEventListener(ev, attrs[k][ev]); });
-      else if (k === 'html') n.innerHTML = attrs[k];
-      else n.setAttribute(k, attrs[k]);
-    });
-    (children || []).forEach(function (c) { if (c == null) return; n.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
-    return n;
-  }
-
-  function fmtTime(ms) {
-    var s = Math.floor(ms / 1000);
-    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
-  }
 
   /**
    * CC-2H Phase 6 — Strip access_token query params and JWT-shaped
@@ -563,7 +546,7 @@
       call_type: 'voice', consent: false, department_id: '',
       callback_channel: 'audio', callback_urgency: 'normal',
       callback_when: 'now', callback_scheduled_for: '',
-      hp_company: '',
+      hp_company: '', custom: {},
     };
     this.callbackOpenedAt = 0;
     this.callbackCooldownUntil = 0;
@@ -616,6 +599,8 @@
     this.runtimeAssetSuffix = opts.runtimeAssetSuffix || (this.assetsVersion ? ('?v=' + encodeURIComponent(String(this.assetsVersion).slice(0, 16))) : '');
     this.activeSessionKey = opts.activeSessionKey || '';
     this.bootstrap = opts.bootstrap;
+    this.preview = opts.preview === true;
+    this.pageTitle = opts.pageTitle || '';
     this.session = opts.bootstrap && opts.bootstrap.session;
     this.initLocale();
 
@@ -628,33 +613,17 @@
       this.identifiedContact = prefill;
     }
 
-    var host = document.createElement('div');
-    host.id = 'call-center-widget-host';
-    host.style.all = 'initial';
-    document.body.appendChild(host);
-    var shadow = host.attachShadow({ mode: 'open' });
-    var link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = this.origin + '/call-widget/runtime.css' + this.runtimeAssetSuffix;
-    shadow.appendChild(link);
-    // Shared, hashed font asset — the URL comes from the bootstrap payload
-    // (`assets.font_style_url`). This runtime hard-codes no font path and no
-    // font family; it just injects the stylesheet the server points at, at
-    // document level so the shadow root and document.fonts both see the faces.
-    try {
-      var fontHref = this.bootstrap && this.bootstrap.assets && this.bootstrap.assets.font_style_url;
-      if (fontHref && !document.getElementById('gs-presentation-fonts')) {
-        var fs = document.createElement('link');
-        fs.id = 'gs-presentation-fonts';
-        fs.rel = 'stylesheet';
-        fs.href = /^https?:/i.test(fontHref) ? fontHref : (this.origin + fontHref);
-        document.head.appendChild(fs);
-      }
-    } catch (_) {}
-    var root = document.createElement('div');
-    root.className = 'ccw-root';
-    shadow.appendChild(root);
-    this.root = root;
+    var registry = window.CallWidgetPresentations;
+    var requestedPresentation = this.bootstrap && this.bootstrap.config && this.bootstrap.config.widget_template_id;
+    this.presentation = registry && registry.resolve(requestedPresentation);
+    if (!this.presentation) return;
+    var presentationHost = this.presentation.createHost({
+      origin: this.origin,
+      runtimeAssetSuffix: this.runtimeAssetSuffix,
+      bootstrap: this.bootstrap,
+    });
+    this.root = presentationHost.root;
+    this.presentationInstance = null;
 
     if (!this.bootstrap || this.bootstrap.status !== 'ok') {
       this.state = STATES.OFFLINE; this.render(); return;
@@ -663,6 +632,7 @@
       // still allow visit but warn — will block at request time
     }
     this.state = (this.isOnline() ? STATES.ONLINE : STATES.OFFLINE);
+    if (this.preview) this.open = true;
     this.render();
     // Resume any in-flight call across refresh / navigation.
     try { this.resumeActiveCall(); } catch (_) {}
@@ -690,6 +660,9 @@
 
   CallCenterWidgetCtor.prototype.api = function (path, opts) {
     opts = opts || {};
+    if (this.preview) {
+      return Promise.resolve({ ok: false, status: 409, body: { error: 'preview_mode' } });
+    }
     var headers = { 'Content-Type': 'application/json' };
     if (this.session) headers['x-cc-session'] = this.session;
     try {
@@ -757,6 +730,12 @@
       Ringback.startFromGesture((this.bootstrap && this.bootstrap.queue_experience) || {});
     } catch (_) {}
     var rec = (this.bootstrap && this.bootstrap.recording) || {};
+    var invalidField = this.validatePreCallForm();
+    if (invalidField) {
+      try { Ringback.stop(); } catch (_) {}
+      this.error = invalidField.label + ': ' + this.t('required');
+      this.render(); return;
+    }
     var consentNeeded = !!(rec.effective_enabled && rec.consent_required);
     if (consentNeeded && !this.formData.consent) {
       try { Ringback.stop(); } catch (_) {}
@@ -775,11 +754,12 @@
         visitor_phone: this.formData.phone || null,
         subject: this.formData.subject || null,
         page_url: location.href,
-        page_title: document.title,
+        page_title: this.pageTitle,
         consent_recording: !!this.formData.consent,
         recording_consent: !!this.formData.consent,
         recording_consent_at: consentAt,
         department_id: this.formData.department_id || null,
+        form_data: Object.assign({}, this.formData.custom || {}),
       },
     }).then(function (r) {
       if (!r.ok) {
@@ -842,12 +822,26 @@
     });
   };
 
+  CallCenterWidgetCtor.prototype.validatePreCallForm = function () {
+    var cfg = (this.bootstrap && this.bootstrap.config) || {};
+    var schema = Array.isArray(cfg.pre_call_form_schema) ? cfg.pre_call_form_schema : [];
+    if (!cfg.pre_call_form_enabled || !schema.length) return null;
+    for (var i = 0; i < schema.length; i++) {
+      var field = schema[i];
+      if (!field || !field.required) continue;
+      var value = ['name', 'email', 'phone', 'subject'].indexOf(field.id) >= 0
+        ? this.formData[field.id]
+        : this.formData.custom && this.formData.custom[field.id];
+      if (field.type === 'checkbox' ? value !== true : !String(value || '').trim()) return field;
+    }
+    return null;
+  };
+
   CallCenterWidgetCtor.prototype.startTimer = function () {
     var self = this;
     this.stopTimer();
     this.timer = setInterval(function () {
-      var t = self.root.querySelector('.ccw-wait-timer');
-      if (t && self.queueStartedAt) t.textContent = fmtTime(Date.now() - self.queueStartedAt);
+      if (self.state === STATES.QUEUE) self.render();
       // Re-render once when the offer-callback threshold is crossed so the
       // button appears without waiting for the next status poll.
       if (self.state === STATES.QUEUE && !self._calloutShown) {
@@ -873,9 +867,7 @@
     var self = this;
     this.stopCallTimer();
     this.callTimer = setInterval(function () {
-      if (!self.callStartedAt) return;
-      var el = self.root.querySelector('.ccw-call-duration-value');
-      if (el) el.textContent = fmtTime(Date.now() - self.callStartedAt);
+      if (self.callStartedAt && self.state === STATES.IN_CALL) self.render();
     }, 1000);
   };
   CallCenterWidgetCtor.prototype.stopCallTimer = function () {
@@ -1065,17 +1057,9 @@
           }
           var el = track.attach();
           el.autoplay = true;
-          if (track.kind === 'video') {
-            el.playsInline = true;
-            el.setAttribute('data-remote-video', 'true');
-            el.setAttribute('data-orientation-correction', 'scaleX(-1)');
-            try { el.style.transform = 'scaleX(-1)'; } catch (_) {}
-            try { el.style.scale = '1'; } catch (_) {}
-            try { el.style.rotate = '0deg'; } catch (_) {}
-          }
-          el.setAttribute('data-track-sid', sid);
+          if (track.kind === 'video') el.playsInline = true;
           self._attachedTracks[sid] = el;
-          self._remoteHolder && self._remoteHolder.appendChild(el);
+          self.render();
           if (track.kind === 'audio') {
             try {
               var ms = el.srcObject || (track.mediaStreamTrack ? new MediaStream([track.mediaStreamTrack]) : null);
@@ -1088,7 +1072,7 @@
         try {
           var sid = track.sid || track.trackSid;
           var el = sid && self._attachedTracks[sid];
-          if (el) { try { el.remove(); } catch (_) {} delete self._attachedTracks[sid]; }
+          if (el) delete self._attachedTracks[sid];
           try { track.detach && track.detach(); } catch (_) {}
         } catch (_) {}
       }
@@ -1133,14 +1117,8 @@
                 lpubs && lpubs.forEach && lpubs.forEach(function (p) { if (p && p.track && !track) track = p.track; });
               }
               if (track) {
-                if (self._localVideoEl) { try { self._localVideoEl.remove(); } catch(_) {} }
                 var lv = track.attach();
                 lv.autoplay = true; lv.playsInline = true; lv.muted = true;
-                lv.setAttribute('data-local-video', 'true');
-                lv.setAttribute('data-orientation-correction', 'scaleX(-1)');
-                try { lv.style.transform = 'scaleX(-1)'; } catch (_) {}
-                try { lv.style.scale = '1'; } catch (_) {}
-                try { lv.style.rotate = '0deg'; } catch (_) {}
                 self._localVideoEl = lv;
                 self._localVideoTrack = track;
                 self.render();
@@ -1218,14 +1196,8 @@
             lpubs && lpubs.forEach && lpubs.forEach(function (p) { if (p && p.track && !track) track = p.track; });
           }
           if (track) {
-            if (self._localVideoEl) { try { self._localVideoEl.remove(); } catch(_) {} }
             var lv = track.attach();
             lv.autoplay = true; lv.playsInline = true; lv.muted = true;
-            lv.setAttribute('data-local-video', 'true');
-            lv.setAttribute('data-orientation-correction', 'scaleX(-1)');
-            try { lv.style.transform = 'scaleX(-1)'; } catch (_) {}
-            try { lv.style.scale = '1'; } catch (_) {}
-            try { lv.style.rotate = '0deg'; } catch (_) {}
             self._localVideoEl = lv;
             self._localVideoTrack = track;
           }
@@ -1233,7 +1205,6 @@
       } else {
         try {
           if (self._localVideoTrack && self._localVideoEl) { self._localVideoTrack.detach(self._localVideoEl); }
-          if (self._localVideoEl) { self._localVideoEl.remove(); }
         } catch (_) {}
         self._localVideoEl = null; self._localVideoTrack = null;
       }
@@ -1243,17 +1214,10 @@
   CallCenterWidgetCtor.prototype.disconnectRoom = function () {
     try { if (this.lkRoom) this.lkRoom.disconnect(); } catch (_) {}
     this.lkRoom = null;
-    if (this._attachedTracks) {
-      var keys = Object.keys(this._attachedTracks);
-      for (var i = 0; i < keys.length; i++) {
-        try { this._attachedTracks[keys[i]].remove(); } catch (_) {}
-      }
-    }
     this._attachedTracks = {};
     this._remoteCount = 0;
     try {
       if (this._localVideoTrack && this._localVideoEl) { this._localVideoTrack.detach(this._localVideoEl); }
-      if (this._localVideoEl) { this._localVideoEl.remove(); }
     } catch (_) {}
     this._localVideoEl = null; this._localVideoTrack = null;
     this._stopAudioMeter();
@@ -1493,569 +1457,58 @@
   CallCenterWidgetCtor.prototype.render = function () {
     if (!this.root) return;
     var self = this;
-    var tr = function (key, vars) { return self.t(key, vars); };
-    var pos = this.position();
-    this.root.innerHTML = '';
-    this.root.setAttribute('lang', this.locale);
-    this.root.setAttribute('dir', (LOCALE_META[this.locale] && LOCALE_META[this.locale].dir) || 'ltr');
-    var caps = (this.bootstrap && this.bootstrap.capabilities) || {};
-    var cfg = (this.bootstrap && this.bootstrap.config) || {};
-
-    // Launcher always present
-    var launcherText = this.isOnline() ? tr('talk_now') : tr('callback');
-    var launcher = el('button', {
-      class: 'ccw-launcher ' + pos,
-      'aria-label': launcherText,
-      on: { click: function () { self.toggleOpen(); } },
-    }, [
-      el('span', { class: 'ccw-launcher-pulse' }, [el('span', { class: 'ccw-launcher-icon' }, ['☎'])]),
-      el('span', { class: 'ccw-launcher-copy' }, [
-        el('span', { class: 'ccw-launcher-text' }, [launcherText]),
-        el('span', { class: 'ccw-launcher-sub' }, [this.isOnline() ? tr('live_support') : tr('leave_details')]),
-      ]),
-      this.isOnline() ? el('span', { class: 'ccw-launcher-dot' }) : null,
-    ]);
-    this.root.appendChild(launcher);
-
-    if (!this.open) return;
-
-    var panel = el('div', { class: 'ccw-panel ' + pos });
-    var header = el('div', { class: 'ccw-header' }, [
-      el('div', { class: 'ccw-brand-wrap' }, [
-        cfg.avatar_url ? el('img', { src: cfg.avatar_url, alt: '' }) : el('div', { class: 'ccw-avatar-fallback' }, ['☎']),
-        el('span', { class: 'ccw-avatar-badge' }),
-      ]),
-      el('div', { class: 'ccw-header-copy' }, [
-        el('div', { class: 'ccw-title' }, [cfg.display_name || tr('support')]),
-        el('div', { class: 'ccw-sub' }, [
-          el('span', { class: 'ccw-status-dot ' + (this.isOnline() ? 'online' : 'offline') }),
-          this.isOnline() ? tr('operators_available') : tr('callback_desk'),
-        ]),
-      ]),
-      this.renderLocaleSwitcher(),
-      el('button', { class: 'ccw-close', on: { click: function () { self.toggleOpen(); } } }, ['×']),
-    ]);
-    panel.appendChild(header);
-
-    var body = el('div', { class: 'ccw-body' });
-    body.appendChild(this.renderState(caps, cfg));
-    panel.appendChild(body);
-    this.root.appendChild(panel);
-  };
-
-  CallCenterWidgetCtor.prototype.renderLocaleSwitcher = function () {
-    var self = this;
-    if (!this.availableLocales || this.availableLocales.length <= 1) return null;
-    var select = el('select', { class: 'ccw-lang', 'aria-label': 'Widget language' });
-    this.availableLocales.forEach(function (code) {
-      var meta = LOCALE_META[code] || { label: code.toUpperCase(), short: code.toUpperCase() };
-      var option = el('option', { value: code }, [meta.short]);
-      if (self.locale === code) option.selected = true;
-      select.appendChild(option);
-    });
-    select.addEventListener('change', function (e) { self.setLocale(e.target.value); });
-    return select;
-  };
-
-  CallCenterWidgetCtor.prototype.renderState = function (caps, cfg) {
-    var self = this;
-    var tr = function (key, vars) { return self.t(key, vars); };
-    switch (this.state) {
-      case STATES.LOADING:
-        return el('div', { class: 'ccw-loading' }, [el('div', { class: 'ccw-spinner' }), el('div', { class: 'ccw-muted' }, [tr('loading')])]);
-
-      case STATES.OFFLINE: {
-        var off = el('div', { class: 'ccw-stack' }, [
-          el('div', { class: 'ccw-mini-hero offline' }, [
-            el('div', { class: 'ccw-mini-title' }, [tr('leave_callback_request')]),
-            el('div', { class: 'ccw-mini-sub' }, [tr('offline_copy')]),
-          ]),
-        ]);
-        if (caps.callback) off.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.openCallback(); } } }, [tr('request_callback')]));
-        return off;
-      }
-
-      case STATES.ONLINE: {
-        var pol = (self.bootstrap && self.bootstrap.callback_policy) || {};
-        var showCbOnline = pol.show_when_online !== false; // default true
-        var box = el('div', { class: 'ccw-stack' });
-        var row = el('div', { class: 'ccw-row' });
-        if (caps.voice) row.appendChild(el('button', { class: 'ccw-btn primary', on: { click: function () { self.startCall('voice'); } } }, [el('span', { class: 'ccw-btn-ico' }, ['☎']), tr('voice_call')]));
-        if (caps.video) row.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.startCall('video'); } } }, [el('span', { class: 'ccw-btn-ico' }, ['◉']), tr('video_call')]));
-        box.appendChild(row);
-        if (caps.callback && showCbOnline) {
-          box.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.openCallback(); } } }, [tr('request_callback_instead')]));
-        }
-        return box;
-      }
-
-      case STATES.PRE_CALL:
-        return this.renderForm(cfg, /*forCall*/true);
-
-      case STATES.CALLBACK:
-        return this.renderForm(cfg, /*forCall*/false);
-
-      case STATES.QUEUE: {
-        var qe = (self.bootstrap && self.bootstrap.queue_experience) || {};
-        var capsForCallback = (self.bootstrap && self.bootstrap.capabilities) || {};
-        var queueTitle = self.queuePosition === 1 ? tr('you_are_next') : tr('holding_place');
-        var queueCopy = self.queuePosition && self.queuePosition > 1
-          ? tr('queue_copy_many')
-          : tr('queue_copy_next');
-        var card = el('div', { class: 'ccw-queue-card' }, [
-          el('div', { class: 'ccw-queue-head' }, [
-            el('div', { class: 'ccw-queue-orbit' }, [
-              el('span', { class: 'ccw-ring r1' }),
-              el('span', { class: 'ccw-ring r2' }),
-              el('span', { class: 'ccw-ring r3' }),
-              el('span', { class: 'ccw-phone-core' }, ['☎']),
-            ]),
-            el('div', { class: 'ccw-queue-copy-block' }, [
-              el('div', { class: 'ccw-pill live' }, [Ringback.isActive && Ringback.isActive() ? tr('ringing_enabled') : tr('ringing_operator')]),
-              el('div', { class: 'ccw-queue-title' }, [queueTitle]),
-              el('div', { class: 'ccw-queue-copy' }, [queueCopy]),
-            ]),
-          ]),
-          el('div', { class: 'ccw-queue-progress' }, [
-            el('span', { class: 'ccw-progress-bar b1' }),
-            el('span', { class: 'ccw-progress-bar b2' }),
-            el('span', { class: 'ccw-progress-bar b3' }),
-            el('span', { class: 'ccw-progress-bar b4' }),
-            el('span', { class: 'ccw-progress-bar b5' }),
-          ]),
-          el('div', { class: 'ccw-wait-wrap' }, [
-            el('div', { class: 'ccw-wait-row' }, [
-              el('span', { class: 'ccw-wait-label' }, [tr('waiting_time')]),
-              el('div', { class: 'ccw-wait-timer', html: fmtTime(self.queueStartedAt ? (Date.now() - self.queueStartedAt) : 0) }),
-              el('button', {
-              class: 'ccw-sound-toggle' + ((Ringback.isMuted && Ringback.isMuted()) || (Ringback.needsGesture && Ringback.needsGesture()) ? ' muted' : ''),
-              type: 'button',
-              title: Ringback.isMuted && Ringback.isMuted() ? tr('unmute_sound') : tr('mute_sound'),
-              'aria-label': Ringback.isMuted && Ringback.isMuted() ? tr('unmute_sound') : tr('mute_sound'),
-              on: { click: function (ev) {
-                try { ev && ev.stopPropagation && ev.stopPropagation(); } catch (_) {}
-                var nowMuted = !(Ringback.isMuted && Ringback.isMuted());
-                if (nowMuted) {
-                  Ringback.setMuted(true);
-                } else {
-                  Ringback.setMuted(false);
-                  if (Ringback.needsGesture && Ringback.needsGesture()) {
-                    try { Ringback.startFromGesture((self.bootstrap && self.bootstrap.queue_experience) || {}); } catch (_) {}
-                  }
-                }
-                self.render();
-              } },
-              }, [(Ringback.isMuted && Ringback.isMuted()) || (Ringback.needsGesture && Ringback.needsGesture()) ? '🔇' : '🔊']),
-            ]),
-            (Ringback.needsGesture && Ringback.needsGesture())
-              ? el('div', { class: 'ccw-wait-hint' }, [tr('tap_to_hear')])
-              : null,
-          ]),
-        ]);
-        if (Ringback.needsGesture && Ringback.needsGesture()) {
-          // Audio is locked by browser autoplay policy — show the same
-          // small toggle styling but in "unlock" affordance. Visitor taps
-          // it once to allow the queue audio without ending the call.
-          var waitWrap = card.querySelector('.ccw-wait-wrap');
-          if (waitWrap) {
-            var unlockBtn = waitWrap.querySelector('.ccw-sound-toggle');
-            if (unlockBtn) {
-              unlockBtn.classList.add('locked');
-              unlockBtn.setAttribute('title', tr('enable_ringing_sound'));
-              unlockBtn.setAttribute('aria-label', tr('enable_ringing_sound'));
-            }
-          }
-          // Any click anywhere on the queue card counts as a user gesture —
-          // use it to unlock and resume the queue audio immediately, then
-          // re-render so the locked icon disappears.
-          card.addEventListener('click', function onceUnlock() {
-            try { card.removeEventListener('click', onceUnlock); } catch (_) {}
-            try { Ringback.startFromGesture((self.bootstrap && self.bootstrap.queue_experience) || {}); } catch (_) {}
-            setTimeout(function () { try { self.render(); } catch (_) {} }, 60);
-          }, { once: true, capture: true });
-        }
-        // Position-in-queue chip
-        if (qe.show_position !== false && self.queuePosition) {
-          var posLabel = self.queuePosition === 1
-            ? tr('you_next_line')
-            : tr('you_queue_number', { n: self.queuePosition });
-          card.appendChild(el('div', { class: 'ccw-queue-pos' }, [el('span', {}, [tr('queue_position')]), el('strong', {}, [posLabel])]));
-        }
-        // ETA chip
-        if (qe.show_eta !== false && typeof self.queueEta === 'number' && self.queueEta > 0) {
-          var mins = Math.max(1, Math.round(self.queueEta / 60));
-          var etaLbl = mins <= 1 ? tr('eta_under_min') : tr('eta_minutes', { n: mins });
-          card.appendChild(el('div', { class: 'ccw-queue-eta' }, [el('span', {}, [tr('eta')]), el('strong', {}, [etaLbl])]));
-        }
-        var stack = [card];
-        // Offer a callback after the configured wait threshold
-        var threshold = qe.offer_callback_after_seconds;
-        var elapsed = self.queueStartedAt ? Math.floor((Date.now() - self.queueStartedAt) / 1000) : 0;
-        if (capsForCallback.callback && threshold && threshold > 0 && elapsed >= threshold) {
-          stack.push(el('div', { class: 'ccw-callback-offer' }, [
-            el('div', { class: 'ccw-callback-offer-text' }, [tr('tired_waiting')]),
-            el('button', { class: 'ccw-btn primary', on: { click: function () { self.cancelCall(); setTimeout(function () { self.openCallback(); }, 50); } } }, [tr('request_callback')]),
-          ]));
-        }
-        stack.push(el('button', { class: 'ccw-btn danger', on: { click: function () { self.cancelCall(); } } }, [tr('cancel_call')]));
-        return el('div', { class: 'ccw-stack' }, stack);
-      }
-
-      case STATES.IN_CALL: {
-        var status = self.connectStatus || 'connecting';
-        var msg = tr('call_accepted_connecting');
-        if (status === 'in_call') msg = tr('connected');
-        if (status === 'waiting_for_operator') msg = tr('operator_joining');
-        if (status === 'operator_connected') msg = tr('operator_connected');
-        if (status === 'operator_left') msg = tr('operator_left');
-        if (status === 'media_reconnecting') msg = tr('reconnecting_media');
-        if (status === 'media_disconnected') msg = tr('media_disconnected');
-        if (status === 'connecting_media') msg = tr('connecting_av');
-        if (status === 'fallback') msg = tr('fallback');
-        if (status === 'accepted_no_sdk') msg = tr('accepted_no_sdk');
-        if (status === 'media_not_configured') msg = tr('media_not_configured');
-        if (status === 'provider_client_not_configured') msg = tr('provider_not_configured');
-        if (status === 'provider_client_not_supported') msg = tr('provider_not_supported');
-        if (status === 'media_client_missing') msg = tr('media_client_missing');
-        if (status === 'media_client_invalid') msg = tr('media_client_invalid');
-        if (status === 'loading_media_client') msg = tr('loading_media_client');
-        if (status === 'microphone_permission_denied') msg = tr('mic_denied');
-        if (status === 'camera_permission_denied') msg = tr('camera_denied');
-        if (status === 'room_connect_failed') msg = tr('room_failed', { error: self.error || tr('unknown') });
-        if (status === 'token_expired') msg = tr('token_expired');
-        var isLive = (status === 'in_call' || status === 'operator_connected');
-        var isVideoCall = (self.call && self.call.call_type === 'video') || self.formData.call_type === 'video';
-        var hideHeader = isVideoCall && isLive && !self.transferring;
-        var cardChildren = hideHeader ? [] : [
-          el('div', { class: 'ccw-pill' }, [isLive ? tr('in_call') : status === 'waiting_for_operator' ? tr('connected_waiting') : tr('connecting')]),
-          el('div', { class: 'ccw-label' }, [self.transferring ? tr('transferring_call') : msg]),
-        ];
-        var card = el('div', { class: 'ccw-card ccw-incall' + (isLive ? ' live' : '') + (self.transferring ? ' transferring' : '') + (isVideoCall ? ' video' : '') }, cardChildren);
-        // Beautiful "connected" hero — voice only. Video calls show the
-        // video stream as the centerpiece with an overlay instead.
-        if (isLive && !self.transferring && !isVideoCall) {
-          var waveBars = [];
-          for (var _wi = 1; _wi <= 7; _wi++) {
-            waveBars.push(el('span', { class: 'b' + _wi }));
-          }
-          self._waveBars = waveBars;
-          var waveEl = el('div', { class: 'ccw-wave live' }, waveBars);
-          card.appendChild(el('div', { class: 'ccw-live-hero' }, [
-            el('div', { class: 'ccw-live-avatar' }, [
-              el('span', { class: 'ccw-live-pulse p1' }),
-              el('span', { class: 'ccw-live-pulse p2' }),
-              el('span', { class: 'ccw-live-pulse p3' }),
-              el('span', { class: 'ccw-live-core' }, [self.operatorName ? self.operatorName.charAt(0).toUpperCase() : '☎']),
-            ]),
-            el('div', { class: 'ccw-live-meta' }, [
-              self.operatorName ? el('div', { class: 'ccw-live-op-name' }, [self.operatorName]) : null,
-              el('div', { class: 'ccw-live-op-role' }, [tr('operator_label')]),
-              el('div', { class: 'ccw-live-duration' }, [
-                el('span', { class: 'ccw-live-duration-label' }, [tr('call_duration')]),
-                el('span', { class: 'ccw-call-duration-value' }, [fmtTime(self.callStartedAt ? (Date.now() - self.callStartedAt) : 0)]),
-              ]),
-              waveEl,
-            ]),
-          ]));
-        } else if (self.transferring) {
-          card.appendChild(el('div', { class: 'ccw-transfer-hero' }, [
-            el('span', { class: 'ccw-transfer-spinner' }),
-            el('div', { class: 'ccw-transfer-text' }, [tr('transferring_call')]),
-          ]));
-        } else if (isLive && isVideoCall) {
-          // Video calls: no header strip; we overlay name + timer on the
-          // video tile itself (see ccw-video-overlay).
-        }
-        // Recording indicator (passive). Backend status drives this; never trust client.
-        var recBoot = (self.bootstrap && self.bootstrap.recording) || {};
-        var callRecState = self.call && self.call.recording_state;
-        if (callRecState === 'recording') {
-          card.appendChild(el('div', { class: 'ccw-pill recording' }, [tr('recording_progress')]));
-        } else if (recBoot.effective_enabled) {
-          card.appendChild(el('div', { class: 'ccw-muted', style: 'margin-top:6px;' }, [
-            tr('recording_may_start'),
-          ]));
-        }
-        var media = el('div', { class: 'ccw-media' });
-        self._remoteHolder = media;
-        // Re-attach existing tracks if any (re-render can wipe DOM)
-        if (self._attachedTracks) {
-          var keys = Object.keys(self._attachedTracks);
-          for (var i = 0; i < keys.length; i++) {
-            try { media.appendChild(self._attachedTracks[keys[i]]); } catch (_) {}
-          }
-        }
-        if (isLive && isVideoCall && !self.transferring) {
-          if (self._localVideoEl && self.camOn) {
-            var pip = el('div', { class: 'ccw-local-pip' });
-            try { pip.appendChild(self._localVideoEl); } catch (_) {}
-            media.appendChild(pip);
-          }
-          media.appendChild(el('div', { class: 'ccw-video-info' }, [
-            el('div', { class: 'ccw-video-info-name' }, [self.operatorName || tr('operator') || 'Operator']),
-            el('div', { class: 'ccw-video-info-duration' }, [
-              el('span', { class: 'ccw-call-duration-value' }, [fmtTime(self.callStartedAt ? (Date.now() - self.callStartedAt) : 0)]),
-            ]),
-          ]));
-        }
-        card.appendChild(media);
-        var controls = el('div', { class: 'ccw-row' });
-        if (status === 'in_call' || status === 'operator_connected' || status === 'waiting_for_operator' || status === 'media_reconnecting') {
-          controls.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.toggleMic(); } } }, [self.micOn ? tr('mute') : tr('unmute')]));
-          var wantVideo = (self.call && self.call.call_type === 'video') || self.formData.call_type === 'video';
-          if (wantVideo) {
-            controls.appendChild(el('button', { class: 'ccw-btn secondary', on: { click: function () { self.toggleCam(); } } }, [self.camOn ? tr('camera_off') : tr('camera_on')]));
-          }
-        }
-        controls.appendChild(el('button', { class: 'ccw-btn danger', on: { click: function () { self.cancelCall(); } } }, [tr('end')]));
-        return el('div', { class: 'ccw-stack' }, [card, controls]);
-      }
-
-      case STATES.ENDED: {
-        if (self.callbackId) {
-          var ref = String(self.callbackId).slice(0, 8).toUpperCase();
-          var when = self.formData.callback_when === 'later' && self.formData.callback_scheduled_for
-            ? new Date(self.formData.callback_scheduled_for).toLocaleString()
-            : tr('asap');
-          var chLabel = self.formData.callback_channel === 'video' ? tr('video_callback') : tr('phone_callback');
-          return el('div', { class: 'ccw-stack' }, [
-            el('div', { class: 'ccw-success-card' }, [
-              el('div', { class: 'ccw-success-icon' }, ['✓']),
-              el('div', { class: 'ccw-success-title' }, [tr('callback_scheduled')]),
-              el('div', { class: 'ccw-muted', style: 'text-align:center;' }, [tr('reach_out', { when: when })]),
-              el('div', { class: 'ccw-ref-row' }, [
-                el('span', { class: 'ccw-ref-label' }, [tr('reference')]),
-                el('code', { class: 'ccw-ref-code' }, [ref]),
-              ]),
-              el('div', { class: 'ccw-ref-row' }, [
-                el('span', { class: 'ccw-ref-label' }, [tr('type')]),
-                el('span', {}, [chLabel]),
-              ]),
-            ]),
-            el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, [tr('done')]),
-          ]);
-        }
-        // Post-call rating screen (only when the call actually started).
-        var stack = [];
-        var durLabel = self.endedDuration > 0 ? fmtTime(self.endedDuration * 1000) : null;
-        var endedCard = el('div', { class: 'ccw-card ccw-ended-card' }, [
-          el('div', { class: 'ccw-ended-icon' }, ['✓']),
-          el('div', { class: 'ccw-ended-title' }, [tr('call_ended')]),
-        ]);
-        if (self.operatorName) {
-          endedCard.appendChild(el('div', { class: 'ccw-muted', style: 'text-align:center;' }, [self.operatorName]));
-        }
-        if (durLabel) {
-          endedCard.appendChild(el('div', { class: 'ccw-ended-duration' }, [
-            el('span', {}, [tr('call_duration')]),
-            el('strong', {}, [durLabel]),
-          ]));
-        }
-        stack.push(endedCard);
-        if (self.endedCallId && !self.ratingSubmitted) {
-          var rateBox = el('div', { class: 'ccw-rate-box' }, [
-            el('div', { class: 'ccw-rate-title' }, [tr('rate_call_title')]),
-            el('div', { class: 'ccw-rate-sub' }, [tr('rate_call_sub')]),
-          ]);
-          var stars = el('div', { class: 'ccw-rate-stars' });
-          var renderStars = function () {
-            stars.innerHTML = '';
-            for (var i = 1; i <= 5; i++) {
-              (function (n) {
-                var btn = el('button', {
-                  class: 'ccw-star' + (self.ratingValue >= n ? ' filled' : ''),
-                  type: 'button',
-                  'aria-label': String(n),
-                  on: { click: function () { self.ratingValue = n; renderStars(); } },
-                }, ['★']);
-                stars.appendChild(btn);
-              })(i);
-            }
-          };
-          renderStars();
-          rateBox.appendChild(stars);
-          var ta = el('textarea', { class: 'ccw-textarea', placeholder: tr('rate_comment_ph') });
-          ta.value = self.ratingComment || '';
-          ta.addEventListener('input', function (e) { self.ratingComment = e.target.value; });
-          rateBox.appendChild(ta);
-          rateBox.appendChild(el('div', { class: 'ccw-row' }, [
-            el('button', { class: 'ccw-btn secondary', on: { click: function () { self.reset(); } } }, [tr('rate_skip')]),
-            el('button', { class: 'ccw-btn primary', on: { click: function () { self.submitRating(); } } }, [tr('rate_submit')]),
-          ]));
-          stack.push(rateBox);
-        } else if (self.ratingSubmitted) {
-          stack.push(el('div', { class: 'ccw-rate-thanks' }, [tr('rate_thanks')]));
-          stack.push(el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, [tr('done')]));
-        } else {
-          stack.push(el('button', { class: 'ccw-btn primary', on: { click: function () { self.reset(); } } }, [tr('done')]));
-        }
-        return el('div', { class: 'ccw-stack' }, stack);
-      }
-
-      case STATES.ERROR:
-        return el('div', { class: 'ccw-stack' }, [
-          el('div', { class: 'ccw-error' }, [tr('error_prefix', { error: self.error || tr('unknown') })]),
-          el('button', { class: 'ccw-btn secondary', on: { click: function () { self.reset(); } } }, [tr('back')]),
-        ]);
-    }
-    return el('div', {}, ['…']);
-  };
-
-  CallCenterWidgetCtor.prototype.renderForm = function (cfg, forCall) {
-    var self = this;
-    var tr = function (key, vars) { return self.t(key, vars); };
-    var policy = (self.bootstrap && self.bootstrap.callback_policy) || {};
-    var box = el('div', { class: 'ccw-stack' });
-    if (!forCall) {
-      box.appendChild(el('div', { class: 'ccw-cb-intro' }, [
-        el('div', { class: 'ccw-cb-intro-title' }, [tr('request_callback_title')]),
-        el('div', { class: 'ccw-muted' }, [tr('callback_intro')]),
-      ]));
-    }
-    // Channel segmented control (callback only)
-    if (!forCall) {
-      var caps2 = (self.bootstrap && self.bootstrap.capabilities) || {};
-      box.appendChild(el('label', { class: 'ccw-label' }, [tr('callback_type')]));
-      var seg = el('div', { class: 'ccw-segment' });
-      function mkSeg(val, label) {
-        var active = (self.formData.callback_channel === val);
-        var b = el('button', { class: 'ccw-seg-btn' + (active ? ' active' : ''), type: 'button',
-          on: { click: function () { self.formData.callback_channel = val; self.render(); } } }, [label]);
-        return b;
-      }
-      seg.appendChild(mkSeg('audio', tr('phone')));
-      if (caps2.video) seg.appendChild(mkSeg('video', tr('video')));
-      box.appendChild(seg);
-    }
-    // Department dropdown (only if backend exposed options for this channel).
-    var depts = (self.bootstrap && self.bootstrap.departments) || {};
-    var deptList;
-    if (forCall) {
-      var ct = self.formData.call_type === 'video' ? 'video' : 'voice';
-      deptList = depts[ct] || [];
+    var theme = (this.bootstrap && this.bootstrap.config && this.bootstrap.config.widget_theme) || {};
+    var context = {
+      contractVersion: 1,
+      root: this.root,
+      theme: theme,
+      viewModel: this.getPresentationViewModel(),
+      intents: this.getPresentationIntents(),
+      controller: this,
+      audio: Object.freeze({
+        isActive: Ringback.isActive,
+        isMuted: Ringback.isMuted,
+        needsGesture: Ringback.needsGesture,
+        setMuted: Ringback.setMuted,
+        startFromGesture: Ringback.startFromGesture,
+      }),
+    };
+    if (!this.presentation) return;
+    if (!this.presentationInstance) {
+      this.presentationInstance = this.presentation.mount(context);
     } else {
-      deptList = depts.callback || [];
+      this.presentation.update(this.presentationInstance, context);
     }
-    if (deptList.length > 0) {
-      box.appendChild(el('label', { class: 'ccw-label' }, [tr('department')]));
-      var sel = el('select', { class: 'ccw-input' });
-      var ph = el('option', { value: '' }, [tr('choose_department')]);
-      sel.appendChild(ph);
-      for (var di = 0; di < deptList.length; di++) {
-        var d = deptList[di];
-        var opt = el('option', { value: d.id }, [d.name]);
-        if (self.formData.department_id === d.id) opt.selected = true;
-        sel.appendChild(opt);
-      }
-      sel.addEventListener('change', function (e) { self.formData.department_id = e.target.value; });
-      box.appendChild(sel);
-    }
-    var alreadyIdentified = !!(self.identifiedContact && self.identifiedContact.id);
-    if (alreadyIdentified) {
-      var knownName = self.identifiedContact.name || self.formData.name || tr('known_contact');
-      box.appendChild(el('div', { class: 'ccw-known-contact' }, [
-        el('div', { class: 'ccw-known-dot' }, ['✓']),
-        el('div', {}, [
-          el('div', { class: 'ccw-known-title' }, [knownName]),
-          el('div', { class: 'ccw-muted' }, [tr('contact_saved')]),
-        ]),
-      ]));
-    }
-    var fields = alreadyIdentified
-      ? [['subject', tr('subject'), 'text']]
-      : [
-        ['name', tr('full_name'), 'text'],
-        ['email', !forCall && policy.require_contact ? tr('email_required') : tr('email'), 'email'],
-        ['phone', !forCall && policy.require_contact ? tr('phone_required') : tr('phone_field'), 'tel'],
-        ['subject', tr('subject'), 'text'],
-      ];
-    fields.forEach(function (f) {
-      var label = el('label', { class: 'ccw-label' }, [f[1]]);
-      var input = el('input', { class: 'ccw-input', type: f[2], value: self.formData[f[0]] || '' });
-      input.addEventListener('input', function (e) { self.formData[f[0]] = e.target.value; });
-      box.appendChild(label);
-      box.appendChild(input);
+  };
+
+  CallCenterWidgetCtor.prototype.getPresentationViewModel = function () {
+    return Object.freeze({
+      state: this.state,
+      open: !!this.open,
+      locale: this.locale,
+      direction: (LOCALE_META[this.locale] && LOCALE_META[this.locale].dir) || 'ltr',
+      online: this.isOnline(),
+      position: this.position(),
+      config: Object.freeze(Object.assign({}, (this.bootstrap && this.bootstrap.config) || {})),
+      capabilities: Object.freeze(Object.assign({}, (this.bootstrap && this.bootstrap.capabilities) || {})),
+      error: this.error || null,
+      queuePosition: this.queuePosition,
+      queueEta: this.queueEta,
+      connectStatus: this.connectStatus || null,
     });
-    if (!forCall && policy.require_contact && !alreadyIdentified) {
-      box.appendChild(el('div', { class: 'ccw-muted', style: 'font-size:11px;margin-top:-4px;' }, [
-        tr('contact_required_note'),
-      ]));
-    }
-    if (!forCall) {
-      // Honeypot (anti-bot): visually hidden, never tabbable.
-      if (policy.honeypot_enabled !== false) {
-        var hp = el('input', {
-          type: 'text', name: 'company_website', autocomplete: 'off', tabindex: '-1', 'aria-hidden': 'true',
-          style: 'position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;opacity:0;',
-        });
-        hp.value = self.formData.hp_company || '';
-        hp.addEventListener('input', function (e) { self.formData.hp_company = e.target.value; });
-        box.appendChild(hp);
-      }
-      // Message textarea
-      var msgLabel = policy.min_message_length > 0
-        ? tr('message_min', { n: policy.min_message_length })
-        : tr('message_optional');
-      box.appendChild(el('label', { class: 'ccw-label' }, [msgLabel]));
-      var ta = el('textarea', { class: 'ccw-textarea', placeholder: tr('message_placeholder') });
-      ta.value = self.formData.message || '';
-      ta.addEventListener('input', function (e) { self.formData.message = e.target.value; });
-      box.appendChild(ta);
-      // When
-      box.appendChild(el('label', { class: 'ccw-label' }, [tr('when_call')]));
-      var when = el('div', { class: 'ccw-segment' });
-      function mkWhen(val, label) {
-        var active = (self.formData.callback_when === val);
-        return el('button', { class: 'ccw-seg-btn' + (active ? ' active' : ''), type: 'button',
-          on: { click: function () { self.formData.callback_when = val; self.render(); } } }, [label]);
-      }
-      when.appendChild(mkWhen('now', '⚡ ' + tr('asap')));
-      when.appendChild(mkWhen('later', tr('schedule')));
-      box.appendChild(when);
-      if (self.formData.callback_when === 'later') {
-        var dt = el('input', { class: 'ccw-input', type: 'datetime-local' });
-        dt.value = self.formData.callback_scheduled_for || '';
-        var minDate = new Date(Date.now() + 5 * 60000);
-        dt.min = new Date(minDate.getTime() - minDate.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-        dt.addEventListener('input', function (e) { self.formData.callback_scheduled_for = e.target.value; });
-        box.appendChild(dt);
-      }
-      // Urgency
-      box.appendChild(el('label', { class: 'ccw-label' }, [tr('priority')]));
-      var ur = el('div', { class: 'ccw-segment' });
-      function mkUr(val, label) {
-        var active = (self.formData.callback_urgency === val);
-        return el('button', { class: 'ccw-seg-btn' + (active ? ' active' : '') + (val === 'urgent' && active ? ' danger' : ''), type: 'button',
-          on: { click: function () { self.formData.callback_urgency = val; self.render(); } } }, [label]);
-      }
-      ur.appendChild(mkUr('normal', tr('normal')));
-      ur.appendChild(mkUr('urgent', tr('urgent')));
-      box.appendChild(ur);
-    }
-    if (forCall) {
-      var rec = (self.bootstrap && self.bootstrap.recording) || {};
-      if (rec.effective_enabled && rec.consent_required) {
-        var cb = el('label', { class: 'ccw-checkbox' });
-        var ci = el('input', { type: 'checkbox' });
-        ci.checked = !!self.formData.consent;
-        ci.addEventListener('change', function (e) { self.formData.consent = !!e.target.checked; });
-        cb.appendChild(ci);
-        cb.appendChild(document.createTextNode(tr('consent_required')));
-        box.appendChild(cb);
-      } else if (rec.effective_enabled) {
-        box.appendChild(el('div', { class: 'ccw-muted' }, [
-          tr('call_may_record'),
-        ]));
-      }
-    }
-    if (self.error) box.appendChild(el('div', { class: 'ccw-error' }, [self.error]));
-    var actions = el('div', { class: 'ccw-row' }, [
-      el('button', { class: 'ccw-btn secondary', on: { click: function () { self.reset(); } } }, [tr('back')]),
-      el('button', { class: 'ccw-btn primary', on: { click: function () { forCall ? self.submitCall() : self.submitCallback(); } } },
-        [forCall ? tr('start_call') : tr('send_request')]),
-    ]);
-    box.appendChild(actions);
-    return box;
+  };
+
+  CallCenterWidgetCtor.prototype.getPresentationIntents = function () {
+    var self = this;
+    return Object.freeze({
+      toggleOpen: function () { self.toggleOpen(); },
+      startVoiceCall: function () { self.startCall('voice'); },
+      startVideoCall: function () { self.startCall('video'); },
+      requestCallback: function () { self.openCallback(); },
+      cancelCall: function () { self.cancelCall(); },
+      reset: function () { self.reset(); },
+      setLocale: function (locale) { self.setLocale(locale); },
+    });
   };
 
   window.CallCenterWidget = new CallCenterWidgetCtor();

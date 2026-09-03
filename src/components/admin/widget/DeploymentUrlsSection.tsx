@@ -32,6 +32,7 @@ import {
   type WidgetUrlTestResult,
 } from '@/lib/widget-admin-api';
 import type { WidgetPlatformSettings } from '@/hooks/useWidgetPlatformSettings';
+import { useTranslation } from '@/i18n';
 
 interface Props {
   settings: WidgetPlatformSettings;
@@ -41,8 +42,6 @@ interface Props {
 
 interface UrlField {
   key: keyof WidgetPlatformSettings;
-  label: string;
-  description: string;
   placeholder: string;
   icon: React.ComponentType<{ className?: string }>;
 }
@@ -50,29 +49,21 @@ interface UrlField {
 const URL_FIELDS: UrlField[] = [
   {
     key: 'widget_loader_base_url',
-    label: 'Widget Loader Base URL',
-    description: 'Origin that hosts /widget/loader.js — the script your customers paste.',
     placeholder: 'https://widget.yourdomain.com',
     icon: Link2,
   },
   {
     key: 'widget_asset_base_url',
-    label: 'Widget Asset Base URL',
-    description: 'Origin that hosts the runtime, manifest, and stylesheet (usually same as loader).',
     placeholder: 'https://widget.yourdomain.com',
     icon: Globe,
   },
   {
     key: 'widget_public_base_url',
-    label: 'Widget Public Base URL',
-    description: 'Public-facing origin shown in install snippets and previews.',
     placeholder: 'https://widget.yourdomain.com',
     icon: Globe,
   },
   {
     key: 'widget_api_base_url',
-    label: 'Widget API Base URL',
-    description: 'Backend origin handling /api/widget/* (bootstrap, messages, attachments).',
     placeholder: 'https://api.yourdomain.com',
     icon: Server,
   },
@@ -84,13 +75,15 @@ type TestState = {
 };
 
 function StatusBadge({ status }: { status?: WidgetUrlTestResult['status'] | 'idle' }) {
-  if (!status || status === 'idle') return <Badge variant="outline" className="text-xs">Not tested</Badge>;
-  if (status === 'success') return <Badge className="text-xs gap-1"><CheckCircle2 className="h-3 w-3" />Success</Badge>;
-  if (status === 'warning') return <Badge variant="secondary" className="text-xs gap-1"><AlertTriangle className="h-3 w-3" />Warning</Badge>;
-  return <Badge variant="destructive" className="text-xs gap-1"><XCircle className="h-3 w-3" />Failed</Badge>;
+  const { t } = useTranslation();
+  if (!status || status === 'idle') return <Badge variant="outline" className="text-xs">{t('admin.widgetSettingsPage.urls.status.idle' as any)}</Badge>;
+  if (status === 'success') return <Badge className="text-xs gap-1"><CheckCircle2 className="h-3 w-3" />{t('admin.widgetSettingsPage.urls.status.success' as any)}</Badge>;
+  if (status === 'warning') return <Badge variant="secondary" className="text-xs gap-1"><AlertTriangle className="h-3 w-3" />{t('admin.widgetSettingsPage.urls.status.warning' as any)}</Badge>;
+  return <Badge variant="destructive" className="text-xs gap-1"><XCircle className="h-3 w-3" />{t('admin.widgetSettingsPage.urls.status.failed' as any)}</Badge>;
 }
 
 export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
+  const { t } = useTranslation();
   // Local draft so admins can edit multiple fields then save once.
   const [draft, setDraft] = useState({
     widget_loader_base_url: settings.widget_loader_base_url || '',
@@ -206,7 +199,7 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
             content_type: null,
             response_kind: null,
             duration_ms: null,
-            message: err?.message || 'Request failed',
+            message: err?.message || t('admin.widgetSettingsPage.urls.requestFailed' as any),
           },
         },
       }));
@@ -228,9 +221,9 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
       await navigator.clipboard.writeText(embedSnippet);
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
-      toast({ title: 'Copied', description: 'Embed snippet copied to clipboard' });
+      toast({ title: t('admin.widgetSettingsPage.urls.copied' as any), description: t('admin.widgetSettingsPage.urls.copiedDescription' as any) });
     } catch {
-      toast({ title: 'Copy failed', variant: 'destructive' });
+      toast({ title: t('admin.widgetSettingsPage.urls.copyFailed' as any), variant: 'destructive' });
     }
   };
 
@@ -241,11 +234,10 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Globe className="h-4 w-4 text-primary" />
-            Widget Deployment & URLs
+            {t('admin.widgetSettingsPage.urls.title' as any)}
           </CardTitle>
           <CardDescription>
-            Single source of truth for all widget assets. Changes apply instantly to every workspace's
-            install snippet — no per-workspace overrides.
+            {t('admin.widgetSettingsPage.urls.description' as any)}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -253,9 +245,9 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
             <div key={field.key} className="space-y-2 rounded-lg border border-border p-4">
               <div className="flex items-center gap-2">
                 <field.icon className="h-4 w-4 text-primary" />
-                <Label className="text-sm font-medium">{field.label}</Label>
+                <Label className="text-sm font-medium">{t(`admin.widgetSettingsPage.urls.fields.${field.key}.label` as any)}</Label>
               </div>
-              <p className="text-xs text-muted-foreground">{field.description}</p>
+              <p className="text-xs text-muted-foreground">{t(`admin.widgetSettingsPage.urls.fields.${field.key}.description` as any)}</p>
               <Input
                 value={(draft[field.key as keyof typeof draft] as string) || ''}
                 onChange={(e) => setDraft((d) => ({ ...d, [field.key]: e.target.value }))}
@@ -267,11 +259,11 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
 
           <div className="flex items-center justify-end gap-2 pt-2">
             <Button variant="ghost" size="sm" onClick={handleReset} disabled={!isDirty || saving}>
-              Reset
+              {t('admin.widgetSettingsPage.urls.reset' as any)}
             </Button>
             <Button size="sm" onClick={handleSave} disabled={!isDirty || saving}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
-              Save URLs
+              {saving ? <Loader2 className="h-4 w-4 animate-spin me-1.5" /> : null}
+              {t('admin.widgetSettingsPage.urls.save' as any)}
             </Button>
           </div>
 
@@ -279,8 +271,7 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
             <div className="flex items-start gap-2 bg-muted text-muted-foreground rounded-lg p-3 text-xs border border-border">
               <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
               <p>
-                Some URLs are unset. The system is using fallbacks for previews; embed code shown below may not
-                reach a real deployment until you fill them in and save.
+                {t('admin.widgetSettingsPage.urls.missing' as any)}
               </p>
             </div>
           ) : null}
@@ -308,44 +299,41 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-3">
           <div>
-            <CardTitle className="text-base">Computed URLs & Diagnostics</CardTitle>
-            <CardDescription>
-              Server-side checks. Each test fetches the URL from your backend (no browser CORS) and
-              verifies the response is the right type.
-            </CardDescription>
+            <CardTitle className="text-base">{t('admin.widgetSettingsPage.urls.diagnosticsTitle' as any)}</CardTitle>
+            <CardDescription>{t('admin.widgetSettingsPage.urls.diagnosticsDescription' as any)}</CardDescription>
           </div>
           <Button variant="outline" size="sm" onClick={runAllTests} className="gap-1.5">
             <PlayCircle className="h-4 w-4" />
-            Run all tests
+            {t('admin.widgetSettingsPage.urls.runAll' as any)}
           </Button>
         </CardHeader>
         <CardContent className="space-y-3">
           <UrlRow
-            label="Loader URL"
+            label={t('admin.widgetSettingsPage.urls.rows.loader' as any)}
             url={urls.loaderUrl}
             test={tests.loader}
             onTest={() => runTest('loader', urls.loaderUrl)}
           />
           <UrlRow
-            label="Manifest URL"
+            label={t('admin.widgetSettingsPage.urls.rows.manifest' as any)}
             url={urls.manifestUrl}
             test={tests.manifest}
             onTest={() => runTest('manifest', urls.manifestUrl)}
           />
           <UrlRow
-            label="Runtime URL (resolved via manifest)"
+            label={t('admin.widgetSettingsPage.urls.rows.runtime' as any)}
             url={`${urls.runtimeBase}runtime.js`}
             test={tests.runtime}
             onTest={() => runTest('runtime', `${urls.runtimeBase}runtime.js`)}
           />
           <UrlRow
-            label="Stylesheet URL"
+            label={t('admin.widgetSettingsPage.urls.rows.stylesheet' as any)}
             url={urls.stylesheetUrl}
             test={tests.stylesheet}
             onTest={() => runTest('stylesheet', urls.stylesheetUrl)}
           />
           <UrlRow
-            label="API Bootstrap URL"
+            label={t('admin.widgetSettingsPage.urls.rows.bootstrap' as any)}
             url={urls.bootstrapUrl}
             test={tests.api_bootstrap}
             onTest={() => runTest('api_bootstrap', urls.bootstrapUrl)}
@@ -359,67 +347,65 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
           <div>
             <CardTitle className="text-base flex items-center gap-2">
               <Code2 className="h-4 w-4 text-primary" />
-              Generated Widget Embed Code
+              {t('admin.widgetSettingsPage.urls.embedTitle' as any)}
             </CardTitle>
             <CardDescription>
-              Live preview — pick one of your workspaces to generate a real, testable snippet.
-              Workspaces always see this same code in their Install tab; any URL change here
-              propagates instantly.
+              {t('admin.widgetSettingsPage.urls.embedDescription' as any)}
             </CardDescription>
           </div>
           <Button variant="outline" size="sm" onClick={copyEmbed} className="gap-1.5">
             {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-            {copied ? 'Copied' : 'Copy'}
+            {copied ? t('admin.widgetSettingsPage.urls.copied' as any) : t('admin.widgetSettingsPage.urls.copy' as any)}
           </Button>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Preview as workspace</Label>
+            <Label className="text-xs text-muted-foreground">{t('admin.widgetSettingsPage.urls.previewWorkspace' as any)}</Label>
             {adminWorkspaces && adminWorkspaces.length > 0 ? (
               <Select value={previewWorkspaceId} onValueChange={setPreviewWorkspaceId}>
                 <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder="Select a workspace" />
+                  <SelectValue placeholder={t('admin.widgetSettingsPage.urls.selectWorkspace' as any)} />
                 </SelectTrigger>
                 <SelectContent>
                   {adminWorkspaces.map((w) => (
                     <SelectItem key={w.id} value={w.id} className="text-xs">
                       <span className="font-medium">{w.name}</span>
-                      <span className="text-muted-foreground ml-2 font-mono">{w.id.slice(0, 8)}…</span>
+                      <span className="text-muted-foreground ms-2 font-mono">{w.id.slice(0, 8)}…</span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             ) : (
               <p className="text-xs text-muted-foreground italic">
-                You don't belong to any workspace yet — preview will use a placeholder ID.
+                {t('admin.widgetSettingsPage.urls.noWorkspace' as any)}
               </p>
             )}
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Header comment (above &lt;script&gt;)</Label>
+              <Label className="text-xs text-muted-foreground">{t('admin.widgetSettingsPage.urls.headerComment' as any)}</Label>
               <Textarea
                 value={draft.embed_header_comment}
                 onChange={(e) => setDraft((d) => ({ ...d, embed_header_comment: e.target.value }))}
-                placeholder="e.g. Powered by Destekly · v2.1"
+                placeholder={t('admin.widgetSettingsPage.urls.headerPlaceholder' as any)}
                 rows={3}
                 className="font-mono text-xs"
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Footer comment (below &lt;script&gt;)</Label>
+              <Label className="text-xs text-muted-foreground">{t('admin.widgetSettingsPage.urls.footerComment' as any)}</Label>
               <Textarea
                 value={draft.embed_footer_comment}
                 onChange={(e) => setDraft((d) => ({ ...d, embed_footer_comment: e.target.value }))}
-                placeholder="e.g. Need help? support@destekly.tr"
+                placeholder={t('admin.widgetSettingsPage.urls.footerPlaceholder' as any)}
                 rows={3}
                 className="font-mono text-xs"
               />
             </div>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Rendered as HTML comments around the script tag for every workspace's snippet. Click "Save URLs" to apply.
+            {t('admin.widgetSettingsPage.urls.commentsHint' as any)}
           </p>
 
           <Textarea
@@ -446,6 +432,7 @@ function UrlRow({
   test: TestState;
   onTest: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="rounded-lg border border-border p-3 space-y-2">
       <div className="flex items-center justify-between gap-3">
@@ -457,7 +444,7 @@ function UrlRow({
           <StatusBadge status={test.result?.status} />
           <Button variant="outline" size="sm" onClick={onTest} disabled={test.loading} className="h-8 gap-1.5">
             {test.loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            Test
+            {t('admin.widgetSettingsPage.urls.test' as any)}
           </Button>
         </div>
       </div>
@@ -467,8 +454,8 @@ function UrlRow({
           <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] opacity-80">
             {test.result.http_status != null ? <span>HTTP {test.result.http_status}</span> : null}
             {test.result.content_type ? <span>{test.result.content_type}</span> : null}
-            {test.result.duration_ms != null ? <span>{test.result.duration_ms}ms</span> : null}
-            {test.result.response_kind ? <span>kind: {test.result.response_kind}</span> : null}
+            {test.result.duration_ms != null ? <span>{test.result.duration_ms} {t('admin.widgetSettingsPage.urls.ms' as any)}</span> : null}
+            {test.result.response_kind ? <span>{t('admin.widgetSettingsPage.urls.kind' as any)}: {test.result.response_kind}</span> : null}
           </div>
         </div>
       ) : null}

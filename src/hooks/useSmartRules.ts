@@ -1,4 +1,3 @@
-import { supabase } from '@/lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 import {
@@ -8,53 +7,61 @@ import {
   type SmartRuleDraft,
 } from '@/lib/widget/smartRules';
 
-const TABLE = 'widget_smart_rules';
 const API_BASE = RESOLVED_API_BASE || '';
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
+/**
+ * All rule reads/writes go through the Express boundary.
+ *
+ * The browser has no Supabase session in this self-hosted deployment
+ * (first-party auth), so the previous direct table access was silently
+ * filtered to zero rows by RLS (`is_workspace_member(..., auth.uid())`) and
+ * the Smart Engagement tab always looked empty.
+ */
+function rulesUrl(workspaceId: string, suffix = ''): string {
+  return `${API_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/smart-rules${suffix}`;
+}
+
+async function callApi(url: string, init?: RequestInit): Promise<any> {
+  const res = await fetch(url, { credentials: 'include', ...init });
+  const raw = await res.text();
+  let json: any = null;
+  try {
+    json = raw ? JSON.parse(raw) : null;
+  } catch {
+    throw new Error(`Unexpected response (HTTP ${res.status}): ${raw.slice(0, 160)}`);
+  }
+  if (!res.ok) {
+    const err: any = new Error(json?.error || `Request failed: ${res.status}`);
+    err.issues = json?.issues;
+    throw err;
+  }
+  return json;
+}
+
 /** Server-side publish boundary — never write status:'active' directly. */
 async function publishSmartRule(workspaceId: string, ruleId: string): Promise<SmartRuleRow> {
-  const res = await fetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/smart-rules/${encodeURIComponent(ruleId)}/publish`, {
-    credentials: 'include',
+  const json = await callApi(rulesUrl(workspaceId, `/${encodeURIComponent(ruleId)}/publish`), {
     method: 'POST',
     headers: JSON_HEADERS,
   });
-  const json = await res.json();
-  if (!res.ok) {
-    const err: any = new Error(json.error || `Publish failed: ${res.status}`);
-    err.issues = json.issues;
-    throw err;
-  }
   return json.rule as SmartRuleRow;
 }
 
 async function unpublishSmartRule(workspaceId: string, ruleId: string): Promise<SmartRuleRow> {
-  const res = await fetch(`${API_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/smart-rules/${encodeURIComponent(ruleId)}/unpublish`, {
-    credentials: 'include',
+  const json = await callApi(rulesUrl(workspaceId, `/${encodeURIComponent(ruleId)}/unpublish`), {
     method: 'POST',
     headers: JSON_HEADERS,
   });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.error || `Unpublish failed: ${res.status}`);
   return json.rule as SmartRuleRow;
 }
-
-const SELECT = 'id, workspace_id, name, description, status, priority, schema_version, published_version, '
-  + 'trigger_config, audience_config, content_config, presentation_config, schedule_config, '
-  + 'frequency_config, behavior_config, created_at, updated_at, published_at';
 
 export function useSmartRules(workspaceId: string | undefined) {
   return useQuery({
     queryKey: ['widget-smart-rules', workspaceId],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from(TABLE)
-        .select(SELECT)
-        .eq('workspace_id', workspaceId!)
-        .order('priority', { ascending: false })
-        .order('updated_at', { ascending: false });
-      if (error) throw error;
-      return (data || []) as SmartRuleRow[];
+      const json = await callApi(rulesUrl(workspaceId!));
+      return (json.rules || []) as SmartRuleRow[];
     },
     enabled: !!workspaceId,
   });
@@ -65,24 +72,11 @@ export function useSmartRuleStats(workspaceId: string | undefined) {
   return useQuery({
     queryKey: ['widget-smart-rule-stats', workspaceId],
     queryFn: async () => {
-      const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
-      const { data, error } = await (supabase as any)
-        .from('widget_smart_events')
-        .select('rule_id, event_type')
-        .eq('workspace_id', workspaceId!)
-        .gte('created_at', since)
-        .limit(5000);
-      if (error) throw error;
-      const map: Record<string, { shown: number; opened: number; dismissed: number; cta: number; conversations: number }> = {};
-      for (const row of data || []) {
-        const entry = map[row.rule_id] ||= { shown: 0, opened: 0, dismissed: 0, cta: 0, conversations: 0 };
-        if (row.event_type === 'shown') entry.shown++;
-        else if (row.event_type === 'opened' || row.event_type === 'widget_opened') entry.opened++;
-        else if (row.event_type === 'dismissed') entry.dismissed++;
-        else if (row.event_type === 'cta_clicked') entry.cta++;
-        else if (row.event_type === 'conversation_started') entry.conversations++;
-      }
-      return map;
+      const json = await callApi(rulesUrl(workspaceId!, '/stats'));
+      return (json.stats || {}) as Record<
+        string,
+        { shown: number; opened: number; dismissed: number; cta: number; conversations: number }
+      >;
     },
     enabled: !!workspaceId,
     staleTime: 60_000,
@@ -106,20 +100,18 @@ export function useSaveSmartRule(workspaceId: string | undefined) {
       // re-validates and owns published_version.
       if (wantsPublish) payload.status = draft.id ? 'paused' : 'draft';
 
-      let saved: SmartRuleRow;
-      if (draft.id) {
-        const { data, error } = await (supabase as any)
-          .from(TABLE).update(payload).eq('id', draft.id).eq('workspace_id', workspaceId)
-          .select(SELECT).single();
-        if (error) throw error;
-        saved = data as SmartRuleRow;
-      } else {
-        const { data, error } = await (supabase as any)
-          .from(TABLE).insert({ ...payload, workspace_id: workspaceId })
-          .select(SELECT).single();
-        if (error) throw error;
-        saved = data as SmartRuleRow;
-      }
+      const json = draft.id
+        ? await callApi(rulesUrl(workspaceId, `/${encodeURIComponent(draft.id)}`), {
+            method: 'PATCH',
+            headers: JSON_HEADERS,
+            body: JSON.stringify(payload),
+          })
+        : await callApi(rulesUrl(workspaceId), {
+            method: 'POST',
+            headers: JSON_HEADERS,
+            body: JSON.stringify(payload),
+          });
+      let saved = json.rule as SmartRuleRow;
       if (wantsPublish) saved = await publishSmartRule(workspaceId, saved.id);
       return saved;
     },
@@ -143,9 +135,11 @@ export function useSetSmartRuleStatus(workspaceId: string | undefined) {
         await unpublishSmartRule(workspaceId, rule.id);
         return;
       }
-      const { error } = await (supabase as any)
-        .from(TABLE).update({ status }).eq('id', rule.id).eq('workspace_id', workspaceId);
-      if (error) throw error;
+      await callApi(rulesUrl(workspaceId, `/${encodeURIComponent(rule.id)}`), {
+        method: 'PATCH',
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ status }),
+      });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['widget-smart-rules', workspaceId] }),
   });
@@ -155,9 +149,7 @@ export function useDeleteSmartRule(workspaceId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (ruleId: string) => {
-      const { error } = await (supabase as any)
-        .from(TABLE).delete().eq('id', ruleId).eq('workspace_id', workspaceId!);
-      if (error) throw error;
+      await callApi(rulesUrl(workspaceId!, `/${encodeURIComponent(ruleId)}`), { method: 'DELETE' });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['widget-smart-rules', workspaceId] }),
   });
@@ -167,18 +159,16 @@ export function useDuplicateSmartRule(workspaceId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (rule: SmartRuleRow) => {
-      const { id, workspace_id, created_at, updated_at, published_at, ...rest } = rule as any;
-      const { error } = await (supabase as any).from(TABLE).insert({
-        ...rest,
-        workspace_id: workspaceId,
-        name: `${rule.name} (copy)`,
-        status: 'draft',
-        published_version: 0,
+      if (!workspaceId) throw new Error('workspace_required');
+      const { id, workspace_id, created_at, updated_at, published_at, status, ...rest } = rule as any;
+      await callApi(rulesUrl(workspaceId), {
+        method: 'POST',
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ ...rest, name: `${rule.name} (copy)`, status: 'draft' }),
       });
-      if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['widget-smart-rules', workspaceId] }),
   });
 }
 
-export { smartRuleSchema };
+export { smartRuleSchema, validateSmartRuleForPublish };

@@ -48,7 +48,7 @@ interface I18nContextValue {
   locale: Locale;
   dir: Direction;
   setLocale: (locale: Locale) => void;
-  t: (key: TranslationKey, params?: Record<string, string>) => string;
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string;
   isLoading: boolean;
 }
 
@@ -143,14 +143,14 @@ export function I18nProvider({ children, initialLocale: initialLocaleProp, initi
     void loadLocale(locale);
   }, [initialLocale, initialTranslations, loadLocale, locale]);
 
-  const t = useCallback((key: TranslationKey, params?: Record<string, string>): string => {
+  const t = useCallback((key: TranslationKey, params?: Record<string, string | number>): string => {
     let value = getNestedValue(translations as unknown as Record<string, unknown>, key);
     if (value === key) {
       value = getNestedValue(fallbackTranslations as unknown as Record<string, unknown>, key);
     }
     if (params) {
       Object.entries(params).forEach(([k, v]) => {
-        value = value.replace(`{{${k}}}`, v);
+        value = value.replace(`{{${k}}}`, String(v));
       });
     }
     return value;

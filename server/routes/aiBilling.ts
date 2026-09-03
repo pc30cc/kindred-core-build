@@ -319,15 +319,17 @@ aiBillingRouter.get('/workspaces/:workspaceId/history', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   const sb = getServiceClient(config);
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
-  const { data } = await sb
+  const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 200);
+  const offset = Math.max(Number(req.query.offset) || 0, 0);
+  const { data, count } = await sb
     .from('workspace_ai_ledger')
-    .select('id, entry_type, amount, billing_cycle_id, reason, created_at, run_id')
+    .select('id, entry_type, amount, billing_cycle_id, reason, created_at, run_id', { count: 'exact' })
     .eq('workspace_id', req.params.workspaceId)
     .order('created_at', { ascending: false })
-    .limit(limit);
-  res.json({ entries: data || [] });
+    .range(offset, offset + limit - 1);
+  res.json({ entries: data || [], total: count ?? 0, limit, offset });
 });
+
 
 // ═══════════════════ Admin surface ═══════════════════
 

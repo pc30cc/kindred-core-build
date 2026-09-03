@@ -21,7 +21,8 @@ import { runAiBillingRecovery } from '../services/ai-billing/recovery.js';
 import { getBillingDegradation } from '../services/ai-billing/degrade.js';
 import { getAiBillingRecoveryStatus } from '../services/ai-billing/recoveryTicker.js';
 import { resolveBillingConfig, getProvider } from '../services/billing/index.js';
-import { createAiCreditTopupIntent, setPaymentIntentProviderRef, IRAN_PROVIDERS } from '../services/billing/paymentIntent.js';
+import { createAiCreditTopupIntent, setPaymentIntentProviderRef, markPaymentIntentFailed, IRAN_PROVIDERS } from '../services/billing/paymentIntent.js';
+import { requiresReferenceBinding } from '../services/billing/providerBinding.js';
 
 export const aiBillingRouter = Router();
 
@@ -186,8 +187,22 @@ aiBillingRouter.post('/workspaces/:workspaceId/topup/checkout', async (req, res)
       callbackUrl: `${callbackUrl}${sep}intent=${intent.id}&provider=${encodeURIComponent(resolved.provider.name)}`,
       metadata: { amount: String(amountIrr) },
     });
-    if (result.authority || result.sessionId) {
-      await setPaymentIntentProviderRef(config, intent.id, result.authority || result.sessionId || '');
+    // Same fail-closed binding rule as the plan checkout: an AI top-up intent
+    // that could not be bound to the gateway's reference must not be handed to
+    // the customer as a working payment link.
+    {
+      const ref = result.providerRef || result.authority || result.sessionId || '';
+      const bindingRequired = requiresReferenceBinding(resolved.provider.name);
+      if (bindingRequired || ref) {
+        try {
+          await setPaymentIntentProviderRef(config, intent.id, ref);
+        } catch (bindError: any) {
+          await markPaymentIntentFailed(config, intent.id, String(bindError?.message || 'binding_failed'));
+          if (bindingRequired) {
+            return res.status(502).json({ error: 'CHECKOUT_REFERENCE_BINDING_FAILED' });
+          }
+        }
+      }
     }
     res.json({ success: true, ...result, intentId: intent.id });
   } catch (e: any) {

@@ -10,6 +10,7 @@ const tr: TranslationKeys = {
       renewCta: 'Planı yenile', changeCta: 'Planı değiştir', upgradeCta: 'Planı yükselt', managePortal: 'Ödemeyi yönet',
       usageTitle: 'Kullanım özeti', conversations: 'Görüşmeler', operators: 'Operatörler', storage: 'Depolama',
       callMinutes: 'Çağrı dakikaları', unlimited: 'Sınırsız', gb: 'GB', remaining: 'Kalan', visitors: 'Ziyaretçiler', aiCredits: 'AI kredisi', kbArticles: 'Bilgi bankası makaleleri', departments: 'Departmanlar',
+      aiCreditLoadFailed: 'AI kredi bilgisi kullanılamıyor.',
     },
     plans: {
       monthly: 'Aylık', yearly: 'Yıllık', yearlyHint: 'Yıllık ödeme — daha avantajlı', discountBadge: '%{{percent}} indirim',
@@ -18,8 +19,20 @@ const tr: TranslationKeys = {
       aiCreditIncluded: 'Aylık AI kredisi',
       aiCreditNone: 'AI kredisi yok',
     },
+    planFeatures: {
+      max_agents: '{{value}} operatör',
+      max_conversations: 'Aylık {{value}} görüşme',
+      max_visitors: 'Aylık {{value}} ziyaretçi',
+      storage_gb: '{{value}} GB depolama',
+      max_call_minutes_per_month: 'Aylık {{value}} çağrı dakikası',
+      max_kb_articles: '{{value}} bilgi bankası makalesi',
+      max_departments: '{{value}} departman',
+    },
     renewal: {
-      title: '{{plan}} planını yenile', titleUpgrade: '{{plan}} planına yükselt', planLabel: 'Plan', periodLabel: 'Dönem',
+      title: '{{plan}} planını yenile', titleUpgrade: '{{plan}} planına yükselt', titleDowngrade: '{{plan}} planına geç',
+      payDowngradeCta: 'Öde ve planı değiştir',
+      stackHint: 'Mevcut döneminiz {{date}} tarihine kadar geçerli; yeni dönem bunun üzerine eklenir, ödenmiş günler kaybolmaz.',
+      downgradeHint: 'Daha düşük limitler yeni dönemin başından itibaren uygulanır.', planLabel: 'Plan', periodLabel: 'Dönem',
       amountLabel: 'Tutar', discountLabel: 'İndirim', payableLabel: 'Ödenecek tutar', payCta: 'Öde ve yenile',
       payUpgradeCta: 'Öde ve yükselt', cancel: 'Vazgeç', processing: 'Ödeme sağlayıcısına bağlanılıyor…',
     },
@@ -50,6 +63,7 @@ const tr: TranslationKeys = {
       trackingNumber: 'Takip numarası', orderNumber: 'Sipariş numarası', close: 'Kapat',
       descRenewal: '{{plan}} planını yenileme', descTopup: 'AI kredisi satın alma', descUpgrade: 'Plan yükseltme',
       statusSucceeded: 'Başarılı', statusPending: 'Beklemede', statusFailed: 'Başarısız', statusRefunded: 'İade edildi', statusCanceled: 'İptal edildi',
+      emptyHint: 'İlk ödemeden sonra tüm işlemler takip numarasıyla burada görünür.',
     },
   },
   canned: {

@@ -39,6 +39,7 @@ import {
   IRAN_PROVIDERS,
   type PaymentIntentRow,
 } from '../services/billing/paymentIntent.js';
+import { requiresReferenceBinding } from '../services/billing/providerBinding.js';
 import {
   applySubscriptionPayment,
   recordCustomerPayment,
@@ -312,8 +313,23 @@ billingRouter.post('/checkout', async (req, res) => {
       },
     });
 
-    if (intentId && (result.authority || result.sessionId)) {
-      await setPaymentIntentProviderRef(serverConfigOf(req), intentId, result.authority || result.sessionId || '');
+    // Fail-closed reference binding: for a provider that has a bindable
+    // checkout reference, an intent that is not bound (gateway returned no
+    // reference, or the DB write failed) must NOT be reported as a successful
+    // checkout — the callback could otherwise be finalized with any payment.
+    if (intentId) {
+      const ref = result.providerRef || result.authority || result.sessionId || '';
+      const bindingRequired = requiresReferenceBinding(resolved.provider.name);
+      if (bindingRequired || ref) {
+        try {
+          await setPaymentIntentProviderRef(serverConfigOf(req), intentId, ref);
+        } catch (bindError: any) {
+          await markPaymentIntentFailed(serverConfigOf(req), intentId, String(bindError?.message || 'binding_failed'));
+          if (bindingRequired) {
+            return res.status(502).json({ error: 'CHECKOUT_REFERENCE_BINDING_FAILED' });
+          }
+        }
+      }
     }
 
     await logBillingEvent(url, key, {

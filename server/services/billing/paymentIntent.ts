@@ -25,6 +25,11 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import type { PurchaseActionType } from './periods.js';
+import {
+  extractProviderRefCandidates,
+  getProviderReferenceContract,
+  requiresReferenceBinding,
+} from './providerBinding.js';
 
 export type PurchaseType = 'subscription' | 'ai_credit_topup';
 export type IntentStatus =
@@ -144,16 +149,28 @@ export async function getPaymentIntent(
   return (data as PaymentIntentRow | null) ?? null;
 }
 
+/**
+ * Persists the gateway's checkout reference on the intent. Throws when the DB
+ * write fails or matches no row: an unbound intent can never be finalized for
+ * a binding provider, so the caller MUST treat this as a failed checkout
+ * instead of redirecting the customer to a bank page they cannot complete.
+ */
 export async function setPaymentIntentProviderRef(
   config: ServerConfig,
   intentId: string,
   providerRef: string,
 ): Promise<void> {
+  const ref = (providerRef || '').trim();
+  if (!ref) throw new Error('provider_reference_missing');
   const supabase = getServiceClient(config);
-  await supabase
+  const { data, error } = await supabase
     .from('billing_payment_intents')
-    .update({ provider_ref: providerRef, updated_at: new Date().toISOString() })
-    .eq('id', intentId);
+    .update({ provider_ref: ref, updated_at: new Date().toISOString() })
+    .eq('id', intentId)
+    .select('id')
+    .maybeSingle();
+  if (error) throw new Error(`provider_reference_persist_failed:${error.message}`);
+  if (!data) throw new Error('provider_reference_persist_failed:no_row');
 }
 
 export type ClaimOutcome =
@@ -281,30 +298,38 @@ export function isIntentUsable(intent: PaymentIntentRow): boolean {
  * Fails closed whenever a reference is present on both sides and they differ,
  * so intent A can never be finalized with payment B.
  */
-const PROVIDER_REF_PARAM_KEYS = [
-  'Authority', 'authority', 'trackId', 'trackid', 'track_id',
-  'id', 'refId', 'ref_id', 'refnum', 'RefNum', 'token', 'trans_id',
-];
-
-export function extractProviderRef(params: unknown): string | null {
-  if (typeof params !== 'object' || params === null) return null;
-  const record = params as Record<string, unknown>;
-  for (const key of PROVIDER_REF_PARAM_KEYS) {
-    const value = record[key];
-    if (typeof value === 'string' && value.trim()) return value.trim();
-    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-  }
-  return null;
+export function extractProviderRef(params: unknown, providerName?: string): string | null {
+  return extractProviderRefCandidates(providerName || '', params)[0] ?? null;
 }
 
+/**
+ * Fail-closed binding check.
+ *
+ *   - binding provider without a stored reference  -> reject (checkout was
+ *     never bound; finalizing it would trust the callback blindly);
+ *   - callback without any reference               -> reject;
+ *   - reference present but different              -> reject;
+ *   - exact match                                  -> accept.
+ */
 export function providerRefMatchesIntent(
   intent: PaymentIntentRow,
   params: unknown,
 ): { ok: true } | { ok: false; reason: string } {
+  const providerName = intent.provider_name;
+  const contract = getProviderReferenceContract(providerName);
   const stored = (intent.provider_ref || '').trim();
-  if (!stored) return { ok: true }; // provider gave us nothing to bind against
-  const incoming = extractProviderRef(params);
-  if (!incoming) return { ok: false, reason: 'missing_provider_reference' };
-  if (incoming !== stored) return { ok: false, reason: 'provider_reference_mismatch' };
+
+  if (!stored) {
+    if (requiresReferenceBinding(providerName)) {
+      return { ok: false, reason: 'missing_stored_provider_reference' };
+    }
+    // Explicitly declared as having no bindable checkout reference.
+    return { ok: true };
+  }
+
+  const candidates = extractProviderRefCandidates(providerName, params);
+  if (candidates.length === 0) return { ok: false, reason: 'missing_provider_reference' };
+  if (!candidates.includes(stored)) return { ok: false, reason: 'provider_reference_mismatch' };
+  void contract;
   return { ok: true };
 }

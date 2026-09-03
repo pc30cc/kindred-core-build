@@ -4,9 +4,13 @@
 //
 // Everything here is IDEMPOTENT and keyed by the payment intent:
 //
-//   * the subscription period is applied at most once per intent
-//     (`workspace_subscriptions.metadata.last_payment_intent_id` marker), so a
-//     retried finalization cannot stack two periods for one payment;
+//   * the subscription period is applied at most once per intent — enforced by
+//     a DURABLE application ledger (`billing_subscription_applications`, UNIQUE
+//     on payment_intent_id) written in the SAME transaction as the
+//     subscription mutation by the `billing_apply_subscription_payment` RPC.
+//     `metadata.last_payment_intent_id` only remembered the LAST intent, so an
+//     old crashed intent recovered after a newer payment could apply twice;
+//     that field is now debug-only and never the idempotency source of truth;
 //   * the customer payment row is unique per intent (unique index
 //     `uq_billing_payments_intent`) and per provider reference
 //     (`uq_billing_payments_provider_ref`), so a replayed callback cannot
@@ -20,13 +24,7 @@
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import {
-  classifyPlanAction,
-  computeSubscriptionWindow,
-  type BillingInterval,
-  type PlanActionType,
-  type PurchaseActionType,
-} from './periods.js';
+import type { BillingInterval, PlanActionType, PurchaseActionType } from './periods.js';
 import { handleWorkspaceEntitlementChanged } from './entitlementChange.js';
 
 export interface CustomerPaymentInput {
@@ -111,6 +109,21 @@ export interface AppliedSubscription {
  *   - new / upgrade / downgrade start now. No proration exists in the product
  *     and none is faked here.
  */
+/**
+ * Applies a paid plan checkout to `workspace_subscriptions`.
+ *
+ * Delegates to the `billing_apply_subscription_payment` RPC so that the
+ * durable application marker and the subscription row commit atomically. The
+ * RPC also locks the subscription row, so two concurrent finalizations cannot
+ * stack two periods from the same `current_period_end`.
+ *
+ * Period rules (mirrored in SQL, see migration 106):
+ *   - renewal of the SAME plan while the current period is still running
+ *     stacks: the new period starts at `current_period_end`, so early renewal
+ *     never burns remaining days;
+ *   - new / upgrade / downgrade start now. No proration exists in the product
+ *     and none is faked here.
+ */
 export async function applySubscriptionPayment(
   config: ServerConfig,
   input: {
@@ -118,112 +131,42 @@ export async function applySubscriptionPayment(
     planId: string;
     interval: BillingInterval;
     providerName: string;
-    paymentIntentId?: string | null;
-    providerSubscriptionId?: string | null;
-    providerCustomerId?: string | null;
+    /** REQUIRED: the durable idempotency key for this application. */
+    paymentIntentId: string;
     now?: Date;
   },
 ): Promise<AppliedSubscription> {
+  if (!input.paymentIntentId) throw new Error('subscription_apply_failed:missing_payment_intent_id');
   const supabase = getServiceClient(config);
-  const now = input.now ?? new Date();
 
-  const { data: sub } = await supabase
-    .from('workspace_subscriptions')
-    .select('plan_id, status, current_period_end, metadata')
-    .eq('workspace_id', input.workspaceId)
-    .maybeSingle();
-
-  const currentMetadata = (sub?.metadata as Record<string, unknown> | null) || {};
-
-  const { data: nextPlan } = await supabase
-    .from('billing_plans')
-    .select('id, name, sort_order')
-    .eq('id', input.planId)
-    .maybeSingle();
-
-  let currentRank: number | null = null;
-  if (sub?.plan_id) {
-    const { data: currentPlan } = await supabase
-      .from('billing_plans')
-      .select('sort_order')
-      .eq('id', sub.plan_id)
-      .maybeSingle();
-    currentRank = typeof currentPlan?.sort_order === 'number' ? currentPlan.sort_order : null;
-  }
-
-  const actionType = classifyPlanAction({
-    currentPlanId: sub?.plan_id ?? null,
-    currentPlanRank: currentRank,
-    currentStatus: sub?.status ?? null,
-    nextPlanId: input.planId,
-    nextPlanRank: typeof nextPlan?.sort_order === 'number' ? nextPlan.sort_order : null,
+  const { data, error } = await supabase.rpc('billing_apply_subscription_payment', {
+    p_workspace_id: input.workspaceId,
+    p_payment_intent_id: input.paymentIntentId,
+    p_plan_id: input.planId,
+    p_interval: input.interval,
+    p_provider_name: input.providerName,
+    p_now: (input.now ?? new Date()).toISOString(),
   });
+  if (error) throw new Error(`subscription_apply_failed:${error.message}`);
+  const row = (data || {}) as Record<string, unknown>;
 
-  // Replay guard — this exact intent already produced a period.
-  if (
-    input.paymentIntentId &&
-    currentMetadata.last_payment_intent_id === input.paymentIntentId
-  ) {
-    return {
-      actionType,
-      planId: input.planId,
-      planName: (nextPlan?.name as string | undefined) ?? null,
-      interval: input.interval,
-      periodStart: String(currentMetadata.last_period_start ?? ''),
-      periodEnd: String(currentMetadata.last_period_end ?? ''),
-      stacked: Boolean(currentMetadata.last_period_stacked),
-      alreadyApplied: true,
-    };
-  }
-
-  const window = computeSubscriptionWindow({
-    now,
-    interval: input.interval,
-    action: actionType,
-    currentPeriodEnd: sub?.current_period_end ? new Date(sub.current_period_end) : null,
-  });
-
-  const metadata: Record<string, unknown> = {
-    ...currentMetadata,
-    last_payment_intent_id: input.paymentIntentId ?? null,
-    last_action_type: actionType,
-    last_period_start: window.start.toISOString(),
-    last_period_end: window.end.toISOString(),
-    last_period_stacked: window.stacked,
+  const applied: AppliedSubscription = {
+    actionType: (row.actionType as PlanActionType) || 'plan_new',
+    planId: (row.planId as string) || input.planId,
+    planName: (row.planName as string | null) ?? null,
+    interval: (row.interval as BillingInterval) || input.interval,
+    periodStart: String(row.periodStart ?? ''),
+    periodEnd: String(row.periodEnd ?? ''),
+    stacked: Boolean(row.stacked),
+    alreadyApplied: Boolean(row.alreadyApplied),
   };
 
-  const { error } = await supabase.from('workspace_subscriptions').upsert(
-    {
-      workspace_id: input.workspaceId,
-      provider_name: input.providerName,
-      provider_subscription_id: input.providerSubscriptionId ?? null,
-      provider_customer_id: input.providerCustomerId ?? null,
-      status: 'active',
-      plan_id: input.planId,
-      billing_interval: input.interval,
-      cancel_at_period_end: false,
-      current_period_start: window.start.toISOString(),
-      current_period_end: window.end.toISOString(),
-      metadata,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'workspace_id' },
-  );
-  if (error) throw new Error(`subscription_apply_failed:${error.message}`);
-
+  // Entitlements are recomputed even on replay: the recovery path may be the
+  // first time the fan-out actually ran.
   await handleWorkspaceEntitlementChanged(config, {
     workspaceId: input.workspaceId,
-    source: actionType === 'plan_renewal' ? 'subscription_renewed' : 'subscription_created',
+    source: applied.actionType === 'plan_renewal' ? 'subscription_renewed' : 'subscription_created',
   });
 
-  return {
-    actionType,
-    planId: input.planId,
-    planName: (nextPlan?.name as string | undefined) ?? null,
-    interval: input.interval,
-    periodStart: window.start.toISOString(),
-    periodEnd: window.end.toISOString(),
-    stacked: window.stacked,
-    alreadyApplied: false,
-  };
+  return applied;
 }

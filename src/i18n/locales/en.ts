@@ -8,6 +8,7 @@ const en = {
       renewCta: 'Renew plan', changeCta: 'Change plan', upgradeCta: 'Upgrade plan', managePortal: 'Manage payment',
       usageTitle: 'Usage summary', conversations: 'Conversations', operators: 'Operators', storage: 'Storage',
       callMinutes: 'Call minutes', unlimited: 'Unlimited', gb: 'GB', remaining: 'Remaining', visitors: 'Visitors', aiCredits: 'AI credits', kbArticles: 'Knowledge base articles', departments: 'Departments',
+      aiCreditLoadFailed: 'AI credit information is unavailable.',
     },
     plans: {
       monthly: 'Monthly', yearly: 'Yearly', yearlyHint: 'Yearly billing — better value', discountBadge: '{{percent}}% off',
@@ -16,8 +17,20 @@ const en = {
       aiCreditIncluded: 'Monthly AI credit',
       aiCreditNone: 'No AI credit',
     },
+    planFeatures: {
+      max_agents: '{{value}} operators',
+      max_conversations: '{{value}} conversations / month',
+      max_visitors: '{{value}} visitors / month',
+      storage_gb: '{{value}} GB storage',
+      max_call_minutes_per_month: '{{value}} call minutes / month',
+      max_kb_articles: '{{value}} knowledge base articles',
+      max_departments: '{{value}} departments',
+    },
     renewal: {
-      title: 'Renew {{plan}} plan', titleUpgrade: 'Upgrade to {{plan}} plan', planLabel: 'Plan', periodLabel: 'Period',
+      title: 'Renew {{plan}} plan', titleUpgrade: 'Upgrade to {{plan}} plan', titleDowngrade: 'Switch to {{plan}} plan',
+      payDowngradeCta: 'Pay and switch plan',
+      stackHint: 'Your current period runs until {{date}}; the new period is added on top, so no paid days are lost.',
+      downgradeHint: 'Lower limits apply from the start of the new period.', planLabel: 'Plan', periodLabel: 'Period',
       amountLabel: 'Amount', discountLabel: 'Discount', payableLabel: 'Amount due', payCta: 'Pay & renew',
       payUpgradeCta: 'Pay & upgrade', cancel: 'Cancel', processing: 'Connecting to the payment gateway…',
     },
@@ -48,6 +61,7 @@ const en = {
       trackingNumber: 'Tracking number', orderNumber: 'Order number', close: 'Close',
       descRenewal: 'Renew {{plan}} plan', descTopup: 'AI credit purchase', descUpgrade: 'Plan upgrade',
       statusSucceeded: 'Succeeded', statusPending: 'Pending', statusFailed: 'Failed', statusRefunded: 'Refunded', statusCanceled: 'Canceled',
+      emptyHint: 'After the first payment, every transaction appears here with its tracking number.',
     },
   },
   canned: {

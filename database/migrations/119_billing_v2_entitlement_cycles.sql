@@ -345,16 +345,17 @@ BEGIN
          allowance_granted_at = now(), attempt_count = attempt_count + 1, last_error = NULL
    WHERE id = v_cycle.id;
 
-  -- Auditability of the lot's origin (source_type is PLAN_ALLOWANCE).
-  UPDATE public.workspace_ai_balance_lots
-     SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-           'source_reference_type', 'ENTITLEMENT_CYCLE',
-           'source_reference_id', v_cycle.id,
-           'subscription_period_id', v_cycle.subscription_period_id)
-   WHERE id = v_lot
-     AND EXISTS (SELECT 1 FROM information_schema.columns
-                  WHERE table_schema = 'public' AND table_name = 'workspace_ai_balance_lots'
-                    AND column_name = 'metadata');
+  -- Auditability of the lot's origin (source_type is PLAN_ALLOWANCE). The
+  -- metadata column is optional across deployments, so this is best-effort.
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'workspace_ai_balance_lots'
+                AND column_name = 'metadata') THEN
+    EXECUTE 'UPDATE public.workspace_ai_balance_lots SET metadata = COALESCE(metadata, ''{}''::jsonb) || $1 WHERE id = $2'
+      USING jsonb_build_object(
+              'source_reference_type', 'ENTITLEMENT_CYCLE',
+              'source_reference_id', v_cycle.id,
+              'subscription_period_id', v_cycle.subscription_period_id), v_lot;
+  END IF;
 
   INSERT INTO public.billing_v2_audit (workspace_id, event, reason, details)
   VALUES (v_cycle.workspace_id, 'plan_allowance_granted', 'entitlement_cycle',

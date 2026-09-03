@@ -1,5 +1,6 @@
 # Roadmap
 
+- [x] Fix all active preview typecheck errors in genericVerificationCore integration tests
 - [ ] Complete hosted/self-host v5.1 migration chain and legal policy bootstrap
 - [ ] Retire legacy invitation API and wire atomic offboarding
 - [ ] Make invitation idempotency and acceptance retries transaction-safe

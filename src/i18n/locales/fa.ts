@@ -15,6 +15,8 @@ const fa: TranslationKeys = {
       monthly: 'ماهانه', yearly: 'سالانه', yearlyHint: 'پرداخت سالانه — به‌صرفه‌تر', discountBadge: '{{percent}}٪ تخفیف',
       selectCta: 'انتخاب پلن', upgradeCta: 'ارتقای پلن', currentCta: 'پلن فعلی', viewAllFeatures: 'مشاهده همه امکانات',
       free: 'رایگان',
+      aiCreditIncluded: 'اعتبار هوش مصنوعی ماهانه',
+      aiCreditNone: 'بدون اعتبار هوش مصنوعی',
     },
     renewal: {
       title: 'تمدید پلن {{plan}}', titleUpgrade: 'ارتقا به پلن {{plan}}', planLabel: 'پلن', periodLabel: 'دوره',
@@ -25,6 +27,8 @@ const fa: TranslationKeys = {
       title: 'اعتبار هوش مصنوعی', remainingLabel: 'اعتبار باقی‌مانده', ofPeriodAllowance: 'از {{total}} اعتبار این دوره',
       usedLabel: 'مصرف‌شده', monthlyRemainingLabel: 'اعتبار ماهانه باقی‌مانده', purchasedRemainingLabel: 'اعتبار خریداری‌شده',
       increaseCta: 'افزایش اعتبار',
+      usedPct: '{{percent}}٪ مصرف شده',
+      sourceHint: 'اعتبار ماهانه هوش مصنوعی از پلن فعال فضای کاری شما می‌آید و ابتدای هر دوره تمدید می‌شود؛ مانده آن به دوره بعد منتقل نمی‌شود. اعتبار خریداری‌شده جداگانه و بدون انقضای دوره‌ای است.',
       topup: {
         title: 'افزایش اعتبار هوش مصنوعی', presetLabel: 'مبلغ افزایش اعتبار', customAmountLabel: 'مبلغ دلخواه (تومان)',
         customAmountPlaceholder: 'مثلاً ۲۰۰٬۰۰۰', minMaxHint: 'مبلغ باید بین {{min}} تا {{max}} تومان باشد.',

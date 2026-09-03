@@ -13,6 +13,8 @@ const en = {
       monthly: 'Monthly', yearly: 'Yearly', yearlyHint: 'Yearly billing — better value', discountBadge: '{{percent}}% off',
       selectCta: 'Select plan', upgradeCta: 'Upgrade plan', currentCta: 'Current plan', viewAllFeatures: 'View all features',
       free: 'Free',
+      aiCreditIncluded: 'Monthly AI credit',
+      aiCreditNone: 'No AI credit',
     },
     renewal: {
       title: 'Renew {{plan}} plan', titleUpgrade: 'Upgrade to {{plan}} plan', planLabel: 'Plan', periodLabel: 'Period',
@@ -23,6 +25,8 @@ const en = {
       title: 'AI Credit', remainingLabel: 'Remaining credit', ofPeriodAllowance: 'of {{total}} credit this period',
       usedLabel: 'Used', monthlyRemainingLabel: 'Monthly credit remaining', purchasedRemainingLabel: 'Purchased credit',
       increaseCta: 'Add credit',
+      usedPct: '{{percent}}% used',
+      sourceHint: 'Your monthly AI credit comes from the workspace plan and is granted again at the start of every billing cycle; unused monthly credit does not roll over. Purchased credit is separate and has no cycle expiry.',
       topup: {
         title: 'Add AI credit', presetLabel: 'Top-up amount', customAmountLabel: 'Custom amount (Toman)',
         customAmountPlaceholder: 'e.g. 200,000', minMaxHint: 'Amount must be between {{min}} and {{max}} Toman.',

@@ -70,7 +70,7 @@ function WidgetPageContent() {
   const { data: platformWidget } = useWidgetPlatformSettings();
   // Powered-by footer is platform-owned + plan-gated; the preview must show
   // exactly what production renders.
-  const { data: effectiveEnts, loading: entsLoading } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
+  const { data: effectiveEnts, loading: entsLoading, error: entsError } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
   const updateWidget = useUpdateWidgetSettings(workspace?.id);
   const { data: prechat } = useWidgetPrechatSettings(workspace?.id);
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
@@ -342,7 +342,7 @@ function WidgetPageContent() {
 
   // Never render the tab strip before the plan snapshot is known — otherwise
   // plan-locked tabs appear for a moment and then vanish.
-  if (isLoading || entsLoading || !effectiveEnts) {
+  if (isLoading || entsLoading || (!effectiveEnts && !entsError)) {
     return (
       <div className="space-y-5 p-1" dir={dir}>
         <Skeleton className="h-24 w-full rounded-2xl" />

@@ -1245,6 +1245,8 @@ export default function InboxPage() {
               <span className={headTabAccent(extraChip === 'colleagues')} />
               <span className={headTabSeam(extraChip === 'colleagues')} />
             </button>
+            ) : null}
+
             {/* Managers only: switch between "my conversations" (default,
                 transferred threads disappear) and the full workspace view. */}
             {canSwitchScope ? (

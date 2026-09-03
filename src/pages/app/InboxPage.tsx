@@ -2045,7 +2045,27 @@ export default function InboxPage() {
 
                 // Routing system notices are stored in English by the server;
                 // render them from metadata so they follow the app locale.
+                if (msg.sender_type === 'system'
+                  && ((meta as any).kind === 'conversation_transferred' || (meta as any).kind === 'conversation_unassigned')) {
+                  const actor = String((meta as any).actor_name || '').trim();
+                  const to = String((meta as any).to_name || '').trim();
+                  const isTransfer = (meta as any).kind === 'conversation_transferred';
+                  const tpl = isTransfer ? t('inbox.system.transferred') : t('inbox.system.unassigned');
+                  const text = tpl && !tpl.startsWith('inbox.')
+                    ? tpl.replace('{actor}', actor).replace('{to}', to)
+                    : (isTransfer
+                      ? `${actor} transferred this conversation to ${to}`
+                      : `${actor} unassigned this conversation`);
+                  return (
+                    <div key={msg.id} className="flex justify-center my-1">
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
+                        <span>{text}</span>
+                      </div>
+                    </div>
+                  );
+                }
                 if (msg.sender_type === 'system' && (meta as any).kind === 'routing_agent_joined') {
+
                   const name = String((meta as any).agent_name || '').trim();
                   const tpl = name ? t('inbox.system.agentJoined') : t('inbox.system.agentJoinedGeneric');
                   const text = tpl && !tpl.startsWith('inbox.')

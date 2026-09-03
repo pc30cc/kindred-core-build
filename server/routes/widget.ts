@@ -1058,6 +1058,13 @@ async function enrichMessagesWithSender(
   workspaceId?: string | null,
 ): Promise<any[]> {
   if (!messages || !messages.length) return messages || [];
+  // Internal staffing notices (assignment transfers) never reach the visitor.
+  messages = messages.filter((m) => {
+    const meta = (m?.metadata && typeof m.metadata === 'object') ? m.metadata : null;
+    return !(meta && (meta as any).internal === true);
+  });
+  if (!messages.length) return messages;
+
   const ids = Array.from(new Set(
     messages
       .filter((m) => m._sender_id && (m.role === 'agent' || m.sender_type === 'agent' || m.sender_type === 'ai'))

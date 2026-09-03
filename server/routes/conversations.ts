@@ -747,7 +747,52 @@ conversationsRouter.patch('/:id', async (req, res) => {
         newValue: { assigned_to: parsed.data.assigned_to },
         payload: { from: before.assigned_to, to: parsed.data.assigned_to },
       });
+
+      // Operator-visible transfer notice inside the thread itself
+      // ("X transferred this conversation to Y"). Internal-only: the widget
+      // filters `metadata.internal === true` out of /poll and /history, so
+      // the visitor never sees internal staffing moves.
+      void (async () => {
+        try {
+          const ids = [auth.userId, before.assigned_to, parsed.data.assigned_to]
+            .filter((v): v is string => !!v);
+          const nameById = new Map<string, string>();
+          if (ids.length) {
+            const { data: people } = await sb
+              .from('profiles')
+              .select('id, full_name')
+              .in('id', Array.from(new Set(ids)));
+            (people || []).forEach((p: any) => {
+              if (p?.full_name) nameById.set(p.id, p.full_name as string);
+            });
+          }
+          const actorName = nameById.get(auth.userId) || null;
+          const fromName = before.assigned_to ? (nameById.get(before.assigned_to) || null) : null;
+          const toName = parsed.data.assigned_to ? (nameById.get(parsed.data.assigned_to) || null) : null;
+          const body = toName
+            ? `${actorName || 'An operator'} transferred this conversation to ${toName}`
+            : `${actorName || 'An operator'} unassigned this conversation`;
+          await sb.from('conversation_messages').insert({
+            conversation_id: conversationId,
+            sender_type: 'system',
+            body,
+            metadata: {
+              kind: parsed.data.assigned_to ? 'conversation_transferred' : 'conversation_unassigned',
+              internal: true,
+              actor_id: auth.userId,
+              actor_name: actorName,
+              from_id: before.assigned_to,
+              from_name: fromName,
+              to_id: parsed.data.assigned_to,
+              to_name: toName,
+            },
+          });
+        } catch (e: any) {
+          console.warn('[conversations PATCH] transfer notice failed:', e?.message || e);
+        }
+      })();
     }
+
 
     if (normalizedTags !== undefined) {
       const beforeTags = new Set<string>((before.tags as string[] | null) ?? []);

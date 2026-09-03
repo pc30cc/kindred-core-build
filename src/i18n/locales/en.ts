@@ -719,6 +719,9 @@ const en = {
     'system.agentJoined': '{name} joined the conversation',
     'system.agentJoinedGeneric': 'A colleague joined the conversation',
     'system.noAgentAvailable': "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can.",
+    'system.transferred': '{actor} transferred this conversation to {to}',
+    'system.unassigned': '{actor} unassigned this conversation',
+
     'callSurface.expand': 'Expand',
     'callSurface.expandAria': 'Expand call window',
     'callSurface.minimize': 'Minimize',

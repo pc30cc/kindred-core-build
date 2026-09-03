@@ -110,6 +110,10 @@ export function useInboxRealtime(opts: InboxRealtimeOptions) {
               queryClient.invalidateQueries({
                 queryKey: ['conversation-timeline', conversationId, workspaceId],
               });
+              // Assignment transfers append an internal system message to the
+              // thread — refresh the message list so it shows without reload.
+              queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
+
             } else if (
               kind === 'ai_suggestion_created' ||
               kind === 'ai_suggestion_updated'

@@ -21,9 +21,9 @@
 
 CREATE TABLE IF NOT EXISTS public.billing_subscription_applications (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  payment_intent_id UUID NOT NULL,
-  workspace_id      UUID NOT NULL,
-  plan_id           TEXT,
+  payment_intent_id UUID NOT NULL REFERENCES public.billing_payment_intents(id) ON DELETE CASCADE,
+  workspace_id      UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
+  plan_id           UUID REFERENCES public.billing_plans(id),
   action_type       TEXT NOT NULL,
   billing_interval  TEXT NOT NULL,
   period_start      TIMESTAMPTZ NOT NULL,
@@ -74,10 +74,12 @@ END $$;
 --     renewal never burns paid days;
 --   * writes the application marker and the subscription in ONE transaction.
 -- ============================================================
+DROP FUNCTION IF EXISTS public.billing_apply_subscription_payment(UUID, UUID, TEXT, TEXT, TEXT, TIMESTAMPTZ);
+
 CREATE OR REPLACE FUNCTION public.billing_apply_subscription_payment(
   p_workspace_id      UUID,
   p_payment_intent_id UUID,
-  p_plan_id           TEXT,
+  p_plan_id           UUID,
   p_interval          TEXT,
   p_provider_name     TEXT,
   p_now               TIMESTAMPTZ DEFAULT now()
@@ -91,6 +93,7 @@ DECLARE
   v_existing        public.billing_subscription_applications%ROWTYPE;
   v_sub             RECORD;
   v_next_rank       INT;
+  v_locked          BOOLEAN := false;
   v_current_rank    INT;
   v_plan_name       TEXT;
   v_action          TEXT;
@@ -129,6 +132,19 @@ BEGIN
     FROM public.workspace_subscriptions
    WHERE workspace_id = p_workspace_id
    FOR UPDATE;
+  v_locked := FOUND;
+
+  -- No subscription row yet: take a workspace-scoped advisory lock so two
+  -- concurrent first-time finalizations cannot both compute a window from an
+  -- empty state. Released automatically at COMMIT/ROLLBACK.
+  IF NOT v_locked THEN
+    PERFORM pg_advisory_xact_lock(hashtextextended(p_workspace_id::text, 0));
+    SELECT plan_id, status, current_period_end
+      INTO v_sub
+      FROM public.workspace_subscriptions
+     WHERE workspace_id = p_workspace_id
+     FOR UPDATE;
+  END IF;
 
   SELECT sort_order, name INTO v_next_rank, v_plan_name
     FROM public.billing_plans WHERE id = p_plan_id;
@@ -205,8 +221,31 @@ BEGIN
     'periodEnd',      v_end,
     'stacked',        v_stacked
   );
+
+EXCEPTION
+  -- Two callbacks for the same intent raced past the replay guard. The winner
+  -- already committed one period; this attempt rolls back entirely and returns
+  -- the winner's result instead of surfacing a raw constraint error.
+  WHEN unique_violation THEN
+    SELECT * INTO v_existing
+      FROM public.billing_subscription_applications
+     WHERE payment_intent_id = p_payment_intent_id;
+    IF NOT FOUND THEN
+      RAISE;
+    END IF;
+    SELECT name INTO v_plan_name FROM public.billing_plans WHERE id = v_existing.plan_id;
+    RETURN jsonb_build_object(
+      'alreadyApplied', true,
+      'actionType',     v_existing.action_type,
+      'planId',         v_existing.plan_id,
+      'planName',       v_plan_name,
+      'interval',       v_existing.billing_interval,
+      'periodStart',    v_existing.period_start,
+      'periodEnd',      v_existing.period_end,
+      'stacked',        v_existing.stacked
+    );
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.billing_apply_subscription_payment(UUID, UUID, TEXT, TEXT, TEXT, TIMESTAMPTZ) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.billing_apply_subscription_payment(UUID, UUID, TEXT, TEXT, TEXT, TIMESTAMPTZ) TO service_role;
+REVOKE ALL ON FUNCTION public.billing_apply_subscription_payment(UUID, UUID, UUID, TEXT, TEXT, TIMESTAMPTZ) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.billing_apply_subscription_payment(UUID, UUID, UUID, TEXT, TEXT, TIMESTAMPTZ) TO service_role;

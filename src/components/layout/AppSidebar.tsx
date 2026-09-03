@@ -222,9 +222,14 @@ export function AppSidebar() {
     const state = entitlements?.modules?.[key];
     return state != null && state.value === true;
   };
-  // AI Agent: platform availability decides visibility, plan decides lock.
-  const aiAssistantPlanEnabled =
-    aiAgentCaps?.plan_ai_assistant_enabled === true || moduleEnabled('ai_assistant');
+  // AI Agent: platform availability decides visibility, PLAN decides presence.
+  // The workspace entitlement snapshot is authoritative here — the AI caps flag
+  // is admin-overridden server-side (`aiPlan.allowed || isAdmin`), so it must
+  // only be used as a fallback while entitlements are still unresolved.
+  const aiAssistantPlanEnabled = entitlements?.modules
+    ? moduleEnabled('ai_assistant')
+    : aiAgentCaps?.plan_ai_assistant_enabled === true;
+
   // Phase 6-S5-R4 — Knowledge Base is a CORE workspace product. It is never
   // hidden and NEVER locked: not by plan, not by AI platform state, not while
   // entitlements are loading, not on entitlement lookup errors. It behaves

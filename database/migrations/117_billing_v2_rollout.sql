@@ -487,8 +487,8 @@ BEGIN
   WITH drained AS (
     UPDATE public.billing_payment_intents
        SET status = 'canceled',
-           canceled_at = now(),
-           failure_reason = 'billing_v2_cutover_drain'
+           failure_reason = 'billing_v2_cutover_drain',
+           updated_at = now()
      WHERE workspace_id = p_workspace_id
        AND billing_engine_version = 'v1'
        AND status = 'pending'

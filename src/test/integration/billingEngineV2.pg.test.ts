@@ -827,7 +827,7 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
       await client.query(
         `INSERT INTO public.billing_payment_intents
            (workspace_id, invoice_number, amount_irr, status, provider_ref, purchase_type, provider_name)
-         VALUES ($1,$2,100000,'pending','REF-1','subscription','test')`, [ws, docNumber()]);
+         VALUES ($1,$2,100000,'pending','REF-1','ai_credit_topup','test')`, [ws, docNumber()]);
       const readiness = (await one(`SELECT public.billing_v2_evaluate_cutover($1) AS r`, [ws])).r;
       expect(readiness.ready).toBe(false);
       expect(JSON.stringify(readiness.blockers)).toContain('legacy_payment_intent');
@@ -841,7 +841,7 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
       const unbound = await one(
         `INSERT INTO public.billing_payment_intents
            (workspace_id, invoice_number, amount_irr, status, purchase_type, provider_name)
-         VALUES ($1,$2,50000,'pending','subscription','test') RETURNING id`, [ws, docNumber()]);
+         VALUES ($1,$2,50000,'pending','ai_credit_topup','test') RETURNING id`, [ws, docNumber()]);
 
       const r = (await one(`SELECT public.billing_v2_activate($1,NULL,'drain') AS r`, [ws])).r;
       expect(r.state).toBe('v2_active');
@@ -859,7 +859,7 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
       const intent = await one(
         `INSERT INTO public.billing_payment_intents
            (workspace_id, invoice_number, amount_irr, status, purchase_type, provider_name)
-         VALUES ($1,$2,10000,'pending','subscription','test') RETURNING id, billing_engine_version`,
+         VALUES ($1,$2,10000,'pending','ai_credit_topup','test') RETURNING id, billing_engine_version`,
         [ws, docNumber()]);
       expect(intent.billing_engine_version).toBe('v1');
       await expect(

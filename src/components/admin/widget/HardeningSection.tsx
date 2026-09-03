@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Lock, Shield, Activity, MessageSquare, Info } from 'lucide-react';
 import type { WidgetPlatformSettings } from '@/hooks/useWidgetPlatformSettings';
+import { useTranslation } from '@/i18n';
 
 interface Props {
   settings: WidgetPlatformSettings;
@@ -17,29 +18,27 @@ interface Props {
  * is wired through to server-side runtime via `widget_platform_settings`.
  */
 export function RealtimeTransportSection({ settings, onSave }: Props) {
+  const { t } = useTranslation();
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <Activity className="h-4 w-4 text-primary" />
-          Realtime / Transport
+          {t('admin.widgetSettingsPage.hardening.realtime.title' as any)}
         </CardTitle>
         <CardDescription>
-          Transport-level safety controls for the realtime layer. These flags affect every
-          workspace and are designed with safe defaults — only flip them if you have a specific
-          reason.
+          {t('admin.widgetSettingsPage.hardening.realtime.description' as any)}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="rounded-lg border border-border p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5 max-w-xl">
-              <Label className="text-sm font-medium">Stale resubscribe guard</Label>
+              <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.realtime.staleGuard' as any)}</Label>
               <p className="text-xs text-muted-foreground">
-                When the operator socket dies during a resubscribe pass, abort the loop instead
-                of continuing per-channel against a dead connection. Prevents{' '}
-                <code className="bg-muted px-1 rounded">socket_closed</code> log floods and
-                ensures exactly one fresh socket owns recovery. Recommended: leave on.
+                {t('admin.widgetSettingsPage.hardening.realtime.staleBefore' as any)}{' '}
+                <code className="bg-muted px-1 rounded">socket_closed</code>{' '}
+                {t('admin.widgetSettingsPage.hardening.realtime.staleAfter' as any)}
               </p>
             </div>
             <Switch
@@ -53,10 +52,9 @@ export function RealtimeTransportSection({ settings, onSave }: Props) {
 
         {/* Phase 2 — reconnect jitter */}
         <div className="rounded-lg border border-border p-4 space-y-2">
-          <Label className="text-sm font-medium">Reconnect jitter (%)</Label>
+          <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.realtime.jitter' as any)}</Label>
           <p className="text-xs text-muted-foreground">
-            Randomizes reconnect backoff by ±N% so simultaneously-disconnected tabs do not
-            stampede the connect endpoint after a regional network blip.
+            {t('admin.widgetSettingsPage.hardening.realtime.jitterHint' as any)}
           </p>
           <Input
             type="number" min={0} max={50} step={1}
@@ -66,17 +64,17 @@ export function RealtimeTransportSection({ settings, onSave }: Props) {
             })}
             className="max-w-32"
           />
-          <p className="text-[10px] text-muted-foreground">0 – 50 % (default: 20)</p>
+          <p className="text-[10px] text-muted-foreground">{t('admin.widgetSettingsPage.hardening.realtime.jitterRange' as any)}</p>
         </div>
 
         {/* Phase 2 — JWT TTL */}
         <div className="rounded-lg border border-border p-4 space-y-2">
-          <Label className="text-sm font-medium">Realtime token TTL (seconds)</Label>
+          <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.realtime.tokenTtl' as any)}</Label>
           <p className="text-xs text-muted-foreground">
-            Lifetime of Centrifugo connection &amp; subscription tokens. Tokens carry fixed
-            issuer/audience claims (<code className="bg-muted px-1 rounded">lovable-realtime</code> /{' '}
-            <code className="bg-muted px-1 rounded">centrifugo</code>) and are refreshed
-            proactively ~2 min before expiry.
+            {t('admin.widgetSettingsPage.hardening.realtime.tokenTtlBefore' as any)}{' '}
+            <code className="bg-muted px-1 rounded">lovable-realtime</code> /{' '}
+            <code className="bg-muted px-1 rounded">centrifugo</code>{' '}
+            {t('admin.widgetSettingsPage.hardening.realtime.tokenTtlAfter' as any)}
           </p>
           <Input
             type="number" min={300} max={7200} step={60}
@@ -86,15 +84,15 @@ export function RealtimeTransportSection({ settings, onSave }: Props) {
             })}
             className="max-w-32"
           />
-          <p className="text-[10px] text-muted-foreground">300 – 7200 sec (default: 1800)</p>
+          <p className="text-[10px] text-muted-foreground">{t('admin.widgetSettingsPage.hardening.realtime.tokenRange' as any)}</p>
         </div>
 
         {/* Phase 2 — idle disposal + pending cap */}
         <div className="rounded-lg border border-border p-4 space-y-3">
-          <Label className="text-sm font-medium">Memory cleanup</Label>
-          <div className="grid grid-cols-2 gap-3">
+          <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.realtime.memory' as any)}</Label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Idle socket disposal (ms)</Label>
+              <Label className="text-xs text-muted-foreground">{t('admin.widgetSettingsPage.hardening.realtime.idleDisposal' as any)}</Label>
               <Input
                 type="number" min={10000} max={1800000} step={1000}
                 value={settings.realtime_idle_disposal_ms}
@@ -105,7 +103,7 @@ export function RealtimeTransportSection({ settings, onSave }: Props) {
               <p className="text-[10px] text-muted-foreground">10000 – 1800000 ms</p>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Pending callbacks cap</Label>
+              <Label className="text-xs text-muted-foreground">{t('admin.widgetSettingsPage.hardening.realtime.pendingCap' as any)}</Label>
               <Input
                 type="number" min={32} max={4096} step={32}
                 value={settings.realtime_pending_max}
@@ -117,7 +115,7 @@ export function RealtimeTransportSection({ settings, onSave }: Props) {
             </div>
           </div>
           <p className="text-[10px] text-muted-foreground">
-            Hard cap on in-flight Centrifugo commands per socket; oldest is dropped if exceeded.
+            {t('admin.widgetSettingsPage.hardening.realtime.pendingHint' as any)}
           </p>
         </div>
 
@@ -125,10 +123,10 @@ export function RealtimeTransportSection({ settings, onSave }: Props) {
         <div className="rounded-lg border border-border p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5 max-w-xl">
-              <Label className="text-sm font-medium">Message dedupe</Label>
+              <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.realtime.dedupe' as any)}</Label>
               <p className="text-xs text-muted-foreground">
-                Drop duplicate realtime push frames (same <code className="bg-muted px-1 rounded">payload.id</code>)
-                before fan-out. Defends against Centrifugo replay-on-resubscribe.
+                {t('admin.widgetSettingsPage.hardening.realtime.dedupeBefore' as any)} <code className="bg-muted px-1 rounded">payload.id</code>{' '}
+                {t('admin.widgetSettingsPage.hardening.realtime.dedupeAfter' as any)}
               </p>
             </div>
             <Switch
@@ -137,7 +135,7 @@ export function RealtimeTransportSection({ settings, onSave }: Props) {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Ring window (entries)</Label>
+            <Label className="text-xs text-muted-foreground">{t('admin.widgetSettingsPage.hardening.realtime.ringWindow' as any)}</Label>
             <Input
               type="number" min={16} max={4096} step={16}
               disabled={!settings.realtime_message_dedupe_enabled}
@@ -147,15 +145,14 @@ export function RealtimeTransportSection({ settings, onSave }: Props) {
               })}
               className="max-w-32"
             />
-            <p className="text-[10px] text-muted-foreground">16 – 4096 (default: 200, per channel)</p>
+            <p className="text-[10px] text-muted-foreground">{t('admin.widgetSettingsPage.hardening.realtime.ringRange' as any)}</p>
           </div>
         </div>
 
         <div className="flex items-start gap-2 bg-muted/40 rounded-md p-2 text-xs text-muted-foreground">
           <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
           <p>
-            All values are clamped server-side by a database trigger; out-of-range values are
-            rejected. Changes apply within ~60 s (cache TTL) without a redeploy.
+            {t('admin.widgetSettingsPage.hardening.realtime.clamped' as any)}
           </p>
         </div>
       </CardContent>
@@ -169,10 +166,11 @@ export function RealtimeTransportSection({ settings, onSave }: Props) {
  * format check is always enforced server-side (no toggle).
  */
 export function SecurityIsolationSection() {
+  const { t } = useTranslation();
   const enforced = (
     <Badge variant="default" className="gap-1 text-xs">
       <Lock className="h-3 w-3" />
-      Always enforced
+      {t('admin.widgetSettingsPage.hardening.security.enforced' as any)}
     </Badge>
   );
   return (
@@ -180,23 +178,22 @@ export function SecurityIsolationSection() {
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <Shield className="h-4 w-4 text-primary" />
-          Security / Isolation
+          {t('admin.widgetSettingsPage.hardening.security.title' as any)}
         </CardTitle>
         <CardDescription>
-          Multi-tenant channel-isolation guarantees enforced by the realtime token issuer and
-          publish helpers. These checks cannot be disabled.
+          {t('admin.widgetSettingsPage.hardening.security.description' as any)}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="rounded-lg border border-border p-4 space-y-2">
           <div className="flex items-center justify-between">
-            <Label className="text-sm font-medium">Channel format policy</Label>
+            <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.security.channelPolicy' as any)}</Label>
             {enforced}
           </div>
           <p className="text-xs text-muted-foreground">
-            Only three channel shapes are accepted by the realtime token issuer:
+            {t('admin.widgetSettingsPage.hardening.security.channelHint' as any)}
           </p>
-          <ul className="text-xs font-mono space-y-1 text-muted-foreground pl-2">
+          <ul className="text-xs font-mono space-y-1 text-muted-foreground ps-2">
             <li>• ws:&#123;workspaceId&#125;:inbox</li>
             <li>• ws:&#123;workspaceId&#125;:visitors</li>
             <li>• ws:&#123;workspaceId&#125;:conv:&#123;conversationId&#125;</li>
@@ -205,13 +202,11 @@ export function SecurityIsolationSection() {
 
         <div className="rounded-lg border border-border p-4 space-y-2">
           <div className="flex items-center justify-between">
-            <Label className="text-sm font-medium">Strict workspace channel validation</Label>
+            <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.security.strictValidation' as any)}</Label>
             {enforced}
           </div>
           <p className="text-xs text-muted-foreground">
-            Loose prefix matching is rejected. The conversation segment is constrained to
-            URL-safe characters (1–128 chars, alphanumerics / underscore / dash). Widget tokens
-            can never be issued for the operator-only inbox or visitors channels.
+            {t('admin.widgetSettingsPage.hardening.security.strictHint' as any)}
           </p>
         </div>
       </CardContent>
@@ -225,28 +220,26 @@ export function SecurityIsolationSection() {
  * silent overflow drop. Future flood controls will land here.
  */
 export function FloodProtectionSection({ settings, onSave }: Props) {
+  const { t } = useTranslation();
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <MessageSquare className="h-4 w-4 text-primary" />
-          Flood / Abuse Protection
+          {t('admin.widgetSettingsPage.hardening.flood.title' as any)}
         </CardTitle>
         <CardDescription>
-          Server-side controls that protect realtime fan-out from abusive clients. Limits are
-          enforced per conversation and overflow is silently dropped — the widget never sees
-          an error.
+          {t('admin.widgetSettingsPage.hardening.flood.description' as any)}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="rounded-lg border border-border p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5 max-w-xl">
-              <Label className="text-sm font-medium">Typing rate limit</Label>
+              <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.hardening.flood.typingLimit' as any)}</Label>
               <p className="text-xs text-muted-foreground">
-                Cap how often <code className="bg-muted px-1 rounded">action=typing</code>{' '}
-                events are republished on the realtime channel for a single conversation.
-                Does not affect message sending.
+                {t('admin.widgetSettingsPage.hardening.flood.typingBefore' as any)} <code className="bg-muted px-1 rounded">action=typing</code>{' '}
+                {t('admin.widgetSettingsPage.hardening.flood.typingAfter' as any)}
               </p>
             </div>
             <Switch
@@ -255,9 +248,9 @@ export function FloodProtectionSection({ settings, onSave }: Props) {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3 pt-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Window (ms)</Label>
+              <Label className="text-xs text-muted-foreground">{t('admin.widgetSettingsPage.hardening.flood.window' as any)}</Label>
               <Input
                 type="number"
                 min={250}
@@ -277,7 +270,7 @@ export function FloodProtectionSection({ settings, onSave }: Props) {
               <p className="text-[10px] text-muted-foreground">250 – 60000 ms</p>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Max events / window</Label>
+              <Label className="text-xs text-muted-foreground">{t('admin.widgetSettingsPage.hardening.flood.maxEvents' as any)}</Label>
               <Input
                 type="number"
                 min={1}
@@ -293,15 +286,14 @@ export function FloodProtectionSection({ settings, onSave }: Props) {
                   })
                 }
               />
-              <p className="text-[10px] text-muted-foreground">1 – 100 events</p>
+              <p className="text-[10px] text-muted-foreground">{t('admin.widgetSettingsPage.hardening.flood.eventsRange' as any)}</p>
             </div>
           </div>
 
           <div className="flex items-start gap-2 bg-muted/40 rounded-md p-2 text-xs text-muted-foreground">
             <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
             <p>
-              Default: <strong>2 events per 2000 ms</strong> per conversation. Overflow is
-              silently dropped — typing is best-effort and visitors never see an error.
+              {t('admin.widgetSettingsPage.hardening.flood.defaultBehavior' as any)}
             </p>
           </div>
         </div>

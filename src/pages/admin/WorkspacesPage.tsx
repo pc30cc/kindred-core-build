@@ -17,17 +17,22 @@ import {
 import type { AdminPhoneStatusFilter } from '@/hooks/useAdmin';
 import { PhoneStatusCell } from '@/features/phone-verification/PhoneStatusCell';
 import { AdminPhoneVerificationCard } from '@/features/phone-verification/AdminPhoneVerificationCard';
-import { formatPattern as format } from '@/lib/date';
 import { toast } from '@/lib/toast';
 import {
   Building2, Users, MessageSquare, BookUser, Trash2,
   Globe, Palette, Bot, Loader2, Shield, ArrowLeft,
   Mail, Calendar, MapPin, MonitorSmartphone, Copy, Search,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+
+function formatDate(value: string | Date, locale: string, includeTime = false) {
+  const dateLocale = locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US';
+  return new Intl.DateTimeFormat(dateLocale, includeTime
+    ? { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }
+    : { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value));
+}
 
 export default function AdminWorkspacesPage() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('newest');
@@ -53,12 +58,12 @@ export default function AdminWorkspacesPage() {
     if (!deleteId) return;
     try {
       await deleteMutation.mutateAsync(deleteId);
-      toast.success('Workspace deleted successfully');
+      toast.success(t('admin.workspacesPage.deleted' as any));
       setDeleteId(null);
       setDeleteConfirm('');
       if (selectedId === deleteId) setSelectedId(null);
     } catch (err: any) {
-      toast.error(err?.message || 'Failed to delete workspace');
+      toast.error(err?.message || t('admin.workspacesPage.deleteFailed' as any));
     }
   };
 
@@ -78,18 +83,18 @@ export default function AdminWorkspacesPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-foreground">Workspaces</h1>
-        <span className="text-sm text-muted-foreground">{count ?? 0} total</span>
+        <h1 className="text-2xl font-bold text-foreground">{t('admin.workspacesPage.title' as any)}</h1>
+        <span className="text-sm text-muted-foreground">{t('admin.workspacesPage.total' as any, { count: count ?? 0 })}</span>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Search className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search by name, slug or email..."
+            placeholder={t('admin.workspacesPage.search' as any)}
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(0); }}
-            className="pl-9"
+            className="ps-9"
           />
         </div>
         <Select value={phoneFilter} onValueChange={v => { setPhoneFilter(v as AdminPhoneStatusFilter); setPage(0); }}>
@@ -105,13 +110,13 @@ export default function AdminWorkspacesPage() {
         </Select>
         <Select value={sort} onValueChange={v => { setSort(v); setPage(0); }}>
           <SelectTrigger className="w-full sm:w-[200px]">
-            <SelectValue placeholder="Sort by" />
+            <SelectValue placeholder={t('admin.workspacesPage.sort.label' as any)} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="newest">Newest first</SelectItem>
-            <SelectItem value="oldest">Oldest first</SelectItem>
-            <SelectItem value="most_members">Most members</SelectItem>
-            <SelectItem value="most_active">Most active</SelectItem>
+            <SelectItem value="newest">{t('admin.workspacesPage.sort.newest' as any)}</SelectItem>
+            <SelectItem value="oldest">{t('admin.workspacesPage.sort.oldest' as any)}</SelectItem>
+            <SelectItem value="most_members">{t('admin.workspacesPage.sort.mostMembers' as any)}</SelectItem>
+            <SelectItem value="most_active">{t('admin.workspacesPage.sort.mostActive' as any)}</SelectItem>
           </SelectContent>
         </Select>
         <Select value={String(limit)} onValueChange={v => { setLimit(Number(v)); setPage(0); }}>
@@ -119,11 +124,7 @@ export default function AdminWorkspacesPage() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="10">10 per page</SelectItem>
-            <SelectItem value="20">20 per page</SelectItem>
-            <SelectItem value="30">30 per page</SelectItem>
-            <SelectItem value="50">50 per page</SelectItem>
-            <SelectItem value="100">100 per page</SelectItem>
+            {[10, 20, 30, 50, 100].map((size) => <SelectItem key={size} value={String(size)}>{t('admin.workspacesPage.perPage' as any, { count: size })}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
@@ -133,12 +134,12 @@ export default function AdminWorkspacesPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Slug</TableHead>
-                <TableHead>Owner</TableHead>
+                <TableHead>{t('admin.workspacesPage.columns.name' as any)}</TableHead>
+                <TableHead>{t('admin.workspacesPage.columns.slug' as any)}</TableHead>
+                <TableHead>{t('admin.workspacesPage.columns.owner' as any)}</TableHead>
                 <TableHead>{t('admin.users.colOwnerPhone')}</TableHead>
-                <TableHead>Members</TableHead>
-                <TableHead>Created</TableHead>
+                <TableHead>{t('admin.workspacesPage.columns.members' as any)}</TableHead>
+                <TableHead>{t('admin.workspacesPage.columns.created' as any)}</TableHead>
                 <TableHead className="w-[80px]" />
               </TableRow>
             </TableHeader>
@@ -152,7 +153,7 @@ export default function AdminWorkspacesPage() {
               )}
               {!isLoading && (!workspaces || workspaces.length === 0) && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">No workspaces found</TableCell>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">{t('admin.workspacesPage.empty' as any)}</TableCell>
                 </TableRow>
               )}
               {workspaces?.map(w => (
@@ -183,7 +184,7 @@ export default function AdminWorkspacesPage() {
                     <Badge variant="secondary">{w.member_count}</Badge>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {format(new Date(w.created_at), 'yyyy-MM-dd')}
+                    {formatDate(w.created_at, locale)}
                   </TableCell>
                   <TableCell>
                     <Button
@@ -203,10 +204,9 @@ export default function AdminWorkspacesPage() {
 
       {/* Pagination — driven by the server-side total, not the page length. */}
       <div className="flex justify-between items-center">
-        <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>Previous</Button>
+        <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>{t('admin.workspacesPage.previous' as any)}</Button>
         <span className="text-sm text-muted-foreground">
-          Page {page + 1}
-          {typeof count === 'number' ? ` / ${Math.max(1, Math.ceil(count / limit))}` : ''}
+          {t('admin.workspacesPage.page' as any, { current: page + 1, total: typeof count === 'number' ? Math.max(1, Math.ceil(count / limit)) : '—' })}
         </span>
         <Button
           variant="outline"
@@ -214,7 +214,7 @@ export default function AdminWorkspacesPage() {
           disabled={typeof count === 'number' ? (page + 1) * limit >= count : !workspaces || workspaces.length < limit}
           onClick={() => setPage(p => p + 1)}
         >
-          Next
+          {t('admin.workspacesPage.next' as any)}
         </Button>
       </div>
 
@@ -241,7 +241,7 @@ function WorkspaceDetailView({
   onBack: () => void;
   onDelete: (id: string) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [selectedMember, setSelectedMember] = useState<any>(null);
   if (loading) {
     return (
@@ -255,9 +255,9 @@ function WorkspaceDetailView({
     return (
       <div className="space-y-4">
         <Button variant="ghost" onClick={onBack} className="gap-2">
-          <ArrowLeft className="h-4 w-4" /> Back to list
+          <ArrowLeft className="h-4 w-4 rtl:rotate-180" /> {t('admin.workspacesPage.back' as any)}
         </Button>
-        <p className="text-center text-muted-foreground py-12">Workspace not found</p>
+        <p className="text-center text-muted-foreground py-12">{t('admin.workspacesPage.notFound' as any)}</p>
       </div>
     );
   }
@@ -269,7 +269,7 @@ function WorkspaceDetailView({
       {/* Header */}
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={onBack}>
-          <ArrowLeft className="h-5 w-5" />
+          <ArrowLeft className="h-5 w-5 rtl:rotate-180" />
         </Button>
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
@@ -286,16 +286,16 @@ function WorkspaceDetailView({
           className="gap-2 shrink-0"
         >
           <Trash2 className="h-4 w-4" />
-          Delete
+          {t('admin.workspacesPage.delete' as any)}
         </Button>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard icon={Users} label="Members" value={detail.members?.length ?? 0} />
-        <StatCard icon={BookUser} label="Contacts" value={detail.contact_count} />
-        <StatCard icon={MessageSquare} label="Conversations" value={detail.conversation_count} />
-        <StatCard icon={Globe} label="Locale" value={ws?.default_locale || 'en'} />
+        <StatCard icon={Users} label={t('admin.workspacesPage.stats.members' as any)} value={detail.members?.length ?? 0} />
+        <StatCard icon={BookUser} label={t('admin.workspacesPage.stats.contacts' as any)} value={detail.contact_count} />
+        <StatCard icon={MessageSquare} label={t('admin.workspacesPage.stats.conversations' as any)} value={detail.conversation_count} />
+        <StatCard icon={Globe} label={t('admin.workspacesPage.stats.locale' as any)} value={ws?.default_locale || 'en'} />
       </div>
 
       {/* Owner phone verification — the workspace has no own phone state. */}
@@ -314,7 +314,7 @@ function WorkspaceDetailView({
         <CardContent className="p-4 space-y-3">
           <h3 className="text-sm font-semibold flex items-center gap-2">
             <Users className="h-4 w-4 text-muted-foreground" />
-            Members ({detail.members?.length ?? 0})
+            {t('admin.workspacesPage.membersTitle' as any, { count: detail.members?.length ?? 0 })}
           </h3>
           <div className="space-y-2">
             {detail.members?.map((m: any) => (
@@ -334,7 +334,7 @@ function WorkspaceDetailView({
                     <p className="text-xs text-muted-foreground">{m.email}</p>
                   </div>
                 </div>
-                <Badge variant={m.role === 'owner' ? 'default' : 'secondary'}>{m.role}</Badge>
+                <Badge variant={m.role === 'owner' ? 'default' : 'secondary'}>{['owner', 'admin', 'member'].includes(m.role) ? t(`admin.workspacesPage.roles.${m.role}` as any) : m.role}</Badge>
               </button>
             ))}
           </div>
@@ -351,14 +351,14 @@ function WorkspaceDetailView({
             <CardContent className="p-4 space-y-3">
               <h3 className="text-sm font-semibold flex items-center gap-2">
                 <Palette className="h-4 w-4 text-muted-foreground" />
-                Branding
+                {t('admin.workspacesPage.branding.title' as any)}
               </h3>
               <div className="space-y-2 text-sm">
-                <InfoRow label="Platform Name" value={detail.branding.platform_name} />
-                <InfoRow label="Primary Color" value={detail.branding.primary_color} color />
-                <InfoRow label="Accent Color" value={detail.branding.accent_color} color />
-                <InfoRow label="Support Email" value={detail.branding.support_email} />
-                <InfoRow label="Legal Name" value={detail.branding.legal_name} />
+                <InfoRow label={t('admin.workspacesPage.branding.platformName' as any)} value={detail.branding.platform_name} />
+                <InfoRow label={t('admin.workspacesPage.branding.primaryColor' as any)} value={detail.branding.primary_color} color />
+                <InfoRow label={t('admin.workspacesPage.branding.accentColor' as any)} value={detail.branding.accent_color} color />
+                <InfoRow label={t('admin.workspacesPage.branding.supportEmail' as any)} value={detail.branding.support_email} />
+                <InfoRow label={t('admin.workspacesPage.branding.legalName' as any)} value={detail.branding.legal_name} />
               </div>
             </CardContent>
           </Card>
@@ -369,15 +369,15 @@ function WorkspaceDetailView({
             <CardContent className="p-4 space-y-3">
               <h3 className="text-sm font-semibold flex items-center gap-2">
                 <Bot className="h-4 w-4 text-muted-foreground" />
-                Widget Settings
+                {t('admin.workspacesPage.widget.title' as any)}
               </h3>
               <div className="space-y-2 text-sm">
-                <InfoRow label="Enabled" value={detail.widget_settings.enabled ? 'Yes' : 'No'} />
-                <InfoRow label="Chat" value={detail.widget_settings.chat_enabled ? 'Yes' : 'No'} />
-                <InfoRow label="KB" value={detail.widget_settings.kb_enabled ? 'Yes' : 'No'} />
-                <InfoRow label="Position" value={detail.widget_settings.position} />
-                <InfoRow label="Tracking" value={detail.widget_settings.visitor_tracking_enabled ? 'Yes' : 'No'} />
-                <InfoRow label="Color" value={detail.widget_settings.primary_color} color />
+                <InfoRow label={t('admin.workspacesPage.widget.enabled' as any)} value={detail.widget_settings.enabled ? t('admin.common.yes') : t('admin.common.no')} />
+                <InfoRow label={t('admin.workspacesPage.widget.chat' as any)} value={detail.widget_settings.chat_enabled ? t('admin.common.yes') : t('admin.common.no')} />
+                <InfoRow label={t('admin.workspacesPage.widget.knowledgeBase' as any)} value={detail.widget_settings.kb_enabled ? t('admin.common.yes') : t('admin.common.no')} />
+                <InfoRow label={t('admin.workspacesPage.widget.position' as any)} value={detail.widget_settings.position} />
+                <InfoRow label={t('admin.workspacesPage.widget.tracking' as any)} value={detail.widget_settings.visitor_tracking_enabled ? t('admin.common.yes') : t('admin.common.no')} />
+                <InfoRow label={t('admin.workspacesPage.widget.color' as any)} value={detail.widget_settings.primary_color} color />
               </div>
             </CardContent>
           </Card>
@@ -389,13 +389,13 @@ function WorkspaceDetailView({
         <CardContent className="p-4 space-y-3">
           <h3 className="text-sm font-semibold flex items-center gap-2">
             <Shield className="h-4 w-4 text-muted-foreground" />
-            Technical Details
+            {t('admin.workspacesPage.technical.title' as any)}
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-            <InfoRow label="Workspace ID" value={ws?.id} />
-            <InfoRow label="Owner ID" value={ws?.owner_id} />
-            <InfoRow label="Account ID" value={ws?.account_id} />
-            <InfoRow label="Created" value={ws?.created_at ? format(new Date(ws.created_at), 'yyyy-MM-dd HH:mm') : '—'} />
+            <InfoRow label={t('admin.workspacesPage.technical.workspaceId' as any)} value={ws?.id} />
+            <InfoRow label={t('admin.workspacesPage.technical.ownerId' as any)} value={ws?.owner_id} />
+            <InfoRow label={t('admin.workspacesPage.technical.accountId' as any)} value={ws?.account_id} />
+            <InfoRow label={t('admin.workspacesPage.columns.created' as any)} value={ws?.created_at ? formatDate(ws.created_at, locale, true) : '—'} />
           </div>
         </CardContent>
       </Card>
@@ -415,22 +415,23 @@ function DeleteDialog({
   onDelete: () => void;
   isPending: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <Dialog open={!!deleteId} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-destructive flex items-center gap-2">
             <Trash2 className="h-5 w-5" />
-            Delete Workspace
+            {t('admin.workspacesPage.deleteDialog.title' as any)}
           </DialogTitle>
           <DialogDescription>
-            This will permanently delete <strong>{deleteWs?.name}</strong> and all its data. This action cannot be undone.
+            {t('admin.workspacesPage.deleteDialog.description' as any, { name: deleteWs?.name ?? '' })}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3 pt-2">
           <p className="text-sm text-muted-foreground">
-            Type <code className="bg-muted px-1.5 py-0.5 rounded font-semibold text-destructive">{deleteWs?.slug}</code> to confirm:
+            {t('admin.workspacesPage.deleteDialog.typeBefore' as any)} <code className="bg-muted px-1.5 py-0.5 rounded font-semibold text-destructive">{deleteWs?.slug}</code> {t('admin.workspacesPage.deleteDialog.typeAfter' as any)}
           </p>
           <input
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -442,14 +443,14 @@ function DeleteDialog({
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose}>{t('admin.workspacesPage.deleteDialog.cancel' as any)}</Button>
           <Button
             variant="destructive"
             disabled={deleteConfirm !== deleteWs?.slug || isPending}
             onClick={onDelete}
           >
             {isPending && <Loader2 className="h-4 w-4 animate-spin me-2" />}
-            Delete permanently
+            {t('admin.workspacesPage.deleteDialog.confirm' as any)}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -487,12 +488,13 @@ function MemberDetailDialog({ member, onClose }: { member: any; onClose: () => v
   // Admin profile reads go through the backend admin API (service-role only).
   // The admin_* RPCs are no longer callable from the browser.
   const { data: detail } = useAdminUserDetail(member?.user_id ?? null);
+  const { t, locale } = useTranslation();
   const p = detail?.profile;
 
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    toast.success('Copied to clipboard');
+    toast.success(t('admin.workspacesPage.member.copied' as any));
   };
 
   return (
@@ -501,7 +503,7 @@ function MemberDetailDialog({ member, onClose }: { member: any; onClose: () => v
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Users className="h-5 w-5 text-primary" />
-            Member Details
+            {t('admin.workspacesPage.member.title' as any)}
           </DialogTitle>
         </DialogHeader>
 
@@ -522,7 +524,7 @@ function MemberDetailDialog({ member, onClose }: { member: any; onClose: () => v
                 <p className="text-lg font-semibold truncate">{p.full_name || '—'}</p>
                 <p className="text-sm text-muted-foreground truncate">{p.email}</p>
                 <Badge variant={member?.role === 'owner' ? 'default' : 'secondary'} className="mt-1">
-                  {member?.role}
+                  {['owner', 'admin', 'member'].includes(member?.role) ? t(`admin.workspacesPage.roles.${member.role}` as any) : member?.role}
                 </Badge>
               </div>
             </div>
@@ -533,25 +535,25 @@ function MemberDetailDialog({ member, onClose }: { member: any; onClose: () => v
             <div className="space-y-2 text-sm">
               <DetailRow
                 icon={Mail}
-                label="Email"
+                label={t('admin.workspacesPage.member.email' as any)}
                 value={p.email}
                 onCopy={() => copyToClipboard(p.email)}
               />
-              <DetailRow icon={Building2} label="Company" value={p.company_name} />
-              <DetailRow icon={Globe} label="Website" value={p.website_domain} />
-              <DetailRow icon={Globe} label="Preferred Locale" value={p.preferred_locale} />
-              <DetailRow icon={Globe} label="Signup Locale" value={p.signup_locale} />
-              <DetailRow icon={Bot} label="AI Mode" value={p.ai_mode} />
-              <DetailRow icon={MapPin} label="Signup IP" value={p.signup_ip} />
+              <DetailRow icon={Building2} label={t('admin.workspacesPage.member.company' as any)} value={p.company_name} />
+              <DetailRow icon={Globe} label={t('admin.workspacesPage.member.website' as any)} value={p.website_domain} />
+              <DetailRow icon={Globe} label={t('admin.workspacesPage.member.preferredLocale' as any)} value={p.preferred_locale} />
+              <DetailRow icon={Globe} label={t('admin.workspacesPage.member.signupLocale' as any)} value={p.signup_locale} />
+              <DetailRow icon={Bot} label={t('admin.workspacesPage.member.aiMode' as any)} value={p.ai_mode} />
+              <DetailRow icon={MapPin} label={t('admin.workspacesPage.member.signupIp' as any)} value={p.signup_ip} />
               <DetailRow
                 icon={Calendar}
-                label="Joined"
-                value={p.created_at ? format(new Date(p.created_at), 'yyyy-MM-dd HH:mm') : null}
+                label={t('admin.workspacesPage.member.joined' as any)}
+                value={p.created_at ? formatDate(p.created_at, locale, true) : null}
               />
               <DetailRow
                 icon={Calendar}
-                label="Member Since"
-                value={member?.created_at ? format(new Date(member.created_at), 'yyyy-MM-dd HH:mm') : null}
+                label={t('admin.workspacesPage.member.memberSince' as any)}
+                value={member?.created_at ? formatDate(member.created_at, locale, true) : null}
               />
             </div>
 
@@ -559,7 +561,7 @@ function MemberDetailDialog({ member, onClose }: { member: any; onClose: () => v
 
             {/* User ID */}
             <div className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2">
-              <span className="text-xs text-muted-foreground">User ID</span>
+              <span className="text-xs text-muted-foreground">{t('admin.workspacesPage.member.userId' as any)}</span>
               <button
                 onClick={() => copyToClipboard(p.id)}
                 className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"

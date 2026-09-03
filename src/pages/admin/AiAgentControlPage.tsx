@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
 import { aiAgentApi, type PlatformAiAgentSettings } from '@/lib/ai-agent-api';
+import { useTranslation } from '@/i18n';
 
 type Patch = Partial<PlatformAiAgentSettings>;
 
@@ -57,6 +58,7 @@ function Toggle({
 }
 
 export default function AiAgentControlPage() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const { data, isLoading, error } = useQuery({
     queryKey: ['admin-ai-agent-platform-settings'],
@@ -80,10 +82,10 @@ export default function AiAgentControlPage() {
       qc.invalidateQueries({ queryKey: ['admin-ai-agent-platform-settings'] });
       qc.invalidateQueries({ queryKey: ['ai-agent-capabilities'] });
       setDraft({});
-      toast({ title: 'Saved', description: 'Platform AI Agent settings updated.' });
+      toast({ title: t('admin.aiAgentControl.saved' as any), description: t('admin.aiAgentControl.savedDescription' as any) });
     },
     onError: (e: any) => {
-      toast({ title: 'Save failed', description: e?.message || 'Unable to save', variant: 'destructive' });
+      toast({ title: t('admin.aiAgentControl.saveFailed' as any), description: e?.message || t('admin.aiAgentControl.unableToSave' as any), variant: 'destructive' });
     },
   });
 
@@ -99,7 +101,7 @@ export default function AiAgentControlPage() {
     return (
       <div className="p-6">
         <Card className="p-6 border-destructive/40">
-          <p className="text-sm text-destructive">Failed to load platform AI Agent settings.</p>
+          <p className="text-sm text-destructive">{t('admin.aiAgentControl.loadFailed' as any)}</p>
           <p className="text-xs text-muted-foreground mt-1">{(error as any)?.message}</p>
         </Card>
       </div>
@@ -116,70 +118,68 @@ export default function AiAgentControlPage() {
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">AI Agent Control Center</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Platform-wide controls for the AI Agent feature. Changes apply to every workspace.
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t('admin.aiAgentControl.title' as any)}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t('admin.aiAgentControl.subtitle' as any)}</p>
         </div>
         <Button
           onClick={() => update.mutate(draft)}
           disabled={!dirty || update.isPending}
         >
-          {update.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-          Save changes
+          {update.isPending ? <Loader2 className="h-4 w-4 me-2 animate-spin" /> : <Save className="h-4 w-4 me-2" />}
+          {t('admin.aiAgentControl.saveChanges' as any)}
         </Button>
       </div>
 
-      <Section icon={Power} title="Kill switch" description="Globally enable or disable the AI Agent product across the platform.">
+      <Section icon={Power} title={t('admin.aiAgentControl.killSwitch.title' as any)} description={t('admin.aiAgentControl.killSwitch.description' as any)}>
         <Toggle
-          label="AI Agent enabled"
-          description="When off, customer-facing AI Agent endpoints reject requests with ai_agent_platform_disabled."
+          label={t('admin.aiAgentControl.killSwitch.enabled' as any)}
+          description={t('admin.aiAgentControl.killSwitch.enabledHint' as any)}
           checked={merged.ai_agent_enabled}
           onChange={(v) => set('ai_agent_enabled', v)}
         />
         <Toggle
-          label="Show AI Agent in workspace navigation"
-          description="Hides the AI Agent section from every workspace sidebar without disabling backend endpoints."
+          label={t('admin.aiAgentControl.killSwitch.navigation' as any)}
+          description={t('admin.aiAgentControl.killSwitch.navigationHint' as any)}
           checked={merged.customer_ai_agent_visible}
           onChange={(v) => set('customer_ai_agent_visible', v)}
           disabled={killSwitchOff}
         />
         <div className="space-y-1.5">
-          <Label className="text-sm font-medium">Disabled message (optional)</Label>
+          <Label className="text-sm font-medium">{t('admin.aiAgentControl.killSwitch.disabledMessage' as any)}</Label>
           <Textarea
             value={merged.disabled_message ?? ''}
             onChange={(e) => set('disabled_message', e.target.value || null)}
-            placeholder="Shown to operators when AI Agent is disabled (kept generic; never reveal internals)."
+            placeholder={t('admin.aiAgentControl.killSwitch.disabledMessagePlaceholder' as any)}
             rows={3}
           />
         </div>
       </Section>
 
-      <Section icon={Sparkles} title="Customer features" description="Per-feature toggles surfaced in the customer-facing UI.">
+      <Section icon={Sparkles} title={t('admin.aiAgentControl.customer.title' as any)} description={t('admin.aiAgentControl.customer.description' as any)}>
         <Toggle
-          label="Operator Assist"
+          label={t('admin.aiAgentControl.customer.operatorAssist' as any)}
           checked={merged.operator_assist_enabled}
           onChange={(v) => set('operator_assist_enabled', v)}
           disabled={killSwitchOff}
         />
         <Toggle
-          label="Auto-answer"
+          label={t('admin.aiAgentControl.customer.autoAnswer' as any)}
           checked={merged.auto_answer_enabled}
           onChange={(v) => set('auto_answer_enabled', v)}
           disabled={killSwitchOff}
         />
         <Toggle
-          label="Learning"
+          label={t('admin.aiAgentControl.customer.learning' as any)}
           checked={merged.learning_enabled}
           onChange={(v) => set('learning_enabled', v)}
           disabled={killSwitchOff}
         />
-        <Toggle label="Files knowledge" checked={merged.files_enabled} onChange={(v) => set('files_enabled', v)} disabled={killSwitchOff} />
-        <Toggle label="Website knowledge" checked={merged.websites_enabled} onChange={(v) => set('websites_enabled', v)} disabled={killSwitchOff} />
-        <Toggle label="Q&A knowledge" checked={merged.qna_enabled} onChange={(v) => set('qna_enabled', v)} disabled={killSwitchOff} />
-        <Toggle label="Knowledge base knowledge" checked={merged.kb_enabled} onChange={(v) => set('kb_enabled', v)} disabled={killSwitchOff} />
+        <Toggle label={t('admin.aiAgentControl.customer.files' as any)} checked={merged.files_enabled} onChange={(v) => set('files_enabled', v)} disabled={killSwitchOff} />
+        <Toggle label={t('admin.aiAgentControl.customer.websites' as any)} checked={merged.websites_enabled} onChange={(v) => set('websites_enabled', v)} disabled={killSwitchOff} />
+        <Toggle label={t('admin.aiAgentControl.customer.qna' as any)} checked={merged.qna_enabled} onChange={(v) => set('qna_enabled', v)} disabled={killSwitchOff} />
+        <Toggle label={t('admin.aiAgentControl.customer.knowledgeBase' as any)} checked={merged.kb_enabled} onChange={(v) => set('kb_enabled', v)} disabled={killSwitchOff} />
         <div className="space-y-1.5">
-          <Label className="text-sm font-medium">Max customer-visible nav items</Label>
+          <Label className="text-sm font-medium">{t('admin.aiAgentControl.customer.maxNavItems' as any)}</Label>
           <Input
             type="number"
             min={1}
@@ -190,27 +190,27 @@ export default function AiAgentControlPage() {
         </div>
       </Section>
 
-      <Section icon={Wrench} title="Advanced & QA tools" description="Internal QA, debug, regression and source-health surfaces. Customers see nothing here unless explicitly enabled.">
+      <Section icon={Wrench} title={t('admin.aiAgentControl.advanced.title' as any)} description={t('admin.aiAgentControl.advanced.description' as any)}>
         <Toggle
-          label="Advanced tools enabled"
-          description="Master switch for any advanced/QA visibility toggle below."
+          label={t('admin.aiAgentControl.advanced.enabled' as any)}
+          description={t('admin.aiAgentControl.advanced.enabledHint' as any)}
           checked={merged.advanced_tools_enabled}
           onChange={(v) => set('advanced_tools_enabled', v)}
         />
         <Toggle
-          label="Regression runner visible to customers"
+          label={t('admin.aiAgentControl.advanced.regression' as any)}
           checked={merged.regression_runner_enabled}
           onChange={(v) => set('regression_runner_enabled', v)}
           disabled={!merged.advanced_tools_enabled}
         />
         <Toggle
-          label="Source health visible to customers"
+          label={t('admin.aiAgentControl.advanced.sourceHealth' as any)}
           checked={merged.source_health_visible_to_customers}
           onChange={(v) => set('source_health_visible_to_customers', v)}
           disabled={!merged.advanced_tools_enabled}
         />
         <Toggle
-          label="Test harness visible to customers"
+          label={t('admin.aiAgentControl.advanced.testHarness' as any)}
           checked={merged.test_harness_visible_to_customers}
           onChange={(v) => set('test_harness_visible_to_customers', v)}
           disabled={!merged.advanced_tools_enabled}
@@ -220,8 +220,7 @@ export default function AiAgentControlPage() {
       <Card className="p-4 border-amber-500/30 bg-amber-500/5 flex items-start gap-3">
         <ShieldAlert className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
         <div className="text-xs text-muted-foreground">
-          Global super admins always retain access to advanced AI tools regardless of these toggles.
-          Customer toggles only affect non-admin workspace users.
+          {t('admin.aiAgentControl.adminNotice' as any)}
         </div>
       </Card>
     </div>

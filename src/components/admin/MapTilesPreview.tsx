@@ -9,6 +9,7 @@ import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Globe2 } from 'lucide-react';
+import { useTranslation } from '@/i18n';
 
 interface Props {
   tileUrl: string;
@@ -24,6 +25,7 @@ interface Props {
 export function MapTilesPreview({
   tileUrl, attribution, minZoom, maxZoom, centerLat, centerLng, zoom, heightPx,
 }: Props) {
+  const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.TileLayer | null>(null);
@@ -85,8 +87,8 @@ export function MapTilesPreview({
         style={{ height: `${heightPx}px` }}
       >
         <Globe2 className="w-8 h-8 opacity-40 mb-2" />
-        <p className="text-sm font-medium text-foreground">No tile URL set</p>
-        <p className="text-xs">Fill in the URL template above to preview.</p>
+        <p className="text-sm font-medium text-foreground">{t('admin.mapGeo.preview.empty')}</p>
+        <p className="text-xs">{t('admin.mapGeo.preview.emptyHint')}</p>
       </div>
     );
   }

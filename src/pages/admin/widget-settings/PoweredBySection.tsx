@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import type { WidgetPlatformSettings } from '@/hooks/useWidgetPlatformSettings';
+import { useTranslation } from '@/i18n';
 
 interface Props {
   settings: WidgetPlatformSettings;
@@ -21,6 +22,7 @@ interface Props {
 }
 
 export function PoweredBySection({ settings, onSave, saving }: Props) {
+  const { t } = useTranslation();
   const [enabled, setEnabled] = useState(settings.powered_by_enabled ?? true);
   const [text, setText] = useState(settings.powered_by_text ?? '');
   const [brand, setBrand] = useState(settings.powered_by_brand_text ?? '');
@@ -38,78 +40,68 @@ export function PoweredBySection({ settings, onSave, saving }: Props) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Widget "Powered by" footer</CardTitle>
-        <CardDescription>
-          Platform-only branding shown at the bottom of the chat widget. Workspace owners cannot
-          change or remove it. To hide it for specific customers, turn off the{' '}
-          <span className="font-medium">Show Widget "Powered by" Footer</span> feature on their plan —
-          when hidden, the widget content extends to the bottom edge.
-        </CardDescription>
+        <CardTitle className="text-base">{t('admin.widgetSettingsPage.poweredBy.title' as any)}</CardTitle>
+        <CardDescription>{t('admin.widgetSettingsPage.poweredBy.description' as any)}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="flex items-center justify-between rounded-lg border border-border p-4 bg-muted/20">
           <div className="space-y-0.5">
-            <Label className="text-sm font-medium">Master switch</Label>
-            <p className="text-xs text-muted-foreground">
-              When off, no widget shows the footer regardless of plan.
-            </p>
+            <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.poweredBy.master' as any)}</Label>
+            <p className="text-xs text-muted-foreground">{t('admin.widgetSettingsPage.poweredBy.masterHint' as any)}</p>
           </div>
           <Switch checked={enabled} onCheckedChange={setEnabled} />
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <Label className="text-xs">Prefix text</Label>
+            <Label className="text-xs">{t('admin.widgetSettingsPage.poweredBy.prefix' as any)}</Label>
             <Input
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder="Powered by"
+              placeholder={t('admin.widgetSettingsPage.poweredBy.defaultPrefix' as any)}
             />
             <p className="text-[11px] text-muted-foreground">
-              Leave empty to use the widget's localized default ("Powered by").
+              {t('admin.widgetSettingsPage.poweredBy.prefixHint' as any)}
             </p>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs">Brand label</Label>
+            <Label className="text-xs">{t('admin.widgetSettingsPage.poweredBy.brand' as any)}</Label>
             <Input
               value={brand}
               onChange={(e) => setBrand(e.target.value)}
-              placeholder="Your platform name"
+              placeholder={t('admin.widgetSettingsPage.poweredBy.brandPlaceholder' as any)}
             />
             <p className="text-[11px] text-muted-foreground">
-              Empty falls back to the platform name from Platform Branding.
+              {t('admin.widgetSettingsPage.poweredBy.brandHint' as any)}
             </p>
           </div>
         </div>
 
         <div className="space-y-1.5">
-          <Label className="text-xs">Link URL</Label>
+          <Label className="text-xs">{t('admin.widgetSettingsPage.poweredBy.url' as any)}</Label>
           <Input
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://example.com"
           />
           <p className="text-[11px] text-muted-foreground">
-            Opened in a new tab when a visitor clicks the footer. Must start with http:// or
-            https://. Leave empty to make the footer non-clickable. The link is rendered as a
-            native <code>nofollow</code> anchor on every customer site.
+            {t('admin.widgetSettingsPage.poweredBy.urlHint' as any)}
           </p>
           {urlInvalid && (
-            <p className="text-[11px] text-destructive">Enter a full URL starting with https://</p>
+            <p className="text-[11px] text-destructive">{t('admin.widgetSettingsPage.poweredBy.urlInvalid' as any)}</p>
           )}
           {!urlInvalid && /^http:\/\//i.test(url.trim()) && (
             <p className="text-[11px] text-amber-600">
-              HTTPS is strongly recommended — an http:// destination may be blocked or downgraded
-              on secure customer sites.
+              {t('admin.widgetSettingsPage.poweredBy.httpWarning' as any)}
             </p>
           )}
 
         </div>
 
         <div className="rounded-lg border border-border p-4 bg-background">
-          <p className="text-[11px] text-muted-foreground mb-2">Preview</p>
+          <p className="text-[11px] text-muted-foreground mb-2">{t('admin.widgetSettingsPage.poweredBy.preview' as any)}</p>
           <p className="text-xs">
-            {(text.trim() || 'Powered by') + ' ' + (brand.trim() || 'Platform name')}
+            {(text.trim() || t('admin.widgetSettingsPage.poweredBy.defaultPrefix' as any)) + ' ' + (brand.trim() || t('admin.widgetSettingsPage.poweredBy.defaultBrand' as any))}
           </p>
         </div>
 
@@ -125,7 +117,7 @@ export function PoweredBySection({ settings, onSave, saving }: Props) {
             })
           }
         >
-          {saving ? 'Saving…' : 'Save footer settings'}
+          {saving ? t('admin.widgetSettingsPage.poweredBy.saving' as any) : t('admin.widgetSettingsPage.poweredBy.save' as any)}
         </Button>
       </CardContent>
     </Card>

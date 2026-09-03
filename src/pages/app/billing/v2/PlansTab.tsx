@@ -220,7 +220,7 @@ export default function PlansTab({
                   onClick={() => loadPreview(m)}
                   className="w-full rounded-lg border p-3 text-start transition-colors hover:bg-muted/50"
                 >
-                  <p className="text-sm font-medium">{t(`billingV2.plans.mode.${m}` as any)}</p>
+                  <p className="text-sm font-medium">{t(m === 'immediate' ? 'billingV2.plans.mode.immediate' : 'billingV2.plans.mode.nextCycle')}</p>
                   <p className="text-xs text-muted-foreground">
                     {t(m === 'immediate' ? 'billingV2.plans.mode.immediateDesc' : 'billingV2.plans.mode.nextCycleDesc')}
                   </p>

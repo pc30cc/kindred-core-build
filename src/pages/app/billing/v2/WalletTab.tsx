@@ -73,7 +73,7 @@ export default function WalletTab({
       await billingV2SetAutoPay(workspaceId, enabled);
       setData((prev) => (prev ? { ...prev, autoPayEnabled: enabled } : prev));
       onChanged();
-      toast.success(t('billingV2.wallet.autoPaySaved'));
+      toast.success(t('billingV2.wallet.saved'));
     } catch (e) {
       toast.error(errorMessage(e, t));
     } finally {
@@ -160,7 +160,7 @@ export default function WalletTab({
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-sm text-muted-foreground">{t('billingV2.wallet.autoPayDesc')}</p>
+              <p className="text-sm text-muted-foreground">{t('billingV2.overview.autoPayOn')}</p>
               <Switch
                 checked={data.autoPayEnabled}
                 disabled={!canManage || savingAutoPay}
@@ -168,7 +168,7 @@ export default function WalletTab({
               />
             </div>
             <p className="rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">
-              {t('billingV2.wallet.autoPayNote')}
+              {t('billingV2.wallet.autoPayDesc')}
             </p>
           </CardContent>
         </Card>
@@ -180,7 +180,7 @@ export default function WalletTab({
         </CardHeader>
         <CardContent>
           {data.ledger.entries.length === 0 ? (
-            <EmptyState message={t('billingV2.wallet.ledgerEmpty')} />
+            <EmptyState message={t('billingV2.wallet.empty')} />
           ) : (
             <>
               <div className="space-y-2">
@@ -235,10 +235,10 @@ export default function WalletTab({
                 dir="ltr"
                 value={amountToman}
                 onChange={(e) => setAmountToman(e.target.value.replace(/[^\d]/g, ''))}
-                placeholder={t('billingV2.wallet.amountPlaceholder')}
+                placeholder={t('billingV2.wallet.custom')}
               />
               <p className="text-xs text-muted-foreground">
-                {t('billingV2.wallet.limits', {
+                {t('billingV2.wallet.range', {
                   min: money(data.deposit.minIrr, locale),
                   max: money(data.deposit.maxIrr, locale),
                 })}
@@ -247,15 +247,15 @@ export default function WalletTab({
           ) : (
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">{t('billingV2.wallet.depositAmount')}</span>
+                <span className="text-muted-foreground">{t('billingV2.common.amount')}</span>
                 <span className="font-semibold">{money(preview.amountIrr, locale)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">{t('billingV2.wallet.documentType')}</span>
-                <span>{t('billingV2.wallet.depositReceipt')}</span>
+                <span className="text-muted-foreground">{t('billingV2.wallet.receipt')}</span>
+                <Ltr>{preview.documentNumber}</Ltr>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">{t('billingV2.wallet.documentNumber')}</span>
+                <span className="text-muted-foreground">{t('billingV2.wallet.receiptNumber')}</span>
                 <Ltr>{preview.documentNumber}</Ltr>
               </div>
             </div>
@@ -273,7 +273,7 @@ export default function WalletTab({
             ) : (
               <Button onClick={goToGateway} disabled={busy}>
                 {busy && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
-                {t('billingV2.wallet.payOnline')}
+                {t('billingV2.wallet.continueToBank')}
               </Button>
             )}
           </DialogFooter>

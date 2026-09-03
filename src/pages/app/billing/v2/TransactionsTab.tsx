@@ -64,7 +64,7 @@ export default function TransactionsTab({ workspaceId, reloadKey }: { workspaceI
                   <tr className="border-b">
                     <th className="p-2 text-start">{t('billingV2.transactions.date')}</th>
                     <th className="p-2 text-start">{t('billingV2.transactions.type')}</th>
-                    <th className="p-2 text-start">{t('billingV2.transactions.reference')}</th>
+                    <th className="p-2 text-start">{t('billingV2.transactions.tracking')}</th>
                     <th className="p-2 text-start">{t('billingV2.common.status')}</th>
                     <th className="p-2 text-end">{t('billingV2.transactions.amount')}</th>
                   </tr>
@@ -73,12 +73,12 @@ export default function TransactionsTab({ workspaceId, reloadKey }: { workspaceI
                   {rows.map((row) => (
                     <tr key={row.id} className="border-b last:border-0">
                       <td className="p-2">{billingDate(row.createdAt, locale)}</td>
-                      <td className="p-2">{t(`billingV2.transactions.types.${row.purchaseType}` as any)}</td>
+                      <td className="p-2">{t(`billingV2.transactions.purchase.${row.purchaseType}` as any)}</td>
                       <td className="p-2">{row.providerReference || row.documentNumber ? <Ltr>{row.providerReference || row.documentNumber}</Ltr> : '—'}</td>
                       <td className="p-2">
                         <Badge variant={statusVariant(row.status, row.needsReview)}>
                           {row.needsReview
-                            ? t('billingV2.transactions.statuses.needs_review')
+                            ? t('billingV2.transactions.statuses.review')
                             : t(`billingV2.transactions.statuses.${row.status}` as any)}
                         </Badge>
                       </td>
@@ -94,11 +94,11 @@ export default function TransactionsTab({ workspaceId, reloadKey }: { workspaceI
                 <div key={row.id} className="rounded-lg border p-3">
                   <div className="mb-1 flex items-center justify-between gap-2">
                     <span className="text-sm font-medium">
-                      {t(`billingV2.transactions.types.${row.purchaseType}` as any)}
+                      {t(`billingV2.transactions.purchase.${row.purchaseType}` as any)}
                     </span>
                     <Badge variant={statusVariant(row.status, row.needsReview)}>
                       {row.needsReview
-                        ? t('billingV2.transactions.statuses.needs_review')
+                        ? t('billingV2.transactions.statuses.review')
                         : t(`billingV2.transactions.statuses.${row.status}` as any)}
                     </Badge>
                   </div>

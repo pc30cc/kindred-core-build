@@ -35,12 +35,12 @@ import TransactionsTab from './TransactionsTab';
 import InvoiceDetailDialog from './InvoiceDetailDialog';
 
 const TABS = [
-  { value: 'overview', icon: LayoutGrid },
-  { value: 'invoices', icon: Receipt },
-  { value: 'plans', icon: Gauge },
-  { value: 'wallet', icon: Wallet },
-  { value: 'ai', icon: Sparkles },
-  { value: 'transactions', icon: ArrowLeftRight },
+  { value: 'overview', labelKey: 'overview', icon: LayoutGrid },
+  { value: 'invoices', labelKey: 'invoices', icon: Receipt },
+  { value: 'plans', labelKey: 'plans', icon: Gauge },
+  { value: 'wallet', labelKey: 'wallet', icon: Wallet },
+  { value: 'ai', labelKey: 'aiCredit', icon: Sparkles },
+  { value: 'transactions', labelKey: 'transactions', icon: ArrowLeftRight },
 ] as const;
 
 export default function BillingV2Page({ workspaceId }: { workspaceId: string }) {
@@ -123,7 +123,7 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
             <SelectContent>
               {TABS.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
-                  {t(`billingV2.tabs.${item.value}` as any)}
+                  {t(`billingV2.tabs.${item.labelKey}` as any)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -134,7 +134,7 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
           {TABS.map((item) => (
             <TabsTrigger key={item.value} value={item.value} className="gap-1.5">
               <item.icon className="h-4 w-4" />
-              {t(`billingV2.tabs.${item.value}` as any)}
+              {t(`billingV2.tabs.${item.labelKey}` as any)}
             </TabsTrigger>
           ))}
         </TabsList>

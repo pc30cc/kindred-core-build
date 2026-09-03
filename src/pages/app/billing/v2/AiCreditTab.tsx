@@ -77,7 +77,7 @@ export default function AiCreditTab({
               <Sparkles className="h-4 w-4 text-primary" />
               {t('billingV2.ai.cycleAllowance')}
               {overview.aiMonthlyOnAnnual && (
-                <Badge variant="outline">{t('billingV2.ai.monthlyOnAnnual')}</Badge>
+                <Badge variant="outline">{t('billingV2.ai.annualBadge')}</Badge>
               )}
             </CardTitle>
           </CardHeader>
@@ -85,16 +85,16 @@ export default function AiCreditTab({
             {cycle ? (
               <>
                 <p className="text-xs text-muted-foreground">
-                  {t('billingV2.overview.cycleRange', {
+                  {t('billingV2.ai.cycleRange', {
                     start: billingDate(cycle.start, locale),
                     end: billingDate(cycle.end, locale),
                   })}
                 </p>
                 <Progress value={usedPct} />
                 <div className="grid grid-cols-3 gap-2">
-                  <Stat label={t('billingV2.overview.allowance')} value={money(cycle.allowanceIrr, locale)} />
-                  <Stat label={t('billingV2.overview.used')} value={money(cycle.usedIrr, locale)} />
-                  <Stat label={t('billingV2.overview.remaining')} value={money(cycle.remainingIrr, locale)} />
+                  <Stat label={t('billingV2.ai.cycleAllowance')} value={money(cycle.allowanceIrr, locale)} />
+                  <Stat label={t('billingV2.ai.used')} value={money(cycle.usedIrr, locale)} />
+                  <Stat label={t('billingV2.ai.remaining')} value={money(cycle.remainingIrr, locale)} />
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {t('billingV2.ai.expiresOn', { date: billingDate(cycle.end, locale) })}
@@ -112,7 +112,7 @@ export default function AiCreditTab({
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-3xl font-bold">{money(overview.aiPurchasedRemainingIrr, locale)}</p>
-            <p className="text-xs text-muted-foreground">{t('billingV2.ai.purchasedNote')}</p>
+            <p className="text-xs text-muted-foreground">{t('billingV2.ai.consumptionNote')}</p>
             {canManage && (
               <Button
                 size="lg"
@@ -148,7 +148,7 @@ export default function AiCreditTab({
               dir="ltr"
               value={amountToman}
               onChange={(e) => setAmountToman(e.target.value.replace(/[^\d]/g, ''))}
-              placeholder={t('billingV2.wallet.amountPlaceholder')}
+              placeholder={t('billingV2.wallet.custom')}
             />
             <p className="text-xs text-muted-foreground">{t('billingV2.ai.buyNote')}</p>
           </div>

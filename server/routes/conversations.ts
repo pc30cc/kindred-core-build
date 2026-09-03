@@ -98,10 +98,10 @@ async function authorizeWorkspaceMember(
   res: any,
   _config: ServerConfig,
   workspaceId: string,
-): Promise<{ userId: string } | null> {
+): Promise<{ userId: string; isAdmin: boolean; role: string | null } | null> {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return null;
-  return { userId: auth.userId };
+  return { userId: auth.userId, isAdmin: auth.isAdmin, role: auth.role };
 }
 
 /**

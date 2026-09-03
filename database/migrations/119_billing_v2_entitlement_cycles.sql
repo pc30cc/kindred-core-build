@@ -242,7 +242,10 @@ BEGIN
   LOOP
     -- Every boundary is measured from the ORIGINAL anchor, never from the
     -- previous boundary: 31 Jan → 28 Feb → 31 Mar, with no month-end drift.
-    v_anchor := public.billing_v2_add_interval(v_base, 'monthly', v_step);
+    -- (step 0 means "the anchor itself": billing_v2_add_interval floors its
+    -- count at 1, so the identity step is taken explicitly.)
+    v_anchor := CASE WHEN v_step = 0 THEN v_base
+                     ELSE public.billing_v2_add_interval(v_base, 'monthly', v_step) END;
     v_end    := LEAST(v_anchor, v_period.period_end);
     EXIT WHEN v_end <= v_start;
 

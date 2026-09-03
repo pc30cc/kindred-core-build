@@ -160,3 +160,59 @@ export async function settleAndApply(
   const application = await applyInvoiceEffects(config, input.invoiceId);
   return { settlement, application };
 }
+
+// ============================================================
+// COLLECTION RESERVATION — gateway and wallet may not collect the same
+// invoice at the same time. The reservation is durable and expiring, so an
+// abandoned checkout releases itself instead of freezing the invoice.
+// ============================================================
+
+export interface CollectionHold {
+  collection_id: string;
+  channel: string;
+  amount_irr: number;
+  expires_at: string;
+  replayed: boolean;
+}
+
+export async function beginCollection(
+  config: ServerConfig,
+  input: {
+    invoiceId: string;
+    channel: 'gateway' | 'wallet' | 'admin';
+    amountIrr: number;
+    commandKey: string;
+    paymentIntentId?: string | null;
+    ttlSeconds?: number;
+  },
+): Promise<CollectionHold> {
+  const sb = getServiceClient(config);
+  const { data, error } = await sb.rpc('billing_begin_collection', {
+    p_invoice_id: input.invoiceId,
+    p_channel: input.channel,
+    p_amount_irr: input.amountIrr,
+    p_command_key: input.commandKey,
+    p_intent_id: input.paymentIntentId ?? null,
+    p_ttl_seconds: input.ttlSeconds ?? 1800,
+  });
+  if (error) {
+    const msg = String(error.message || '');
+    if (msg.includes('invoice_collection_locked')) {
+      throw new InvoiceSettlementError('collection_locked', msg, 409);
+    }
+    translate(error);
+  }
+  return data as CollectionHold;
+}
+
+export async function releaseCollection(
+  config: ServerConfig,
+  collectionId: string,
+  reason = 'released',
+): Promise<void> {
+  const sb = getServiceClient(config);
+  await sb.rpc('billing_release_collection', {
+    p_collection_id: collectionId,
+    p_reason: reason,
+  });
+}

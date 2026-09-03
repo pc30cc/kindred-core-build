@@ -49,6 +49,13 @@ import {
 } from '../services/billing/applyPayment.js';
 import * as aiLedger from '../services/ai-billing/ledger.js';
 import { buildTransactionHistory } from '../services/billing/transactionHistory.js';
+import {
+  assertLegacyPathAllowed,
+  auditV2,
+  isV2Active,
+  LegacyPathRejectedError,
+} from '../services/billing/rollout.js';
+import { settleAndApply } from '../services/billing/invoice/settle.js';
 
 /**
  * Customer-friendly receipt for a finalized intent. Everything here comes from
@@ -427,6 +434,22 @@ billingRouter.post('/checkout', async (req, res) => {
   if (!(await authorizeWorkspace(req, res, input.workspaceId, { manage: true }))) return;
   const { url, key } = getConfig(req);
   try {
+    // Billing Engine V2 boundary. For a V2-owned workspace the legacy
+    // "checkout → applySubscriptionPayment" path does not exist any more: the
+    // invoice is the only commercial authority. An old deployed client gets a
+    // structured incompatibility response, never an unsafe V1 fallback.
+    try {
+      await assertLegacyPathAllowed(serverConfigOf(req), {
+        workspaceId: input.workspaceId,
+        path: 'legacy_plan_checkout',
+        nextAction: 'CREATE_INVOICE',
+      });
+    } catch (guard) {
+      if (guard instanceof LegacyPathRejectedError) {
+        return res.status(409).json({ error: 'BILLING_V2_REQUIRED', nextAction: guard.nextAction });
+      }
+      throw guard;
+    }
     const resolved = await resolveBillingConfig(url, key, input.workspaceId);
     if (!resolved) return res.status(400).json({ error: 'No billing provider configured' });
 
@@ -637,8 +660,73 @@ billingRouter.post('/verify-callback', async (req, res) => {
 
       const providerRef = result.providerRef || intent.provider_ref || null;
 
+      // ── Callback routing (Phase B rule 12) ──────────────────────────────
+      // The intent's OWN immutable engine stamp decides how verified money is
+      // applied — never the workspace's current rollout state. A V2 intent
+      // settles its invoice; a V1 intent applies the legacy path. A V1 intent
+      // arriving at a workspace that is already V2-owned must never bypass V2:
+      // cutover policy guarantees no BOUND legacy intent survives activation,
+      // so reaching this branch means something is wrong. The money is parked
+      // for reconciliation instead of being applied or discarded.
+      const intentEngine = (intent as any).billing_engine_version === 'v2' ? 'v2' : 'v1';
+      const invoiceId = (intent as any).invoice_id as string | null | undefined;
+
+      if (intentEngine === 'v1' && (await isV2Active(cfg, workspaceId))) {
+        const parked = await recordCustomerPayment(cfg, {
+          workspaceId,
+          providerName,
+          providerPaymentId: providerRef,
+          paymentIntentId: intent.id,
+          invoiceNumber: intent.invoice_number,
+          amount: intent.amount_irr,
+          currency: 'IRR',
+          purchaseType: intent.purchase_type === 'ai_credit_topup' ? 'ai_credit_topup' : 'subscription',
+          actionType: (intent.action_type as any) || 'plan_new',
+          metadata: { intentId: intent.id, providerRef, parked: 'legacy_intent_after_v2_cutover' },
+        });
+        if (parked.id) {
+          await getServiceClient(cfg)
+            .from('billing_payments')
+            .update({
+              reconciliation_state: 'unapplied',
+              reconciliation_reason: 'legacy_intent_after_v2_cutover',
+            })
+            .eq('id', parked.id);
+        }
+        await auditV2(cfg, {
+          workspaceId,
+          event: 'billing_v2_legacy_path_rejected',
+          reason: 'legacy_intent_callback_after_cutover',
+          details: { intentId: intent.id, providerRef },
+        });
+        await noteIntentFailureAttempt(cfg, intent, 'legacy_intent_after_v2_cutover');
+        return res.status(409).json({
+          error: 'BILLING_V2_REQUIRED',
+          nextAction: 'CONTACT_SUPPORT_PAYMENT_PARKED',
+        });
+      }
+
       try {
-        if (intent.purchase_type === 'ai_credit_topup') {
+        if (intentEngine === 'v2' && invoiceId) {
+          const payment = await recordCustomerPayment(cfg, {
+            workspaceId,
+            providerName,
+            providerPaymentId: providerRef,
+            paymentIntentId: intent.id,
+            invoiceNumber: intent.invoice_number,
+            amount: intent.amount_irr,
+            currency: 'IRR',
+            purchaseType: intent.purchase_type === 'ai_credit_topup' ? 'ai_credit_topup' : 'subscription',
+            actionType: (intent.action_type as any) || 'plan_new',
+            metadata: { intentId: intent.id, providerRef, invoiceId },
+          });
+          await settleAndApply(cfg, {
+            invoiceId,
+            paymentId: payment.id as string,
+            amountIrr: Number((intent as any).expected_amount_irr ?? intent.amount_irr),
+            commandKey: `intent:${intent.id}`,
+          });
+        } else if (intent.purchase_type === 'ai_credit_topup') {
           await aiLedger.purchaseCredit(cfg, {
             workspaceId,
             amount: String(intent.amount_irr),

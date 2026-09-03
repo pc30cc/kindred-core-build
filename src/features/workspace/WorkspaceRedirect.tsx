@@ -2,7 +2,7 @@
  * WorkspaceRedirect: Redirects /app to /app/w/:slug using the user's first workspace.
  * If user has no workspaces, auto-provisions one.
  */
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useWorkspaces, useAccount, useCreateWorkspace } from '@/hooks/useWorkspace';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useProfile } from '@/hooks/useProfile';
@@ -26,6 +26,18 @@ export function WorkspaceRedirect() {
   const [provisioning, setProvisioning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const attempted = useRef(false);
+  const location = useLocation();
+
+  // Preserve any legacy non-workspace path (e.g. a payment-gateway callback
+  // landing on /app/billing?callback=true) so the redirect keeps the target
+  // page and its query string instead of dumping the user on the overview.
+  const legacySuffix = (() => {
+    const p = location.pathname;
+    if (!p.startsWith('/app')) return '';
+    const rest = p.slice('/app'.length).replace(/\/+$/, '');
+    if (!rest || rest.startsWith('/w/')) return '';
+    return rest;
+  })();
 
 
   // Auto-provision workspace if user has account but no workspaces
@@ -103,7 +115,7 @@ export function WorkspaceRedirect() {
   }
 
   if (workspaces?.length) {
-    return <Navigate to={`/app/w/${workspaces[0].slug}`} replace />;
+    return <Navigate to={`/app/w/${workspaces[0].slug}${legacySuffix}${location.search}`} replace />;
   }
 
   return (

@@ -233,6 +233,12 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
               <Route path="/app" element={
                 <RequireAuth><WorkspaceRedirect /></RequireAuth>
               } />
+              {/* Legacy / slug-less app URLs (e.g. payment gateway callbacks
+                  returning to /app/billing) — resolve the active workspace and
+                  forward to the workspace-scoped route, keeping the query. */}
+              <Route path="/app/*" element={
+                <RequireAuth><WorkspaceRedirect /></RequireAuth>
+              } />
 
               {/* Workspace-scoped app (route-based active workspace) */}
               <Route path="/app/w/:slug" element={<RequireAuth><BrandingGate><AppLayout /></BrandingGate></RequireAuth>}>

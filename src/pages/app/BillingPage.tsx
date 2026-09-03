@@ -116,7 +116,7 @@ function LegacyBillingPage() {
         planId: plan.provider_price_ids?.[currency]?.[interval] || plan.id,
         interval,
         currency,
-        callbackUrl: `${window.location.origin}/app/billing?callback=true`,
+        callbackUrl: `${window.location.origin}${wsPath('/billing')}?callback=true`,
         customerEmail: undefined,
       });
       if (result.paymentUrl) {

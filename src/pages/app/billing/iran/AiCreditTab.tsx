@@ -279,11 +279,12 @@ function TopupDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('billingIran.aiCredit.topup.cancel')}</Button>
-          <Button onClick={handlePay} disabled={submitting || !config}>
+          <Button size="lg" onClick={handlePreview} disabled={submitting || !config}>
             {submitting ? <Loader2 className="w-4 h-4 animate-spin me-2" /> : null}
-            {t('billingIran.aiCredit.topup.payCta')}
+            {t('billingIran.aiCredit.topup.continueCta')}
           </Button>
         </DialogFooter>
+
       </DialogContent>
     </Dialog>
   );

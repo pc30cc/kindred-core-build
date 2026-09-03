@@ -983,7 +983,10 @@ conversationsRouter.get('/', async (req: any, res: any) => {
         .limit(2000);
 
       const byConv: Record<string, { body: string; created_at: string; seen_at: string | null }> = {};
-      const lastByConv: Record<string, { body: string; created_at: string; sender_type: string; attachment_id?: string | null; attachment_kind?: 'image' | 'audio' | 'video' | 'file' | null }> = {};
+      const lastByConv: Record<string, { body: string; created_at: string; sender_type: string; sender_id?: string | null; sender_name?: string | null; attachment_id?: string | null; attachment_kind?: 'image' | 'audio' | 'video' | 'file' | null }> = {};
+      // Human operators who ever wrote in the thread — drives "who handled
+      // this" visibility for resolved threads and the list preview label.
+      const agentParticipants: Record<string, Set<string>> = {};
       const unreadByConv: Record<string, number> = {};
       // Needs Reply is derived from the message stream, never stored. Rows
       // arrive newest-first, so the FIRST conversational turn we see per

@@ -7,11 +7,12 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { Loader2, Sparkles } from 'lucide-react';
+
 import { useTranslation } from '@/i18n';
 import { formatToman, tomanLabel } from '@/lib/money';
 import { toast } from '@/lib/toast';

@@ -13,7 +13,7 @@ import {
   Database, Download, Clock, HardDrive,
   Cloud, Server, FolderSync, CalendarDays, CalendarRange,
   Calendar, ArrowRightLeft,
-  AlertCircle, CheckCircle, Loader2, Trash2, ShieldAlert, Upload,
+  AlertCircle, CheckCircle, Loader2, Trash2, ShieldAlert, Upload, DatabaseBackup,
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
@@ -40,14 +40,16 @@ function MaintenanceCard() {
   const { t, dir } = useTranslation();
   const isRtl = dir === 'rtl';
   const fileRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState<null | 'backup' | 'restore' | 'data' | 'full'>(null);
+  const fullFileRef = useRef<HTMLInputElement>(null);
+
+  const [busy, setBusy] = useState<null | 'backup' | 'fullBackup' | 'restore' | 'fullRestore' | 'data' | 'full'>(null);
   const [confirmScope, setConfirmScope] = useState<null | 'data' | 'full'>(null);
   const [confirmText, setConfirmText] = useState('');
 
-  const handleBackup = async () => {
-    setBusy('backup');
+  const handleBackup = async (full = false) => {
+    setBusy(full ? 'fullBackup' : 'backup');
     try {
-      await downloadDatabaseBackup();
+      await downloadDatabaseBackup(full);
       toast.success(t('admin.database.backupDownloaded'));
     } catch (e: any) {
       toast.error(e?.message || t('admin.database.opFailed'));
@@ -56,19 +58,26 @@ function MaintenanceCard() {
     }
   };
 
-  const handleRestoreFile = async (file: File) => {
-    setBusy('restore');
+
+  const handleRestoreFile = async (file: File, full = false) => {
+    setBusy(full ? 'fullRestore' : 'restore');
     try {
       const payload = JSON.parse(await file.text());
-      await restoreDatabaseBackup(payload);
-      toast.success(t('admin.database.restoreDone'));
+      const res = await restoreDatabaseBackup(payload);
+      if (res.schema && res.schema.failed_count > 0) {
+        toast.warning(t('admin.database.schemaPartial', { count: res.schema.failed_count }));
+      } else {
+        toast.success(t('admin.database.restoreDone'));
+      }
     } catch (e: any) {
       toast.error(e?.message || t('admin.database.opFailed'));
     } finally {
       setBusy(null);
       if (fileRef.current) fileRef.current.value = '';
+      if (fullFileRef.current) fullFileRef.current.value = '';
     }
   };
+
 
   const runPurge = async () => {
     if (!confirmScope) return;
@@ -101,9 +110,20 @@ function MaintenanceCard() {
               <p className="text-sm text-foreground">{t('admin.database.downloadBackup')}</p>
               <p className="text-xs text-muted-foreground">{t('admin.database.downloadBackupDesc')}</p>
             </div>
-            <Button onClick={handleBackup} disabled={busy !== null} className={cn('gap-2', isRtl && 'flex-row-reverse')}>
+            <Button onClick={() => void handleBackup(false)} disabled={busy !== null} className={cn('gap-2', isRtl && 'flex-row-reverse')}>
               {busy === 'backup' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
               {busy === 'backup' ? t('admin.database.working') : t('admin.database.downloadBackup')}
+            </Button>
+          </div>
+
+          <div className={cn('flex flex-col gap-3 rounded-md border border-border p-4 sm:flex-row sm:items-center sm:justify-between', isRtl && 'sm:flex-row-reverse')}>
+            <div className="text-start">
+              <p className="text-sm text-foreground">{t('admin.database.downloadFullBackup')}</p>
+              <p className="text-xs text-muted-foreground">{t('admin.database.downloadFullBackupDesc')}</p>
+            </div>
+            <Button onClick={() => void handleBackup(true)} disabled={busy !== null} className={cn('gap-2', isRtl && 'flex-row-reverse')}>
+              {busy === 'fullBackup' ? <Loader2 className="h-4 w-4 animate-spin" /> : <DatabaseBackup className="h-4 w-4" />}
+              {busy === 'fullBackup' ? t('admin.database.working') : t('admin.database.downloadFullBackup')}
             </Button>
           </div>
 
@@ -129,6 +149,30 @@ function MaintenanceCard() {
               {busy === 'restore' ? t('admin.database.working') : t('admin.database.selectBackupFile')}
             </Button>
           </div>
+
+          <div className={cn('flex flex-col gap-3 rounded-md border border-border p-4 sm:flex-row sm:items-center sm:justify-between', isRtl && 'sm:flex-row-reverse')}>
+            <div className="text-start">
+              <p className="text-sm text-foreground">{t('admin.database.restoreFullBackup')}</p>
+              <p className="text-xs text-muted-foreground">{t('admin.database.restoreFullBackupDesc')}</p>
+            </div>
+            <input
+              ref={fullFileRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) void handleRestoreFile(f, true); }}
+            />
+            <Button
+              variant="outline"
+              disabled={busy !== null}
+              onClick={() => fullFileRef.current?.click()}
+              className={cn('gap-2', isRtl && 'flex-row-reverse')}
+            >
+              {busy === 'fullRestore' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              {busy === 'fullRestore' ? t('admin.database.working') : t('admin.database.selectBackupFile')}
+            </Button>
+          </div>
+
 
           <div className={cn('flex flex-col gap-3 rounded-md border border-warning/30 bg-warning/5 p-4 sm:flex-row sm:items-center sm:justify-between', isRtl && 'sm:flex-row-reverse')}>
             <div className="text-start">

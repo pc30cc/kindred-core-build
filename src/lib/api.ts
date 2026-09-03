@@ -942,8 +942,10 @@ export async function resendMyVerificationEmail(locale?: string): Promise<Resend
 
 // ─── Admin: database maintenance (backup / restore / purge) ──────
 
-export async function downloadDatabaseBackup(): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/admin/database/backup`, { credentials: 'include' });
+export async function downloadDatabaseBackup(full = false): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/admin/database/backup${full ? '?full=1' : ''}`, {
+    credentials: 'include',
+  });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(body.error || `API error: ${res.status}`);
@@ -952,7 +954,7 @@ export async function downloadDatabaseBackup(): Promise<void> {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `backup_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+  a.download = `${full ? 'full_' : ''}backup_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -960,11 +962,15 @@ export async function downloadDatabaseBackup(): Promise<void> {
 }
 
 export function restoreDatabaseBackup(payload: unknown) {
-  return request<{ ok: boolean; result: unknown }>('/api/admin/database/restore', {
-    method: 'POST',
-    body: JSON.stringify({ payload }),
-  });
+  return request<{ ok: boolean; result: unknown; schema?: { applied: number; failed_count: number } | null }>(
+    '/api/admin/database/restore',
+    {
+      method: 'POST',
+      body: JSON.stringify({ payload }),
+    },
+  );
 }
+
 
 export function purgeDatabase(scope: 'data' | 'full') {
   return request<{ ok: boolean; result: { scope: string; tables_truncated: number } }>(

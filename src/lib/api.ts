@@ -262,7 +262,7 @@ export async function billingGetPlans(locale?: string) {
 }
 
 export async function billingGetStatus(workspaceId: string) {
-  return request<{ subscription: any; payments: any[]; attempts?: any[] }>(`/api/billing/status/${workspaceId}`);
+  return request<{ subscription: any; payments: any[]; attempts?: any[]; transactions?: any[] }>(`/api/billing/status/${workspaceId}`);
 }
 
 /** Invoice shown to the customer BEFORE the gateway redirect. */
@@ -273,9 +273,11 @@ export interface BillingInvoice {
   expiresAt: string;
   planId: string;
   planName: string;
+  workspaceName?: string | null;
   interval: 'monthly' | 'yearly';
   actionType: string;
   amountIrr: number;
+  discountIrr?: number;
   totalIrr: number;
   periodStart: string;
   periodEnd: string;

@@ -387,3 +387,28 @@ export function providerRefMatchesIntent(
   void contract;
   return { ok: true };
 }
+
+
+/**
+ * TTL sweep: a `pending` intent whose deadline passed becomes `expired`.
+ *
+ * Closing the browser is NOT a cancellation — nothing is guessed here. The
+ * intent simply runs out its TTL and is recorded as expired, which is exactly
+ * what the customer's history should show for an attempt that never reached a
+ * definitive gateway answer.
+ */
+export async function expireStalePaymentIntents(
+  config: ServerConfig,
+  workspaceId?: string,
+): Promise<number> {
+  const supabase = getServiceClient(config);
+  let query = supabase
+    .from('billing_payment_intents')
+    .update({ status: 'expired', failure_reason: 'ttl_expired', updated_at: new Date().toISOString() })
+    .eq('status', 'pending')
+    .lt('expires_at', new Date().toISOString());
+  if (workspaceId) query = query.eq('workspace_id', workspaceId);
+  const { data, error } = await query.select('id');
+  if (error) return 0;
+  return (data || []).length;
+}

@@ -8135,6 +8135,462 @@ export type Database = {
           },
         ]
       }
+      verification_admin_idempotency: {
+        Row: {
+          created_at: string
+          expires_at: string
+          purpose: string
+          request_fingerprint: string
+          request_id: string
+          result: Json
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string
+          purpose: string
+          request_fingerprint: string
+          request_id: string
+          result: Json
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          purpose?: string
+          request_fingerprint?: string
+          request_id?: string
+          result?: Json
+        }
+        Relationships: []
+      }
+      verification_attempts: {
+        Row: {
+          attempt_no: number
+          challenge_id: string
+          created_at: string
+          id: string
+          ip_hash: string | null
+          result: string
+        }
+        Insert: {
+          attempt_no: number
+          challenge_id: string
+          created_at?: string
+          id?: string
+          ip_hash?: string | null
+          result: string
+        }
+        Update: {
+          attempt_no?: number
+          challenge_id?: string
+          created_at?: string
+          id?: string
+          ip_hash?: string | null
+          result?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "verification_attempts_challenge_id_fkey"
+            columns: ["challenge_id"]
+            isOneToOne: false
+            referencedRelation: "verification_challenges"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      verification_challenges: {
+        Row: {
+          attempt_count: number
+          channel: string
+          code_digest: string
+          created_at: string
+          created_by_context: string
+          destination_hash: string
+          destination_normalized: string
+          expires_at: string
+          generation: number
+          handle: string
+          id: string
+          idempotency_key: string | null
+          key_version: number
+          locale: string
+          max_attempts: number
+          max_sends: number
+          purpose: string
+          request_ip_hash: string | null
+          resend_cooldown_seconds: number
+          revoked_at: string | null
+          revoked_reason: string | null
+          send_count: number
+          status: string
+          subject_kind: string
+          subject_ref: string | null
+          subject_ref_hash: string | null
+          verified_at: string | null
+          workspace_id: string | null
+        }
+        Insert: {
+          attempt_count?: number
+          channel: string
+          code_digest: string
+          created_at?: string
+          created_by_context?: string
+          destination_hash: string
+          destination_normalized: string
+          expires_at: string
+          generation?: number
+          handle: string
+          id?: string
+          idempotency_key?: string | null
+          key_version: number
+          locale: string
+          max_attempts: number
+          max_sends: number
+          purpose: string
+          request_ip_hash?: string | null
+          resend_cooldown_seconds: number
+          revoked_at?: string | null
+          revoked_reason?: string | null
+          send_count?: number
+          status?: string
+          subject_kind: string
+          subject_ref?: string | null
+          subject_ref_hash?: string | null
+          verified_at?: string | null
+          workspace_id?: string | null
+        }
+        Update: {
+          attempt_count?: number
+          channel?: string
+          code_digest?: string
+          created_at?: string
+          created_by_context?: string
+          destination_hash?: string
+          destination_normalized?: string
+          expires_at?: string
+          generation?: number
+          handle?: string
+          id?: string
+          idempotency_key?: string | null
+          key_version?: number
+          locale?: string
+          max_attempts?: number
+          max_sends?: number
+          purpose?: string
+          request_ip_hash?: string | null
+          resend_cooldown_seconds?: number
+          revoked_at?: string | null
+          revoked_reason?: string | null
+          send_count?: number
+          status?: string
+          subject_kind?: string
+          subject_ref?: string | null
+          subject_ref_hash?: string | null
+          verified_at?: string | null
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "verification_challenges_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      verification_delivery_attempts: {
+        Row: {
+          challenge_id: string
+          channel: string
+          created_at: string
+          error_code: string | null
+          error_message: string | null
+          id: string
+          idempotency_key: string
+          outcome: string
+          provider_message_id: string | null
+          provider_name: string | null
+        }
+        Insert: {
+          challenge_id: string
+          channel: string
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          id?: string
+          idempotency_key: string
+          outcome: string
+          provider_message_id?: string | null
+          provider_name?: string | null
+        }
+        Update: {
+          challenge_id?: string
+          channel?: string
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          id?: string
+          idempotency_key?: string
+          outcome?: string
+          provider_message_id?: string | null
+          provider_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "verification_delivery_attempts_challenge_id_fkey"
+            columns: ["challenge_id"]
+            isOneToOne: false
+            referencedRelation: "verification_challenges"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      verification_idempotency: {
+        Row: {
+          actor_ref_hash: string | null
+          attempt_token: string | null
+          challenge_id: string | null
+          completed_at: string | null
+          created_at: string
+          expires_at: string
+          key: string
+          operation: string
+          prepared_at: string | null
+          purpose: string | null
+          request_fingerprint: string
+          result_state: string
+          safe_result: Json | null
+          scope_kind: string
+          workspace_id: string | null
+        }
+        Insert: {
+          actor_ref_hash?: string | null
+          attempt_token?: string | null
+          challenge_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          key: string
+          operation: string
+          prepared_at?: string | null
+          purpose?: string | null
+          request_fingerprint: string
+          result_state?: string
+          safe_result?: Json | null
+          scope_kind: string
+          workspace_id?: string | null
+        }
+        Update: {
+          actor_ref_hash?: string | null
+          attempt_token?: string | null
+          challenge_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          key?: string
+          operation?: string
+          prepared_at?: string | null
+          purpose?: string | null
+          request_fingerprint?: string
+          result_state?: string
+          safe_result?: Json | null
+          scope_kind?: string
+          workspace_id?: string | null
+        }
+        Relationships: []
+      }
+      verification_proofs: {
+        Row: {
+          challenge_id: string
+          channel: string
+          consumed_at: string | null
+          consumed_by_context: string | null
+          created_at: string
+          destination_hash: string
+          destination_hash_key_version: number
+          destination_normalized: string
+          expires_at: string
+          id: string
+          proof_hash: string
+          proof_key_version: number
+          purpose: string
+          revoked_at: string | null
+          status: string
+          subject_kind: string
+          subject_ref: string | null
+          subject_ref_hash: string | null
+          workspace_id: string | null
+        }
+        Insert: {
+          challenge_id: string
+          channel: string
+          consumed_at?: string | null
+          consumed_by_context?: string | null
+          created_at?: string
+          destination_hash: string
+          destination_hash_key_version: number
+          destination_normalized: string
+          expires_at: string
+          id?: string
+          proof_hash: string
+          proof_key_version: number
+          purpose: string
+          revoked_at?: string | null
+          status?: string
+          subject_kind: string
+          subject_ref?: string | null
+          subject_ref_hash?: string | null
+          workspace_id?: string | null
+        }
+        Update: {
+          challenge_id?: string
+          channel?: string
+          consumed_at?: string | null
+          consumed_by_context?: string | null
+          created_at?: string
+          destination_hash?: string
+          destination_hash_key_version?: number
+          destination_normalized?: string
+          expires_at?: string
+          id?: string
+          proof_hash?: string
+          proof_key_version?: number
+          purpose?: string
+          revoked_at?: string | null
+          status?: string
+          subject_kind?: string
+          subject_ref?: string | null
+          subject_ref_hash?: string | null
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "verification_proofs_challenge_id_fkey"
+            columns: ["challenge_id"]
+            isOneToOne: true
+            referencedRelation: "verification_challenges"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      verification_purpose_settings: {
+        Row: {
+          admin_enabled: boolean
+          created_at: string
+          default_locale: string
+          global_rate_limit_enabled: boolean
+          global_rate_limit_max_per_window: number | null
+          global_rate_limit_window_seconds: number | null
+          max_sends_per_window: number
+          max_verification_attempts: number
+          otp_length: number
+          otp_ttl_seconds: number
+          proof_ttl_seconds: number
+          purpose: string
+          rate_window_seconds: number
+          resend_cooldown_seconds: number
+          revision: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          admin_enabled?: boolean
+          created_at?: string
+          default_locale?: string
+          global_rate_limit_enabled?: boolean
+          global_rate_limit_max_per_window?: number | null
+          global_rate_limit_window_seconds?: number | null
+          max_sends_per_window: number
+          max_verification_attempts: number
+          otp_length: number
+          otp_ttl_seconds: number
+          proof_ttl_seconds: number
+          purpose: string
+          rate_window_seconds: number
+          resend_cooldown_seconds: number
+          revision?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          admin_enabled?: boolean
+          created_at?: string
+          default_locale?: string
+          global_rate_limit_enabled?: boolean
+          global_rate_limit_max_per_window?: number | null
+          global_rate_limit_window_seconds?: number | null
+          max_sends_per_window?: number
+          max_verification_attempts?: number
+          otp_length?: number
+          otp_ttl_seconds?: number
+          proof_ttl_seconds?: number
+          purpose?: string
+          rate_window_seconds?: number
+          resend_cooldown_seconds?: number
+          revision?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "verification_purpose_settings_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      verification_purpose_settings_audit: {
+        Row: {
+          action: string
+          actor_profile_id: string | null
+          created_at: string
+          id: string
+          ip_hash: string | null
+          locale: string | null
+          new_settings: Json
+          previous_settings: Json
+          purpose: string
+          request_id: string
+          user_agent: string | null
+        }
+        Insert: {
+          action: string
+          actor_profile_id?: string | null
+          created_at?: string
+          id?: string
+          ip_hash?: string | null
+          locale?: string | null
+          new_settings: Json
+          previous_settings: Json
+          purpose: string
+          request_id: string
+          user_agent?: string | null
+        }
+        Update: {
+          action?: string
+          actor_profile_id?: string | null
+          created_at?: string
+          id?: string
+          ip_hash?: string | null
+          locale?: string | null
+          new_settings?: Json
+          previous_settings?: Json
+          purpose?: string
+          request_id?: string
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "verification_purpose_settings_audit_actor_profile_id_fkey"
+            columns: ["actor_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       visitor_geo_cache: {
         Row: {
           city: string | null
@@ -11090,6 +11546,37 @@ export type Database = {
       }
     }
     Functions: {
+      _gv_create_challenge_row: {
+        Args: {
+          _channel: string
+          _code_digest: string
+          _destination_hash: string
+          _destination_normalized: string
+          _generation: number
+          _global_max_per_window: number
+          _global_window_seconds: number
+          _handle: string
+          _key_version: number
+          _locale: string
+          _max_attempts: number
+          _max_per_window: number
+          _max_sends: number
+          _purpose: string
+          _rate_window_seconds: number
+          _request_ip_hash: string
+          _resend_cooldown_seconds: number
+          _subject_kind: string
+          _subject_ref: string
+          _subject_ref_hash: string
+          _ttl_seconds: number
+          _workspace_id: string
+        }
+        Returns: Json
+      }
+      _gv_do_request: { Args: { _args: Json }; Returns: Json }
+      _gv_do_resend: { Args: { _args: Json }; Returns: Json }
+      _gv_do_revoke: { Args: { _args: Json }; Returns: Json }
+      _gv_do_verify: { Args: { _args: Json }; Returns: Json }
       accept_invitation_existing_context_v2: {
         Args: {
           _handle_hash: string
@@ -11842,6 +12329,109 @@ export type Database = {
       get_workspace_role: {
         Args: { _user_id: string; _workspace_id: string }
         Returns: Database["public"]["Enums"]["workspace_role"]
+      }
+      gv_admin_consumer_implemented: {
+        Args: { _purpose: string }
+        Returns: boolean
+      }
+      gv_admin_default_settings: { Args: { _purpose: string }; Returns: Json }
+      gv_admin_deployment_allowlisted: {
+        Args: { _purpose: string }
+        Returns: boolean
+      }
+      gv_admin_effective_enabled: {
+        Args: { _purpose: string }
+        Returns: boolean
+      }
+      gv_admin_purge_expired_idempotency: {
+        Args: { _limit: number }
+        Returns: number
+      }
+      gv_admin_sanitize_settings: {
+        Args: {
+          _s: Database["public"]["Tables"]["verification_purpose_settings"]["Row"]
+        }
+        Returns: Json
+      }
+      gv_admin_update_purpose_settings: {
+        Args: {
+          _action: string
+          _actor_profile_id: string
+          _admin_enabled: boolean
+          _default_locale: string
+          _expected_revision: number
+          _global_rate_limit_enabled: boolean
+          _global_rate_limit_max_per_window: number
+          _global_rate_limit_window_seconds: number
+          _ip_hash: string
+          _locale: string
+          _max_sends_per_window: number
+          _max_verification_attempts: number
+          _otp_length: number
+          _otp_ttl_seconds: number
+          _proof_ttl_seconds: number
+          _purpose: string
+          _rate_window_seconds: number
+          _request_id: string
+          _resend_cooldown_seconds: number
+          _user_agent: string
+        }
+        Returns: Json
+      }
+      gv_consume_verification_proof: {
+        Args: {
+          _channel: string
+          _consumed_by_context: string
+          _proof_hash: string
+          _purpose: string
+          _subject_ref_hash: string
+          _workspace_id: string
+        }
+        Returns: Json
+      }
+      gv_execute_idempotent: {
+        Args: {
+          _actor_ref_hash: string
+          _args: Json
+          _key: string
+          _operation: string
+          _purpose: string
+          _request_fingerprint: string
+          _scope_kind: string
+          _workspace_id: string
+        }
+        Returns: Json
+      }
+      gv_finalize_verification_delivery: {
+        Args: {
+          _attempt_token: string
+          _error_code: string
+          _error_message: string
+          _key: string
+          _outcome: string
+          _provider_message_id: string
+          _provider_name: string
+        }
+        Returns: Json
+      }
+      gv_get_verification_status: { Args: { _handle: string }; Returns: Json }
+      gv_is_purpose_enabled: { Args: { _purpose: string }; Returns: boolean }
+      gv_prepare_verification_delivery: {
+        Args: {
+          _actor_ref_hash: string
+          _args: Json
+          _key: string
+          _operation: string
+          _purpose: string
+          _request_fingerprint: string
+          _scope_kind: string
+          _workspace_id: string
+        }
+        Returns: Json
+      }
+      gv_purge_expired_idempotency: {
+        Args: { _limit: number }
+        Returns: number
       }
       has_role: {
         Args: {

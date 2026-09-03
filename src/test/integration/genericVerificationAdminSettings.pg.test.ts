@@ -551,7 +551,7 @@ suite('Generic Verification Core — Super Admin settings (real PostgreSQL + rea
     for (const purpose of ALL_VERIFICATION_PURPOSES) {
       const tsBaseline = getAdminPolicyBaseline(purpose);
       const sqlResult = await db.query(`SELECT public.gv_admin_default_settings($1) AS defaults`, [purpose]);
-      const sqlBaseline = sqlResult.rows[0].defaults;
+      const sqlBaseline = (sqlResult.rows[0] as any).defaults as any;
       expect(sqlBaseline.otpLength).toBe(tsBaseline.otpLength);
       expect(sqlBaseline.otpTtlSeconds).toBe(tsBaseline.otpTtlSeconds);
       expect(sqlBaseline.maxVerificationAttempts).toBe(tsBaseline.maxVerificationAttempts);
@@ -684,18 +684,18 @@ suite('Generic Verification Core — Super Admin settings (real PostgreSQL + rea
     await resetSettingsRow('login_step_up');
     const requestId = randomUUID();
     const first = await rpcUpdate('login_step_up', requestId, 1);
-    expect(first.rows[0].result.replayed).toBe(false);
-    expect(first.rows[0].result.result.settings.revision).toBe(2);
+    expect((first.rows[0] as any).result.replayed).toBe(false);
+    expect((first.rows[0] as any).result.result.settings.revision).toBe(2);
 
     await db.query(`UPDATE public.verification_admin_idempotency SET expires_at = now() - interval '1 day' WHERE request_id = $1`, [requestId]);
 
     const second = await rpcUpdate('login_step_up', requestId, 2, { otpTtlSeconds: 250 });
-    expect(second.rows[0].result.replayed).toBe(false); // a REAL new mutation, not a cached replay
-    expect(second.rows[0].result.result.settings.revision).toBe(3);
-    expect(second.rows[0].result.result.settings.otpTtlSeconds).toBe(250);
+    expect((second.rows[0] as any).result.replayed).toBe(false); // a REAL new mutation, not a cached replay
+    expect((second.rows[0] as any).result.result.settings.revision).toBe(3);
+    expect((second.rows[0] as any).result.result.settings.otpTtlSeconds).toBe(250);
 
     const row = await db.query(`SELECT expires_at FROM public.verification_admin_idempotency WHERE request_id = $1`, [requestId]);
-    expect(new Date(row.rows[0].expires_at).getTime()).toBeGreaterThan(Date.now()); // reclaimed row is fresh, not still expired
+    expect(new Date((row.rows[0] as any).expires_at as string).getTime()).toBeGreaterThan(Date.now()); // reclaimed row is fresh, not still expired
   });
 
   // ── Migration 100 hardening: atomicity — settings mutation never survives an audit/ledger failure ──

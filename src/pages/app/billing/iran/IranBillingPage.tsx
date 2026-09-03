@@ -10,7 +10,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Progress } from '@/components/ui/progress';
+
 import { LayoutGrid, Sparkles, Receipt, Gauge, Calendar, Loader2, ArrowRight, CreditCard } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
@@ -296,18 +296,21 @@ function UsageSummary({ effective, operatorsUsed }: { effective: any; operatorsU
   return (
     <Card>
       <CardContent className="pt-5">
-        <h3 className="text-sm font-semibold text-foreground mb-3">{t('billingIran.overview.usageTitle')}</h3>
+        <h3 className="text-sm font-semibold text-foreground mb-4">{t('billingIran.overview.usageTitle')}</h3>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {items.map((i) => {
             const unlimited = i.limit === -1;
             const pct = !unlimited && i.limit > 0 ? Math.min(100, Math.round((i.used / i.limit) * 100)) : null;
             return (
-              <div key={i.key} className="rounded-xl border border-border/60 bg-card p-3">
+              <div key={i.key} className="rounded-xl border border-border/60 bg-card p-4 flex flex-col items-center text-center gap-2">
+                <UsageDonut
+                  percent={pct}
+                  centerLabel={unlimited ? '∞' : pct !== null ? `${pct.toLocaleString('fa-IR')}٪` : '—'}
+                />
                 <div className="text-xs text-muted-foreground">{i.label}</div>
-                <div className="mt-1 text-sm font-semibold text-foreground">
+                <div className="text-sm font-semibold text-foreground">
                   {i.used.toLocaleString('fa-IR')}{i.unit ? ` ${i.unit}` : ''} / {unlimited ? t('billingIran.overview.unlimited') : `${i.limit.toLocaleString('fa-IR')}${i.unit ? ` ${i.unit}` : ''}`}
                 </div>
-                {pct !== null && <Progress value={pct} className="h-1.5 mt-2" />}
               </div>
             );
           })}
@@ -316,6 +319,41 @@ function UsageSummary({ effective, operatorsUsed }: { effective: any; operatorsU
     </Card>
   );
 }
+
+/** Small circular gauge used for the overview usage metrics. */
+function UsageDonut({ percent, centerLabel }: { percent: number | null; centerLabel: string }) {
+  const size = 92;
+  const stroke = 9;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const value = percent ?? 0;
+  const tone = value >= 90 ? 'hsl(var(--destructive))' : value >= 70 ? 'hsl(38 92% 50%)' : 'hsl(var(--primary))';
+  return (
+    <div className="relative" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="hsl(var(--muted))" strokeWidth={stroke} />
+        {percent !== null && (
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            fill="none"
+            stroke={tone}
+            strokeWidth={stroke}
+            strokeLinecap="round"
+            strokeDasharray={c}
+            strokeDashoffset={c - (c * value) / 100}
+            className="transition-[stroke-dashoffset] duration-700 ease-out"
+          />
+        )}
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center text-sm font-bold text-foreground">
+        {centerLabel}
+      </div>
+    </div>
+  );
+}
+
 
 function PlansGrid({
   plans, currentPlan, interval, onIntervalChange, onSelect,

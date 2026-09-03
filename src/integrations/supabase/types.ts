@@ -3582,6 +3582,79 @@ export type Database = {
         }
         Relationships: []
       }
+      billing_payment_intents: {
+        Row: {
+          amount_irr: number
+          billing_interval: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          metadata: Json
+          plan_id: string | null
+          provider_name: string
+          provider_ref: string | null
+          purchase_type: string
+          status: string
+          succeeded_at: string | null
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          amount_irr: number
+          billing_interval?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          metadata?: Json
+          plan_id?: string | null
+          provider_name: string
+          provider_ref?: string | null
+          purchase_type: string
+          status?: string
+          succeeded_at?: string | null
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          amount_irr?: number
+          billing_interval?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          metadata?: Json
+          plan_id?: string | null
+          provider_name?: string
+          provider_ref?: string | null
+          purchase_type?: string
+          status?: string
+          succeeded_at?: string | null
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_payment_intents_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_payment_intents_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans_public"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_payment_intents_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       billing_payments: {
         Row: {
           amount: number

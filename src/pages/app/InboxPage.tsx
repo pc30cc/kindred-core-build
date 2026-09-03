@@ -2913,7 +2913,16 @@ export default function InboxPage() {
                         return (
                           <DropdownMenuItem
                             key={a}
-                            onSelect={() => chooseSendAction(a)}
+                            onSelect={() => {
+                              chooseSendAction(a);
+                              // Picking an action with a draft ready sends
+                              // right away — the operator expects one click,
+                              // not "choose, then press Send".
+                              const ready = message.trim().length > 0
+                                || (att.status === 'ready' && !!att.attachmentId);
+                              if (ready && !sendDisabled) void handleSend(a);
+                            }}
+
                             className="gap-2 items-start"
                           >
                             <Icon className={cn('w-4 h-4 mt-0.5 shrink-0', active ? 'text-primary' : 'text-muted-foreground')} />

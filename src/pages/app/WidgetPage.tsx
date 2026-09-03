@@ -344,15 +344,7 @@ function WidgetPageContent() {
           </div>
 
           <TabsList className="mt-4 flex h-auto w-full flex-wrap items-center justify-start gap-1 rounded-full border border-border/70 bg-secondary/40 p-1">
-            {([
-              { v: 'appearance', icon: Palette },
-              { v: 'behavior', icon: Settings },
-              { v: 'smart', icon: Sparkles },
-              { v: 'prechat', icon: MessageSquare },
-              { v: 'availability', icon: Clock },
-              { v: 'domains', icon: Shield },
-              { v: 'install', icon: Code },
-            ] as const).map(({ v, icon: Icon }) => (
+            {visibleTabs.map(({ v, icon: Icon }) => (
               <TabsTrigger
                 key={v}
                 value={v}
@@ -368,6 +360,7 @@ function WidgetPageContent() {
               </TabsTrigger>
             ))}
           </TabsList>
+
         </div>
 
         {/* The smart tab owns its own scenario studio, so the generic preview

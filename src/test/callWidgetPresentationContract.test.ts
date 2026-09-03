@@ -90,6 +90,6 @@ describe('Call Widget presentation contract', () => {
 
   it('ships byte-identical hosted and self-hosted migrations', () => {
     expect(read('supabase/migrations/20260902200000_call_widget_presentation_contract.sql'))
-      .toBe(read('database/migrations/098_call_widget_presentation_contract.sql'));
+      .toBe(read('database/migrations/101_call_widget_presentation_contract.sql'));
   });
 });

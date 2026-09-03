@@ -44,6 +44,35 @@ export async function applyAuthSchemaStub(db: PgQueryable): Promise<void> {
 }
 
 /**
+ * `public.call_center_settings` — 101_call_widget_presentation_contract.sql
+ * ALTERs/UPDATEs this table, but unlike every other table the self-host
+ * chain touches, it (and `platform_call_center_settings`) is only ever
+ * CREATEd in supabase/migrations/ (the hosted-only mirror), never in
+ * database/migrations/ (the self-host chain) — a genuine, unclosed
+ * self-host/hosted parity gap (unlike the 017/018/047/056/064/067 gaps
+ * documented above, which 016a/084 actually closed). A real self-host
+ * deployment replaying database/migrations/*.sql in order hits this exact
+ * "relation does not exist" failure today; fixing it for real means adding
+ * a dedicated self-host migration that faithfully reconstructs the table
+ * from its full hosted history (10+ migrations of column/constraint/RLS
+ * evolution, including a real anon-read-access tightening) — out of scope
+ * for a test-schema stub. This stub only lets the self-host chain replay
+ * far enough in a test database for unrelated suites to exercise
+ * migrations after it; it is not a substitute for that follow-up.
+ */
+async function applyCallCenterSettingsStub(db: PgQueryable): Promise<void> {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS public.call_center_settings (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      workspace_id uuid NOT NULL UNIQUE,
+      offline_behavior text NOT NULL DEFAULT 'callback',
+      widget_theme jsonb NOT NULL DEFAULT '{}'::jsonb,
+      pre_call_form_schema jsonb NOT NULL DEFAULT '[]'::jsonb
+    );
+  `);
+}
+
+/**
  * database/migrations/*.sql in filename order, with NO exclusions.
  *
  * 017 and 018 used to be skipped here: they reference base product tables
@@ -84,6 +113,7 @@ export const AUTH_CHAIN_EXCLUDED_FILES = new Set<string>([]);
  */
 export async function ensureAuthChainInstalled(db: PgQueryable): Promise<void> {
   await applyAuthSchemaStub(db);
+  await applyCallCenterSettingsStub(db);
 
   const dir = resolve(process.cwd(), 'database/migrations');
   const allFiles = readdirSync(dir)

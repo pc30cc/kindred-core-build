@@ -104,6 +104,15 @@ export const PLATFORM_MAXIMUMS = Object.freeze({
   maxVerificationAttempts: 8,
   proofTtlSeconds: 1800,           // 30 minutes
   globalRateLimitWindowSecondsMax: 86400, // a configured global bucket may not span more than 24h
+  /**
+   * An opt-in platform-wide bucket (see PurposePolicy.globalRateLimit) is
+   * additive on top of, never a substitute for, the per-purpose
+   * maxSendsPerWindow/rateWindowSeconds counters below — so it can never by
+   * itself widen an existing protection. This is still an absolute ceiling
+   * on the raw number so a deployment cannot configure something
+   * practically unbounded and call it "rate limited".
+   */
+  globalRateLimitMaxPerWindowMax: 100_000,
 });
 
 function clampPolicy(p: PurposePolicy): PurposePolicy {
@@ -286,6 +295,76 @@ export const PURPOSE_POLICIES: Readonly<Record<VerificationPurpose, PurposePolic
     Object.entries(RAW_POLICIES).map(([k, v]) => [k, Object.freeze(clampPolicy(v))]),
   ) as Record<VerificationPurpose, PurposePolicy>,
 );
+
+/**
+ * The Super Admin settings layer (server/services/verification/adminSettings.ts,
+ * database/migrations/099_generic_verification_admin_settings.sql +
+ * 100_generic_verification_admin_settings_hardening.sql) lets an operator
+ * TIGHTEN a purpose's numeric policy ahead of a future integration, but
+ * never WEAKEN it relative to this purpose's own canonical baseline — the
+ * numbers below, read directly off RAW_POLICIES (the same source
+ * `PURPOSE_POLICIES`/`gv_admin_default_settings` are built from), so there
+ * is exactly ONE place these seven numbers are declared for TypeScript.
+ * Migration 099's `gv_admin_default_settings(_purpose)` SQL function must
+ * return the identical numbers — proven by a parity test comparing this
+ * export against that function's output for every purpose, so the two
+ * cannot silently drift apart.
+ */
+export interface AdminPolicyBaseline {
+  otpLength: number;
+  otpTtlSeconds: number;
+  maxVerificationAttempts: number;
+  resendCooldownSeconds: number;
+  maxSendsPerWindow: number;
+  rateWindowSeconds: number;
+  proofTtlSeconds: number;
+}
+
+export function getAdminPolicyBaseline(purpose: VerificationPurpose): AdminPolicyBaseline {
+  const p = RAW_POLICIES[purpose];
+  return {
+    otpLength: p.otpLength,
+    otpTtlSeconds: p.otpTtlSeconds,
+    maxVerificationAttempts: p.maxVerificationAttempts,
+    resendCooldownSeconds: p.resendCooldownSeconds,
+    maxSendsPerWindow: p.maxSendsPerWindow,
+    rateWindowSeconds: p.rateWindowSeconds,
+    proofTtlSeconds: p.proofTtlSeconds,
+  };
+}
+
+export interface AdminPolicySubmission {
+  otpLength: number;
+  otpTtlSeconds: number;
+  maxVerificationAttempts: number;
+  resendCooldownSeconds: number;
+  maxSendsPerWindow: number;
+  rateWindowSeconds: number;
+  proofTtlSeconds: number;
+}
+
+/**
+ * Returns the list of field names that would WEAKEN the purpose's baseline
+ * (a longer OTP TTL, a shorter cooldown, more attempts, etc.) — empty when
+ * every submitted field is at least as strict as (or exactly equal to) the
+ * baseline. "Equal" always passes; only a submission strictly looser than
+ * its own purpose's baseline is a violation. Absolute platform ceilings
+ * (PLATFORM_MAXIMUMS) are validated separately (Zod in adminVerification.ts
+ * + CHECK constraints in the migration) — this function only enforces the
+ * DIRECTION of change relative to the purpose's own starting point.
+ */
+export function findPolicyWeakeningViolations(purpose: VerificationPurpose, submitted: AdminPolicySubmission): string[] {
+  const baseline = getAdminPolicyBaseline(purpose);
+  const violations: string[] = [];
+  if (submitted.otpLength < baseline.otpLength) violations.push('otpLength');
+  if (submitted.otpTtlSeconds > baseline.otpTtlSeconds) violations.push('otpTtlSeconds');
+  if (submitted.maxVerificationAttempts > baseline.maxVerificationAttempts) violations.push('maxVerificationAttempts');
+  if (submitted.resendCooldownSeconds < baseline.resendCooldownSeconds) violations.push('resendCooldownSeconds');
+  if (submitted.maxSendsPerWindow > baseline.maxSendsPerWindow) violations.push('maxSendsPerWindow');
+  if (submitted.rateWindowSeconds < baseline.rateWindowSeconds) violations.push('rateWindowSeconds');
+  if (submitted.proofTtlSeconds > baseline.proofTtlSeconds) violations.push('proofTtlSeconds');
+  return violations;
+}
 
 export class UnknownVerificationPurposeError extends Error {
   constructor(purpose: string) {

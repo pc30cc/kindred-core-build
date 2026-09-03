@@ -272,6 +272,43 @@ export function currentVerificationKeyVersion(env: NodeJS.ProcessEnv = process.e
   return currentVersion(env);
 }
 
+export interface VerificationCryptoReadiness {
+  status: 'unconfigured' | 'configured' | 'error';
+  /** Version NUMBERS only — never the secret values themselves (the version prefix has never been secret; see the module doc comment). */
+  configuredVersions: number[];
+  currentVersion: number | null;
+  stableIndexVersion: number;
+  /** A safe, non-exception-message error code — e.g. 'PEPPER_RING_INVALID' — only present when status is 'error'. */
+  errorCode?: string;
+}
+
+/**
+ * Safe, non-secret readiness snapshot for a Super Admin status page. Never
+ * throws — a `VerificationConfigError`/`VerificationPepperMissingError` is
+ * caught and reported as a safe status code, never as a raw exception
+ * message (which could otherwise describe the malformed configuration).
+ */
+export function getVerificationCryptoReadiness(env: NodeJS.ProcessEnv = process.env): VerificationCryptoReadiness {
+  try {
+    const ring = loadRing(env);
+    if (ring.size === 0) {
+      return { status: 'unconfigured', configuredVersions: [], currentVersion: null, stableIndexVersion: STABLE_INDEX_KEY_VERSION };
+    }
+    return {
+      status: 'configured',
+      configuredVersions: [...ring.keys()].sort((a, b) => a - b),
+      currentVersion: currentVersion(env),
+      stableIndexVersion: STABLE_INDEX_KEY_VERSION,
+    };
+  } catch (err) {
+    const errorCode =
+      err instanceof VerificationConfigError ? 'PEPPER_RING_INVALID' :
+      err instanceof VerificationPepperMissingError ? 'PEPPER_MISSING' :
+      'CRYPTO_CONFIG_ERROR';
+    return { status: 'error', configuredVersions: [], currentVersion: null, stableIndexVersion: STABLE_INDEX_KEY_VERSION, errorCode };
+  }
+}
+
 function keyForVersion(version: number, env: NodeJS.ProcessEnv = process.env): string {
   const ring = loadRing(env);
   const key = ring.get(version);

@@ -32,6 +32,47 @@ async function authorizeMember(
   return { userId: auth.userId };
 }
 
+/**
+ * Attachments for internal messages reuse `conversation_attachments` with
+ * `conversation_id = NULL` (operator-uploaded, never bound to a visitor
+ * thread). Rendering needs the same shape the Inbox uses.
+ */
+type AttachmentRow = {
+  id: string; file_name: string; mime_type: string; size_bytes: number; status: string;
+};
+
+function attachmentKind(mime: string): 'image' | 'audio' | 'video' | 'file' {
+  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('audio/')) return 'audio';
+  if (mime.startsWith('video/')) return 'video';
+  return 'file';
+}
+
+async function hydrateAttachments(
+  sb: any,
+  workspaceId: string,
+  ids: string[],
+): Promise<Map<string, any>> {
+  const unique = Array.from(new Set(ids.filter(Boolean)));
+  if (!unique.length) return new Map();
+  const { data } = await sb
+    .from('conversation_attachments')
+    .select('id, file_name, mime_type, size_bytes, status, workspace_id')
+    .eq('workspace_id', workspaceId)
+    .in('id', unique);
+  const map = new Map<string, any>();
+  for (const a of (data ?? []) as AttachmentRow[]) {
+    map.set(a.id, {
+      id: a.id,
+      file_name: a.file_name,
+      mime_type: a.mime_type,
+      size_bytes: a.size_bytes,
+      kind: attachmentKind(String(a.mime_type || '')),
+    });
+  }
+  return map;
+}
+
 // ═══ GET /api/team-chat/colleagues ═════════════════════════════════
 teamChatRouter.get('/colleagues', async (req, res) => {
   try {
@@ -54,7 +95,7 @@ teamChatRouter.get('/colleagues', async (req, res) => {
         ? sb.from('profiles').select('id, full_name, email, avatar_url').in('id', ids)
         : Promise.resolve({ data: [] as any[] } as any),
       sb.from('team_messages')
-        .select('id, sender_id, recipient_id, body, read_at, created_at')
+        .select('id, sender_id, recipient_id, body, attachment_id, read_at, created_at')
         .eq('workspace_id', workspaceId)
         .or(`sender_id.eq.${auth.userId},recipient_id.eq.${auth.userId}`)
         .order('created_at', { ascending: false })
@@ -73,6 +114,16 @@ teamChatRouter.get('/colleagues', async (req, res) => {
       }
     }
 
+    // Preview rows need to say "sent a photo/voice message" instead of an
+    // empty line when the message carries only a file.
+    const previewAttIds = Array.from(lastByPeer.values())
+      .map((m: any) => m.attachment_id)
+      .filter(Boolean) as string[];
+    const previewAtts = await hydrateAttachments(sb, workspaceId, previewAttIds);
+    const attachmentKindById = new Map<string, string>(
+      Array.from(previewAtts.entries()).map(([id, a]: any) => [id, a.kind]),
+    );
+
     const colleagues = (members ?? [])
       .filter((m: any) => m.user_id !== auth.userId)
       .map((m: any) => {
@@ -87,9 +138,12 @@ teamChatRouter.get('/colleagues', async (req, res) => {
           unread: unreadByPeer.get(m.user_id) ?? 0,
           last_message: last
             ? {
-                body: String(last.body).slice(0, 160),
+                body: String(last.body || '').slice(0, 160),
                 created_at: last.created_at,
                 outgoing: last.sender_id === auth.userId,
+                attachment_kind: last.attachment_id
+                  ? (attachmentKindById.get(String(last.attachment_id)) ?? 'file')
+                  : null,
               }
             : null,
         };
@@ -124,7 +178,7 @@ teamChatRouter.get('/thread', async (req, res) => {
     const sb = getServiceClient(config);
     const { data, error } = await sb
       .from('team_messages')
-      .select('id, sender_id, recipient_id, body, read_at, created_at')
+      .select('id, sender_id, recipient_id, body, attachment_id, read_at, created_at')
       .eq('workspace_id', workspaceId)
       .or(
         `and(sender_id.eq.${auth.userId},recipient_id.eq.${peerId}),` +
@@ -134,7 +188,14 @@ teamChatRouter.get('/thread', async (req, res) => {
       .limit(limit);
     if (error) return res.status(500).json({ error: error.message });
 
-    const messages = (data ?? []).slice().reverse();
+    const rows = (data ?? []).slice().reverse();
+    const atts = await hydrateAttachments(
+      sb, workspaceId, rows.map((m: any) => m.attachment_id).filter(Boolean),
+    );
+    const messages = rows.map((m: any) => ({
+      ...m,
+      attachment: m.attachment_id ? atts.get(String(m.attachment_id)) ?? null : null,
+    }));
     return res.json({ ok: true, messages, me: auth.userId });
   } catch (err: any) {
     console.error('[team-chat thread] error:', err);
@@ -146,7 +207,10 @@ teamChatRouter.get('/thread', async (req, res) => {
 const sendSchema = z.object({
   workspace_id: z.string().uuid(),
   recipient_id: z.string().uuid(),
-  body: z.string().trim().min(1).max(5000),
+  body: z.string().trim().max(5000).default(''),
+  attachment_id: z.string().uuid().nullable().optional(),
+}).refine((v) => v.body.length > 0 || !!v.attachment_id, {
+  message: 'body or attachment_id required',
 });
 
 teamChatRouter.post('/messages', async (req, res) => {
@@ -157,6 +221,7 @@ teamChatRouter.post('/messages', async (req, res) => {
       return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten().fieldErrors });
     }
     const { workspace_id, recipient_id, body } = parsed.data;
+    const attachmentId = parsed.data.attachment_id ?? null;
     const auth = await authorizeMember(req, res, config, workspace_id);
     if (!auth) return;
     if (recipient_id === auth.userId) return res.status(400).json({ error: 'Cannot message yourself' });
@@ -169,14 +234,48 @@ teamChatRouter.post('/messages', async (req, res) => {
     if (peerErr) return res.status(500).json({ error: 'Membership check failed' });
     if (!peerIsMember) return res.status(404).json({ error: 'Recipient is not a workspace member' });
 
+    // The attachment must belong to this workspace, be uploaded by THIS
+    // operator and not already be bound to a visitor conversation.
+    let attachment: any = null;
+    if (attachmentId) {
+      const { data: attRow } = await sb
+        .from('conversation_attachments')
+        .select('id, workspace_id, conversation_id, uploaded_by_type, uploaded_by_id, status, file_name, mime_type, size_bytes')
+        .eq('id', attachmentId)
+        .maybeSingle();
+      if (!attRow || attRow.workspace_id !== workspace_id) {
+        return res.status(404).json({ error: 'Attachment not found' });
+      }
+      if (attRow.conversation_id) return res.status(409).json({ error: 'Attachment already bound' });
+      if (attRow.uploaded_by_type !== 'agent' || attRow.uploaded_by_id !== auth.userId) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      if (attRow.status !== 'uploaded' && attRow.status !== 'attached') {
+        return res.status(409).json({ error: 'Attachment not uploaded' });
+      }
+      attachment = {
+        id: attRow.id,
+        file_name: attRow.file_name,
+        mime_type: attRow.mime_type,
+        size_bytes: attRow.size_bytes,
+        kind: attachmentKind(String(attRow.mime_type || '')),
+      };
+    }
+
     const { data: inserted, error } = await sb
       .from('team_messages')
-      .insert({ workspace_id, sender_id: auth.userId, recipient_id, body })
-      .select('id, sender_id, recipient_id, body, read_at, created_at')
+      .insert({ workspace_id, sender_id: auth.userId, recipient_id, body, attachment_id: attachmentId })
+      .select('id, sender_id, recipient_id, body, attachment_id, read_at, created_at')
       .single();
     if (error || !inserted) return res.status(500).json({ error: error?.message || 'Insert failed' });
 
-    return res.json({ ok: true, message: inserted });
+    if (attachmentId) {
+      await sb.from('conversation_attachments')
+        .update({ status: 'attached' })
+        .eq('id', attachmentId);
+    }
+
+    return res.json({ ok: true, message: { ...inserted, attachment } });
   } catch (err: any) {
     console.error('[team-chat send] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });

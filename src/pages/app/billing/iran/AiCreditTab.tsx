@@ -45,6 +45,14 @@ export default function AiCreditTab({ workspaceId }: { workspaceId: string }) {
   const totalAllowance = summary.available + summary.usedThisCycle;
   const pct = totalAllowance > 0 ? Math.min(100, Math.round((summary.usedThisCycle / totalAllowance) * 100)) : 0;
 
+  const donut = [
+    { key: 'used', label: t('billingIran.aiCredit.usedLabel'), value: Math.max(0, summary.usedThisCycle), color: 'hsl(var(--primary))' },
+    { key: 'plan', label: t('billingIran.aiCredit.monthlyRemainingLabel'), value: Math.max(0, summary.planRemaining), color: 'hsl(var(--primary) / 0.45)' },
+    { key: 'purchased', label: t('billingIran.aiCredit.purchasedRemainingLabel'), value: Math.max(0, summary.purchasedRemaining), color: 'hsl(var(--muted-foreground) / 0.35)' },
+  ];
+  const donutTotal = donut.reduce((s, d) => s + d.value, 0);
+  const chartData = donutTotal > 0 ? donut.filter((d) => d.value > 0) : [{ key: 'empty', label: '', value: 1, color: 'hsl(var(--muted))' }];
+
   return (
     <div className="space-y-4" dir="rtl">
       <Card>
@@ -53,23 +61,57 @@ export default function AiCreditTab({ workspaceId }: { workspaceId: string }) {
             <Sparkles className="w-4 h-4 text-primary" /> {t('billingIran.aiCredit.title')}
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <div className="text-3xl font-bold text-foreground">{formatToman(summary.available, 'fa')}</div>
-            <p className="text-xs text-muted-foreground mt-1">{t('billingIran.aiCredit.remainingLabel')}</p>
-          </div>
+        <CardContent className="space-y-5">
+          <div className="grid gap-6 md:grid-cols-[220px_1fr] md:items-center">
+            {/* Donut usage chart */}
+            <div className="relative mx-auto h-[200px] w-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={chartData}
+                    dataKey="value"
+                    nameKey="label"
+                    innerRadius={62}
+                    outerRadius={92}
+                    paddingAngle={donutTotal > 0 ? 2 : 0}
+                    stroke="none"
+                    startAngle={90}
+                    endAngle={-270}
+                  >
+                    {chartData.map((d) => <Cell key={d.key} fill={d.color} />)}
+                  </Pie>
+                  {donutTotal > 0 && (
+                    <Tooltip
+                      formatter={(v: any, n: any) => [formatToman(Number(v), 'fa'), n]}
+                      contentStyle={{ borderRadius: 12, border: '1px solid hsl(var(--border))', background: 'hsl(var(--card))', fontSize: 12, direction: 'rtl' }}
+                    />
+                  )}
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+                <span className="text-[11px] text-muted-foreground">{t('billingIran.aiCredit.remainingLabel')}</span>
+                <span className="text-lg font-bold text-foreground">{formatToman(summary.available, 'fa')}</span>
+                <span className="mt-0.5 text-[11px] text-muted-foreground">{t('billingIran.aiCredit.usedPct', { percent: pct.toLocaleString('fa-IR') })}</span>
+              </div>
+            </div>
 
-          <div>
-            <p className="text-xs text-muted-foreground mb-1.5">
-              {t('billingIran.aiCredit.ofPeriodAllowance', { total: formatToman(totalAllowance, 'fa') })}
-            </p>
-            <Progress value={pct} className="h-2" />
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-3">
-            <SummaryRow label={t('billingIran.aiCredit.usedLabel')} value={formatToman(summary.usedThisCycle, 'fa')} />
-            <SummaryRow label={t('billingIran.aiCredit.monthlyRemainingLabel')} value={formatToman(summary.planRemaining, 'fa')} />
-            <SummaryRow label={t('billingIran.aiCredit.purchasedRemainingLabel')} value={formatToman(summary.purchasedRemaining, 'fa')} />
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                {t('billingIran.aiCredit.ofPeriodAllowance', { total: formatToman(totalAllowance, 'fa') })}
+              </p>
+              <div className="grid gap-2.5 sm:grid-cols-2">
+                {donut.map((d) => (
+                  <div key={d.key} className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-card p-3">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: d.color }} />
+                    <div className="min-w-0">
+                      <div className="truncate text-xs text-muted-foreground">{d.label}</div>
+                      <div className="mt-0.5 text-sm font-semibold text-foreground">{formatToman(d.value, 'fa')}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] leading-5 text-muted-foreground">{t('billingIran.aiCredit.sourceHint')}</p>
+            </div>
           </div>
 
           <Button className="w-full sm:w-auto" onClick={() => setDialogOpen(true)}>
@@ -82,6 +124,7 @@ export default function AiCreditTab({ workspaceId }: { workspaceId: string }) {
     </div>
   );
 }
+
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return (

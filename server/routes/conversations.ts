@@ -380,6 +380,21 @@ conversationsRouter.post('/send-message', async (req, res) => {
       config, parsed.data.workspace_id, [inserted as any]
     );
 
+    // Operator identity must travel WITH the realtime envelope — otherwise the
+    // visitor sees the reply instantly but with a blank avatar until a reload
+    // hits /poll or /history (which enrich the sender server-side).
+    let senderProfile: { name: string | null; avatar: string | null } | null = null;
+    if (auth.userId) {
+      try {
+        const { data: prof } = await sb
+          .from('profiles')
+          .select('full_name, avatar_url')
+          .eq('id', auth.userId)
+          .maybeSingle();
+        if (prof) senderProfile = { name: (prof as any).full_name || null, avatar: (prof as any).avatar_url || null };
+      } catch { /* avatar is cosmetic — never block the send */ }
+    }
+
     // Publish to realtime — fire-and-forget semantics. A replayed request must
     // not emit a second message envelope.
     const pub = duplicate
@@ -388,8 +403,14 @@ conversationsRouter.post('/send-message', async (req, res) => {
           config,
           parsed.data.workspace_id,
           parsed.data.conversation_id,
-          buildMessageEnvelope(enriched as any),
+          buildMessageEnvelope({
+            ...(enriched as any),
+            sender_id: auth.userId ?? null,
+            sender_name: senderProfile?.name ?? null,
+            sender_avatar: senderProfile?.avatar ?? null,
+          }),
         );
+
 
     // Phase 3 — record attachment_added event (timeline-only) when applicable.
     if (!duplicate && parsed.data.attachment_id) {

@@ -2807,6 +2807,31 @@
         // (by canonical id), update lifecycle status forward only. Never
         // regress sent → sending or seen → sent.
         if (seenIds[id]) {
+          // Realtime can beat /poll or /history. Older/reconnecting publishers
+          // may deliver the message before public operator identity is present;
+          // the later enriched copy has the same canonical id and used to be
+          // discarded wholesale, leaving the fallback initial forever. Merge
+          // identity forward without replacing an already-known value.
+          var incomingSenderName = m.sender_name
+            || (m.metadata && typeof m.metadata === 'object' ? (m.metadata.agent_name || null) : null)
+            || null;
+          var incomingSenderAvatar = m.sender_avatar
+            || (m.metadata && typeof m.metadata === 'object' ? (m.metadata.agent_logo_url || null) : null)
+            || null;
+          if (incomingSenderName || incomingSenderAvatar) {
+            for (var si = 0; si < messages.length; si++) {
+              if (messages[si].__id !== id) continue;
+              if (!messages[si].senderName && incomingSenderName) {
+                messages[si].senderName = incomingSenderName;
+                changed = true;
+              }
+              if (!messages[si].senderAvatar && incomingSenderAvatar) {
+                messages[si].senderAvatar = incomingSenderAvatar;
+                changed = true;
+              }
+              break;
+            }
+          }
           if (sender === 'visitor' && seenAt) {
             for (var u = 0; u < messages.length; u++) {
               if (messages[u].__id === id && messages[u].status !== 'seen') {

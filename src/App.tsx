@@ -105,8 +105,6 @@ import AdminObservabilityPage from "@/pages/admin/ObservabilityPage";
 import AdminFeatureFlagsPage from "@/pages/admin/FeatureFlagsPage";
 import AdminBrandingPage from "@/pages/admin/BrandingPage";
 import AdminDomainsPage from "@/pages/admin/DomainsPage";
-import AdminAuditLogsPage from "@/pages/admin/AuditLogsPage";
-import AdminBillingPage from "@/pages/admin/BillingPage";
 import AdminPlansPage from "@/pages/admin/PlansPage";
 import AdminPluginsPage from "@/pages/admin/PluginsPage";
 import AdminPluginDetailPage from "@/pages/admin/PluginDetailPage";
@@ -119,7 +117,7 @@ import AdminMapGeoPage from "@/pages/admin/MapGeoPage";
 import AdminVoiceVideoPage from "@/pages/admin/VoiceVideoPage";
 import AdminAiAgentControlPage from "@/pages/admin/AiAgentControlPage";
 import AdminCallCenterPage from "@/pages/admin/CallCenterPage";
-import AdminAiBillingPage from "@/pages/admin/AiBillingPage";
+import AdminFinancePage from "@/pages/admin/FinancePage";
 
 import { CallCenterLayout } from "@/components/layout/CallCenterLayout";
 import CallCenterOverviewPage from "@/pages/app/call-center/OverviewPage";

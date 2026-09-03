@@ -9,19 +9,18 @@
  * Buying credit issues a real invoice; payment happens on the invoice detail
  * screen like every other charge.
  */
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { SkeletonStats } from '@/components/common/Skeletons';
 import { Loader2, Sparkles, Plus } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
-import { billingV2AiSummary, billingV2BuyAiCredit, type AiSummary } from '@/lib/billingV2Api';
-import { billingDate, money, ErrorState, errorMessage } from './shared';
+import { billingV2CreateAiCreditInvoice, type BillingOverview } from '@/lib/billingV2Api';
+import { billingDate, money, errorMessage } from './shared';
 
 const RIAL_PER_TOMAN = 10;
 const PRESET_TOMAN = [100_000, 250_000, 500_000, 1_000_000];
@@ -29,37 +28,21 @@ const PRESET_TOMAN = [100_000, 250_000, 500_000, 1_000_000];
 export default function AiCreditTab({
   workspaceId,
   canManage,
-  reloadKey,
+  overview,
   onOpenInvoice,
   onChanged,
 }: {
   workspaceId: string;
   canManage: boolean;
-  reloadKey: number;
+  /** Cycle + purchased credit already come from the overview read-model. */
+  overview: BillingOverview;
   onOpenInvoice: (invoiceId: string) => void;
   onChanged: () => void;
 }) {
   const { t, locale } = useTranslation();
-  const [data, setData] = useState<AiSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [amountToman, setAmountToman] = useState('');
   const [busy, setBusy] = useState(false);
-
-  const load = () => {
-    setLoading(true);
-    setError(null);
-    billingV2AiSummary(workspaceId)
-      .then(setData)
-      .catch((e) => setError(errorMessage(e, t)))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId, reloadKey]);
 
   async function buy() {
     const toman = Number(amountToman);
@@ -69,7 +52,7 @@ export default function AiCreditTab({
     }
     setBusy(true);
     try {
-      const res = await billingV2BuyAiCredit(workspaceId, toman * RIAL_PER_TOMAN);
+      const res = await billingV2CreateAiCreditInvoice(workspaceId, toman * RIAL_PER_TOMAN);
       setOpen(false);
       onChanged();
       toast.success(t('billingV2.ai.invoiceCreated', { number: res.invoiceNumber || '' }));
@@ -81,11 +64,7 @@ export default function AiCreditTab({
     }
   }
 
-  if (loading) return <SkeletonStats count={2} />;
-  if (error) return <ErrorState message={error} onRetry={load} retryLabel={t('billingV2.common.retry')} />;
-  if (!data) return null;
-
-  const cycle = data.aiCycle;
+  const cycle = overview.aiCycle;
   const usedPct =
     cycle && cycle.allowanceIrr > 0 ? Math.min(100, Math.round((cycle.usedIrr / cycle.allowanceIrr) * 100)) : 0;
 
@@ -97,7 +76,7 @@ export default function AiCreditTab({
             <CardTitle className="flex flex-wrap items-center gap-2 text-base">
               <Sparkles className="h-4 w-4 text-primary" />
               {t('billingV2.ai.cycleAllowance')}
-              {data.servicePeriod?.interval === 'yearly' && (
+              {overview.aiMonthlyOnAnnual && (
                 <Badge variant="outline">{t('billingV2.ai.monthlyOnAnnual')}</Badge>
               )}
             </CardTitle>
@@ -132,7 +111,7 @@ export default function AiCreditTab({
             <CardTitle className="text-base">{t('billingV2.ai.purchased')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="text-3xl font-bold">{money(data.purchasedRemainingIrr, locale)}</p>
+            <p className="text-3xl font-bold">{money(overview.aiPurchasedRemainingIrr, locale)}</p>
             <p className="text-xs text-muted-foreground">{t('billingV2.ai.purchasedNote')}</p>
             {canManage && (
               <Button

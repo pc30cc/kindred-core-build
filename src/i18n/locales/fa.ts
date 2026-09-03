@@ -43,11 +43,26 @@ const fa: TranslationKeys = {
       increaseCta: 'افزایش اعتبار',
       usedPct: '{{percent}}٪ مصرف شده',
       sourceHint: 'اعتبار ماهانه هوش مصنوعی از پلن فعال فضای کاری شما می‌آید و ابتدای هر دوره تمدید می‌شود؛ مانده آن به دوره بعد منتقل نمی‌شود. اعتبار خریداری‌شده جداگانه و بدون انقضای دوره‌ای است.',
+      historyCta: 'تاریخچه مصرف',
+      history: {
+        title: 'تاریخچه مصرف اعتبار هوش مصنوعی',
+        date: 'تاریخ', type: 'نوع', amount: 'مبلغ', reason: 'شرح', cycle: 'دوره',
+        empty: 'هنوز مصرفی ثبت نشده است.',
+        typeDebit: 'مصرف', typeGrant: 'اعتبار پلن', typePurchase: 'خرید اعتبار',
+        typeRefund: 'بازگشت اعتبار', typeReserve: 'رزرو', typeRelease: 'آزادسازی رزرو', typeExpire: 'انقضای اعتبار',
+        page: 'صفحه {{page}} از {{total}}', prev: 'قبلی', next: 'بعدی', close: 'بستن',
+        totalCount: '{{count}} رکورد',
+      },
       topup: {
         title: 'افزایش اعتبار هوش مصنوعی', presetLabel: 'مبلغ افزایش اعتبار', customAmountLabel: 'مبلغ دلخواه (تومان)',
         customAmountPlaceholder: 'مثلاً ۲۰۰٬۰۰۰', minMaxHint: 'مبلغ باید بین {{min}} تا {{max}} تومان باشد.',
         payCta: 'پرداخت', cancel: 'انصراف', invalidAmount: 'مبلغ واردشده نامعتبر است.',
+        continueCta: 'ادامه و مشاهده پیش‌فاکتور',
+        invoiceTitle: 'پیش‌فاکتور خرید اعتبار هوش مصنوعی',
+        invoiceDescription: 'شرح', invoiceDescriptionValue: 'شارژ اعتبار هوش مصنوعی',
+        gatewayCta: 'پرداخت از طریق درگاه بانکی', back: 'بازگشت',
       },
+
     },
     result: {
       successTitle: 'پرداخت با موفقیت انجام شد', failureTitle: 'پرداخت انجام نشد', pendingTitle: 'وضعیت پرداخت در حال بررسی است',

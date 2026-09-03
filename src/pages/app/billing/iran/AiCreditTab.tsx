@@ -11,23 +11,28 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
-import { Loader2, Sparkles } from 'lucide-react';
+import { Loader2, Sparkles, Plus, History } from 'lucide-react';
 
 import { useTranslation } from '@/i18n';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { formatToman, tomanLabel } from '@/lib/money';
 import { toast } from '@/lib/toast';
 import { billingError } from '@/lib/billing-i18n';
+import { jalaliDate } from './format';
 import {
   aiBillingSummary, aiCreditTopupConfig, aiCreditTopupCheckout,
-  type AiBillingSummary,
+  aiCreditTopupPreview, aiCreditHistory,
+  type AiBillingSummary, type AiTopupInvoice, type AiLedgerEntry,
 } from '@/lib/api';
+
 
 export default function AiCreditTab({ workspaceId }: { workspaceId: string }) {
   const { t } = useTranslation();
   const [summary, setSummary] = useState<AiBillingSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
 
   const load = useCallback(() => {
     setLoading(true);
@@ -116,13 +121,22 @@ export default function AiCreditTab({ workspaceId }: { workspaceId: string }) {
             </div>
           </div>
 
-          <Button className="w-full sm:w-auto" onClick={() => setDialogOpen(true)}>
-            {t('billingIran.aiCredit.increaseCta')}
-          </Button>
+          <div className="flex flex-col gap-2.5 sm:flex-row">
+            <Button size="lg" className="h-12 flex-1 text-base font-semibold shadow-sm sm:flex-none sm:px-8" onClick={() => setDialogOpen(true)}>
+              <Plus className="me-2 h-5 w-5" />
+              {t('billingIran.aiCredit.increaseCta')}
+            </Button>
+            <Button size="lg" variant="outline" className="h-12 flex-1 text-base sm:flex-none sm:px-6" onClick={() => setHistoryOpen(true)}>
+              <History className="me-2 h-5 w-5" />
+              {t('billingIran.aiCredit.historyCta')}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
       <TopupDialog workspaceId={workspaceId} open={dialogOpen} onOpenChange={setDialogOpen} onSuccess={load} />
+      <UsageHistoryDialog workspaceId={workspaceId} open={historyOpen} onOpenChange={setHistoryOpen} />
+
     </div>
   );
 }
@@ -137,9 +151,11 @@ function TopupDialog({
   const [selected, setSelected] = useState<number | null>(null);
   const [custom, setCustom] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [invoice, setInvoice] = useState<AiTopupInvoice | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    setInvoice(null);
     aiCreditTopupConfig(workspaceId).then((c) => {
       setConfig(c);
       setSelected(c.presetsToman[0] ?? null);
@@ -148,16 +164,32 @@ function TopupDialog({
 
   const amount = custom ? Number(custom.replace(/[^\d]/g, '')) : selected;
 
-  async function handlePay() {
+  /** Step 1 → issue the real proforma the customer must confirm. */
+  async function handlePreview() {
     if (!config || !amount || amount < config.minToman || amount > config.maxToman) {
       toast.error(t('billingIran.aiCredit.topup.invalidAmount'));
       return;
     }
     setSubmitting(true);
     try {
+      const res = await aiCreditTopupPreview(workspaceId, amount);
+      setInvoice(res.invoice);
+    } catch (e: any) {
+      toast.error(billingError('fa', e?.message));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  /** Step 2 → same proforma goes to the bank; no second document number. */
+  async function handlePay() {
+    if (!invoice || !amount) return;
+    setSubmitting(true);
+    try {
       const result = await aiCreditTopupCheckout(workspaceId, {
         amountToman: amount,
         callbackUrl: `${window.location.origin}${wsPath('/billing')}`,
+        intentId: invoice.intentId,
       });
       if (result.paymentUrl) window.location.href = result.paymentUrl;
     } catch (e: any) {
@@ -166,6 +198,39 @@ function TopupDialog({
       setSubmitting(false);
     }
   }
+
+  if (invoice) {
+    const toman = (irr: number) => formatToman(irr, 'fa');
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent dir="rtl">
+          <DialogHeader>
+            <DialogTitle>{t('billingIran.aiCredit.topup.invoiceTitle')}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 rounded-xl border border-border/60 bg-muted/30 p-4 text-sm">
+            <Row label={t('billingIran.invoice.number')} value={invoice.invoiceNumber || '—'} mono />
+            <Row label={t('billingIran.invoice.issuedAt')} value={jalaliDate(invoice.issuedAt)} />
+            <Row label={t('billingIran.invoice.workspace')} value={invoice.workspaceName || '—'} />
+            <Row label={t('billingIran.aiCredit.topup.invoiceDescription')} value={t('billingIran.aiCredit.topup.invoiceDescriptionValue')} />
+            <Row label={t('billingIran.invoice.subtotal')} value={toman(invoice.amountIrr)} />
+            {invoice.discountIrr > 0 && <Row label={t('billingIran.invoice.discount')} value={toman(invoice.discountIrr)} />}
+            <div className="mt-2 flex items-center justify-between border-t border-border/60 pt-2 text-base font-bold">
+              <span>{t('billingIran.renewal.payableLabel')}</span>
+              <span>{toman(invoice.totalIrr)}</span>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInvoice(null)}>{t('billingIran.aiCredit.topup.back')}</Button>
+            <Button size="lg" onClick={handlePay} disabled={submitting}>
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin me-2" /> : null}
+              {t('billingIran.aiCredit.topup.gatewayCta')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -214,10 +279,107 @@ function TopupDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('billingIran.aiCredit.topup.cancel')}</Button>
-          <Button onClick={handlePay} disabled={submitting || !config}>
+          <Button size="lg" onClick={handlePreview} disabled={submitting || !config}>
             {submitting ? <Loader2 className="w-4 h-4 animate-spin me-2" /> : null}
-            {t('billingIran.aiCredit.topup.payCta')}
+            {t('billingIran.aiCredit.topup.continueCta')}
           </Button>
+        </DialogFooter>
+
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={mono ? 'font-mono text-foreground' : 'text-foreground'} dir={mono ? 'ltr' : undefined}>{value}</span>
+    </div>
+  );
+}
+
+const PAGE_SIZE = 10;
+
+/** Read-only ledger view — every credit movement, newest first, paginated. */
+function UsageHistoryDialog({
+  workspaceId, open, onOpenChange,
+}: { workspaceId: string; open: boolean; onOpenChange: (v: boolean) => void }) {
+  const { t } = useTranslation();
+  const [entries, setEntries] = useState<AiLedgerEntry[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => { if (open) setPage(0); }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    aiCreditHistory(workspaceId, { limit: PAGE_SIZE, offset: page * PAGE_SIZE })
+      .then((r) => { setEntries(r.entries || []); setTotal(r.total || 0); })
+      .catch(() => { setEntries([]); setTotal(0); })
+      .finally(() => setLoading(false));
+  }, [open, workspaceId, page]);
+
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const typeLabel = (raw: string) => {
+    const key = `billingIran.aiCredit.history.type${raw.charAt(0).toUpperCase()}${raw.slice(1).toLowerCase()}`;
+    const label = t(key as never);
+    return label === key ? raw : label;
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent dir="rtl" className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{t('billingIran.aiCredit.history.title')}</DialogTitle>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        ) : entries.length === 0 ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">{t('billingIran.aiCredit.history.empty')}</p>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-border/60">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-xs text-muted-foreground">
+                <tr>
+                  <th className="p-2.5 text-start font-medium">{t('billingIran.aiCredit.history.date')}</th>
+                  <th className="p-2.5 text-start font-medium">{t('billingIran.aiCredit.history.type')}</th>
+                  <th className="p-2.5 text-start font-medium">{t('billingIran.aiCredit.history.reason')}</th>
+                  <th className="p-2.5 text-end font-medium">{t('billingIran.aiCredit.history.amount')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((e) => (
+                  <tr key={e.id} className="border-t border-border/50">
+                    <td className="p-2.5 whitespace-nowrap">{jalaliDate(e.created_at)}</td>
+                    <td className="p-2.5">{typeLabel(String(e.entry_type || ''))}</td>
+                    <td className="p-2.5 text-muted-foreground">{e.reason || '—'}</td>
+                    <td className="p-2.5 text-end font-medium">{formatToman(Number(e.amount) || 0, 'fa')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <DialogFooter className="flex-row items-center justify-between gap-2 sm:justify-between">
+          <span className="text-xs text-muted-foreground">
+            {t('billingIran.aiCredit.history.totalCount', { count: total.toLocaleString('fa-IR') })}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
+              {t('billingIran.aiCredit.history.prev')}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {t('billingIran.aiCredit.history.page', { page: (page + 1).toLocaleString('fa-IR'), total: pages.toLocaleString('fa-IR') })}
+            </span>
+            <Button variant="outline" size="sm" disabled={page + 1 >= pages} onClick={() => setPage((p) => p + 1)}>
+              {t('billingIran.aiCredit.history.next')}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

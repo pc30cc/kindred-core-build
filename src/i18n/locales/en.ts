@@ -41,11 +41,26 @@ const en = {
       increaseCta: 'Add credit',
       usedPct: '{{percent}}% used',
       sourceHint: 'Your monthly AI credit comes from the workspace plan and is granted again at the start of every billing cycle; unused monthly credit does not roll over. Purchased credit is separate and has no cycle expiry.',
+      historyCta: 'Usage history',
+      history: {
+        title: 'AI credit usage history',
+        date: 'Date', type: 'Type', amount: 'Amount', reason: 'Description', cycle: 'Cycle',
+        empty: 'No usage recorded yet.',
+        typeDebit: 'Usage', typeGrant: 'Plan credit', typePurchase: 'Credit purchase',
+        typeRefund: 'Refund', typeReserve: 'Reserved', typeRelease: 'Reservation released', typeExpire: 'Credit expired',
+        page: 'Page {{page}} of {{total}}', prev: 'Previous', next: 'Next', close: 'Close',
+        totalCount: '{{count}} records',
+      },
       topup: {
         title: 'Add AI credit', presetLabel: 'Top-up amount', customAmountLabel: 'Custom amount (Toman)',
         customAmountPlaceholder: 'e.g. 200,000', minMaxHint: 'Amount must be between {{min}} and {{max}} Toman.',
         payCta: 'Pay', cancel: 'Cancel', invalidAmount: 'The amount entered is invalid.',
+        continueCta: 'Continue to proforma',
+        invoiceTitle: 'AI credit proforma',
+        invoiceDescription: 'Description', invoiceDescriptionValue: 'AI credit top-up',
+        gatewayCta: 'Pay via bank gateway', back: 'Back',
       },
+
     },
     result: {
       successTitle: 'Payment successful', failureTitle: 'Payment failed', pendingTitle: 'Payment status is being verified',

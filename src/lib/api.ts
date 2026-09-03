@@ -432,12 +432,50 @@ export async function aiCreditTopupConfig(workspaceId: string) {
   );
 }
 
-export async function aiCreditTopupCheckout(workspaceId: string, input: { amountToman: number; callbackUrl: string }) {
+export interface AiTopupInvoice {
+  intentId: string;
+  invoiceNumber: string | null;
+  issuedAt: string;
+  expiresAt: string;
+  workspaceName: string | null;
+  purchaseType: 'ai_credit_topup';
+  amountIrr: number;
+  discountIrr: number;
+  totalIrr: number;
+  providerName: string;
+}
+
+/** Proforma issued before the customer is sent to the bank. */
+export async function aiCreditTopupPreview(workspaceId: string, amountToman: number) {
+  return request<{ invoice: AiTopupInvoice }>(
+    `/api/ai-billing/workspaces/${workspaceId}/topup/preview`,
+    { method: 'POST', body: JSON.stringify({ amountToman }) },
+  );
+}
+
+export interface AiLedgerEntry {
+  id: string;
+  entry_type: string;
+  amount: string | number;
+  billing_cycle_id: string | null;
+  reason: string | null;
+  created_at: string;
+  run_id: string | null;
+}
+
+export async function aiCreditHistory(workspaceId: string, params: { limit: number; offset: number }) {
+  return request<{ entries: AiLedgerEntry[]; total: number; limit: number; offset: number }>(
+    `/api/ai-billing/workspaces/${workspaceId}/history?limit=${params.limit}&offset=${params.offset}`,
+  );
+}
+
+export async function aiCreditTopupCheckout(workspaceId: string, input: { amountToman: number; callbackUrl: string; intentId?: string }) {
   return request<{ success: boolean; paymentUrl: string; sessionId?: string; authority?: string; intentId: string }>(
     `/api/ai-billing/workspaces/${workspaceId}/topup/checkout`,
     { method: 'POST', body: JSON.stringify(input) },
   );
 }
+
 
 export async function billingAdminOverview() {
   return request<{

@@ -119,13 +119,22 @@ export default function AiCreditTab({ workspaceId }: { workspaceId: string }) {
             </div>
           </div>
 
-          <Button className="w-full sm:w-auto" onClick={() => setDialogOpen(true)}>
-            {t('billingIran.aiCredit.increaseCta')}
-          </Button>
+          <div className="flex flex-col gap-2.5 sm:flex-row">
+            <Button size="lg" className="h-12 flex-1 text-base font-semibold shadow-sm sm:flex-none sm:px-8" onClick={() => setDialogOpen(true)}>
+              <Plus className="me-2 h-5 w-5" />
+              {t('billingIran.aiCredit.increaseCta')}
+            </Button>
+            <Button size="lg" variant="outline" className="h-12 flex-1 text-base sm:flex-none sm:px-6" onClick={() => setHistoryOpen(true)}>
+              <History className="me-2 h-5 w-5" />
+              {t('billingIran.aiCredit.historyCta')}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
       <TopupDialog workspaceId={workspaceId} open={dialogOpen} onOpenChange={setDialogOpen} onSuccess={load} />
+      <UsageHistoryDialog workspaceId={workspaceId} open={historyOpen} onOpenChange={setHistoryOpen} />
+
     </div>
   );
 }

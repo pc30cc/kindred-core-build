@@ -25,7 +25,6 @@ import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import {
-import { SkeletonCard } from '@/components/common/Skeletons';
   AlertTriangle,
   Bell,
   CheckCircle2,
@@ -34,6 +33,7 @@ import { SkeletonCard } from '@/components/common/Skeletons';
   Moon,
   Volume2,
 } from 'lucide-react';
+import { SkeletonCard } from '@/components/common/Skeletons';
 
 type PermissionState = 'granted' | 'denied' | 'default' | 'unsupported';
 

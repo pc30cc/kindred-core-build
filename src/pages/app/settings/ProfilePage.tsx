@@ -51,7 +51,6 @@ import {
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import {
-import { SkeletonAvatar, SkeletonForm, SkeletonCard, Skeleton } from '@/components/common/Skeletons';
   AlertCircle,
   Camera,
   CheckCircle2,
@@ -60,6 +59,7 @@ import { SkeletonAvatar, SkeletonForm, SkeletonCard, Skeleton } from '@/componen
   Trash2,
   UserRound,
 } from 'lucide-react';
+import { SkeletonAvatar, SkeletonForm, SkeletonCard, Skeleton } from '@/components/common/Skeletons';
 
 function splitName(full: string | null | undefined): { first: string; last: string } {
   if (!full) return { first: '', last: '' };

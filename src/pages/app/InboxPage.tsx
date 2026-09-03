@@ -350,7 +350,7 @@ export default function InboxPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepLinkConvId]);
 
-  const { data: conversations, isLoading } = useConversations(
+  const { data: conversations, isLoading: isLoadingConvos, isPlaceholderData: isStaleConvos } = useConversations(
     workspace?.id,
     filter === 'all' ? undefined : filter === 'resolved' ? 'resolved,closed' : filter,
     queue,

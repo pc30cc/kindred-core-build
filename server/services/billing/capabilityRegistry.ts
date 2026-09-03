@@ -135,8 +135,11 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'widget_behavior',           type: 'feature', label: 'Widget Behaviour Settings',     group: 'widget', description: 'Workspace may configure widget behaviour (Widget → Behaviour).', defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 190 },
   { key: 'widget_prechat_form',       type: 'feature', label: 'Widget Pre-chat Form',          group: 'widget', description: 'Collect visitor details before the chat starts (Widget → Pre-chat form).', defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 200 },
 
-
-
+  // ─── Inbox surface tabs (operator Inbox tab strip) ───
+  // When a plan denies one of these the tab is removed from the operator Inbox.
+  { key: 'inbox_ai_queue',      type: 'feature', label: 'Inbox AI Queue Tab',      group: 'inbox', description: 'Automated / AI-managed conversations tab in the operator Inbox.', defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 10 },
+  { key: 'inbox_needs_human',   type: 'feature', label: 'Inbox "Needs Human" Tab', group: 'inbox', description: 'Conversations handed off from AI that need an operator.',            defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 20 },
+  { key: 'inbox_team_chat',     type: 'feature', label: 'Inbox Colleagues Chat',   group: 'inbox', description: 'Internal operator-to-operator chat tab inside the Inbox.',            defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 30 },
 
 
   // ─── Call surface features (plan-level toggles bounded by call control plane) ───

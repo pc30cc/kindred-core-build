@@ -297,19 +297,28 @@ function UsageSummary({ effective, operatorsUsed }: { effective: any; operatorsU
     <Card>
       <CardContent className="pt-5">
         <h3 className="text-sm font-semibold text-foreground mb-4">{t('billingIran.overview.usageTitle')}</h3>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {items.map((i) => {
             const unlimited = i.limit === -1;
             const pct = !unlimited && i.limit > 0 ? Math.min(100, Math.round((i.used / i.limit) * 100)) : null;
+            const usedLabel = `${i.used.toLocaleString('fa-IR')}${i.unit ? ` ${i.unit}` : ''}`;
+            const limitLabel = unlimited
+              ? t('billingIran.overview.unlimited')
+              : `${Number(i.limit).toLocaleString('fa-IR')}${i.unit ? ` ${i.unit}` : ''}`;
             return (
               <div key={i.key} className="rounded-xl border border-border/60 bg-card p-4 flex flex-col items-center text-center gap-2">
                 <UsageDonut
                   percent={pct}
-                  centerLabel={unlimited ? '∞' : pct !== null ? `${pct.toLocaleString('fa-IR')}٪` : '—'}
+                  used={Number(i.used)}
+                  limit={Number(i.limit)}
+                  unlimited={unlimited}
+                  unit={i.unit}
+                  usedName={t('billingIran.aiCredit.usedLabel')}
+                  remainingName={t('billingIran.overview.remaining')}
                 />
                 <div className="text-xs text-muted-foreground">{i.label}</div>
                 <div className="text-sm font-semibold text-foreground">
-                  {i.used.toLocaleString('fa-IR')}{i.unit ? ` ${i.unit}` : ''} / {unlimited ? t('billingIran.overview.unlimited') : `${i.limit.toLocaleString('fa-IR')}${i.unit ? ` ${i.unit}` : ''}`}
+                  {usedLabel} / {limitLabel}
                 </div>
               </div>
             );
@@ -320,39 +329,58 @@ function UsageSummary({ effective, operatorsUsed }: { effective: any; operatorsU
   );
 }
 
-/** Small circular gauge used for the overview usage metrics. */
-function UsageDonut({ percent, centerLabel }: { percent: number | null; centerLabel: string }) {
-  const size = 92;
-  const stroke = 9;
-  const r = (size - stroke) / 2;
-  const c = 2 * Math.PI * r;
-  const value = percent ?? 0;
-  const tone = value >= 90 ? 'hsl(var(--destructive))' : value >= 70 ? 'hsl(38 92% 50%)' : 'hsl(var(--primary))';
+/** Donut gauge matching the AI-credit chart style. */
+function UsageDonut({
+  percent, used, limit, unlimited, unit, usedName, remainingName,
+}: {
+  percent: number | null; used: number; limit: number; unlimited: boolean;
+  unit?: string; usedName: string; remainingName: string;
+}) {
+  const remaining = unlimited ? 0 : Math.max(0, limit - used);
+  const tone = percent !== null && percent >= 90
+    ? 'hsl(var(--destructive))'
+    : percent !== null && percent >= 70
+      ? 'hsl(38 92% 50%)'
+      : 'hsl(var(--primary))';
+  const data = unlimited || limit <= 0
+    ? [{ key: 'empty', label: '', value: 1, color: 'hsl(var(--muted))' }]
+    : [
+        { key: 'used', label: usedName, value: Math.max(0, used), color: tone },
+        { key: 'remaining', label: remainingName, value: remaining, color: 'hsl(var(--muted))' },
+      ].filter((d) => d.value > 0);
+
   return (
-    <div className="relative" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="hsl(var(--muted))" strokeWidth={stroke} />
-        {percent !== null && (
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={r}
-            fill="none"
-            stroke={tone}
-            strokeWidth={stroke}
-            strokeLinecap="round"
-            strokeDasharray={c}
-            strokeDashoffset={c - (c * value) / 100}
-            className="transition-[stroke-dashoffset] duration-700 ease-out"
-          />
-        )}
-      </svg>
-      <div className="absolute inset-0 flex items-center justify-center text-sm font-bold text-foreground">
-        {centerLabel}
+    <div className="relative mx-auto h-[128px] w-[128px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie
+            data={data}
+            dataKey="value"
+            nameKey="label"
+            innerRadius={42}
+            outerRadius={60}
+            paddingAngle={data.length > 1 ? 2 : 0}
+            stroke="none"
+            startAngle={90}
+            endAngle={-270}
+          >
+            {data.map((d) => <Cell key={d.key} fill={d.color} />)}
+          </Pie>
+          {!unlimited && limit > 0 && (
+            <Tooltip
+              formatter={(v: any, n: any) => [`${Number(v).toLocaleString('fa-IR')}${unit ? ` ${unit}` : ''}`, n]}
+              contentStyle={{ borderRadius: 12, border: '1px solid hsl(var(--border))', background: 'hsl(var(--card))', fontSize: 12, direction: 'rtl' }}
+            />
+          )}
+        </PieChart>
+      </ResponsiveContainer>
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-base font-bold text-foreground">
+        {unlimited ? '∞' : percent !== null ? `${percent.toLocaleString('fa-IR')}٪` : '—'}
       </div>
     </div>
   );
 }
+
 
 
 function PlansGrid({

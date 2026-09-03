@@ -5,6 +5,10 @@ import { loadFontsForLocale } from "./lib/fonts";
 import { getStoredLocale, loadLocaleMessages } from "./i18n";
 import { installLocalizedDateDefaults, setAppDateLocale } from "./lib/date";
 import { CALL_VIDEO_ORIENTATION_CORRECTION_MODE } from "./features/calls/videoOrientation";
+import { applyUiPreferences, loadUiPreferences } from "./lib/ui-preferences";
+
+// Apply personal UI preferences before first paint (no flash of default theme).
+applyUiPreferences(loadUiPreferences());
 
 function logCallUiBuildVersion() {
   try {

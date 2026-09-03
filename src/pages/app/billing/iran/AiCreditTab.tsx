@@ -11,17 +11,20 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
-import { Loader2, Sparkles } from 'lucide-react';
+import { Loader2, Sparkles, Plus, History } from 'lucide-react';
 
 import { useTranslation } from '@/i18n';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { formatToman, tomanLabel } from '@/lib/money';
 import { toast } from '@/lib/toast';
 import { billingError } from '@/lib/billing-i18n';
+import { jalaliDate } from './format';
 import {
   aiBillingSummary, aiCreditTopupConfig, aiCreditTopupCheckout,
-  type AiBillingSummary,
+  aiCreditTopupPreview, aiCreditHistory,
+  type AiBillingSummary, type AiTopupInvoice, type AiLedgerEntry,
 } from '@/lib/api';
+
 
 export default function AiCreditTab({ workspaceId }: { workspaceId: string }) {
   const { t } = useTranslation();

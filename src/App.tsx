@@ -240,8 +240,15 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <RequireAuth><WorkspaceRedirect /></RequireAuth>
               } />
 
-              {/* Workspace-scoped app (route-based active workspace) */}
-              <Route path="/app/w/:slug" element={<RequireAuth><BrandingGate><AppLayout /></BrandingGate></RequireAuth>}>
+              {/* Legacy workspace URLs: /app/w/<slug>/... → /<slug>/... */}
+              <Route path="/app/w/:slug/*" element={<LegacyWorkspaceUrlRedirect />} />
+              <Route path="/app/w/:slug" element={<LegacyWorkspaceUrlRedirect />} />
+
+              {/* Workspace-scoped app (route-based active workspace).
+                  Short URLs: /<workspace-slug>/<page>. Declared after every
+                  static top-level route so /admin, /auth, /help keep priority
+                  (React Router ranks static segments above dynamic ones). */}
+              <Route path="/:slug" element={<RequireAuth><BrandingGate><AppLayout /></BrandingGate></RequireAuth>}>
                 <Route index element={<OverviewPage />} />
                 <Route path="inbox" element={<InboxPage />} />
                 <Route path="contacts" element={<PlanLockedOverlay moduleKey="contacts"><ContactsPage /></PlanLockedOverlay>} />

@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, Navigate, useParams, useLocation } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
+import { UiPreferencesProvider } from "@/features/ui-preferences/UiPreferencesContext";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -377,6 +378,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
           </TooltipProvider>
           </PlatformBrandingGate>
           </IdentityCacheBoundary>
+          </UiPreferencesProvider>
         </AuthContextProvider>
         </ProviderContextProvider>
       </ThemeProvider>

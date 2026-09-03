@@ -8,6 +8,7 @@ const en = {
       page: 'Page {{page}} of {{pages}}', prev: 'Previous', next: 'Next', close: 'Close', cancel: 'Cancel',
       confirm: 'Confirm', back: 'Back', amount: 'Amount', date: 'Date', status: 'Status', actions: 'Actions',
       view: 'View', total: 'Total', yes: 'Yes', no: 'No', notAvailable: '—',
+      continue: 'Continue',
     },
     overview: {
       currentPlan: 'Current plan', free: 'Free', trial: 'Trial', trialEnds: 'Trial ends {{date}}',
@@ -63,6 +64,8 @@ const en = {
       ledger: 'Wallet activity', credit: 'Credit', debit: 'Debit', reference: 'Reference', balanceAfter: 'Balance after',
       empty: 'No wallet activity yet.', receipt: 'Wallet top-up receipt', receiptNumber: 'Document no.',
       continueToBank: 'Continue to payment', frozen: 'This wallet is frozen.',
+      saved: 'Auto-pay setting saved.', invalidAmount: 'That amount is not valid.',
+      entryTypes: { deposit: 'Wallet top-up', invoice_payment: 'Invoice payment', refund: 'Refund', credit: 'Credit', debit: 'Debit', admin_adjustment: 'Support adjustment', chargeback: 'Chargeback' },
     },
     ai: {
       title: 'AI Credit', cycleAllowance: 'Plan allowance this cycle', used: 'Used', remaining: 'Remaining',
@@ -72,11 +75,13 @@ const en = {
       consumptionNote: 'Credit that expires soonest is always used first.',
       creditAdded: 'Credit added successfully.', creditFinalizing: 'Payment received — your credit is being finalized.',
       noCycle: 'No active AI cycle.',
+      expiresOn: "This cycle's allowance expires on {{date}}.", buyNote: 'An invoice is created first; credit is added once it is paid.',
     },
     transactions: {
       title: 'Transactions', empty: 'No payment attempts yet.', document: 'Document no.', tracking: 'Tracking code',
       statuses: { pending: 'Pending', processing: 'Processing', succeeded: 'Successful', canceled: 'Canceled', failed: 'Failed', expired: 'Expired', refunded: 'Refunded', review: 'Payment under review' },
       purchase: { subscription: 'Subscription', ai_credit_topup: 'AI credit purchase', wallet_deposit: 'Wallet top-up' },
+      date: 'Date', type: 'Type', amount: 'Amount',
     },
     result: {
       successTitle: 'Payment successful', successDesc: 'Your payment has been confirmed.',

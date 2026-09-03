@@ -74,12 +74,36 @@ function docNumber(): string {
   return `TS${String(10_000_000 + docCounter)}`;
 }
 
-/** Creates a workspace row through whatever minimal shape the base chain has. */
+/**
+ * Creates a workspace through whatever minimal shape the applied chain has:
+ * the self-host base chain has no owner, the hosted chain requires one. The
+ * suite must prove the same invariants on both.
+ */
+let hasOwner: boolean | null = null;
+
 async function makeWorkspace(): Promise<string> {
   const id = uuid();
+  if (hasOwner === null) {
+    hasOwner = Boolean(
+      await one(
+        `SELECT 1 FROM information_schema.columns
+          WHERE table_schema='public' AND table_name='workspaces' AND column_name='owner_id'`,
+      ),
+    );
+  }
+  if (!hasOwner) {
+    await client.query(`INSERT INTO public.workspaces (id, name, slug) VALUES ($1,$2,$3)`, [
+      id, `ws-${id.slice(0, 8)}`, `ws-${id.slice(0, 8)}`,
+    ]);
+    return id;
+  }
+  const owner = uuid();
+  await client.query(`INSERT INTO public.profiles (id, email) VALUES ($1,$2)`, [
+    owner, `owner-${owner.slice(0, 8)}@test.local`,
+  ]);
   await client.query(
-    `INSERT INTO public.workspaces (id, name, slug) VALUES ($1, $2, $3)`,
-    [id, `ws-${id.slice(0, 8)}`, `ws-${id.slice(0, 8)}`],
+    `INSERT INTO public.workspaces (id, name, slug, owner_id) VALUES ($1,$2,$3,$4)`,
+    [id, `ws-${id.slice(0, 8)}`, `ws-${id.slice(0, 8)}`, owner],
   );
   return id;
 }

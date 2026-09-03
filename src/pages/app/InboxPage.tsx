@@ -72,6 +72,7 @@ import { PresenceBadge, PresenceDot } from '@/components/inbox/PresenceIndicator
 import { formatTime, formatLongDate, formatRelative, formatDateTime } from '@/lib/date';
 import TeamChatPanel from '@/components/inbox/TeamChatPanel';
 import { useColleagues } from '@/hooks/useTeamChat';
+import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import {
   useOperatorMessageChime,
   getOperatorMessageSoundEnabled,

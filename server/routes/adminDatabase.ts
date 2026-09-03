@@ -25,23 +25,63 @@ const scopeSchema = z.object({
   scope: z.enum(['data', 'full']).default('data'),
 });
 
-// ─── Backup (export as downloadable JSON) ────────────────────────────────
+// ─── Backup (streamed table-by-table as downloadable JSON) ───────────────
+// A single admin_export_database() call serialises the whole database in one
+// statement and trips Postgres' statement_timeout. Instead we list the tables
+// and stream each one in pages, writing the JSON document as we go.
+const EXPORT_PAGE_SIZE = 1000;
+
 adminDatabaseRouter.get('/backup', async (req, res) => {
   const actorId = await requirePlatformAdmin(req, res);
   if (!actorId) return;
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
-  const { data, error } = await sb.rpc('admin_export_database', {
+
+  const { data: tables, error: listError } = await sb.rpc('admin_list_export_tables', {
     _actor_user_id: actorId,
     _scope: 'all',
   });
-  if (error) return res.status(500).json({ error: error.message });
+  if (listError) return res.status(500).json({ error: listError.message });
+
+  const tableNames: string[] = ((tables as unknown as (string | { admin_list_export_tables: string })[]) ?? []).map(
+    (t) => (typeof t === 'string' ? t : t.admin_list_export_tables),
+  );
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="backup_${stamp}.json"`);
-  res.send(JSON.stringify(data));
+
+  res.write(`{"version":1,"scope":"all","exported_at":${JSON.stringify(new Date().toISOString())},"tables":{`);
+
+  let first = true;
+  try {
+    for (const table of tableNames) {
+      const rows: unknown[] = [];
+      for (let offset = 0; ; offset += EXPORT_PAGE_SIZE) {
+        const { data, error } = await sb.rpc('admin_export_table', {
+          _actor_user_id: actorId,
+          _table: table,
+          _limit: EXPORT_PAGE_SIZE,
+          _offset: offset,
+        });
+        if (error) throw new Error(`${table}: ${error.message}`);
+        const page = (data as unknown[] | null) ?? [];
+        rows.push(...page);
+        if (page.length < EXPORT_PAGE_SIZE) break;
+      }
+      res.write(`${first ? '' : ','}${JSON.stringify(table)}:${JSON.stringify(rows)}`);
+      first = false;
+    }
+    res.write('}}');
+    res.end();
+  } catch (err) {
+    // Headers are already sent — close the stream with an explicit error marker
+    // so a truncated backup can never be mistaken for a complete one.
+    res.write(`${first ? '' : ','}"__error__":${JSON.stringify(String((err as Error).message))}}}`);
+    res.end();
+  }
 });
+
 
 // ─── Restore ─────────────────────────────────────────────────────────────
 adminDatabaseRouter.post('/restore', async (req, res) => {

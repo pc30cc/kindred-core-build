@@ -233,8 +233,9 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/admin/feature-flags" element={<AdminFeatureFlagsPage />} />
                 <Route path="/admin/branding" element={<AdminBrandingPage />} />
                 <Route path="/admin/domains" element={<AdminDomainsPage />} />
-                <Route path="/admin/audit-logs" element={<AdminAuditLogsPage />} />
-                <Route path="/admin/billing" element={<AdminBillingPage />} />
+                <Route path="/admin/finance" element={<AdminFinancePage />} />
+                <Route path="/admin/audit-logs" element={<Navigate to="/admin/finance?tab=audit" replace />} />
+                <Route path="/admin/billing" element={<Navigate to="/admin/finance?tab=billing" replace />} />
                 <Route path="/admin/plans" element={<AdminPlansPage />} />
                 <Route path="/admin/plugins" element={<AdminPluginsPage />} />
                 <Route path="/admin/plugins/:pluginId" element={<AdminPluginDetailPage />} />

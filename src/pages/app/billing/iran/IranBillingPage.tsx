@@ -288,9 +288,14 @@ function UsageSummary({ effective, operatorsUsed }: { effective: any; operatorsU
   const items = [
     { key: 'conversations', label: t('billingIran.overview.conversations'), used: usage.conversations_count, limit: limits.max_conversations?.value },
     { key: 'operators', label: t('billingIran.overview.operators'), used: operatorsUsed, limit: limits.max_agents?.value },
+    { key: 'visitors', label: t('billingIran.overview.visitors'), used: usage.visitors_count, limit: limits.max_visitors?.value },
+    { key: 'aiCredits', label: t('billingIran.overview.aiCredits'), used: usage.ai_credits_used, limit: limits.ai_credits_per_month?.value },
     { key: 'storage', label: t('billingIran.overview.storage'), used: typeof usage.storage_bytes === 'number' ? Number((usage.storage_bytes / 1024 ** 3).toFixed(1)) : undefined, limit: limits.storage_gb?.value, unit: t('billingIran.overview.gb') },
     { key: 'callMinutes', label: t('billingIran.overview.callMinutes'), used: usage.call_minutes_used, limit: limits.max_call_minutes_per_month?.value },
+    { key: 'kbArticles', label: t('billingIran.overview.kbArticles'), used: usage.kb_articles_count, limit: limits.max_kb_articles?.value },
+    { key: 'departments', label: t('billingIran.overview.departments'), used: usage.departments_count, limit: limits.max_departments?.value },
   ].filter((i) => typeof i.used === 'number' && i.limit != null);
+
 
   if (items.length === 0) return null;
 

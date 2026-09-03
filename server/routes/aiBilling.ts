@@ -21,6 +21,7 @@ import { runAiBillingRecovery } from '../services/ai-billing/recovery.js';
 import { getBillingDegradation } from '../services/ai-billing/degrade.js';
 import { getAiBillingRecoveryStatus } from '../services/ai-billing/recoveryTicker.js';
 import { resolveBillingConfig, getProvider } from '../services/billing/index.js';
+import { assertLegacyPathAllowed, LegacyPathRejectedError } from '../services/billing/rollout.js';
 import { createAiCreditTopupIntent, setPaymentIntentProviderRef, markPaymentIntentFailed, IRAN_PROVIDERS } from '../services/billing/paymentIntent.js';
 import { requiresReferenceBinding } from '../services/billing/providerBinding.js';
 
@@ -181,6 +182,23 @@ aiBillingRouter.post('/workspaces/:workspaceId/topup/preview', async (req, res) 
   if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
   const { amountToman } = parsed.data;
 
+  // Billing Engine V2 boundary: a V2-owned workspace buys AI credit ONLY
+  // through an ai_credit_purchase invoice (invoice → collection → payment →
+  // paid invoice → application → credit). The legacy "payment → purchaseCredit"
+  // shortcut is refused outright.
+  try {
+    await assertLegacyPathAllowed(config, {
+      workspaceId,
+      path: 'legacy_ai_credit_topup',
+      nextAction: 'CREATE_AI_CREDIT_INVOICE',
+    });
+  } catch (guardError) {
+    if (guardError instanceof LegacyPathRejectedError) {
+      return res.status(409).json({ error: 'BILLING_V2_REQUIRED', nextAction: guardError.nextAction });
+    }
+    throw guardError;
+  }
+
   const topup = await getTopupConfig(config);
   if (amountToman < topup.minToman || amountToman > topup.maxToman) {
     return res.status(400).json({ error: `amountToman must be between ${topup.minToman} and ${topup.maxToman}` });
@@ -251,6 +269,23 @@ aiBillingRouter.post('/workspaces/:workspaceId/topup/checkout', async (req, res)
   if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
   const { amountToman, callbackUrl } = parsed.data;
 
+
+  // Billing Engine V2 boundary: a V2-owned workspace buys AI credit ONLY
+  // through an ai_credit_purchase invoice (invoice → collection → payment →
+  // paid invoice → application → credit). The legacy "payment → purchaseCredit"
+  // shortcut is refused outright.
+  try {
+    await assertLegacyPathAllowed(config, {
+      workspaceId,
+      path: 'legacy_ai_credit_topup',
+      nextAction: 'CREATE_AI_CREDIT_INVOICE',
+    });
+  } catch (guardError) {
+    if (guardError instanceof LegacyPathRejectedError) {
+      return res.status(409).json({ error: 'BILLING_V2_REQUIRED', nextAction: guardError.nextAction });
+    }
+    throw guardError;
+  }
 
   const topup = await getTopupConfig(config);
   if (amountToman < topup.minToman || amountToman > topup.maxToman) {

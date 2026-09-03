@@ -56,6 +56,7 @@ const CHAIN = [
   'database/migrations/114_billing_v2_wallet.sql',
   'database/migrations/115_billing_v2_rpcs.sql',
   'database/migrations/116_billing_v2_backfill.sql',
+  'database/migrations/117_billing_v2_rollout.sql',
 ];
 
 let client: any;
@@ -773,6 +774,198 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
       `SELECT count(*) c FROM public.billing_invoices WHERE workspace_id=$1`, [ws],
     );
     expect(Number(invoices.c)).toBe(0);
+  });
+
+
+  // ══════════════════════════════════════════════════════════════════════
+  // PHASE B — rollout authority, legacy drain, runtime guards.
+  // ══════════════════════════════════════════════════════════════════════
+
+  describe('Phase B — rollout state machine', () => {
+    it('defaults to legacy and moves legacy → shadow → v2_active monotonically', async () => {
+      const ws = await makeWorkspace();
+      expect((await one(`SELECT public.billing_v2_state($1) AS s`, [ws])).s).toBe('legacy');
+
+      await q(`SELECT public.billing_v2_set_state($1,'shadow',NULL,'ramp',false)`, [ws]);
+      expect((await one(`SELECT public.billing_v2_state($1) AS s`, [ws])).s).toBe('shadow');
+
+      const r = (await one(`SELECT public.billing_v2_activate($1,NULL,'cutover') AS r`, [ws])).r;
+      expect(r.state).toBe('v2_active');
+      expect((await one(`SELECT public.billing_v2_state($1) AS s`, [ws])).s).toBe('v2_active');
+    });
+
+    it('refuses any rollback out of v2_active without break-glass', async () => {
+      const ws = await makeWorkspace();
+      await q(`SELECT public.billing_v2_activate($1,NULL,'cutover')`, [ws]);
+      await expect(
+        q(`SELECT public.billing_v2_set_state($1,'legacy',NULL,'oops',false)`, [ws]),
+      ).rejects.toThrow(/billing_v2_rollback_forbidden/);
+      await expect(
+        q(`SELECT public.billing_v2_set_state($1,'shadow',NULL,'oops',false)`, [ws]),
+      ).rejects.toThrow(/billing_v2_rollback_forbidden/);
+      expect((await one(`SELECT public.billing_v2_state($1) AS s`, [ws])).s).toBe('v2_active');
+    });
+
+    it('activation is idempotent — replay never creates a second period', async () => {
+      const ws = await makeWorkspace();
+      await q(`SELECT public.billing_v2_activate($1,NULL,'first')`, [ws]);
+      const first = await q(
+        `SELECT id FROM public.billing_subscription_periods WHERE workspace_id=$1`, [ws]);
+      const again = (await one(`SELECT public.billing_v2_activate($1,NULL,'again') AS r`, [ws])).r;
+      expect(again.replayed).toBe(true);
+      expect(again.activated).toBe(false);
+      const after = await q(
+        `SELECT id FROM public.billing_subscription_periods WHERE workspace_id=$1`, [ws]);
+      expect(after.length).toBe(first.length);
+    });
+  });
+
+  describe('Phase B — legacy payment intent drain', () => {
+    it('BLOCKS cutover on a bound legacy intent and cancels unbound pending ones', async () => {
+      const ws = await makeWorkspace();
+      // bound = money may still land: processing, or pending with a provider ref
+      await client.query(
+        `INSERT INTO public.billing_payment_intents
+           (workspace_id, invoice_number, amount_irr, status, provider_ref, purchase_type, provider_name)
+         VALUES ($1,$2,100000,'pending','REF-1','ai_credit_topup','test')`, [ws, docNumber()]);
+      const readiness = (await one(`SELECT public.billing_v2_evaluate_cutover($1) AS r`, [ws])).r;
+      expect(readiness.ready).toBe(false);
+      expect(JSON.stringify(readiness.blockers)).toContain('legacy_intent_bound');
+      await expect(
+        q(`SELECT public.billing_v2_activate($1,NULL,'x')`, [ws]),
+      ).rejects.toThrow(/billing_v2_cutover_blocked/);
+
+      // resolve the bound intent, leave an UNBOUND pending one behind
+      await client.query(
+        `UPDATE public.billing_payment_intents SET status='expired' WHERE workspace_id=$1`, [ws]);
+      const unbound = await one(
+        `INSERT INTO public.billing_payment_intents
+           (workspace_id, invoice_number, amount_irr, status, purchase_type, provider_name)
+         VALUES ($1,$2,50000,'pending','ai_credit_topup','test') RETURNING id`, [ws, docNumber()]);
+
+      const r = (await one(`SELECT public.billing_v2_activate($1,NULL,'drain') AS r`, [ws])).r;
+      expect(r.state).toBe('v2_active');
+      const drained = await one(
+        `SELECT status, failure_reason FROM public.billing_payment_intents WHERE id=$1`,
+        [unbound.id]);
+      expect(drained.status).toBe('canceled');
+      expect(drained.failure_reason).toBe('billing_v2_cutover_drain');
+    });
+  });
+
+  describe('Phase B — engine version stamping', () => {
+    it('stamps and FREEZES billing_engine_version on financial objects', async () => {
+      const ws = await makeWorkspace();
+      const intent = await one(
+        `INSERT INTO public.billing_payment_intents
+           (workspace_id, invoice_number, amount_irr, status, purchase_type, provider_name)
+         VALUES ($1,$2,10000,'pending','ai_credit_topup','test') RETURNING id, billing_engine_version`,
+        [ws, docNumber()]);
+      expect(intent.billing_engine_version).toBe('v1');
+      await expect(
+        q(`UPDATE public.billing_payment_intents SET billing_engine_version='v2' WHERE id=$1`,
+          [intent.id]),
+      ).rejects.toThrow(/immutable/i);
+
+      const inv = await makeInvoice(ws, { total: 10000 });
+      expect(inv.billing_engine_version).toBe('v2');
+      await expect(
+        q(`UPDATE public.billing_invoices SET billing_engine_version='v1' WHERE id=$1`, [inv.id]),
+      ).rejects.toThrow(/immutable/i);
+    });
+  });
+
+  describe('Phase B — database-level authority isolation', () => {
+    it('blocks direct legacy subscription-window mutation once V2 owns the workspace', async () => {
+      const ws = await makeWorkspace();
+      await client.query(
+        `INSERT INTO public.workspace_subscriptions (workspace_id, status) VALUES ($1,'active')`, [ws]);
+      await q(`SELECT public.billing_v2_activate($1,NULL,'cutover')`, [ws]);
+      await expect(
+        q(`UPDATE public.workspace_subscriptions
+              SET current_period_end = now() + interval '400 days'
+            WHERE workspace_id=$1`, [ws]),
+      ).rejects.toThrow(/billing_v2_direct_subscription_mutation_forbidden/);
+      // non-financial columns stay writable
+      await q(`UPDATE public.workspace_subscriptions SET updated_at=now() WHERE workspace_id=$1`, [ws]);
+    });
+
+    it('blocks a legacy AI plan allowance grant after the V2 handover', async () => {
+      const ws = await makeWorkspace();
+      await client.query(
+        `INSERT INTO public.workspace_subscriptions (workspace_id, status) VALUES ($1,'active')`, [ws]);
+      await q(`SELECT public.billing_v2_activate($1,NULL,'cutover')`, [ws]);
+      const period = await one(
+        `SELECT id FROM public.billing_subscription_periods
+          WHERE workspace_id=$1 AND status='active'`, [ws]);
+      await client.query(
+        `UPDATE public.workspace_subscriptions SET v2_allowance_effective_period_id=$2
+          WHERE workspace_id=$1`, [ws, period.id]);
+
+      await expect(
+        q(`INSERT INTO public.workspace_ai_balance_lots
+             (workspace_id, source_type, billing_cycle_id, original_amount, remaining_amount, allowance_source)
+           VALUES ($1,'PLAN_ALLOWANCE','2026-03',100000,100000,'plan')`, [ws]),
+      ).rejects.toThrow(/billing_v2_legacy_allowance_grant_forbidden/);
+
+      // the period-bound V2 grant is still allowed
+      await q(
+        `INSERT INTO public.workspace_ai_balance_lots
+           (workspace_id, source_type, billing_cycle_id, original_amount, remaining_amount, allowance_source)
+         VALUES ($1,'PLAN_ALLOWANCE',$2,100000,100000,'plan')`, [ws, `period:${period.id}`]);
+    });
+  });
+
+  describe('Phase B — mixed population isolation', () => {
+    it('keeps legacy, shadow and V2 workspaces free of cross-effects', async () => {
+      const legacy = await makeWorkspace();
+      const shadow = await makeWorkspace();
+      const v2 = await makeWorkspace();
+      for (const ws of [legacy, shadow, v2]) {
+        await client.query(
+          `INSERT INTO public.workspace_subscriptions (workspace_id, status) VALUES ($1,'active')`, [ws]);
+      }
+      await q(`SELECT public.billing_v2_set_state($1,'shadow',NULL,'ramp',false)`, [shadow]);
+      await q(`SELECT public.billing_v2_activate($1,NULL,'cutover')`, [v2]);
+
+      expect((await one(`SELECT public.billing_v2_state($1) AS s`, [legacy])).s).toBe('legacy');
+      expect((await one(`SELECT public.billing_v2_state($1) AS s`, [shadow])).s).toBe('shadow');
+
+      // shadow must have NO financial side effect: no period was created for it
+      const shadowPeriods = await one(
+        `SELECT count(*) c FROM public.billing_subscription_periods WHERE workspace_id=$1`, [shadow]);
+      expect(Number(shadowPeriods.c)).toBe(0);
+
+      // legacy and shadow keep their legacy write path
+      for (const ws of [legacy, shadow]) {
+        await q(`UPDATE public.workspace_subscriptions
+                    SET current_period_end = now() + interval '30 days'
+                  WHERE workspace_id=$1`, [ws]);
+      }
+      // the V2 workspace does not
+      await expect(
+        q(`UPDATE public.workspace_subscriptions
+              SET current_period_end = now() + interval '30 days'
+            WHERE workspace_id=$1`, [v2]),
+      ).rejects.toThrow(/billing_v2_direct_subscription_mutation_forbidden/);
+    });
+  });
+
+  describe('Phase B — rollout ACL', () => {
+    it('denies anon and authenticated every rollout control function', async () => {
+      for (const role of ['anon', 'authenticated']) {
+        for (const fn of [
+          `public.billing_v2_activate('00000000-0000-4000-8000-000000000000'::uuid,NULL,'x')`,
+          `public.billing_v2_set_state('00000000-0000-4000-8000-000000000000'::uuid,'shadow',NULL,'x',false)`,
+        ]) {
+          await client.query(`SET LOCAL ROLE ${role}`).catch(() => {});
+          await client.query('BEGIN');
+          await client.query(`SET LOCAL ROLE ${role}`);
+          await expect(client.query(`SELECT ${fn}`)).rejects.toThrow(/permission denied/i);
+          await client.query('ROLLBACK');
+        }
+      }
+    });
   });
 
 });

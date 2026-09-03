@@ -495,6 +495,7 @@ const fa: TranslationKeys = {
     sendAndResolve: 'ارسال و حل گفتگو',
     sendAndResolveShort: 'حل شد',
     sendAndResolveHint: 'پیام ارسال می‌شود و گفتگو «حل شده» علامت می‌خورد.',
+    sendActionBlocked: 'وضعیت گفتگو تغییر نکرد',
     resolved: 'حل شده',
     closed: 'بسته',
     markAwaitingReply: 'انتظار برای مشتری',

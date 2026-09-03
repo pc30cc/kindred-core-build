@@ -495,6 +495,7 @@ const tr: TranslationKeys = {
     sendAndResolve: 'Gönder ve çöz',
     sendAndResolveShort: 'Çöz',
     sendAndResolveHint: 'Gönderir ve görüşmeyi çözüldü olarak işaretler.',
+    sendActionBlocked: 'Durum değiştirilmedi',
     resolved: 'Çözüldü',
     closed: 'Kapalı',
     markAwaitingReply: 'Müşteri yanıtı bekleniyor',

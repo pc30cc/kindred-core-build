@@ -493,6 +493,7 @@ const en = {
     sendAndResolve: 'Send & resolve',
     sendAndResolveShort: 'Resolve',
     sendAndResolveHint: 'Send, then mark the conversation resolved.',
+    sendActionBlocked: 'Status was not changed',
     resolved: 'Resolved',
     closed: 'Closed',
     markAwaitingReply: 'Awaiting customer reply',

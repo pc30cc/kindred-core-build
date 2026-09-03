@@ -17,6 +17,7 @@ import {
   Plug,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/skeleton';
 import { ImageWithSkeleton } from '@/components/common/ImageWithSkeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/features/auth/AuthContext';

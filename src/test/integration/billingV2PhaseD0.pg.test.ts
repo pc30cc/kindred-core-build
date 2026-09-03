@@ -127,7 +127,8 @@ interface PeriodOpts {
   planId: string;
   interval: 'monthly' | 'yearly';
   start: string;
-  end: string;
+  /** Omit to derive a calendar-exact window (what the real engine issues). */
+  end?: string;
   monthlyAllowance: number;
   source?: string;
 }
@@ -139,10 +140,12 @@ async function makePeriod(ws: string, subId: string, o: PeriodOpts): Promise<any
     `INSERT INTO public.billing_subscription_periods
        (workspace_id, subscription_id, plan_id, invoice_id, billing_interval,
         period_start, period_end, status, source, plan_snapshot, limits_snapshot, ai_allowance_irr)
-     VALUES ($1,$2,$3,NULL,$4,$5,$6,'scheduled',$7,'{}'::jsonb,$8::jsonb,$9)
+     VALUES ($1,$2,$3,NULL,$4,$5,
+             COALESCE($6::timestamptz, public.billing_v2_add_interval($5::timestamptz, $4, 1)),
+             'scheduled',$7,'{}'::jsonb,$8::jsonb,$9)
      RETURNING *`,
     [
-      ws, subId, o.planId, o.interval, o.start, o.end, o.source ?? 'admin',
+      ws, subId, o.planId, o.interval, o.start, o.end ?? null, o.source ?? 'admin',
       JSON.stringify({ ai_credits_per_month: o.monthlyAllowance }), total,
     ],
   );
@@ -225,7 +228,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
     const plan = await makePlan({ monthly: 1_000_000, allowance: 500_000 });
     const sub = await makeSubscription(ws, { planId: plan, periodStart: inDays(0), periodEnd: inDays(30) });
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'monthly', start: inDays(-0.01), end: inDays(30), monthlyAllowance: 500_000,
+      planId: plan, interval: 'monthly', start: inDays(-0.01), monthlyAllowance: 500_000,
     });
 
     await client.query(`SELECT public.billing_activate_period($1)`, [period.id]);
@@ -245,7 +248,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
       planId: plan, interval: 'yearly', periodStart: inDays(0), periodEnd: inDays(365),
     });
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'yearly', start: inDays(-0.01), end: inDays(365), monthlyAllowance: 400_000,
+      planId: plan, interval: 'yearly', start: inDays(-0.01), monthlyAllowance: 400_000,
     });
     await client.query(`SELECT public.billing_activate_period($1)`, [period.id]);
     const cs = await cycles(ws);
@@ -261,7 +264,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
       planId: plan, interval: 'yearly', periodStart: inDays(0), periodEnd: inDays(365),
     });
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'yearly', start: inDays(-0.01), end: inDays(365), monthlyAllowance: 400_000,
+      planId: plan, interval: 'yearly', start: inDays(-0.01), monthlyAllowance: 400_000,
     });
 
     await client.query(`SELECT public.billing_activate_period($1)`, [period.id]);
@@ -284,7 +287,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
       planId: plan, interval: 'yearly', periodStart: inDays(0), periodEnd: inDays(365),
     });
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'yearly', start: inDays(-0.01), end: inDays(365), monthlyAllowance: 400_000,
+      planId: plan, interval: 'yearly', start: inDays(-0.01), monthlyAllowance: 400_000,
     });
     await client.query(`SELECT public.billing_activate_period($1)`, [period.id]);
 
@@ -302,7 +305,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
       planId: plan, interval: 'yearly', periodStart: inDays(-40), periodEnd: inDays(325),
     });
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'yearly', start: inDays(-40), end: inDays(325), monthlyAllowance: 400_000,
+      planId: plan, interval: 'yearly', start: inDays(-40), monthlyAllowance: 400_000,
     });
 
     await client.query(`SELECT public.billing_activate_period($1)`, [period.id]);
@@ -326,7 +329,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
       planId: plan, interval: 'yearly', periodStart: inDays(-70), periodEnd: inDays(295),
     });
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'yearly', start: inDays(-70), end: inDays(295), monthlyAllowance: 400_000,
+      planId: plan, interval: 'yearly', start: inDays(-70), monthlyAllowance: 400_000,
     });
 
     await client.query(`SELECT public.billing_activate_period($1)`, [period.id]);
@@ -413,7 +416,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
       planId: plan, interval: 'yearly', periodStart: inDays(5), periodEnd: inDays(370),
     });
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'yearly', start: inDays(5), end: inDays(370), monthlyAllowance: 250_000,
+      planId: plan, interval: 'yearly', start: inDays(5), monthlyAllowance: 250_000,
     });
 
     await client.query(`SELECT public.billing_v2_ensure_period_cycles($1)`, [period.id]);
@@ -434,7 +437,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
       planId: plan, interval: 'yearly', periodStart: inDays(0), periodEnd: inDays(365),
     });
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'yearly', start: inDays(-0.01), end: inDays(365), monthlyAllowance: 400_000,
+      planId: plan, interval: 'yearly', start: inDays(-0.01), monthlyAllowance: 400_000,
     });
 
     for (let i = 0; i < 5; i++) {
@@ -455,7 +458,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
       planId: plan, interval: 'yearly', periodStart: inDays(0), periodEnd: inDays(365),
     });
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'yearly', start: inDays(-0.01), end: inDays(365), monthlyAllowance: 400_000,
+      planId: plan, interval: 'yearly', start: inDays(-0.01), monthlyAllowance: 400_000,
     });
     await client.query(`SELECT public.billing_v2_ensure_period_cycles($1)`, [period.id]);
     await client.query(
@@ -485,7 +488,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
       planId: plan, interval: 'yearly', periodStart: inDays(0), periodEnd: inDays(365),
     });
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'yearly', start: inDays(-0.01), end: inDays(365), monthlyAllowance: 400_000,
+      planId: plan, interval: 'yearly', start: inDays(-0.01), monthlyAllowance: 400_000,
     });
     await client.query(`SELECT public.billing_v2_ensure_period_cycles($1)`, [period.id]);
     await client.query(
@@ -585,7 +588,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
       planId: plan, interval: 'yearly', periodStart: inDays(0), periodEnd: inDays(365),
     });
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'yearly', start: inDays(-0.01), end: inDays(365), monthlyAllowance: 400_000,
+      planId: plan, interval: 'yearly', start: inDays(-0.01), monthlyAllowance: 400_000,
     });
     await client.query(`SELECT public.billing_activate_period($1)`, [period.id]);
 
@@ -617,7 +620,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
     );
 
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'yearly', start: inDays(-40), end: inDays(325), monthlyAllowance: 400_000,
+      planId: plan, interval: 'yearly', start: inDays(-40), monthlyAllowance: 400_000,
     });
     await client.query(`SELECT public.billing_activate_period($1)`, [period.id]);
 
@@ -636,7 +639,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
     const sub = await makeSubscription(ws, { planId: plan, periodStart: inDays(0), periodEnd: inDays(30) });
     await client.query(`SELECT public.ai_purchase_credit($1, 500000, $2, 'test')`, [ws, `buy:${uuid()}`]);
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'monthly', start: inDays(-0.01), end: inDays(30), monthlyAllowance: 300_000,
+      planId: plan, interval: 'monthly', start: inDays(-0.01), monthlyAllowance: 300_000,
     });
     await client.query(`SELECT public.billing_activate_period($1)`, [period.id]);
 
@@ -657,7 +660,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
     const sub = await makeSubscription(ws, { planId: plan, periodStart: inDays(0), periodEnd: inDays(30) });
     await client.query(`SELECT public.ai_purchase_credit($1, 500000, $2, 'test')`, [ws, `buy:${uuid()}`]);
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'monthly', start: inDays(-0.01), end: inDays(30), monthlyAllowance: 300_000,
+      planId: plan, interval: 'monthly', start: inDays(-0.01), monthlyAllowance: 300_000,
     });
     await client.query(`SELECT public.billing_activate_period($1)`, [period.id]);
 
@@ -678,7 +681,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
     const plan = await makePlan({ allowance: 0 });
     const sub = await makeSubscription(ws, { planId: plan, periodStart: inDays(0), periodEnd: inDays(30) });
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'monthly', start: inDays(-0.01), end: inDays(30),
+      planId: plan, interval: 'monthly', start: inDays(-0.01),
       monthlyAllowance: 0, source: 'free_plan',
     });
     await client.query(`SELECT public.billing_activate_period($1)`, [period.id]);
@@ -695,7 +698,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
     const plan = await makePlan({ allowance: 50_000 });
     const sub = await makeSubscription(ws, { planId: plan, periodStart: inDays(0), periodEnd: inDays(30) });
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'monthly', start: inDays(-0.01), end: inDays(30),
+      planId: plan, interval: 'monthly', start: inDays(-0.01),
       monthlyAllowance: 50_000, source: 'free_plan',
     });
     await client.query(`SELECT public.billing_activate_period($1)`, [period.id]);
@@ -729,7 +732,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
       planId: plan, interval: 'yearly', periodStart: inDays(0), periodEnd: inDays(365),
     });
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'yearly', start: inDays(-0.01), end: inDays(365), monthlyAllowance: 400_000,
+      planId: plan, interval: 'yearly', start: inDays(-0.01), monthlyAllowance: 400_000,
     });
     // Pre-D0 state: the period already granted 12× once.
     await client.query(
@@ -751,7 +754,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
     const plan = await makePlan({ monthly: 1_000_000, allowance: 400_000 });
     const sub = await makeSubscription(ws, { planId: plan, periodStart: inDays(0), periodEnd: inDays(30) });
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'monthly', start: inDays(-0.01), end: inDays(30),
+      planId: plan, interval: 'monthly', start: inDays(-0.01),
       monthlyAllowance: 400_000, source: 'legacy_migration',
     });
     await client.query(`SELECT public.billing_activate_period($1)`, [period.id]);
@@ -764,7 +767,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
     const plan = await makePlan({ monthly: 1_000_000, allowance: 400_000 });
     const sub = await makeSubscription(ws, { planId: plan, periodStart: inDays(0), periodEnd: inDays(30) });
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'monthly', start: inDays(-0.01), end: inDays(30), monthlyAllowance: 400_000,
+      planId: plan, interval: 'monthly', start: inDays(-0.01), monthlyAllowance: 400_000,
     });
     await client.query(`SELECT public.billing_activate_period($1)`, [period.id]);
 
@@ -785,7 +788,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
       planId: plan, interval: 'yearly', periodStart: inDays(0), periodEnd: inDays(365),
     });
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'yearly', start: inDays(-0.01), end: inDays(365), monthlyAllowance: 500_000,
+      planId: plan, interval: 'yearly', start: inDays(-0.01), monthlyAllowance: 500_000,
     });
     await client.query(`SELECT public.billing_activate_period($1)`, [period.id]);
 
@@ -802,7 +805,7 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
       planId: plan, interval: 'yearly', periodStart: inDays(5), periodEnd: inDays(370),
     });
     const period = await makePeriod(ws, sub.id, {
-      planId: plan, interval: 'yearly', start: inDays(5), end: inDays(370), monthlyAllowance: 500_000,
+      planId: plan, interval: 'yearly', start: inDays(5), monthlyAllowance: 500_000,
     });
     await client.query(`SELECT public.billing_v2_ensure_period_cycles($1)`, [period.id]);
 
@@ -837,13 +840,13 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
     const fSub = await makeSubscription(freeWs, { planId: fPlan, periodStart: inDays(0), periodEnd: inDays(30) });
 
     const mP = await makePeriod(monthlyWs, mSub.id, {
-      planId: mPlan, interval: 'monthly', start: inDays(-0.01), end: inDays(30), monthlyAllowance: 200_000,
+      planId: mPlan, interval: 'monthly', start: inDays(-0.01), monthlyAllowance: 200_000,
     });
     const yP = await makePeriod(annualWs, ySub.id, {
-      planId: yPlan, interval: 'yearly', start: inDays(-0.01), end: inDays(365), monthlyAllowance: 300_000,
+      planId: yPlan, interval: 'yearly', start: inDays(-0.01), monthlyAllowance: 300_000,
     });
     const fP = await makePeriod(freeWs, fSub.id, {
-      planId: fPlan, interval: 'monthly', start: inDays(-0.01), end: inDays(30),
+      planId: fPlan, interval: 'monthly', start: inDays(-0.01),
       monthlyAllowance: 0, source: 'free_plan',
     });
 

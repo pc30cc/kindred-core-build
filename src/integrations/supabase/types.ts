@@ -6786,6 +6786,10 @@ export type Database = {
       platform_branding: {
         Row: {
           created_at: string | null
+          default_ui_accent: string
+          default_ui_chroma: string
+          default_ui_font_size: string
+          default_ui_skin: string
           favicon_url: string | null
           id: string
           logo_url: string | null
@@ -6796,6 +6800,10 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          default_ui_accent?: string
+          default_ui_chroma?: string
+          default_ui_font_size?: string
+          default_ui_skin?: string
           favicon_url?: string | null
           id?: string
           logo_url?: string | null
@@ -6806,6 +6814,10 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          default_ui_accent?: string
+          default_ui_chroma?: string
+          default_ui_font_size?: string
+          default_ui_skin?: string
           favicon_url?: string | null
           id?: string
           logo_url?: string | null

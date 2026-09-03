@@ -29,6 +29,7 @@ import {
   type PlatformDomains,
 } from '@/hooks/usePlatformBranding';
 import { useTranslation } from '@/i18n';
+import { UI_ACCENT_SWATCH, UI_FONT_SIZE_PX, type UiAccent, type UiFontSize } from '@/lib/ui-preferences';
 
 // ── Reusable field row ──
 function FieldRow({
@@ -110,6 +111,127 @@ function VisualIdentitySection() {
             </div>
           </>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Platform default UI preferences (font size / accent / chroma / skin) ──
+function UiDefaultsSection() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const { data: branding, isLoading } = usePlatformBranding();
+  const update = useUpdatePlatformBranding();
+  const [form, setForm] = useState<Record<string, string>>({});
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (!branding) return;
+    const row = branding as unknown as Record<string, string | null>;
+    setForm({
+      default_ui_font_size: row.default_ui_font_size || 'md',
+      default_ui_accent: row.default_ui_accent || 'blue',
+      default_ui_chroma: row.default_ui_chroma || 'color',
+      default_ui_skin: row.default_ui_skin || 'cloud',
+    });
+    setDirty(false);
+  }, [branding]);
+
+  const set = (key: string, val: string) => { setForm((p) => ({ ...p, [key]: val })); setDirty(true); };
+
+  const handleSave = () => {
+    update.mutate(form as any, {
+      onSuccess: () => {
+        toast({ title: t('admin.brandingPage.uiDefaults.saved' as any) });
+        setDirty(false);
+        qc.invalidateQueries({ queryKey: ['platform_ui_defaults'] });
+      },
+      onError: (e: any) => toast({ title: t('admin.brandingPage.common.error' as any), description: e.message, variant: 'destructive' }),
+    });
+  };
+
+  if (isLoading) return <LoadingCard />;
+
+  const fontSizes: UiFontSize[] = ['xs', 'sm', 'md', 'lg', 'xl'];
+
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader className="pb-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2"><Type className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">{t('admin.brandingPage.uiDefaults.title' as any)}</CardTitle></div>
+          <Button size="sm" onClick={handleSave} disabled={!dirty || update.isPending}>
+            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}{t('admin.brandingPage.common.save' as any)}
+          </Button>
+        </div>
+        <CardDescription>{t('admin.brandingPage.uiDefaults.description' as any)}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Font size */}
+        <div className="space-y-2">
+          <Label className="text-sm font-medium text-foreground">{t('interface.fontSize' as any)}</Label>
+          <div className="flex flex-wrap gap-2">
+            {fontSizes.map((size) => (
+              <button
+                key={size}
+                type="button"
+                onClick={() => set('default_ui_font_size', size)}
+                className={`rounded-xl border px-4 py-2 transition-all ${
+                  form.default_ui_font_size === size
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border bg-background text-muted-foreground hover:border-primary/40'
+                }`}
+                style={{ fontSize: `${UI_FONT_SIZE_PX[size]}px` }}
+              >
+                {t(`interface.fontSize_${size}` as any)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Accent */}
+        <div className="space-y-2">
+          <Label className="text-sm font-medium text-foreground">{t('interface.accent' as any)}</Label>
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(UI_ACCENT_SWATCH) as UiAccent[]).map((accent) => (
+              <button
+                key={accent}
+                type="button"
+                aria-label={t(`interface.accent_${accent}` as any)}
+                onClick={() => set('default_ui_accent', accent)}
+                className={`h-9 w-9 rounded-full border-2 transition-transform ${
+                  form.default_ui_accent === accent ? 'border-foreground scale-110' : 'border-transparent hover:scale-105'
+                }`}
+                style={{ backgroundColor: UI_ACCENT_SWATCH[accent] }}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-5 md:grid-cols-2">
+          <div className="grid gap-1.5">
+            <Label className="text-sm font-medium text-foreground">{t('interface.chroma' as any)}</Label>
+            <Select value={form.default_ui_chroma ?? 'color'} onValueChange={(v) => set('default_ui_chroma', v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="color">{t('interface.chroma_color' as any)}</SelectItem>
+                <SelectItem value="mono">{t('interface.chroma_mono' as any)}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-1.5">
+            <Label className="text-sm font-medium text-foreground">{t('interface.skin' as any)}</Label>
+            <Select value={form.default_ui_skin ?? 'cloud'} onValueChange={(v) => set('default_ui_skin', v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="cloud">{t('interface.skin_cloud' as any)}</SelectItem>
+                <SelectItem value="linen">{t('interface.skin_linen' as any)}</SelectItem>
+                <SelectItem value="graphite">{t('interface.skin_graphite' as any)}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <p className="text-xs text-muted-foreground">{t('admin.brandingPage.uiDefaults.note' as any)}</p>
       </CardContent>
     </Card>
   );
@@ -812,9 +934,12 @@ export default function AdminBrandingPage() {
           <TabsTrigger value="settings" className="gap-1.5"><Settings2 className="h-4 w-4" /> {t('admin.brandingPage.tabs.settings' as any)}</TabsTrigger>
           <TabsTrigger value="email-settings" className="gap-1.5"><Mail className="h-4 w-4" /> {t('admin.brandingPage.tabs.emailSettings' as any)}</TabsTrigger>
           <TabsTrigger value="email-templates" className="gap-1.5"><Mail className="h-4 w-4" /> {t('admin.brandingPage.tabs.emailTemplates' as any)}</TabsTrigger>
+          <TabsTrigger value="ui-defaults" className="gap-1.5"><Type className="h-4 w-4" /> {t('admin.brandingPage.tabs.uiDefaults' as any)}</TabsTrigger>
           <TabsTrigger value="domains" className="gap-1.5"><Link2 className="h-4 w-4" /> {t('admin.brandingPage.tabs.domains' as any)}</TabsTrigger>
         </TabsList>
         <TabsContent value="identity" className="mt-4"><VisualIdentitySection /></TabsContent>
+        <TabsContent value="ui-defaults" className="mt-4"><UiDefaultsSection /></TabsContent>
+
         <TabsContent value="settings" className="mt-4"><SettingsSection /></TabsContent>
         <TabsContent value="email-settings" className="mt-4"><EmailSettingsSection /></TabsContent>
         <TabsContent value="email-templates" className="mt-4"><EmailTemplatesTab /></TabsContent>

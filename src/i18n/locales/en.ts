@@ -2876,7 +2876,14 @@ const en = {
     brandingPage: {
       title: 'Platform branding',
       subtitle: 'Visual identity, localized text, email configuration and domain URLs applied globally across the platform.',
-      tabs: { identity: 'Visual identity', settings: 'Settings', emailSettings: 'Email settings', emailTemplates: 'Email templates', domains: 'Domain URLs' },
+      tabs: { identity: 'Visual identity', settings: 'Settings', emailSettings: 'Email settings', emailTemplates: 'Email templates', domains: 'Domain URLs', uiDefaults: 'Interface defaults',
+      },
+      uiDefaults: {
+        title: 'Interface defaults',
+        description: 'Default font size, accent colour and panel theme for every user on the platform.',
+        saved: 'Interface defaults saved',
+        note: 'Each user can override these in Settings → Interface; otherwise these defaults apply.',
+      },
       common: { save: 'Save', error: 'Error', saveFailed: 'Save failed', active: 'Active', default: 'Default', unsaved: 'Unsaved' },
       languages: { en: 'English', fa: 'Persian', tr: 'Turkish', ar: 'Arabic', de: 'German', fr: 'French', es: 'Spanish', ru: 'Russian', zh: 'Chinese', ja: 'Japanese', ko: 'Korean', pt: 'Portuguese', it: 'Italian', nl: 'Dutch', hi: 'Hindi', ku: 'Kurdish' },
       identity: { title: 'Visual identity', description: 'Logo, colors and favicon for the entire platform.', saved: 'Visual identity saved', logoUrl: 'Logo URL', logoHint: 'Platform logo displayed in the header and emails', faviconUrl: 'Favicon URL', faviconHint: 'Browser tab icon', primaryColor: 'Primary color', secondaryColor: 'Secondary color', pwaIconUrl: 'PWA icon URL', pwaIconHint: '512 × 512 icon for the progressive web app', preview: 'Preview', logoPreview: 'Logo preview' },

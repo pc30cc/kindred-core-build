@@ -49,33 +49,66 @@ function keyFor(scopeId?: string | null) {
   return scopeId ? `${STORAGE_KEY}:${scopeId}` : STORAGE_KEY;
 }
 
-function sanitize(raw: unknown): UiPreferences {
+/**
+ * Partial preference set: only the keys the user explicitly picked. Anything
+ * missing falls back to the platform default configured by the super admin.
+ */
+export type UiPreferencesOverrides = Partial<UiPreferences>;
+
+export function sanitizeUiPreferences(raw: unknown): UiPreferencesOverrides {
   const value = (raw ?? {}) as Partial<UiPreferences>;
+  const out: UiPreferencesOverrides = {};
+  if ((['xs', 'sm', 'md', 'lg', 'xl'] as const).includes(value.fontSize as UiFontSize)) out.fontSize = value.fontSize as UiFontSize;
+  if ((Object.keys(UI_ACCENT_SWATCH) as UiAccent[]).includes(value.accent as UiAccent)) out.accent = value.accent as UiAccent;
+  if (value.chroma === 'mono' || value.chroma === 'color') out.chroma = value.chroma;
+  if ((['cloud', 'linen', 'graphite'] as const).includes(value.skin as UiSkin)) out.skin = value.skin as UiSkin;
+  return out;
+}
+
+export function resolveUiPreferences(
+  platformDefaults?: UiPreferencesOverrides | null,
+  userOverrides?: UiPreferencesOverrides | null
+): UiPreferences {
   return {
-    fontSize: (['xs', 'sm', 'md', 'lg', 'xl'] as const).includes(value.fontSize as UiFontSize)
-      ? (value.fontSize as UiFontSize)
-      : DEFAULT_UI_PREFERENCES.fontSize,
-    accent: (Object.keys(UI_ACCENT_SWATCH) as UiAccent[]).includes(value.accent as UiAccent)
-      ? (value.accent as UiAccent)
-      : DEFAULT_UI_PREFERENCES.accent,
-    chroma: value.chroma === 'mono' ? 'mono' : 'color',
-    skin: (['cloud', 'linen', 'graphite'] as const).includes(value.skin as UiSkin)
-      ? (value.skin as UiSkin)
-      : DEFAULT_UI_PREFERENCES.skin,
+    ...DEFAULT_UI_PREFERENCES,
+    ...sanitizeUiPreferences(platformDefaults),
+    ...sanitizeUiPreferences(userOverrides),
   };
 }
 
-export function loadUiPreferences(scopeId?: string | null): UiPreferences {
-  if (typeof window === 'undefined') return { ...DEFAULT_UI_PREFERENCES };
+export function loadUiPreferences(scopeId?: string | null): UiPreferencesOverrides {
+  if (typeof window === 'undefined') return {};
   try {
     const raw = window.localStorage.getItem(keyFor(scopeId)) ?? window.localStorage.getItem(STORAGE_KEY);
-    return sanitize(raw ? JSON.parse(raw) : null);
+    return sanitizeUiPreferences(raw ? JSON.parse(raw) : null);
   } catch {
-    return { ...DEFAULT_UI_PREFERENCES };
+    return {};
   }
 }
 
-export function saveUiPreferences(prefs: UiPreferences, scopeId?: string | null) {
+/** Platform defaults cached locally so first paint matches the admin config. */
+const PLATFORM_DEFAULTS_KEY = 'wy-ui-platform-defaults';
+
+export function loadPlatformUiDefaults(): UiPreferencesOverrides {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(PLATFORM_DEFAULTS_KEY);
+    return sanitizeUiPreferences(raw ? JSON.parse(raw) : null);
+  } catch {
+    return {};
+  }
+}
+
+export function savePlatformUiDefaults(defaults: UiPreferencesOverrides) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(PLATFORM_DEFAULTS_KEY, JSON.stringify(sanitizeUiPreferences(defaults)));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+export function saveUiPreferences(prefs: UiPreferencesOverrides, scopeId?: string | null) {
   if (typeof window === 'undefined') return;
   try {
     const serialized = JSON.stringify(prefs);

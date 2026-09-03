@@ -2868,7 +2868,14 @@ const tr: TranslationKeys = {
     brandingPage: {
       title: 'Platform markası',
       subtitle: 'Platform genelinde uygulanan görsel kimlik, yerelleştirilmiş metinler, e-posta yapılandırması ve alan adı URL’leri.',
-      tabs: { identity: 'Görsel kimlik', settings: 'Ayarlar', emailSettings: 'E-posta ayarları', emailTemplates: 'E-posta şablonları', domains: 'Alan adı URL’leri' },
+      tabs: { identity: 'Görsel kimlik', settings: 'Ayarlar', emailSettings: 'E-posta ayarları', emailTemplates: 'E-posta şablonları', domains: 'Alan adı URL’leri', uiDefaults: 'Arayüz varsayılanları',
+      },
+      uiDefaults: {
+        title: 'Arayüz varsayılanları',
+        description: 'Platformdaki tüm kullanıcılar için varsayılan yazı boyutu, vurgu rengi ve panel teması.',
+        saved: 'Arayüz varsayılanları kaydedildi',
+        note: 'Her kullanıcı Ayarlar → Arayüz bölümünden bunları değiştirebilir; aksi halde bu varsayılanlar geçerlidir.',
+      },
       common: { save: 'Kaydet', error: 'Hata', saveFailed: 'Kaydetme başarısız', active: 'Etkin', default: 'Varsayılan', unsaved: 'Kaydedilmedi' },
       languages: { en: 'İngilizce', fa: 'Farsça', tr: 'Türkçe', ar: 'Arapça', de: 'Almanca', fr: 'Fransızca', es: 'İspanyolca', ru: 'Rusça', zh: 'Çince', ja: 'Japonca', ko: 'Korece', pt: 'Portekizce', it: 'İtalyanca', nl: 'Felemenkçe', hi: 'Hintçe', ku: 'Kürtçe' },
       identity: { title: 'Görsel kimlik', description: 'Tüm platform için logo, renkler ve favicon.', saved: 'Görsel kimlik kaydedildi', logoUrl: 'Logo URL’si', logoHint: 'Başlıkta ve e-postalarda gösterilen platform logosu', faviconUrl: 'Favicon URL’si', faviconHint: 'Tarayıcı sekmesi simgesi', primaryColor: 'Ana renk', secondaryColor: 'İkincil renk', pwaIconUrl: 'PWA simge URL’si', pwaIconHint: 'Aşamalı web uygulaması için 512 × 512 simge', preview: 'Önizleme', logoPreview: 'Logo önizlemesi' },

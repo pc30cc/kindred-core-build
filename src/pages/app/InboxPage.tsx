@@ -72,6 +72,7 @@ import { PresenceBadge, PresenceDot } from '@/components/inbox/PresenceIndicator
 import { formatTime, formatLongDate, formatRelative, formatDateTime } from '@/lib/date';
 import TeamChatPanel from '@/components/inbox/TeamChatPanel';
 import { useColleagues } from '@/hooks/useTeamChat';
+import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import {
   useOperatorMessageChime,
   getOperatorMessageSoundEnabled,
@@ -176,11 +177,11 @@ export default function InboxPage() {
   // queue param is constrained to the real queues. Any other value (incl.
   // the legacy `needs_human`) collapses to Main Inbox; the legacy URL is
   // rewritten by the effect below into `?filter=needs_human`.
-  const queue: InboxQueue =
+  const rawQueue: InboxQueue =
     queueParam === 'automated' ? 'automated'
       : queueParam === 'spam' ? 'spam'
       : 'main';
-  const isQueueMode = queue !== 'main';
+
 
   const filter: FilterStatus =
     statusParam === 'open' || statusParam === 'pending' ||
@@ -188,11 +189,33 @@ export default function InboxPage() {
     statusParam === 'all'
       ? statusParam
       : 'open';
-  const extraChip: ExtraChip | null =
+  // Plan gating for the Inbox tab strip. Unknown / still-loading entitlements
+  // stay allowed so tabs never flicker away on a slow snapshot.
+  const { data: inboxEnts } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
+  const inboxCapAllowed = useCallback((key: string): boolean => {
+    if (!inboxEnts) return true;
+    const f = (inboxEnts.features as any)?.[key] ?? (inboxEnts.modules as any)?.[key];
+    return f ? f.value !== false : true;
+  }, [inboxEnts]);
+  const aiTabAllowed = inboxCapAllowed('inbox_ai_queue');
+  const needsHumanTabAllowed = inboxCapAllowed('inbox_needs_human');
+  const colleaguesTabAllowed = inboxCapAllowed('inbox_team_chat');
+  const queue: InboxQueue = rawQueue === 'automated' && !aiTabAllowed ? 'main' : rawQueue;
+  const isQueueMode = queue !== 'main';
+
+
+
+  const rawExtraChip: ExtraChip | null =
     filterParam === 'needs_human' ? 'needs_human'
       : filterParam === 'assigned_to_me' ? 'assigned_to_me'
       : filterParam === 'colleagues' ? 'colleagues'
       : null;
+  const extraChip: ExtraChip | null =
+    (rawExtraChip === 'needs_human' && !needsHumanTabAllowed) ||
+    (rawExtraChip === 'colleagues' && !colleaguesTabAllowed)
+      ? null
+      : rawExtraChip;
+
 
   // Legacy URL redirect: /inbox?queue=needs_human → /inbox?filter=needs_human.
   useEffect(() => {
@@ -1140,8 +1163,10 @@ export default function InboxPage() {
               <span className={headTabAccent(allActive)} />
               <span className={headTabSeam(allActive)} />
             </button>
-            {/* AI (Automated queue) — AI-managed conversations */}
+            {/* AI (Automated queue) — AI-managed conversations. Plan-gated. */}
+            {aiTabAllowed ? (
             <button
+
               role="tab"
               aria-selected={queue === 'automated'}
               onClick={() => setQueueTab(queue === 'automated' ? null : 'automated')}
@@ -1157,10 +1182,13 @@ export default function InboxPage() {
               <span className={headTabAccent(queue === 'automated')} />
               <span className={headTabSeam(queue === 'automated')} />
             </button>
+            ) : null}
 
 
-            {/* Needs human */}
+            {/* Needs human — plan-gated */}
+            {needsHumanTabAllowed ? (
             <button
+
               role="tab"
               aria-selected={extraChip === 'needs_human'}
               onClick={() => setExtraChip(extraChip === 'needs_human' ? null : 'needs_human')}
@@ -1186,8 +1214,11 @@ export default function InboxPage() {
               <span className={headTabAccent(extraChip === 'needs_human', 'destructive')} />
               <span className={headTabSeam(extraChip === 'needs_human')} />
             </button>
-            {/* Colleagues — internal operator-to-operator chat */}
+            ) : null}
+            {/* Colleagues — internal operator-to-operator chat. Plan-gated. */}
+            {colleaguesTabAllowed ? (
             <button
+
               role="tab"
               aria-selected={extraChip === 'colleagues'}
               onClick={() => setExtraChip(extraChip === 'colleagues' ? null : 'colleagues')}
@@ -1214,6 +1245,8 @@ export default function InboxPage() {
               <span className={headTabAccent(extraChip === 'colleagues')} />
               <span className={headTabSeam(extraChip === 'colleagues')} />
             </button>
+            ) : null}
+
             {/* Managers only: switch between "my conversations" (default,
                 transferred threads disappear) and the full workspace view. */}
             {canSwitchScope ? (

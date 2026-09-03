@@ -235,3 +235,13 @@ revoke all on function public.admin_restore_database(uuid, jsonb) from public, a
 grant execute on function public.admin_export_database(uuid, text) to service_role;
 grant execute on function public.admin_purge_database(uuid, text) to service_role;
 grant execute on function public.admin_restore_database(uuid, jsonb) to service_role;
+
+-- Helper ACL/search_path hardening (applied together with the functions above).
+alter function public.admin_reset_identity_tables() set search_path = public;
+alter function public.admin_reset_settings_tables() set search_path = public;
+alter function public.admin_reset_preserved_tables(text) set search_path = public;
+revoke all on function public.admin_reset_identity_tables() from public, anon, authenticated;
+revoke all on function public.admin_reset_settings_tables() from public, anon, authenticated;
+revoke all on function public.admin_reset_preserved_tables(text) from public, anon, authenticated;
+revoke all on function public.admin_reset_target_tables(text) from public, anon, authenticated;
+grant execute on function public.admin_reset_target_tables(text) to service_role;

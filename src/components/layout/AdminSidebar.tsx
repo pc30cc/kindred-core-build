@@ -4,6 +4,7 @@ import {
   Flag, Palette, Globe, FileText, CreditCard, Shield,
   Database, Crown, MessageSquare, MapPin, PhoneCall,
   ChevronLeft, ChevronRight, LogOut, ArrowLeft, ArrowRight, Activity, Video, Sparkles,
+  KeyRound,
 
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -34,6 +35,7 @@ const adminNav = [
   { key: 'plans', path: '/admin/plans', icon: Crown },
   { key: 'database', path: '/admin/database', icon: Database },
   { key: 'security', path: '/admin/security', icon: Shield },
+  { key: 'verification', path: '/admin/verification', icon: KeyRound },
 ] as const;
 
 export function AdminSidebar() {

@@ -110,6 +110,7 @@ import AdminPlansPage from "@/pages/admin/PlansPage";
 import AdminPluginsPage from "@/pages/admin/PluginsPage";
 import AdminPluginDetailPage from "@/pages/admin/PluginDetailPage";
 import AdminSecurityPage from "@/pages/admin/SecurityPage";
+import AdminVerificationPage from "@/pages/admin/VerificationPage";
 import AdminDatabasePage from "@/pages/admin/DatabasePage";
 import AdminBootstrapPage from "@/pages/admin/BootstrapPage";
 import AdminWidgetSettingsPage from "@/pages/admin/WidgetSettingsPage";
@@ -225,6 +226,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/admin/plugins/:pluginId" element={<AdminPluginDetailPage />} />
                 <Route path="/admin/database" element={<AdminDatabasePage />} />
                 <Route path="/admin/security" element={<AdminSecurityPage />} />
+                <Route path="/admin/verification" element={<AdminVerificationPage />} />
               </Route>
 
               {/* /app → redirect to first workspace */}

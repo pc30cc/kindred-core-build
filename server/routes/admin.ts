@@ -21,6 +21,7 @@ import { adminCallsRouter } from './adminCalls.js';
 import { adminAdvancedRoutingRouter } from './adminAdvancedRouting.js';
 import { adminSmsProvidersRouter } from './adminSmsProviders.js';
 import { adminPhoneVerificationRouter } from './adminPhoneVerification.js';
+import { adminVerificationRouter } from './adminVerification.js';
 import { adminSecurityRouter } from './adminSecurity.js';
 import { adminManagementRouter } from './adminManagement.js';
 import { normalizePhoneToE164 } from '../services/phoneVerification/phone.js';
@@ -117,6 +118,12 @@ adminRouter.use('/providers/sms', adminSmsProvidersRouter);
 // Phase 6-S3B — per-user phone verification (status / resend / manual verify).
 // Mounted inside the admin router so `requireAdmin` runs first.
 adminRouter.use('/users', adminPhoneVerificationRouter);
+
+// Generic Verification Core — Super Admin settings/audit/readiness for the
+// dormant OTP/proof engine (server/services/verification/). Every purpose
+// stays effectively disabled regardless of what this surface stores — see
+// database/migrations/099_generic_verification_admin_settings.sql.
+adminRouter.use('/verification', adminVerificationRouter);
 
 // ─── Send Password Reset Link ────────────────────────────────────
 const resetLinkSchema = z.object({

@@ -105,6 +105,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/098_generic_verification_core.sql',
     hosted: 'supabase/migrations/20260902185146_generic_verification_core.sql',
   },
+  {
+    label: '099 — Generic Verification Core Super Admin settings (dormant, multi-gate activation)',
+    selfHost: 'database/migrations/099_generic_verification_admin_settings.sql',
+    hosted: 'supabase/migrations/20260903000000_generic_verification_admin_settings.sql',
+  },
 
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered

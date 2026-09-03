@@ -239,6 +239,13 @@ BEGIN
     v_end := LEAST(v_anchor, v_period.period_end);
     EXIT WHEN v_end <= v_start;
 
+    -- No slivers: when the next anchor would overshoot the period, the final
+    -- cycle absorbs the remainder instead of spawning a few-hour 13th cycle.
+    IF public.billing_v2_add_interval(v_anchor, 'monthly', 1) > v_period.period_end THEN
+      v_end := v_period.period_end;
+    END IF;
+
+
     IF v_idx = 0 AND v_prev.id IS NOT NULL THEN
       -- Prorated DELTA for the remainder of the running cycle. Never negative:
       -- an upgrade tops up, it never claws back what was already granted.

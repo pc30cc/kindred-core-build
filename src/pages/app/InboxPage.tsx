@@ -1840,11 +1840,17 @@ export default function InboxPage() {
                         )}>
                           {(() => {
                             const last = (conv as any).last_message as
-                              | { body: string; sender_type: string; attachment_kind?: string | null }
+                              | { body: string; sender_type: string; sender_id?: string | null; sender_name?: string | null; attachment_kind?: string | null }
                               | null
                               | undefined;
+                            // Name the operator who actually wrote the last
+                            // reply; only fall back to "You" when it was me.
+                            const agentLabel = !last ? '' :
+                              last.sender_id && user?.id && last.sender_id === user.id
+                                ? (t('inbox.previewYou') || 'You')
+                                : (last.sender_name || t('inbox.previewYou') || 'You');
                             const prefix = !last ? '' :
-                              last.sender_type === 'agent' ? `${t('inbox.previewYou') || 'You'}: `
+                              last.sender_type === 'agent' ? `${agentLabel}: `
                               : (last.sender_type === 'ai' || last.sender_type === 'bot') ? `${t('inbox.previewAi') || 'AI'}: `
                               : '';
                             if (last?.body) return `${prefix}${last.body}`;

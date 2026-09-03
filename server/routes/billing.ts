@@ -1119,7 +1119,132 @@ billingRouter.get('/admin/overview', requireSuperAdmin, async (req, res) => {
   });
 });
 
+
+// ─── Admin: GET /api/billing/admin/finance-report — platform financial report ──
+// Aggregations are computed server-side from the two financial sources of
+// truth: billing_payments (settled money) and billing_payment_intents
+// (attempts). No client-side guessing of revenue.
+billingRouter.get('/admin/finance-report', requireSuperAdmin, async (req, res) => {
+  const { url, key } = getConfig(req);
+  const supabase = createClient(url, key);
+
+  const months = Math.min(Math.max(parseInt(String(req.query.months ?? '6'), 10) || 6, 1), 24);
+  const since = new Date();
+  since.setUTCMonth(since.getUTCMonth() - (months - 1), 1);
+  since.setUTCHours(0, 0, 0, 0);
+  const sinceIso = since.toISOString();
+
+  const [payments, intents, subs, plans, workspaces] = await Promise.all([
+    supabase.from('billing_payments').select('*').gte('created_at', sinceIso).order('created_at', { ascending: false }).limit(5000),
+    supabase.from('billing_payment_intents').select('id, status, purchase_type, action_type, amount_irr, provider_name, created_at, workspace_id').gte('created_at', sinceIso).limit(5000),
+    supabase.from('workspace_subscriptions').select('workspace_id, plan_id, status, billing_interval'),
+    supabase.from('billing_plans').select('id, name, slug, prices, is_free'),
+    supabase.from('workspaces').select('id, name, slug').limit(2000),
+  ]);
+
+  const paid = (payments.data || []).filter((p: any) => p.status === 'succeeded' || p.status === 'refunded' || p.status === 'partially_refunded');
+  const planById = new Map((plans.data || []).map((p: any) => [p.id, p]));
+  const workspaceById = new Map((workspaces.data || []).map((w: any) => [w.id, w]));
+
+  const monthKeys: string[] = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setUTCMonth(d.getUTCMonth() - i, 1);
+    monthKeys.push(d.toISOString().slice(0, 7));
+  }
+  const seriesMap = new Map(monthKeys.map((m) => [m, { month: m, revenue: 0, count: 0, subscription: 0, topup: 0, refunded: 0 }]));
+
+  const byProvider = new Map<string, { provider: string; revenue: number; count: number }>();
+  const byPlan = new Map<string, { plan: string; revenue: number; count: number }>();
+  const byWorkspace = new Map<string, { workspaceId: string; name: string; revenue: number; count: number }>();
+
+  let grossRevenue = 0;
+  let refundTotal = 0;
+
+  for (const p of paid) {
+    const amount = Number(p.amount || 0);
+    const refund = Number(p.refund_amount || 0);
+    grossRevenue += amount;
+    refundTotal += refund;
+    const key = String(p.paid_at || p.created_at).slice(0, 7);
+    const bucket = seriesMap.get(key);
+    const isTopup = p.action_type === 'ai_credit_topup' || p.purchase_type === 'ai_credit_topup';
+    if (bucket) {
+      bucket.revenue += amount;
+      bucket.count += 1;
+      bucket.refunded += refund;
+      if (isTopup) bucket.topup += amount; else bucket.subscription += amount;
+    }
+    const provider = p.provider_name || 'unknown';
+    const prov = byProvider.get(provider) || { provider, revenue: 0, count: 0 };
+    prov.revenue += amount; prov.count += 1; byProvider.set(provider, prov);
+
+    const planName = isTopup ? 'ai_credit_topup' : (p.plan_name_snapshot || planById.get(p.plan_id)?.name || 'unknown');
+    const pl = byPlan.get(planName) || { plan: planName, revenue: 0, count: 0 };
+    pl.revenue += amount; pl.count += 1; byPlan.set(planName, pl);
+
+    if (p.workspace_id) {
+      const ws = byWorkspace.get(p.workspace_id) || {
+        workspaceId: p.workspace_id,
+        name: workspaceById.get(p.workspace_id)?.name || p.workspace_id.slice(0, 8),
+        revenue: 0, count: 0,
+      };
+      ws.revenue += amount; ws.count += 1; byWorkspace.set(p.workspace_id, ws);
+    }
+  }
+
+  const intentRows = intents.data || [];
+  const byStatus = new Map<string, number>();
+  for (const i of intentRows) byStatus.set(i.status, (byStatus.get(i.status) || 0) + 1);
+  const attempts = intentRows.length;
+  const succeeded = byStatus.get('succeeded') || 0;
+
+  // Recurring revenue snapshot from ACTIVE subscriptions, normalised monthly.
+  let mrrIrr = 0;
+  const planDistribution = new Map<string, number>();
+  for (const s of subs.data || []) {
+    if (s.status !== 'active' && s.status !== 'trialing') continue;
+    const plan = planById.get(s.plan_id);
+    if (!plan) continue;
+    planDistribution.set(plan.name, (planDistribution.get(plan.name) || 0) + 1);
+    if (plan.is_free) continue;
+    const irr = (plan.prices as any)?.IRR || {};
+    const monthly = s.billing_interval === 'yearly'
+      ? Number(irr.yearly || 0) / 12
+      : Number(irr.monthly || 0);
+    mrrIrr += Math.round(monthly);
+  }
+
+  res.json({
+    currency: 'IRR',
+    months,
+    totals: {
+      grossRevenue,
+      refundTotal,
+      netRevenue: grossRevenue - refundTotal,
+      paymentCount: paid.length,
+      attempts,
+      succeeded,
+      conversionRate: attempts ? Math.round((succeeded / attempts) * 1000) / 10 : 0,
+      avgOrderValue: paid.length ? Math.round(grossRevenue / paid.length) : 0,
+      mrrIrr,
+      arrIrr: mrrIrr * 12,
+    },
+    series: monthKeys.map((m) => seriesMap.get(m)!),
+    byProvider: [...byProvider.values()].sort((a, b) => b.revenue - a.revenue),
+    byPlan: [...byPlan.values()].sort((a, b) => b.revenue - a.revenue),
+    byStatus: [...byStatus.entries()].map(([status, count]) => ({ status, count })).sort((a, b) => b.count - a.count),
+    topWorkspaces: [...byWorkspace.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 10),
+    planDistribution: [...planDistribution.entries()].map(([plan, count]) => ({ plan, count })).sort((a, b) => b.count - a.count),
+    recentPayments: (payments.data || []).slice(0, 50).map((p: any) => ({
+      ...p,
+      workspace_name: workspaceById.get(p.workspace_id)?.name || null,
+    })),
+  });
+});
+
 // ─── Admin: POST /api/billing/admin/plans — create/update plan ──
+
 billingRouter.post('/admin/plans', requireSuperAdmin, async (req, res) => {
   const { url, key } = getConfig(req);
   const supabase = createClient(url, key);

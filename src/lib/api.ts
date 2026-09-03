@@ -487,6 +487,29 @@ export async function billingAdminOverview() {
   }>('/api/billing/admin/overview');
 }
 
+export interface AdminFinanceReport {
+  currency: string;
+  months: number;
+  totals: {
+    grossRevenue: number; refundTotal: number; netRevenue: number;
+    paymentCount: number; attempts: number; succeeded: number;
+    conversionRate: number; avgOrderValue: number; mrrIrr: number; arrIrr: number;
+  };
+  series: Array<{ month: string; revenue: number; count: number; subscription: number; topup: number; refunded: number }>;
+  byProvider: Array<{ provider: string; revenue: number; count: number }>;
+  byPlan: Array<{ plan: string; revenue: number; count: number }>;
+  byStatus: Array<{ status: string; count: number }>;
+  topWorkspaces: Array<{ workspaceId: string; name: string; revenue: number; count: number }>;
+  planDistribution: Array<{ plan: string; count: number }>;
+  recentPayments: any[];
+}
+
+export async function billingAdminFinanceReport(months = 6) {
+  return request<AdminFinanceReport>(`/api/billing/admin/finance-report?months=${months}`);
+}
+
+
+
 export async function billingAdminGrant(data: { workspaceId: string; planId: string; status?: string; expiresAt?: string }) {
   return request<{ subscription: any }>('/api/billing/admin/grant', {
     method: 'POST', body: JSON.stringify(data),

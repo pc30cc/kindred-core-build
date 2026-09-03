@@ -55,6 +55,7 @@ const CHAIN = [
   'database/migrations/113_billing_v2_core.sql',
   'database/migrations/114_billing_v2_wallet.sql',
   'database/migrations/115_billing_v2_rpcs.sql',
+  'database/migrations/116_billing_v2_backfill.sql',
 ];
 
 let client: any;
@@ -73,12 +74,36 @@ function docNumber(): string {
   return `TS${String(10_000_000 + docCounter)}`;
 }
 
-/** Creates a workspace row through whatever minimal shape the base chain has. */
+/**
+ * Creates a workspace through whatever minimal shape the applied chain has:
+ * the self-host base chain has no owner, the hosted chain requires one. The
+ * suite must prove the same invariants on both.
+ */
+let hasOwner: boolean | null = null;
+
 async function makeWorkspace(): Promise<string> {
   const id = uuid();
+  if (hasOwner === null) {
+    hasOwner = Boolean(
+      await one(
+        `SELECT 1 FROM information_schema.columns
+          WHERE table_schema='public' AND table_name='workspaces' AND column_name='owner_id'`,
+      ),
+    );
+  }
+  if (!hasOwner) {
+    await client.query(`INSERT INTO public.workspaces (id, name, slug) VALUES ($1,$2,$3)`, [
+      id, `ws-${id.slice(0, 8)}`, `ws-${id.slice(0, 8)}`,
+    ]);
+    return id;
+  }
+  const owner = uuid();
+  await client.query(`INSERT INTO public.profiles (id, email) VALUES ($1,$2)`, [
+    owner, `owner-${owner.slice(0, 8)}@test.local`,
+  ]);
   await client.query(
-    `INSERT INTO public.workspaces (id, name, slug) VALUES ($1, $2, $3)`,
-    [id, `ws-${id.slice(0, 8)}`, `ws-${id.slice(0, 8)}`],
+    `INSERT INTO public.workspaces (id, name, slug, owner_id) VALUES ($1,$2,$3,$4)`,
+    [id, `ws-${id.slice(0, 8)}`, `ws-${id.slice(0, 8)}`, owner],
   );
   return id;
 }
@@ -120,12 +145,35 @@ async function makeInvoice(
 }
 
 async function makePayment(ws: string, amount: number): Promise<string> {
+  // The shipped table calls the column `amount`; older self-host bases used
+  // `amount_irr`. The invariants under test are identical on both.
+  const col = (await one(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='billing_payments'
+        AND column_name IN ('amount','amount_irr') ORDER BY column_name LIMIT 1`,
+  ))?.column_name ?? 'amount';
+  const hasProvider = Boolean(
+    await one(
+      `SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='billing_payments' AND column_name='provider_name'`,
+    ),
+  );
+  const cols = ['workspace_id', col, 'status', ...(hasProvider ? ['provider_name'] : [])];
+  const vals = [ws, amount, 'succeeded', ...(hasProvider ? ['test'] : [])];
   const r = await one(
-    `INSERT INTO public.billing_payments (workspace_id, amount_irr, status)
-     VALUES ($1, $2, 'succeeded') RETURNING id`,
-    [ws, amount],
+    `INSERT INTO public.billing_payments (${cols.join(', ')})
+     VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING id`,
+    vals,
   );
   return r.id;
+}
+
+/** Settles an invoice with gateway money that has a real payment behind it. */
+async function settleGateway(ws: string, invoiceId: string, amount: number): Promise<any> {
+  const pay = await makePayment(ws, amount);
+  return (await one(`SELECT public.billing_settle_invoice($1,$2,'gateway',$3,$4,NULL) AS r`, [
+    invoiceId, amount, `cmd:${uuid()}`, pay,
+  ])).r;
 }
 
 suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
@@ -244,9 +292,7 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
   it('keeps the invoice application ledger append-only', async () => {
     const ws = await makeWorkspace();
     const inv = await makeInvoice(ws, { total: 100_000, type: 'ai_credit_purchase' });
-    await client.query(`SELECT public.billing_settle_invoice($1,$2,'gateway',$3,NULL,NULL)`, [
-      inv.id, 100_000, `cmd:${uuid()}`,
-    ]);
+    await settleGateway(ws, inv.id, 100_000);
     await client.query(`SELECT public.billing_apply_invoice_effects($1)`, [inv.id]);
     await expect(
       client.query(`DELETE FROM public.billing_invoice_applications WHERE invoice_id=$1`, [inv.id]),
@@ -258,9 +304,7 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
   it('grants purchased AI credit exactly once per invoice, even on replay', async () => {
     const ws = await makeWorkspace();
     const inv = await makeInvoice(ws, { total: 300_000, type: 'ai_credit_purchase' });
-    await client.query(`SELECT public.billing_settle_invoice($1,$2,'gateway',$3,NULL,NULL)`, [
-      inv.id, 300_000, `cmd:${uuid()}`,
-    ]);
+    await settleGateway(ws, inv.id, 300_000);
 
     const a = (await one(`SELECT public.billing_apply_invoice_effects($1) AS r`, [inv.id])).r;
     const b = (await one(`SELECT public.billing_apply_invoice_effects($1) AS r`, [inv.id])).r;
@@ -291,9 +335,7 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
     const end = new Date(Date.now() + 30 * 86_400_000).toISOString();
     const inv = await makeInvoice(ws, { total: 1_000_000, periodStart: start, periodEnd: end, allowance: 500_000 });
 
-    await client.query(`SELECT public.billing_settle_invoice($1,$2,'gateway',$3,NULL,NULL)`, [
-      inv.id, 1_000_000, `cmd:${uuid()}`,
-    ]);
+    await settleGateway(ws, inv.id, 1_000_000);
     const applied = (await one(`SELECT public.billing_apply_invoice_effects($1) AS r`, [inv.id])).r;
     expect(applied.activated).toBe(true);
 
@@ -317,9 +359,7 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
     const end = new Date(Date.now() + 40 * 86_400_000).toISOString();
     const inv = await makeInvoice(ws, { total: 1_000_000, periodStart: start, periodEnd: end, allowance: 400_000 });
 
-    await client.query(`SELECT public.billing_settle_invoice($1,$2,'gateway',$3,NULL,NULL)`, [
-      inv.id, 1_000_000, `cmd:${uuid()}`,
-    ]);
+    await settleGateway(ws, inv.id, 1_000_000);
     const applied = (await one(`SELECT public.billing_apply_invoice_effects($1) AS r`, [inv.id])).r;
     expect(applied.activated).toBe(false);
 
@@ -341,9 +381,7 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
       const start = new Date(Date.now() - 60_000).toISOString();
       const end = new Date(Date.now() + offsetDays * 86_400_000).toISOString();
       const inv = await makeInvoice(ws, { total: 1_000_000, periodStart: start, periodEnd: end });
-      await client.query(`SELECT public.billing_settle_invoice($1,$2,'gateway',$3,NULL,NULL)`, [
-        inv.id, 1_000_000, `cmd:${uuid()}`,
-      ]);
+      await settleGateway(ws, inv.id, 1_000_000);
       return (await one(`SELECT public.billing_apply_invoice_effects($1) AS r`, [inv.id])).r;
     };
     await mk(30);
@@ -361,9 +399,7 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
     const start = new Date(Date.now() - 60_000).toISOString();
     const end = new Date(Date.now() + 30 * 86_400_000).toISOString();
     const inv = await makeInvoice(ws, { total: 900_000, periodStart: start, periodEnd: end });
-    await client.query(`SELECT public.billing_settle_invoice($1,$2,'gateway',$3,NULL,NULL)`, [
-      inv.id, 900_000, `cmd:${uuid()}`,
-    ]);
+    await settleGateway(ws, inv.id, 900_000);
     await client.query(`SELECT public.billing_apply_invoice_effects($1)`, [inv.id]);
     await client.query(`SELECT public.billing_apply_invoice_effects($1)`, [inv.id]);
     const periods = await q(`SELECT id FROM public.billing_subscription_periods WHERE invoice_id=$1`, [inv.id]);
@@ -494,4 +530,249 @@ suite('Billing Engine V2 — financial invariants (PostgreSQL)', () => {
       }
     }
   });
+
+  // ── Collection reservation: gateway ↔ wallet exclusion ──────────────────
+
+  it('lets only one channel hold an invoice at a time', async () => {
+    const ws = await makeWorkspace();
+    const inv = await makeInvoice(ws, { total: 500_000 });
+
+    const held = (await one(
+      `SELECT public.billing_begin_collection($1,'gateway',$2,$3,NULL,1800) AS r`,
+      [inv.id, 500_000, `gw:${inv.id}`],
+    )).r;
+    expect(held.channel).toBe('gateway');
+
+    // The wallet may not settle behind a live checkout.
+    await expect(
+      client.query(`SELECT public.billing_begin_collection($1,'wallet',$2,$3,NULL,300)`, [
+        inv.id, 500_000, `w:${inv.id}`,
+      ]),
+    ).rejects.toThrow(/invoice_collection_locked/);
+
+    // Same checkout, replayed: same reservation, no second lock.
+    const again = (await one(
+      `SELECT public.billing_begin_collection($1,'gateway',$2,$3,NULL,1800) AS r`,
+      [inv.id, 500_000, `gw:${inv.id}`],
+    )).r;
+    expect(again.collection_id).toBe(held.collection_id);
+    expect(again.replayed).toBe(true);
+
+    // Releasing hands the invoice back.
+    await client.query(`SELECT public.billing_release_collection($1,'abandoned')`, [held.collection_id]);
+    const wallet = (await one(
+      `SELECT public.billing_begin_collection($1,'wallet',$2,$3,NULL,300) AS r`,
+      [inv.id, 500_000, `w:${inv.id}`],
+    )).r;
+    expect(wallet.channel).toBe('wallet');
+  });
+
+  it('never lets a dead checkout block an invoice forever', async () => {
+    const ws = await makeWorkspace();
+    const inv = await makeInvoice(ws, { total: 300_000 });
+    const held = (await one(
+      `SELECT public.billing_begin_collection($1,'gateway',$2,$3,NULL,30) AS r`,
+      [inv.id, 300_000, `gw-exp:${inv.id}`],
+    )).r;
+    await client.query(
+      `UPDATE public.billing_invoice_collections SET expires_at = now() - interval '1 minute' WHERE id=$1`,
+      [held.collection_id],
+    );
+    const wallet = (await one(
+      `SELECT public.billing_begin_collection($1,'wallet',$2,$3,NULL,300) AS r`,
+      [inv.id, 300_000, `w-exp:${inv.id}`],
+    )).r;
+    expect(wallet.channel).toBe('wallet');
+    const dead = await one(`SELECT status FROM public.billing_invoice_collections WHERE id=$1`, [held.collection_id]);
+    expect(dead.status).toBe('expired');
+  });
+
+  it('refuses a settlement from a channel that does not hold the reservation', async () => {
+    const ws = await makeWorkspace();
+    const inv = await makeInvoice(ws, { total: 200_000 });
+    await client.query(`SELECT public.billing_begin_collection($1,'wallet',$2,$3,NULL,300)`, [
+      inv.id, 200_000, `w-conf:${inv.id}`,
+    ]);
+    const pay = await makePayment(ws, 200_000);
+    await expect(
+      client.query(`SELECT public.billing_settle_invoice($1,$2,'gateway',$3,$4,NULL)`, [
+        inv.id, 200_000, `s-conf:${inv.id}`, pay,
+      ]),
+    ).rejects.toThrow(/invoice_collection_conflict/);
+  });
+
+  it('consumes the reservation when the settlement succeeds', async () => {
+    const ws = await makeWorkspace();
+    const inv = await makeInvoice(ws, { total: 250_000 });
+    const held = (await one(
+      `SELECT public.billing_begin_collection($1,'gateway',$2,$3,NULL,1800) AS r`,
+      [inv.id, 250_000, `gw-ok:${inv.id}`],
+    )).r;
+    const pay = await makePayment(ws, 250_000);
+    await client.query(`SELECT public.billing_settle_invoice($1,$2,'gateway',$3,$4,NULL)`, [
+      inv.id, 250_000, `s-ok:${inv.id}`, pay,
+    ]);
+    const col = await one(`SELECT status FROM public.billing_invoice_collections WHERE id=$1`, [held.collection_id]);
+    expect(col.status).toBe('consumed');
+  });
+
+  // ── Crash between settlement and effects ────────────────────────────────
+
+  it('leaves a durable work item when the process dies after settlement', async () => {
+    const ws = await makeWorkspace();
+    const inv = await makeInvoice(ws, {
+      total: 400_000,
+      periodStart: new Date().toISOString(),
+      periodEnd: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+      allowance: 90_000,
+    });
+    const pay = await makePayment(ws, 400_000);
+    // Settlement only — the effects never ran (simulated crash).
+    await client.query(`SELECT public.billing_settle_invoice($1,$2,'gateway',$3,$4,NULL)`, [
+      inv.id, 400_000, `crash:${inv.id}`, pay,
+    ]);
+
+    const pending = await one(
+      `SELECT application_status FROM public.billing_invoice_applications WHERE invoice_id=$1`, [inv.id],
+    );
+    expect(pending.application_status).toBe('pending');
+
+    const rec = (await one(`SELECT public.billing_recover_unapplied_invoices(50) AS r`)).r;
+    expect(rec.applied).toBeGreaterThanOrEqual(1);
+
+    const done = await one(
+      `SELECT application_status, period_id FROM public.billing_invoice_applications WHERE invoice_id=$1`, [inv.id],
+    );
+    expect(done.application_status).toBe('applied');
+    expect(done.period_id).toBeTruthy();
+
+    // Recovery is not a second grant.
+    const before = await one(`SELECT count(*) c FROM public.workspace_ai_balance_lots WHERE workspace_id=$1`, [ws]);
+    await client.query(`SELECT public.billing_recover_unapplied_invoices(50)`);
+    const after = await one(`SELECT count(*) c FROM public.workspace_ai_balance_lots WHERE workspace_id=$1`, [ws]);
+    expect(after.c).toBe(before.c);
+  });
+
+  it('keeps an applied effect frozen forever', async () => {
+    const ws = await makeWorkspace();
+    const inv = await makeInvoice(ws, { total: 120_000, type: 'ai_credit_purchase' });
+    const pay = await makePayment(ws, 120_000);
+    await client.query(`SELECT public.billing_settle_invoice($1,$2,'gateway',$3,$4,NULL)`, [
+      inv.id, 120_000, `frz:${inv.id}`, pay,
+    ]);
+    await client.query(`SELECT public.billing_apply_invoice_effects($1)`, [inv.id]);
+    await expect(
+      client.query(
+        `UPDATE public.billing_invoice_applications SET application_status='pending' WHERE invoice_id=$1`, [inv.id],
+      ),
+    ).rejects.toThrow(/invoice_application_append_only/);
+  });
+
+  // ── Legacy → V2 AI allowance handover ───────────────────────────────────
+
+  it('keeps the legacy monthly allowance authoritative until a V2 period activates', async () => {
+    const ws = await makeWorkspace();
+    await client.query(
+      `INSERT INTO public.workspace_subscriptions (workspace_id, status) VALUES ($1,'active')
+       ON CONFLICT (workspace_id) DO UPDATE SET status='active'`, [ws],
+    );
+    const legacyActive = await one(`SELECT public.billing_legacy_allowance_active($1) AS a`, [ws]);
+    expect(legacyActive.a).toBe(true);
+
+    // The legacy calendar grant this month.
+    await client.query(
+      `SELECT public.ai_grant_allowance($1,$2,$3,'plan',$4,$5)`,
+      [ws, 100_000, '2026-08', new Date(Date.now() + 10 * 86_400_000).toISOString(), `grant:${ws}:2026-08:plan`],
+    );
+    const legacyBalance = await one(
+      `SELECT COALESCE(sum(remaining_amount),0) AS s FROM public.workspace_ai_balance_lots
+        WHERE workspace_id=$1 AND state IN ('ACTIVE','EXPIRING')`, [ws],
+    );
+    expect(Number(legacyBalance.s)).toBe(100_000);
+
+    // Mid-month upgrade: a real invoice period takes over.
+    const inv = await makeInvoice(ws, {
+      total: 900_000,
+      periodStart: new Date().toISOString(),
+      periodEnd: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+      allowance: 300_000,
+    });
+    const pay = await makePayment(ws, 900_000);
+    await client.query(`SELECT public.billing_settle_invoice($1,$2,'gateway',$3,$4,NULL)`, [
+      inv.id, 900_000, `up:${inv.id}`, pay,
+    ]);
+    await client.query(`SELECT public.billing_apply_invoice_effects($1)`, [inv.id]);
+
+    // Exactly the new allowance — never legacy + V2 for the same days.
+    const after = await one(
+      `SELECT COALESCE(sum(remaining_amount),0) AS s FROM public.workspace_ai_balance_lots
+        WHERE workspace_id=$1 AND state IN ('ACTIVE','EXPIRING')`, [ws],
+    );
+    expect(Number(after.s)).toBe(300_000);
+
+    // And the legacy path is off for good.
+    const now = await one(`SELECT public.billing_legacy_allowance_active($1) AS a`, [ws]);
+    expect(now.a).toBe(false);
+  });
+
+  it('never invalidates an in-flight AI run when it retires the legacy allowance', async () => {
+    const ws = await makeWorkspace();
+    await client.query(
+      `INSERT INTO public.workspace_subscriptions (workspace_id, status) VALUES ($1,'active')
+       ON CONFLICT (workspace_id) DO UPDATE SET status='active'`, [ws],
+    );
+    await client.query(
+      `SELECT public.ai_grant_allowance($1,$2,$3,'plan',$4,$5)`,
+      [ws, 50_000, '2026-09', new Date(Date.now() + 10 * 86_400_000).toISOString(), `grant:${ws}:2026-09:plan`],
+    );
+    // 20_000 is reserved by a running job.
+    await client.query(
+      `UPDATE public.workspace_ai_balance_lots SET reserved_amount = 20000
+        WHERE workspace_id=$1 AND source_type='PLAN_ALLOWANCE'`, [ws],
+    );
+    const retired = await one(`SELECT public.billing_retire_legacy_allowance($1) AS n`, [ws]);
+    expect(Number(retired.n)).toBe(1);
+    const lot = await one(
+      `SELECT remaining_amount, reserved_amount, state FROM public.workspace_ai_balance_lots
+        WHERE workspace_id=$1 AND source_type='PLAN_ALLOWANCE'`, [ws],
+    );
+    expect(Number(lot.remaining_amount)).toBe(20_000);
+    expect(lot.state).toBe('EXPIRING');
+  });
+
+  // ── Backfill (116) ──────────────────────────────────────────────────────
+
+  it('gives every live subscription a period without inventing money', async () => {
+    const ws = await makeWorkspace();
+    await client.query(
+      `INSERT INTO public.workspace_subscriptions (workspace_id, status) VALUES ($1,'active')
+       ON CONFLICT (workspace_id) DO UPDATE SET status='active'`, [ws],
+    );
+    const backfill = readFileSync(resolve(process.cwd(), 'database/migrations/116_billing_v2_backfill.sql'), 'utf8');
+    await client.query(backfill);
+    await client.query(backfill); // re-runnable
+
+    const sub = await one(
+      `SELECT current_period_id, billing_engine_version, v2_allowance_effective_period_id
+         FROM public.workspace_subscriptions WHERE workspace_id=$1`, [ws],
+    );
+    expect(sub.current_period_id).toBeTruthy();
+    expect(sub.billing_engine_version).toBe('v2');
+    // The AI allowance stays on the legacy path until a real invoice period.
+    expect(sub.v2_allowance_effective_period_id).toBeNull();
+
+    const periods = await q(
+      `SELECT source, ai_allowance_irr FROM public.billing_subscription_periods
+        WHERE workspace_id=$1 AND status='active'`, [ws],
+    );
+    expect(periods).toHaveLength(1);
+    expect(periods[0].source).toBe('legacy_migration');
+    expect(Number(periods[0].ai_allowance_irr)).toBe(0);
+
+    const invoices = await one(
+      `SELECT count(*) c FROM public.billing_invoices WHERE workspace_id=$1`, [ws],
+    );
+    expect(Number(invoices.c)).toBe(0);
+  });
+
 });

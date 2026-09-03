@@ -62,6 +62,15 @@ function cycleEnd(): string {
  * (idempotent by (workspace, cycle, source) both in SQL and by command key).
  */
 async function ensureCycleAllowance(config: ServerConfig, workspaceId: string): Promise<void> {
+  // Billing Engine V2 handover: once the workspace's first invoice-backed
+  // service period has activated, the PERIOD grants the allowance and this
+  // legacy calendar path must never grant again — otherwise the same month
+  // would be funded twice. Until then it stays authoritative, so no workspace
+  // is ever left without its plan allowance during the transition.
+  const { data: legacyActive } = await getServiceClient(config)
+    .rpc('billing_legacy_allowance_active', { p_workspace_id: workspaceId });
+  if (legacyActive === false) return;
+
   const info = await getWorkspacePlanInfo(config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId);
   const amount = Number((info.limits as any)?.included_ai_allowance_irr ?? 0);
   if (!Number.isFinite(amount) || amount <= 0) return;

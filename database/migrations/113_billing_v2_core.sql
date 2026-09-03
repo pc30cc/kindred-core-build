@@ -241,7 +241,12 @@ ALTER TABLE public.workspace_subscriptions
   ADD COLUMN IF NOT EXISTS free_fallback_at      TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS trial_start           TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS billing_engine_version TEXT NOT NULL DEFAULT 'v1',
-  ADD COLUMN IF NOT EXISTS billing_v2_effective_at TIMESTAMPTZ;
+  ADD COLUMN IF NOT EXISTS billing_v2_effective_at TIMESTAMPTZ,
+  -- Legacy → V2 AI allowance handover marker. NULL means the legacy calendar
+  -- grant is still the authority for this workspace; the first activated V2
+  -- period stamps it, and from that moment the legacy path is off for good.
+  ADD COLUMN IF NOT EXISTS v2_allowance_effective_period_id UUID
+    REFERENCES public.billing_subscription_periods(id) ON DELETE SET NULL;
 
 ALTER TABLE public.workspace_subscriptions DROP CONSTRAINT IF EXISTS workspace_subscriptions_pending_change_check;
 ALTER TABLE public.workspace_subscriptions ADD CONSTRAINT workspace_subscriptions_pending_change_check
@@ -282,7 +287,7 @@ ALTER TABLE public.billing_payments
 
 ALTER TABLE public.billing_payments DROP CONSTRAINT IF EXISTS billing_payments_reconciliation_state_check;
 ALTER TABLE public.billing_payments ADD CONSTRAINT billing_payments_reconciliation_state_check
-  CHECK (reconciliation_state IN ('settled', 'unapplied', 'credited_to_wallet', 'refunded'));
+  CHECK (reconciliation_state IN ('settled', 'unapplied', 'credited_to_wallet', 'refunded', 'legacy'));
 
 CREATE INDEX IF NOT EXISTS ix_billing_payments_invoice
   ON public.billing_payments (invoice_id) WHERE invoice_id IS NOT NULL;
@@ -431,4 +436,146 @@ BEGIN
       );
     END IF;
   END LOOP;
+END $$;
+
+-- ─── 9. Durable application state (paid → applied crash recovery) ─────────
+--
+-- A settlement and its effects are two different transactions in the worst
+-- case: the money commits, then the process dies. Without a durable marker the
+-- invoice stays `paid` and nothing is ever granted — silent, permanent loss of
+-- service the customer paid for.
+--
+-- So the settlement itself CREATES the application row in `pending`, inside
+-- the same transaction that marks the invoice paid. From then on the row is a
+-- work item any recovery loop can find and retry.
+ALTER TABLE public.billing_invoice_applications
+  ADD COLUMN IF NOT EXISTS attempt_count   INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS lease_until     TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS last_error      TEXT,
+  ADD COLUMN IF NOT EXISTS updated_at      TIMESTAMPTZ NOT NULL DEFAULT now();
+
+ALTER TABLE public.billing_invoice_applications
+  ALTER COLUMN application_status SET DEFAULT 'pending',
+  ALTER COLUMN applied_at DROP NOT NULL,
+  ALTER COLUMN applied_at DROP DEFAULT;
+
+ALTER TABLE public.billing_invoice_applications
+  DROP CONSTRAINT IF EXISTS billing_invoice_applications_status_check;
+ALTER TABLE public.billing_invoice_applications
+  ADD CONSTRAINT billing_invoice_applications_status_check
+  CHECK (application_status IN ('pending', 'processing', 'applied', 'failed'));
+
+CREATE INDEX IF NOT EXISTS ix_billing_invoice_applications_recovery
+  ON public.billing_invoice_applications (next_attempt_at)
+  WHERE application_status <> 'applied';
+
+-- Append-only, with ONE exception: the state machine may advance a not-yet
+-- applied row. Nothing may ever be deleted, no identity or result field may be
+-- rewritten, and an `applied` row is frozen forever.
+CREATE OR REPLACE FUNCTION public.billing_invoice_application_block_mutation()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'invoice_application_append_only';
+  END IF;
+
+  IF OLD.application_status = 'applied' THEN
+    RAISE EXCEPTION 'invoice_application_append_only'
+      USING HINT = 'An applied invoice effect is history. Compensate with a new document, never by editing it.';
+  END IF;
+
+  IF NEW.invoice_id       IS DISTINCT FROM OLD.invoice_id
+     OR NEW.workspace_id  IS DISTINCT FROM OLD.workspace_id
+     OR NEW.created_at    IS DISTINCT FROM OLD.created_at
+  THEN
+    RAISE EXCEPTION 'invoice_application_append_only';
+  END IF;
+
+  NEW.updated_at := now();
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_billing_invoice_applications_append_only ON public.billing_invoice_applications;
+CREATE TRIGGER trg_billing_invoice_applications_append_only
+  BEFORE UPDATE OR DELETE ON public.billing_invoice_applications
+  FOR EACH ROW EXECUTE FUNCTION public.billing_invoice_application_block_mutation();
+
+COMMENT ON COLUMN public.billing_invoice_applications.application_status IS
+  'pending → processing → applied|failed. Created by settlement in the SAME transaction that marks the invoice paid, so a crash before the effects run leaves a durable work item instead of a silently unapplied paid invoice.';
+
+-- ─── 10. Invoice collection reservation (gateway ↔ wallet race) ───────────
+--
+-- Prevention, not just reconciliation: while a gateway checkout is live for an
+-- invoice, wallet auto-pay must not settle the same invoice, and while a
+-- wallet settlement is running no new gateway checkout may be created for the
+-- same amount. The reservation is durable (survives a closed browser),
+-- expiring (a dead checkout never blocks the invoice forever) and idempotent.
+CREATE TABLE IF NOT EXISTS public.billing_invoice_collections (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  invoice_id        UUID NOT NULL REFERENCES public.billing_invoices(id) ON DELETE CASCADE,
+  workspace_id      UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
+  channel           TEXT NOT NULL,
+  amount_irr        BIGINT NOT NULL,
+  payment_intent_id UUID REFERENCES public.billing_payment_intents(id) ON DELETE SET NULL,
+  status            TEXT NOT NULL DEFAULT 'active',
+  command_key       TEXT NOT NULL,
+  expires_at        TIMESTAMPTZ NOT NULL,
+  released_at       TIMESTAMPTZ,
+  release_reason    TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.billing_invoice_collections
+  DROP CONSTRAINT IF EXISTS billing_invoice_collections_channel_check;
+ALTER TABLE public.billing_invoice_collections
+  ADD CONSTRAINT billing_invoice_collections_channel_check
+  CHECK (channel IN ('gateway', 'wallet', 'admin'));
+
+ALTER TABLE public.billing_invoice_collections
+  DROP CONSTRAINT IF EXISTS billing_invoice_collections_status_check;
+ALTER TABLE public.billing_invoice_collections
+  ADD CONSTRAINT billing_invoice_collections_status_check
+  CHECK (status IN ('active', 'consumed', 'released', 'expired'));
+
+ALTER TABLE public.billing_invoice_collections
+  DROP CONSTRAINT IF EXISTS billing_invoice_collections_amount_check;
+ALTER TABLE public.billing_invoice_collections
+  ADD CONSTRAINT billing_invoice_collections_amount_check
+  CHECK (amount_irr > 0);
+
+-- THE lock: at most one live collection attempt per invoice.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_billing_invoice_collections_active
+  ON public.billing_invoice_collections (invoice_id)
+  WHERE status = 'active';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_billing_invoice_collections_command
+  ON public.billing_invoice_collections (command_key);
+
+CREATE INDEX IF NOT EXISTS ix_billing_invoice_collections_expiry
+  ON public.billing_invoice_collections (expires_at) WHERE status = 'active';
+
+COMMENT ON TABLE public.billing_invoice_collections IS
+  'Durable collection reservation. Holding one is the precondition for settling an invoice, which is what makes a gateway callback and a wallet auto-pay mutually exclusive instead of merely reconcilable afterwards.';
+
+DO $$
+BEGIN
+  EXECUTE 'ALTER TABLE public.billing_invoice_collections ENABLE ROW LEVEL SECURITY';
+  EXECUTE 'REVOKE ALL ON public.billing_invoice_collections FROM PUBLIC';
+  EXECUTE 'REVOKE ALL ON public.billing_invoice_collections FROM anon';
+  EXECUTE 'REVOKE ALL ON public.billing_invoice_collections FROM authenticated';
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    EXECUTE 'GRANT ALL ON public.billing_invoice_collections TO service_role';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+     WHERE schemaname = 'public' AND tablename = 'billing_invoice_collections'
+       AND policyname = 'service_role_only'
+  ) THEN
+    EXECUTE 'CREATE POLICY service_role_only ON public.billing_invoice_collections FOR ALL TO service_role USING (true) WITH CHECK (true)';
+  END IF;
 END $$;

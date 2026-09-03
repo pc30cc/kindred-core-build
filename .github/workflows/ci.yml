@@ -190,8 +190,24 @@ jobs:
           REQUIRE_BILLING_DB: '1'
         run: bunx vitest run src/test/integration/aiBillingFinancial.pg.test.ts --no-file-parallelism
 
+      # Billing Engine V2 runs on its OWN database: the V2 chain and the AI
+      # billing chain are different migration sets and must not share state.
+      # REQUIRE_BILLING_DB=1 makes a missing database FAIL the job instead of
+      # skipping — money invariants must never pass by absence.
+      - name: Create Billing Engine V2 database
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d billing -v ON_ERROR_STOP=1 -c 'CREATE DATABASE billing_v2'
+
+      - name: Billing Engine V2 invariants (Phase A + Phase B rollout)
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/billing_v2
+          REQUIRE_BILLING_DB: '1'
+        run: bunx vitest run src/test/integration/billingEngineV2.pg.test.ts --no-file-parallelism
+
       - name: AI Billing in-process suites (context propagation, scheduler, failure semantics)
         run: bunx vitest run src/test/aiBilling
+
 
   ai-kb-tail-migration:
     name: AI-KB tail migration compatibility

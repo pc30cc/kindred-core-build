@@ -1093,6 +1093,11 @@ conversationsRouter.get('/', async (req: any, res: any) => {
             // describe the media instead of claiming "no messages yet".
             attachment_id: (meta as any)?.attachment_id ? String((meta as any).attachment_id) : null,
             attachment_kind: null,
+            // System notices (transfer / unassign) are stored in English:
+            // ship the structured metadata so the UI can localize the preview.
+            system_kind: (meta as any)?.kind ? String((meta as any).kind) : null,
+            actor_name: (meta as any)?.actor_name ? String((meta as any).actor_name) : null,
+            to_name: (meta as any)?.to_name ? String((meta as any).to_name) : null,
           };
         }
         if (m.sender_type === 'agent' && m.sender_id) {

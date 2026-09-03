@@ -218,6 +218,20 @@ jobs:
           REQUIRE_BILLING_DB: '1'
         run: bunx vitest run src/test/integration/billingV2PhaseC.pg.test.ts --no-file-parallelism
 
+      # Phase D0 entitlement cycles also demand a FRESH database: an annual
+      # plan must release AI allowance month by month, never 12x on day one.
+      - name: Create Billing Engine V2 Phase D0 database
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d billing -v ON_ERROR_STOP=1 -c 'CREATE DATABASE billing_v2_phase_d0'
+
+      - name: Billing Engine V2 invariants (Phase D0 entitlement cycles)
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/billing_v2_phase_d0
+          REQUIRE_BILLING_DB: '1'
+        run: bunx vitest run src/test/integration/billingV2PhaseD0.pg.test.ts --no-file-parallelism
+
+
       - name: AI Billing in-process suites (context propagation, scheduler, failure semantics)
         run: bunx vitest run src/test/aiBilling
 

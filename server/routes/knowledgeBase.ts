@@ -189,6 +189,7 @@ knowledgeBaseRouter.post('/articles', async (req: Request, res: Response) => {
   const parsed = articleInputSchema.safeParse((req.body as { article?: unknown })?.article ?? req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_article' });
   if (await denyIfCannotPublish(g, parsed.data.status, res)) return;
+  if (!(await enforceArticleQuota(g, res))) return;
 
   if (parsed.data.category_id) {
     const ok = await assertOwnership(

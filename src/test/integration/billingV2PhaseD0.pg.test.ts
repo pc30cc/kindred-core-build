@@ -555,7 +555,8 @@ suite('Billing Engine V2 — Phase D0 entitlement cycles (PostgreSQL)', () => {
       `SELECT status FROM public.billing_entitlement_cycles WHERE subscription_period_id=$1`,
       [first.id],
     );
-    expect(old.every((c: any) => c.status === 'completed')).toBe(true);
+    expect(old.every((c: any) => ['completed', 'canceled'].includes(c.status))).toBe(true);
+    expect(old.filter((c: any) => c.status === 'completed')).toHaveLength(1);
   });
 
   it('monthly upgrade keeps the Phase C behaviour: prorated delta, cycle-end expiry', async () => {

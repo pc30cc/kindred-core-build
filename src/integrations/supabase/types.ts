@@ -3816,6 +3816,80 @@ export type Database = {
         }
         Relationships: []
       }
+      billing_subscription_applications: {
+        Row: {
+          action_type: string
+          applied_at: string
+          billing_interval: string
+          created_at: string
+          id: string
+          payment_intent_id: string
+          period_end: string
+          period_start: string
+          plan_id: string | null
+          provider_name: string | null
+          stacked: boolean
+          workspace_id: string
+        }
+        Insert: {
+          action_type: string
+          applied_at?: string
+          billing_interval: string
+          created_at?: string
+          id?: string
+          payment_intent_id: string
+          period_end: string
+          period_start: string
+          plan_id?: string | null
+          provider_name?: string | null
+          stacked?: boolean
+          workspace_id: string
+        }
+        Update: {
+          action_type?: string
+          applied_at?: string
+          billing_interval?: string
+          created_at?: string
+          id?: string
+          payment_intent_id?: string
+          period_end?: string
+          period_start?: string
+          plan_id?: string | null
+          provider_name?: string | null
+          stacked?: boolean
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_subscription_applications_payment_intent_id_fkey"
+            columns: ["payment_intent_id"]
+            isOneToOne: false
+            referencedRelation: "billing_payment_intents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_subscription_applications_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_subscription_applications_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans_public"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_subscription_applications_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       business_metrics_hourly: {
         Row: {
           active_conversations: number
@@ -12107,6 +12181,17 @@ export type Database = {
       }
       archive_invitation_v2: {
         Args: { _actor_id: string; _invitation_id: string }
+        Returns: Json
+      }
+      billing_apply_subscription_payment: {
+        Args: {
+          p_interval: string
+          p_now?: string
+          p_payment_intent_id: string
+          p_plan_id: string
+          p_provider_name: string
+          p_workspace_id: string
+        }
         Returns: Json
       }
       bootstrap_admin: { Args: { _user_id: string }; Returns: boolean }

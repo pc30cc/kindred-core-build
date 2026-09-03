@@ -28,6 +28,7 @@ import {
   type PlatformBrandingLocalized,
   type PlatformDomains,
 } from '@/hooks/usePlatformBranding';
+import { useTranslation } from '@/i18n';
 
 // ── Reusable field row ──
 function FieldRow({
@@ -55,6 +56,7 @@ function FieldRow({
 
 // ── Visual Identity Section ──
 function VisualIdentitySection() {
+  const { t } = useTranslation();
   const { data: branding, isLoading } = usePlatformBranding();
   const update = useUpdatePlatformBranding();
   const [form, setForm] = useState<Partial<PlatformBranding>>({});
@@ -67,8 +69,8 @@ function VisualIdentitySection() {
   const handleSave = () => {
     const { id, created_at, updated_at, ...rest } = form as any;
     update.mutate(rest, {
-      onSuccess: () => { toast({ title: 'Visual identity saved' }); setDirty(false); },
-      onError: (e) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+      onSuccess: () => { toast({ title: t('admin.brandingPage.identity.saved' as any) }); setDirty(false); },
+      onError: (e) => toast({ title: t('admin.brandingPage.common.error' as any), description: e.message, variant: 'destructive' }),
     });
   };
 
@@ -78,31 +80,31 @@ function VisualIdentitySection() {
     <Card className="bg-card border-border">
       <CardHeader className="pb-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2"><Palette className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">Visual Identity</CardTitle></div>
+          <div className="flex items-center gap-2"><Palette className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">{t('admin.brandingPage.identity.title' as any)}</CardTitle></div>
           <Button size="sm" onClick={handleSave} disabled={!dirty || update.isPending}>
-            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}Save
+            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}{t('admin.brandingPage.common.save' as any)}
           </Button>
         </div>
-        <CardDescription>Logo, colors, and favicon for the entire platform.</CardDescription>
+        <CardDescription>{t('admin.brandingPage.identity.description' as any)}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="grid gap-5 md:grid-cols-2">
-          <FieldRow label="Logo URL" desc="Platform logo displayed in header and emails" value={form.logo_url ?? ''} onChange={(v) => set('logo_url', v)} placeholder="https://cdn.example.com/logo.svg" />
-          <FieldRow label="Favicon URL" desc="Browser tab icon" value={form.favicon_url ?? ''} onChange={(v) => set('favicon_url', v)} placeholder="https://cdn.example.com/favicon.ico" />
-          <FieldRow label="Primary Color" type="color" value={form.primary_color ?? '#3B82F6'} onChange={(v) => set('primary_color', v)} />
-          <FieldRow label="Secondary Color" type="color" value={form.secondary_color ?? '#6366F1'} onChange={(v) => set('secondary_color', v)} />
-          <FieldRow label="PWA Icon URL" desc="512x512 icon for progressive web app" value={form.pwa_icon_url ?? ''} onChange={(v) => set('pwa_icon_url', v)} placeholder="https://cdn.example.com/pwa-icon.png" />
+          <FieldRow label={t('admin.brandingPage.identity.logoUrl' as any)} desc={t('admin.brandingPage.identity.logoHint' as any)} value={form.logo_url ?? ''} onChange={(v) => set('logo_url', v)} placeholder="https://cdn.example.com/logo.svg" />
+          <FieldRow label={t('admin.brandingPage.identity.faviconUrl' as any)} desc={t('admin.brandingPage.identity.faviconHint' as any)} value={form.favicon_url ?? ''} onChange={(v) => set('favicon_url', v)} placeholder="https://cdn.example.com/favicon.ico" />
+          <FieldRow label={t('admin.brandingPage.identity.primaryColor' as any)} type="color" value={form.primary_color ?? '#3B82F6'} onChange={(v) => set('primary_color', v)} />
+          <FieldRow label={t('admin.brandingPage.identity.secondaryColor' as any)} type="color" value={form.secondary_color ?? '#6366F1'} onChange={(v) => set('secondary_color', v)} />
+          <FieldRow label={t('admin.brandingPage.identity.pwaIconUrl' as any)} desc={t('admin.brandingPage.identity.pwaIconHint' as any)} value={form.pwa_icon_url ?? ''} onChange={(v) => set('pwa_icon_url', v)} placeholder="https://cdn.example.com/pwa-icon.png" />
         </div>
         {(form.logo_url || form.primary_color) && (
           <>
             <Separator />
             <div className="rounded-lg border border-border p-4">
-              <p className="text-xs text-muted-foreground mb-3 flex items-center gap-1"><Eye className="h-3 w-3" /> Preview</p>
+              <p className="text-xs text-muted-foreground mb-3 flex items-center gap-1"><Eye className="h-3 w-3" /> {t('admin.brandingPage.identity.preview' as any)}</p>
               <div className="flex items-center gap-3">
-                {form.logo_url && <img src={form.logo_url} alt="Logo preview" className="h-10 max-w-[160px] object-contain rounded" onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />}
+                {form.logo_url && <img src={form.logo_url} alt={t('admin.brandingPage.identity.logoPreview' as any)} className="h-10 max-w-[160px] object-contain rounded" onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />}
                 <div className="flex gap-2">
-                  <div className="w-8 h-8 rounded-md border border-border" style={{ backgroundColor: form.primary_color ?? '#3B82F6' }} title="Primary" />
-                  <div className="w-8 h-8 rounded-md border border-border" style={{ backgroundColor: form.secondary_color ?? '#6366F1' }} title="Secondary" />
+                  <div className="w-8 h-8 rounded-md border border-border" style={{ backgroundColor: form.primary_color ?? '#3B82F6' }} title={t('admin.brandingPage.identity.primaryColor' as any)} />
+                  <div className="w-8 h-8 rounded-md border border-border" style={{ backgroundColor: form.secondary_color ?? '#6366F1' }} title={t('admin.brandingPage.identity.secondaryColor' as any)} />
                 </div>
               </div>
             </div>
@@ -603,17 +605,18 @@ function SettingsSection() {
 // NOTE: Widget URLs (loader/asset/public/api) have been moved to
 // Super Admin → Widget Settings → Deployment & URLs. They are intentionally
 // NOT editable here anymore — widget_platform_settings is the single source of truth.
-const DOMAIN_FIELDS: { key: keyof PlatformDomains; label: string; desc?: string; placeholder: string }[] = [
-  { key: 'primary_domain', label: 'Primary Domain', desc: 'Main domain of the platform', placeholder: 'example.com' },
-  { key: 'canonical_base_url', label: 'Canonical Base URL', desc: 'For SEO canonical tags', placeholder: 'https://example.com' },
-  { key: 'app_base_url', label: 'App / Panel URL', placeholder: 'https://app.example.com' },
-  { key: 'api_base_url', label: 'API Base URL', placeholder: 'https://api.example.com' },
-  { key: 'public_base_url', label: 'Public Site URL', desc: 'Marketing site / public-facing origin', placeholder: 'https://example.com' },
-  { key: 'help_center_base_url', label: 'Help Center URL', placeholder: 'https://help.example.com' },
-  { key: 'email_base_url', label: 'Email Base URL', desc: 'Links inside emails', placeholder: 'https://example.com' },
+const DOMAIN_FIELDS: { key: keyof PlatformDomains; placeholder: string }[] = [
+  { key: 'primary_domain', placeholder: 'example.com' },
+  { key: 'canonical_base_url', placeholder: 'https://example.com' },
+  { key: 'app_base_url', placeholder: 'https://app.example.com' },
+  { key: 'api_base_url', placeholder: 'https://api.example.com' },
+  { key: 'public_base_url', placeholder: 'https://example.com' },
+  { key: 'help_center_base_url', placeholder: 'https://help.example.com' },
+  { key: 'email_base_url', placeholder: 'https://example.com' },
 ];
 
 function DomainUrlsSection() {
+  const { t } = useTranslation();
   const { data: domains, isLoading } = usePlatformDomains();
   const update = useUpdatePlatformDomains();
   const [form, setForm] = useState<Partial<PlatformDomains>>({});
@@ -626,8 +629,8 @@ function DomainUrlsSection() {
   const handleSave = () => {
     const { id, created_at, updated_at, ...rest } = form as any;
     update.mutate(rest, {
-      onSuccess: () => { toast({ title: 'Domain URLs saved' }); setDirty(false); },
-      onError: (e) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+      onSuccess: () => { toast({ title: t('admin.brandingPage.domains.saved' as any) }); setDirty(false); },
+      onError: (e) => toast({ title: t('admin.brandingPage.common.error' as any), description: e.message, variant: 'destructive' }),
     });
   };
 
@@ -637,17 +640,17 @@ function DomainUrlsSection() {
     <Card className="bg-card border-border">
       <CardHeader className="pb-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2"><Link2 className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">Platform Domain URLs</CardTitle></div>
+          <div className="flex items-center gap-2"><Link2 className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">{t('admin.brandingPage.domains.title' as any)}</CardTitle></div>
           <Button size="sm" onClick={handleSave} disabled={!dirty || update.isPending}>
-            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}Save
+            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}{t('admin.brandingPage.common.save' as any)}
           </Button>
         </div>
-        <CardDescription>Base URLs used across split frontend/backend widget deployments, emails, SEO, and public pages.</CardDescription>
+        <CardDescription>{t('admin.brandingPage.domains.description' as any)}</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="grid gap-5 md:grid-cols-2">
           {DOMAIN_FIELDS.map((f) => (
-            <FieldRow key={f.key} label={f.label} desc={f.desc} value={(form as any)?.[f.key] ?? ''} onChange={(v) => set(f.key, v)} placeholder={f.placeholder} />
+            <FieldRow key={f.key} label={t(`admin.brandingPage.domains.fields.${f.key}.label` as any)} desc={t(`admin.brandingPage.domains.fields.${f.key}.hint` as any)} value={(form as any)?.[f.key] ?? ''} onChange={(v) => set(f.key, v)} placeholder={f.placeholder} />
           ))}
         </div>
       </CardContent>
@@ -800,22 +803,23 @@ function LoadingCard() {
 
 // ── Main Page ──
 export default function AdminBrandingPage() {
+  const { t } = useTranslation();
   return (
     <div className="space-y-6 max-w-4xl animate-fade-in">
       <div>
-        <h1 className="text-2xl font-bold text-foreground">Platform Branding</h1>
+        <h1 className="text-2xl font-bold text-foreground">{t('admin.brandingPage.title' as any)}</h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Visual identity, localized text, email configuration, and domain URLs — applied globally across the platform.
+          {t('admin.brandingPage.subtitle' as any)}
         </p>
       </div>
 
       <Tabs defaultValue="identity">
         <TabsList className="w-full justify-start flex-wrap">
-          <TabsTrigger value="identity" className="gap-1.5"><Palette className="h-4 w-4" /> Visual Identity</TabsTrigger>
-          <TabsTrigger value="settings" className="gap-1.5"><Settings2 className="h-4 w-4" /> Settings</TabsTrigger>
-          <TabsTrigger value="email-settings" className="gap-1.5"><Mail className="h-4 w-4" /> Email Settings</TabsTrigger>
-          <TabsTrigger value="email-templates" className="gap-1.5"><Mail className="h-4 w-4" /> Email Templates</TabsTrigger>
-          <TabsTrigger value="domains" className="gap-1.5"><Link2 className="h-4 w-4" /> Domain URLs</TabsTrigger>
+          <TabsTrigger value="identity" className="gap-1.5"><Palette className="h-4 w-4" /> {t('admin.brandingPage.tabs.identity' as any)}</TabsTrigger>
+          <TabsTrigger value="settings" className="gap-1.5"><Settings2 className="h-4 w-4" /> {t('admin.brandingPage.tabs.settings' as any)}</TabsTrigger>
+          <TabsTrigger value="email-settings" className="gap-1.5"><Mail className="h-4 w-4" /> {t('admin.brandingPage.tabs.emailSettings' as any)}</TabsTrigger>
+          <TabsTrigger value="email-templates" className="gap-1.5"><Mail className="h-4 w-4" /> {t('admin.brandingPage.tabs.emailTemplates' as any)}</TabsTrigger>
+          <TabsTrigger value="domains" className="gap-1.5"><Link2 className="h-4 w-4" /> {t('admin.brandingPage.tabs.domains' as any)}</TabsTrigger>
         </TabsList>
         <TabsContent value="identity" className="mt-4"><VisualIdentitySection /></TabsContent>
         <TabsContent value="settings" className="mt-4"><SettingsSection /></TabsContent>

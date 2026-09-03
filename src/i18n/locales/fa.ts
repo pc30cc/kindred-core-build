@@ -2771,6 +2771,11 @@ const fa: TranslationKeys = {
       loading: 'در حال بارگذاری…', time: 'زمان', action: 'عملیات', user: 'کاربر', workspace: 'فضای کاری',
       description: 'توضیحات', enabled: 'فعال', yes: 'بله', no: 'خیر', pending: 'در انتظار', healthy: 'سالم',
     },
+    brandingPage: {
+      title: "برندینگ پلتفرم", subtitle: "هویت بصری، متن‌های چندزبانه، تنظیمات ایمیل و آدرس دامنه‌ها که به‌صورت سراسری روی پلتفرم اعمال می‌شوند.", tabs: { identity: "هویت بصری", settings: "تنظیمات", emailSettings: "تنظیمات ایمیل", emailTemplates: "قالب‌های ایمیل", domains: "آدرس دامنه‌ها" }, common: { save: "ذخیره", error: "خطا" },
+      identity: { title: "هویت بصری", description: "لوگو، رنگ‌ها و فاوآیکون کل پلتفرم.", saved: "هویت بصری ذخیره شد", logoUrl: "آدرس لوگو", logoHint: "لوگوی پلتفرم در سربرگ و ایمیل‌ها نمایش داده می‌شود", faviconUrl: "آدرس فاوآیکون", faviconHint: "نماد زبانه مرورگر", primaryColor: "رنگ اصلی", secondaryColor: "رنگ فرعی", pwaIconUrl: "آدرس آیکون PWA", pwaIconHint: "آیکون ۵۱۲ در ۵۱۲ برنامه وب پیش‌رونده", preview: "پیش‌نمایش", logoPreview: "پیش‌نمایش لوگو" },
+      domains: { title: "آدرس دامنه‌های پلتفرم", description: "آدرس‌های پایه مورد استفاده در استقرار جداگانه رابط، سرور و ویجت، ایمیل‌ها، سئو و صفحات عمومی.", saved: "آدرس دامنه‌ها ذخیره شد", fields: { primary_domain: { label: "دامنه اصلی", hint: "دامنه اصلی پلتفرم" }, canonical_base_url: { label: "آدرس پایه Canonical", hint: "برای تگ‌های canonical سئو استفاده می‌شود" }, app_base_url: { label: "آدرس اپ / پنل", hint: "نشانی برنامه و پنل کاربران" }, api_base_url: { label: "آدرس پایه API", hint: "نشانی API پلتفرم" }, public_base_url: { label: "آدرس سایت عمومی", hint: "سایت بازاریابی و مبدأ عمومی" }, help_center_base_url: { label: "آدرس مرکز راهنما", hint: "نشانی مرکز راهنمای عمومی" }, email_base_url: { label: "آدرس پایه ایمیل", hint: "نشانی پایه پیوندهای داخل ایمیل" } } },
+    },
     dashboard: {
       title: 'داشبورد پلتفرم', totalUsers: 'کل کاربران', totalWorkspaces: 'کل فضاهای کاری',
       featureFlags: 'پرچم‌های ویژگی', systemStatus: 'وضعیت سیستم', quickActions: 'دسترسی‌های سریع',

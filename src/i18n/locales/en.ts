@@ -2783,6 +2783,11 @@ const en = {
       loading: 'Loading…', time: 'Time', action: 'Action', user: 'User', workspace: 'Workspace',
       description: 'Description', enabled: 'Enabled', yes: 'Yes', no: 'No', pending: 'Pending', healthy: 'Healthy',
     },
+    brandingPage: {
+      title: "Platform branding", subtitle: "Visual identity, localized text, email configuration and domain URLs applied globally across the platform.", tabs: { identity: "Visual identity", settings: "Settings", emailSettings: "Email settings", emailTemplates: "Email templates", domains: "Domain URLs" }, common: { save: "Save", error: "Error" },
+      identity: { title: "Visual identity", description: "Logo, colors and favicon for the entire platform.", saved: "Visual identity saved", logoUrl: "Logo URL", logoHint: "Platform logo displayed in the header and emails", faviconUrl: "Favicon URL", faviconHint: "Browser tab icon", primaryColor: "Primary color", secondaryColor: "Secondary color", pwaIconUrl: "PWA icon URL", pwaIconHint: "512 × 512 icon for the progressive web app", preview: "Preview", logoPreview: "Logo preview" },
+      domains: { title: "Platform domain URLs", description: "Base URLs used across split frontend/backend widget deployments, emails, SEO and public pages.", saved: "Domain URLs saved", fields: { primary_domain: { label: "Primary domain", hint: "Main platform domain" }, canonical_base_url: { label: "Canonical base URL", hint: "Used for SEO canonical tags" }, app_base_url: { label: "App / panel URL", hint: "Address of the user application and panel" }, api_base_url: { label: "API base URL", hint: "Address of the platform API" }, public_base_url: { label: "Public site URL", hint: "Marketing site and public-facing origin" }, help_center_base_url: { label: "Help center URL", hint: "Address of the public help center" }, email_base_url: { label: "Email base URL", hint: "Base address for links inside emails" } } },
+    },
     dashboard: {
       title: 'Platform Dashboard', totalUsers: 'Total users', totalWorkspaces: 'Total workspaces',
       featureFlags: 'Feature flags', systemStatus: 'System status', quickActions: 'Quick actions',

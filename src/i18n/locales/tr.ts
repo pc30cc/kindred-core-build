@@ -2775,6 +2775,11 @@ const tr: TranslationKeys = {
       loading: 'Yükleniyor…', time: 'Zaman', action: 'İşlem', user: 'Kullanıcı', workspace: 'Çalışma alanı',
       description: 'Açıklama', enabled: 'Etkin', yes: 'Evet', no: 'Hayır', pending: 'Bekliyor', healthy: 'Sağlıklı',
     },
+    brandingPage: {
+      title: "Platform markası", subtitle: "Platform genelinde uygulanan görsel kimlik, yerelleştirilmiş metinler, e-posta yapılandırması ve alan adı URL'leri.", tabs: { identity: "Görsel kimlik", settings: "Ayarlar", emailSettings: "E-posta ayarları", emailTemplates: "E-posta şablonları", domains: "Alan adı URL'leri" }, common: { save: "Kaydet", error: "Hata" },
+      identity: { title: "Görsel kimlik", description: "Tüm platform için logo, renkler ve favicon.", saved: "Görsel kimlik kaydedildi", logoUrl: "Logo URL'si", logoHint: "Başlıkta ve e-postalarda gösterilen platform logosu", faviconUrl: "Favicon URL'si", faviconHint: "Tarayıcı sekmesi simgesi", primaryColor: "Ana renk", secondaryColor: "İkincil renk", pwaIconUrl: "PWA simge URL'si", pwaIconHint: "Aşamalı web uygulaması için 512 × 512 simge", preview: "Önizleme", logoPreview: "Logo önizlemesi" },
+      domains: { title: "Platform alan adı URL'leri", description: "Ayrı ön yüz, arka uç ve widget dağıtımlarında, e-postalarda, SEO'da ve genel sayfalarda kullanılan temel URL'ler.", saved: "Alan adı URL'leri kaydedildi", fields: { primary_domain: { label: "Birincil alan adı", hint: "Platformun ana alan adı" }, canonical_base_url: { label: "Canonical temel URL", hint: "SEO canonical etiketleri için kullanılır" }, app_base_url: { label: "Uygulama / panel URL'si", hint: "Kullanıcı uygulaması ve panel adresi" }, api_base_url: { label: "API temel URL'si", hint: "Platform API adresi" }, public_base_url: { label: "Genel site URL'si", hint: "Pazarlama sitesi ve genel kaynak" }, help_center_base_url: { label: "Yardım merkezi URL'si", hint: "Genel yardım merkezinin adresi" }, email_base_url: { label: "E-posta temel URL'si", hint: "E-posta içindeki bağlantıların temel adresi" } } },
+    },
     dashboard: {
       title: 'Platform Paneli', totalUsers: 'Toplam kullanıcı', totalWorkspaces: 'Toplam çalışma alanı',
       featureFlags: 'Özellik bayrakları', systemStatus: 'Sistem durumu', quickActions: 'Hızlı işlemler',

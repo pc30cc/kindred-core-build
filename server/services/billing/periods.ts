@@ -24,7 +24,7 @@ export type PlanActionType =
   | 'plan_upgrade'
   | 'plan_downgrade';
 
-export type PurchaseActionType = PlanActionType | 'ai_credit_topup';
+export type PurchaseActionType = PlanActionType | 'ai_credit_topup' | 'wallet_deposit';
 
 /** Days in a given UTC (year, monthIndex) pair — leap-year correct. */
 export function daysInUtcMonth(year: number, monthIndex: number): number {

@@ -56,6 +56,7 @@ import {
   LegacyPathRejectedError,
 } from '../services/billing/rollout.js';
 import { settleAndApply } from '../services/billing/invoice/settle.js';
+import { applyWalletDeposit } from '../services/billing/wallet/index.js';
 import { buildWorkspaceBillingReadModel } from '../services/billing/readModel.js';
 
 /**
@@ -671,6 +672,46 @@ billingRouter.post('/verify-callback', async (req, res) => {
       // for reconciliation instead of being applied or discarded.
       const intentEngine = (intent as any).billing_engine_version === 'v2' ? 'v2' : 'v1';
       const invoiceId = (intent as any).invoice_id as string | null | undefined;
+      const walletDepositId = (intent as any).wallet_deposit_id as string | null | undefined;
+
+      // ── Wallet deposit ──────────────────────────────────────────────────
+      // A deposit buys no service, so it has no invoice and no entitlement
+      // effect: it only converts verified gateway money into wallet balance.
+      // It is therefore handled BEFORE the engine routing below and is valid
+      // under both engines — the wallet is the one purchase V2 does not make
+      // invoice-driven.
+      if (intent.purchase_type === 'wallet_deposit' && walletDepositId) {
+        try {
+          const payment = await recordCustomerPayment(cfg, {
+            workspaceId,
+            providerName,
+            providerPaymentId: providerRef,
+            paymentIntentId: intent.id,
+            invoiceNumber: intent.invoice_number,
+            amount: intent.amount_irr,
+            currency: 'IRR',
+            purchaseType: 'wallet_deposit',
+            actionType: 'wallet_deposit',
+            metadata: { intentId: intent.id, providerRef, depositId: walletDepositId },
+          });
+          // Idempotent per deposit: a replayed callback credits nothing twice.
+          await applyWalletDeposit(cfg, {
+            depositId: walletDepositId,
+            amountIrr: Number((intent as any).expected_amount_irr ?? intent.amount_irr),
+            paymentId: payment.id,
+          });
+        } catch (depositError: any) {
+          await noteIntentFailureAttempt(cfg, intent, String(depositError?.message || depositError));
+          return res.status(202).json({ success: true, verified: true, pending: true });
+        }
+        await markIntentSucceeded(cfg, intent.id);
+        const doneIntent = await getPaymentIntent(cfg, intent.id);
+        return res.json({
+          success: true,
+          ...result,
+          receipt: doneIntent ? await buildReceipt(cfg, doneIntent) : undefined,
+        });
+      }
 
       if (intentEngine === 'v1' && (await isV2Active(cfg, workspaceId))) {
         const parked = await recordCustomerPayment(cfg, {

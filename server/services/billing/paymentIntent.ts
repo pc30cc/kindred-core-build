@@ -32,7 +32,7 @@ import {
 } from './providerBinding.js';
 import { insertWithDocumentNumber } from './invoiceNumber.js';
 
-export type PurchaseType = 'subscription' | 'ai_credit_topup';
+export type PurchaseType = 'subscription' | 'ai_credit_topup' | 'wallet_deposit';
 export type IntentStatus =
   | 'pending'
   | 'processing'
@@ -163,6 +163,104 @@ export async function createAiCreditTopupIntent(
       .single();
     return { data: data as PaymentIntentRow | null, error };
   });
+}
+
+/**
+ * Checkout intent for an OPEN INVOICE (Billing Engine V2).
+ *
+ * The invoice is the pricing authority: `expected_amount_irr` is copied from
+ * `amount_due_irr` here and is immutable afterwards, so gateway verification
+ * can assert gateway_amount = intent.expected = invoice.due. The engine stamp
+ * is written at insert time and can never change (migration 117 trigger), so
+ * the callback routes on the intent's OWN engine, not on today's rollout state.
+ */
+export async function createInvoiceIntent(
+  config: ServerConfig,
+  input: {
+    workspaceId: string;
+    invoiceId: string;
+    amountIrr: number;
+    providerName: string;
+    planId?: string | null;
+    interval?: 'monthly' | 'yearly' | null;
+    actionType?: PurchaseActionType | null;
+    planNameSnapshot?: string | null;
+    workspaceNameSnapshot?: string | null;
+    invoiceNumber?: string | null;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<PaymentIntentRow> {
+  const supabase = getServiceClient(config);
+  return insertWithDocumentNumber<PaymentIntentRow>(async (documentNumber) => {
+    const { data, error } = await supabase
+      .from('billing_payment_intents')
+      .insert({
+        workspace_id: input.workspaceId,
+        purchase_type: input.actionType === 'ai_credit_topup' ? 'ai_credit_topup' : 'subscription',
+        action_type: input.actionType ?? null,
+        plan_id: input.planId ?? null,
+        billing_interval: input.interval ?? null,
+        provider_name: input.providerName,
+        amount_irr: input.amountIrr,
+        // The document the customer sees is the INVOICE number; the intent
+        // keeps its own order number only when there is no invoice.
+        invoice_number: input.invoiceNumber || documentNumber,
+        plan_name_snapshot: input.planNameSnapshot ?? null,
+        workspace_name_snapshot: input.workspaceNameSnapshot ?? null,
+        discount_irr: 0,
+        final_amount_irr: input.amountIrr,
+        invoice_id: input.invoiceId,
+        expected_amount_irr: input.amountIrr,
+        billing_engine_version: 'v2',
+        metadata: input.metadata || {},
+        expires_at: new Date(Date.now() + INTENT_TTL_MS).toISOString(),
+      })
+      .select('*')
+      .single();
+    return { data: data as PaymentIntentRow | null, error };
+  });
+}
+
+/**
+ * Checkout intent for a WALLET DEPOSIT — the one purchase in V2 that is not
+ * invoice-driven, because a deposit buys no service: it only converts gateway
+ * money into wallet balance. It is bound 1:1 to its deposit document.
+ */
+export async function createWalletDepositIntent(
+  config: ServerConfig,
+  input: {
+    workspaceId: string;
+    depositId: string;
+    documentNumber: string;
+    amountIrr: number;
+    providerName: string;
+    workspaceNameSnapshot?: string | null;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<PaymentIntentRow> {
+  const supabase = getServiceClient(config);
+  const { data, error } = await supabase
+    .from('billing_payment_intents')
+    .insert({
+      workspace_id: input.workspaceId,
+      purchase_type: 'wallet_deposit',
+      action_type: 'wallet_deposit',
+      provider_name: input.providerName,
+      amount_irr: input.amountIrr,
+      invoice_number: input.documentNumber,
+      workspace_name_snapshot: input.workspaceNameSnapshot ?? null,
+      discount_irr: 0,
+      final_amount_irr: input.amountIrr,
+      expected_amount_irr: input.amountIrr,
+      wallet_deposit_id: input.depositId,
+      billing_engine_version: 'v2',
+      metadata: input.metadata || {},
+      expires_at: new Date(Date.now() + INTENT_TTL_MS).toISOString(),
+    })
+    .select('*')
+    .single();
+  if (error) throw new Error(error.message);
+  return data as PaymentIntentRow;
 }
 
 /**

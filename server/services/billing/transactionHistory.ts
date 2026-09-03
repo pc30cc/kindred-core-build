@@ -26,7 +26,7 @@ export interface CustomerTransaction {
   /** WebYar proforma/order number (NOT a legal tax invoice number). */
   documentNumber: string | null;
   type: string | null;
-  purchaseType: 'subscription' | 'ai_credit_topup';
+  purchaseType: 'subscription' | 'ai_credit_topup' | 'wallet_deposit';
   planName: string | null;
   billingInterval: 'monthly' | 'yearly' | null;
   amountIrr: number;
@@ -38,6 +38,8 @@ export interface CustomerTransaction {
   /** Bank tracking reference — deliberately distinct from documentNumber. */
   providerReference: string | null;
   settled: boolean;
+  /** Verified money that has not been applied yet — "under review", never a failure. */
+  needsReview?: boolean;
 }
 
 export interface PaymentRowInput {
@@ -102,10 +104,13 @@ export function buildTransactionHistory(
   for (const p of payments || []) {
     const intent = p.payment_intent_id ? byIntentId.get(p.payment_intent_id) : undefined;
     if (intent) consumedIntents.add(intent.id);
-    const purchaseType = (intent?.purchase_type === 'ai_credit_topup'
-      || p.action_type === 'ai_credit_topup'
-      || p.metadata?.purchase_type === 'ai_credit_topup')
-      ? 'ai_credit_topup' : 'subscription';
+    const rawPurchase = intent?.purchase_type || p.metadata?.purchase_type || null;
+    const purchaseType: CustomerTransaction['purchaseType'] =
+      rawPurchase === 'wallet_deposit' || p.action_type === 'wallet_deposit'
+        ? 'wallet_deposit'
+        : rawPurchase === 'ai_credit_topup' || p.action_type === 'ai_credit_topup'
+          ? 'ai_credit_topup'
+          : 'subscription';
     rows.push({
       id: p.id,
       documentNumber: p.invoice_number || intent?.invoice_number || null,
@@ -134,7 +139,12 @@ export function buildTransactionHistory(
       id: i.id,
       documentNumber: i.invoice_number || null,
       type: i.action_type || null,
-      purchaseType: i.purchase_type === 'ai_credit_topup' ? 'ai_credit_topup' : 'subscription',
+      purchaseType:
+        i.purchase_type === 'wallet_deposit'
+          ? 'wallet_deposit'
+          : i.purchase_type === 'ai_credit_topup'
+            ? 'ai_credit_topup'
+            : 'subscription',
       planName: i.plan_name_snapshot || i.billing_plans?.name || null,
       billingInterval: (i.billing_interval || null) as any,
       amountIrr: num(i.final_amount_irr ?? i.amount_irr),

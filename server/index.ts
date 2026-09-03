@@ -27,6 +27,7 @@ import { workspaceAlertsRouter } from './routes/workspaceAlerts.js';
 import { availabilityRouter } from './routes/availability.js';
 import { operatorActivityRouter } from './routes/operatorActivity.js';
 import { billingRouter, billingWebhookRouter } from './routes/billing.js';
+import { billingV2CustomerRouter } from './routes/billingV2Customer.js';
 import { adminBillingV2Router } from './routes/adminBillingV2.js';
 import { plansRouter } from './routes/plans.js';
 import { pluginsRouter, adminPluginsRouter } from './routes/plugins.js';
@@ -372,6 +373,7 @@ app.use('/api/availability', availabilityRouter);
 app.use('/api/operator-activity', operatorActivityRouter);
 
 // Billing — checkout, webhooks, subscription management
+app.use('/api/billing/v2', billingV2CustomerRouter);
 app.use('/api/billing', billingRouter);
 
 // Billing Engine V2 rollout control — Platform Admin only (authorized in-router).

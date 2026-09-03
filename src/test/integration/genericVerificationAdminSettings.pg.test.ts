@@ -414,7 +414,7 @@ suite('Generic Verification Core — Super Admin settings (real PostgreSQL + rea
     const audit = await db.query(`SELECT action, previous_settings, new_settings, actor_profile_id FROM public.verification_purpose_settings_audit WHERE purpose='sensitive_action'`);
     expect(audit.rows).toHaveLength(1);
     expect(audit.rows[0].action).toBe('update');
-    expect(audit.rows[0].new_settings.otpTtlSeconds).toBe(120);
+    expect((audit.rows[0] as any).new_settings.otpTtlSeconds).toBe(120);
     expect(audit.rows[0].actor_profile_id).toBe(SUPER_ADMIN);
     // Never a secret in the sanitized settings.
     const serialized = JSON.stringify(audit.rows[0]);

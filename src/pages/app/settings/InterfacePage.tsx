@@ -22,7 +22,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { CheckCircle2, Loader2, Languages, Palette, Monitor, Sun, Moon } from 'lucide-react';
+import { CheckCircle2, Loader2, Languages, Palette, Monitor, Sun, Moon, Type, Droplet, Contrast, LayoutGrid, RotateCcw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { useUiPreferences } from '@/features/ui-preferences/UiPreferencesContext';
+import { UI_ACCENT_SWATCH, UI_FONT_SIZE_PX, type UiChroma, type UiFontSize, type UiPreferences, type UiSkin } from '@/lib/ui-preferences';
 import { updateAccount } from '@/lib/account-api';
 import { toast } from '@/hooks/use-toast';
 
@@ -33,6 +36,8 @@ const LOCALE_FLAGS: Record<Locale, string> = {
 };
 
 type Appearance = 'light' | 'dark' | 'system';
+
+const FONT_SIZES: UiFontSize[] = ['xs', 'sm', 'md', 'lg', 'xl'];
 
 const APPEARANCE_ICONS: Record<Appearance, typeof Sun> = {
   light: Sun,
@@ -45,6 +50,7 @@ export default function InterfacePage() {
   const { locale, setLocale } = useI18n();
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
   const { theme, setTheme, resolvedTheme } = useTheme();
+  const { preferences, setPreference, reset } = useUiPreferences();
 
   const [savingLocale, setSavingLocale] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -91,6 +97,11 @@ export default function InterfacePage() {
     } finally {
       setSavingLocale(false);
     }
+  }
+
+  function handlePref<K extends keyof UiPreferences>(key: K, value: UiPreferences[K]) {
+    setPreference(key, value);
+    setSavedAt(Date.now());
   }
 
   function handleThemeChange(value: string) {
@@ -190,6 +201,116 @@ export default function InterfacePage() {
           </div>
         </div>
       </Card>
+
+      {/* Personal display preferences */}
+      <Card className="p-6 space-y-6">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">{t('interface.displayTitle')}</h2>
+          <p className="text-xs text-muted-foreground mt-1">{t('interface.displayHelper')}</p>
+        </div>
+
+        {/* Font size */}
+        <div className="space-y-2">
+          <Label className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <Type className="h-4 w-4 text-muted-foreground" />
+            {t('interface.fontSize')}
+          </Label>
+          <div className="flex flex-wrap gap-2">
+            {FONT_SIZES.map((size) => (
+              <button
+                key={size}
+                type="button"
+                onClick={() => handlePref('fontSize', size)}
+                className={`rounded-xl border px-4 py-2 transition-all ${
+                  preferences.fontSize === size
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border bg-background text-muted-foreground hover:border-primary/40'
+                }`}
+                style={{ fontSize: `${UI_FONT_SIZE_PX[size]}px` }}
+              >
+                {t(`interface.fontSize_${size}` as any)}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">{t('interface.fontSizeHelper')}</p>
+        </div>
+
+        {/* Accent colour */}
+        <div className="space-y-2">
+          <Label className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <Droplet className="h-4 w-4 text-muted-foreground" />
+            {t('interface.accent')}
+          </Label>
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(UI_ACCENT_SWATCH) as Array<keyof typeof UI_ACCENT_SWATCH>).map((accent) => (
+              <button
+                key={accent}
+                type="button"
+                aria-label={t(`interface.accent_${accent}` as any)}
+                onClick={() => handlePref('accent', accent)}
+                disabled={preferences.chroma === 'mono'}
+                className={`h-9 w-9 rounded-full border-2 transition-transform disabled:opacity-40 ${
+                  preferences.accent === accent ? 'border-foreground scale-110' : 'border-transparent hover:scale-105'
+                }`}
+                style={{ backgroundColor: UI_ACCENT_SWATCH[accent] }}
+              />
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {preferences.chroma === 'mono' ? t('interface.accentMonoNote') : t('interface.accentHelper')}
+          </p>
+        </div>
+
+        {/* Chroma + skin */}
+        <div className="grid gap-6 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <Contrast className="h-4 w-4 text-muted-foreground" />
+              {t('interface.chroma')}
+            </Label>
+            <Select value={preferences.chroma} onValueChange={(v) => handlePref('chroma', v as UiChroma)}>
+              <SelectTrigger className="h-11"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="color">{t('interface.chroma_color')}</SelectItem>
+                <SelectItem value="mono">{t('interface.chroma_mono')}</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">{t('interface.chromaHelper')}</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <LayoutGrid className="h-4 w-4 text-muted-foreground" />
+              {t('interface.skin')}
+            </Label>
+            <Select value={preferences.skin} onValueChange={(v) => handlePref('skin', v as UiSkin)}>
+              <SelectTrigger className="h-11"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="cloud">{t('interface.skin_cloud')}</SelectItem>
+                <SelectItem value="linen">{t('interface.skin_linen')}</SelectItem>
+                <SelectItem value="graphite">{t('interface.skin_graphite')}</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">{t('interface.skinHelper')}</p>
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              reset();
+              setSavedAt(Date.now());
+            }}
+          >
+            <RotateCcw className="h-3.5 w-3.5 me-2" />
+            {t('interface.resetDefaults')}
+          </Button>
+        </div>
+      </Card>
     </div>
   );
 }
+

@@ -242,13 +242,14 @@
 
   html, body {
     @apply bg-background text-foreground antialiased;
-    font-size: 16px;
+    font-size: var(--ui-font-size, 16px);
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
     max-width: 100vw;
   }
+
 
   html {
     overscroll-behavior-y: none;
@@ -631,4 +632,137 @@ html[lang="en"] * {
 .text-\[15px\] {
   font-size: 1rem !important;      /* 16px */
   line-height: 1.6 !important;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Per-user interface preferences (set from Settings → Interface).
+   Attributes are written on <html> by UiPreferencesProvider.
+   ───────────────────────────────────────────────────────────── */
+
+/* Accent presets — remap the primary / ring / sidebar accent tokens. */
+html[data-ui-accent="emerald"] {
+  --primary: 160 84% 39%;
+  --ring: 160 84% 39%;
+  --gold: 160 84% 39%;
+  --accent: 160 60% 95%;
+  --accent-foreground: 162 80% 26%;
+  --sidebar-primary: 160 84% 39%;
+  --sidebar-accent: 160 60% 95%;
+  --sidebar-accent-foreground: 162 80% 26%;
+  --sidebar-ring: 160 84% 39%;
+  --gradient-primary: linear-gradient(135deg, hsl(160 84% 39%), hsl(168 80% 32%));
+}
+
+html[data-ui-accent="violet"] {
+  --primary: 258 90% 66%;
+  --ring: 258 90% 66%;
+  --gold: 258 90% 66%;
+  --accent: 258 90% 96%;
+  --accent-foreground: 258 70% 45%;
+  --sidebar-primary: 258 90% 66%;
+  --sidebar-accent: 258 90% 96%;
+  --sidebar-accent-foreground: 258 70% 45%;
+  --sidebar-ring: 258 90% 66%;
+  --gradient-primary: linear-gradient(135deg, hsl(258 90% 66%), hsl(268 84% 56%));
+}
+
+html[data-ui-accent="amber"] {
+  --primary: 38 92% 50%;
+  --primary-foreground: 30 40% 12%;
+  --ring: 38 92% 50%;
+  --gold: 38 92% 50%;
+  --accent: 40 92% 95%;
+  --accent-foreground: 30 70% 34%;
+  --sidebar-primary: 38 92% 50%;
+  --sidebar-primary-foreground: 30 40% 12%;
+  --sidebar-accent: 40 92% 95%;
+  --sidebar-accent-foreground: 30 70% 34%;
+  --sidebar-ring: 38 92% 50%;
+  --gradient-primary: linear-gradient(135deg, hsl(38 92% 50%), hsl(28 88% 46%));
+}
+
+html[data-ui-accent="rose"] {
+  --primary: 347 89% 60%;
+  --ring: 347 89% 60%;
+  --gold: 347 89% 60%;
+  --accent: 347 89% 96%;
+  --accent-foreground: 347 70% 42%;
+  --sidebar-primary: 347 89% 60%;
+  --sidebar-accent: 347 89% 96%;
+  --sidebar-accent-foreground: 347 70% 42%;
+  --sidebar-ring: 347 89% 60%;
+  --gradient-primary: linear-gradient(135deg, hsl(347 89% 60%), hsl(337 82% 52%));
+}
+
+html[data-ui-accent="slate"] {
+  --primary: 215 25% 35%;
+  --ring: 215 25% 35%;
+  --gold: 215 25% 35%;
+  --accent: 214 25% 94%;
+  --accent-foreground: 215 30% 28%;
+  --sidebar-primary: 215 25% 35%;
+  --sidebar-accent: 214 25% 94%;
+  --sidebar-accent-foreground: 215 30% 28%;
+  --sidebar-ring: 215 25% 35%;
+  --gradient-primary: linear-gradient(135deg, hsl(215 25% 35%), hsl(215 28% 26%));
+}
+
+/* Panel skins — background / surface personality. */
+html[data-ui-skin="linen"] {
+  --background: 36 30% 96%;
+  --card: 40 40% 99%;
+  --popover: 40 40% 99%;
+  --secondary: 36 24% 91%;
+  --muted: 36 22% 92%;
+  --border: 34 20% 85%;
+  --input: 34 20% 84%;
+  --sidebar-background: 40 40% 99%;
+  --sidebar-border: 34 20% 90%;
+  --surface-elevated: 40 40% 99%;
+  --surface-sunken: 36 30% 97%;
+}
+
+html[data-ui-skin="graphite"] {
+  --background: 220 14% 93%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --secondary: 220 12% 88%;
+  --muted: 220 12% 90%;
+  --border: 220 10% 82%;
+  --input: 220 10% 80%;
+  --sidebar-background: 220 16% 97%;
+  --sidebar-border: 220 12% 88%;
+  --surface-elevated: 0 0% 100%;
+  --surface-sunken: 220 14% 95%;
+}
+
+/* Monochrome mode — drains colour from the panel chrome while keeping
+   status colours (success / warning / destructive) readable but muted. */
+html[data-ui-chroma="mono"] {
+  --primary: 220 9% 26%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 220 9% 26%;
+  --gold: 220 9% 26%;
+  --accent: 220 12% 93%;
+  --accent-foreground: 220 12% 25%;
+  --sidebar-primary: 220 9% 26%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 220 12% 93%;
+  --sidebar-accent-foreground: 220 12% 25%;
+  --sidebar-ring: 220 9% 26%;
+  --gradient-primary: linear-gradient(135deg, hsl(220 9% 30%), hsl(220 10% 18%));
+  --success: 150 12% 38%;
+  --warning: 38 14% 42%;
+  --info: 212 12% 42%;
+}
+
+html[data-ui-chroma="mono"].dark {
+  --primary: 220 8% 78%;
+  --primary-foreground: 220 14% 12%;
+  --accent: 220 10% 20%;
+  --accent-foreground: 220 8% 86%;
+  --sidebar-primary: 220 8% 78%;
+  --sidebar-primary-foreground: 220 14% 12%;
+  --sidebar-accent: 220 10% 20%;
+  --sidebar-accent-foreground: 220 8% 86%;
 }

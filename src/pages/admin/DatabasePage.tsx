@@ -13,7 +13,7 @@ import {
   Database, Download, Clock, HardDrive,
   Cloud, Server, FolderSync, CalendarDays, CalendarRange,
   Calendar, ArrowRightLeft,
-  AlertCircle, CheckCircle, Loader2, Trash2, ShieldAlert, Upload,
+  AlertCircle, CheckCircle, Loader2, Trash2, ShieldAlert, Upload, DatabaseBackup,
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';

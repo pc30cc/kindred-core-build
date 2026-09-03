@@ -2630,6 +2630,11 @@ const tr: TranslationKeys = {
         advancedJson: 'Gelişmiş JSON düzenleyici',
         jsonError: 'JSON hatası:',
         placeholder: 'Çağrı merkezi şu anda kullanılamıyor.',
+        placeholders: {
+          en: "Call center is currently unavailable.",
+          fa: "مرکز تماس در حال حاضر در دسترس نیست.",
+          tr: "Çağrı merkezi şu anda kullanılamıyor.",
+        },
       },
       featureToggles: {
         title: 'Özellik anahtarları',
@@ -2710,6 +2715,7 @@ const tr: TranslationKeys = {
         availableHint: 'Yalnızca işaretli diller çalışma alanı bazında açılabilir. Varsayılan dil bu anahtarlardan bağımsız olarak her zaman kullanılabilir.',
         default: 'Varsayılan',
         saveBtn: 'Dil ayarlarını kaydet',
+        names: { en: "İngilizce", fa: "Farsça", tr: "Türkçe" },
       },
       livekit: {
         title: 'LiveKit bağlantısı',
@@ -2723,6 +2729,15 @@ const tr: TranslationKeys = {
         missing: 'Eksik',
         diagnosticsFailed: 'Tanılama başarısız',
         noWorkspace: 'Test edilecek çalışma alanı yok',
+        warnings: {
+          disabled: "LiveKit devre dışı.",
+          apiKeyMissing: "LiveKit API anahtarı eksik.",
+          apiSecretMissing: "LiveKit API gizli anahtarı eksik.",
+          urlMissing: "LiveKit sunucu URL'si eksik.",
+          storageCredentialsMissing: "Kayıt depolama kimlik bilgileri eksik.",
+          v1PathUnsupported: "LiveKit sunucusu /rtc/v1/validate yolunu desteklemiyor.",
+          serverUnreachable: "LiveKit sunucusuna ulaşılamıyor.",
+        },
       },
       workspacesPanel: {
         title: 'Çalışma alanları',

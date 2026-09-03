@@ -2626,6 +2626,11 @@ const fa: TranslationKeys = {
         advancedJson: 'ویرایشگر پیشرفتهٔ JSON',
         jsonError: 'خطای JSON:',
         placeholder: 'مرکز تماس در حال حاضر در دسترس نیست.',
+        placeholders: {
+          en: "Call center is currently unavailable.",
+          fa: "مرکز تماس در حال حاضر در دسترس نیست.",
+          tr: "Çağrı merkezi şu anda kullanılamıyor.",
+        },
       },
       featureToggles: {
         title: 'کلیدهای ویژگی',
@@ -2706,6 +2711,7 @@ const fa: TranslationKeys = {
         availableHint: 'فقط زبان‌های تیک‌خورده می‌توانند در هر فضای کاری روشن شوند. زبان پیش‌فرض همیشه در دسترس است.',
         default: 'پیش‌فرض',
         saveBtn: 'ذخیرهٔ تنظیمات زبان',
+        names: { en: "انگلیسی", fa: "فارسی", tr: "ترکی" },
       },
       livekit: {
         title: 'اتصال LiveKit',
@@ -2719,6 +2725,15 @@ const fa: TranslationKeys = {
         missing: 'موجود نیست',
         diagnosticsFailed: 'عیب‌یابی ناموفق بود',
         noWorkspace: 'فضای کاری در دسترس برای بررسی نیست',
+        warnings: {
+          disabled: "LiveKit غیرفعال است.",
+          apiKeyMissing: "کلید API سرویس LiveKit وارد نشده است.",
+          apiSecretMissing: "رمز API سرویس LiveKit وارد نشده است.",
+          urlMissing: "آدرس سرور LiveKit وارد نشده است.",
+          storageCredentialsMissing: "اطلاعات دسترسی فضای ذخیره ضبط وارد نشده است.",
+          v1PathUnsupported: "سرور LiveKit از مسیر ‎/rtc/v1/validate‎ پشتیبانی نمی‌کند.",
+          serverUnreachable: "سرور LiveKit در دسترس نیست.",
+        },
       },
       workspacesPanel: {
         title: 'فضاهای کاری',

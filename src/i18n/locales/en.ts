@@ -2638,6 +2638,11 @@ const en = {
         advancedJson: 'Advanced JSON editor',
         jsonError: 'JSON error:',
         placeholder: 'Call center is currently unavailable.',
+        placeholders: {
+          en: "Call center is currently unavailable.",
+          fa: "مرکز تماس در حال حاضر در دسترس نیست.",
+          tr: "Çağrı merkezi şu anda kullanılamıyor.",
+        },
       },
       featureToggles: {
         title: 'Feature toggles',
@@ -2718,6 +2723,7 @@ const en = {
         availableHint: 'Only checked languages can be turned on per workspace. The default language is always available regardless of these toggles.',
         default: 'Default',
         saveBtn: 'Save language settings',
+        names: { en: "English", fa: "Persian", tr: "Turkish" },
       },
       livekit: {
         title: 'LiveKit connectivity',
@@ -2731,6 +2737,15 @@ const en = {
         missing: 'Missing',
         diagnosticsFailed: 'Diagnostics failed',
         noWorkspace: 'No workspace available to probe',
+        warnings: {
+          disabled: "LiveKit is disabled.",
+          apiKeyMissing: "The LiveKit API key is missing.",
+          apiSecretMissing: "The LiveKit API secret is missing.",
+          urlMissing: "The LiveKit server URL is missing.",
+          storageCredentialsMissing: "Recording storage credentials are missing.",
+          v1PathUnsupported: "The LiveKit server does not support the /rtc/v1/validate path.",
+          serverUnreachable: "The LiveKit server is unreachable.",
+        },
       },
       workspacesPanel: {
         title: 'Workspaces',

@@ -114,14 +114,20 @@ test.describe('admin verification page — authenticated (E2E_FULL_STACK=1)', ()
     });
   }
 
-  // The 5 scenarios below share ONE page/session rather than each doing
-  // their own page.goto — every mount fires 3+ real /api/admin/* GETs
-  // (overview, audit, template preview), and adminRateLimiter (30/min/IP,
-  // server/middleware/security.ts) is real, correct, and NOT weakened for
-  // this suite; four separate full reloads was enough admin traffic from
-  // one IP to trip it. Reusing the page cuts that traffic to what an
-  // actual admin session touching 4 purposes back-to-back would generate.
+  // The scenarios below share ONE page/session rather than each doing its
+  // own page.goto — every mount fires 3+ real /api/admin/* GETs (overview,
+  // audit, template preview), and adminRateLimiter (30/min/IP,
+  // server/middleware/security.ts) is real, correct, and deliberately NOT
+  // weakened for this suite. Consolidating cut the traffic a lot, but the
+  // 5 earlier tests in this file (redirect check, overview render, 3
+  // locale/dir checks) already spend a good chunk of that 30/60s budget
+  // from the same test-runner IP before this test even starts, and this
+  // test's own ~15+ admin requests would then tip it over mid-run. Waiting
+  // out a full window first guarantees the fixed 60s window has rolled
+  // over and the whole budget is free again — a real admin doing this
+  // many edits by hand would never come close to 30/min anyway.
   test('editing a purpose (baseline/gates, weakening, tightening+audit, revision conflict, reset), then preview + no-secret-leak checks on the same session', async ({ page, context }) => {
+    await page.waitForTimeout(65_000);
     await withSiteDefault(page, 'en');
     await seedSessionCookie(context, runtime.superAdmin.token, runtime.ports.proxy);
     await page.goto('/admin/verification', { waitUntil: 'domcontentloaded' });

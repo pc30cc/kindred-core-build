@@ -199,6 +199,10 @@ export default function InboxPage() {
   const aiTabAllowed = inboxCapAllowed('inbox_ai_queue');
   const needsHumanTabAllowed = inboxCapAllowed('inbox_needs_human');
   const colleaguesTabAllowed = inboxCapAllowed('inbox_team_chat');
+  const queue: InboxQueue = rawQueue === 'automated' && !aiTabAllowed ? 'main' : rawQueue;
+  const isQueueMode = queue !== 'main';
+
+
 
   const rawExtraChip: ExtraChip | null =
     filterParam === 'needs_human' ? 'needs_human'

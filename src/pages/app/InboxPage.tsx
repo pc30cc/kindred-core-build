@@ -1214,8 +1214,11 @@ export default function InboxPage() {
               <span className={headTabAccent(extraChip === 'needs_human', 'destructive')} />
               <span className={headTabSeam(extraChip === 'needs_human')} />
             </button>
-            {/* Colleagues — internal operator-to-operator chat */}
+            ) : null}
+            {/* Colleagues — internal operator-to-operator chat. Plan-gated. */}
+            {colleaguesTabAllowed ? (
             <button
+
               role="tab"
               aria-selected={extraChip === 'colleagues'}
               onClick={() => setExtraChip(extraChip === 'colleagues' ? null : 'colleagues')}

@@ -100,14 +100,16 @@ export function formatMoney(
   // Region pins the currency; otherwise the active language decides it.
   const pinned = REGION_CURRENCY[mode];
   const code = (pinned ?? LOCALE_CURRENCY[locale] ?? currency ?? 'USD').toUpperCase();
-  let value = (amount ?? 0) / (minor ? 100 : 1);
 
   const isRial = RIAL_FAMILY.includes(code);
-  // Amounts stored in Rial are shown in Toman (1 Toman = 10 Rial).
-  const source = (currency || code).toUpperCase();
-  if (isRial && (source === 'IRR' || source === 'RIAL' || code === 'IRR' || code === 'RIAL')) {
-    value = value / 10;
-  }
+  // Rial-family amounts are ALWAYS stored as a plain whole-Rial integer
+  // (never minor units) — see src/lib/money.ts. Applying the generic
+  // `minor`/100 step on top of the Rial→Toman /10 step would silently
+  // divide by 1000 instead of 10 (a 100x display error), so Rial-family
+  // currencies skip the minor-units step entirely and go straight to the
+  // Rial→Toman conversion. USD/EUR/TRY keep the normal minor-units (cents)
+  // behavior.
+  let value = isRial ? (amount ?? 0) / 10 : (amount ?? 0) / (minor ? 100 : 1);
 
   const nf = new Intl.NumberFormat(intlLocaleFor(locale), {
     minimumFractionDigits: 0,

@@ -1,6 +1,51 @@
 import type { TranslationKeys } from './en';
 
 const tr: TranslationKeys = {
+    billingIran: {
+    pageTitle: 'Plan ve Ödeme', pageSubtitle: 'Çalışma alanı planınızı, kredinizi ve ödemelerinizi yönetin.',
+    tabs: { overview: 'Genel Bakış', plans: 'Planlar', aiCredit: 'AI Kredisi', transactions: 'İşlemler' },
+    overview: {
+      currentPlan: 'Mevcut plan', freePlan: 'Ücretsiz', statusActive: 'Aktif', statusInactive: 'Aktif değil',
+      activeUntil: '{{date}} tarihine kadar aktif', daysLeft: 'Dönem sonuna {{days}} gün kaldı', perMonth: '/ ay', perYear: '/ yıl',
+      renewCta: 'Planı yenile', changeCta: 'Planı değiştir', upgradeCta: 'Planı yükselt', managePortal: 'Ödemeyi yönet',
+      usageTitle: 'Kullanım özeti', conversations: 'Görüşmeler', operators: 'Operatörler', storage: 'Depolama',
+      callMinutes: 'Çağrı dakikaları', unlimited: 'Sınırsız', gb: 'GB',
+    },
+    plans: {
+      monthly: 'Aylık', yearly: 'Yıllık', yearlyHint: 'Yıllık ödeme — daha avantajlı', discountBadge: '%{{percent}} indirim',
+      selectCta: 'Planı seç', upgradeCta: 'Planı yükselt', currentCta: 'Mevcut plan', viewAllFeatures: 'Tüm özellikleri gör',
+      free: 'Ücretsiz',
+    },
+    renewal: {
+      title: '{{plan}} planını yenile', titleUpgrade: '{{plan}} planına yükselt', planLabel: 'Plan', periodLabel: 'Dönem',
+      amountLabel: 'Tutar', discountLabel: 'İndirim', payableLabel: 'Ödenecek tutar', payCta: 'Öde ve yenile',
+      payUpgradeCta: 'Öde ve yükselt', cancel: 'Vazgeç', processing: 'Ödeme sağlayıcısına bağlanılıyor…',
+    },
+    aiCredit: {
+      title: 'AI Kredisi', remainingLabel: 'Kalan kredi', ofPeriodAllowance: 'Bu dönemin {{total}} kredisinden',
+      usedLabel: 'Kullanılan', monthlyRemainingLabel: 'Kalan aylık kredi', purchasedRemainingLabel: 'Satın alınan kredi',
+      increaseCta: 'Kredi ekle',
+      topup: {
+        title: 'AI kredisi ekle', presetLabel: 'Yükleme tutarı', customAmountLabel: 'Özel tutar (Toman)',
+        customAmountPlaceholder: 'örn. 200.000', minMaxHint: 'Tutar {{min}} ile {{max}} Toman arasında olmalıdır.',
+        payCta: 'Öde', cancel: 'Vazgeç', invalidAmount: 'Girilen tutar geçersiz.',
+      },
+    },
+    result: {
+      successTitle: 'Ödeme başarılı', failureTitle: 'Ödeme başarısız', pendingTitle: 'Ödeme durumu doğrulanıyor',
+      failureHint: 'Hesabınızdan tutar düşüldüyse banka süreciniz gereğince iade edilecektir.',
+      backCta: 'Plan ve Ödemeye dön', viewInvoiceCta: 'Faturayı görüntüle', retryCta: 'Tekrar dene',
+      amountLabel: 'Tutar', purposeLabel: 'Açıklama', dateLabel: 'Tarih', trackingNumberLabel: 'Takip numarası', orderNumberLabel: 'Sipariş numarası',
+      purposeRenewal: '{{plan}} planını yenileme', purposeUpgrade: '{{plan}} planına yükseltme', purposeTopup: 'AI kredisi satın alma',
+    },
+    transactions: {
+      title: 'İşlemler', date: 'Tarih', description: 'Açıklama', amount: 'Tutar', status: 'Durum', details: 'Detaylar',
+      empty: 'Henüz işlem yok', detailTitle: 'İşlem detayları', gateway: 'Ödeme sağlayıcısı',
+      trackingNumber: 'Takip numarası', orderNumber: 'Sipariş numarası', close: 'Kapat',
+      descRenewal: '{{plan}} planını yenileme', descTopup: 'AI kredisi satın alma', descUpgrade: 'Plan yükseltme',
+      statusSucceeded: 'Başarılı', statusPending: 'Beklemede', statusFailed: 'Başarısız', statusRefunded: 'İade edildi', statusCanceled: 'İptal edildi',
+    },
+  },
   canned: {
     title: 'Hazır yanıtlar',
     subtitle: 'Ekibinizin gelen kutusunda eğik çizgi kısayoluyla ekleyebileceği yeniden kullanılabilir yanıtlar.',
@@ -2226,7 +2271,7 @@ const tr: TranslationKeys = {
       },
       anonymous: 'Anonim',
     },
-    admin: {
+      admin: {
       recording: {
         title: 'Platform kayıt ayarları',
         description: 'Ana anahtar ve platform genelinde kayıt sağlığı. Çalışma alanı kaydı; yalnızca aşağıdaki tüm koşullar sağlandığında etkin olur.',

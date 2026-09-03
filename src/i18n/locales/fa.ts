@@ -1,6 +1,51 @@
 import type { TranslationKeys } from './en';
 
 const fa: TranslationKeys = {
+    billingIran: {
+    pageTitle: 'پلن و پرداخت', pageSubtitle: 'پلن، اعتبار و پرداخت‌های فضای کاری خود را مدیریت کنید.',
+    tabs: { overview: 'نمای کلی', plans: 'پلن‌ها', aiCredit: 'اعتبار هوش مصنوعی', transactions: 'تراکنش‌ها' },
+    overview: {
+      currentPlan: 'پلن فعلی', freePlan: 'رایگان', statusActive: 'فعال', statusInactive: 'غیرفعال',
+      activeUntil: 'فعال تا {{date}}', daysLeft: '{{days}} روز تا پایان دوره', perMonth: '/ ماه', perYear: '/ سال',
+      renewCta: 'تمدید پلن', changeCta: 'تغییر پلن', upgradeCta: 'ارتقای پلن', managePortal: 'مدیریت پرداخت',
+      usageTitle: 'خلاصه مصرف', conversations: 'گفتگوها', operators: 'اپراتورها', storage: 'فضای ذخیره‌سازی',
+      callMinutes: 'دقایق تماس', unlimited: 'نامحدود', gb: 'گیگابایت',
+    },
+    plans: {
+      monthly: 'ماهانه', yearly: 'سالانه', yearlyHint: 'پرداخت سالانه — به‌صرفه‌تر', discountBadge: '{{percent}}٪ تخفیف',
+      selectCta: 'انتخاب پلن', upgradeCta: 'ارتقای پلن', currentCta: 'پلن فعلی', viewAllFeatures: 'مشاهده همه امکانات',
+      free: 'رایگان',
+    },
+    renewal: {
+      title: 'تمدید پلن {{plan}}', titleUpgrade: 'ارتقا به پلن {{plan}}', planLabel: 'پلن', periodLabel: 'دوره',
+      amountLabel: 'مبلغ', discountLabel: 'تخفیف', payableLabel: 'مبلغ قابل پرداخت', payCta: 'پرداخت و تمدید',
+      payUpgradeCta: 'پرداخت و ارتقا', cancel: 'انصراف', processing: 'در حال اتصال به درگاه پرداخت…',
+    },
+    aiCredit: {
+      title: 'اعتبار هوش مصنوعی', remainingLabel: 'اعتبار باقی‌مانده', ofPeriodAllowance: 'از {{total}} اعتبار این دوره',
+      usedLabel: 'مصرف‌شده', monthlyRemainingLabel: 'اعتبار ماهانه باقی‌مانده', purchasedRemainingLabel: 'اعتبار خریداری‌شده',
+      increaseCta: 'افزایش اعتبار',
+      topup: {
+        title: 'افزایش اعتبار هوش مصنوعی', presetLabel: 'مبلغ افزایش اعتبار', customAmountLabel: 'مبلغ دلخواه (تومان)',
+        customAmountPlaceholder: 'مثلاً ۲۰۰٬۰۰۰', minMaxHint: 'مبلغ باید بین {{min}} تا {{max}} تومان باشد.',
+        payCta: 'پرداخت', cancel: 'انصراف', invalidAmount: 'مبلغ واردشده نامعتبر است.',
+      },
+    },
+    result: {
+      successTitle: 'پرداخت با موفقیت انجام شد', failureTitle: 'پرداخت انجام نشد', pendingTitle: 'وضعیت پرداخت در حال بررسی است',
+      failureHint: 'در صورت کسر وجه، مبلغ طبق روال بانکی به حساب شما بازگردانده می‌شود.',
+      backCta: 'بازگشت به پلن و پرداخت', viewInvoiceCta: 'مشاهده فاکتور', retryCta: 'تلاش مجدد',
+      amountLabel: 'مبلغ', purposeLabel: 'بابت', dateLabel: 'تاریخ', trackingNumberLabel: 'شماره پیگیری', orderNumberLabel: 'شماره سفارش',
+      purposeRenewal: 'تمدید پلن {{plan}}', purposeUpgrade: 'ارتقای پلن به {{plan}}', purposeTopup: 'خرید اعتبار هوش مصنوعی',
+    },
+    transactions: {
+      title: 'تراکنش‌ها', date: 'تاریخ', description: 'شرح', amount: 'مبلغ', status: 'وضعیت', details: 'جزئیات',
+      empty: 'هنوز تراکنشی ثبت نشده است', detailTitle: 'جزئیات تراکنش', gateway: 'درگاه پرداخت',
+      trackingNumber: 'شماره پیگیری', orderNumber: 'شماره سفارش', close: 'بستن',
+      descRenewal: 'تمدید پلن {{plan}}', descTopup: 'خرید اعتبار هوش مصنوعی', descUpgrade: 'ارتقای پلن',
+      statusSucceeded: 'موفق', statusPending: 'در انتظار', statusFailed: 'ناموفق', statusRefunded: 'بازگشت وجه', statusCanceled: 'لغو شده',
+    },
+  },
   canned: {
     title: 'پاسخ‌های آماده',
     subtitle: 'پاسخ‌های پرکاربردی که تیم شما می‌تواند با میان‌بُر اسلش (/) در صندوق پیام درج کند.',
@@ -2222,7 +2267,7 @@ const fa: TranslationKeys = {
       },
       anonymous: 'ناشناس',
     },
-    admin: {
+      admin: {
       recording: {
         title: 'تنظیمات ضبط پلتفرم',
         description: 'کلید اصلی و سلامت ضبط در سطح پلتفرم. ضبط فضای کاری تنها زمانی مؤثر است که همهٔ دروازه‌های زیر برآورده شوند.',

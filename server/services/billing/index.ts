@@ -277,6 +277,29 @@ export async function finalizeBillingWebhookEvent(
 }
 
 /**
+ * Adds one billing interval to `from`, using real calendar month/year
+ * arithmetic (not a fixed day count) so a monthly period always ends on the
+ * same day-of-month and a yearly one on the same day-of-year.
+ */
+function addBillingInterval(from: Date, interval: 'monthly' | 'yearly'): Date {
+  const d = new Date(from.getTime());
+  if (interval === 'yearly') d.setUTCFullYear(d.getUTCFullYear() + 1);
+  else d.setUTCMonth(d.getUTCMonth() + 1);
+  return d;
+}
+
+/**
+ * The new subscription period end for a payment event. Prefers the real
+ * billing interval carried on the event (set from the payment intent for
+ * Iranian gateways); only falls back to a flat 30 days for providers whose
+ * webhook payload does not carry an interval.
+ */
+export function computePeriodEnd(now: Date, interval: WebhookEvent['interval']): Date {
+  if (interval === 'monthly' || interval === 'yearly') return addBillingInterval(now, interval);
+  return new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+}
+
+/**
  * Process a verified webhook event — update subscription state
  */
 export async function processWebhookEvent(
@@ -311,6 +334,7 @@ export async function processWebhookEvent(
     case 'payment_succeeded':
     case 'invoice_paid': {
       // Upsert subscription
+      const periodStart = new Date();
       await supabase.from('workspace_subscriptions').upsert({
         workspace_id: event.workspaceId,
         provider_name: providerName,
@@ -318,8 +342,8 @@ export async function processWebhookEvent(
         provider_customer_id: event.providerCustomerId || null,
         status: 'active',
         plan_id: event.planId || null,
-        current_period_start: new Date().toISOString(),
-        current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        current_period_start: periodStart.toISOString(),
+        current_period_end: computePeriodEnd(periodStart, event.interval).toISOString(),
         updated_at: new Date().toISOString(),
       }, { onConflict: 'workspace_id' });
 

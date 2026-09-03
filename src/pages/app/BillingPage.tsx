@@ -15,23 +15,22 @@ import type { CapabilityDefinition } from '@/lib/entitlements-api';
 import { bt, capLabel as sharedCapLabel, formatLimitValue as sharedFormatLimit, billingError, billingActionMessage, type BillingLocale } from '@/lib/billing-i18n';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { displayCurrency } from '@/lib/region';
+import { formatToman } from '@/lib/money';
 import { SkeletonStats, SkeletonCard, SkeletonTable } from '@/components/common/Skeletons';
+import IranBillingPage from './billing/iran/IranBillingPage';
 
-const CURRENCY_MAP: Record<string, { symbol: string; locale: string; divider: number }> = {
-  USD: { symbol: '$', locale: 'en-US', divider: 100 },
-  EUR: { symbol: '€', locale: 'de-DE', divider: 100 },
-  IRR: { symbol: 'ریال', locale: 'fa-IR', divider: 1 },
-  IRT: { symbol: 'تومان', locale: 'fa-IR', divider: 1 },
-  TRY: { symbol: '₺', locale: 'tr-TR', divider: 100 },
+const CURRENCY_MAP: Record<string, { locale: string; divider: number }> = {
+  USD: { locale: 'en-US', divider: 100 },
+  EUR: { locale: 'de-DE', divider: 100 },
+  TRY: { locale: 'tr-TR', divider: 100 },
 };
 
-function formatPrice(amount: number, currency: string): string {
+/** Rial-family amounts always render as Toman via the single canonical
+ * helper (src/lib/money.ts) — never a raw-Rial number with a "ریال" label. */
+function formatPrice(amount: number, currency: string, locale: string): string {
+  if (currency === 'IRR' || currency === 'IRT') return formatToman(amount, locale);
   const cfg = CURRENCY_MAP[currency] || CURRENCY_MAP.USD;
-  const value = amount / cfg.divider;
-  if (currency === 'IRR' || currency === 'IRT') {
-    return `${value.toLocaleString('fa-IR')} ${cfg.symbol}`;
-  }
-  return new Intl.NumberFormat(cfg.locale, { style: 'currency', currency }).format(value);
+  return new Intl.NumberFormat(cfg.locale, { style: 'currency', currency }).format(amount / cfg.divider);
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -50,7 +49,18 @@ const STATUS_LABEL: Record<string, { fa: string; en: string; tr: string }> = {
   expired: { fa: 'منقضی', en: 'Expired', tr: 'Süresi dolmuş' },
 };
 
+/**
+ * Region dispatch: Iran gets a fully native redesign (Toman-only, Persian,
+ * manual-renewal, AI credit top-up) — never the Stripe-style SaaS UI below.
+ * Turkey/Global/multi keep this generic subscription UI untouched.
+ */
 export default function BillingPage() {
+  const { mode: regionMode } = usePlatformRegion();
+  if (regionMode === 'iran') return <IranBillingPage />;
+  return <LegacyBillingPage />;
+}
+
+function LegacyBillingPage() {
   const { locale: uiLocale, dir } = useTranslation();
   const { data: workspaces } = useWorkspaces();
   const workspace = workspaces?.[0];
@@ -99,8 +109,8 @@ export default function BillingPage() {
     if (!workspace) return;
     setCheckoutLoading(plan.id);
     try {
-      const prices = plan.prices?.[currency] || plan.prices?.USD || {};
-      const amount = prices[interval] || 0;
+      // The charged amount is always looked up server-side from the plan's
+      // price for this currency/interval — never trusted from the client.
       const result = await billingCheckout({
         workspaceId: workspace.id,
         planId: plan.provider_price_ids?.[currency]?.[interval] || plan.id,
@@ -108,7 +118,6 @@ export default function BillingPage() {
         currency,
         callbackUrl: `${window.location.origin}/app/billing?callback=true`,
         customerEmail: undefined,
-        amount,
       });
       if (result.paymentUrl) {
         window.location.href = result.paymentUrl;
@@ -311,7 +320,7 @@ export default function BillingPage() {
                     {planDescription ? <CardDescription className="text-start">{planDescription}</CardDescription> : null}
                     <div className="pt-2 text-start">
                       <span className="text-3xl font-bold text-foreground">
-                        {price === 0 ? bt(L, 'free') : formatPrice(price, currency)}
+                        {price === 0 ? bt(L, 'free') : formatPrice(price, currency, locale)}
                       </span>
                       {price > 0 && (
                         <span className="text-muted-foreground text-sm">
@@ -368,7 +377,7 @@ export default function BillingPage() {
                         <Clock className="w-3.5 h-3.5 text-muted-foreground" />
                         {new Date(p.created_at).toLocaleDateString(locale === 'fa' ? 'fa-IR' : 'en-US')}
                       </TableCell>
-                      <TableCell>{formatPrice(p.amount, p.currency)}</TableCell>
+                      <TableCell>{formatPrice(p.amount, p.currency, locale)}</TableCell>
                       <TableCell>
                         <Badge variant={p.status === 'succeeded' ? 'default' : 'destructive'} className="text-xs">
                           {p.status}

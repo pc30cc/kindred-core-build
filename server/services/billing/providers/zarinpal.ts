@@ -88,15 +88,21 @@ export const zarinpalProvider: BillingProviderHandler = {
     refunds: false, webhooks: false, multiCurrency: false, trialSupport: false,
   },
 
+  // Unit contract: `req.metadata.amount` is ALWAYS a whole-Rial (IRR) integer,
+  // set server-side from `billing_payment_intents.amount_irr` — never a
+  // client-supplied or Toman value. ZarinPal's v4 API amount unit is decided
+  // by the `currency` field: 'IRR' (default) or 'IRT' (Toman); when the
+  // merchant config selects IRT, the Rial amount must be converted down.
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest): Promise<CheckoutResult> {
-    const amount = parseInt(String(req.metadata?.amount || '0'));
-    const currency = (config.currency as string) || 'IRR';
+    const amountIrr = parseInt(String(req.metadata?.amount || '0'));
+    const currency = ((config.currency as string) || 'IRR').toUpperCase();
+    const amount = currency === 'IRT' ? Math.round(amountIrr / 10) : amountIrr;
     const res = await fetch(`${baseUrl(config)}/request.json`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         merchant_id: config.merchant_id,
-        amount: currency === 'IRT' ? amount : amount, // amount in rials or tomans
+        amount,
         callback_url: req.callbackUrl,
         description: `Plan ${req.planId} for workspace ${req.workspaceId}`,
         metadata: { email: req.customerEmail, workspace_id: req.workspaceId, plan_id: req.planId },
@@ -114,15 +120,20 @@ export const zarinpalProvider: BillingProviderHandler = {
     };
   },
 
+  // `params.amount` is the same server-computed whole-Rial (IRR) amount the
+  // checkout intent was created with — never client-supplied. The returned
+  // `amount` is normalized back to IRR regardless of the wire currency.
   async verifyPayment(config: BillingProviderConfig, params: Record<string, string>) {
-    const amount = parseInt(params.amount || '0');
+    const amountIrr = parseInt(params.amount || '0');
+    const currency = ((config.currency as string) || 'IRR').toUpperCase();
+    const wireAmount = currency === 'IRT' ? Math.round(amountIrr / 10) : amountIrr;
     const res = await fetch(`${baseUrl(config)}/verify.json`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         merchant_id: config.merchant_id,
         authority: params.Authority || params.authority,
-        amount,
+        amount: wireAmount,
       }),
     });
     const data = await readZarinpalJson(res, 'verify payment');
@@ -130,7 +141,7 @@ export const zarinpalProvider: BillingProviderHandler = {
     return {
       verified: code === 100 || code === 101,
       providerRef: readZarinpalRefId(data) ?? '',
-      amount,
+      amount: amountIrr,
       status: code === 100 ? 'success' : code === 101 ? 'already_verified' : 'failed',
     };
   },

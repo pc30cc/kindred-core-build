@@ -35,6 +35,9 @@ export interface WebhookEvent {
   providerPaymentId?: string;
   workspaceId?: string;
   planId?: string;
+  /** Billing interval the payment covers. Drives the subscription period end;
+   * falls back to a 30-day period when a provider's webhook carries none. */
+  interval?: 'monthly' | 'yearly';
   amount?: number;
   currency?: string;
   status?: string;

@@ -973,7 +973,7 @@ conversationsRouter.get('/', async (req: any, res: any) => {
     if (ids.length > 0) {
       const { data: msgs } = await sb
         .from('conversation_messages')
-        .select('conversation_id, body, created_at, sender_type, seen_at, metadata')
+        .select('conversation_id, body, created_at, sender_type, sender_id, seen_at, metadata')
         .in('conversation_id', ids)
         // Bot menu/button taps are navigation, not chat content — keep them
         // out of the fetch window entirely so a visitor browsing the bot menu

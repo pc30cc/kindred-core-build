@@ -82,7 +82,7 @@ function MaxmindRuntimePanel({ health, t }: { health: MaxmindRuntimeHealth | nul
 
 const TILE_PRESETS: Array<{
   id: string;
-  label: string;
+  labelKey: string;
   theme: 'light' | 'dark' | 'standard' | 'topo';
   url: string;
   attribution: string;
@@ -90,7 +90,7 @@ const TILE_PRESETS: Array<{
 }> = [
   {
     id: 'osm',
-    label: 'OpenStreetMap (standard)',
+    labelKey: 'osm',
     theme: 'standard',
     url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     attribution: '© OpenStreetMap contributors',
@@ -98,7 +98,7 @@ const TILE_PRESETS: Array<{
   },
   {
     id: 'carto-voyager',
-    label: 'Carto Voyager (balanced)',
+    labelKey: 'cartoVoyager',
     theme: 'standard',
     url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
     attribution: '© OpenStreetMap contributors © CARTO',
@@ -106,7 +106,7 @@ const TILE_PRESETS: Array<{
   },
   {
     id: 'carto-positron',
-    label: 'Carto Positron (light, minimal) ☀️',
+    labelKey: 'cartoPositron',
     theme: 'light',
     url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
     attribution: '© OpenStreetMap contributors © CARTO',
@@ -114,7 +114,7 @@ const TILE_PRESETS: Array<{
   },
   {
     id: 'carto-positron-nolabels',
-    label: 'Carto Positron — no labels (ultra clean) ☀️',
+    labelKey: 'cartoPositronNoLabels',
     theme: 'light',
     url: 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png',
     attribution: '© OpenStreetMap contributors © CARTO',
@@ -122,7 +122,7 @@ const TILE_PRESETS: Array<{
   },
   {
     id: 'carto-dark',
-    label: 'Carto Dark Matter (dark) 🌙',
+    labelKey: 'cartoDark',
     theme: 'dark',
     url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
     attribution: '© OpenStreetMap contributors © CARTO',
@@ -130,7 +130,7 @@ const TILE_PRESETS: Array<{
   },
   {
     id: 'carto-dark-nolabels',
-    label: 'Carto Dark Matter — no labels 🌙',
+    labelKey: 'cartoDarkNoLabels',
     theme: 'dark',
     url: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',
     attribution: '© OpenStreetMap contributors © CARTO',
@@ -138,7 +138,7 @@ const TILE_PRESETS: Array<{
   },
   {
     id: 'stadia-smooth',
-    label: 'Stadia Alidade Smooth (light) ☀️',
+    labelKey: 'stadiaSmooth',
     theme: 'light',
     url: 'https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png',
     attribution: '© Stadia Maps © OpenMapTiles © OpenStreetMap contributors',
@@ -146,7 +146,7 @@ const TILE_PRESETS: Array<{
   },
   {
     id: 'stadia-smooth-dark',
-    label: 'Stadia Alidade Smooth Dark 🌙',
+    labelKey: 'stadiaSmoothDark',
     theme: 'dark',
     url: 'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png',
     attribution: '© Stadia Maps © OpenMapTiles © OpenStreetMap contributors',
@@ -154,7 +154,7 @@ const TILE_PRESETS: Array<{
   },
   {
     id: 'esri-gray',
-    label: 'Esri World Gray Canvas (very minimal) ☀️',
+    labelKey: 'esriGray',
     theme: 'light',
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
     attribution: 'Tiles © Esri',
@@ -162,7 +162,7 @@ const TILE_PRESETS: Array<{
   },
   {
     id: 'esri-dark-gray',
-    label: 'Esri World Dark Gray Canvas 🌙',
+    labelKey: 'esriDarkGray',
     theme: 'dark',
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
     attribution: 'Tiles © Esri',
@@ -170,7 +170,7 @@ const TILE_PRESETS: Array<{
   },
   {
     id: 'opentopo',
-    label: 'OpenTopoMap (topographic)',
+    labelKey: 'openTopo',
     theme: 'topo',
     url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
     attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)',
@@ -205,7 +205,7 @@ export default function MapGeoPage() {
       setDraft(s.settings);
       mapGeoApi.health().then(setHealth).catch(() => setHealth(null));
     } catch (e: any) {
-      const msg = e?.message || 'Failed to load Map & Geo settings';
+      const msg = e?.message || t('admin.mapGeo.loadError');
       setLoadError(msg);
       toast.error(msg);
     } finally {
@@ -295,17 +295,16 @@ export default function MapGeoPage() {
         </div>
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>API unreachable</AlertTitle>
+          <AlertTitle>{t('admin.mapGeo.apiUnavailable.title')}</AlertTitle>
           <AlertDescription>
-            {loadError || 'Settings unavailable.'}
+            {loadError || t('admin.mapGeo.apiUnavailable.settingsUnavailable')}
             <div className="mt-2 text-xs opacity-80">
-              The admin UI calls the backend at <code>/api/admin/map-geo/*</code>.
-              In the Lovable preview the production API host may be unreachable —
-              this works after deploying the server (Coolify) on your real domain.
+              {t('admin.mapGeo.apiUnavailable.beforeEndpoint')} <code>/api/admin/map-geo/*</code>.
+              {' '}{t('admin.mapGeo.apiUnavailable.afterEndpoint')}
             </div>
           </AlertDescription>
         </Alert>
-        <Button variant="outline" onClick={load}><RefreshCw className="h-4 w-4 me-2" />Retry</Button>
+        <Button variant="outline" onClick={load}><RefreshCw className="h-4 w-4 me-2" />{t('admin.mapGeo.actions.retry')}</Button>
       </div>
     );
   }
@@ -318,15 +317,15 @@ export default function MapGeoPage() {
     return (
       <div className="flex items-center justify-between gap-2 border-t pt-4 mt-4">
         <div className="text-xs text-muted-foreground">
-          {dirty ? <span className="text-warning font-medium">● Unsaved changes</span> : <span>All changes saved</span>}
+          {dirty ? <span className="text-warning font-medium">● {t('admin.mapGeo.actions.unsaved')}</span> : <span>{t('admin.mapGeo.actions.allSaved')}</span>}
         </div>
         <div className="flex gap-2">
           <Button variant="ghost" size="sm" onClick={() => sections.forEach(resetSection)} disabled={!dirty || saving}>
-            <Undo2 className="h-4 w-4 me-2" />Reset
+            <Undo2 className="h-4 w-4 me-2" />{t('admin.mapGeo.actions.reset')}
           </Button>
           <Button size="sm" onClick={() => saveSections(sections)} disabled={!dirty || saving}>
             {saving ? <Loader2 className="h-4 w-4 me-2 animate-spin" /> : <Save className="h-4 w-4 me-2" />}
-            Save settings
+            {t('admin.mapGeo.actions.save')}
           </Button>
         </div>
       </div>
@@ -352,7 +351,7 @@ export default function MapGeoPage() {
       )}
 
       <Tabs defaultValue="geo">
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className="grid h-auto w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
           <TabsTrigger value="geo">{t('admin.mapGeo.tabs.geo')}</TabsTrigger>
           <TabsTrigger value="maxmind">{t('admin.mapGeo.tabs.maxmind')}</TabsTrigger>
           <TabsTrigger value="updates">{t('admin.mapGeo.tabs.updates')}</TabsTrigger>
@@ -371,12 +370,12 @@ export default function MapGeoPage() {
               <div className="space-y-2"><Label>{t('admin.mapGeo.geo.defaultProvider')}</Label>
                 <Select value={draft.geo.default_provider} onValueChange={(v) => setField('geo', { default_provider: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="maxmind_local">maxmind_local</SelectItem><SelectItem value="none">none</SelectItem></SelectContent>
+                  <SelectContent><SelectItem value="maxmind_local">MaxMind Local</SelectItem><SelectItem value="none">{t('admin.mapGeo.geo.providers.none')}</SelectItem></SelectContent>
                 </Select></div>
               <div className="space-y-2"><Label>{t('admin.mapGeo.geo.preferredPrecision')}</Label>
                 <Select value={draft.geo.preferred_precision} onValueChange={(v: any) => setField('geo', { preferred_precision: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="country">country</SelectItem><SelectItem value="region">region</SelectItem><SelectItem value="city">city</SelectItem></SelectContent>
+                  <SelectContent><SelectItem value="country">{t('admin.mapGeo.geo.precision.country')}</SelectItem><SelectItem value="region">{t('admin.mapGeo.geo.precision.region')}</SelectItem><SelectItem value="city">{t('admin.mapGeo.geo.precision.city')}</SelectItem></SelectContent>
                 </Select></div>
               <div className="flex items-center justify-between"><Label>{t('admin.mapGeo.geo.allowCentroidFallback')}</Label>
                 <Switch checked={draft.geo.allow_centroid_fallback} onCheckedChange={(v) => setField('geo', { allow_centroid_fallback: v })} /></div>
@@ -467,7 +466,7 @@ export default function MapGeoPage() {
             <CardHeader><CardTitle>{t('admin.mapGeo.tabs.tiles')}</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label>Tile preset</Label>
+                <Label>{t('admin.mapGeo.tiles.preset')}</Label>
                 <Select
                   value={
                     TILE_PRESETS.find((p) => p.url === draft.tiles.url_template)?.id ?? 'custom'
@@ -484,16 +483,16 @@ export default function MapGeoPage() {
                     });
                   }}
                 >
-                  <SelectTrigger><SelectValue placeholder="Choose a built-in style…" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={t('admin.mapGeo.tiles.choosePreset')} /></SelectTrigger>
                   <SelectContent className="max-h-80">
-                    <SelectItem value="custom">Custom (use fields below)</SelectItem>
+                    <SelectItem value="custom">{t('admin.mapGeo.tiles.custom')}</SelectItem>
                     {TILE_PRESETS.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
+                      <SelectItem key={p.id} value={p.id}>{t(`admin.mapGeo.tiles.presets.${p.labelKey}` as any)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Free, no-API-key tile sources. ☀️ = light/minimal, 🌙 = dark. Picking a preset fills the URL + attribution below — you still need to click <strong>Save settings</strong>.
+                  {t('admin.mapGeo.tiles.presetHintBefore')} <strong>{t('admin.mapGeo.actions.save')}</strong>{t('admin.mapGeo.tiles.presetHintAfter')}
                 </p>
               </div>
               <div className="space-y-2"><Label>{t('admin.mapGeo.tiles.urlTemplate')}</Label>
@@ -518,13 +517,13 @@ export default function MapGeoPage() {
               {/* Display + initial framing */}
               <div className="border-t pt-4 space-y-4">
                 <div>
-                  <h3 className="text-sm font-semibold">Map display on Visitors page</h3>
-                  <p className="text-xs text-muted-foreground">Default size and starting view for the embedded map.</p>
+                  <h3 className="text-sm font-semibold">{t('admin.mapGeo.display.title')}</h3>
+                  <p className="text-xs text-muted-foreground">{t('admin.mapGeo.display.description')}</p>
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label>Fill viewport height</Label>
-                    <p className="text-xs text-muted-foreground">When on, the map fills the available viewport height. When off, uses the fixed height below.</p>
+                    <Label>{t('admin.mapGeo.display.fillViewport')}</Label>
+                    <p className="text-xs text-muted-foreground">{t('admin.mapGeo.display.fillViewportHint')}</p>
                   </div>
                   <Switch
                     checked={draft.display.fill_viewport}
@@ -532,46 +531,46 @@ export default function MapGeoPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Map height (px)</Label>
+                  <Label>{t('admin.mapGeo.display.height')}</Label>
                   <Input
                     type="number" min={240} max={2000}
                     value={draft.display.height_px}
                     onChange={(e) => setField('display', { height_px: Number(e.target.value) })}
                     disabled={draft.display.fill_viewport}
                   />
-                  <p className="text-xs text-muted-foreground">Used when "Fill viewport" is off. Recommended: 480–800.</p>
+                  <p className="text-xs text-muted-foreground">{t('admin.mapGeo.display.heightHint')}</p>
                 </div>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="space-y-2">
-                    <Label>Default center lat</Label>
+                    <Label>{t('admin.mapGeo.display.defaultLat')}</Label>
                     <Input type="number" step="0.0001" value={draft.behavior.default_center_lat}
                       onChange={(e) => setField('behavior', { default_center_lat: Number(e.target.value) })} />
                   </div>
                   <div className="space-y-2">
-                    <Label>Default center lng</Label>
+                    <Label>{t('admin.mapGeo.display.defaultLng')}</Label>
                     <Input type="number" step="0.0001" value={draft.behavior.default_center_lng}
                       onChange={(e) => setField('behavior', { default_center_lng: Number(e.target.value) })} />
                   </div>
                   <div className="space-y-2">
-                    <Label>Default zoom</Label>
+                    <Label>{t('admin.mapGeo.display.defaultZoom')}</Label>
                     <Input type="number" min={0} max={22} value={draft.behavior.default_zoom}
                       onChange={(e) => setField('behavior', { default_zoom: Number(e.target.value) })} />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Quick presets</Label>
+                  <Label>{t('admin.mapGeo.display.quickPresets')}</Label>
                   <div className="flex flex-wrap gap-2">
                     {([
                       // Zoom values chosen so the whole region fits in a
                       // ~480px tall map without cropping borders.
-                      { label: '🇹🇷 Turkey',  lat: 39.0,  lng: 35.0,   zoom: 5 },
-                      { label: '🇮🇷 Iran',    lat: 32.4,  lng: 53.7,   zoom: 5 },
-                      { label: '🇺🇸 USA',     lat: 39.5,  lng: -98.35, zoom: 3 },
-                      { label: '🇪🇺 Europe',  lat: 54.0,  lng: 15.0,   zoom: 3 },
-                      { label: '🌍 World',    lat: 20.0,  lng: 0.0,    zoom: 2 },
+                      { labelKey: 'turkey',  lat: 39.0,  lng: 35.0,   zoom: 5 },
+                      { labelKey: 'iran',    lat: 32.4,  lng: 53.7,   zoom: 5 },
+                      { labelKey: 'usa',     lat: 39.5,  lng: -98.35, zoom: 3 },
+                      { labelKey: 'europe',  lat: 54.0,  lng: 15.0,   zoom: 3 },
+                      { labelKey: 'world',   lat: 20.0,  lng: 0.0,    zoom: 2 },
                     ] as const).map((p) => (
                       <Button
-                        key={p.label}
+                        key={p.labelKey}
                         type="button"
                         size="sm"
                         variant="outline"
@@ -582,14 +581,14 @@ export default function MapGeoPage() {
                           default_zoom: p.zoom,
                         })}
                       >
-                        {p.label}
+                        {t(`admin.mapGeo.display.presets.${p.labelKey}` as any)}
                       </Button>
                     ))}
                   </div>
-                  <p className="text-xs text-muted-foreground">Click a preset to set center + zoom in the draft. Don't forget to click Save settings.</p>
+                  <p className="text-xs text-muted-foreground">{t('admin.mapGeo.display.quickPresetsHint')}</p>
                 </div>
                 <div className="space-y-2">
-                  <Label>Live preview</Label>
+                  <Label>{t('admin.mapGeo.display.livePreview')}</Label>
                   <MapTilesPreview
                     tileUrl={draft.tiles.url_template}
                     attribution={draft.tiles.attribution}
@@ -600,7 +599,7 @@ export default function MapGeoPage() {
                     zoom={draft.behavior.default_zoom}
                     heightPx={draft.display.fill_viewport ? 480 : draft.display.height_px}
                   />
-                  <p className="text-xs text-muted-foreground">Reflects the draft values instantly. Click Save settings to persist.</p>
+                  <p className="text-xs text-muted-foreground">{t('admin.mapGeo.display.previewHint')}</p>
                 </div>
               </div>
               {health?.tiles && (
@@ -639,49 +638,46 @@ export default function MapGeoPage() {
               {/* Presence cadence — controls how fast new visitors appear */}
               <div className="border-t pt-4 space-y-4">
                 <div>
-                  <h3 className="text-sm font-semibold">Realtime presence</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Tunes how quickly the Visitors page reflects new sessions.
-                    Lower values feel snappier but cost more requests.
-                  </p>
+                  <h3 className="text-sm font-semibold">{t('admin.mapGeo.presence.title')}</h3>
+                  <p className="text-xs text-muted-foreground">{t('admin.mapGeo.presence.description')}</p>
                 </div>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="space-y-2">
-                    <Label>Live refresh (ms)</Label>
+                    <Label>{t('admin.mapGeo.presence.liveRefresh')}</Label>
                     <Input
                       type="number" min={2000} step={1000}
                       value={(draft as any).presence?.live_refresh_ms ?? 5000}
                       onChange={(e) => setField('presence' as any, { live_refresh_ms: Number(e.target.value) } as any)}
                     />
-                    <p className="text-[11px] text-muted-foreground">Visitors page polling. Recommended: 3000–8000.</p>
+                    <p className="text-[11px] text-muted-foreground">{t('admin.mapGeo.presence.liveRefreshHint')}</p>
                   </div>
                   <div className="space-y-2">
-                    <Label>Widget heartbeat (ms)</Label>
+                    <Label>{t('admin.mapGeo.presence.heartbeat')}</Label>
                     <Input
                       type="number" min={5000} step={1000}
                       value={(draft as any).presence?.heartbeat_interval_ms ?? 15000}
                       onChange={(e) => setField('presence' as any, { heartbeat_interval_ms: Number(e.target.value) } as any)}
                     />
-                    <p className="text-[11px] text-muted-foreground">How often each browser pings the server. Recommended: 10000–30000.</p>
+                    <p className="text-[11px] text-muted-foreground">{t('admin.mapGeo.presence.heartbeatHint')}</p>
                   </div>
                   <div className="space-y-2">
-                    <Label>Stale after (ms)</Label>
+                    <Label>{t('admin.mapGeo.presence.staleAfter')}</Label>
                     <Input
                       type="number" min={15000} step={5000}
                       value={(draft as any).presence?.stale_after_ms ?? 60000}
                       onChange={(e) => setField('presence' as any, { stale_after_ms: Number(e.target.value) } as any)}
                     />
-                    <p className="text-[11px] text-muted-foreground">Mark a visitor offline after this much inactivity. Recommended: 45000–120000.</p>
+                    <p className="text-[11px] text-muted-foreground">{t('admin.mapGeo.presence.staleAfterHint')}</p>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {([
-                    { label: '⚡ Snappy (3s / 10s / 45s)', refresh: 3000, hb: 10000, stale: 45000 },
-                    { label: '⚖️ Balanced (5s / 15s / 60s)', refresh: 5000, hb: 15000, stale: 60000 },
-                    { label: '🐢 Economy (10s / 30s / 120s)', refresh: 10000, hb: 30000, stale: 120000 },
+                    { labelKey: 'snappy', refresh: 3000, hb: 10000, stale: 45000 },
+                    { labelKey: 'balanced', refresh: 5000, hb: 15000, stale: 60000 },
+                    { labelKey: 'economy', refresh: 10000, hb: 30000, stale: 120000 },
                   ] as const).map((p) => (
                     <Button
-                      key={p.label}
+                      key={p.labelKey}
                       type="button" size="sm" variant="outline"
                       onClick={() => setField('presence' as any, {
                         live_refresh_ms: p.refresh,
@@ -689,7 +685,7 @@ export default function MapGeoPage() {
                         stale_after_ms: p.stale,
                       } as any)}
                     >
-                      {p.label}
+                      {t(`admin.mapGeo.presence.presets.${p.labelKey}` as any)}
                     </Button>
                   ))}
                 </div>
@@ -726,7 +722,7 @@ export default function MapGeoPage() {
         </TabsContent>
       </Tabs>
 
-      {saving && <div className="fixed bottom-4 end-4 bg-card border rounded-md px-3 py-2 shadow-lg flex items-center gap-2 text-sm"><Loader2 className="h-4 w-4 animate-spin" />...</div>}
+      {saving && <div className="fixed bottom-4 end-4 bg-card border rounded-md px-3 py-2 shadow-lg flex items-center gap-2 text-sm"><Loader2 className="h-4 w-4 animate-spin" />{t('admin.mapGeo.actions.saving')}</div>}
     </div>
   );
 }

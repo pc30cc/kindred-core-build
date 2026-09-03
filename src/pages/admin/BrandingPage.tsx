@@ -117,26 +117,26 @@ function VisualIdentitySection() {
 
 // ── Settings Section (was Localized Text) ──
 const ALL_LOCALES = [
-  { code: 'en', label: 'English', flag: '🇺🇸' },
-  { code: 'fa', label: 'فارسی', flag: '🇮🇷' },
-  { code: 'tr', label: 'Türkçe', flag: '🇹🇷' },
-  { code: 'ar', label: 'العربية', flag: '🇸🇦' },
-  { code: 'de', label: 'Deutsch', flag: '🇩🇪' },
-  { code: 'fr', label: 'Français', flag: '🇫🇷' },
-  { code: 'es', label: 'Español', flag: '🇪🇸' },
-  { code: 'ru', label: 'Русский', flag: '🇷🇺' },
-  { code: 'zh', label: '中文', flag: '🇨🇳' },
-  { code: 'ja', label: '日本語', flag: '🇯🇵' },
-  { code: 'ko', label: '한국어', flag: '🇰🇷' },
-  { code: 'pt', label: 'Português', flag: '🇧🇷' },
-  { code: 'it', label: 'Italiano', flag: '🇮🇹' },
-  { code: 'nl', label: 'Nederlands', flag: '🇳🇱' },
-  { code: 'hi', label: 'हिन्दी', flag: '🇮🇳' },
-  { code: 'ku', label: 'کوردی', flag: '🏳️' },
+  { code: 'en', labelKey: 'en', flag: '🇺🇸' },
+  { code: 'fa', labelKey: 'fa', flag: '🇮🇷' },
+  { code: 'tr', labelKey: 'tr', flag: '🇹🇷' },
+  { code: 'ar', labelKey: 'ar', flag: '🇸🇦' },
+  { code: 'de', labelKey: 'de', flag: '🇩🇪' },
+  { code: 'fr', labelKey: 'fr', flag: '🇫🇷' },
+  { code: 'es', labelKey: 'es', flag: '🇪🇸' },
+  { code: 'ru', labelKey: 'ru', flag: '🇷🇺' },
+  { code: 'zh', labelKey: 'zh', flag: '🇨🇳' },
+  { code: 'ja', labelKey: 'ja', flag: '🇯🇵' },
+  { code: 'ko', labelKey: 'ko', flag: '🇰🇷' },
+  { code: 'pt', labelKey: 'pt', flag: '🇧🇷' },
+  { code: 'it', labelKey: 'it', flag: '🇮🇹' },
+  { code: 'nl', labelKey: 'nl', flag: '🇳🇱' },
+  { code: 'hi', labelKey: 'hi', flag: '🇮🇳' },
+  { code: 'ku', labelKey: 'ku', flag: '🏳️' },
 ];
 
 const BILLING_PROVIDERS = [
-  { value: 'none', label: 'No Payment Gateway' },
+  { value: 'none', label: '' },
   { value: 'stripe', label: 'Stripe' },
   { value: 'paypal', label: 'PayPal' },
   { value: 'paddle', label: 'Paddle' },
@@ -157,57 +157,46 @@ const BILLING_PROVIDERS = [
   { value: 'lemonsqueezy', label: 'Lemon Squeezy' },
 ];
 
-const LOCALIZED_FIELDS: { key: keyof PlatformBrandingLocalized; label: string; desc?: string }[] = [
-  { key: 'platform_name', label: 'Platform Name', desc: 'Main name shown in header, emails, and browser tab' },
-  { key: 'meta_title', label: 'Meta Title', desc: 'Default SEO page title (also used as app title)' },
-  { key: 'meta_description', label: 'Meta Description', desc: 'Default SEO description' },
-  { key: 'social_share_title', label: 'Social Share Title', desc: 'OG title for social cards' },
-  { key: 'social_share_description', label: 'Social Share Description' },
-  { key: 'browser_title_format', label: 'Browser Title Format', desc: 'e.g. {{page}} | {{platform}}' },
-  { key: 'public_site_title', label: 'Public Site Title' },
-  { key: 'widget_display_name', label: 'Widget Display Name', desc: 'Chat widget header name' },
-  { key: 'knowledge_base_title', label: 'Knowledge Base Title' },
-  { key: 'legal_company_display_name', label: 'Legal Company Name', desc: 'For structured data and footer' },
-  { key: 'footer_company_text', label: 'Footer Company Text', desc: 'Copyright / legal footer' },
-  { key: 'support_label', label: 'Support Label', desc: 'Support link text' },
+const LOCALIZED_FIELDS: { key: keyof PlatformBrandingLocalized; hasDescription?: boolean }[] = [
+  { key: 'platform_name', hasDescription: true },
+  { key: 'meta_title', hasDescription: true },
+  { key: 'meta_description', hasDescription: true },
+  { key: 'social_share_title', hasDescription: true },
+  { key: 'social_share_description' },
+  { key: 'browser_title_format', hasDescription: true },
+  { key: 'public_site_title' },
+  { key: 'widget_display_name', hasDescription: true },
+  { key: 'knowledge_base_title' },
+  { key: 'legal_company_display_name', hasDescription: true },
+  { key: 'footer_company_text', hasDescription: true },
+  { key: 'support_label', hasDescription: true },
 ];
 
 import { Switch } from '@/components/ui/switch';
 import { Globe, Wrench, CreditCard, Languages, Flag } from 'lucide-react';
 import { REGION_MODES, REGION_LOCALES, REGION_CURRENCY, isRegionMode, setCachedRegionMode, type RegionMode } from '@/lib/region';
 
-const REGION_META: Record<RegionMode, { title: string; desc: string; flag: string; currency: string; languages: string }> = {
+const REGION_META: Record<RegionMode, { flag: string; languages: string }> = {
   multi: {
-    title: 'Multi-Region (all languages)',
-    desc: 'Every active language is selectable. Prices follow the language the user picked.',
     flag: '🌍',
-    currency: 'Follows language',
     languages: 'English · فارسی · Türkçe',
   },
   iran: {
-    title: 'Iran only — Persian',
-    desc: 'The platform is Persian only. No language switcher anywhere, all money in Toman, Iranian gateways.',
     flag: '🇮🇷',
-    currency: 'Toman (IRT)',
     languages: 'فارسی',
   },
   turkey: {
-    title: 'Turkey only — Turkish',
-    desc: 'The platform is Turkish only. No language switcher anywhere, all money in Turkish Lira.',
     flag: '🇹🇷',
-    currency: 'Turkish Lira (TRY)',
     languages: 'Türkçe',
   },
   global: {
-    title: 'Global — English only',
-    desc: 'The platform is English only. No language switcher anywhere, all money in US Dollar.',
     flag: '🇺🇸',
-    currency: 'US Dollar (USD)',
     languages: 'English',
   },
 };
 
 function SettingsSection() {
+  const { t } = useTranslation();
   const { data: rows, isLoading: brandingLoading } = usePlatformBrandingLocalized();
   const { data: settings, isLoading: settingsLoading } = useQuery({
     queryKey: ['platform_settings'],
@@ -268,8 +257,8 @@ function SettingsSection() {
     if (!row) return;
     const { id, created_at, updated_at, ...rest } = row as any;
     upsert.mutate({ ...rest, locale }, {
-      onSuccess: () => { toast({ title: `${locale.toUpperCase()} branding saved` }); setDirtyLocales((p) => { const n = new Set(p); n.delete(locale); return n; }); },
-      onError: (e) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+      onSuccess: () => { toast({ title: t('admin.brandingPage.settings.localized.saved' as any, { locale: locale.toUpperCase() }) }); setDirtyLocales((p) => { const n = new Set(p); n.delete(locale); return n; }); },
+      onError: (e) => toast({ title: t('admin.brandingPage.common.error' as any), description: e.message, variant: 'destructive' }),
     });
   };
 
@@ -291,13 +280,13 @@ function SettingsSection() {
         body: JSON.stringify(payload),
       });
     } catch (e) {
-      toast({ title: 'Error', description: e instanceof Error ? e.message : 'Save failed', variant: 'destructive' });
+      toast({ title: t('admin.brandingPage.common.error' as any), description: e instanceof Error ? e.message : t('admin.brandingPage.common.saveFailed' as any), variant: 'destructive' });
       return;
     }
     qc.invalidateQueries({ queryKey: ['platform_settings'] });
     qc.invalidateQueries({ queryKey: ['platform_region_settings'] });
     setCachedRegionMode(regionMode);
-    toast({ title: 'Settings saved' });
+    toast({ title: t('admin.brandingPage.settings.saved' as any) });
     setSettingsDirty(false);
   };
 
@@ -326,16 +315,20 @@ function SettingsSection() {
   if (brandingLoading || settingsLoading) return <LoadingCard />;
 
   const current = forms[activeLocale] ?? {};
+  const localeLabel = (code: string) => t(`admin.brandingPage.languages.${code}` as any);
+  const regionTitle = (mode: RegionMode) => t(`admin.brandingPage.settings.region.modes.${mode}.title` as any);
+  const regionDescription = (mode: RegionMode) => t(`admin.brandingPage.settings.region.modes.${mode}.description` as any);
+  const regionCurrency = (mode: RegionMode) => t(`admin.brandingPage.settings.region.modes.${mode}.currency` as any);
 
   return (
     <div className="space-y-6">
       <Tabs value={settingsTab} onValueChange={setSettingsTab}>
-        <TabsList>
-          <TabsTrigger value="general" className="gap-1.5"><Wrench className="h-4 w-4" /> General</TabsTrigger>
-          <TabsTrigger value="region" className="gap-1.5"><Flag className="h-4 w-4" /> Country / Region</TabsTrigger>
-          <TabsTrigger value="languages" className="gap-1.5"><Languages className="h-4 w-4" /> Languages</TabsTrigger>
-          <TabsTrigger value="billing" className="gap-1.5"><CreditCard className="h-4 w-4" /> Payment Gateways</TabsTrigger>
-          <TabsTrigger value="localized" className="gap-1.5"><Globe className="h-4 w-4" /> Localized Text</TabsTrigger>
+        <TabsList className="h-auto w-full justify-start overflow-x-auto">
+          <TabsTrigger value="general" className="gap-1.5"><Wrench className="h-4 w-4" /> {t('admin.brandingPage.settings.tabs.general' as any)}</TabsTrigger>
+          <TabsTrigger value="region" className="gap-1.5"><Flag className="h-4 w-4" /> {t('admin.brandingPage.settings.tabs.region' as any)}</TabsTrigger>
+          <TabsTrigger value="languages" className="gap-1.5"><Languages className="h-4 w-4" /> {t('admin.brandingPage.settings.tabs.languages' as any)}</TabsTrigger>
+          <TabsTrigger value="billing" className="gap-1.5"><CreditCard className="h-4 w-4" /> {t('admin.brandingPage.settings.tabs.billing' as any)}</TabsTrigger>
+          <TabsTrigger value="localized" className="gap-1.5"><Globe className="h-4 w-4" /> {t('admin.brandingPage.settings.tabs.localized' as any)}</TabsTrigger>
         </TabsList>
 
         {/* ── General Settings ── */}
@@ -343,39 +336,39 @@ function SettingsSection() {
           <Card className="bg-card border-border">
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2"><Wrench className="h-5 w-5 text-primary" /><CardTitle>General Settings</CardTitle></div>
+                <div className="flex items-center gap-2"><Wrench className="h-5 w-5 text-primary" /><CardTitle>{t('admin.brandingPage.settings.general.title' as any)}</CardTitle></div>
                 <Button size="sm" onClick={handleSaveSettings} disabled={!settingsDirty}>
-                  <Save className="h-4 w-4 mr-1" />Save
+                  <Save className="h-4 w-4 me-1" />{t('admin.brandingPage.common.save' as any)}
                 </Button>
               </div>
-              <CardDescription>Core platform settings: timezone, site mode, and maintenance.</CardDescription>
+              <CardDescription>{t('admin.brandingPage.settings.general.description' as any)}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid gap-5 md:grid-cols-2">
                 <div className="grid gap-1.5">
-                  <Label>Default Language</Label>
-                  <p className="text-xs text-muted-foreground">Primary language shown to visitors</p>
+                  <Label>{t('admin.brandingPage.settings.general.defaultLanguage' as any)}</Label>
+                  <p className="text-xs text-muted-foreground">{t('admin.brandingPage.settings.general.defaultLanguageHint' as any)}</p>
                   <Select value={defaultLocale} onValueChange={(v) => { setDefaultLocale(v); setSettingsDirty(true); }}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {activeLocales.map(code => {
                         const l = ALL_LOCALES.find(x => x.code === code);
-                        return <SelectItem key={code} value={code}>{l?.flag} {l?.label || code}</SelectItem>;
+                        return <SelectItem key={code} value={code}>{l?.flag} {l ? localeLabel(l.code) : code}</SelectItem>;
                       })}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="grid gap-1.5">
-                  <Label>Timezone</Label>
+                  <Label>{t('admin.brandingPage.settings.general.timezone' as any)}</Label>
                   <Input value={timezone} onChange={e => { setTimezone(e.target.value); setSettingsDirty(true); }} placeholder="UTC" />
                 </div>
                 <div className="grid gap-1.5">
-                  <Label>Site Mode</Label>
+                  <Label>{t('admin.brandingPage.settings.general.siteMode' as any)}</Label>
                   <Select value={siteMode} onValueChange={(v) => { setSiteMode(v); setSettingsDirty(true); }}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="multi_language">Multi-Language</SelectItem>
-                      <SelectItem value="single_language">Single Language</SelectItem>
+                      <SelectItem value="multi_language">{t('admin.brandingPage.settings.general.multiLanguage' as any)}</SelectItem>
+                      <SelectItem value="single_language">{t('admin.brandingPage.settings.general.singleLanguage' as any)}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -386,15 +379,15 @@ function SettingsSection() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label className="text-sm font-medium">Maintenance Mode</Label>
-                    <p className="text-xs text-muted-foreground">When enabled, visitors see a maintenance page</p>
+                    <Label className="text-sm font-medium">{t('admin.brandingPage.settings.general.maintenanceMode' as any)}</Label>
+                    <p className="text-xs text-muted-foreground">{t('admin.brandingPage.settings.general.maintenanceModeHint' as any)}</p>
                   </div>
                   <Switch checked={maintenanceMode} onCheckedChange={(v) => { setMaintenanceMode(v); setSettingsDirty(true); }} />
                 </div>
                 {maintenanceMode && (
                   <div className="grid gap-1.5">
-                    <Label>Maintenance Message</Label>
-                    <Textarea value={maintenanceMessage} onChange={e => { setMaintenanceMessage(e.target.value); setSettingsDirty(true); }} placeholder="We're upgrading our systems. Please check back soon." className="min-h-[80px]" />
+                    <Label>{t('admin.brandingPage.settings.general.maintenanceMessage' as any)}</Label>
+                    <Textarea value={maintenanceMessage} onChange={e => { setMaintenanceMessage(e.target.value); setSettingsDirty(true); }} placeholder={t('admin.brandingPage.settings.general.maintenancePlaceholder' as any)} className="min-h-[80px]" />
                   </div>
                 )}
               </div>
@@ -407,15 +400,12 @@ function SettingsSection() {
           <Card className="bg-card border-border">
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2"><Flag className="h-5 w-5 text-primary" /><CardTitle>Country / Region Locale</CardTitle></div>
+                <div className="flex items-center gap-2"><Flag className="h-5 w-5 text-primary" /><CardTitle>{t('admin.brandingPage.settings.region.title' as any)}</CardTitle></div>
                 <Button size="sm" onClick={handleSaveSettings} disabled={!settingsDirty}>
-                  <Save className="h-4 w-4 mr-1" />Save
+                  <Save className="h-4 w-4 me-1" />{t('admin.brandingPage.common.save' as any)}
                 </Button>
               </div>
-              <CardDescription>
-                Decides which languages exist on the whole platform and which currency every price, invoice and revenue figure uses.
-                A single-country mode removes the language switcher everywhere — users cannot pick another language.
-              </CardDescription>
+              <CardDescription>{t('admin.brandingPage.settings.region.description' as any)}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
@@ -432,13 +422,13 @@ function SettingsSection() {
                     >
                       <div className="flex items-center gap-2">
                         <span className="text-xl">{meta.flag}</span>
-                        <span className="text-sm font-semibold text-foreground">{meta.title}</span>
-                        {selected && <Badge className="ms-auto text-[10px]">Active</Badge>}
+                        <span className="text-sm font-semibold text-foreground">{regionTitle(mode)}</span>
+                        {selected && <Badge className="ms-auto text-[10px]">{t('admin.brandingPage.common.active' as any)}</Badge>}
                       </div>
-                      <p className="text-xs text-muted-foreground mt-2">{meta.desc}</p>
+                      <p className="text-xs text-muted-foreground mt-2">{regionDescription(mode)}</p>
                       <div className="flex flex-wrap gap-2 mt-3">
                         <Badge variant="outline" className="text-[10px]">{meta.languages}</Badge>
-                        <Badge variant="secondary" className="text-[10px]">{meta.currency}</Badge>
+                        <Badge variant="secondary" className="text-[10px]">{regionCurrency(mode)}</Badge>
                       </div>
                     </button>
                   );
@@ -446,9 +436,11 @@ function SettingsSection() {
               </div>
               <Separator />
               <p className="text-xs text-muted-foreground">
-                Current mode: <strong className="text-foreground">{REGION_META[regionMode].title}</strong> — languages{' '}
-                <strong className="text-foreground">{REGION_META[regionMode].languages}</strong>, currency{' '}
-                <strong className="text-foreground">{REGION_META[regionMode].currency}</strong>.
+                {t('admin.brandingPage.settings.region.currentMode' as any)} <strong className="text-foreground">{regionTitle(regionMode)}</strong>
+                {' · '}{t('admin.brandingPage.settings.region.languages' as any)}{' '}
+                <strong className="text-foreground">{REGION_META[regionMode].languages}</strong>{' · '}
+                {t('admin.brandingPage.settings.region.currency' as any)}{' '}
+                <strong className="text-foreground">{regionCurrency(regionMode)}</strong>
               </p>
             </CardContent>
           </Card>
@@ -459,20 +451,19 @@ function SettingsSection() {
           {regionMode !== 'multi' && (
             <Card className="bg-muted/30 border-border mb-4">
               <CardContent className="p-4 text-sm text-muted-foreground">
-                {REGION_META[regionMode].flag} Language selection is locked by the <strong className="text-foreground">Country / Region</strong> mode
-                (<strong className="text-foreground">{REGION_META[regionMode].languages}</strong>). Switch to Multi-Region to edit languages.
+                {REGION_META[regionMode].flag} {t('admin.brandingPage.settings.languages.locked' as any, { languages: REGION_META[regionMode].languages })}
               </CardContent>
             </Card>
           )}
           <Card className="bg-card border-border">
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2"><Languages className="h-5 w-5 text-primary" /><CardTitle>Active Languages</CardTitle></div>
+                <div className="flex items-center gap-2"><Languages className="h-5 w-5 text-primary" /><CardTitle>{t('admin.brandingPage.settings.languages.title' as any)}</CardTitle></div>
                 <Button size="sm" onClick={handleSaveSettings} disabled={!settingsDirty}>
-                  <Save className="h-4 w-4 mr-1" />Save
+                  <Save className="h-4 w-4 me-1" />{t('admin.brandingPage.common.save' as any)}
                 </Button>
               </div>
-              <CardDescription>Select which languages are available on the platform. The default language is shown first.</CardDescription>
+              <CardDescription>{t('admin.brandingPage.settings.languages.description' as any)}</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
@@ -489,11 +480,11 @@ function SettingsSection() {
                     >
                       <span className="text-lg">{l.flag}</span>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">{l.label}</div>
+                        <div className="text-sm font-medium truncate">{localeLabel(l.code)}</div>
                         <div className="text-xs text-muted-foreground">{l.code}</div>
                       </div>
-                      {isDefault && <Badge variant="default" className="text-[10px] shrink-0">Default</Badge>}
-                      {isActive && !isDefault && <Badge variant="outline" className="text-[10px] shrink-0">Active</Badge>}
+                      {isDefault && <Badge variant="default" className="text-[10px] shrink-0">{t('admin.brandingPage.common.default' as any)}</Badge>}
+                      {isActive && !isDefault && <Badge variant="outline" className="text-[10px] shrink-0">{t('admin.brandingPage.common.active' as any)}</Badge>}
                     </button>
                   );
                 })}
@@ -507,19 +498,19 @@ function SettingsSection() {
           <Card className="bg-card border-border">
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-primary" /><CardTitle>Payment Gateway per Language</CardTitle></div>
+                <div className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-primary" /><CardTitle>{t('admin.brandingPage.settings.billing.title' as any)}</CardTitle></div>
                 <Button size="sm" onClick={handleSaveSettings} disabled={!settingsDirty}>
-                  <Save className="h-4 w-4 mr-1" />Save
+                  <Save className="h-4 w-4 me-1" />{t('admin.brandingPage.common.save' as any)}
                 </Button>
               </div>
-              <CardDescription>Assign a default payment gateway for each active language. When a user selects a language, payments route through that gateway automatically.</CardDescription>
+              <CardDescription>{t('admin.brandingPage.settings.billing.description' as any)}</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Language</TableHead>
-                    <TableHead>Payment Gateway</TableHead>
+                    <TableHead>{t('admin.brandingPage.settings.billing.language' as any)}</TableHead>
+                    <TableHead>{t('admin.brandingPage.settings.billing.gateway' as any)}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -528,8 +519,8 @@ function SettingsSection() {
                     return (
                       <TableRow key={code}>
                         <TableCell className="font-medium">
-                          <span className="mr-2">{l?.flag}</span>{l?.label || code}
-                          {code === defaultLocale && <Badge variant="outline" className="ml-2 text-[10px]">default</Badge>}
+                          <span className="me-2">{l?.flag}</span>{l ? localeLabel(l.code) : code}
+                          {code === defaultLocale && <Badge variant="outline" className="ms-2 text-[10px]">{t('admin.brandingPage.common.default' as any)}</Badge>}
                         </TableCell>
                         <TableCell>
                           <Select
@@ -542,7 +533,7 @@ function SettingsSection() {
                             <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               {BILLING_PROVIDERS.map(p => (
-                                <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                                <SelectItem key={p.value} value={p.value}>{p.value === 'none' ? t('admin.brandingPage.settings.billing.none' as any) : p.label}</SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
@@ -560,8 +551,8 @@ function SettingsSection() {
         <TabsContent value="localized" className="mt-4">
           <Card className="bg-card border-border">
             <CardHeader className="pb-4">
-              <div className="flex items-center gap-2"><Globe className="h-5 w-5 text-primary" /><CardTitle>Localized Branding</CardTitle></div>
-              <CardDescription>Platform text & SEO for each active language.</CardDescription>
+              <div className="flex items-center gap-2"><Globe className="h-5 w-5 text-primary" /><CardTitle>{t('admin.brandingPage.settings.localized.title' as any)}</CardTitle></div>
+              <CardDescription>{t('admin.brandingPage.settings.localized.description' as any)}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <Tabs value={activeLocale} onValueChange={setActiveLocale}>
@@ -571,24 +562,25 @@ function SettingsSection() {
                       const l = ALL_LOCALES.find(x => x.code === code);
                       return (
                         <TabsTrigger key={code} value={code} className="gap-1.5">
-                          {l?.flag} {l?.label || code}
-                          {code === defaultLocale && <Badge variant="outline" className="text-[10px] px-1 py-0">default</Badge>}
-                          {dirtyLocales.has(code) && <Badge variant="secondary" className="text-[10px] px-1 py-0">unsaved</Badge>}
+                          {l?.flag} {l ? localeLabel(l.code) : code}
+                          {code === defaultLocale && <Badge variant="outline" className="text-[10px] px-1 py-0">{t('admin.brandingPage.common.default' as any)}</Badge>}
+                          {dirtyLocales.has(code) && <Badge variant="secondary" className="text-[10px] px-1 py-0">{t('admin.brandingPage.common.unsaved' as any)}</Badge>}
                         </TabsTrigger>
                       );
                     })}
                   </TabsList>
                   <Button size="sm" onClick={() => handleSaveBranding(activeLocale)} disabled={!dirtyLocales.has(activeLocale) || upsert.isPending}>
-                    {upsert.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
-                    Save {activeLocale.toUpperCase()}
+                    {upsert.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}
+                    {t('admin.brandingPage.settings.localized.saveLocale' as any, { locale: activeLocale.toUpperCase() })}
                   </Button>
                 </div>
                 {activeLocales.map((code) => (
                   <TabsContent key={code} value={code} className="mt-4">
                     <div className="grid gap-5 md:grid-cols-2">
-                      {LOCALIZED_FIELDS.map((f) => (
-                        <FieldRow key={f.key} label={f.label} desc={f.desc} value={(current as any)?.[f.key] ?? ''} onChange={(v) => setField(code, f.key, v)} placeholder={`Enter ${f.label.toLowerCase()}`} />
-                      ))}
+                      {LOCALIZED_FIELDS.map((f) => {
+                        const label = t(`admin.brandingPage.settings.localized.fields.${f.key}.label` as any);
+                        return <FieldRow key={f.key} label={label} desc={f.hasDescription ? t(`admin.brandingPage.settings.localized.fields.${f.key}.hint` as any) : undefined} value={(current as any)?.[f.key] ?? ''} onChange={(v) => setField(code, f.key, v)} placeholder={t('admin.brandingPage.settings.localized.placeholder' as any, { field: label })} />;
+                      })}
                     </div>
                   </TabsContent>
                 ))}
@@ -660,6 +652,7 @@ function DomainUrlsSection() {
 
 // ── Email Settings Section ──
 function EmailSettingsSection() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const { data: emailSettings, isLoading: settingsLoading } = useQuery({
     queryKey: ['platform-email-settings'],
@@ -691,8 +684,8 @@ function EmailSettingsSection() {
         body: JSON.stringify(settingsForm),
       });
     },
-    onSuccess: () => { toast({ title: 'Email settings saved' }); setSettingsDirty(false); qc.invalidateQueries({ queryKey: ['platform-email-settings'] }); },
-    onError: (e) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+    onSuccess: () => { toast({ title: t('admin.brandingPage.emailSettings.saved' as any) }); setSettingsDirty(false); qc.invalidateQueries({ queryKey: ['platform-email-settings'] }); },
+    onError: (e) => toast({ title: t('admin.brandingPage.common.error' as any), description: e.message, variant: 'destructive' }),
   });
 
   // Email settings localized
@@ -726,8 +719,8 @@ function EmailSettingsSection() {
         body: JSON.stringify({ ...rest, locale }),
       });
     },
-    onSuccess: () => { toast({ title: 'Email locale saved' }); qc.invalidateQueries({ queryKey: ['platform-email-settings-localized'] }); },
-    onError: (e) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+    onSuccess: (_data, locale) => { toast({ title: t('admin.brandingPage.emailSettings.localizedSaved' as any, { locale: locale.toUpperCase() }) }); setEmailLocaleDirty((current) => { const next = new Set(current); next.delete(locale); return next; }); qc.invalidateQueries({ queryKey: ['platform-email-settings-localized'] }); },
+    onError: (e) => toast({ title: t('admin.brandingPage.common.error' as any), description: e.message, variant: 'destructive' }),
   });
 
   if (settingsLoading) return <LoadingCard />;
@@ -735,23 +728,23 @@ function EmailSettingsSection() {
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-4">
-        <div className="flex items-center gap-2"><Settings2 className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">Email Settings</CardTitle></div>
-        <CardDescription>Global email configuration used by email providers.</CardDescription>
+        <div className="flex items-center gap-2"><Settings2 className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">{t('admin.brandingPage.emailSettings.title' as any)}</CardTitle></div>
+        <CardDescription>{t('admin.brandingPage.emailSettings.description' as any)}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Global email settings */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-foreground">Global Settings</h3>
+            <h3 className="text-sm font-semibold text-foreground">{t('admin.brandingPage.emailSettings.globalTitle' as any)}</h3>
             <Button size="sm" onClick={() => saveSettings.mutate()} disabled={!settingsDirty || saveSettings.isPending}>
-              {saveSettings.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}Save
+              {saveSettings.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}{t('admin.brandingPage.common.save' as any)}
             </Button>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
-            <FieldRow label="Sender Email" desc="From address for all emails" value={settingsForm.sender_email} onChange={(v) => { setSettingsForm(p => ({ ...p, sender_email: v })); setSettingsDirty(true); }} placeholder="noreply@example.com" />
-            <FieldRow label="Reply-To Email" value={settingsForm.reply_to_email} onChange={(v) => { setSettingsForm(p => ({ ...p, reply_to_email: v })); setSettingsDirty(true); }} placeholder="support@example.com" />
-            <FieldRow label="Email Logo URL" desc="Logo shown in email headers" value={settingsForm.email_logo_url} onChange={(v) => { setSettingsForm(p => ({ ...p, email_logo_url: v })); setSettingsDirty(true); }} placeholder="https://cdn.example.com/email-logo.png" />
-            <FieldRow label="Email Footer Text" value={settingsForm.email_footer_text} onChange={(v) => { setSettingsForm(p => ({ ...p, email_footer_text: v })); setSettingsDirty(true); }} placeholder="© 2026 Your Company" />
+            <FieldRow label={t('admin.brandingPage.emailSettings.senderEmail' as any)} desc={t('admin.brandingPage.emailSettings.senderEmailHint' as any)} value={settingsForm.sender_email} onChange={(v) => { setSettingsForm(p => ({ ...p, sender_email: v })); setSettingsDirty(true); }} placeholder="noreply@example.com" />
+            <FieldRow label={t('admin.brandingPage.emailSettings.replyToEmail' as any)} value={settingsForm.reply_to_email} onChange={(v) => { setSettingsForm(p => ({ ...p, reply_to_email: v })); setSettingsDirty(true); }} placeholder="support@example.com" />
+            <FieldRow label={t('admin.brandingPage.emailSettings.logoUrl' as any)} desc={t('admin.brandingPage.emailSettings.logoUrlHint' as any)} value={settingsForm.email_logo_url} onChange={(v) => { setSettingsForm(p => ({ ...p, email_logo_url: v })); setSettingsDirty(true); }} placeholder="https://cdn.example.com/email-logo.png" />
+            <FieldRow label={t('admin.brandingPage.emailSettings.footerText' as any)} value={settingsForm.email_footer_text} onChange={(v) => { setSettingsForm(p => ({ ...p, email_footer_text: v })); setSettingsDirty(true); }} placeholder={t('admin.brandingPage.emailSettings.footerPlaceholder' as any)} />
           </div>
         </div>
 
@@ -759,27 +752,27 @@ function EmailSettingsSection() {
 
         {/* Localized email settings */}
         <div className="space-y-4">
-          <h3 className="text-sm font-semibold text-foreground">Localized Email Text</h3>
+          <h3 className="text-sm font-semibold text-foreground">{t('admin.brandingPage.emailSettings.localizedTitle' as any)}</h3>
           <Tabs value={emailLocaleTab} onValueChange={setEmailLocaleTab}>
             <div className="flex items-center justify-between">
               <TabsList>
                 {ALL_LOCALES.filter(l => true).slice(0, 3).map(l => (
                   <TabsTrigger key={l.code} value={l.code} className="gap-1.5">
-                    {l.label}
-                    {emailLocaleDirty.has(l.code) && <Badge variant="secondary" className="text-[10px] px-1 py-0">unsaved</Badge>}
+                    {t(`admin.brandingPage.languages.${l.labelKey}` as any)}
+                    {emailLocaleDirty.has(l.code) && <Badge variant="secondary" className="text-[10px] px-1 py-0">{t('admin.brandingPage.common.unsaved' as any)}</Badge>}
                   </TabsTrigger>
                 ))}
               </TabsList>
               <Button size="sm" onClick={() => saveEmailLocale.mutate(emailLocaleTab)} disabled={!emailLocaleDirty.has(emailLocaleTab) || saveEmailLocale.isPending}>
-                {saveEmailLocale.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}Save
+                {saveEmailLocale.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}{t('admin.brandingPage.common.save' as any)}
               </Button>
             </div>
             {ALL_LOCALES.filter(l => true).slice(0, 3).map(l => (
               <TabsContent key={l.code} value={l.code} className="mt-4">
                 <div className="grid gap-4 md:grid-cols-2">
-                  <FieldRow label="Sender Name" desc="Name shown in email From field" value={emailLocaleForms[l.code]?.sender_name ?? ''} onChange={(v) => { setEmailLocaleForms(p => ({ ...p, [l.code]: { ...p[l.code], sender_name: v, locale: l.code } })); setEmailLocaleDirty(p => new Set(p).add(l.code)); }} placeholder="Your Platform" />
-                  <FieldRow label="Footer Text" value={emailLocaleForms[l.code]?.footer_text ?? ''} onChange={(v) => { setEmailLocaleForms(p => ({ ...p, [l.code]: { ...p[l.code], footer_text: v, locale: l.code } })); setEmailLocaleDirty(p => new Set(p).add(l.code)); }} placeholder="All rights reserved." />
-                  <FieldRow label="Support Contact Label" value={emailLocaleForms[l.code]?.support_contact_label ?? ''} onChange={(v) => { setEmailLocaleForms(p => ({ ...p, [l.code]: { ...p[l.code], support_contact_label: v, locale: l.code } })); setEmailLocaleDirty(p => new Set(p).add(l.code)); }} placeholder="Contact Support" />
+                  <FieldRow label={t('admin.brandingPage.emailSettings.senderName' as any)} desc={t('admin.brandingPage.emailSettings.senderNameHint' as any)} value={emailLocaleForms[l.code]?.sender_name ?? ''} onChange={(v) => { setEmailLocaleForms(p => ({ ...p, [l.code]: { ...p[l.code], sender_name: v, locale: l.code } })); setEmailLocaleDirty(p => new Set(p).add(l.code)); }} placeholder={t('admin.brandingPage.emailSettings.senderNamePlaceholder' as any)} />
+                  <FieldRow label={t('admin.brandingPage.emailSettings.localizedFooter' as any)} value={emailLocaleForms[l.code]?.footer_text ?? ''} onChange={(v) => { setEmailLocaleForms(p => ({ ...p, [l.code]: { ...p[l.code], footer_text: v, locale: l.code } })); setEmailLocaleDirty(p => new Set(p).add(l.code)); }} placeholder={t('admin.brandingPage.emailSettings.localizedFooterPlaceholder' as any)} />
+                  <FieldRow label={t('admin.brandingPage.emailSettings.supportLabel' as any)} value={emailLocaleForms[l.code]?.support_contact_label ?? ''} onChange={(v) => { setEmailLocaleForms(p => ({ ...p, [l.code]: { ...p[l.code], support_contact_label: v, locale: l.code } })); setEmailLocaleDirty(p => new Set(p).add(l.code)); }} placeholder={t('admin.brandingPage.emailSettings.supportPlaceholder' as any)} />
                 </div>
               </TabsContent>
             ))}

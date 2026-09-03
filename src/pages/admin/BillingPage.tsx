@@ -12,18 +12,24 @@ import {
   DollarSign, CheckCircle, XCircle, Shield,
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
+import { useTranslation } from '@/i18n';
 
-function formatPrice(amount: number, currency: string): string {
-  if (currency === 'IRR') return `${amount.toLocaleString('fa-IR')} ریال`;
-  if (currency === 'TRY') return `₺${(amount / 100).toFixed(2)}`;
-  return `$${(amount / 100).toFixed(2)}`;
+function formatPrice(amount: number, currency: string, locale: string): string {
+  const normalizedLocale = locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US';
+  return new Intl.NumberFormat(normalizedLocale, { style: 'currency', currency }).format(currency === 'IRR' ? amount : amount / 100);
 }
 
 export default function AdminBillingPage() {
+  const { t, locale } = useTranslation();
   const [overview, setOverview] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [grantForm, setGrantForm] = useState({ workspaceId: '', planId: '', status: 'active' });
   const [testingProvider, setTestingProvider] = useState<string | null>(null);
+  const dateLocale = locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US';
+  const statusLabel = (status: string) => {
+    const known = ['active', 'pending', 'succeeded', 'failed', 'cancelled', 'canceled'];
+    return known.includes(status) ? t(`admin.billingPage.statuses.${status}` as any) : status;
+  };
 
   useEffect(() => {
     if (!API_BASE) return;
@@ -46,7 +52,7 @@ export default function AdminBillingPage() {
     if (!grantForm.workspaceId || !grantForm.planId) return;
     try {
       await billingAdminGrant(grantForm);
-      toast.success('Plan granted successfully');
+      toast.success(t('admin.billingPage.planGranted' as any));
       loadOverview();
     } catch (e: any) {
       toast.error(e.message);
@@ -58,9 +64,9 @@ export default function AdminBillingPage() {
     try {
       const result = await billingTest(provider, {});
       if (result.success) {
-        toast.success(`${provider}: Connected (${result.latencyMs}ms)`);
+        toast.success(t('admin.billingPage.providerConnected' as any, { provider, latency: result.latencyMs }));
       } else {
-        toast.error(`${provider}: ${result.error || 'Failed'}`);
+        toast.error(`${provider}: ${result.error || t('admin.billingPage.failed' as any)}`);
       }
     } catch (e: any) {
       toast.error(e.message);
@@ -72,10 +78,10 @@ export default function AdminBillingPage() {
   if (!API_BASE) {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-foreground">Billing Management</h1>
+        <h1 className="text-2xl font-bold text-foreground">{t('admin.billingPage.title' as any)}</h1>
         <Card className="bg-card border-border"><CardContent className="py-8 text-center text-muted-foreground">
           <AlertCircle className="w-8 h-8 mx-auto mb-2" />
-          <p>Billing requires the self-hosted backend. Set VITE_API_BASE_URL.</p>
+          <p>{t('admin.billingPage.backendRequired' as any)}</p>
         </CardContent></Card>
       </div>
     );
@@ -90,30 +96,30 @@ export default function AdminBillingPage() {
   }
 
   const ALL_PROVIDERS = [
-    { name: 'stripe', label: 'Stripe', region: 'International' },
-    { name: 'paddle', label: 'Paddle', region: 'International' },
-    { name: 'lemon_squeezy', label: 'Lemon Squeezy', region: 'International' },
-    { name: 'paypal', label: 'PayPal', region: 'International' },
-    { name: 'zarinpal', label: 'ZarinPal', region: 'Iran' },
-    { name: 'zarinpal_test', label: 'ZarinPal-Test (Sandbox)', region: 'Iran' },
-    { name: 'iranpardakht_sandbox', label: 'IranPardakht-Sandbox', region: 'Iran' },
-    { name: 'idpay', label: 'IDPay', region: 'Iran' },
-    { name: 'idpay_test', label: 'IDPay-Test (Sandbox)', region: 'Iran' },
-    { name: 'nextpay', label: 'NextPay', region: 'Iran' },
-    { name: 'payping', label: 'PayPing', region: 'Iran' },
-    { name: 'zibal', label: 'Zibal', region: 'Iran' },
-    { name: 'sep_shaparak', label: 'SEP Shaparak', region: 'Iran' },
-    { name: 'iyzico', label: 'iyzico', region: 'Turkey' },
-    { name: 'paytr', label: 'PayTR', region: 'Turkey' },
-    { name: 'sipay', label: 'Sipay', region: 'Turkey' },
-    { name: 'paratika', label: 'Paratika', region: 'Turkey' },
-    { name: 'craftgate', label: 'Craftgate', region: 'Turkey' },
+    { name: 'stripe', label: 'Stripe', region: 'international' },
+    { name: 'paddle', label: 'Paddle', region: 'international' },
+    { name: 'lemon_squeezy', label: 'Lemon Squeezy', region: 'international' },
+    { name: 'paypal', label: 'PayPal', region: 'international' },
+    { name: 'zarinpal', label: 'ZarinPal', region: 'iran' },
+    { name: 'zarinpal_test', label: 'ZarinPal-Test (Sandbox)', region: 'iran' },
+    { name: 'iranpardakht_sandbox', label: 'IranPardakht-Sandbox', region: 'iran' },
+    { name: 'idpay', label: 'IDPay', region: 'iran' },
+    { name: 'idpay_test', label: 'IDPay-Test (Sandbox)', region: 'iran' },
+    { name: 'nextpay', label: 'NextPay', region: 'iran' },
+    { name: 'payping', label: 'PayPing', region: 'iran' },
+    { name: 'zibal', label: 'Zibal', region: 'iran' },
+    { name: 'sep_shaparak', label: 'SEP Shaparak', region: 'iran' },
+    { name: 'iyzico', label: 'iyzico', region: 'turkey' },
+    { name: 'paytr', label: 'PayTR', region: 'turkey' },
+    { name: 'sipay', label: 'Sipay', region: 'turkey' },
+    { name: 'paratika', label: 'Paratika', region: 'turkey' },
+    { name: 'craftgate', label: 'Craftgate', region: 'turkey' },
   ];
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-foreground">Billing Management</h1>
-      <p className="text-muted-foreground text-sm">Platform-wide billing overview, plan management, and provider status.</p>
+      <h1 className="text-2xl font-bold text-foreground">{t('admin.billingPage.title' as any)}</h1>
+      <p className="text-muted-foreground text-sm">{t('admin.billingPage.subtitle' as any)}</p>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -123,7 +129,7 @@ export default function AdminBillingPage() {
               <div className="p-2 rounded-lg bg-primary/10"><Users className="w-5 h-5 text-primary" /></div>
               <div>
                 <p className="text-2xl font-bold text-foreground">{overview?.totalSubscriptions || 0}</p>
-                <p className="text-xs text-muted-foreground">Total Subscriptions</p>
+                <p className="text-xs text-muted-foreground">{t('admin.billingPage.stats.totalSubscriptions' as any)}</p>
               </div>
             </div>
           </CardContent>
@@ -134,7 +140,7 @@ export default function AdminBillingPage() {
               <div className="p-2 rounded-lg bg-green-500/10"><TrendingUp className="w-5 h-5 text-green-500" /></div>
               <div>
                 <p className="text-2xl font-bold text-foreground">{overview?.activeSubscriptions || 0}</p>
-                <p className="text-xs text-muted-foreground">Active</p>
+                <p className="text-xs text-muted-foreground">{t('admin.billingPage.stats.active' as any)}</p>
               </div>
             </div>
           </CardContent>
@@ -145,7 +151,7 @@ export default function AdminBillingPage() {
               <div className="p-2 rounded-lg bg-blue-500/10"><DollarSign className="w-5 h-5 text-blue-500" /></div>
               <div>
                 <p className="text-2xl font-bold text-foreground">{overview?.recentPayments?.length || 0}</p>
-                <p className="text-xs text-muted-foreground">Recent Payments</p>
+                <p className="text-xs text-muted-foreground">{t('admin.billingPage.stats.recentPayments' as any)}</p>
               </div>
             </div>
           </CardContent>
@@ -156,7 +162,7 @@ export default function AdminBillingPage() {
               <div className="p-2 rounded-lg bg-yellow-500/10"><Activity className="w-5 h-5 text-yellow-500" /></div>
               <div>
                 <p className="text-2xl font-bold text-foreground">{overview?.recentEvents?.length || 0}</p>
-                <p className="text-xs text-muted-foreground">Billing Events</p>
+                <p className="text-xs text-muted-foreground">{t('admin.billingPage.stats.events' as any)}</p>
               </div>
             </div>
           </CardContent>
@@ -164,20 +170,20 @@ export default function AdminBillingPage() {
       </div>
 
       <Tabs defaultValue="providers">
-        <TabsList className="bg-muted">
-          <TabsTrigger value="providers" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">Providers ({ALL_PROVIDERS.length})</TabsTrigger>
-          <TabsTrigger value="plans" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">Plans</TabsTrigger>
-          <TabsTrigger value="payments" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">Payments</TabsTrigger>
-          <TabsTrigger value="events" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">Events</TabsTrigger>
-          <TabsTrigger value="admin" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">Admin Actions</TabsTrigger>
+        <TabsList className="bg-muted h-auto w-full justify-start overflow-x-auto">
+          <TabsTrigger value="providers" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">{t('admin.billingPage.tabs.providers' as any, { count: ALL_PROVIDERS.length })}</TabsTrigger>
+          <TabsTrigger value="plans" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">{t('admin.billingPage.tabs.plans' as any)}</TabsTrigger>
+          <TabsTrigger value="payments" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">{t('admin.billingPage.tabs.payments' as any)}</TabsTrigger>
+          <TabsTrigger value="events" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">{t('admin.billingPage.tabs.events' as any)}</TabsTrigger>
+          <TabsTrigger value="admin" className="data-[state=active]:bg-sidebar-accent data-[state=active]:text-foreground text-muted-foreground">{t('admin.billingPage.tabs.admin' as any)}</TabsTrigger>
         </TabsList>
 
         {/* Providers Tab */}
         <TabsContent value="providers" className="space-y-4">
-          {['International', 'Iran', 'Turkey'].map(region => (
+          {['international', 'iran', 'turkey'].map(region => (
             <div key={region}>
               <h3 className="text-sm font-semibold text-muted-foreground mb-2">
-                {region === 'Iran' ? '🇮🇷 Iran (IRR/Toman)' : region === 'Turkey' ? '🇹🇷 Turkey (TRY)' : '🌍 International (USD/EUR)'}
+                {t(`admin.billingPage.regions.${region}` as any)}
               </h3>
               <div className="grid md:grid-cols-3 gap-3">
                 {ALL_PROVIDERS.filter(p => p.region === region).map(p => (
@@ -198,11 +204,11 @@ export default function AdminBillingPage() {
                           {testingProvider === p.name ? (
                             <Loader2 className="w-3 h-3 animate-spin" />
                           ) : (
-                            <span className="text-xs">Test</span>
+                            <span className="text-xs">{t('admin.billingPage.test' as any)}</span>
                           )}
                         </Button>
                       </div>
-                      <Badge variant="outline" className="mt-2 text-xs border-border">Backend Ready</Badge>
+                      <Badge variant="outline" className="mt-2 text-xs border-border">{t('admin.billingPage.backendReady' as any)}</Badge>
                     </CardContent>
                   </Card>
                 ))}
@@ -217,14 +223,14 @@ export default function AdminBillingPage() {
             <Table>
               <TableHeader>
                 <TableRow className="border-border">
-                  <TableHead className="text-muted-foreground">Name</TableHead>
-                  <TableHead className="text-muted-foreground">Slug</TableHead>
+                  <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.name' as any)}</TableHead>
+                  <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.slug' as any)}</TableHead>
                   <TableHead className="text-muted-foreground">USD/mo</TableHead>
                   <TableHead className="text-muted-foreground">IRR/mo</TableHead>
                   <TableHead className="text-muted-foreground">TRY/mo</TableHead>
                   <TableHead className="text-muted-foreground">EUR/mo</TableHead>
-                  <TableHead className="text-muted-foreground">Free</TableHead>
-                  <TableHead className="text-muted-foreground">Active</TableHead>
+                  <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.free' as any)}</TableHead>
+                  <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.active' as any)}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -232,10 +238,10 @@ export default function AdminBillingPage() {
                   <TableRow key={plan.id} className="border-border hover:bg-muted/50">
                     <TableCell className="font-medium text-foreground">{plan.name}</TableCell>
                     <TableCell className="text-muted-foreground">{plan.slug}</TableCell>
-                    <TableCell className="text-foreground">{formatPrice(plan.prices?.USD?.monthly || 0, 'USD')}</TableCell>
-                    <TableCell className="text-foreground">{(plan.prices?.IRR?.monthly || 0).toLocaleString('fa-IR')} ریال</TableCell>
-                    <TableCell className="text-foreground">{formatPrice(plan.prices?.TRY?.monthly || 0, 'TRY')}</TableCell>
-                    <TableCell className="text-foreground">{formatPrice(plan.prices?.EUR?.monthly || 0, 'EUR')}</TableCell>
+                    <TableCell className="text-foreground">{formatPrice(plan.prices?.USD?.monthly || 0, 'USD', locale)}</TableCell>
+                    <TableCell className="text-foreground">{formatPrice(plan.prices?.IRR?.monthly || 0, 'IRR', locale)}</TableCell>
+                    <TableCell className="text-foreground">{formatPrice(plan.prices?.TRY?.monthly || 0, 'TRY', locale)}</TableCell>
+                    <TableCell className="text-foreground">{formatPrice(plan.prices?.EUR?.monthly || 0, 'EUR', locale)}</TableCell>
                     <TableCell>{plan.is_free ? <CheckCircle className="w-4 h-4 text-green-500" /> : <XCircle className="w-4 h-4 text-muted-foreground" />}</TableCell>
                     <TableCell>{plan.is_active ? <CheckCircle className="w-4 h-4 text-green-500" /> : <XCircle className="w-4 h-4 text-red-500" />}</TableCell>
                   </TableRow>
@@ -251,24 +257,24 @@ export default function AdminBillingPage() {
             <Table>
               <TableHeader>
                 <TableRow className="border-border">
-                  <TableHead className="text-muted-foreground">Date</TableHead>
-                  <TableHead className="text-muted-foreground">Workspace</TableHead>
-                  <TableHead className="text-muted-foreground">Amount</TableHead>
-                  <TableHead className="text-muted-foreground">Provider</TableHead>
-                  <TableHead className="text-muted-foreground">Status</TableHead>
+                  <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.date' as any)}</TableHead>
+                  <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.workspace' as any)}</TableHead>
+                  <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.amount' as any)}</TableHead>
+                  <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.provider' as any)}</TableHead>
+                  <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.status' as any)}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(overview?.recentPayments || []).length === 0 ? (
-                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">No payments yet</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">{t('admin.billingPage.emptyPayments' as any)}</TableCell></TableRow>
                 ) : (
                   (overview?.recentPayments || []).map((p: any) => (
                     <TableRow key={p.id} className="border-border hover:bg-muted/50">
-                      <TableCell className="text-foreground">{new Date(p.created_at).toLocaleDateString()}</TableCell>
+                      <TableCell className="text-foreground">{new Date(p.created_at).toLocaleDateString(dateLocale)}</TableCell>
                       <TableCell className="text-xs font-mono text-muted-foreground">{p.workspace_id?.slice(0, 8)}...</TableCell>
-                      <TableCell className="text-foreground">{formatPrice(p.amount, p.currency)}</TableCell>
+                      <TableCell className="text-foreground">{formatPrice(p.amount, p.currency, locale)}</TableCell>
                       <TableCell className="text-foreground">{p.provider_name}</TableCell>
-                      <TableCell><Badge variant={p.status === 'succeeded' ? 'default' : 'destructive'} className="text-xs">{p.status}</Badge></TableCell>
+                      <TableCell><Badge variant={p.status === 'succeeded' ? 'default' : 'destructive'} className="text-xs">{statusLabel(p.status)}</Badge></TableCell>
                     </TableRow>
                   ))
                 )}
@@ -283,24 +289,24 @@ export default function AdminBillingPage() {
             <Table>
               <TableHeader>
                 <TableRow className="border-border">
-                  <TableHead className="text-muted-foreground">Time</TableHead>
-                  <TableHead className="text-muted-foreground">Event</TableHead>
-                  <TableHead className="text-muted-foreground">Provider</TableHead>
-                  <TableHead className="text-muted-foreground">Status</TableHead>
-                  <TableHead className="text-muted-foreground">Amount</TableHead>
+                  <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.time' as any)}</TableHead>
+                  <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.event' as any)}</TableHead>
+                  <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.provider' as any)}</TableHead>
+                  <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.status' as any)}</TableHead>
+                  <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.amount' as any)}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(overview?.recentEvents || []).length === 0 ? (
-                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">No billing events</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">{t('admin.billingPage.emptyEvents' as any)}</TableCell></TableRow>
                 ) : (
                   (overview?.recentEvents || []).map((e: any) => (
                     <TableRow key={e.id} className="border-border hover:bg-muted/50">
-                      <TableCell className="text-xs text-muted-foreground">{new Date(e.created_at).toLocaleString()}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{new Date(e.created_at).toLocaleString(dateLocale)}</TableCell>
                       <TableCell><Badge variant="outline" className="text-xs border-border">{e.event_type}</Badge></TableCell>
                       <TableCell className="text-foreground">{e.provider_name}</TableCell>
-                      <TableCell className="text-foreground">{e.status}</TableCell>
-                      <TableCell className="text-foreground">{e.amount ? formatPrice(e.amount, e.currency || 'USD') : '—'}</TableCell>
+                      <TableCell className="text-foreground">{statusLabel(e.status)}</TableCell>
+                      <TableCell className="text-foreground">{e.amount ? formatPrice(e.amount, e.currency || 'USD', locale) : '—'}</TableCell>
                     </TableRow>
                   ))
                 )}
@@ -314,20 +320,20 @@ export default function AdminBillingPage() {
           <Card className="bg-card border-border">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2 text-foreground">
-                <Shield className="w-4 h-4" /> Manual Plan Grant
+                <Shield className="w-4 h-4" /> {t('admin.billingPage.grant.title' as any)}
               </CardTitle>
-              <CardDescription className="text-muted-foreground">Manually assign a plan to a workspace (bypass payment).</CardDescription>
+              <CardDescription className="text-muted-foreground">{t('admin.billingPage.grant.description' as any)}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <Input
-                  placeholder="Workspace ID (UUID)"
+                  placeholder={t('admin.billingPage.grant.workspacePlaceholder' as any)}
                   value={grantForm.workspaceId}
                   onChange={(e) => setGrantForm(f => ({ ...f, workspaceId: e.target.value }))}
                   className="bg-input border-border text-foreground placeholder:text-muted-foreground"
                 />
                 <Select value={grantForm.planId} onValueChange={(v) => setGrantForm(f => ({ ...f, planId: v }))}>
-                  <SelectTrigger className="bg-input border-border text-foreground"><SelectValue placeholder="Select plan" /></SelectTrigger>
+                  <SelectTrigger className="bg-input border-border text-foreground"><SelectValue placeholder={t('admin.billingPage.grant.selectPlan' as any)} /></SelectTrigger>
                   <SelectContent>
                     {(overview?.plans || []).map((p: any) => (
                       <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
@@ -335,7 +341,7 @@ export default function AdminBillingPage() {
                   </SelectContent>
                 </Select>
                 <Button onClick={handleGrant} disabled={!grantForm.workspaceId || !grantForm.planId}>
-                  Grant Plan
+                  {t('admin.billingPage.grant.button' as any)}
                 </Button>
               </div>
             </CardContent>

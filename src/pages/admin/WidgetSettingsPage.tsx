@@ -19,30 +19,24 @@ import {
   FloodProtectionSection,
 } from '@/components/admin/widget/HardeningSection';
 import { AdvancedRoutingSection } from '@/components/admin/widget/AdvancedRoutingSection';
+import { useTranslation } from '@/i18n';
 
-const PRECHAT_OPTIONS: { value: PreChatPolicy; label: string; desc: string }[] = [
-  { value: 'force_on', label: 'Force ON', desc: 'Workspaces cannot disable — field is always required' },
-  { value: 'default_on', label: 'Default ON', desc: 'Enabled by default, workspaces can disable' },
-  { value: 'default_off', label: 'Default OFF', desc: 'Disabled by default, workspaces can enable' },
-  { value: 'force_off', label: 'Force OFF', desc: 'Workspaces cannot enable — field is hidden' },
-];
+const PRECHAT_OPTIONS: PreChatPolicy[] = ['force_on', 'default_on', 'default_off', 'force_off'];
 
-const LOCK_OPTIONS: { value: FeatureLockMode; label: string; desc: string }[] = [
-  { value: 'allow', label: 'Allow', desc: 'Each workspace decides' },
-  { value: 'force_on', label: 'Force ON', desc: 'Always enabled, cannot be turned off' },
-  { value: 'force_off', label: 'Force OFF', desc: 'Always disabled, cannot be turned on' },
-];
+const LOCK_OPTIONS: FeatureLockMode[] = ['allow', 'force_on', 'force_off'];
 
-function policyBadge(p: PreChatPolicy | FeatureLockMode) {
-  if (p === 'force_on' || p === 'force_off') {
-    return <Badge variant="destructive" className="gap-1 text-xs"><Lock className="h-3 w-3" />Locked</Badge>;
+function PolicyBadge({ policy }: { policy: PreChatPolicy | FeatureLockMode }) {
+  const { t } = useTranslation();
+  if (policy === 'force_on' || policy === 'force_off') {
+    return <Badge variant="destructive" className="gap-1 text-xs"><Lock className="h-3 w-3" />{t('admin.widgetSettingsPage.locked' as any)}</Badge>;
   }
-  return <Badge variant="secondary" className="text-xs">Workspace override allowed</Badge>;
+  return <Badge variant="secondary" className="text-xs">{t('admin.widgetSettingsPage.overrideAllowed' as any)}</Badge>;
 }
 
 import { PoweredBySection } from './widget-settings/PoweredBySection';
 
 export default function AdminWidgetSettingsPage() {
+  const { t, locale } = useTranslation();
   const { data: settings, isLoading, error, refetch, isFetching } = useWidgetPlatformSettings();
   const updateMut = useUpdateWidgetPlatformSettings();
 
@@ -50,7 +44,7 @@ export default function AdminWidgetSettingsPage() {
   // duplicated admin surfaces. See /admin/voice-video.
 
   if (isLoading) {
-    return <div className="text-sm text-muted-foreground">Loading...</div>;
+    return <div className="text-sm text-muted-foreground">{t('admin.widgetSettingsPage.loading' as any)}</div>;
   }
 
   if (error || !settings) {
@@ -58,24 +52,20 @@ export default function AdminWidgetSettingsPage() {
       <Card>
         <CardContent className="p-6 space-y-3">
           <p className="text-sm font-medium text-destructive">
-            Could not load platform widget settings.
+            {t('admin.widgetSettingsPage.loadFailed' as any)}
           </p>
           <p className="text-xs text-muted-foreground break-all whitespace-pre-wrap">
             {error instanceof Error
               ? error.message
-              : 'The backend returned no settings row and could not create one.'}
+              : t('admin.widgetSettingsPage.noSettingsRow' as any)}
           </p>
           <p className="text-xs text-muted-foreground">
-            Self-host checklist: (1) the browser must reach the backend — nginx must proxy
-            <code className="mx-1">/api/</code>to Express (BACKEND_URL), or set VITE_API_BASE_URL at
-            build time plus CORS_ORIGINS on the server, (2) the backend must run with the Supabase
-            service_role key, (3) apply database/migrations/044_widget_platform_settings.sql and
-            046_widget_platform_settings_backend_only.sql, (4) confirm you are signed in as a
-            platform admin.
+            {t('admin.widgetSettingsPage.selfHostBefore' as any)} <code className="mx-1">/api/</code>
+            {t('admin.widgetSettingsPage.selfHostAfter' as any)}
           </p>
 
           <Button size="sm" variant="outline" onClick={() => refetch()} disabled={isFetching}>
-            {isFetching ? 'Retrying…' : 'Retry'}
+            {isFetching ? t('admin.widgetSettingsPage.retrying' as any) : t('admin.widgetSettingsPage.retry' as any)}
           </Button>
         </CardContent>
       </Card>
@@ -87,8 +77,8 @@ export default function AdminWidgetSettingsPage() {
     updateMut.mutate(
       { id: settings.id, updates: patch },
       {
-        onSuccess: () => toast({ title: 'Saved', description: 'Platform widget settings updated' }),
-        onError: (e: any) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
+        onSuccess: () => toast({ title: t('admin.widgetSettingsPage.saved' as any), description: t('admin.widgetSettingsPage.savedDescription' as any) }),
+        onError: (e: any) => toast({ title: t('admin.widgetSettingsPage.error' as any), description: e.message, variant: 'destructive' }),
       },
     );
   };
@@ -96,24 +86,22 @@ export default function AdminWidgetSettingsPage() {
   return (
     <div className="space-y-6 max-w-5xl">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Widget Platform Settings</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Global rules applied to all workspaces. Locks here cannot be overridden by workspace admins.
-        </p>
+        <h1 className="text-2xl font-bold tracking-tight">{t('admin.widgetSettingsPage.title' as any)}</h1>
+        <p className="text-sm text-muted-foreground mt-1">{t('admin.widgetSettingsPage.subtitle' as any)}</p>
       </div>
 
       <Tabs defaultValue="urls" className="space-y-4">
         <TabsList className="bg-secondary/50 border border-border flex-wrap h-auto">
-          <TabsTrigger value="urls" className="gap-1.5 text-xs"><Rocket className="h-3.5 w-3.5" />Deployment & URLs</TabsTrigger>
-          <TabsTrigger value="prechat" className="gap-1.5 text-xs"><MessageSquare className="h-3.5 w-3.5" />Pre-chat fields</TabsTrigger>
-          <TabsTrigger value="features" className="gap-1.5 text-xs"><Settings className="h-3.5 w-3.5" />Feature locks</TabsTrigger>
-          <TabsTrigger value="deployment" className="gap-1.5 text-xs"><Globe className="h-3.5 w-3.5" />Deployment defaults</TabsTrigger>
-          <TabsTrigger value="poweredby" className="gap-1.5 text-xs"><Sparkles className="h-3.5 w-3.5" />Powered by</TabsTrigger>
-          <TabsTrigger value="limits" className="gap-1.5 text-xs"><Shield className="h-3.5 w-3.5" />Limits</TabsTrigger>
-          <TabsTrigger value="realtime" className="gap-1.5 text-xs"><Activity className="h-3.5 w-3.5" />Realtime / Transport</TabsTrigger>
-          <TabsTrigger value="security" className="gap-1.5 text-xs"><Lock className="h-3.5 w-3.5" />Security / Isolation</TabsTrigger>
-          <TabsTrigger value="flood" className="gap-1.5 text-xs"><Zap className="h-3.5 w-3.5" />Flood Protection</TabsTrigger>
-          <TabsTrigger value="routing" className="gap-1.5 text-xs"><Activity className="h-3.5 w-3.5" />Advanced Routing</TabsTrigger>
+          <TabsTrigger value="urls" className="gap-1.5 text-xs"><Rocket className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.urls' as any)}</TabsTrigger>
+          <TabsTrigger value="prechat" className="gap-1.5 text-xs"><MessageSquare className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.prechat' as any)}</TabsTrigger>
+          <TabsTrigger value="features" className="gap-1.5 text-xs"><Settings className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.features' as any)}</TabsTrigger>
+          <TabsTrigger value="deployment" className="gap-1.5 text-xs"><Globe className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.deployment' as any)}</TabsTrigger>
+          <TabsTrigger value="poweredby" className="gap-1.5 text-xs"><Sparkles className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.poweredBy' as any)}</TabsTrigger>
+          <TabsTrigger value="limits" className="gap-1.5 text-xs"><Shield className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.limits' as any)}</TabsTrigger>
+          <TabsTrigger value="realtime" className="gap-1.5 text-xs"><Activity className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.realtime' as any)}</TabsTrigger>
+          <TabsTrigger value="security" className="gap-1.5 text-xs"><Lock className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.security' as any)}</TabsTrigger>
+          <TabsTrigger value="flood" className="gap-1.5 text-xs"><Zap className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.flood' as any)}</TabsTrigger>
+          <TabsTrigger value="routing" className="gap-1.5 text-xs"><Activity className="h-3.5 w-3.5" />{t('admin.widgetSettingsPage.tabs.routing' as any)}</TabsTrigger>
         </TabsList>
 
         {/* Deployment URLs (single source of truth) */}
@@ -134,33 +122,31 @@ export default function AdminWidgetSettingsPage() {
         <TabsContent value="prechat">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Pre-chat field policies</CardTitle>
-              <CardDescription>
-                Whether the widget asks visitors for their name, email, and phone before they can send the first message.
-              </CardDescription>
+              <CardTitle className="text-base">{t('admin.widgetSettingsPage.prechat.title' as any)}</CardTitle>
+              <CardDescription>{t('admin.widgetSettingsPage.prechat.description' as any)}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="rounded-lg border border-border p-4 space-y-2 bg-muted/20">
                 <div className="flex items-center gap-2">
                   <MessageSquare className="h-4 w-4 text-primary" />
-                  <Label className="text-sm font-medium">Default welcome message</Label>
+                  <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.prechat.welcome' as any)}</Label>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Shown as the first operator bubble inside the widget after the pre-chat form is submitted (or immediately, if pre-chat is disabled). Workspaces can override this in their widget settings.
+                  {t('admin.widgetSettingsPage.prechat.welcomeHint' as any)}
                 </p>
                 <Textarea
                   rows={2}
                   value={settings.default_welcome_message || ''}
                   onChange={(e) => update({ default_welcome_message: e.target.value })}
-                  placeholder="Hello! How can we help you?"
+                  placeholder={t('admin.widgetSettingsPage.prechat.welcomePlaceholder' as any)}
                   className="resize-none"
                 />
               </div>
 
               {[
-                { key: 'prechat_name_policy', label: 'Name', icon: MessageSquare },
-                { key: 'prechat_email_policy', label: 'Email', icon: Mail },
-                { key: 'prechat_phone_policy', label: 'Phone', icon: Phone },
+                { key: 'prechat_name_policy', labelKey: 'name', icon: MessageSquare },
+                { key: 'prechat_email_policy', labelKey: 'email', icon: Mail },
+                { key: 'prechat_phone_policy', labelKey: 'phone', icon: Phone },
               ].map((field) => {
                 const value = settings[field.key as keyof typeof settings] as PreChatPolicy;
                 return (
@@ -168,18 +154,18 @@ export default function AdminWidgetSettingsPage() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <field.icon className="h-4 w-4 text-primary" />
-                        <Label className="text-sm font-medium">{field.label}</Label>
+                        <Label className="text-sm font-medium">{t(`admin.widgetSettingsPage.prechat.fields.${field.labelKey}` as any)}</Label>
                       </div>
-                      {policyBadge(value)}
+                      <PolicyBadge policy={value} />
                     </div>
                     <Select value={value} onValueChange={(v) => update({ [field.key]: v } as any)}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {PRECHAT_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>
+                          <SelectItem key={opt} value={opt}>
                             <div className="flex flex-col">
-                              <span className="text-sm">{opt.label}</span>
-                              <span className="text-xs text-muted-foreground">{opt.desc}</span>
+                              <span className="text-sm">{t(`admin.widgetSettingsPage.prechat.options.${opt}.label` as any)}</span>
+                              <span className="text-xs text-muted-foreground">{t(`admin.widgetSettingsPage.prechat.options.${opt}.description` as any)}</span>
                             </div>
                           </SelectItem>
                         ))}
@@ -196,16 +182,14 @@ export default function AdminWidgetSettingsPage() {
         <TabsContent value="features">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Feature locks</CardTitle>
-              <CardDescription>
-                Force-enable or force-disable widget features across all workspaces. Useful for plan-based restrictions.
-              </CardDescription>
+              <CardTitle className="text-base">{t('admin.widgetSettingsPage.features.title' as any)}</CardTitle>
+              <CardDescription>{t('admin.widgetSettingsPage.features.description' as any)}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               {[
-                { key: 'force_chat_enabled', label: 'Live Chat', icon: MessageSquare },
-                { key: 'force_kb_enabled', label: 'Knowledge Base', icon: Globe },
-                { key: 'force_visitor_tracking', label: 'Visitor Tracking', icon: Shield },
+                { key: 'force_chat_enabled', labelKey: 'chat', icon: MessageSquare },
+                { key: 'force_kb_enabled', labelKey: 'knowledgeBase', icon: Globe },
+                { key: 'force_visitor_tracking', labelKey: 'visitorTracking', icon: Shield },
               ].map((f) => {
                 const value = settings[f.key as keyof typeof settings] as FeatureLockMode;
                 return (
@@ -213,18 +197,18 @@ export default function AdminWidgetSettingsPage() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <f.icon className="h-4 w-4 text-primary" />
-                        <Label className="text-sm font-medium">{f.label}</Label>
+                        <Label className="text-sm font-medium">{t(`admin.widgetSettingsPage.features.fields.${f.labelKey}` as any)}</Label>
                       </div>
-                      {policyBadge(value)}
+                      <PolicyBadge policy={value} />
                     </div>
                     <Select value={value} onValueChange={(v) => update({ [f.key]: v } as any)}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {LOCK_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>
+                          <SelectItem key={opt} value={opt}>
                             <div className="flex flex-col">
-                              <span className="text-sm">{opt.label}</span>
-                              <span className="text-xs text-muted-foreground">{opt.desc}</span>
+                              <span className="text-sm">{t(`admin.widgetSettingsPage.features.options.${opt}.label` as any)}</span>
+                              <span className="text-xs text-muted-foreground">{t(`admin.widgetSettingsPage.features.options.${opt}.description` as any)}</span>
                             </div>
                           </SelectItem>
                         ))}
@@ -238,12 +222,12 @@ export default function AdminWidgetSettingsPage() {
           <div className="rounded-lg border border-border bg-muted/30 p-4 flex items-start gap-3">
             <Video className="h-4 w-4 text-primary mt-0.5 shrink-0" />
             <div className="flex-1 text-xs">
-              <div className="text-sm font-medium text-foreground">Voice &amp; Video channels</div>
+              <div className="text-sm font-medium text-foreground">{t('admin.widgetSettingsPage.features.voiceVideo' as any)}</div>
               <p className="text-muted-foreground mt-1">
-                Audio, video, queue and recording gates are now managed in one place.
+                {t('admin.widgetSettingsPage.features.voiceVideoHint' as any)}
               </p>
               <Link to="/admin/voice-video" className="inline-flex items-center gap-1 mt-2 text-primary hover:underline">
-                Open Voice &amp; Video Center <ArrowRight className="h-3 w-3" />
+                {t('admin.widgetSettingsPage.features.openVoiceVideo' as any)} <ArrowRight className="h-3 w-3 rtl:rotate-180" />
               </Link>
             </div>
           </div>
@@ -255,17 +239,15 @@ export default function AdminWidgetSettingsPage() {
         <TabsContent value="deployment">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Deployment defaults</CardTitle>
-              <CardDescription>
-                Defaults applied when a new workspace is created. The deployment tab in the workspace panel has been removed — these values are managed centrally here.
-              </CardDescription>
+              <CardTitle className="text-base">{t('admin.widgetSettingsPage.deployment.title' as any)}</CardTitle>
+              <CardDescription>{t('admin.widgetSettingsPage.deployment.description' as any)}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="flex items-center justify-between rounded-lg border border-border p-4">
                 <div className="space-y-0.5">
-                  <Label className="text-sm font-medium">Default: Allow subdomains</Label>
+                  <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.deployment.allowSubdomains' as any)}</Label>
                   <p className="text-xs text-muted-foreground">
-                    New workspaces start with subdomain matching enabled (e.g. shop.example.com matches example.com).
+                    {t('admin.widgetSettingsPage.deployment.allowSubdomainsHint' as any)}
                   </p>
                 </div>
                 <Switch
@@ -276,9 +258,9 @@ export default function AdminWidgetSettingsPage() {
 
               <div className="flex items-center justify-between rounded-lg border border-border p-4">
                 <div className="space-y-0.5">
-                  <Label className="text-sm font-medium">Enforce domain validation</Label>
+                  <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.deployment.validateDomains' as any)}</Label>
                   <p className="text-xs text-muted-foreground">
-                    Reject widget requests from origins not in the workspace's allowed domains list.
+                    {t('admin.widgetSettingsPage.deployment.validateDomainsHint' as any)}
                   </p>
                 </div>
                 <Switch
@@ -289,9 +271,9 @@ export default function AdminWidgetSettingsPage() {
 
               <div className="flex items-center justify-between rounded-lg border border-border p-4">
                 <div className="space-y-0.5">
-                  <Label className="text-sm font-medium flex items-center gap-2"><Bug className="h-3.5 w-3.5" /> Default debug mode</Label>
+                  <Label className="text-sm font-medium flex items-center gap-2"><Bug className="h-3.5 w-3.5" /> {t('admin.widgetSettingsPage.deployment.debug' as any)}</Label>
                   <p className="text-xs text-muted-foreground">
-                    Newly created widgets start with verbose logging enabled.
+                    {t('admin.widgetSettingsPage.deployment.debugHint' as any)}
                   </p>
                 </div>
                 <Switch
@@ -301,7 +283,7 @@ export default function AdminWidgetSettingsPage() {
               </div>
 
               <div className="space-y-2 rounded-lg border border-border p-4">
-                <Label className="text-sm font-medium">Max allowed domains per workspace</Label>
+                <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.deployment.maxDomains' as any)}</Label>
                 <Input
                   type="number"
                   min={1}
@@ -310,7 +292,7 @@ export default function AdminWidgetSettingsPage() {
                   onChange={(e) => update({ max_allowed_domains_per_workspace: parseInt(e.target.value || '10', 10) })}
                   className="max-w-32"
                 />
-                <p className="text-xs text-muted-foreground">Hard cap enforced when workspaces try to add domains.</p>
+                <p className="text-xs text-muted-foreground">{t('admin.widgetSettingsPage.deployment.maxDomainsHint' as any)}</p>
               </div>
             </CardContent>
           </Card>
@@ -320,12 +302,12 @@ export default function AdminWidgetSettingsPage() {
         <TabsContent value="limits">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Runtime limits</CardTitle>
-              <CardDescription>Hard limits enforced by the widget API server for all workspaces.</CardDescription>
+              <CardTitle className="text-base">{t('admin.widgetSettingsPage.limits.title' as any)}</CardTitle>
+              <CardDescription>{t('admin.widgetSettingsPage.limits.description' as any)}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="space-y-2 rounded-lg border border-border p-4">
-                <Label className="text-sm font-medium">Max message length (characters)</Label>
+                <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.limits.maxMessage' as any)}</Label>
                 <Input
                   type="number"
                   min={100}
@@ -337,7 +319,7 @@ export default function AdminWidgetSettingsPage() {
               </div>
 
               <div className="space-y-2 rounded-lg border border-border p-4">
-                <Label className="text-sm font-medium">Rate limit (messages per minute per visitor)</Label>
+                <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.limits.rateLimit' as any)}</Label>
                 <Input
                   type="number"
                   min={1}
@@ -349,19 +331,19 @@ export default function AdminWidgetSettingsPage() {
               </div>
 
               <div className="space-y-2 rounded-lg border border-border p-4">
-                <Label className="text-sm font-medium">Admin notes (internal)</Label>
+                <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.limits.adminNotes' as any)}</Label>
                 <Textarea
                   rows={4}
                   value={settings.admin_notes || ''}
                   onChange={(e) => update({ admin_notes: e.target.value })}
-                  placeholder="Internal notes about why these settings are configured this way..."
+                  placeholder={t('admin.widgetSettingsPage.limits.adminNotesPlaceholder' as any)}
                 />
               </div>
 
               <div className="flex items-start gap-2 bg-muted/40 rounded-lg p-3 text-xs text-muted-foreground">
                 <Info className="h-4 w-4 mt-0.5 shrink-0" />
                 <p>
-                  Last updated: {new Date(settings.updated_at).toLocaleString()}
+                  {t('admin.widgetSettingsPage.limits.lastUpdated' as any)} {new Date(settings.updated_at).toLocaleString(locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US')}
                 </p>
               </div>
             </CardContent>

@@ -17,10 +17,12 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { useTranslation } from '@/i18n';
 
 const QUERY_KEY = ['admin-global-advanced-routing'] as const;
 
 export function AdvancedRoutingSection() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
 
   const { data: policy, isLoading } = useQuery({
@@ -34,7 +36,7 @@ export function AdvancedRoutingSection() {
       updateGlobalAdvancedRouting(patch),
     onSuccess: (next) => {
       qc.setQueryData(QUERY_KEY, next);
-      toast.success('Advanced routing policy updated');
+      toast.success(t('admin.widgetSettingsPage.routing.updated' as any));
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -45,17 +47,13 @@ export function AdvancedRoutingSection() {
         <CardHeader>
           <div className="flex items-center justify-between gap-3">
             <CardTitle className="text-base flex items-center gap-2">
-              <Activity className="h-4 w-4 text-muted-foreground" /> Advanced Routing
+              <Activity className="h-4 w-4 text-muted-foreground" /> {t('admin.widgetSettingsPage.routing.title' as any)}
             </CardTitle>
             <span className="text-[10px] uppercase tracking-wider rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-muted-foreground">
-              Global
+              {t('admin.widgetSettingsPage.routing.global' as any)}
             </span>
           </div>
-          <CardDescription>
-            Platform-wide fallback defaults applied to every workspace on this
-            install. Workspace owners cannot see or override them.
-            Fallback order: General Pool → Owner → Queue → Callback → Offline.
-          </CardDescription>
+          <CardDescription>{t('admin.widgetSettingsPage.routing.description' as any)}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {isLoading || !policy ? (
@@ -64,29 +62,29 @@ export function AdvancedRoutingSection() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <p className="text-xs font-medium text-foreground/80 uppercase tracking-wide">
-                  Owner fallback
+                  {t('admin.widgetSettingsPage.routing.ownerFallback' as any)}
                 </p>
               <ToggleRow
-                  label="Enable owner fallback"
-                  description="Route to the workspace owner when no eligible operator is available."
+                  label={t('admin.widgetSettingsPage.routing.enableOwner' as any)}
+                  description={t('admin.widgetSettingsPage.routing.enableOwnerHint' as any)}
                 checked={policy.owner_fallback_enabled}
                 onChange={(v) => updateMut.mutate({ owner_fallback_enabled: v })}
               />
                 <div className="ms-4 ps-3 border-s border-border/50 space-y-2">
                   <ToggleRow
-                    label="Owner answers chat"
+                    label={t('admin.widgetSettingsPage.routing.ownerChat' as any)}
                     checked={policy.owner_fallback_for_chat}
                     disabled={!policy.owner_fallback_enabled}
                     onChange={(v) => updateMut.mutate({ owner_fallback_for_chat: v })}
                   />
                   <ToggleRow
-                    label="Owner answers audio calls"
+                    label={t('admin.widgetSettingsPage.routing.ownerAudio' as any)}
                     checked={policy.owner_fallback_for_audio}
                     disabled={!policy.owner_fallback_enabled}
                     onChange={(v) => updateMut.mutate({ owner_fallback_for_audio: v })}
                   />
                   <ToggleRow
-                    label="Owner answers video calls"
+                    label={t('admin.widgetSettingsPage.routing.ownerVideo' as any)}
                     checked={policy.owner_fallback_for_video}
                     disabled={!policy.owner_fallback_enabled}
                     onChange={(v) => updateMut.mutate({ owner_fallback_for_video: v })}
@@ -95,11 +93,11 @@ export function AdvancedRoutingSection() {
               </div>
               <div className="space-y-2 pt-2 border-t border-border/40">
                 <p className="text-xs font-medium text-foreground/80 uppercase tracking-wide">
-                  General Pool
+                  {t('admin.widgetSettingsPage.routing.generalPool' as any)}
                 </p>
                 <ToggleRow
-                  label="Use General Pool when no department selected"
-                  description="When a visitor doesn't pick a department, fall back to members not assigned to any department."
+                  label={t('admin.widgetSettingsPage.routing.useGeneralPool' as any)}
+                  description={t('admin.widgetSettingsPage.routing.useGeneralPoolHint' as any)}
                   checked={policy.general_pool_enabled}
                   onChange={(v) => updateMut.mutate({ general_pool_enabled: v })}
                 />
@@ -113,9 +111,9 @@ export function AdvancedRoutingSection() {
         <CardContent className="p-4 flex items-start gap-3 text-xs text-muted-foreground">
           <Info className="h-4 w-4 mt-0.5 shrink-0" />
           <div>
-            These defaults apply to every workspace on this install. Stored under{' '}
+            {t('admin.widgetSettingsPage.routing.storageBefore' as any)}{' '}
             <code className="mx-0.5 px-1 rounded bg-muted text-foreground">app_runtime_config.global_advanced_routing</code>.
-            Legacy per-workspace fallback rows are ignored by the routing engine.
+            {t('admin.widgetSettingsPage.routing.storageAfter' as any)}
           </div>
         </CardContent>
       </Card>

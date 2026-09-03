@@ -30,7 +30,7 @@ import {
   getProviderReferenceContract,
   requiresReferenceBinding,
 } from './providerBinding.js';
-import { issueInvoiceNumber } from './invoiceNumber.js';
+import { insertWithDocumentNumber } from './invoiceNumber.js';
 
 export type PurchaseType = 'subscription' | 'ai_credit_topup';
 export type IntentStatus =
@@ -53,6 +53,12 @@ export interface PaymentIntentRow {
   status: IntentStatus;
   provider_ref: string | null;
   invoice_number: string | null;
+  plan_name_snapshot: string | null;
+  workspace_name_snapshot: string | null;
+  discount_irr: number | null;
+  final_amount_irr: number | null;
+  period_start: string | null;
+  period_end: string | null;
   metadata: Record<string, unknown>;
   expires_at: string;
   processing_at: string | null;
@@ -88,28 +94,42 @@ export async function createSubscriptionIntent(
     providerName: string;
     amountIrr: number;
     actionType?: PurchaseActionType;
+    /** Immutable proforma snapshot — the invoice must never change later. */
+    planNameSnapshot?: string | null;
+    workspaceNameSnapshot?: string | null;
+    discountIrr?: number;
+    periodStart?: string | null;
+    periodEnd?: string | null;
     metadata?: Record<string, unknown>;
   },
 ): Promise<PaymentIntentRow> {
   const supabase = getServiceClient(config);
-  const { data, error } = await supabase
-    .from('billing_payment_intents')
-    .insert({
-      workspace_id: input.workspaceId,
-      purchase_type: 'subscription',
-      action_type: input.actionType ?? null,
-      plan_id: input.planId,
-      billing_interval: input.interval,
-      provider_name: input.providerName,
-      amount_irr: input.amountIrr,
-      invoice_number: await issueInvoiceNumber(config),
-      metadata: input.metadata || {},
-      expires_at: new Date(Date.now() + INTENT_TTL_MS).toISOString(),
-    })
-    .select('*')
-    .single();
-  if (error || !data) throw new Error(error?.message || 'Failed to create payment intent');
-  return data as PaymentIntentRow;
+  const discount = Math.max(0, Math.round(input.discountIrr || 0));
+  return insertWithDocumentNumber<PaymentIntentRow>(async (documentNumber) => {
+    const { data, error } = await supabase
+      .from('billing_payment_intents')
+      .insert({
+        workspace_id: input.workspaceId,
+        purchase_type: 'subscription',
+        action_type: input.actionType ?? null,
+        plan_id: input.planId,
+        billing_interval: input.interval,
+        provider_name: input.providerName,
+        amount_irr: input.amountIrr,
+        invoice_number: documentNumber,
+        plan_name_snapshot: input.planNameSnapshot ?? null,
+        workspace_name_snapshot: input.workspaceNameSnapshot ?? null,
+        discount_irr: discount,
+        final_amount_irr: Math.max(0, input.amountIrr - discount),
+        period_start: input.periodStart ?? null,
+        period_end: input.periodEnd ?? null,
+        metadata: input.metadata || {},
+        expires_at: new Date(Date.now() + INTENT_TTL_MS).toISOString(),
+      })
+      .select('*')
+      .single();
+    return { data: data as PaymentIntentRow | null, error };
+  });
 }
 
 export async function createAiCreditTopupIntent(
@@ -118,45 +138,57 @@ export async function createAiCreditTopupIntent(
     workspaceId: string;
     providerName: string;
     amountIrr: number;
+    workspaceNameSnapshot?: string | null;
     metadata?: Record<string, unknown>;
   },
 ): Promise<PaymentIntentRow> {
   const supabase = getServiceClient(config);
-  const { data, error } = await supabase
-    .from('billing_payment_intents')
-    .insert({
-      workspace_id: input.workspaceId,
-      purchase_type: 'ai_credit_topup',
-      action_type: 'ai_credit_topup',
-      provider_name: input.providerName,
-      amount_irr: input.amountIrr,
-      invoice_number: await issueInvoiceNumber(config),
-      metadata: input.metadata || {},
-      expires_at: new Date(Date.now() + INTENT_TTL_MS).toISOString(),
-    })
-    .select('*')
-    .single();
-  if (error || !data) throw new Error(error?.message || 'Failed to create payment intent');
-  return data as PaymentIntentRow;
+  return insertWithDocumentNumber<PaymentIntentRow>(async (documentNumber) => {
+    const { data, error } = await supabase
+      .from('billing_payment_intents')
+      .insert({
+        workspace_id: input.workspaceId,
+        purchase_type: 'ai_credit_topup',
+        action_type: 'ai_credit_topup',
+        provider_name: input.providerName,
+        amount_irr: input.amountIrr,
+        invoice_number: documentNumber,
+        workspace_name_snapshot: input.workspaceNameSnapshot ?? null,
+        discount_irr: 0,
+        final_amount_irr: input.amountIrr,
+        metadata: input.metadata || {},
+        expires_at: new Date(Date.now() + INTENT_TTL_MS).toISOString(),
+      })
+      .select('*')
+      .single();
+    return { data: data as PaymentIntentRow | null, error };
+  });
 }
 
 /**
- * Customer-initiated abandonment. A `pending` intent the customer explicitly
- * walked away from becomes `canceled` so it shows up truthfully in the
- * transaction history instead of silently expiring.
+ * Customer-initiated abandonment, recorded ONLY when the cancellation is
+ * explicit and the customer was never handed to the bank: an intent that
+ * already carries a provider reference may be mid-payment at the gateway, so
+ * it stays `pending` and expires on its TTL instead of being guessed as
+ * canceled. Returns whether the transition actually happened.
  */
 export async function markPaymentIntentCanceled(
   config: ServerConfig,
   intentId: string,
   reason = 'customer_canceled',
-): Promise<void> {
+): Promise<boolean> {
   const supabase = getServiceClient(config);
-  await supabase
+  const { data, error } = await supabase
     .from('billing_payment_intents')
     .update({ status: 'canceled', failure_reason: reason, updated_at: new Date().toISOString() })
     .eq('id', intentId)
-    .eq('status', 'pending');
+    .eq('status', 'pending')
+    .is('provider_ref', null)
+    .select('id');
+  if (error) throw new Error(error.message);
+  return (data || []).length > 0;
 }
+
 
 export async function getPaymentIntent(
   config: ServerConfig,

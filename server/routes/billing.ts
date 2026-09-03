@@ -47,6 +47,7 @@ import {
   recordCustomerPayment,
 } from '../services/billing/applyPayment.js';
 import * as aiLedger from '../services/ai-billing/ledger.js';
+import { buildTransactionHistory } from '../services/billing/transactionHistory.js';
 
 /**
  * Customer-friendly receipt for a finalized intent. Everything here comes from
@@ -226,21 +227,30 @@ billingRouter.get('/status/:workspaceId', async (req, res) => {
     .select('*')
     .eq('workspace_id', workspaceId)
     .order('created_at', { ascending: false })
-    .limit(20);
+    .limit(30);
 
-  // Unpaid attempts (abandoned at the gateway, canceled, failed, expired) are
-  // real events in the customer's history: they must be visible, not silently
-  // dropped just because no money moved.
+  // Payment ATTEMPTS live in billing_payment_intents (never faked into
+  // billing_payments). An abandoned/canceled/failed/expired attempt is a real
+  // event in the customer's history and must stay visible.
   const { data: intents } = await supabase
     .from('billing_payment_intents')
-    .select('id, created_at, updated_at, amount_irr, status, purchase_type, action_type, provider_name, provider_ref, invoice_number, billing_interval, plan_id, failure_reason, metadata, billing_plans(name)')
+    .select('id, created_at, updated_at, succeeded_at, amount_irr, final_amount_irr, status, purchase_type, action_type, provider_name, provider_ref, invoice_number, billing_interval, plan_id, plan_name_snapshot, failure_reason, metadata, billing_plans(name)')
     .eq('workspace_id', workspaceId)
-    .neq('status', 'succeeded')
     .order('created_at', { ascending: false })
-    .limit(20);
+    .limit(30);
 
-  res.json({ subscription: sub, payments: payments || [], attempts: intents || [] });
+  // Unified, de-duplicated customer-facing history (payment wins, intent
+  // enriches). The raw arrays stay for backward compatibility.
+  const transactions = buildTransactionHistory((payments || []) as any, (intents || []) as any);
+
+  res.json({
+    subscription: sub,
+    payments: payments || [],
+    attempts: (intents || []).filter((i: any) => i.status !== 'succeeded'),
+    transactions,
+  });
 });
+
 
 // ─── POST /api/billing/invoice-preview ───────────────────────────
 //
@@ -305,34 +315,68 @@ billingRouter.post('/invoice-preview', async (req, res) => {
       currentPeriodEnd: (sub as any)?.current_period_end ? new Date((sub as any).current_period_end) : null,
     });
 
-    const intent = await createSubscriptionIntent(serverConfigOf(req), {
+    const { data: workspace } = await supabase
+      .from('workspaces')
+      .select('name')
+      .eq('id', input.workspaceId)
+      .maybeSingle();
+
+    // Re-opening the proforma dialog for the SAME purchase must show the SAME
+    // document number — a new number per dialog open would flood the history
+    // with phantom attempts. Only a still-usable, unbound, identical intent is
+    // reused; anything else gets a fresh proforma.
+    const { data: reusable } = await supabase
+      .from('billing_payment_intents')
+      .select('*')
+      .eq('workspace_id', input.workspaceId)
+      .eq('status', 'pending')
+      .eq('plan_id', plan.id)
+      .eq('billing_interval', input.interval)
+      .eq('amount_irr', amount)
+      .eq('provider_name', resolved.provider.name)
+      .is('provider_ref', null)
+      .not('invoice_number', 'is', null)
+      .gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const intent = (reusable as PaymentIntentRow | null) || await createSubscriptionIntent(serverConfigOf(req), {
       workspaceId: input.workspaceId,
       planId: plan.id,
       interval: input.interval,
       providerName: resolved.provider.name,
       amountIrr: amount,
       actionType,
+      planNameSnapshot: plan.name,
+      workspaceNameSnapshot: (workspace as any)?.name ?? null,
+      periodStart: window.start.toISOString(),
+      periodEnd: window.end.toISOString(),
       metadata: { origin: 'invoice_preview' },
     });
 
     res.json({
       invoice: {
         intentId: intent.id,
+        // "پیش‌فاکتور" document number — NOT a legal/tax invoice number.
         invoiceNumber: intent.invoice_number,
         issuedAt: intent.created_at,
         expiresAt: intent.expires_at,
         planId: plan.id,
-        planName: plan.name,
+        planName: intent.plan_name_snapshot || plan.name,
+        workspaceName: intent.workspace_name_snapshot || (workspace as any)?.name || null,
         interval: input.interval,
         actionType,
-        amountIrr: amount,
-        totalIrr: amount,
-        periodStart: window.start.toISOString(),
-        periodEnd: window.end.toISOString(),
+        amountIrr: intent.amount_irr ?? amount,
+        discountIrr: intent.discount_irr ?? 0,
+        totalIrr: intent.final_amount_irr ?? amount,
+        periodStart: intent.period_start || window.start.toISOString(),
+        periodEnd: intent.period_end || window.end.toISOString(),
         stacked: window.stacked,
         providerName: resolved.provider.name,
       },
     });
+
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

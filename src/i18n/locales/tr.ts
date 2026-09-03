@@ -15,6 +15,8 @@ const tr: TranslationKeys = {
       monthly: 'Aylık', yearly: 'Yıllık', yearlyHint: 'Yıllık ödeme — daha avantajlı', discountBadge: '%{{percent}} indirim',
       selectCta: 'Planı seç', upgradeCta: 'Planı yükselt', currentCta: 'Mevcut plan', viewAllFeatures: 'Tüm özellikleri gör',
       free: 'Ücretsiz',
+      aiCreditIncluded: 'Aylık AI kredisi',
+      aiCreditNone: 'AI kredisi yok',
     },
     renewal: {
       title: '{{plan}} planını yenile', titleUpgrade: '{{plan}} planına yükselt', planLabel: 'Plan', periodLabel: 'Dönem',
@@ -25,6 +27,8 @@ const tr: TranslationKeys = {
       title: 'AI Kredisi', remainingLabel: 'Kalan kredi', ofPeriodAllowance: 'Bu dönemin {{total}} kredisinden',
       usedLabel: 'Kullanılan', monthlyRemainingLabel: 'Kalan aylık kredi', purchasedRemainingLabel: 'Satın alınan kredi',
       increaseCta: 'Kredi ekle',
+      usedPct: '%{{percent}} kullanıldı',
+      sourceHint: 'Aylık AI krediniz çalışma alanı planınızdan gelir ve her fatura döneminin başında yeniden tanımlanır; kullanılmayan aylık kredi devretmez. Satın alınan kredi ayrıdır ve dönem sonunda sona ermez.',
       topup: {
         title: 'AI kredisi ekle', presetLabel: 'Yükleme tutarı', customAmountLabel: 'Özel tutar (Toman)',
         customAmountPlaceholder: 'örn. 200.000', minMaxHint: 'Tutar {{min}} ile {{max}} Toman arasında olmalıdır.',

@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
-import { LayoutGrid, Sparkles, Receipt, Gauge, Calendar, Loader2, ArrowRight } from 'lucide-react';
+import { LayoutGrid, Sparkles, Receipt, Gauge, Calendar, Loader2, ArrowRight, CreditCard } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
 import { billingError } from '@/lib/billing-i18n';
@@ -116,7 +116,7 @@ export default function IranBillingPage() {
 
   if (loading || !workspaceId) {
     return (
-      <div className="p-4 md:p-6 lg:p-8 space-y-5" dir="rtl">
+      <div className="space-y-5" dir="rtl">
         <SkeletonStats count={3} />
         <SkeletonCard lines={4} />
       </div>
@@ -124,11 +124,22 @@ export default function IranBillingPage() {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in p-4 md:p-6 lg:p-8 text-start" dir="rtl">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">{t('billingIran.pageTitle')}</h1>
-        <p className="text-sm text-muted-foreground mt-1">{t('billingIran.pageSubtitle')}</p>
+    <div className="space-y-6 animate-fade-in text-start" dir="rtl">
+      {/* Hero header — same language as the rest of the app pages */}
+      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-6 sm:p-8">
+        <div className="pointer-events-none absolute -top-16 -end-16 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-20 -start-10 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
+        <div className="relative flex items-start gap-4">
+          <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30 flex items-center justify-center shrink-0">
+            <CreditCard className="h-6 w-6 text-primary-foreground" />
+          </div>
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t('billingIran.pageTitle')}</h1>
+            <p className="text-sm text-muted-foreground mt-1.5 max-w-xl">{t('billingIran.pageSubtitle')}</p>
+          </div>
+        </div>
       </div>
+
 
       <Tabs value={activeTab} onValueChange={setActiveTab} dir="rtl">
         <TabsList className="w-full md:w-auto inline-flex h-auto gap-1 p-1.5 rounded-2xl bg-gradient-to-r from-muted/80 to-muted/40 border border-border/60 shadow-sm">
@@ -346,6 +357,8 @@ function PlansGrid({
             : 0;
           const planName = ((plan.localized || {}).fa?.name || '').trim() || plan.name;
           const isHigher = !isCurrent && currentPlan && (plan.sort_order ?? 0) > (currentPlan.sort_order ?? 0);
+          const aiAllowance = Number((plan.limits || {}).included_ai_allowance_irr ?? 0) || 0;
+
 
           return (
             <Card key={plan.id} className={isCurrent ? 'ring-2 ring-primary border-primary/40' : ''}>
@@ -368,6 +381,17 @@ function PlansGrid({
                     )}
                   </div>
                 </div>
+
+                {/* Monthly AI credit included in this plan (billing_plans.limits.included_ai_allowance_irr) */}
+                <div className="rounded-xl border border-border/60 bg-muted/30 p-3">
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Sparkles className="w-3.5 h-3.5 text-primary" /> {t('billingIran.plans.aiCreditIncluded')}
+                  </div>
+                  <div className="mt-1 text-sm font-semibold text-foreground">
+                    {aiAllowance > 0 ? formatToman(aiAllowance, 'fa') : t('billingIran.plans.aiCreditNone')}
+                  </div>
+                </div>
+
 
                 {isCurrent ? (
                   <Button className="w-full" variant="outline" disabled>{t('billingIran.plans.currentCta')}</Button>

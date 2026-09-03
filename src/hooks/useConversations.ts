@@ -31,6 +31,12 @@ export interface InboxExtraFilter {
   needsHuman?: boolean;
   /** Restrict Main Inbox to conversations assigned to this user id. */
   assignedToMe?: string | null;
+  /**
+   * Assignment scope. 'mine' (default) hides conversations assigned to other
+   * operators — a transferred thread leaves the sender's Inbox. 'all' is the
+   * full-workspace view and only privileged roles get it server-side.
+   */
+  scope?: 'mine' | 'all';
 }
 
 export function useConversations(
@@ -41,8 +47,9 @@ export function useConversations(
 ) {
   const needsHuman = !!extra.needsHuman;
   const assignedToMe = extra.assignedToMe || null;
+  const scope = extra.scope ?? 'mine';
   return useQuery({
-    queryKey: ['conversations', workspaceId, queue, status, needsHuman, assignedToMe],
+    queryKey: ['conversations', workspaceId, queue, status, needsHuman, assignedToMe, scope],
     // Tab switching must feel instant: keep showing the previous tab's rows
     // while the new one loads instead of flashing the skeleton, and treat
     // recently fetched data as fresh so going back to a tab is free.
@@ -63,6 +70,7 @@ export function useConversations(
         status,
         needsHuman,
         assignedToMe,
+        scope,
       });
       const convos = conversations as (Conversation & {
         contacts: {
@@ -125,12 +133,12 @@ export function useConversations(
  *   - needs_human: is_spam=false AND ai_state='needs_human' AND status != 'closed'
  *   - spam:        is_spam=true
  */
-export function useInboxCounts(workspaceId: string | undefined) {
+export function useInboxCounts(workspaceId: string | undefined, scope: 'mine' | 'all' = 'mine') {
   return useQuery({
-    queryKey: ['inbox-counts', workspaceId],
+    queryKey: ['inbox-counts', workspaceId, scope],
     enabled: !!workspaceId,
     staleTime: 15_000,
-    queryFn: () => conversationsApi.getInboxCounts(workspaceId!),
+    queryFn: () => conversationsApi.getInboxCounts(workspaceId!, scope),
   });
 }
 
@@ -144,15 +152,15 @@ export function useInboxCounts(workspaceId: string | undefined) {
  * Scope matches `useConversations(queue='main')`: spam excluded, AI-managed
  * threads excluded.
  */
-export function useInboxTabCounts(workspaceId: string | undefined) {
+export function useInboxTabCounts(workspaceId: string | undefined, scope: 'mine' | 'all' = 'mine') {
   return useQuery({
-    queryKey: ['inbox-tab-counts', workspaceId],
+    queryKey: ['inbox-tab-counts', workspaceId, scope],
     enabled: !!workspaceId,
     staleTime: 15_000,
     gcTime: 5 * 60_000,
     placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
-    queryFn: () => conversationsApi.getInboxTabCounts(workspaceId!),
+    queryFn: () => conversationsApi.getInboxTabCounts(workspaceId!, scope),
   });
 }
 

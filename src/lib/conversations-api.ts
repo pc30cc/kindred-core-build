@@ -276,27 +276,30 @@ export const conversationsApi = {
     status?: string;
     needsHuman?: boolean;
     assignedToMe?: string | null;
+    /** 'mine' (default) hides threads assigned to other operators. */
+    scope?: 'mine' | 'all';
   }): Promise<{ conversations: any[] }> {
     const q = new URLSearchParams({ workspace_id: params.workspace_id });
     if (params.queue) q.set('queue', params.queue);
     if (params.status) q.set('status', params.status);
     if (params.needsHuman) q.set('needs_human', 'true');
     if (params.assignedToMe) q.set('assigned_to_me', params.assignedToMe);
+    if (params.scope) q.set('scope', params.scope);
     const res = await fetch(`${API_BASE}/api/conversations?${q}`, { credentials: 'include', headers: JSON_HEADERS });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || `List failed: ${res.status}`);
     return json;
   },
 
-  async getInboxCounts(workspaceId: string): Promise<{ main: number; automated: number; needs_human: number; spam: number }> {
-    const res = await fetch(`${API_BASE}/api/conversations/inbox-counts?workspace_id=${encodeURIComponent(workspaceId)}`, { credentials: 'include', headers: JSON_HEADERS });
+  async getInboxCounts(workspaceId: string, scope: 'mine' | 'all' = 'mine'): Promise<{ main: number; automated: number; needs_human: number; spam: number }> {
+    const res = await fetch(`${API_BASE}/api/conversations/inbox-counts?workspace_id=${encodeURIComponent(workspaceId)}&scope=${scope}`, { credentials: 'include', headers: JSON_HEADERS });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || `Counts failed: ${res.status}`);
     return json;
   },
 
-  async getInboxTabCounts(workspaceId: string): Promise<Record<string, number>> {
-    const res = await fetch(`${API_BASE}/api/conversations/inbox-tab-counts?workspace_id=${encodeURIComponent(workspaceId)}`, { credentials: 'include', headers: JSON_HEADERS });
+  async getInboxTabCounts(workspaceId: string, scope: 'mine' | 'all' = 'mine'): Promise<Record<string, number>> {
+    const res = await fetch(`${API_BASE}/api/conversations/inbox-tab-counts?workspace_id=${encodeURIComponent(workspaceId)}&scope=${scope}`, { credentials: 'include', headers: JSON_HEADERS });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || `Tab counts failed: ${res.status}`);
     return json;

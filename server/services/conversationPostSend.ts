@@ -64,6 +64,8 @@ export async function applyPostSendAction(
 
   try {
     const sb = getServiceClient(config);
+    let row: { changed?: boolean; new_status?: string; changed_at?: string; blocked_reason?: string } | null = null;
+
     const { data, error } = await sb.rpc('conversation_apply_post_send_action', {
       p_workspace_id: workspaceId,
       p_conversation_id: conversationId,
@@ -71,14 +73,34 @@ export async function applyPostSendAction(
       p_allowed_from: allowedFrom,
       p_after_message_id: input.messageId ?? null,
     });
+
     if (error) {
-      console.warn('[conversationPostSend] rpc failed:', error.message);
-      return { changed: false, blocked: 'rpc_error' };
+      // The RPC is the race-safe path, but a stale PostgREST schema cache or a
+      // deployment where migration 070 has not been applied yet must not break
+      // the operator's "Send & wait" / "Send & resolve" action. Fall back to a
+      // conditional UPDATE that keeps the same guards (allowed source status +
+      // no newer inbound customer message).
+      console.warn(
+        '[conversationPostSend] rpc failed:',
+        error.code ?? '',
+        error.message,
+        error.details ?? '',
+      );
+      row = await applyPostSendFallback(sb, {
+        workspaceId,
+        conversationId,
+        targetStatus,
+        allowedFrom,
+        afterMessageId: input.messageId ?? null,
+      });
+    } else {
+      row = Array.isArray(data) ? data[0] : data;
     }
-    const row = Array.isArray(data) ? data[0] : data;
+
     if (!row?.changed) {
       return { changed: false, blocked: row?.blocked_reason ?? 'no_change' };
     }
+
 
     // Timeline + audit. `resolved` keeps the existing resolved lifecycle event
     // type so the Inbox timeline renders it exactly as a manual resolve.

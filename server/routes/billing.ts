@@ -56,6 +56,7 @@ import {
   LegacyPathRejectedError,
 } from '../services/billing/rollout.js';
 import { settleAndApply } from '../services/billing/invoice/settle.js';
+import { applyWalletDeposit } from '../services/billing/wallet/index.js';
 import { buildWorkspaceBillingReadModel } from '../services/billing/readModel.js';
 
 /**

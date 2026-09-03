@@ -39,6 +39,8 @@ const en = {
       backCta: 'Back to Plan & Payments', viewInvoiceCta: 'View invoice', retryCta: 'Try again',
       amountLabel: 'Amount', purposeLabel: 'For', dateLabel: 'Date', trackingNumberLabel: 'Tracking number', orderNumberLabel: 'Order number',
       purposeRenewal: 'Renew {{plan}} plan', purposeUpgrade: 'Upgrade plan to {{plan}}', purposeTopup: 'AI credit purchase',
+      purposePlan: '{{plan}} plan', purposeAiCredit: 'AI credit top-up', periodEndLabel: 'Valid until',
+      pendingHint: 'Your payment went through and is being finalized. This page refreshes automatically — do not pay again.',
     },
     transactions: {
       title: 'Transactions', date: 'Date', description: 'Description', amount: 'Amount', status: 'Status', details: 'Details',

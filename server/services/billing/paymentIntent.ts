@@ -1,23 +1,45 @@
 // ============================================
-// PAYMENT INTENTS — server-authoritative checkout amount/purpose.
+// PAYMENT INTENTS — server-authoritative checkout amount/purpose, with a real
+// state machine.
 //
-// Checkout amount and purpose (which plan/interval, or an AI-credit top-up)
-// must NEVER be trusted from the client. A payment intent is created here
-// BEFORE the provider redirect, from server-known prices/config, and
-// verify-callback re-reads the SAME row instead of trusting anything the
-// browser sends back.
+//   pending ──claim──▶ processing ──side effect ok──▶ succeeded
+//      │                    │
+//      │                    └── side effect failed ──▶ stays processing
+//      │                        (recoverable: retry re-runs the SAME
+//      │                         idempotent side effect and then succeeds)
+//      ├── gateway said "not verified" ──▶ failed
+//      ├── TTL passed ──▶ expired
+//      └── user abandoned / canceled ──▶ canceled
+//
+// Why `processing` exists: the previous flow marked the intent `succeeded`
+// immediately after the gateway verify and applied the subscription period /
+// AI credit afterwards. A crash in between left the customer charged with
+// nothing granted, and every retry looked like a replay. Now `succeeded` is
+// written ONLY after the money has actually turned into something.
+//
+// Checkout amount and purpose must NEVER be trusted from the client. The row
+// is created here BEFORE the provider redirect from server-known prices and
+// verify-callback re-reads the SAME row.
 // ============================================
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import type { PurchaseActionType } from './periods.js';
 
 export type PurchaseType = 'subscription' | 'ai_credit_topup';
-export type IntentStatus = 'pending' | 'succeeded' | 'failed' | 'expired' | 'canceled';
+export type IntentStatus =
+  | 'pending'
+  | 'processing'
+  | 'succeeded'
+  | 'failed'
+  | 'expired'
+  | 'canceled';
 
 export interface PaymentIntentRow {
   id: string;
   workspace_id: string;
   purchase_type: PurchaseType;
+  action_type: PurchaseActionType | null;
   plan_id: string | null;
   billing_interval: 'monthly' | 'yearly' | null;
   provider_name: string;
@@ -26,12 +48,23 @@ export interface PaymentIntentRow {
   provider_ref: string | null;
   metadata: Record<string, unknown>;
   expires_at: string;
+  processing_at: string | null;
   succeeded_at: string | null;
+  attempt_count: number;
+  failure_reason: string | null;
   created_at: string;
   updated_at: string;
 }
 
 const INTENT_TTL_MS = 30 * 60 * 1000;
+
+/**
+ * A `processing` intent older than this is considered a crashed finalization
+ * and may be re-claimed by a retry. The side effects behind it are idempotent
+ * (AI credit uses `commandKey`, payments use a unique index on the intent id),
+ * so re-running them cannot double-charge anything.
+ */
+const PROCESSING_RECLAIM_MS = 60 * 1000;
 
 /** Iranian one-time gateways: their checkout amount is fully server-derived. */
 export const IRAN_PROVIDERS = new Set([
@@ -47,6 +80,7 @@ export async function createSubscriptionIntent(
     interval: 'monthly' | 'yearly';
     providerName: string;
     amountIrr: number;
+    actionType?: PurchaseActionType;
     metadata?: Record<string, unknown>;
   },
 ): Promise<PaymentIntentRow> {
@@ -56,6 +90,7 @@ export async function createSubscriptionIntent(
     .insert({
       workspace_id: input.workspaceId,
       purchase_type: 'subscription',
+      action_type: input.actionType ?? null,
       plan_id: input.planId,
       billing_interval: input.interval,
       provider_name: input.providerName,
@@ -84,6 +119,7 @@ export async function createAiCreditTopupIntent(
     .insert({
       workspace_id: input.workspaceId,
       purchase_type: 'ai_credit_topup',
+      action_type: 'ai_credit_topup',
       provider_name: input.providerName,
       amount_irr: input.amountIrr,
       metadata: input.metadata || {},
@@ -120,40 +156,155 @@ export async function setPaymentIntentProviderRef(
     .eq('id', intentId);
 }
 
+export type ClaimOutcome =
+  | { claimed: true; resumed: boolean }
+  | { claimed: false; reason: 'already_finalized' | 'in_flight' };
+
 /**
- * Atomically claims a pending intent for finalization. Resolves `true`
- * exactly once — a replayed verify-callback (double-click, provider retry)
- * loses the `status = 'pending'` race and gets `false` without re-applying
- * any financial side effect.
+ * Atomically moves an intent from `pending` to `processing`. Resolves
+ * `claimed: true` for exactly one concurrent caller.
+ *
+ * A `processing` row whose finalization crashed (older than
+ * PROCESSING_RECLAIM_MS) can be re-claimed — that is the recovery path, and it
+ * is safe because every side effect behind it is idempotent.
  */
-export async function claimPaymentIntent(
+export async function claimIntentForProcessing(
   config: ServerConfig,
   intentId: string,
-): Promise<boolean> {
+  opts: { now?: Date } = {},
+): Promise<ClaimOutcome> {
   const supabase = getServiceClient(config);
+  const now = opts.now ?? new Date();
+  const nowIso = now.toISOString();
+
   const { data, error } = await supabase
     .from('billing_payment_intents')
-    .update({ status: 'succeeded', succeeded_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .update({ status: 'processing', processing_at: nowIso, updated_at: nowIso })
     .eq('id', intentId)
     .eq('status', 'pending')
     .select('id')
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return !!data;
+  if (data) return { claimed: true, resumed: false };
+
+  // Lost the pending race, or a previous attempt crashed mid-finalization.
+  const current = await getPaymentIntent(config, intentId);
+  if (!current) return { claimed: false, reason: 'already_finalized' };
+  if (current.status !== 'processing') return { claimed: false, reason: 'already_finalized' };
+
+  const startedAt = current.processing_at ? new Date(current.processing_at).getTime() : 0;
+  if (now.getTime() - startedAt < PROCESSING_RECLAIM_MS) {
+    return { claimed: false, reason: 'in_flight' };
+  }
+
+  const { data: retaken, error: retakeError } = await supabase
+    .from('billing_payment_intents')
+    .update({ processing_at: nowIso, updated_at: nowIso })
+    .eq('id', intentId)
+    .eq('status', 'processing')
+    .eq('processing_at', current.processing_at)
+    .select('id')
+    .maybeSingle();
+  if (retakeError) throw new Error(retakeError.message);
+  return retaken ? { claimed: true, resumed: true } : { claimed: false, reason: 'in_flight' };
+}
+
+/** Final success — written ONLY after the financial side effect landed. */
+export async function markIntentSucceeded(
+  config: ServerConfig,
+  intentId: string,
+): Promise<void> {
+  const supabase = getServiceClient(config);
+  const nowIso = new Date().toISOString();
+  const { error } = await supabase
+    .from('billing_payment_intents')
+    .update({ status: 'succeeded', succeeded_at: nowIso, updated_at: nowIso })
+    .eq('id', intentId)
+    .in('status', ['pending', 'processing']);
+  if (error) throw new Error(error.message);
 }
 
 export async function markPaymentIntentFailed(
+  config: ServerConfig,
+  intentId: string,
+  reason?: string,
+): Promise<void> {
+  const supabase = getServiceClient(config);
+  await supabase
+    .from('billing_payment_intents')
+    .update({
+      status: 'failed',
+      failure_reason: reason ?? null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', intentId)
+    .in('status', ['pending', 'processing']);
+}
+
+export async function markPaymentIntentExpired(
   config: ServerConfig,
   intentId: string,
 ): Promise<void> {
   const supabase = getServiceClient(config);
   await supabase
     .from('billing_payment_intents')
-    .update({ status: 'failed', updated_at: new Date().toISOString() })
+    .update({ status: 'expired', updated_at: new Date().toISOString() })
     .eq('id', intentId)
     .eq('status', 'pending');
 }
 
+/** Records that the finalization attempt failed but the intent stays recoverable. */
+export async function noteIntentFailureAttempt(
+  config: ServerConfig,
+  intent: PaymentIntentRow,
+  reason: string,
+): Promise<void> {
+  const supabase = getServiceClient(config);
+  await supabase
+    .from('billing_payment_intents')
+    .update({
+      attempt_count: (intent.attempt_count || 0) + 1,
+      failure_reason: reason.slice(0, 300),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', intent.id);
+}
+
 export function isIntentUsable(intent: PaymentIntentRow): boolean {
   return intent.status === 'pending' && new Date(intent.expires_at).getTime() > Date.now();
+}
+
+/**
+ * Provider identity binding. An intent may only be finalized with the payment
+ * reference (ZarinPal `Authority`, IDPay/Zibal `trackId`, ...) that the
+ * gateway handed back when THIS intent's checkout session was created.
+ * Fails closed whenever a reference is present on both sides and they differ,
+ * so intent A can never be finalized with payment B.
+ */
+const PROVIDER_REF_PARAM_KEYS = [
+  'Authority', 'authority', 'trackId', 'trackid', 'track_id',
+  'id', 'refId', 'ref_id', 'refnum', 'RefNum', 'token', 'trans_id',
+];
+
+export function extractProviderRef(params: unknown): string | null {
+  if (typeof params !== 'object' || params === null) return null;
+  const record = params as Record<string, unknown>;
+  for (const key of PROVIDER_REF_PARAM_KEYS) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+  return null;
+}
+
+export function providerRefMatchesIntent(
+  intent: PaymentIntentRow,
+  params: unknown,
+): { ok: true } | { ok: false; reason: string } {
+  const stored = (intent.provider_ref || '').trim();
+  if (!stored) return { ok: true }; // provider gave us nothing to bind against
+  const incoming = extractProviderRef(params);
+  if (!incoming) return { ok: false, reason: 'missing_provider_reference' };
+  if (incoming !== stored) return { ok: false, reason: 'provider_reference_mismatch' };
+  return { ok: true };
 }

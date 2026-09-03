@@ -293,9 +293,48 @@ export async function billingVerifyCallback(input: {
   params: Record<string, string>;
   intentId?: string;
 }) {
-  return request<{ success: boolean; verified?: boolean; providerRef?: string; amount?: number; status?: string; duplicate?: boolean }>(
+  return request<BillingVerifyResponse>(
     '/api/billing/verify-callback',
     { method: 'POST', body: JSON.stringify(input) },
+  );
+}
+
+/** Server-built receipt: every field is derived from persisted state. */
+export interface BillingReceipt {
+  status: string;
+  intentId: string;
+  amountIrr: number;
+  purchaseType: 'subscription' | 'ai_credit_topup';
+  actionType: string | null;
+  providerName: string;
+  providerRef: string | null;
+  orderId: string;
+  paidAt: string | null;
+  planName: string | null;
+  billingInterval: string | null;
+  periodEnd?: string | null;
+  newAiBalanceIrr?: number;
+}
+
+export interface BillingVerifyResponse {
+  success: boolean;
+  verified?: boolean;
+  /** Finalization still running — poll billingGetPaymentIntent. */
+  pending?: boolean;
+  providerRef?: string;
+  amount?: number;
+  status?: string;
+  duplicate?: boolean;
+  receipt?: BillingReceipt;
+}
+
+/**
+ * Polls the authoritative state of a payment intent. Used by the result screen
+ * when a callback lands while the server is still applying the payment.
+ */
+export async function billingGetPaymentIntent(intentId: string) {
+  return request<{ status: string; pending: boolean; receipt: BillingReceipt | null; failureReason: string | null }>(
+    `/api/billing/payment-intent/${encodeURIComponent(intentId)}`,
   );
 }
 

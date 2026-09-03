@@ -41,6 +41,8 @@ const fa: TranslationKeys = {
       backCta: 'بازگشت به پلن و پرداخت', viewInvoiceCta: 'مشاهده فاکتور', retryCta: 'تلاش مجدد',
       amountLabel: 'مبلغ', purposeLabel: 'بابت', dateLabel: 'تاریخ', trackingNumberLabel: 'شماره پیگیری', orderNumberLabel: 'شماره سفارش',
       purposeRenewal: 'تمدید پلن {{plan}}', purposeUpgrade: 'ارتقای پلن به {{plan}}', purposeTopup: 'خرید اعتبار هوش مصنوعی',
+      purposePlan: 'پلن {{plan}}', purposeAiCredit: 'شارژ اعتبار هوش مصنوعی', periodEndLabel: 'اعتبار تا',
+      pendingHint: 'مبلغ از حساب شما کسر شده و در حال نهایی‌سازی است. این صفحه به‌صورت خودکار به‌روزرسانی می‌شود؛ نیازی به پرداخت مجدد نیست.',
     },
     transactions: {
       title: 'تراکنش‌ها', date: 'تاریخ', description: 'شرح', amount: 'مبلغ', status: 'وضعیت', details: 'جزئیات',

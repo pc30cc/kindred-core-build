@@ -57,19 +57,25 @@ function MaintenanceCard() {
   };
 
 
-  const handleRestoreFile = async (file: File) => {
-    setBusy('restore');
+  const handleRestoreFile = async (file: File, full = false) => {
+    setBusy(full ? 'fullRestore' : 'restore');
     try {
       const payload = JSON.parse(await file.text());
-      await restoreDatabaseBackup(payload);
-      toast.success(t('admin.database.restoreDone'));
+      const res = await restoreDatabaseBackup(payload);
+      if (res.schema && res.schema.failed_count > 0) {
+        toast.warning(t('admin.database.schemaPartial', { count: res.schema.failed_count }));
+      } else {
+        toast.success(t('admin.database.restoreDone'));
+      }
     } catch (e: any) {
       toast.error(e?.message || t('admin.database.opFailed'));
     } finally {
       setBusy(null);
       if (fileRef.current) fileRef.current.value = '';
+      if (fullFileRef.current) fullFileRef.current.value = '';
     }
   };
+
 
   const runPurge = async () => {
     if (!confirmScope) return;

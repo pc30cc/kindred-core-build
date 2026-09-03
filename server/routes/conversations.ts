@@ -973,7 +973,7 @@ conversationsRouter.get('/', async (req: any, res: any) => {
     if (ids.length > 0) {
       const { data: msgs } = await sb
         .from('conversation_messages')
-        .select('conversation_id, body, created_at, sender_type, seen_at, metadata')
+        .select('conversation_id, body, created_at, sender_type, sender_id, seen_at, metadata')
         .in('conversation_id', ids)
         // Bot menu/button taps are navigation, not chat content — keep them
         // out of the fetch window entirely so a visitor browsing the bot menu
@@ -983,7 +983,10 @@ conversationsRouter.get('/', async (req: any, res: any) => {
         .limit(2000);
 
       const byConv: Record<string, { body: string; created_at: string; seen_at: string | null }> = {};
-      const lastByConv: Record<string, { body: string; created_at: string; sender_type: string; attachment_id?: string | null; attachment_kind?: 'image' | 'audio' | 'video' | 'file' | null }> = {};
+      const lastByConv: Record<string, { body: string; created_at: string; sender_type: string; sender_id?: string | null; sender_name?: string | null; attachment_id?: string | null; attachment_kind?: 'image' | 'audio' | 'video' | 'file' | null }> = {};
+      // Human operators who ever wrote in the thread — drives "who handled
+      // this" visibility for resolved threads and the list preview label.
+      const agentParticipants: Record<string, Set<string>> = {};
       const unreadByConv: Record<string, number> = {};
       // Needs Reply is derived from the message stream, never stored. Rows
       // arrive newest-first, so the FIRST conversational turn we see per
@@ -1010,11 +1013,16 @@ conversationsRouter.get('/', async (req: any, res: any) => {
             body: m.body ?? '',
             created_at: m.created_at,
             sender_type: m.sender_type,
+            sender_id: m.sender_id ?? null,
+            sender_name: null,
             // A file-only message has an empty body: the list preview must
             // describe the media instead of claiming "no messages yet".
             attachment_id: (meta as any)?.attachment_id ? String((meta as any).attachment_id) : null,
             attachment_kind: null,
           };
+        }
+        if (m.sender_type === 'agent' && m.sender_id) {
+          (agentParticipants[m.conversation_id] ||= new Set<string>()).add(String(m.sender_id));
         }
 
 
@@ -1073,10 +1081,35 @@ conversationsRouter.get('/', async (req: any, res: any) => {
         }
       }
 
+      // Resolve display names for the operators whose message is the list
+      // preview, so the row reads "Ali: …" instead of always "You: …".
+      const agentSenderIds = Array.from(new Set(
+        Object.values(lastByConv)
+          .filter((l) => l.sender_type === 'agent' && l.sender_id)
+          .map((l) => String(l.sender_id)),
+      ));
+      if (agentSenderIds.length) {
+        const { data: profs } = await sb
+          .from('profiles')
+          .select('id, full_name, email')
+          .in('id', agentSenderIds);
+        const nameById = new Map<string, string>(
+          ((profs || []) as any[]).map((p) => [
+            String(p.id),
+            String(p.full_name || String(p.email || '').split('@')[0] || ''),
+          ]),
+        );
+        for (const last of Object.values(lastByConv)) {
+          if (last.sender_type !== 'agent' || !last.sender_id) continue;
+          last.sender_name = nameById.get(String(last.sender_id)) || null;
+        }
+      }
+
       for (const c of convos) {
         c.last_visitor_message = byConv[c.id] ?? null;
         c.last_message = lastByConv[c.id] ?? null;
         c.unread_count = unreadByConv[c.id] ?? 0;
+        c.handled_by = Array.from(agentParticipants[c.id] ?? []);
         // Only an `open` thread can owe the customer an answer: `pending`
         // means we are waiting for THEM, `resolved`/`closed` are done.
         c.needs_reply = c.status === 'open' && (needsReplyByConv[c.id] ?? false);
@@ -1095,6 +1128,20 @@ conversationsRouter.get('/', async (req: any, res: any) => {
         const humanTouched = !!c.assigned_to || c.ai_state === 'human_active'
           || (c.last_message && c.last_message.sender_type === 'agent');
         return !introOnly || humanTouched;
+      });
+    }
+
+    // A finished thread belongs to whoever actually handled it. An operator
+    // must not see resolved/closed threads that another operator answered,
+    // even when nobody claimed them (`assigned_to` stays null on the
+    // "send & resolve" path). Owners/admins/team leads keep the full view.
+    if (!canSeeAllAssignments) {
+      result = result.filter((c) => {
+        if (c.status !== 'resolved' && c.status !== 'closed') return true;
+        if (c.assigned_to && c.assigned_to !== auth.userId) return false;
+        const handled: string[] = Array.isArray(c.handled_by) ? c.handled_by : [];
+        if (handled.length === 0) return true; // AI/system resolved → shared
+        return handled.includes(auth.userId);
       });
     }
 
@@ -1168,10 +1215,43 @@ conversationsRouter.get('/inbox-tab-counts', async (req: any, res: any) => {
       base().eq('ai_state', 'needs_human'),
       automatedQuery,
     ]);
+    // Same ownership rule as the list: a finished thread another operator
+    // handled is not part of this operator's Resolved tab.
+    let resolvedCount = resolvedRes.count ?? 0;
+    if (!seesAll && resolvedCount > 0) {
+      const { data: resolvedRows } = await sb
+        .from('conversations')
+        .select('id, assigned_to')
+        .eq('workspace_id', workspaceId)
+        .eq('is_spam', false)
+        .in('status', ['resolved', 'closed'])
+        .or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`)
+        .limit(2000);
+      const rows = (resolvedRows || []) as any[];
+      const ids = rows.map((r) => r.id);
+      const handled: Record<string, Set<string>> = {};
+      if (ids.length) {
+        const { data: agentMsgs } = await sb
+          .from('conversation_messages')
+          .select('conversation_id, sender_id')
+          .in('conversation_id', ids)
+          .eq('sender_type', 'agent')
+          .limit(5000);
+        for (const m of (agentMsgs || []) as any[]) {
+          if (!m.sender_id) continue;
+          (handled[m.conversation_id] ||= new Set<string>()).add(String(m.sender_id));
+        }
+      }
+      resolvedCount = rows.filter((r) => {
+        if (r.assigned_to && r.assigned_to !== auth.userId) return false;
+        const set = handled[r.id];
+        return !set || set.size === 0 || set.has(auth.userId);
+      }).length;
+    }
     return res.json({
       open: openRes.count ?? 0,
       pending: pendingRes.count ?? 0,
-      resolved: resolvedRes.count ?? 0,
+      resolved: resolvedCount,
       all: allRes.count ?? 0,
       needs_human: needsRes.count ?? 0,
       automated: automatedRes.count ?? 0,

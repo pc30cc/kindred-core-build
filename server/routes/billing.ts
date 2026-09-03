@@ -56,6 +56,7 @@ import {
   LegacyPathRejectedError,
 } from '../services/billing/rollout.js';
 import { settleAndApply } from '../services/billing/invoice/settle.js';
+import { buildWorkspaceBillingReadModel } from '../services/billing/readModel.js';
 
 /**
  * Customer-friendly receipt for a finalized intent. Everything here comes from
@@ -1385,4 +1386,19 @@ billingRouter.post('/admin/grant', requireSuperAdmin, async (req, res) => {
     source: 'admin_grant',
   });
   res.json({ subscription: data });
+});
+
+// ─── GET /api/billing/workspaces/:workspaceId/engine ─────────────
+//
+// STABLE read-only billing contract (Phase D's UI consumes this shape).
+// Strictly read-only: for a V2-owned workspace no GET may grant, settle or
+// activate anything, so this endpoint only reports persisted financial state.
+billingRouter.get('/workspaces/:workspaceId/engine', async (req, res) => {
+  const workspaceId = String(req.params.workspaceId || '');
+  if (!(await authorizeWorkspace(req, res, workspaceId))) return;
+  try {
+    res.json(await buildWorkspaceBillingReadModel(serverConfigOf(req), workspaceId));
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
 });

@@ -222,7 +222,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/admin/voice-video" element={<AdminVoiceVideoPage />} />
                 <Route path="/admin/ai-agent" element={<AdminAiAgentControlPage />} />
                 <Route path="/admin/call-center" element={<AdminCallCenterPage />} />
-                <Route path="/admin/ai-billing" element={<AdminAiBillingPage />} />
+                <Route path="/admin/ai-billing" element={<Navigate to="/admin/finance?tab=ai" replace />} />
                 {/* Legacy Advanced Routing page replaced by Widget Settings → Advanced Routing tab. */}
                 <Route
                   path="/admin/advanced-routing"

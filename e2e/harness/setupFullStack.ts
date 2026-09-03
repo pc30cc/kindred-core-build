@@ -23,7 +23,7 @@
 import { Pool } from 'pg';
 import { randomBytes, createHash, randomUUID } from 'node:crypto';
 import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import jwt from 'jsonwebtoken';
@@ -226,7 +226,26 @@ export default async function globalSetup() {
     throw new Error(`Express server failed to start. Log:\n${expressLog}\n\n${e}`);
   }
 
-  // 7. Static (dist/) + same-origin /api proxy, matching the documented
+  // 6b. A same-origin build of the frontend, into dist-e2e/ (never dist/ —
+  // that one bakes in this repo's own VITE_API_BASE_URL, a real external
+  // origin, at build time). runtime-config.js's empty apiBaseUrl only
+  // wins over the BUILD-TIME value when the build-time value was itself
+  // empty (src/lib/apiBase.ts), so the build-time var must be unset here
+  // too, or the browser calls the real external API directly instead of
+  // this harness's own Express.
+  if (process.env.E2E_SKIP_BUILD !== '1') {
+    const distE2e = path.join(ROOT, 'dist-e2e');
+    const build = spawnSync(process.execPath, ['scripts/build-smart-engine.mjs'], { cwd: ROOT, env: process.env, stdio: 'inherit' });
+    if (build.status !== 0) throw new Error('build-smart-engine.mjs failed');
+    const viteBuild = spawnSync(
+      path.join(ROOT, 'node_modules/.bin/vite'),
+      ['build', '--outDir', distE2e],
+      { cwd: ROOT, env: { ...process.env, VITE_API_BASE_URL: '' }, stdio: 'inherit' },
+    );
+    if (viteBuild.status !== 0) throw new Error('vite build (dist-e2e) failed');
+  }
+
+  // 7. Static (dist-e2e/) + same-origin /api proxy, matching the documented
   // self-host reverse-proxy topology (SELF_HOST_GUIDE.md) so the browser
   // never sees a cross-origin request and the real Lax session cookie works.
   const proxyServerPath = path.join(__dirname, 'proxyServer.ts');

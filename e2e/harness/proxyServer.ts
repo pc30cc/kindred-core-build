@@ -13,7 +13,12 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
-const DIST = path.join(ROOT, 'dist');
+// NOT the real dist/ — that's built with the repo's own .env baking in
+// VITE_API_BASE_URL (a real external origin for this deployment), which
+// would make the browser call that origin directly instead of this proxy.
+// setupFullStack.ts builds this same-origin variant with
+// VITE_API_BASE_URL="" so every /api/* call stays on this proxy's origin.
+const DIST = path.join(ROOT, 'dist-e2e');
 const PORT = Number(process.env.E2E_PROXY_PORT || 8080);
 const EXPRESS_PORT = Number(process.env.E2E_EXPRESS_PORT || 34122);
 

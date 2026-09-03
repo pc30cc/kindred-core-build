@@ -27,3 +27,4 @@ dist-ssr
 e2e/harness/.runtime.json
 e2e/harness/.postgrest.conf
 test-results/
+dist-e2e/

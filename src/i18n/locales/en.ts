@@ -3193,8 +3193,18 @@ const en = {
       notConfigured: 'Administrator bootstrap is not configured. Set INITIAL_ADMIN_EMAIL in the server environment.', verifyEmail: 'Verify your email before creating the administrator.',
       notAuthorized: 'This account is not authorized to create the platform administrator.', failed: 'Administrator bootstrap failed.',
     },
+    finance: {
+      title: 'Finance & Auditing',
+      subtitle: 'Platform billing, AI cost and the change trail in one place',
+      tabs: {
+        billing: 'Billing & payments',
+        ai: 'AI usage',
+        audit: 'Audit log',
+      },
+    },
     nav: {
       title: 'Super Admin',
+      finance: 'Finance & Auditing',
       dashboard: 'Dashboard',
       users: 'Users',
       workspaces: 'Workspaces',

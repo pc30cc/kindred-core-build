@@ -184,6 +184,21 @@
     ".launcher.square{border-radius:16px;}",
     ".launcher.pulse{animation:gs-fab-pulse 2s ease-in-out infinite;}",
     "@keyframes gs-fab-pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.07);}}",
+    /* ── Custom launcher image with a circle-reveal hover ──
+       The uploaded image covers the button and, on hover, its clip-path
+       circle collapses to the centre revealing the configured icon that
+       sits underneath. No crossfade — a real reveal. */
+    ".launcher .fab-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;",
+    "border-radius:inherit;pointer-events:none;clip-path:circle(75% at 50% 50%);",
+    "transition:clip-path .42s cubic-bezier(.22,1,.36,1);}",
+    ".launcher.has-image:hover .fab-img{clip-path:circle(0% at 50% 50%);}",
+    /* ── FAB ⇄ panel shared origin ──
+       Opening the panel drops the FAB out of view (down + shrink) and
+       closing brings it back, so the panel visually grows out of the very
+       corner the button occupied. */
+    ".launcher.open{transform:translateY(150%) scale(.6);opacity:0;pointer-events:none;animation:none;}",
+    ".launcher.open:hover{transform:translateY(150%) scale(.6);}",
+
     ".gs-fab-label{position:fixed;z-index:2147483645;display:inline-flex;align-items:center;",
     "padding:7px 12px;border-radius:999px;font-size:12px;font-weight:600;font-family:inherit;",
     "box-shadow:0 4px 14px -4px rgba(0,0,0,.25);white-space:nowrap;background:var(--gs-primary,#3B82F6);color:#fff;}",
@@ -416,9 +431,16 @@
     if (fab.animation === true) launcherEl.classList.add("pulse");
     launcherEl.style.color = fab.iconColor || "#ffffff";
     var icon = FAB_ICONS[fab.icon] || FAB_ICONS.chat;
+    var imageUrl = typeof fab.imageUrl === "string" ? fab.imageUrl.trim() : "";
+    if (imageUrl && !/^https?:\/\//i.test(imageUrl)) imageUrl = "";
+    launcherEl.classList.toggle("has-image", !!imageUrl);
     launcherEl.innerHTML =
       '<svg class="chat-icon" viewBox="0 0 24 24">' + icon + '</svg>' +
-      '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+      '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      (imageUrl
+        ? '<img class="fab-img" alt="" aria-hidden="true" src="' + imageUrl.replace(/"/g, "&quot;") + '">'
+        : '');
+
 
     // Optional text chip beside the launcher.
     var shellDiv2 = shadowRoot.querySelector(".shell");

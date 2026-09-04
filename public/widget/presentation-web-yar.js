@@ -830,10 +830,15 @@
     // header, no composer and no powered-by footer — only the view host and
     // the attachment lightbox (accessibility infrastructure Core needs).
     //
-    // There is NO bottom tab bar and NO header close button: the launcher
-    // is the only visual open/close control (design §15).
+    // The launcher slides away while the panel is open (shared-origin FAB
+    // motion), so the shell owns a single close control in the top corner.
     function shellHtml() {
-      return '<div class="body wy-scroll" data-body></div>' +
+      return '<button type="button" class="panel-close" data-panel-close aria-label="' +
+          esc(tf('close', 'Close')) + '">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+          'stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+        '</button>' +
+        '<div class="body wy-scroll" data-body></div>' +
         '<div class="att-lightbox" data-att-lightbox hidden role="dialog" aria-modal="true" aria-label="' +
           esc(t('openFile')) + '">' +
           '<button type="button" class="att-lightbox-close" data-att-lightbox-close aria-label="' +
@@ -841,6 +846,7 @@
           '<img data-att-lightbox-img alt="" />' +
         '</div>';
     }
+
 
     // ══════════════════════════════════════════════════════════════════
     // Chat view (design §5) — the ONE generic chat surface

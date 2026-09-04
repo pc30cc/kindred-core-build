@@ -308,6 +308,8 @@ export function WidgetLivePreview({
     const fabRadius = s.fab_shape === 'square' ? '16px' : '50%';
     const fabIconColor = s.fab_icon_color || '#fff';
     const fabIcon = FAB_ICONS[(s.fab_icon as string) || 'chat'] || FAB_ICONS.chat;
+    const rawFabImage = typeof s.fab_image_url === 'string' ? s.fab_image_url.trim() : '';
+    const fabImage = /^https?:\/\//i.test(rawFabImage) ? rawFabImage : '';
     const logo = s.show_logo !== false && s.logo_url ? String(s.logo_url) : '';
     const initial = (title.trim().charAt(0) || 'S').toUpperCase();
 
@@ -518,6 +520,10 @@ export function WidgetLivePreview({
   .shell .launcher svg{width:calc(var(--gs-fab-size,56px) * .46);height:calc(var(--gs-fab-size,56px) * .46);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
   .launcher.open svg.chat-icon{display:none;}
   .launcher:not(.open) svg.close-icon{display:none;}
+  .launcher .fab-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit;
+    pointer-events:none;clip-path:circle(75% at 50% 50%);transition:clip-path .42s cubic-bezier(.22,1,.36,1);}
+  .launcher.has-image:hover .fab-img{clip-path:circle(0% at 50% 50%);}
+  .launcher.open,.launcher.open:hover{transform:translateY(150%) scale(.6);opacity:0;pointer-events:none;animation:none;}
   ${s.fab_animation === true ? '.launcher{animation:gsp 2s ease-in-out infinite}@keyframes gsp{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}' : ''}
   .fab-label{position:fixed;bottom:${Math.round(24 + fabSize / 2 - 15)}px;${pos === 'bottom-left' ? `left:${fabSize + 36}px` : `right:${fabSize + 36}px`};
     background:${esc(primary)};color:${esc(s.fab_text_color || '#fff')};padding:7px 12px;border-radius:999px;font-size:12px;font-weight:600;
@@ -537,9 +543,10 @@ export function WidgetLivePreview({
   </div>
   <div class="shell${s.fab_animation === true ? ' anim-on' : ''}">
     <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}${s.fab_animation === true ? ' anim-on' : ''}" dir="${dir}"></div>
-    <button type="button" class="launcher ${pos}" id="gs-launcher" aria-label="chat">
+    <button type="button" class="launcher ${pos}${fabImage ? ' has-image' : ''}" id="gs-launcher" aria-label="chat">
       <svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>
       <svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+      ${fabImage ? `<img class="fab-img" alt="" src="${esc(fabImage)}">` : ''}
     </button>
     ${s.fab_label ? `<div class="fab-label">${esc(s.fab_label)}</div>` : ''}
   </div>

@@ -170,6 +170,7 @@ const DEFAULT_WIDGET_SETTINGS = {
   fab_label: '',
   fab_scale: 100,
   fab_icon_color: '#ffffff',
+  fab_image_url: null as string | null,
   fab_text_color: '#ffffff',
   default_mode: 'chat',
   chat_enabled: true,
@@ -898,6 +899,11 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         iconColor: ws.fab_icon_color || '#ffffff',
         textColor: ws.fab_text_color || '#ffffff',
         animation: ws.fab_animation ?? true,
+        // Optional launcher image (stored via the workspace storage provider).
+        // On hover the runtime circle-reveals the configured icon underneath.
+        imageUrl: typeof ws.fab_image_url === 'string' && /^https?:\/\//i.test(ws.fab_image_url.trim())
+          ? ws.fab_image_url.trim()
+          : null,
       },
       features: {
         chat: ws.chat_enabled ?? true,

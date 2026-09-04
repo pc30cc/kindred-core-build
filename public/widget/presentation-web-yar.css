@@ -71,7 +71,7 @@
 .shell[dir='rtl'] { text-align: right; }
 
 .panel {
-  position: fixed;
+  position: absolute;
   /* Below the loader's launcher (2147483646) so the FAB is always clickable. */
   z-index: 2147483000;
   /* Intentional product override: source canvas is 380×600; components and
@@ -89,29 +89,28 @@
   overflow-x: hidden;
   box-sizing: border-box;
   opacity: 0;
-  /* Shared origin with the launcher: the panel grows out of the FAB corner
-     (see .panel.bottom-right / .bottom-left transform-origin) instead of
-     fading in from the middle of the screen. */
-  transform: translateY(calc(var(--gs-fab-size, 56px) / 2 + 14px)) scale(0.25);
+  /* Shared origin with the launcher: both live in the same zero-size anchor
+     and are pinned to the SAME corner, so the panel grows out of the FAB. */
+  transform: scale(0.82) translateY(24px);
   pointer-events: none;
-  transition: opacity 0.24s ease, transform 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.38s cubic-bezier(0.32, 0.9, 0.35, 1), opacity 0.28s ease;
 }
-/* Design geometry: edge 24px, panel↔launcher gap 14px. */
+/* Same corner as the launcher — the anchor already owns the 24px edge. */
 .panel.bottom-right {
-  right: 24px;
+  right: 0;
   left: auto;
   top: auto;
-  bottom: calc(24px + var(--gs-fab-size, 56px) + 14px);
+  bottom: 0;
   transform-origin: bottom right;
 }
 .panel.bottom-left {
-  left: 24px;
+  left: 0;
   right: auto;
   top: auto;
-  bottom: calc(24px + var(--gs-fab-size, 56px) + 14px);
+  bottom: 0;
   transform-origin: bottom left;
 }
-.panel.visible { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+.panel.visible { opacity: 1; transform: scale(1) translateY(0); pointer-events: auto; }
 .shell.no-anim .panel { transition: none; }
 
 @media (max-width: 440px) {
@@ -120,7 +119,8 @@
     max-width: calc(100vw - 24px);
     height: calc(100dvh - 120px);
   }
-  .panel.bottom-right, .panel.bottom-left { right: 12px; left: 12px; }
+  .panel.bottom-right { right: 0; left: auto; }
+  .panel.bottom-left { left: 0; right: auto; }
 }
 
 
@@ -137,13 +137,13 @@
   justify-content: center;
   box-shadow: 0 4px 14px -4px var(--gs-shadow, rgba(31, 147, 255, 0.22));
   cursor: pointer;
-  transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.24s ease, box-shadow 0.22s var(--wy-ease);
+  transition: transform 0.38s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.28s ease, box-shadow 0.22s var(--wy-ease);
 }
 .launcher:hover { transform: translateY(-2px) scale(1.04); }
 .launcher:active { transform: scale(0.96); }
 /* While the panel is open the FAB slides down out of view; closing returns it. */
 .launcher.open,
-.launcher.open:hover { transform: translateY(calc(100% + 24px)) scale(0.5); opacity: 0; pointer-events: none; }
+.launcher.open:hover { transform: translateY(90px); opacity: 0; pointer-events: none; }
 /* Icons scale with the launcher so chat and close are always the same box. */
 .launcher svg { width: calc(var(--gs-fab-size, 56px) * 0.46); height: calc(var(--gs-fab-size, 56px) * 0.46); }
 /* Icon swap (chat ⇄ close) is owned by the loader shell contract:

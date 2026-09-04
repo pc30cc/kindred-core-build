@@ -180,12 +180,12 @@
     "--gs-fab-exit:calc(var(--gs-fab-size,56px) + 56px);",
     "width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:50%;border:none;cursor:pointer;",
     "box-shadow:0 3px 12px -4px var(--gs-shadow,rgba(0,0,0,.16)),0 0 0 1px rgba(0,0,0,.03);",
-    "transition:transform .38s cubic-bezier(.4,0,.2,1),box-shadow .2s ease,opacity .28s ease;",
+    "transition:transform .38s cubic-bezier(.4,0,.2,1),box-shadow .2s ease;",
     "background:var(--gs-primary,transparent);color:#fff;font-family:inherit;",
     "opacity:1;}",
     /* First paint: the FAB starts fully outside the browser edge and slides
        up into the corner with the shared open/close timing. */
-    ".launcher.enter,.launcher.enter:hover{transform:translateY(var(--gs-fab-exit,112px));opacity:0;animation:none!important;}",
+    ".launcher.enter,.launcher.enter:hover{transform:translateY(var(--gs-fab-exit,112px));animation:none!important;}",
     /* Hidden state — keeps the launcher invisible and non-interactive until
        /config resolves and we know the brand color. Eliminates blue flash. */
     ".launcher.pending{opacity:0;pointer-events:none;visibility:hidden;}",
@@ -211,7 +211,7 @@
        closing brings it back, so the panel visually grows out of the very
        corner the button occupied. */
     ".launcher.open,.launcher.open:hover{transform:translateY(var(--gs-fab-exit,112px));",
-    "opacity:0;pointer-events:none;animation:none;}",
+    "pointer-events:none;animation:none;}",
 
     /* ── Text card beside the FAB ──
        Anchored to the SAME corner as the launcher and moving with it, so it
@@ -220,11 +220,11 @@
     "--gs-fab-exit:calc(var(--gs-fab-size,56px) + 56px);",
     "height:calc(var(--gs-fab-size,56px) - 4px);padding:0 16px;border-radius:.9rem;background:#fff;",
     "box-shadow:0 8px 20px rgba(0,0,0,.12);white-space:nowrap;font-family:inherit;pointer-events:none;",
-    "transition:transform .38s cubic-bezier(.4,0,.2,1),opacity .28s ease;transform:translateY(0);opacity:1;}",
+    "transition:transform .38s cubic-bezier(.4,0,.2,1);transform:translateY(0);}",
     ".gs-fab-label .label-title{font-size:13px;font-weight:600;color:#1c2024;line-height:1.3;}",
     ".gs-fab-label .label-sub{font-size:11px;color:#60646c;line-height:1.3;}",
-    ".gs-fab-label.enter{transform:translateY(var(--gs-fab-exit,112px));opacity:0;}",
-    ".gs-fab-label.open{transform:translateY(var(--gs-fab-exit,112px));opacity:0;pointer-events:none;}",
+    ".gs-fab-label.enter{transform:translateY(var(--gs-fab-exit,112px));}",
+    ".gs-fab-label.open{transform:translateY(var(--gs-fab-exit,112px));pointer-events:none;}",
     /* Icon box is derived from the launcher size so chat ⇄ close never differ. */
     ".launcher svg{width:calc(var(--gs-fab-size,56px) * .46);height:calc(var(--gs-fab-size,56px) * .46);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}",
     /* The launcher is the ONLY open/close control: it stays in place while the

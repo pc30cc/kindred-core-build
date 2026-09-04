@@ -21,7 +21,6 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { SkeletonStats } from '@/components/common/Skeletons';
 import { Check, Loader2, Sparkles } from 'lucide-react';
 import { useTranslation } from '@/i18n';
@@ -35,7 +34,7 @@ import {
   type PlanChangeMode,
   type PlanChangePreview,
 } from '@/lib/billingV2Api';
-import { billingDate, money, ErrorState, errorMessage } from './shared';
+import { money, ErrorState, errorMessage } from './shared';
 
 export default function PlansTab({
   workspaceId,
@@ -54,10 +53,7 @@ export default function PlansTab({
   const [error, setError] = useState<string | null>(null);
   const [interval, setInterval_] = useState<'monthly' | 'yearly'>('monthly');
 
-  const [target, setTarget] = useState<PlanCard | null>(null);
-  const [mode, setMode] = useState<PlanChangeMode | null>(null);
-  const [preview, setPreview] = useState<PlanChangePreview | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
   const navigate = useNavigate();
   const { slug } = useParams<{ slug: string }>();
 
@@ -185,9 +181,10 @@ export default function PlansTab({
                 <Button
                   className="w-full"
                   variant={isCurrent ? 'outline' : 'default'}
-                  disabled={isCurrent || !canManage}
-                  onClick={() => startChange(plan)}
+                  disabled={isCurrent || !canManage || busy !== null}
+                  onClick={() => choosePlan(plan)}
                 >
+                  {busy === plan.id && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
                   {isCurrent ? t('billingV2.plans.currentPlan') : t('billingV2.plans.choose')}
                 </Button>
               </CardContent>
@@ -196,93 +193,6 @@ export default function PlansTab({
         })}
       </div>
 
-      <Dialog open={Boolean(target)} onOpenChange={(open) => !open && setTarget(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{target?.name}</DialogTitle>
-          </DialogHeader>
-
-          {/* Step 1 — when. */}
-          {!mode && (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">{t('billingV2.plans.mode.title')}</p>
-              {(['immediate', 'next_cycle'] as const)
-                .filter((m) => data.currentPlanId || m === 'immediate')
-                .map((m) => (
-                <button
-                  key={m}
-                  disabled={busy}
-                  onClick={() => loadPreview(m)}
-                  className="w-full rounded-lg border p-3 text-start transition-colors hover:bg-muted/50"
-                >
-                  <p className="text-sm font-medium">{t(m === 'immediate' ? 'billingV2.plans.mode.immediate' : 'billingV2.plans.mode.nextCycle')}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t(m === 'immediate' ? 'billingV2.plans.mode.immediateDesc' : 'billingV2.plans.mode.nextCycleDesc')}
-                  </p>
-                </button>
-              ))}
-              <p className="text-xs text-muted-foreground">{t('billingV2.plans.downgradeNote')}</p>
-            </div>
-          )}
-
-          {/* Step 2 — the server's numbers. */}
-          {mode && busy && !preview && (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          )}
-
-          {mode && preview && (
-            <div className="space-y-2 text-sm">
-              <p className="font-medium">{t('billingV2.plans.preview.title')}</p>
-              <Line
-                label={t('billingV2.plans.preview.remainingDays', { days: preview.remainingDays })}
-                value=""
-              />
-              <Line label={t('billingV2.plans.preview.amountDue')} value={money(preview.amountIrr, locale)} strong />
-              {preview.aiCycleDeltaIrr > 0 && (
-                <Line
-                  label={t('billingV2.plans.preview.aiCycleDelta')}
-                  value={money(preview.aiCycleDeltaIrr, locale)}
-                />
-              )}
-              <Line label={t('billingV2.plans.preview.aiAfter')} value={money(preview.aiMonthlyAfterIrr, locale)} />
-              <Line
-                label={t('billingV2.plans.preview.effectiveAt')}
-                value={billingDate(preview.effectiveAt, locale)}
-              />
-              {preview.annualMonthlyAllowance && (
-                <p className="rounded-lg bg-muted/60 p-2.5 text-xs text-muted-foreground">
-                  {t('billingV2.overview.annualNote')}
-                </p>
-              )}
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setTarget(null)} disabled={busy}>
-              {t('billingV2.common.cancel')}
-            </Button>
-            {preview && (
-              <Button onClick={confirm} disabled={busy}>
-                {busy && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
-                {mode === 'immediate'
-                  ? t('billingV2.plans.preview.confirm')
-                  : t('billingV2.plans.preview.pendingConfirm')}
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-function Line({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <div className={`flex items-center justify-between ${strong ? 'font-semibold' : 'text-muted-foreground'}`}>
-      <span>{label}</span>
-      <span>{value}</span>
     </div>
   );
 }

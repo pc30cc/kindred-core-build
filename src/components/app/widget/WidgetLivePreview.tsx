@@ -746,12 +746,18 @@ export function WidgetLivePreview({
     // Entry parity: when the FAB is the first thing shown it slides up from
     // outside the browser edge with the same 0.38s curve production uses.
     if (!isOpen()) {
-      launcher.classList.add('enter');
-      if (label) label.classList.add('enter');
-      requestAnimationFrame(function () {
+      [launcher, label].forEach(function (element) {
+        if (!element) return;
+        if (typeof element.animate === 'function') {
+          element.animate(
+            [{ transform: 'translateY(var(--gs-fab-exit,112px))' }, { transform: 'translateY(0)' }],
+            { duration: 520, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'none' }
+          );
+          return;
+        }
+        element.classList.add('enter');
         requestAnimationFrame(function () {
-          launcher.classList.remove('enter');
-          if (label) label.classList.remove('enter');
+          requestAnimationFrame(function () { element.classList.remove('enter'); });
         });
       });
     }

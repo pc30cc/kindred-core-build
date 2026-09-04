@@ -436,6 +436,29 @@
   }
 
   var fabLabelEl = null;
+  function playFabEntry(element) {
+    if (!element) return;
+    var distance = "var(--gs-fab-exit,112px)";
+    // Use a real keyframe animation rather than relying only on a class
+    // transition. The launcher is hidden while config loads, so some browsers
+    // otherwise coalesce the hidden and revealed paints and skip the movement.
+    if (typeof element.animate === "function") {
+      element.classList.remove("enter");
+      element.animate(
+        [
+          { transform: "translateY(" + distance + ")" },
+          { transform: "translateY(0)" },
+        ],
+        { duration: 520, easing: "cubic-bezier(.22,1,.36,1)", fill: "none" }
+      );
+      return;
+    }
+    element.classList.add("enter");
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () { element.classList.remove("enter"); });
+    });
+  }
+
   function applyFabConfig(config, posClass) {
     var fab = (config && config.fab) || {};
     var scale = normalizeFabScale(fab.scale);
@@ -531,16 +554,11 @@
       // preview renders the exact same rules, so site == preview.
       applyFabConfig(config, posClass);
       if (firstReveal) {
-        // Entry: the FAB starts outside the browser edge and slides up into
-        // the corner with the same 0.38s curve used for open/close.
+        // Entry: force a genuine below-viewport → resting-position movement.
+        // No opacity animation is involved.
         var labelEl = shellDiv && shellDiv.querySelector(".gs-fab-label");
-        if (labelEl) labelEl.classList.add("enter");
-        requestAnimationFrame(function () {
-          requestAnimationFrame(function () {
-            launcherEl.classList.remove("enter");
-            if (labelEl) labelEl.classList.remove("enter");
-          });
-        });
+        playFabEntry(launcherEl);
+        playFabEntry(labelEl);
       }
     }
   }

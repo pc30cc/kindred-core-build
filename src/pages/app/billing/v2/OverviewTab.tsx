@@ -142,7 +142,7 @@ export default function OverviewTab({
               </div>
             )}
 
-            <div className="mt-auto space-y-2 pt-2">
+            <div className="!mt-auto space-y-2 pt-2">
               <p className="text-xs text-muted-foreground">{t('billingV2.overview.planBoxHint')}</p>
               {canManage && (
                 <Button size="lg" className="w-full text-base" onClick={() => onGoTo('plans')}>
@@ -200,7 +200,7 @@ export default function OverviewTab({
             )}
 
 
-            <div className="mt-auto space-y-2 pt-2">
+            <div className="!mt-auto space-y-2 pt-2">
               <p className="text-xs text-muted-foreground">{t('billingV2.overview.walletBoxHint')}</p>
               {canManage && (
                 <Button
@@ -252,7 +252,7 @@ export default function OverviewTab({
               <p className="text-xs text-muted-foreground">{t('billingV2.ai.noCycle')}</p>
             )}
 
-            <div className="mt-auto space-y-2 pt-2">
+            <div className="!mt-auto space-y-2 pt-2">
               <p className="text-xs text-muted-foreground">{t('billingV2.overview.aiBoxHint')}</p>
               {canManage && (
                 <Button

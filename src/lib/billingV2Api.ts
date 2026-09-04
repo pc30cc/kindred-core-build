@@ -287,7 +287,14 @@ export function billingV2PayInvoiceFromWallet(workspaceId: string, invoiceId: st
 }
 
 export function billingV2InvoiceCheckout(workspaceId: string, invoiceId: string, callbackUrl: string) {
-  return request<{ success: true; checkoutUrl?: string; url?: string; intentId: string; invoiceNumber: string }>(
+  return request<{
+    success: true;
+    paymentUrl?: string;
+    checkoutUrl?: string;
+    url?: string;
+    intentId: string;
+    invoiceNumber: string;
+  }>(
     `${base(workspaceId)}/invoices/${invoiceId}/checkout`,
     { method: 'POST', body: JSON.stringify({ callbackUrl }) },
   );

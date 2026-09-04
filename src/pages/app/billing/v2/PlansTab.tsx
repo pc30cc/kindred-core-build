@@ -141,30 +141,62 @@ export default function PlansTab({
       </div>
 
       <div className="grid items-stretch gap-5 md:grid-cols-2 xl:grid-cols-3">
-        {data.plans.map((plan) => {
+        {data.plans.map((plan, planIdx) => {
           const isCurrent = plan.id === data.currentPlanId && interval === data.currentInterval;
           const isPending = !isCurrent && plan.id === data.pendingPlanId;
           const price = interval === 'yearly' ? plan.yearlyPriceIrr : plan.monthlyPriceIrr;
+          const accent = `var(--plan-${(planIdx % 5) + 1})`;
           return (
             <Card
               key={plan.id}
-              className={`relative flex h-full flex-col overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-lg ${
-                isCurrent ? 'border-2 border-primary shadow-md' : 'border-2 border-border/70'
+              style={{ ['--plan-accent' as any]: accent }}
+              className={`relative flex h-full flex-col overflow-hidden transition-all hover:-translate-y-1 hover:shadow-xl ${
+                isCurrent ? 'border-2 shadow-lg' : 'border-2 border-border/60'
               }`}
             >
+              {/* Colour signature: a top ribbon plus a soft wash, unique per plan. */}
+              <div
+                className="absolute inset-x-0 top-0 h-1.5"
+                style={{ background: `linear-gradient(90deg, hsl(var(--plan-accent)), hsl(var(--plan-accent) / 0.45))` }}
+                aria-hidden
+              />
+              <div
+                className="pointer-events-none absolute inset-x-0 top-0 h-32"
+                style={{ background: `linear-gradient(to bottom, hsl(var(--plan-accent) / 0.14), transparent)` }}
+                aria-hidden
+              />
               {isCurrent && (
-                <div className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-primary/15 to-transparent" aria-hidden />
+                <div
+                  className="pointer-events-none absolute inset-0 rounded-lg"
+                  style={{ boxShadow: `inset 0 0 0 2px hsl(var(--plan-accent) / 0.75)` }}
+                  aria-hidden
+                />
               )}
-              <CardHeader className="relative pb-2">
+              <CardHeader className="relative pb-2 pt-6">
                 <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
-                  <span className="text-lg font-bold">{plan.name}</span>
-                  {isCurrent && <Badge>{t('billingV2.plans.currentPlan')}</Badge>}
+                  <span className="text-lg font-bold" style={{ color: `hsl(var(--plan-accent))` }}>
+                    {plan.name}
+                  </span>
+                  {isCurrent && (
+                    <span
+                      className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold text-white"
+                      style={{ background: `hsl(var(--plan-accent))` }}
+                    >
+                      {t('billingV2.plans.currentPlan')}
+                    </span>
+                  )}
                   {isPending && <Badge variant="outline">{t('billingV2.overview.pendingChange')}</Badge>}
                 </CardTitle>
+                {plan.description && (
+                  <p className="pt-1 text-sm leading-relaxed text-muted-foreground">{plan.description}</p>
+                )}
               </CardHeader>
               <CardContent className="relative flex flex-1 flex-col gap-4">
                 <div className="flex items-baseline gap-1.5">
-                  <span className="text-3xl font-extrabold tracking-tight tabular-nums">
+                  <span
+                    className="text-3xl font-extrabold tracking-tight tabular-nums"
+                    style={{ color: `hsl(var(--plan-accent))` }}
+                  >
                     {plan.isFree ? t('billingV2.plans.free') : money(price, locale)}
                   </span>
                   {!plan.isFree && (
@@ -175,9 +207,15 @@ export default function PlansTab({
                 </div>
 
                 {plan.aiMonthlyAllowanceIrr > 0 && (
-                  <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-3">
+                  <div
+                    className="rounded-xl p-3"
+                    style={{
+                      border: `1px solid hsl(var(--plan-accent) / 0.28)`,
+                      background: `hsl(var(--plan-accent) / 0.07)`,
+                    }}
+                  >
                     <p className="flex items-center gap-1.5 text-xs font-semibold">
-                      <Sparkles className="h-3.5 w-3.5 text-violet-600" />
+                      <Sparkles className="h-3.5 w-3.5" style={{ color: `hsl(var(--plan-accent))` }} />
                       {t('billingV2.plans.aiMonthly', { amount: money(plan.aiMonthlyAllowanceIrr, locale) })}
                     </p>
                     {interval === 'yearly' && (
@@ -190,7 +228,7 @@ export default function PlansTab({
                   <ul className="space-y-1.5 text-sm text-muted-foreground">
                     {(plan.features as string[]).slice(0, 6).map((f, idx) => (
                       <li key={idx} className="flex items-start gap-2">
-                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                        <Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: `hsl(var(--plan-accent))` }} />
                         <span>{String(f)}</span>
                       </li>
                     ))}
@@ -199,8 +237,12 @@ export default function PlansTab({
 
                 <Button
                   size="lg"
-                  className="!mt-auto w-full text-base"
-                  variant={isCurrent ? 'outline' : 'default'}
+                  className="!mt-auto w-full border-0 text-base text-white hover:opacity-90"
+                  style={
+                    isCurrent
+                      ? { background: 'transparent', color: `hsl(var(--plan-accent))`, border: `1px solid hsl(var(--plan-accent) / 0.5)` }
+                      : { background: `linear-gradient(90deg, hsl(var(--plan-accent)), hsl(var(--plan-accent) / 0.8))` }
+                  }
                   disabled={isCurrent || !canManage || busy !== null}
                   onClick={() => choosePlan(plan)}
                 >
@@ -212,6 +254,7 @@ export default function PlansTab({
           );
         })}
       </div>
+
     </div>
   );
 }

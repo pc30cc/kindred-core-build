@@ -57,6 +57,14 @@
     --info: 212 55% 52%;
     --info-foreground: 0 0% 100%;
 
+    /* Plan card accents — rotated per plan card in the billing plans tab */
+    --plan-1: 217 91% 58%;
+    --plan-2: 258 82% 62%;
+    --plan-3: 165 72% 40%;
+    --plan-4: 24 92% 56%;
+    --plan-5: 340 78% 58%;
+
+
     --border: 214 25% 84%;
     --input: 214 25% 82%;
     --ring: 217 91% 60%;
@@ -145,6 +153,13 @@
 
     --info: 212 55% 42%;
     --info-foreground: 0 0% 100%;
+
+    --plan-1: 217 91% 64%;
+    --plan-2: 258 82% 70%;
+    --plan-3: 165 62% 48%;
+    --plan-4: 24 88% 62%;
+    --plan-5: 340 72% 64%;
+
 
     --border: 217 20% 27%;
     --input: 217 20% 29%;

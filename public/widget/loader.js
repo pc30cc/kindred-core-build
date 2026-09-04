@@ -524,11 +524,24 @@
     if (launcherEl) {
       // Set position + reveal in one paint so the user never sees a wrong
       // color first. The CSS transitions opacity so it fades in cleanly.
-      launcherEl.className = "launcher " + posClass + " revealed";
+      var firstReveal = launcherEl.classList.contains("pending");
+      launcherEl.className = "launcher " + posClass + " revealed" + (firstReveal ? " enter" : "");
       // ─── Workspace launcher (FAB) customization ───
       // The operator configures these under Widget → Appearance. The live
       // preview renders the exact same rules, so site == preview.
       applyFabConfig(config, posClass);
+      if (firstReveal) {
+        // Entry: the FAB starts outside the browser edge and slides up into
+        // the corner with the same 0.38s curve used for open/close.
+        var labelEl = shellDiv && shellDiv.querySelector(".gs-fab-label");
+        if (labelEl) labelEl.classList.add("enter");
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            launcherEl.classList.remove("enter");
+            if (labelEl) labelEl.classList.remove("enter");
+          });
+        });
+      }
     }
   }
 

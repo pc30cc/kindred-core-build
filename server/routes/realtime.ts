@@ -22,6 +22,18 @@ import {
   getCentrifugoDriver,
   CentrifugoDriver,
   invalidateRealtimeCache,
+  assignRealtimeEndpoint,
+  listNodes,
+  addNode,
+  updateNode,
+  removeNode,
+  setNodeDraining,
+  getClusterHealth,
+  invalidateNodeHealth,
+  effectiveNodeStatus,
+  selectNode,
+  resolveDeploymentMode,
+  CENTRIFUGO_DEPLOYMENT_MODES,
   type RealtimeProviderConfig,
 } from '../services/realtime/index.js';
 import { verifySessionToken } from '../services/widget/security.js';

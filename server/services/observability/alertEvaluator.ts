@@ -48,7 +48,15 @@ interface AlertRuleRow {
 interface OpenAlertEventRow {
   id: string;
   severity: string;
+  metric_value?: number | null;
+  threshold_value?: number | null;
+  sample_size?: number | null;
+  details?: Record<string, unknown> | null;
 }
+
+/** Bounded audit trail: keep at most this many severity transitions per incident. */
+const MAX_TRANSITIONS = 20;
+
 
 interface RuleEvalResult {
   severity: 'critical' | 'warn' | null;

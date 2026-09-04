@@ -100,7 +100,15 @@ interface ModeState {
 interface FallbackEntry {
   scope: string;
   reason: string | null;
+  /** Workspace-scoped roster ONLY. The global entry never carries one. */
   roster: string[];
+  /**
+   * False ⇒ the roster is not a trustworthy full list (global breaker, cold
+   * instance with no snapshot, or a workspace with more operators than the
+   * bounded cap). Handoff then fails OPEN instead of silently marking the
+   * missing operators offline.
+   */
+  rosterComplete: boolean;
   handoffUntil: number;
   expiresAt: number;
 }
@@ -138,7 +146,7 @@ async function loadFallbackState(
       const sb = getServiceClient(config);
       const { data } = await sb
         .from(FALLBACK_TABLE)
-        .select('scope, reason, roster, handoff_until, expires_at')
+        .select('scope, reason, roster, roster_complete, handoff_until, expires_at')
         .gte('expires_at', new Date(now).toISOString());
       const next = new Map<string, FallbackEntry>();
       for (const row of (data || []) as Array<Record<string, any>>) {
@@ -146,6 +154,7 @@ async function loadFallbackState(
           scope: String(row.scope),
           reason: row.reason ?? null,
           roster: Array.isArray(row.roster) ? row.roster.map(String) : [],
+          rosterComplete: row.roster_complete === true,
           handoffUntil: Date.parse(row.handoff_until) || 0,
           expiresAt: Date.parse(row.expires_at) || 0,
         });
@@ -181,7 +190,7 @@ async function activateFallback(
   config: ServerConfig,
   scope: string,
   reason: string,
-  roster: string[],
+  roster: string[] | null,
   now: number,
 ): Promise<FallbackEntry> {
   const state = await loadFallbackState(config, now);
@@ -191,10 +200,18 @@ async function activateFallback(
 
   if (existing && existing.expiresAt - now > FALLBACK_TTL_MS / 2) return existing;
 
+  // `roster === null` means "no trustworthy roster" (global breaker, cold
+  // instance, or an oversized workspace). Never truncate silently: a roster
+  // larger than the bounded cap is persisted as INCOMPLETE and fails open.
+  const keepExisting = !!existing && existing.handoffUntil > now;
+  const rosterComplete = keepExisting
+    ? existing!.rosterComplete
+    : roster !== null && roster.length <= ROSTER_MAX;
   const entry: FallbackEntry = {
     scope,
     reason,
-    roster: existing && existing.handoffUntil > now ? existing.roster : roster.slice(0, ROSTER_MAX),
+    roster: keepExisting ? existing!.roster : rosterComplete ? roster! : [],
+    rosterComplete,
     handoffUntil,
     expiresAt,
   };
@@ -206,6 +223,7 @@ async function activateFallback(
         scope,
         reason,
         roster: entry.roster,
+        roster_complete: entry.rosterComplete,
         handoff_until: new Date(entry.handoffUntil).toISOString(),
         expires_at: new Date(entry.expiresAt).toISOString(),
         updated_at: new Date(now).toISOString(),

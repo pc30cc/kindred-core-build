@@ -48,6 +48,7 @@ import {
   computeOperatorState,
   recordOperatorPresenceBeat,
 } from '../services/widget/operatorPresence.js';
+import { shouldWriteFallbackPresence } from '../services/widget/operatorPresenceSource.js';
 
 export const operatorActivityRouter = Router();
 
@@ -144,7 +145,7 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
 
     void pruneOldSamples(sb);
 
-    return res.json({ ok: true, state });
+    return res.json({ ok: true, state, presence_mode: fallbackPresence ? 'database' : 'realtime' });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'Heartbeat failed' });
   }

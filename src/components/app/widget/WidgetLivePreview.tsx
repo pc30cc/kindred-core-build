@@ -743,6 +743,18 @@ export function WidgetLivePreview({
     // In the scenario studio the panel state belongs to the simulation, so it
     // starts closed and only opens when the rule says a visitor would see it.
     setOpen(!GS_SMART.enabled);
+    // Entry parity: when the FAB is the first thing shown it slides up from
+    // outside the browser edge with the same 0.38s curve production uses.
+    if (!isOpen()) {
+      launcher.classList.add('enter');
+      if (label) label.classList.add('enter');
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          launcher.classList.remove('enter');
+          if (label) label.classList.remove('enter');
+        });
+      });
+    }
     launcher.addEventListener('click', function () {
       var willOpen = !isOpen();
       setOpen(willOpen);

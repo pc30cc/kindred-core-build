@@ -173,18 +173,37 @@ export async function buildBillingOverview(
     .filter((l: any) => l.source_type !== 'PLAN_ALLOWANCE')
     .reduce((s: number, l: any) => s + num(l.remaining_amount), 0);
 
-  // The next invoice the customer will actually see. Unpaid comes first
-  // (it needs an action), otherwise a paid-but-not-yet-active renewal.
+  // The next invoice the customer will actually see. Only SERVICE invoices
+  // belong here — a wallet top-up or an AI credit purchase is a one-off
+  // document, not the subscription's next bill.
+  const SERVICE_INVOICE_TYPES = ['new_subscription', 'subscription_renewal', 'plan_upgrade'];
   const { data: upcoming } = await sb
     .from('billing_invoices')
     .select('*')
     .eq('workspace_id', workspaceId)
+    .in('invoice_type', SERVICE_INVOICE_TYPES)
     .in('status', ['open', 'partially_paid', 'past_due', 'paid'])
     .order('due_at', { ascending: true, nullsFirst: false })
     .limit(25);
 
-  const candidates = (upcoming || []).filter(
-    (i: any) => i.status !== 'paid' || activationDate(i) !== null,
+  // Dunning policy decides WHEN an unpaid invoice starts being shown: not the
+  // moment it is issued (that is only a pre-bill), but when its due window
+  // opens — the first reminder offset before `due_at`.
+  const { data: policyJson } = await sb.rpc('billing_v2_policy_for', { p_workspace_id: workspaceId });
+  const policy: any = policyJson ?? {};
+  const reminderOffsets: number[] = Array.isArray(policy.reminder_days_before_due)
+    ? policy.reminder_days_before_due.map((d: any) => Number(d)).filter((d: number) => Number.isFinite(d))
+    : [5, 1];
+  const graceDays = Number.isFinite(Number(policy.grace_period_days)) ? Number(policy.grace_period_days) : 3;
+  const leadMs = (reminderOffsets.length ? Math.max(...reminderOffsets) : 5) * 86_400_000;
+
+  const dueWindowOpen = (i: any): boolean => {
+    if (!i.due_at) return true;
+    return new Date(i.due_at).getTime() - leadMs <= Date.now();
+  };
+
+  const candidates = (upcoming || []).filter((i: any) =>
+    i.status === 'paid' ? activationDate(i) !== null : dueWindowOpen(i),
   );
   candidates.sort((a: any, b: any) => {
     const rank = (i: any) => (i.status === 'paid' ? 1 : 0);
@@ -193,6 +212,35 @@ export async function buildBillingOverview(
     const bt = new Date(b.due_at || b.period_start || b.created_at).getTime();
     return at - bt;
   });
+
+  const headInvoice: any = candidates[0] ?? null;
+  let upcomingInvoiceAlert: BillingOverview['upcomingInvoiceAlert'] = null;
+  if (headInvoice && headInvoice.status !== 'paid') {
+    const { count } = await sb
+      .from('billing_notification_jobs')
+      .select('id', { count: 'exact', head: true })
+      .eq('invoice_id', headInvoice.id)
+      .eq('notification_type', 'invoice_reminder')
+      .eq('status', 'sent');
+    const remindersSent = Number(count ?? 0);
+    const remindersTotal = Math.max(1, reminderOffsets.length);
+    const pastDue = headInvoice.status === 'past_due';
+    const suspendAt = headInvoice.due_at
+      ? new Date(new Date(headInvoice.due_at).getTime() + graceDays * 86_400_000).toISOString()
+      : null;
+    const daysToSuspend = suspendAt
+      ? Math.max(0, Math.ceil((new Date(suspendAt).getTime() - Date.now()) / 86_400_000))
+      : null;
+    const stage: 0 | 1 | 2 | 3 = pastDue
+      ? 3
+      : remindersSent >= remindersTotal
+        ? 2
+        : remindersSent > 0
+          ? 1
+          : 0;
+    upcomingInvoiceAlert = { remindersSent, remindersTotal, stage, pastDue, suspendAt, daysToSuspend };
+  }
+
 
   let pendingPlanName: string | null = null;
   if (sub?.next_plan_id) {

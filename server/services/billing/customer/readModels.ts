@@ -80,6 +80,21 @@ export interface BillingOverview {
   aiMonthlyOnAnnual: boolean;
   wallet: { balanceIrr: number; frozen: boolean; autoPayEnabled: boolean };
   upcomingInvoice: InvoiceSummary | null;
+  /**
+   * Escalation state of the upcoming SERVICE invoice. Server-decided: the UI
+   * only paints the `stage` it is given and never infers urgency from a date.
+   */
+  upcomingInvoiceAlert: {
+    /** 0 = issued, no reminder sent yet; grows with each reminder. */
+    remindersSent: number;
+    remindersTotal: number;
+    /** 0 = calm … 3 = past due / last call before suspension. */
+    stage: 0 | 1 | 2 | 3;
+    pastDue: boolean;
+    suspendAt: string | null;
+    daysToSuspend: number | null;
+  } | null;
+
 }
 
 function num(v: unknown): number {

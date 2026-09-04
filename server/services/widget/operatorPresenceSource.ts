@@ -454,9 +454,9 @@ export async function getConnectedOperators(
     return { mode: 'database', connected: new Set(), lastSeen: new Map(), degraded: false };
   }
 
-  const mode = await resolvePresenceMode(config, ts);
+  const modeInfo = await resolvePresenceState(config, ts);
 
-  if (mode === 'realtime') {
+  if (modeInfo.mode === 'realtime') {
     const read = await readCentrifugoPresence(config, workspaceId, ts);
 
     if (read.failure === null) {
@@ -469,33 +469,62 @@ export async function getConnectedOperators(
       return { mode: 'realtime', connected, lastSeen: new Map(), degraded: false };
     }
 
-    // FAILURE. Trip the shared breaker immediately (scoped), carrying the
-    // last known-good roster so the handoff works even when the lease table
-    // has no row for these operators at all.
-    const scope = read.failure === 'global' ? GLOBAL_SCOPE : workspaceId;
-    const stale = realtimeCache.get(workspaceId);
-    const roster = stale ? [...stale.users] : [];
-    const entry = await activateFallback(config, scope, `presence_read_${read.failure}`, roster, ts);
-
-    const db = await readDatabasePresence(
-      config,
-      workspaceId,
-      userIds,
-      ts,
-      PRESENCE_LIVENESS_MS + HANDOFF_MS,
-    );
-    const connected = new Set(db.connected);
-    applyHandoff(connected, userIds, entry, ts);
-    return { mode: 'database', connected, lastSeen: db.lastSeen, degraded: true };
+    // FAILURE. Trip the breaker. A dead provider trips the GLOBAL scope
+    // (roster-less: it only states "Centrifugo presence is unavailable"),
+    // while the per-workspace entry carries this workspace's own roster.
+    const entry = await tripBreaker(config, workspaceId, ts, read.failure);
+    return databaseSnapshot(config, workspaceId, userIds, ts, entry, true);
   }
 
-  // Native database mode (polling/disabled/Supabase) — plus the widened
-  // window while a transition entry is still live.
-  const state = await loadFallbackState(config, ts);
-  const entry = activeEntry(state, workspaceId, ts) || activeEntry(state, GLOBAL_SCOPE, ts);
+  // Database mode. Two very different situations:
+  //   • realtimeFailure ⇒ Centrifugo IS the primary but is unhealthy, and the
+  //     presence API was never even called. The lease may be hours old or
+  //     missing, so this needs the same breaker + bounded handoff.
+  //   • native database mode (polling / disabled / Supabase) ⇒ the lease has
+  //     always been written; no handoff, plain liveness window.
+  let entry: FallbackEntry | null;
+  if (modeInfo.realtimeFailure) {
+    entry = await tripBreaker(config, workspaceId, ts, 'global', 'provider_health_down');
+  } else {
+    entry = handoffEntryFor(await loadFallbackState(config, ts), workspaceId, ts);
+  }
+  return databaseSnapshot(config, workspaceId, userIds, ts, entry, modeInfo.realtimeFailure);
+}
+
+/**
+ * Trip the shared breaker for a realtime→database transition and return the
+ * entry that governs THIS workspace's handoff.
+ */
+async function tripBreaker(
+  config: ServerConfig,
+  workspaceId: string,
+  ts: number,
+  failure: 'global' | 'workspace',
+  reason = `presence_read_${failure}`,
+): Promise<FallbackEntry | null> {
+  // Roster from this workspace's own last known-good read (never another's).
+  // `null` ⇒ unknown ⇒ the handoff fails open for this workspace only.
+  const stale = realtimeCache.get(workspaceId);
+  const roster = stale ? [...stale.users] : null;
+
+  if (failure === 'global') {
+    // Global entry = pure "provider unavailable" signal, no roster ever.
+    await activateFallback(config, GLOBAL_SCOPE, reason, null, ts);
+  }
+  return activateFallback(config, workspaceId, reason, roster, ts);
+}
+
+async function databaseSnapshot(
+  config: ServerConfig,
+  workspaceId: string,
+  userIds: string[],
+  ts: number,
+  entry: FallbackEntry | null,
+  degraded: boolean,
+): Promise<PresenceSnapshot> {
   const windowMs = entry ? PRESENCE_LIVENESS_MS + HANDOFF_MS : PRESENCE_LIVENESS_MS;
   const db = await readDatabasePresence(config, workspaceId, userIds, ts, windowMs);
   const connected = new Set(db.connected);
-  if (entry) applyHandoff(connected, userIds, entry, ts);
-  return { mode: 'database', connected, lastSeen: db.lastSeen, degraded: !!entry };
+  applyHandoff(connected, userIds, entry, ts);
+  return { mode: 'database', connected, lastSeen: db.lastSeen, degraded: degraded || !!entry };
 }

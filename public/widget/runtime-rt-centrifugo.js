@@ -301,6 +301,7 @@
       setState('reconnecting');
       reconnectTimer = setTimeout(function () {
         reconnectTimer = null;
+
         // Decide whether we MUST re-negotiate before opening a new socket.
         // We don't trust the local `connectTokenExpiresAt` alone — server
         // clock skew or a previous server-side rejection of our token can
@@ -313,6 +314,32 @@
         //      certainly a token issue at the server.
         var localExpired = !connectToken || Date.now() > (connectTokenExpiresAt - 60000);
         var mustRefreshDueToFailure = reconnectAttempt > 1;
+
+        if (!firstConnectDone) {
+          // No successful Centrifugo CONNECT ack has EVER landed for this
+          // client instance — by definition there is nothing to
+          // "reconnect" to yet. Every retry here is initial-connection
+          // recovery: no reconnect signal, no intent:'reconnect', ever.
+          // WebSocket onopen / a live socket / token presence are NOT
+          // proof of a prior connection — only a successful `connect`
+          // reply (see firstConnectDone's assignment in openSocket) is.
+          if (localExpired || mustRefreshDueToFailure) {
+            refreshConnectToken('initial').then(function (ok) {
+              if (!ok) {
+                log('[rt:centrifugo] initial token fetch failed; will retry');
+                scheduleReconnect();
+                return;
+              }
+              openSocket();
+            });
+          } else {
+            openSocket();
+          }
+          return;
+        }
+
+        // firstConnectDone === true: a previously established connection
+        // was genuinely lost — real reconnect accounting applies.
         if (localExpired || mustRefreshDueToFailure) {
           refreshConnectToken('reconnect').then(function (ok) {
             if (!ok) {

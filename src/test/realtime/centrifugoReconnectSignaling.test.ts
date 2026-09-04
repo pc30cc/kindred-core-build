@@ -13,6 +13,21 @@
  *   - a second, subsequent failed-then-retried reconnect   → its own distinct
  *                                                             report, not a duplicate
  *     of the first
+ *
+ * Reconnect-classification fix — retries before the FIRST successful
+ * Centrifugo CONNECT ack (SharedConnection.everConnected) must never be
+ * classified as a reconnect, regardless of a live socket, token presence,
+ * or attempt count:
+ *   - socket closes before it ever opens/connects     → 0 reconnect signals,
+ *                                                        0 intent:'reconnect'
+ *   - the first CONNECT handshake is rejected          → retry stays initial
+ *                                                        recovery, 0 metrics
+ *   - initial recovery needs a fresh/expired token      → negotiates with
+ *                                                        intent:'initial'
+ *   - initial failures, THEN a real success, THEN an
+ *     unexpected close                                  → reconnect
+ *                                                        accounting begins
+ *                                                        only after success
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -39,6 +54,8 @@ class MockSocket {
   onerror: (() => void) | null = null;
   private listeners: Record<string, Array<() => void>> = {};
   sent: any[] = [];
+  /** When true, the next 'connect' frame gets an error reply instead of a success ack. */
+  rejectConnect = false;
   constructor(public url: string) {
     MockSocket.instances.push(this);
   }
@@ -50,7 +67,11 @@ class MockSocket {
     const frame = JSON.parse(data);
     this.sent.push(frame);
     if (frame.connect) {
-      queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id: frame.id, connect: { client: 'c1' } }) }));
+      if (this.rejectConnect) {
+        queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id: frame.id, error: { code: 109, message: 'token expired' } }) }));
+      } else {
+        queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id: frame.id, connect: { client: 'c1' } }) }));
+      }
     } else if (frame.subscribe) {
       queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id: frame.id, subscribe: {} }) }));
     } else if (frame.unsubscribe) {
@@ -67,6 +88,19 @@ class MockSocket {
   triggerUnexpectedClose(): void {
     this.readyState = 3;
     this.onclose?.({ code: 1006, reason: 'abnormal' });
+  }
+  /**
+   * Test helper: the socket dies before it ever fires 'open' — the real
+   * browser equivalent of a connection that never gets established (DNS
+   * failure, refused connection, etc). Fires the 'error' listener openSocket()
+   * awaits (rejecting conn.ready) AND the onclose handler
+   * attachSocketHandlers wires up (triggering scheduleReconnect), matching
+   * how a real failed WebSocket reports both.
+   */
+  triggerCloseBeforeOpen(): void {
+    this.readyState = 3;
+    (this.listeners.error || []).forEach((cb) => cb());
+    this.onclose?.({ code: 1006, reason: 'failed_before_open' });
   }
   close(): void {
     this.readyState = 3;
@@ -126,6 +160,9 @@ function fullReconnectNegotiations(): Call[] {
 }
 function refreshNegotiations(): Call[] {
   return fetchCalls.filter((c) => c.url.includes('/operator-connect') && c.body.intent === 'refresh');
+}
+function initialNegotiations(): Call[] {
+  return fetchCalls.filter((c) => c.url.includes('/operator-connect') && c.body.intent === 'initial');
 }
 
 async function flushMicrotasks(times = 5): Promise<void> {
@@ -280,6 +317,131 @@ describe('CentrifugoClientProvider — reconnect signaling contract', () => {
       body: JSON.stringify({ workspace_id: WS, intent: 'policy_poll' }),
     });
     expect(reconnectSignalCalls()).toHaveLength(0);
+    expect(fullReconnectNegotiations()).toHaveLength(0);
+  });
+
+  it('1: the first socket closes before it ever successfully opens/connects → zero reconnect signals, zero intent:reconnect', async () => {
+    const { CentrifugoClientProvider } = await import('@/realtime/providers/centrifugo');
+    const provider = new CentrifugoClientProvider({
+      vendor: 'centrifugo',
+      ws_url: 'wss://test.invalid/connection/websocket',
+      token: 'initial-token',
+      expires_at: Date.now() + TOKEN_TTL_MS,
+      capabilities: {},
+    });
+    const handlers = { onStatus: vi.fn() };
+    const subPromise = provider.subscribe(`ws:${WS}:inbox`, handlers as any);
+    await flushMicrotasks(2);
+    const firstSocket = MockSocket.instances[0];
+    // Never opens — dies before onopen/CONNECT ever fire. everConnected is
+    // still false: not proof a connection previously existed.
+    firstSocket.triggerCloseBeforeOpen();
+    await subPromise;
+    await flushMicrotasks(2);
+
+    expect(reconnectSignalCalls()).toHaveLength(0);
+    expect(fullReconnectNegotiations()).toHaveLength(0);
+
+    // Let the recovery retry actually fire.
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flushMicrotasks(6);
+
+    expect(reconnectSignalCalls()).toHaveLength(0);
+    expect(fullReconnectNegotiations()).toHaveLength(0);
+  });
+
+  it('2: the socket opens but the first Centrifugo CONNECT handshake is rejected → retry stays initial recovery, zero reconnect metrics', async () => {
+    const { CentrifugoClientProvider } = await import('@/realtime/providers/centrifugo');
+    const provider = new CentrifugoClientProvider({
+      vendor: 'centrifugo',
+      ws_url: 'wss://test.invalid/connection/websocket',
+      token: 'initial-token',
+      expires_at: Date.now() + TOKEN_TTL_MS,
+      capabilities: {},
+    });
+    const handlers = { onStatus: vi.fn() };
+    const subPromise = provider.subscribe(`ws:${WS}:inbox`, handlers as any);
+    await flushMicrotasks(2);
+    const socket = MockSocket.instances[0];
+    socket.rejectConnect = true;
+    socket.triggerOpen();
+    await subPromise;
+    await flushMicrotasks(6);
+
+    expect(reconnectSignalCalls()).toHaveLength(0);
+    expect(fullReconnectNegotiations()).toHaveLength(0);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flushMicrotasks(6);
+
+    expect(reconnectSignalCalls()).toHaveLength(0);
+    expect(fullReconnectNegotiations()).toHaveLength(0);
+  });
+
+  it('3: initial connection recovery that needs a fresh/expired token negotiates with intent:initial, never intent:reconnect', async () => {
+    const { CentrifugoClientProvider } = await import('@/realtime/providers/centrifugo');
+    const provider = new CentrifugoClientProvider({
+      vendor: 'centrifugo',
+      ws_url: 'wss://test.invalid/connection/websocket',
+      token: 'about-to-expire',
+      // Already past expiry — forces scheduleReconnect's token-refresh branch.
+      expires_at: Date.now() - 1_000,
+      capabilities: {},
+    });
+    const handlers = { onStatus: vi.fn() };
+    const subPromise = provider.subscribe(`ws:${WS}:inbox`, handlers as any);
+    await flushMicrotasks(2);
+    const firstSocket = MockSocket.instances[0];
+    firstSocket.triggerCloseBeforeOpen();
+    await subPromise;
+    await flushMicrotasks(2);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flushMicrotasks(6);
+
+    expect(fullReconnectNegotiations()).toHaveLength(0);
+    expect(reconnectSignalCalls()).toHaveLength(0);
+    expect(initialNegotiations().length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('4: initial failures then a real success then an unexpected close → reconnect accounting begins only after that success', async () => {
+    const { CentrifugoClientProvider } = await import('@/realtime/providers/centrifugo');
+    const provider = new CentrifugoClientProvider({
+      vendor: 'centrifugo',
+      ws_url: 'wss://test.invalid/connection/websocket',
+      token: 'initial-token',
+      expires_at: Date.now() + TOKEN_TTL_MS,
+      capabilities: {},
+    });
+    const handlers = { onStatus: vi.fn() };
+    const subPromise = provider.subscribe(`ws:${WS}:inbox`, handlers as any);
+    await flushMicrotasks(2);
+    const firstSocket = MockSocket.instances[0];
+    firstSocket.triggerCloseBeforeOpen();
+    await subPromise;
+    await flushMicrotasks(2);
+
+    expect(reconnectSignalCalls()).toHaveLength(0);
+    expect(fullReconnectNegotiations()).toHaveLength(0);
+
+    // Recovery retry fires and this time succeeds — the FIRST real CONNECT
+    // ack for this shared connection. everConnected flips true here.
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flushMicrotasks(6);
+    const secondSocket = MockSocket.instances[MockSocket.instances.length - 1];
+    secondSocket.triggerOpen();
+    await flushMicrotasks(6);
+
+    // A successful connect is not itself a reconnect.
+    expect(reconnectSignalCalls()).toHaveLength(0);
+    expect(fullReconnectNegotiations()).toHaveLength(0);
+
+    // NOW losing the established connection is a genuine reconnect.
+    secondSocket.triggerUnexpectedClose();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flushMicrotasks(6);
+
+    expect(reconnectSignalCalls()).toHaveLength(1);
     expect(fullReconnectNegotiations()).toHaveLength(0);
   });
 });

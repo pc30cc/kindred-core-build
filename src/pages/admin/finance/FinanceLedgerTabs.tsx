@@ -13,6 +13,7 @@ import { Wallet, Receipt, TrendingUp, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/i18n';
 import { adminBillingApi, type AdminFinanceOverview } from '@/lib/adminBillingApi';
+import { formatMoney } from '@/lib/money';
 
 const DICT = {
   fa: {
@@ -131,7 +132,7 @@ export function InvoicesLedgerTab() {
                   <TableCell className="font-mono text-xs">{r.invoice_number}</TableCell>
                   <TableCell>{r.workspace_name || r.workspace_id}</TableCell>
                   <TableCell className="tabular-nums">
-                    {Number(r.total_amount ?? r.total_amount_irr ?? 0).toLocaleString(intl)} {r.currency || 'IRR'}
+                    {formatMoney(r.total_amount ?? r.total_amount_irr ?? 0, r.currency, intl)}
                   </TableCell>
                   <TableCell><Badge variant={r.status === 'paid' ? 'default' : 'secondary'}>{r.status}</Badge></TableCell>
                   <TableCell className="text-xs text-muted-foreground">
@@ -187,7 +188,7 @@ export function PaymentsLedgerTab() {
                 <TableRow key={r.id}>
                   <TableCell>{r.workspace_name || r.workspace_id}</TableCell>
                   <TableCell className="tabular-nums">
-                    {Number(r.amount ?? r.amount_irr ?? 0).toLocaleString(intl)} {r.currency || 'IRR'}
+                    {formatMoney(r.amount ?? r.amount_irr ?? 0, r.currency, intl)}
                   </TableCell>
                   <TableCell className="text-xs">{r.provider || r.method || '—'}</TableCell>
                   <TableCell><Badge variant={r.status === 'succeeded' ? 'default' : 'secondary'}>{r.status}</Badge></TableCell>
@@ -243,10 +244,10 @@ export function CustomersLedgerTab() {
                   <TableCell className="font-medium">{r.workspace_name || r.workspace_id}</TableCell>
                   <TableCell>{r.plan_name || '—'}</TableCell>
                   <TableCell className="tabular-nums">
-                    {Number(r.wallet_balance ?? 0).toLocaleString(intl)} {r.currency || 'IRR'}
+                    {formatMoney(r.wallet_balance ?? 0, r.currency, intl)}
                   </TableCell>
                   <TableCell className="tabular-nums">
-                    {Number(r.outstanding ?? 0).toLocaleString(intl)} {r.currency || 'IRR'}
+                    {formatMoney(r.outstanding ?? 0, r.currency, intl)}
                   </TableCell>
                 </TableRow>
               ))}

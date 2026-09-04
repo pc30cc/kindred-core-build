@@ -237,7 +237,7 @@ export default function AdminBillingPage() {
                   <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.name' as any)}</TableHead>
                   <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.slug' as any)}</TableHead>
                   <TableHead className="text-muted-foreground">USD/mo</TableHead>
-                  <TableHead className="text-muted-foreground">IRR/mo</TableHead>
+                  <TableHead className="text-muted-foreground">{locale === "fa" ? "تومان/ماه" : "Toman/mo"}</TableHead>
                   <TableHead className="text-muted-foreground">TRY/mo</TableHead>
                   <TableHead className="text-muted-foreground">EUR/mo</TableHead>
                   <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.free' as any)}</TableHead>

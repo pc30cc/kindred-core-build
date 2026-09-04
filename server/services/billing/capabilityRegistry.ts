@@ -75,6 +75,11 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'help_center',       type: 'module', label: 'Help Center',        group: 'modules', defaultValue: true,  planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 120 },
   { key: 'call_center',       type: 'module', label: 'Call Center',        group: 'modules', description: 'Call queue, routing, invitations and callbacks suite. Bounded by Voice & Video and the global call control plane.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 115 },
   { key: 'contacts',          type: 'module', label: 'Contacts',           group: 'modules', description: 'Contacts directory: saved contact records, search, tagging, notes and detail view. Sub-features (import/export/bulk/tags/notes) live under the "contacts" feature group.', defaultValue: true,  planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 125 },
+  // Not yet enforced by a requireModule('seo') check in server/routes/seo.ts —
+  // defaultValue: true means registering it here changes no workspace's
+  // existing access; it only makes the module visible/toggleable in the
+  // admin Plans editor. Wiring real enforcement is a separate follow-up.
+  { key: 'seo', type: 'module', label: 'SEO / Website Audit', group: 'modules', description: 'Crawl and analyze the technical SEO health of a website registered in the workspace (Settings → Domains).', defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 130 },
 
   // ─── Channels ───
   { key: 'chat_widget', type: 'channel', label: 'Chat Widget', group: 'channels', defaultValue: true,  planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 10 },
@@ -188,6 +193,19 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'max_call_recordings',       type: 'limit', label: 'Max Call Recordings',     group: 'calls', description: 'Lifetime cap on the number of stored call recordings for the workspace. Subject set: rows in public.call_recordings joined to call_sessions where workspace_id = $1. Live derived count(*). Enforced at recording-start time by server/services/callCenter/recordingControl.ts#startCallCenterRecording before invoking the provider. Deleting a recording frees capacity (occupancy semantics). -1 = unlimited.', defaultValue: -1, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 100 },
   { key: 'max_call_recording_storage_mb', type: 'limit', label: 'Recording Storage', group: 'calls', description: 'Lifetime cap on aggregate stored size (MiB) of call recordings for the workspace. Source: SUM(call_recordings.size_bytes) joined to call_sessions where workspace_id = $1, converted to MiB. Enforced at recording-start time by server/services/callCenter/recordingControl.ts#startCallCenterRecording before invoking the provider. Deleting a recording frees capacity. -1 = unlimited.', defaultValue: -1, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'mb', sortOrder: 110 },
   { key: 'included_ai_allowance_irr', type: 'limit', label: 'AI Allowance / Month', group: 'ai', description: 'Monetary AI allowance (IRR) granted to the workspace at the start of every billing cycle by the AI Usage Billing domain. Granted exactly once per (workspace, cycle) as a PLAN_ALLOWANCE balance lot that expires at cycle end; unused allowance never rolls over and never becomes purchased credit. Consumption is the customer charge computed from actual provider usage (see docs/AI_BILLING_ARCHITECTURE.md). Enforcement only applies in ENFORCED billing mode; in METER_ONLY usage is measured but never denied. 0 = no allowance.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 160 },
+
+  // ─── SEO / Website Audit (server/services/seo/limits.ts is the actual
+  // enforcement point — resolveSeoLimits() already reads these exact key
+  // names from billing_plans.limits via getWorkspacePlanInfo; registering
+  // them here only makes them visible/editable in the admin Plans editor,
+  // it does not change any runtime behavior). Only the values worth
+  // differentiating per plan are exposed; per-fetch tuning knobs
+  // (seo_request_timeout_ms, byte caps, crawl delay/concurrency) stay as
+  // fixed fallbacks in limits.ts. ───
+  { key: 'seo_max_pages_per_crawl',     type: 'limit', label: 'SEO — Max pages per audit',        group: 'seo', description: 'Maximum number of pages the SEO crawler will visit in a single audit run.', defaultValue: 100, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 10 },
+  { key: 'seo_max_depth',               type: 'limit', label: 'SEO — Max crawl depth',            group: 'seo', description: 'Maximum link depth (clicks from the homepage) the SEO crawler will follow in a single audit run.', defaultValue: 3, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 20 },
+  { key: 'seo_workspace_concurrent_jobs', type: 'limit', label: 'SEO — Concurrent audits',        group: 'seo', description: 'Maximum number of SEO audits that may be queued or running at once for the whole workspace, across all its registered websites.', defaultValue: 1, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 30 },
+  { key: 'seo_crawl_frequency_hours',   type: 'limit', label: 'SEO — Re-audit cooldown (hours)',  group: 'seo', description: 'Minimum number of hours that must pass since a website\'s last audit before another one may be started for it.', defaultValue: 24, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 40 },
 ];
 
 

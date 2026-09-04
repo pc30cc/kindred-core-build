@@ -6,7 +6,8 @@ import {
   useCrawl, useCrawlPages, useCrawlIssues, useIssueAffectedUrls, useCrawlLinks, useCrawlSitemaps,
   useCrawlComparison,
 } from '@/hooks/useSeo';
-import type { SeoCrawl, SeoIssue } from '@/lib/seo-api';
+import { SeoApiError, type SeoCrawl, type SeoIssue } from '@/lib/seo-api';
+import { toast } from '@/lib/toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -25,6 +26,24 @@ const SEVERITY_CLASS: Record<string, string> = {
   low: 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30',
   info: 'bg-muted text-muted-foreground border-border',
 };
+
+/** Maps a failed start/cancel-crawl request to a translated, human-readable message. */
+export function startCrawlErrorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
+  if (err instanceof SeoApiError) {
+    switch (err.code) {
+      case 'workspace_concurrency_limit':
+      case 'site_concurrency_limit':
+        return t(`seo.limits.${err.code}` as any);
+      case 'frequency_limit': {
+        const minutes = Math.max(1, Math.round((err.retryAfterSeconds ?? 0) / 60));
+        return `${t('seo.limits.frequency_limit' as any)} ${t('seo.limits.retryAfter' as any, { minutes })}`;
+      }
+      case 'site_not_found': return t('seo.errors.siteNotFound' as any);
+      default: return t('seo.errors.startFailed' as any);
+    }
+  }
+  return t('seo.errors.startFailed' as any);
+}
 
 function ScoreRing({ score }: { score: number | null }) {
   if (score === null) return <div className="text-3xl font-semibold text-muted-foreground">—</div>;
@@ -78,7 +97,10 @@ export default function SeoPage() {
 
   const handleStart = () => {
     if (!siteId) return;
-    startCrawl.mutate(siteId, { onSuccess: (res) => setActiveCrawlId(res.crawl.id) });
+    startCrawl.mutate(siteId, {
+      onSuccess: (res) => setActiveCrawlId(res.crawl.id),
+      onError: (err) => toast.error(startCrawlErrorMessage(t, err)),
+    });
   };
 
   return (
@@ -131,7 +153,12 @@ export default function SeoPage() {
                 {crawl.pages_crawled > 0 ? ` · ${crawl.pages_crawled}` : ''}
               </p>
             </div>
-            <Button variant="outline" size="sm" onClick={() => cancelCrawl.mutate(crawl.id)} disabled={cancelCrawl.isPending}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => cancelCrawl.mutate(crawl.id, { onError: (err) => toast.error(startCrawlErrorMessage(t, err)) })}
+              disabled={cancelCrawl.isPending}
+            >
               {t('seo.cancelCrawl')}
             </Button>
           </CardContent>

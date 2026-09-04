@@ -28,6 +28,7 @@ import { LayoutGrid, Receipt, Gauge, Wallet, Sparkles, ArrowLeftRight, ArrowUpCi
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
 import { billingV2Overview, billingV2CancelPlanChange, type BillingOverview } from '@/lib/billingV2Api';
+import { billingVerifyCallback } from '@/lib/api';
 import { ErrorState, errorMessage, money, billingDate } from './shared';
 
 import OverviewTab from './OverviewTab';

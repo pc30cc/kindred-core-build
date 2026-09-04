@@ -106,7 +106,7 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
     // liveness and this beat performs ZERO PostgreSQL writes. Only in
     // database-fallback mode (polling/disabled/Supabase, or Centrifugo
     // presence unreadable) do we refresh the `operator_presence_live` lease.
-    const fallbackPresence = await shouldWriteFallbackPresence(config, now.getTime());
+    const fallbackPresence = await shouldWriteFallbackPresence(config, now.getTime(), workspaceId);
     if (fallbackPresence) {
       await recordOperatorPresenceBeat(config, workspaceId, auth.userId, now);
     }

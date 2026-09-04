@@ -120,18 +120,47 @@ export default function WalletTab({
             <p className="text-3xl font-bold">{money(data.balanceIrr, locale)}</p>
             {data.frozen && <Badge variant="destructive">{t('billingV2.wallet.frozen')}</Badge>}
             {canManage && !data.frozen && (
-              <div className="flex flex-wrap gap-2">
-                {data.deposit.presetsIrr.map((p) => (
-                  <Button key={p} size="sm" variant="outline" onClick={() => openDeposit(p)}>
-                    {money(p, locale)}
-                  </Button>
-                ))}
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  {data.deposit.presetsIrr.map((p) => (
+                    <Button
+                      key={p}
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => setAmountToman(String(Math.round(p / RIAL_PER_TOMAN)))}
+                    >
+                      {money(p, locale)}
+                    </Button>
+                  ))}
+                </div>
+
                 {data.deposit.allowCustom && (
-                  <Button size="sm" onClick={() => openDeposit()}>
-                    <Plus className="me-1.5 h-4 w-4" />
-                    {t('billingV2.wallet.deposit')}
-                  </Button>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground" htmlFor="wallet-amount">
+                      {t('billingV2.wallet.customLabel')}
+                    </label>
+                    <Input
+                      id="wallet-amount"
+                      inputMode="numeric"
+                      dir="ltr"
+                      value={amountToman}
+                      onChange={(e) => setAmountToman(e.target.value.replace(/[^\d]/g, ''))}
+                      placeholder={t('billingV2.wallet.custom')}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {t('billingV2.wallet.range', {
+                        min: money(data.deposit.minIrr, locale),
+                        max: money(data.deposit.maxIrr, locale),
+                      })}
+                    </p>
+                  </div>
                 )}
+
+                <Button className="w-full gap-2" disabled={busy} onClick={() => issueDepositInvoice()}>
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                  {t('billingV2.wallet.issueDepositInvoice')}
+                </Button>
               </div>
             )}
           </CardContent>
@@ -205,63 +234,6 @@ export default function WalletTab({
         </CardContent>
       </Card>
 
-      <Dialog open={depositOpen} onOpenChange={(open) => !open && setDepositOpen(false)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('billingV2.wallet.depositTitle')}</DialogTitle>
-          </DialogHeader>
-
-          {!preview ? (
-            <div className="space-y-3">
-              <Input
-                inputMode="numeric"
-                dir="ltr"
-                value={amountToman}
-                onChange={(e) => setAmountToman(e.target.value.replace(/[^\d]/g, ''))}
-                placeholder={t('billingV2.wallet.custom')}
-              />
-              <p className="text-xs text-muted-foreground">
-                {t('billingV2.wallet.range', {
-                  min: money(data.deposit.minIrr, locale),
-                  max: money(data.deposit.maxIrr, locale),
-                })}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">{t('billingV2.common.amount')}</span>
-                <span className="font-semibold">{money(preview.amountIrr, locale)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">{t('billingV2.wallet.receipt')}</span>
-                <Ltr>{preview.documentNumber}</Ltr>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">{t('billingV2.wallet.receiptNumber')}</span>
-                <Ltr>{preview.documentNumber}</Ltr>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDepositOpen(false)} disabled={busy}>
-              {t('billingV2.common.cancel')}
-            </Button>
-            {!preview ? (
-              <Button onClick={runPreview} disabled={busy}>
-                {busy && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
-                {t('billingV2.common.continue')}
-              </Button>
-            ) : (
-              <Button onClick={goToGateway} disabled={busy}>
-                {busy && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
-                {t('billingV2.wallet.continueToBank')}
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

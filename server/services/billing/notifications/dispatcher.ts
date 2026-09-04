@@ -22,7 +22,7 @@ import { getServiceClient } from '../../../supabase.js';
 import { bumpMetric } from '../rollout.js';
 import { sendEmail } from '../../email/index.js';
 import { sendSms } from '../../sms/index.js';
-import { renderBillingNotification, type BillingNotificationType } from './messages.js';
+import { renderBillingNotification, buildBillingTemplateData, type BillingNotificationType } from './messages.js';
 
 export interface NotificationBatchResult {
   claimed: number;
@@ -59,6 +59,13 @@ async function resolveRecipient(config: ServerConfig, workspaceId: string): Prom
     phone: (r.phone as string | null) ?? null,
     locale: (r.locale as string | null) ?? null,
   };
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 export async function dispatchBillingNotifications(
@@ -99,8 +106,15 @@ export async function dispatchBillingNotifications(
           ? await sendEmail(config, {
               workspaceId: job.workspace_id,
               to: target,
+              // The branded copy lives in `email_templates` under a slug equal
+              // to the notification type, edited in Branding → Email templates.
+              // The rendered fallback below is used verbatim when an admin has
+              // not authored a template for this slug/locale yet.
+              templateSlug: job.notification_type,
+              templateData: buildBillingTemplateData(locale, job.payload || {}),
               subject: msg.subject,
               text: msg.text,
+              html: `<p>${escapeHtml(msg.text).replace(/\n/g, '<br />')}</p>`,
               locale: locale ?? undefined,
             })
           : await sendSms(config, { to: target, body: `${msg.subject}\n${msg.text}` });

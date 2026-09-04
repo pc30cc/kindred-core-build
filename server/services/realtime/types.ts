@@ -14,6 +14,63 @@ export interface RealtimeCapabilities {
   supportsReconnectSignals: boolean;
 }
 
+/**
+ * Deployment topology of the Centrifugo layer.
+ *
+ *  • single_memory      — one Centrifugo, memory engine, no Redis.
+ *                         The historical (and default) shape. Any config
+ *                         written before topology existed normalizes here.
+ *  • app_routed_redis   — N Centrifugo nodes sharing one Redis engine. The
+ *                         backend picks a node and returns THAT node's
+ *                         ws_url; the browser still connects DIRECTLY to
+ *                         Centrifugo (never through the backend).
+ *  • load_balanced_redis— N Centrifugo nodes sharing one Redis engine behind
+ *                         a single public load balancer URL. The client only
+ *                         ever sees the LB URL.
+ */
+export type CentrifugoDeploymentMode =
+  | 'single_memory'
+  | 'app_routed_redis'
+  | 'load_balanced_redis';
+
+export const CENTRIFUGO_DEPLOYMENT_MODES: CentrifugoDeploymentMode[] = [
+  'single_memory',
+  'app_routed_redis',
+  'load_balanced_redis',
+];
+
+/** Operational state of a single Centrifugo node. */
+export type CentrifugoNodeHealthStatus =
+  | 'healthy'
+  | 'degraded'
+  | 'down'
+  | 'draining'
+  | 'maintenance'
+  | 'unknown';
+
+/**
+ * One Centrifugo node in an `app_routed_redis` (or `load_balanced_redis`
+ * operational view) cluster.
+ *
+ * Secrets are deliberately ABSENT: every node of a cluster shares the
+ * cluster-level `token_hmac_secret` + `api_key` from CentrifugoConfig, so a
+ * JWT minted by this backend is accepted by any node. Redis credentials are
+ * never stored here — Redis is Centrifugo's own infrastructure dependency.
+ */
+export interface CentrifugoNode {
+  id: string;                  // stable node id, e.g. "rt-node-01"
+  name: string;                // display name
+  ws_url: string;              // public websocket url handed to browsers
+  api_url: string;             // server-to-server HTTP API url
+  enabled: boolean;            // admin master switch for this node
+  accepting_new_connections: boolean;
+  draining: boolean;           // no NEW connections; existing ones untouched
+  weight: number;              // relative selection weight (>= 0)
+  region?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface CentrifugoConfig {
   ws_url: string;            // public websocket url given to clients (wss://...)
   api_url: string;           // server-to-server HTTP API url (http://centrifugo:8000/api)
@@ -25,6 +82,13 @@ export interface CentrifugoConfig {
   presence_enabled?: boolean;
   typing_enabled?: boolean;
   token_ttl_seconds?: number;
+
+  // ── Topology (additive; absent ⇒ single_memory) ────────────────────
+  deployment_mode?: CentrifugoDeploymentMode;
+  /** Node registry — only meaningful for multi-node modes. */
+  nodes?: CentrifugoNode[];
+  /** Public LB websocket url — only meaningful for load_balanced_redis. */
+  load_balancer_ws_url?: string;
 }
 
 export interface RealtimeProviderConfig {
@@ -34,6 +98,52 @@ export interface RealtimeProviderConfig {
   fallback_vendor: 'polling_builtin' | null;
   centrifugo?: Partial<CentrifugoConfig>;
 }
+
+/** Effective deployment mode of a (possibly legacy) config. Never throws. */
+export function resolveDeploymentMode(
+  cfg?: Partial<CentrifugoConfig> | null
+): CentrifugoDeploymentMode {
+  const mode = cfg?.deployment_mode;
+  return mode && CENTRIFUGO_DEPLOYMENT_MODES.includes(mode) ? mode : 'single_memory';
+}
+
+/** Normalize an arbitrary stored node record into a complete CentrifugoNode. */
+export function normalizeNode(raw: unknown, index = 0): CentrifugoNode | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const ws_url = typeof r.ws_url === 'string' ? r.ws_url.trim() : '';
+  const api_url = typeof r.api_url === 'string' ? r.api_url.trim() : '';
+  if (!ws_url || !api_url) return null;
+  const rawWeight = Number(r.weight);
+  return {
+    id: typeof r.id === 'string' && r.id.trim() ? r.id.trim() : `rt-node-${String(index + 1).padStart(2, '0')}`,
+    name: typeof r.name === 'string' && r.name.trim() ? r.name.trim() : `Node ${index + 1}`,
+    ws_url,
+    api_url,
+    enabled: r.enabled !== false,
+    accepting_new_connections: r.accepting_new_connections !== false,
+    draining: r.draining === true,
+    weight: Number.isFinite(rawWeight) && rawWeight >= 0 ? rawWeight : 1,
+    region: typeof r.region === 'string' && r.region.trim() ? r.region.trim() : undefined,
+    created_at: typeof r.created_at === 'string' ? r.created_at : undefined,
+    updated_at: typeof r.updated_at === 'string' ? r.updated_at : undefined,
+  };
+}
+
+/** Normalize a stored node list, dropping unusable entries. */
+export function normalizeNodes(raw: unknown): CentrifugoNode[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CentrifugoNode[] = [];
+  const seen = new Set<string>();
+  raw.forEach((entry, i) => {
+    const node = normalizeNode(entry, i);
+    if (!node || seen.has(node.id)) return;
+    seen.add(node.id);
+    out.push(node);
+  });
+  return out;
+}
+
 
 export interface ResolvedRealtimeProvider {
   effective_vendor: RealtimeVendor;

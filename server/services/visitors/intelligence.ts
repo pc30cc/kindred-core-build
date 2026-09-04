@@ -18,6 +18,11 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import {
+  VISITOR_LIVENESS_ONLINE_MS,
+  VISITOR_LIVENESS_OFFLINE_MS,
+} from '../widget/visitorLiveness.js';
+
 import { type GeoResult } from '../geo/index.js';
 import {
   resolveNetworkProfiles,

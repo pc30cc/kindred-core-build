@@ -156,16 +156,34 @@ export class PerfCollector {
     return { p95: percentileFromHistogram(merged, count, 95), sample: count };
   }
 
+  /**
+   * Picks the minute ring (exact, up to 1h) or the hour ring (up to the
+   * intended 24h retention) depending on the requested window — the minute
+   * ring alone cannot represent anything past MINUTE_SLOTS (60) minutes, so
+   * a window bigger than that must read the hour ring instead of silently
+   * returning a truncated ~1h result. Only one ring is ever read per route
+   * key — never both — so overlapping buckets are never double counted.
+   *
+   * Hour-ring windows are rounded UP to whole hours (e.g. a 5400s / 90min
+   * window reads 2 full hours, not 1.5) — this is a deliberate, tested
+   * approximation, not a silent truncation.
+   */
   private windowAggForRouteGroup(
     routeGroup: string,
     windowSeconds: number,
   ): { count: number; errorCount: number; sumMs: number; maxMs: number; histogram: Record<string, number>; statusGroups: Record<string, number> } | null {
     const now = Date.now();
-    const windowSlots = Math.max(1, Math.ceil(windowSeconds / 60));
+    const minuteRingCapacitySeconds = MINUTE_SLOTS * 60;
+    const useHourRing = windowSeconds > minuteRingCapacitySeconds;
+    const windowSlots = useHourRing
+      ? Math.min(HOURLY_SLOTS_PERF, Math.max(1, Math.ceil(windowSeconds / 3600)))
+      : Math.max(1, Math.ceil(windowSeconds / 60));
     let merged: ReturnType<typeof sumPerfWindow> | null = null;
     for (const [key, state] of this.routes) {
       if (!key.startsWith(`${routeGroup}|`)) continue;
-      const agg = sumPerfWindow(state.minuteRing, now, MINUTE_MS, windowSlots);
+      const agg = useHourRing
+        ? sumPerfWindow(state.hourRing, now, HOUR_MS, windowSlots)
+        : sumPerfWindow(state.minuteRing, now, MINUTE_MS, windowSlots);
       if (!merged) {
         merged = agg;
         continue;

@@ -84,6 +84,37 @@ describe('RealtimeCollector', () => {
     expect(c.queryCountByDriver('realtime.subscribe_failed', 'supabase', 300)).toBe(1);
   });
 
+  it('queryCount reads the 7-day hour ring once the window exceeds the 1h minute-ring capacity (alert window semantics fix)', () => {
+    const c = new RealtimeCollector();
+    c.record({ metric: 'realtime.token_minted' });
+    vi.advanceTimersByTime(90 * 60_000); // 90 minutes later — the minute ring has wrapped/aged out
+    // A 1h window genuinely sees nothing any more (minute ring correctly empty).
+    expect(c.queryCount('realtime.token_minted', 3600)).toBe(0);
+    // A 2h window must NOT silently stay pinned to the minute ring's ~1h
+    // view — it has to read the hour ring and find the event.
+    expect(c.queryCount('realtime.token_minted', 7200)).toBe(1);
+  });
+
+  it('rounds a hour-ring window up to whole hours rather than silently truncating to 1h (documented approximation)', () => {
+    const c = new RealtimeCollector();
+    c.record({ metric: 'realtime.token_minted' });
+    vi.advanceTimersByTime(61 * 60_000); // 61 minutes later — just past the minute ring's capacity
+    // Requesting 3601s (just over 1h) rounds UP to 2 whole hour-ring slots,
+    // not a precise "~1h+1s" lookback — the event (61 min old) is still
+    // found because the 2-hour-slot lookback comfortably covers it. This is
+    // the intentional hour-granularity approximation, proven here rather
+    // than left as a silent truncation.
+    expect(c.queryCount('realtime.token_minted', 3601)).toBe(1);
+  });
+
+  it('clamps a window beyond the intended 7-day retention to the full hour ring instead of erroring', () => {
+    const c = new RealtimeCollector();
+    c.record({ metric: 'realtime.token_minted' });
+    vi.advanceTimersByTime(2 * 60 * 60_000);
+    const tenDaysSeconds = 10 * 24 * 60 * 60;
+    expect(c.queryCount('realtime.token_minted', tenDaysSeconds)).toBe(1);
+  });
+
   describe('recent-events ring buffer', () => {
     it('returns the most recent events first, optionally filtered by metric', () => {
       const c = new RealtimeCollector();

@@ -176,7 +176,7 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' };
  */
 async function negotiateConnect(
   workspaceId: string,
-  intent: 'refresh' | 'reconnect',
+  intent: 'initial' | 'refresh' | 'reconnect',
 ): Promise<RealtimeNegotiation | null> {
   try {
     const res = await fetch(`${API_BASE}/api/realtime/operator-connect`, {
@@ -190,6 +190,25 @@ async function negotiateConnect(
   } catch {
     return null;
   }
+}
+
+/**
+ * Lightweight reconnect telemetry — the "genuine first reconnect with a
+ * still-valid token" case. Reports the reconnect to the server WITHOUT
+ * negotiating (and thus minting) a new Centrifugo token, since the
+ * existing token is about to be reused directly by openSocket(). Fire-
+ * and-forget: a failure here must never block or delay the actual
+ * reconnect attempt.
+ */
+function sendReconnectSignal(workspaceId: string): void {
+  fetch(`${API_BASE}/api/realtime/operator-reconnect-signal`, {
+    credentials: 'include',
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ workspace_id: workspaceId }),
+  }).catch(() => {
+    /* best-effort telemetry only */
+  });
 }
 
 async function operatorSubscribe(
@@ -298,6 +317,25 @@ interface SharedConnection {
    * order) lets us evict the oldest in O(1) without a separate LRU lib.
    */
   seenByChannel: Map<string, Map<string, true>>;
+  /**
+   * Set right before scheduleTokenRefresh() intentionally closes the
+   * socket to rotate onto a freshly-refreshed token. The resulting
+   * onclose → scheduleReconnect() must NOT report this as a real
+   * reconnect (nothing was unexpectedly lost) — consumed (read once,
+   * reset to false) by scheduleReconnect's very next timer callback.
+   */
+  expectingCloseForRefresh: boolean;
+  /**
+   * True once this shared connection has completed at least one successful
+   * Centrifugo CONNECT handshake (sendOnConn(conn, 'connect', ...)
+   * resolving in openSocket's onOpen). This is the ONLY source of truth for
+   * "did a connection ever exist" — token presence, a live WebSocket,
+   * onopen firing, or reconnectAttempt are NOT proof, since all of those
+   * can happen while the very first CONNECT is still pending or gets
+   * rejected. Before this flips true, scheduleReconnect's retries are
+   * initial-connection recovery and must emit zero reconnect telemetry.
+   */
+  everConnected: boolean;
 }
 
 const sharedConns = new Map<string, SharedConnection>();
@@ -327,6 +365,8 @@ function buildConnection(workspaceId: string, negotiation: RealtimeNegotiation):
     ready: Promise.resolve(),
     generation: 0,
     seenByChannel: new Map(),
+    expectingCloseForRefresh: false,
+    everConnected: false,
   };
   // Phase 2 — kick off the hardening-settings prefetch (non-blocking).
   // First connection on this tab will use defaults; subsequent reconnects
@@ -357,6 +397,10 @@ function openSocket(conn: SharedConnection): Promise<void> {
     const onOpen = async () => {
       try {
         await sendOnConn(conn, 'connect', { token: conn.token, name: 'inbox' });
+        // Authoritative proof a connection now exists — see the field doc
+        // on SharedConnection.everConnected. Set unconditionally on every
+        // successful CONNECT ack, not just the first, so it stays true.
+        conn.everConnected = true;
         conn.reconnectAttempt = 0;
         scheduleTokenRefresh(conn);
         // Re-subscribe to every channel that survived the disconnect.
@@ -506,6 +550,55 @@ function scheduleReconnect(conn: SharedConnection): void {
     //      token is still valid.
     const localExpired = Date.now() >= conn.tokenExpiresAt - TOKEN_REFRESH_LEAD_MS;
     const mustRefreshDueToFailure = conn.reconnectAttempt > 1;
+    // Consume the self-inflicted-close flag exactly once, before either
+    // branch below runs — it must never leak into a later, genuine close.
+    const wasIntentionalRefreshRotation = conn.expectingCloseForRefresh;
+    conn.expectingCloseForRefresh = false;
+
+    if (!conn.everConnected) {
+      // No successful CONNECT ack has EVER landed on this shared
+      // connection — there is nothing to "reconnect" to yet. Every retry
+      // here is initial-connection recovery: zero reconnect telemetry, and
+      // any required re-negotiation uses 'initial' intent, never
+      // 'reconnect'. WebSocket onopen / a live socket / token presence /
+      // reconnectAttempt are NOT proof a connection previously existed —
+      // only conn.everConnected (set from a successful CONNECT ack) is.
+      if (localExpired || mustRefreshDueToFailure) {
+        try {
+          const { invalidateClientRealtimeCache } = await import('../resolveClientRealtimeProvider');
+          invalidateClientRealtimeCache(conn.workspaceId);
+        } catch { /* noop */ }
+        const fresh = await negotiateConnect(conn.workspaceId, 'initial');
+        if (fresh?.token && fresh.ws_url) {
+          conn.token = fresh.token;
+          conn.tokenExpiresAt = fresh.expires_at || Date.now() + 9 * 60_000;
+          conn.wsUrl = fresh.ws_url;
+          rtDebug('centrifugo', 'initial connection recovery: fresh token negotiated', {
+            expiresInMs: conn.tokenExpiresAt - Date.now(),
+          });
+        } else {
+          rtWarn('centrifugo', 'initial token negotiation failed; will retry');
+          scheduleReconnect(conn);
+          return;
+        }
+      }
+      // No reconnect signal, no intent:'reconnect' — this is still initial
+      // recovery even if the token happened to still look locally valid.
+      try {
+        await openSocket(conn);
+      } catch (err) {
+        const msg = String((err as any)?.message || err || '');
+        rtWarn('centrifugo', 'initial connection recovery open failed', { error: msg });
+        if (/token|expired|unauthorized|401/i.test(msg)) {
+          conn.tokenExpiresAt = 0;
+        }
+        // Loop will continue via onclose → scheduleReconnect.
+      }
+      return;
+    }
+
+    // conn.everConnected === true: a previously established connection was
+    // genuinely lost — real reconnect accounting applies from here on.
     if (localExpired || mustRefreshDueToFailure) {
       // Bust the per-workspace negotiation cache so we don't get a stale
       // token handed back from a memoized resolver.
@@ -528,7 +621,16 @@ function scheduleReconnect(conn: SharedConnection): void {
         scheduleReconnect(conn);
         return;
       }
+    } else if (!wasIntentionalRefreshRotation) {
+      // Genuine first reconnect with a still-valid token: the socket was
+      // unexpectedly lost (network blip, server restart, tab wake) and
+      // we're about to reuse the existing token rather than re-negotiate.
+      // Report it via the lightweight signal so it isn't silently
+      // undercounted — but don't force a token mint just for telemetry.
+      sendReconnectSignal(conn.workspaceId);
     }
+    // else: this close was self-inflicted by scheduleTokenRefresh's
+    // proactive rotation — nothing was lost, so no reconnect is reported.
     try {
       await openSocket(conn);
     } catch (err) {
@@ -567,6 +669,10 @@ function scheduleTokenRefresh(conn: SharedConnection): void {
     // the server-side TTL is generous. Simpler & safer: just rotate the
     // socket. The reconnect path resubscribes everything atomically.
     rtDebug('centrifugo', 'rotating socket for token refresh');
+    // Mark this close as self-inflicted so the onclose → scheduleReconnect
+    // path it triggers doesn't report a real reconnect — the token is
+    // already fresh and nothing was unexpectedly lost.
+    conn.expectingCloseForRefresh = true;
     try { conn.ws.close(); } catch { /* noop */ }
     // onclose → scheduleReconnect picks up with the fresh token.
   }, msUntil);

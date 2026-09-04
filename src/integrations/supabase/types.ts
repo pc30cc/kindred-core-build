@@ -8350,6 +8350,36 @@ export type Database = {
           },
         ]
       }
+      operator_presence_fallback_state: {
+        Row: {
+          activated_at: string
+          expires_at: string
+          handoff_until: string
+          reason: string | null
+          roster: Json
+          scope: string
+          updated_at: string
+        }
+        Insert: {
+          activated_at?: string
+          expires_at: string
+          handoff_until?: string
+          reason?: string | null
+          roster?: Json
+          scope: string
+          updated_at?: string
+        }
+        Update: {
+          activated_at?: string
+          expires_at?: string
+          handoff_until?: string
+          reason?: string | null
+          roster?: Json
+          scope?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       operator_presence_live: {
         Row: {
           last_seen_at: string

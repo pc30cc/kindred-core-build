@@ -217,11 +217,20 @@ export async function applyPlanChange(
       allowedModes: preview.allowedModes,
     });
   }
-  if (Math.round(num(input.expectedAmountIrr)) !== preview.amountIrr) {
+  // The prorated amount is a function of the clock: between the preview call
+  // and the confirmation click a few seconds of the paid window elapse, so an
+  // exact equality check rejects perfectly honest upgrades. What actually needs
+  // guarding is charging MORE than the customer agreed to, so we only reject
+  // when the recomputed amount exceeds the shown one beyond clock drift
+  // (0.5% of the shown amount, floor 10_000 IRR = 1_000 Toman).
+  const expected = Math.round(num(input.expectedAmountIrr));
+  const tolerance = Math.max(10_000, Math.round(expected * 0.005));
+  if (preview.amountIrr > expected + tolerance) {
     throw new BillingActionError('the amount changed, please review again', 409, 'STALE_PREVIEW', {
       amountIrr: preview.amountIrr,
     });
   }
+
 
   const { sub, period } = await loadContext(config, workspaceId);
 

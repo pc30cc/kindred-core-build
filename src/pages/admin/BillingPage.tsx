@@ -14,11 +14,15 @@ import {
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
 import FinanceReport from '@/components/admin/FinanceReport';
+import { formatToman } from '@/lib/money';
 
 function formatPrice(amount: number, currency: string, locale: string): string {
   const normalizedLocale = locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US';
-  return new Intl.NumberFormat(normalizedLocale, { style: 'currency', currency }).format(currency === 'IRR' ? amount : amount / 100);
+  // IRR is stored but Toman is what people read; other currencies keep minor units.
+  if (currency === 'IRR') return formatToman(amount, normalizedLocale);
+  return new Intl.NumberFormat(normalizedLocale, { style: 'currency', currency }).format(amount / 100);
 }
+
 
 export default function AdminBillingPage() {
   const { t, locale } = useTranslation();
@@ -233,7 +237,7 @@ export default function AdminBillingPage() {
                   <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.name' as any)}</TableHead>
                   <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.slug' as any)}</TableHead>
                   <TableHead className="text-muted-foreground">USD/mo</TableHead>
-                  <TableHead className="text-muted-foreground">IRR/mo</TableHead>
+                  <TableHead className="text-muted-foreground">{locale === "fa" ? "تومان/ماه" : "Toman/mo"}</TableHead>
                   <TableHead className="text-muted-foreground">TRY/mo</TableHead>
                   <TableHead className="text-muted-foreground">EUR/mo</TableHead>
                   <TableHead className="text-muted-foreground">{t('admin.billingPage.columns.free' as any)}</TableHead>

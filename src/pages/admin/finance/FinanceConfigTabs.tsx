@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogT
 import { Plus, Trash2, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/i18n';
+import { formatMoney } from '@/lib/money';
 import {
   adminBillingApi,
   type AdminCurrency,
@@ -502,7 +503,7 @@ export function TaxCouponsTab() {
                     <TableCell>
                       {c.discount_type === 'percent'
                         ? `${c.percent_off}%`
-                        : `${c.amount_off_minor?.toLocaleString(locale === 'fa' ? 'fa-IR' : locale)} ${c.currency || ''}`}
+                        : formatMoney(c.amount_off_minor ?? 0, c.currency, locale === 'fa' ? 'fa-IR' : locale)}
                     </TableCell>
                     <TableCell>{c.redeemed_count}{c.max_redemptions ? ` / ${c.max_redemptions}` : ''}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">

@@ -36,3 +36,22 @@ export function formatToman(
   }).format(value);
   return withLabel ? `${formatted} ${tomanLabel(locale)}` : formatted;
 }
+
+/**
+ * Display formatter for any stored amount + currency code.
+ *
+ * IRR is the STORAGE unit of the platform but Iranian customers and operators
+ * read Toman, so an IRR amount is divided by 10 and labelled Toman. Every other
+ * currency is shown as-is with its own code.
+ */
+export function formatMoney(
+  amount: number | string | null | undefined,
+  currency: string | null | undefined,
+  locale?: string,
+): string {
+  const code = (currency || 'IRR').toUpperCase();
+  if (code === 'IRR' || code === 'IRT' || code === 'TOMAN') return formatToman(amount, locale);
+  const n = Number(amount ?? 0);
+  const value = Number.isFinite(n) ? n : 0;
+  return `${new Intl.NumberFormat(locale || undefined).format(value)} ${code}`;
+}

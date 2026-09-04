@@ -4299,6 +4299,60 @@ export type Database = {
           },
         ]
       }
+      billing_period_allowance_grants: {
+        Row: {
+          allowance_irr: number
+          attempt_count: number
+          created_at: string
+          granted_at: string | null
+          last_error: string | null
+          lot_id: string | null
+          next_attempt_at: string
+          period_id: string
+          status: string
+          workspace_id: string
+        }
+        Insert: {
+          allowance_irr?: number
+          attempt_count?: number
+          created_at?: string
+          granted_at?: string | null
+          last_error?: string | null
+          lot_id?: string | null
+          next_attempt_at?: string
+          period_id: string
+          status?: string
+          workspace_id: string
+        }
+        Update: {
+          allowance_irr?: number
+          attempt_count?: number
+          created_at?: string
+          granted_at?: string | null
+          last_error?: string | null
+          lot_id?: string | null
+          next_attempt_at?: string
+          period_id?: string
+          status?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_period_allowance_grants_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: true
+            referencedRelation: "billing_subscription_periods"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_period_allowance_grants_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       billing_plans: {
         Row: {
           created_at: string | null
@@ -4567,6 +4621,92 @@ export type Database = {
           },
         ]
       }
+      billing_v2_jobs: {
+        Row: {
+          attempt_count: number
+          created_at: string
+          dedupe_key: string
+          id: string
+          job_type: string
+          last_error: string | null
+          lease_until: string | null
+          max_attempts: number
+          next_attempt_at: string
+          payload: Json
+          result: Json | null
+          status: string
+          updated_at: string
+          workspace_id: string | null
+        }
+        Insert: {
+          attempt_count?: number
+          created_at?: string
+          dedupe_key: string
+          id?: string
+          job_type: string
+          last_error?: string | null
+          lease_until?: string | null
+          max_attempts?: number
+          next_attempt_at?: string
+          payload?: Json
+          result?: Json | null
+          status?: string
+          updated_at?: string
+          workspace_id?: string | null
+        }
+        Update: {
+          attempt_count?: number
+          created_at?: string
+          dedupe_key?: string
+          id?: string
+          job_type?: string
+          last_error?: string | null
+          lease_until?: string | null
+          max_attempts?: number
+          next_attempt_at?: string
+          payload?: Json
+          result?: Json | null
+          status?: string
+          updated_at?: string
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_v2_jobs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_v2_policy: {
+        Row: {
+          collection_ttl_seconds: number
+          id: boolean
+          invoice_due_offset_days: number
+          invoice_lead_time_days: number
+          updated_at: string
+          wallet_auto_pay_default: boolean
+        }
+        Insert: {
+          collection_ttl_seconds?: number
+          id?: boolean
+          invoice_due_offset_days?: number
+          invoice_lead_time_days?: number
+          updated_at?: string
+          wallet_auto_pay_default?: boolean
+        }
+        Update: {
+          collection_ttl_seconds?: number
+          id?: boolean
+          invoice_due_offset_days?: number
+          invoice_lead_time_days?: number
+          updated_at?: string
+          wallet_auto_pay_default?: boolean
+        }
+        Relationships: []
+      }
       billing_v2_rollout: {
         Row: {
           activated_at: string | null
@@ -4607,6 +4747,68 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "billing_v2_rollout_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_v2_worker_health: {
+        Row: {
+          consecutive_failures: number
+          last_batch_size: number
+          last_error: string | null
+          last_failure_at: string | null
+          last_run_at: string | null
+          last_success_at: string | null
+          updated_at: string
+          worker: string
+        }
+        Insert: {
+          consecutive_failures?: number
+          last_batch_size?: number
+          last_error?: string | null
+          last_failure_at?: string | null
+          last_run_at?: string | null
+          last_success_at?: string | null
+          updated_at?: string
+          worker: string
+        }
+        Update: {
+          consecutive_failures?: number
+          last_batch_size?: number
+          last_error?: string | null
+          last_failure_at?: string | null
+          last_run_at?: string | null
+          last_success_at?: string | null
+          updated_at?: string
+          worker?: string
+        }
+        Relationships: []
+      }
+      billing_v2_workspace_policy: {
+        Row: {
+          invoice_lead_time_days: number | null
+          updated_at: string
+          wallet_auto_pay_enabled: boolean | null
+          workspace_id: string
+        }
+        Insert: {
+          invoice_lead_time_days?: number | null
+          updated_at?: string
+          wallet_auto_pay_enabled?: boolean | null
+          workspace_id: string
+        }
+        Update: {
+          invoice_lead_time_days?: number | null
+          updated_at?: string
+          wallet_auto_pay_enabled?: boolean | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_v2_workspace_policy_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: true
             referencedRelation: "workspaces"
@@ -13867,10 +14069,96 @@ export type Database = {
         Args: { p_actor_id?: string; p_reason?: string; p_workspace_id: string }
         Returns: Json
       }
+      billing_v2_add_interval: {
+        Args: { p_count?: number; p_interval: string; p_ts: string }
+        Returns: string
+      }
+      billing_v2_apply_period_allowance: {
+        Args: { p_period_id: string }
+        Returns: Json
+      }
+      billing_v2_claim_jobs: {
+        Args: { p_job_type: string; p_lease_seconds?: number; p_limit?: number }
+        Returns: {
+          attempt_count: number
+          created_at: string
+          dedupe_key: string
+          id: string
+          job_type: string
+          last_error: string | null
+          lease_until: string | null
+          max_attempts: number
+          next_attempt_at: string
+          payload: Json
+          result: Json | null
+          status: string
+          updated_at: string
+          workspace_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "billing_v2_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      billing_v2_complete_job: {
+        Args: { p_job_id: string; p_result?: Json }
+        Returns: undefined
+      }
+      billing_v2_defer_job: {
+        Args: { p_job_id: string; p_reason?: string }
+        Returns: undefined
+      }
+      billing_v2_document_number: { Args: never; Returns: string }
+      billing_v2_enqueue_job: {
+        Args: {
+          p_dedupe_key: string
+          p_job_type: string
+          p_payload?: Json
+          p_workspace_id: string
+        }
+        Returns: string
+      }
+      billing_v2_ensure_free_period: {
+        Args: { p_workspace_id: string }
+        Returns: Json
+      }
       billing_v2_evaluate_cutover: {
         Args: { p_workspace_id: string }
         Returns: Json
       }
+      billing_v2_fail_job: {
+        Args: { p_error: string; p_job_id: string }
+        Returns: undefined
+      }
+      billing_v2_issue_renewal_invoice: {
+        Args: { p_force?: boolean; p_workspace_id: string }
+        Returns: Json
+      }
+      billing_v2_note_worker_run: {
+        Args: {
+          p_batch: number
+          p_error?: string
+          p_failures: number
+          p_worker: string
+        }
+        Returns: undefined
+      }
+      billing_v2_policy_for: { Args: { p_workspace_id: string }; Returns: Json }
+      billing_v2_run_invoice_scheduler: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
+      billing_v2_run_period_activation: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
+      billing_v2_run_wallet_autopay: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
+      billing_v2_scheduler_health: { Args: never; Returns: Json }
       billing_v2_set_state: {
         Args: {
           p_actor_id?: string
@@ -13882,6 +14170,10 @@ export type Database = {
         Returns: Json
       }
       billing_v2_state: { Args: { p_workspace_id: string }; Returns: string }
+      billing_v2_wallet_autopay_invoice: {
+        Args: { p_invoice_id: string }
+        Returns: Json
+      }
       billing_wallet_admin_adjust: {
         Args: {
           p_actor_id?: string

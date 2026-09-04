@@ -1,0 +1,52 @@
+# ─────────────────────────────────────────────────────────────────────
+#  Realtime Redis — coordination engine for multi-node Centrifugo.
+#
+#  This Redis exists ONLY for Centrifugo's engine (cross-node publish,
+#  presence, history). The application backend never talks to it.
+#
+#  Deploy as its own Coolify resource, then attach the Centrifugo nodes
+#  (docker-compose.centrifugo-redis.yml) to the same network.
+#
+#  Required environment (Coolify → Environment Variables, secret):
+#    REALTIME_REDIS_PASSWORD   strong random password
+#  Optional:
+#    REALTIME_REDIS_PORT       host port to expose (default: not published)
+# ─────────────────────────────────────────────────────────────────────
+services:
+  realtime-redis:
+    # Pinned — do not float this tag.
+    image: redis:7.2.5-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --requirepass
+      - ${REALTIME_REDIS_PASSWORD:?REALTIME_REDIS_PASSWORD is required}
+      # Realtime coordination state is ephemeral by design: presence and
+      # history are rebuilt from live connections after a restart, and
+      # PostgreSQL remains the source of truth for all business data.
+      # Persistence is therefore disabled to avoid fork/IO stalls.
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      # Bounded memory. Centrifugo re-publishes on reconnect, so evicting
+      # the least recently used coordination keys is safe.
+      - --maxmemory
+      - ${REALTIME_REDIS_MAXMEMORY:-512mb}
+      - --maxmemory-policy
+      - allkeys-lru
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    environment:
+      REDIS_PASSWORD: ${REALTIME_REDIS_PASSWORD}
+    networks:
+      - realtime
+
+networks:
+  realtime:
+    name: ${REALTIME_NETWORK:-realtime}
+    external: false

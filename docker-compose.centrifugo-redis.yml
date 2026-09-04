@@ -1,0 +1,85 @@
+# ─────────────────────────────────────────────────────────────────────
+#  Centrifugo node — Redis engine (Deployment Mode 2 & 3).
+#
+#  Reusable: deploy this SAME file once per node, changing only
+#  CENTRIFUGO_NODE_NAME and the published port / domain. All nodes share
+#  one Redis (docker-compose.realtime-redis.yml) and the SAME cluster
+#  secrets, which is what makes a JWT minted by the backend valid on any
+#  node and lets presence/publish cross node boundaries.
+#
+#  Fully env-driven — no bind-mounted config.json.
+#
+#  Required environment (Coolify → Environment Variables, secret):
+#    CENTRIFUGO_TOKEN_HMAC_SECRET_KEY   shared cluster HMAC secret
+#    CENTRIFUGO_API_KEY                 shared cluster API key
+#    REALTIME_REDIS_PASSWORD            password of the realtime Redis
+#  Recommended:
+#    CENTRIFUGO_NODE_NAME               stable node name (e.g. rt-node-01)
+#    REALTIME_REDIS_HOST                default: realtime-redis
+#    CENTRIFUGO_PORT                    host port for this node
+# ─────────────────────────────────────────────────────────────────────
+services:
+  centrifugo:
+    # Same pinned version as the single-node deployment.
+    image: centrifugo/centrifugo:v5.4.5
+    restart: unless-stopped
+    command: centrifugo
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    ports:
+      - "${CENTRIFUGO_PORT:-8000}:8000"
+    environment:
+      CENTRIFUGO_NAME: ${CENTRIFUGO_NODE_NAME:-rt-node}
+      CENTRIFUGO_ADDRESS: 0.0.0.0
+      CENTRIFUGO_PORT: 8000
+
+      # ── Redis engine: this is what makes the nodes one cluster ──
+      CENTRIFUGO_ENGINE: redis
+      CENTRIFUGO_REDIS_ADDRESS: redis://:${REALTIME_REDIS_PASSWORD:?REALTIME_REDIS_PASSWORD is required}@${REALTIME_REDIS_HOST:-realtime-redis}:${REALTIME_REDIS_PORT:-6379}
+      # Project-scoped key prefix so several environments can share a Redis.
+      CENTRIFUGO_REDIS_PREFIX: ${REALTIME_REDIS_PREFIX:-kindred-realtime}
+
+      # ── Cluster auth: identical on every node ──
+      CENTRIFUGO_TOKEN_HMAC_SECRET_KEY: ${CENTRIFUGO_TOKEN_HMAC_SECRET_KEY:?required}
+      CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY:?required}
+      CENTRIFUGO_API_INSECURE: "false"
+
+      # The backend is the sole authorization gatekeeper (per-workspace
+      # origin allow-list); Centrifugo stays permissive at the transport.
+      CENTRIFUGO_ALLOWED_ORIGINS: ${CENTRIFUGO_ALLOWED_ORIGINS:-*}
+
+      CENTRIFUGO_CLIENT_ANONYMOUS: "false"
+      CENTRIFUGO_CLIENT_CHANNEL_LIMIT: "64"
+      CENTRIFUGO_CLIENT_CONCURRENCY: "8"
+
+      # Same `ws` namespace contract as Mode 1 — channels are
+      # ws:{workspace_id}:conv:{id} / :inbox / :visitors / :operators.
+      CENTRIFUGO_NAMESPACES: >-
+        [{"name":"ws","presence":true,"join_leave":true,"force_push_join_leave":false,
+        "history_size":50,"history_ttl":"300s","force_recovery":true,
+        "allow_subscribe_for_client":false,"allow_publish_for_client":false,
+        "allow_presence_for_client":true,"allow_history_for_client":true,
+        "subscribe_for_anonymous":false}]
+
+      CENTRIFUGO_WEBSOCKET_COMPRESSION: "true"
+      CENTRIFUGO_WEBSOCKET_PING_INTERVAL: 25s
+      CENTRIFUGO_HEALTH: "true"
+      CENTRIFUGO_PROMETHEUS: ${CENTRIFUGO_PROMETHEUS:-true}
+      CENTRIFUGO_LOG_LEVEL: ${CENTRIFUGO_LOG_LEVEL:-info}
+      CENTRIFUGO_ADMIN: "false"
+    healthcheck:
+      # Centrifugo's own /health endpoint — not a synthetic check.
+      test: ["CMD", "sh", "-c", "wget -q -O - http://127.0.0.1:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - realtime
+
+networks:
+  realtime:
+    name: ${REALTIME_NETWORK:-realtime}
+    external: true

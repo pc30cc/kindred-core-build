@@ -44,13 +44,23 @@ function simulatedCheckout(req: CheckoutRequest) {
   };
 }
 
+/** The sandbox host can also hang, which would freeze the checkout request. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error('zarinpal sandbox timeout')), ms).unref?.(),
+    ),
+  ]);
+}
+
 export const zarinpalTestProvider: BillingProviderHandler = {
   name: 'zarinpal_test',
   capabilities: { ...zarinpalProvider.capabilities },
 
   async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest) {
     try {
-      return await zarinpalProvider.createCheckoutSession(sandboxConfig(config), req);
+      return await withTimeout(zarinpalProvider.createCheckoutSession(sandboxConfig(config), req), 8000);
     } catch (error) {
       console.warn('[billing] zarinpal sandbox unavailable, using simulated test checkout', {
         error: (error as Error)?.message,

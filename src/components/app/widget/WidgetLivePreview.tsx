@@ -528,9 +528,14 @@ export function WidgetLivePreview({
   .launcher.has-image:hover .fab-img{clip-path:circle(0% at 50% 50%);}
   .launcher.open,.launcher.open:hover{transform:translateY(90px);opacity:0;pointer-events:none;animation:none;}
   ${s.fab_animation === true ? '.launcher{animation:gsp 2s ease-in-out infinite}@keyframes gsp{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}' : ''}
-  .fab-label{position:fixed;bottom:${Math.round(24 + fabSize / 2 - 15)}px;${pos === 'bottom-left' ? `left:${fabSize + 36}px` : `right:${fabSize + 36}px`};
-    background:${esc(primary)};color:${esc(s.fab_text_color || '#fff')};padding:7px 12px;border-radius:999px;font-size:12px;font-weight:600;
-     box-shadow:0 4px 14px -4px rgba(0,0,0,.25);z-index:2147483646;}
+  .fab-label{position:absolute;bottom:0;z-index:2;display:flex;flex-direction:column;justify-content:center;
+    height:calc(var(--gs-fab-size,56px) - 4px);padding:0 16px;border-radius:.9rem;background:#fff;white-space:nowrap;
+    box-shadow:0 8px 20px rgba(0,0,0,.12);pointer-events:none;
+    ${pos === 'bottom-left' ? `left:${fabSize + 10}px` : `right:${fabSize + 10}px`};
+    transition:transform .38s cubic-bezier(.4,0,.2,1),opacity .28s ease;transform:translateY(0);opacity:1;}
+  .fab-label .label-title{font-size:13px;font-weight:600;line-height:1.3;color:${esc(s.fab_text_color && s.fab_text_color !== '#fff' && s.fab_text_color !== '#ffffff' ? s.fab_text_color : '#1c2024')};}
+  .fab-label .label-sub{font-size:11px;line-height:1.3;color:#60646c;}
+  .fab-label.open{transform:translateY(90px);opacity:0;pointer-events:none;}
 
   /* Smart simulation: surfaces fade in/out with the real transition timing. */
   [data-smart-surface]{transition:opacity .22s ease, transform .22s ease;}
@@ -551,7 +556,7 @@ export function WidgetLivePreview({
       <svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>
       ${fabImage ? `<img class="fab-img" alt="" src="${esc(fabImage)}">` : ''}
     </button>
-    ${s.fab_label ? `<div class="fab-label">${esc(s.fab_label)}</div>` : ''}
+    ${s.fab_label ? `<div class="fab-label"><span class="label-title">${esc(s.fab_label)}</span></div>` : ''}
   </div>
 <!-- The preview loads the SAME presentation assets the visitor widget loads,
      resolved through the registry (no template name is hard-coded here). -->
@@ -725,6 +730,7 @@ export function WidgetLivePreview({
     function setOpen(open) {
       panel.classList.toggle('visible', !!open);
       launcher.classList.toggle('open', !!open);
+      if (label) label.classList.toggle('open', !!open);
     }
     window.__gsSetOpen = setOpen;
     // In the scenario studio the panel state belongs to the simulation, so it

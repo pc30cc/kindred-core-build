@@ -29,6 +29,6 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     // "Acquiring an exclusive Navigator LockManager lock ... immediately failed"
     // in the visitor's console. Neither client uses Supabase Auth at all.
     storageKey: 'gs-dashboard-no-auth',
-    lock: async (_name: string, _acquireTimeout: number, fn: () => Promise<unknown>) => fn(),
+    lock: <R>(_name: string, _acquireTimeout: number, fn: () => Promise<R>) => fn(),
   }
 });

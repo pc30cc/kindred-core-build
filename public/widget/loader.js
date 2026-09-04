@@ -169,7 +169,7 @@
     ".launcher{position:fixed;z-index:2147483646;display:flex;align-items:center;justify-content:center;",
     "width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:50%;border:none;cursor:pointer;",
     "box-shadow:0 3px 12px -4px var(--gs-shadow,rgba(0,0,0,.16)),0 0 0 1px rgba(0,0,0,.03);",
-    "transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,opacity .2s ease;",
+    "transition:transform .34s cubic-bezier(.22,1,.36,1),box-shadow .2s ease,opacity .24s ease;",
     "background:var(--gs-primary,transparent);color:#fff;font-family:inherit;",
     "opacity:1;}",
     /* Hidden state — keeps the launcher invisible and non-interactive until
@@ -196,8 +196,8 @@
        Opening the panel drops the FAB out of view (down + shrink) and
        closing brings it back, so the panel visually grows out of the very
        corner the button occupied. */
-    ".launcher.open{transform:translateY(150%) scale(.6);opacity:0;pointer-events:none;animation:none;}",
-    ".launcher.open:hover{transform:translateY(150%) scale(.6);}",
+    ".launcher.open,.launcher.open:hover{transform:translateY(calc(100% + 24px)) scale(.5);",
+    "opacity:0;pointer-events:none;animation:none;}",
 
     ".gs-fab-label{position:fixed;z-index:2147483645;display:inline-flex;align-items:center;",
     "padding:7px 12px;border-radius:999px;font-size:12px;font-weight:600;font-family:inherit;",

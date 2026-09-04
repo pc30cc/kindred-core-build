@@ -98,6 +98,46 @@ function WidgetPageContent() {
 
   const live = useMemo(() => ({ ...(widget as any), ...draft }), [widget, draft]);
 
+  /** Launcher (FAB) image upload — goes through the workspace storage provider. */
+  const fabImageInputRef = useRef<HTMLInputElement>(null);
+  const [fabImageUploading, setFabImageUploading] = useState(false);
+  async function uploadFabImage(file: File) {
+    if (!workspace?.id) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      toast({ title: t('widgetPage.appearance.fabImageInvalid'), variant: 'destructive' });
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ title: t('widgetPage.appearance.fabImageTooLarge'), variant: 'destructive' });
+      return;
+    }
+    setFabImageUploading(true);
+    try {
+      const buffer = new Uint8Array(await file.arrayBuffer());
+      let binary = '';
+      for (let i = 0; i < buffer.length; i += 1) binary += String.fromCharCode(buffer[i]);
+      const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+      const result = await storageUpload({
+        workspaceId: workspace.id,
+        fileKey: `workspace/${workspace.id}/widget/launcher-${Date.now()}.${ext}`,
+        data: btoa(binary),
+        contentType: file.type,
+      });
+      if (!result?.success || !result.url) throw new Error(result?.error || 'upload_failed');
+      setField('fab_image_url' as any, result.url, 0);
+      toast({ title: t('widgetPage.appearance.fabImageUploaded') });
+    } catch (err) {
+      toast({
+        title: t('widgetPage.appearance.fabImageFailed'),
+        description: err instanceof Error ? err.message : undefined,
+        variant: 'destructive',
+      });
+    } finally {
+      setFabImageUploading(false);
+    }
+  }
+
+
   /**
    * Region lock: in a single-language platform the widget can only speak that
    * language, so the preview must render it (RTL included) even before the

@@ -51,6 +51,8 @@ import {
 import { loadPublicSmartRules, recordSmartEvent } from '../services/widget/smartEngagement.js';
 import { evaluateAiProactiveNudge } from '../services/widget/aiNudge/evaluate.js';
 import { resolveEffectiveAiNudgePolicy } from '../services/widget/aiNudge/policy.js';
+import { touchVisitorLiveness } from '../services/widget/visitorLiveness.js';
+
 import { resolveTrustedNudgeSessionKey } from '../services/widget/aiNudge/session.js';
 import { transitionNudgeStatus } from '../services/widget/aiNudge/lifecycle.js';
 import { AI_JOURNEY_MAX_PAGES, type AiJourneyContext, type SmartEvalContext } from '../../src/lib/widget/smartEngine.js';
@@ -2525,31 +2527,22 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
       }
 
       if (session_id) {
-        // Read the previous current_page first so heartbeats only log a new
-        // page-view row when the URL actually changed (avoids ~120 rows/hr
-        // of duplicates from the 30 s heartbeat loop).
-        const { data: prevSess } = await supabase.from('visitor_sessions')
-          .select('current_page').eq('id', session_id).maybeSingle();
-        const prevPage = prevSess?.current_page ?? null;
+        // Liveness is coalesced server-side: the RPC only writes when the
+        // visitor navigated or the row aged past the refresh interval, so a
+        // 60 s heartbeat no longer costs a write per tick. Page-view history
+        // (business data) is still appended on every real URL change.
+        const touch = await touchVisitorLiveness(supabase, {
+          workspaceId,
+          sessionId: session_id,
+          visitorId: visitor_id || null,
+          currentPage: current_page || null,
+        });
 
-        let sessionUpdate = supabase.from('visitor_sessions')
-          .update({ last_seen_at: now, current_page: current_page || null })
-          .eq('workspace_id', workspaceId)
-          .eq('id', session_id);
-
-        if (visitor_id) {
-          sessionUpdate = sessionUpdate.eq('visitor_id', visitor_id);
+        if (!touch.matched) {
+          return res.json({ ok: true, matched: false });
         }
 
-        const { error: sessionErr } = await sessionUpdate;
-        if (sessionErr) throw sessionErr;
-
-        await supabase.from('visitor_presence')
-          .update({ status: 'online', current_page: current_page || null, updated_at: now })
-          .eq('workspace_id', workspaceId)
-          .eq('visitor_session_id', session_id);
-
-        if (current_page && current_page !== prevPage) {
+        if (touch.pageChanged && current_page) {
           try {
             await supabase.from('visitor_page_views').insert({
               workspace_id: workspaceId,
@@ -2564,6 +2557,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
 
         return res.json({ ok: true });
       }
+
 
       return res.status(400).json({ error: 'session_id or conversation_id required' });
     }

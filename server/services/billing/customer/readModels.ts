@@ -197,14 +197,21 @@ export async function buildBillingOverview(
   const graceDays = Number.isFinite(Number(policy.grace_period_days)) ? Number(policy.grace_period_days) : 3;
   const leadMs = (reminderOffsets.length ? Math.max(...reminderOffsets) : 5) * 86_400_000;
 
+  // An invoice without a due date is a checkout document the customer just
+  // generated (first purchase / manual upgrade). It is not a due bill and
+  // belongs to the Invoices tab, not to "next due date".
   const dueWindowOpen = (i: any): boolean => {
-    if (!i.due_at) return true;
+    if (!i.due_at) return false;
     return new Date(i.due_at).getTime() - leadMs <= Date.now();
   };
 
+  // Renewal dues only make sense once a service actually runs.
+  const hasService = Boolean(sub || period);
+
   const candidates = (upcoming || []).filter((i: any) =>
-    i.status === 'paid' ? activationDate(i) !== null : dueWindowOpen(i),
+    i.status === 'paid' ? activationDate(i) !== null : hasService && dueWindowOpen(i),
   );
+
   candidates.sort((a: any, b: any) => {
     const rank = (i: any) => (i.status === 'paid' ? 1 : 0);
     if (rank(a) !== rank(b)) return rank(a) - rank(b);

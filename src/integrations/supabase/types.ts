@@ -8554,6 +8554,13 @@ export type Database = {
         Row: {
           advanced_tools_enabled: boolean
           ai_agent_enabled: boolean
+          ai_proactive_default_mode: string
+          ai_proactive_max_evaluations_per_session_ceiling: number
+          ai_proactive_max_message_length: number
+          ai_proactive_max_per_session_ceiling: number
+          ai_proactive_min_confidence_floor: number
+          ai_proactive_min_cooldown_seconds_ceiling: number
+          ai_proactive_nudge_enabled: boolean
           auto_answer_enabled: boolean
           created_at: string
           customer_ai_agent_visible: boolean
@@ -8576,6 +8583,13 @@ export type Database = {
         Insert: {
           advanced_tools_enabled?: boolean
           ai_agent_enabled?: boolean
+          ai_proactive_default_mode?: string
+          ai_proactive_max_evaluations_per_session_ceiling?: number
+          ai_proactive_max_message_length?: number
+          ai_proactive_max_per_session_ceiling?: number
+          ai_proactive_min_confidence_floor?: number
+          ai_proactive_min_cooldown_seconds_ceiling?: number
+          ai_proactive_nudge_enabled?: boolean
           auto_answer_enabled?: boolean
           created_at?: string
           customer_ai_agent_visible?: boolean
@@ -8598,6 +8612,13 @@ export type Database = {
         Update: {
           advanced_tools_enabled?: boolean
           ai_agent_enabled?: boolean
+          ai_proactive_default_mode?: string
+          ai_proactive_max_evaluations_per_session_ceiling?: number
+          ai_proactive_max_message_length?: number
+          ai_proactive_max_per_session_ceiling?: number
+          ai_proactive_min_confidence_floor?: number
+          ai_proactive_min_cooldown_seconds_ceiling?: number
+          ai_proactive_nudge_enabled?: boolean
           auto_answer_enabled?: boolean
           created_at?: string
           customer_ai_agent_visible?: boolean
@@ -11291,6 +11312,199 @@ export type Database = {
           },
         ]
       }
+      widget_ai_nudge_session_state: {
+        Row: {
+          created_at: string
+          evaluation_count: number
+          expires_at: string
+          last_evaluated_at: string | null
+          last_evaluation_id: string | null
+          last_fingerprint: string | null
+          session_key: string
+          shown_count: number
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          evaluation_count?: number
+          expires_at?: string
+          last_evaluated_at?: string | null
+          last_evaluation_id?: string | null
+          last_fingerprint?: string | null
+          session_key: string
+          shown_count?: number
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          evaluation_count?: number
+          expires_at?: string
+          last_evaluated_at?: string | null
+          last_evaluation_id?: string | null
+          last_fingerprint?: string | null
+          session_key?: string
+          shown_count?: number
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_ai_nudge_session_state_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      widget_ai_nudge_settings: {
+        Row: {
+          cooldown_seconds: number
+          created_at: string
+          enabled: boolean
+          exclude_paths: string[]
+          guidance: string | null
+          id: string
+          include_paths: string[]
+          max_per_session: number
+          mobile_enabled: boolean
+          mode: string
+          stop_after_conversation: boolean
+          stop_after_dismiss: boolean
+          stop_after_widget_open: boolean
+          updated_at: string
+          use_journey: boolean
+          use_kb: boolean
+          use_returning_visitor: boolean
+          workspace_id: string
+        }
+        Insert: {
+          cooldown_seconds?: number
+          created_at?: string
+          enabled?: boolean
+          exclude_paths?: string[]
+          guidance?: string | null
+          id?: string
+          include_paths?: string[]
+          max_per_session?: number
+          mobile_enabled?: boolean
+          mode?: string
+          stop_after_conversation?: boolean
+          stop_after_dismiss?: boolean
+          stop_after_widget_open?: boolean
+          updated_at?: string
+          use_journey?: boolean
+          use_kb?: boolean
+          use_returning_visitor?: boolean
+          workspace_id: string
+        }
+        Update: {
+          cooldown_seconds?: number
+          created_at?: string
+          enabled?: boolean
+          exclude_paths?: string[]
+          guidance?: string | null
+          id?: string
+          include_paths?: string[]
+          max_per_session?: number
+          mobile_enabled?: boolean
+          mode?: string
+          stop_after_conversation?: boolean
+          stop_after_dismiss?: boolean
+          stop_after_widget_open?: boolean
+          updated_at?: string
+          use_journey?: boolean
+          use_kb?: boolean
+          use_returning_visitor?: boolean
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_ai_nudge_settings_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      widget_ai_nudges: {
+        Row: {
+          ai_run_id: string | null
+          confidence: number | null
+          created_at: string
+          cta_action: string | null
+          cta_label: string | null
+          cta_url: string | null
+          evaluation_id: string | null
+          expires_at: string
+          id: string
+          message: string
+          page_path: string | null
+          session_id: string | null
+          session_key: string
+          shown_at: string | null
+          status: string
+          topic: string
+          visitor_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          ai_run_id?: string | null
+          confidence?: number | null
+          created_at?: string
+          cta_action?: string | null
+          cta_label?: string | null
+          cta_url?: string | null
+          evaluation_id?: string | null
+          expires_at?: string
+          id?: string
+          message: string
+          page_path?: string | null
+          session_id?: string | null
+          session_key: string
+          shown_at?: string | null
+          status?: string
+          topic: string
+          visitor_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          ai_run_id?: string | null
+          confidence?: number | null
+          created_at?: string
+          cta_action?: string | null
+          cta_label?: string | null
+          cta_url?: string | null
+          evaluation_id?: string | null
+          expires_at?: string
+          id?: string
+          message?: string
+          page_path?: string | null
+          session_id?: string | null
+          session_key?: string
+          shown_at?: string | null
+          status?: string
+          topic?: string
+          visitor_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "widget_ai_nudges_ai_run_id_fkey"
+            columns: ["ai_run_id"]
+            isOneToOne: false
+            referencedRelation: "ai_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "widget_ai_nudges_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       widget_conversation_reads: {
         Row: {
           conversation_id: string
@@ -11729,42 +11943,55 @@ export type Database = {
       }
       widget_smart_events: {
         Row: {
+          ai_nudge_id: string | null
           created_at: string
           event_type: string
           id: string
           idempotency_key: string
           page_path: string | null
-          rule_id: string
+          rule_id: string | null
           rule_version: number
           session_id: string | null
+          source: string
           visitor_id: string | null
           workspace_id: string
         }
         Insert: {
+          ai_nudge_id?: string | null
           created_at?: string
           event_type: string
           id?: string
           idempotency_key: string
           page_path?: string | null
-          rule_id: string
+          rule_id?: string | null
           rule_version?: number
           session_id?: string | null
+          source?: string
           visitor_id?: string | null
           workspace_id: string
         }
         Update: {
+          ai_nudge_id?: string | null
           created_at?: string
           event_type?: string
           id?: string
           idempotency_key?: string
           page_path?: string | null
-          rule_id?: string
+          rule_id?: string | null
           rule_version?: number
           session_id?: string | null
+          source?: string
           visitor_id?: string | null
           workspace_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "widget_smart_events_ai_nudge_id_fkey"
+            columns: ["ai_nudge_id"]
+            isOneToOne: false
+            referencedRelation: "widget_ai_nudges"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "widget_smart_events_rule_id_fkey"
             columns: ["rule_id"]
@@ -14437,6 +14664,28 @@ export type Database = {
         }
         Returns: string
       }
+      ai_nudge_acquire_evaluation: {
+        Args: {
+          _dedup_window_seconds?: number
+          _fingerprint: string
+          _max_evaluations: number
+          _session_key: string
+          _ttl_seconds?: number
+          _workspace_id: string
+        }
+        Returns: Json
+      }
+      ai_nudge_apply_lifecycle_event: {
+        Args: {
+          _event_type: string
+          _nudge_id: string
+          _page_path?: string
+          _session_id?: string
+          _visitor_id?: string
+          _workspace_id: string
+        }
+        Returns: Json
+      }
       ai_open_step: {
         Args: {
           p_attempt_no: number
@@ -15654,6 +15903,20 @@ export type Database = {
       show_trgm: { Args: { "": string }; Returns: string[] }
       sla_reliability_rollup_and_prune: { Args: never; Returns: Json }
       user_phone_verified: { Args: { _user_id: string }; Returns: boolean }
+      visitor_touch_liveness: {
+        Args: {
+          p_current_page?: string
+          p_min_interval_ms?: number
+          p_session_id: string
+          p_visitor_id?: string
+          p_workspace_id: string
+        }
+        Returns: {
+          matched: boolean
+          page_changed: boolean
+          wrote: boolean
+        }[]
+      }
       wi_account_exists: {
         Args: { _email_normalized: string }
         Returns: boolean

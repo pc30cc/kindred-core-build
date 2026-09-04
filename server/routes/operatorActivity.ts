@@ -4,10 +4,14 @@
  * Self-hosted Express only (no edge functions).
  *
  * Two separate concerns share one heartbeat request:
- *   1. LIVE PRESENCE (`operator_presence_live`) — refreshed on EVERY beat,
- *      one row per (workspace, user), UPSERT, no history. This is the sole
- *      source of truth for "is this operator connected right now" (see
- *      server/services/widget/operatorPresence.ts).
+ *   1. LIVE PRESENCE — realtime-first. While Centrifugo presence is the
+ *      active source, channel membership carries liveness and this beat
+ *      writes NOTHING. Only in database-fallback mode (polling/disabled/
+ *      Supabase, or a tripped presence circuit breaker — shared across
+ *      instances via `operator_presence_fallback_state`) does the beat
+ *      UPSERT the `operator_presence_live` lease: one row per
+ *      (workspace, user), no history. See
+ *      server/services/widget/operatorPresenceSource.ts.
  *   2. ANALYTICS (`operator_activity_samples`) — 5-minute buckets, used only
  *      for online-time reporting. NEVER read as a liveness signal.
  *

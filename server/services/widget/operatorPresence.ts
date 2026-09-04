@@ -124,16 +124,48 @@ export function computeOperatorState(
 }
 
 /**
- * Returns presence for every member of the workspace. Members with no row
- * in user_availability_prefs are treated as "no_prefs / online" because
- * that mirrors the Account › Availability default ("Available when using
- * the app").
+ * LIVE PRESENCE SOURCE OF TRUTH — `operator_presence_live`.
+ *
+ * One row per (workspace, user), UPSERTed by the operator panel heartbeat
+ * (POST /api/operator-activity/heartbeat, every 2 minutes while the tab is
+ * OPEN AND VISIBLE). The row never grows history, so this is cheap and
+ * shared across replicas (no process-local presence state).
+ *
+ * `operator_activity_samples` is ANALYTICS ONLY (5-minute buckets, one row
+ * per bucket) and must never be read as a liveness signal: its bucket
+ * timestamp is floored, so between bucket writes a continuously connected
+ * operator would age out of the liveness window and flicker to
+ * `not_connected`.
+ *
+ * Liveness window = 2× the 2-minute heartbeat + 1 minute of skew/jitter.
+ * A closed tab, a logout, or a hidden tab (heartbeats stop while hidden —
+ * "available when using the app" semantics) therefore goes offline within
+ * ~5 minutes.
  */
+export const PRESENCE_HEARTBEAT_MS = 120_000;
+export const PRESENCE_LIVENESS_MS = 5 * 60 * 1000;
+
 /**
- * How long a heartbeat keeps an operator "connected". The panel beats every
- * 60s (minute buckets), so 3 minutes tolerates one missed beat + clock skew.
+ * Records a live-presence beat. Single-row UPSERT; no history, no per-beat
+ * row growth. Called from the heartbeat route on EVERY beat (unlike the
+ * analytics sample, which is written at most once per 5-minute bucket).
  */
-export const PRESENCE_LIVENESS_MS = 3 * 60 * 1000;
+export async function recordOperatorPresenceBeat(
+  config: ServerConfig,
+  workspaceId: string,
+  userId: string,
+  now: Date = new Date(),
+): Promise<void> {
+  const sb = getServiceClient(config);
+  const iso = now.toISOString();
+  const { error } = await sb
+    .from('operator_presence_live')
+    .upsert(
+      { workspace_id: workspaceId, user_id: userId, last_seen_at: iso, updated_at: iso },
+      { onConflict: 'workspace_id,user_id' },
+    );
+  if (error) console.warn('[presence] live beat write failed:', error.message);
+}
 
 export async function listWorkspacePresence(
   config: ServerConfig,
@@ -169,24 +201,24 @@ export async function listWorkspacePresence(
     profileById.set(p.id, { full_name: p.full_name ?? null, email: p.email ?? null, avatar_url: p.avatar_url ?? null });
   }
 
-  // Liveness: prefs say "may be online", heartbeats say "actually connected".
-  // Without this, a member who never opens the panel (or has no prefs row at
-  // all) would render as online forever.
+  // Liveness: prefs say "may be online", the live presence row says
+  // "actually connected right now". Without this, a member who never opens
+  // the panel (or has no prefs row at all) would render as online forever.
   const liveSince = new Date(now.getTime() - PRESENCE_LIVENESS_MS).toISOString();
   const connected = new Set<string>();
   const lastSeenById = new Map<string, string>();
   const { data: beats } = await sb
-    .from('operator_activity_samples')
-    .select('user_id, bucket')
+    .from('operator_presence_live')
+    .select('user_id, last_seen_at')
     .eq('workspace_id', workspaceId)
     .in('user_id', ids)
-    .gte('bucket', liveSince)
-    .order('bucket', { ascending: false })
-    .limit(500);
+    .gte('last_seen_at', liveSince);
   for (const b of (beats || []) as any[]) {
     connected.add(b.user_id);
-    if (!lastSeenById.has(b.user_id)) lastSeenById.set(b.user_id, b.bucket);
+    const prev = lastSeenById.get(b.user_id);
+    if (!prev || prev < b.last_seen_at) lastSeenById.set(b.user_id, b.last_seen_at);
   }
+
 
   return ids.map((id: string) => {
     const computed = computeOperatorState(byUser.get(id) || null, now);

@@ -22,7 +22,9 @@ import {
 } from '@/components/ui/select';
 import { SkeletonStats, SkeletonCard } from '@/components/common/Skeletons';
 import { Badge } from '@/components/ui/badge';
-import { LayoutGrid, Receipt, Gauge, Wallet, Sparkles, ArrowLeftRight, type LucideIcon } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { LayoutGrid, Receipt, Gauge, Wallet, Sparkles, ArrowLeftRight, ArrowUpCircle, type LucideIcon } from 'lucide-react';
+
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
 import { billingV2Overview, billingV2CancelPlanChange, type BillingOverview } from '@/lib/billingV2Api';

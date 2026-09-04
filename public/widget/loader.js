@@ -327,7 +327,7 @@
     ".error-toast.visible{display:block;}",
     /* Mobile keeps the configured size — parity between closed and open. */
     /* ── Smart Engagement: launcher nudge only (loader-owned surface). ── */
-    /* Values mirror the .smart-nudge block in presentation-web-yar.css so the
+    /* Values mirror the .smart-nudge block in the active template stylesheet so
        bubble looks identical before/after the template stylesheet lands. */
     ".smart-nudge{position:absolute;z-index:6;bottom:calc(var(--gs-fab-size,56px) + 22px);",
     "width:max-content;max-width:290px;display:flex;flex-direction:column;gap:6px;",

@@ -139,8 +139,18 @@ say "6/7 canary cutover for $WORKSPACE"
                   WHERE workspace_id = '$WORKSPACE'::uuid AND region IS DISTINCT FROM '$REGION'" >/dev/null
 READINESS="$("${PSQL[@]}" -c "SELECT public.billing_v2_evaluate_cutover('$WORKSPACE'::uuid)::text")"
 echo "readiness: $READINESS"
-"${PSQL[@]}" -c "SELECT public.billing_v2_set_state('$WORKSPACE'::uuid, 'shadow', NULL, 'production canary')::text"
-"${PSQL[@]}" -c "SELECT public.billing_v2_set_state('$WORKSPACE'::uuid, 'v2_cutover_pending', NULL, 'production canary')::text"
+# Rollout state is monotonic: only step forward from wherever the workspace is.
+CUR="$("${PSQL[@]}" -c "SELECT public.billing_v2_state('$WORKSPACE'::uuid)")"
+rank() { case "$1" in legacy) echo 0;; shadow) echo 1;; v2_cutover_pending) echo 2;; v2_active) echo 3;; *) echo 0;; esac; }
+for target in shadow v2_cutover_pending; do
+  if [ "$(rank "$CUR")" -lt "$(rank "$target")" ]; then
+    "${PSQL[@]}" -c "SELECT public.billing_v2_set_state('$WORKSPACE'::uuid, '$target', NULL, 'production canary')::text"
+    CUR="$target"
+  else
+    echo "skip $target (already $CUR)"
+  fi
+done
+
 ACTIVATION="$("${PSQL[@]}" -c "SELECT public.billing_v2_activate('$WORKSPACE'::uuid, NULL, 'production canary')::text")"
 echo "activation: $ACTIVATION"
 STATE="$("${PSQL[@]}" -c "SELECT public.billing_v2_state('$WORKSPACE'::uuid)")"

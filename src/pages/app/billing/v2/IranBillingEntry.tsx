@@ -1,10 +1,9 @@
 /**
  * Engine dispatch for the Iran billing screen.
  *
- * Which UI a workspace sees is decided by the SERVER's rollout state, never by
- * a local flag: only `v2_active` gets the invoice-driven V2 experience, while
- * legacy / shadow / cutover-pending workspaces keep the existing page so a
- * half-migrated account is never shown invoices its engine cannot honour.
+ * The invoice-driven V2 experience is now the site-wide default: every
+ * workspace gets it unless the server explicitly reports a `legacy` rollout
+ * state (an account whose engine cannot honour invoices yet).
  */
 import { useEffect, useState } from 'react';
 import { useWorkspaces } from '@/hooks/useWorkspace';
@@ -25,12 +24,12 @@ export default function IranBillingEntry() {
     setResolved(false);
     billingEngineReadModel(workspaceId)
       .then((model) => {
-        if (!cancelled) setEngine(model.rolloutState === 'v2_active' ? 'v2' : 'v1');
+        if (!cancelled) setEngine(model.rolloutState === 'legacy' ? 'v1' : 'v2');
       })
       // A read failure must not lock the customer out of billing entirely:
-      // fall back to the legacy screen, which is valid for every workspace.
+      // keep the default V2 screen rather than dropping to the legacy one.
       .catch(() => {
-        if (!cancelled) setEngine('v1');
+        if (!cancelled) setEngine('v2');
       })
       .finally(() => {
         if (!cancelled) setResolved(true);

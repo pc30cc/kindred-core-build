@@ -52,6 +52,12 @@ import {
 } from '../services/billing/paymentIntent.js';
 import { requiresReferenceBinding } from '../services/billing/providerBinding.js';
 import { isV2Active } from '../services/billing/rollout.js';
+import {
+  BillingConfigError,
+  evaluateCoupon,
+  listPayableGateways,
+} from '../services/billing/config/index.js';
+
 
 export const billingV2CustomerRouter = Router();
 

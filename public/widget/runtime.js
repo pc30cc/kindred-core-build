@@ -3625,10 +3625,22 @@
       return t('handoffPrechatSubtitle') || t('prechatSubtitle');
     }
 
+    // Values painted into the form: the saved contact, overridden by
+    // anything the visitor typed in this session (draft) — so a repaint can
+    // never wipe the fields.
+    function prechatValues() {
+      var c = (identityStore.get().contact) || {};
+      return {
+        name: prechatDraft.name || c.name || '',
+        email: prechatDraft.email || c.email || '',
+        phone: prechatDraft.phone || c.phone || '',
+      };
+    }
+
     function renderHandoffPrechatCardHtml(identity, locale, subtitle, animateSubtitle) {
       return Presentation.handoffPrechatCardHtml(
         identity,
-        (identityStore.get().contact) || {},
+        prechatValues(),
         locale,
         subtitle,
         animateSubtitle,
@@ -3638,12 +3650,13 @@
     function renderPreChat(body, identity, locale, onSubmitted) {
       body.innerHTML = Presentation.prechatFormHtml(
         identity,
-        (identityStore.get().contact) || {},
+        prechatValues(),
         locale,
       );
 
       wirePrechatForm(body, identity, onSubmitted, { autofocus: true });
     }
+
 
     // "Start a brand new thread" latch. Canonical state lives in chatStore
     // (`freshIntent`) so the transport layer can enforce it too; this local

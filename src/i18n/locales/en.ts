@@ -5673,6 +5673,8 @@ const en = {
     errors: {
       siteNotFound: 'This website could not be found. It may have been removed from the workspace.',
       startFailed: 'Could not start the audit. Please try again in a moment, or contact support if this keeps happening.',
+      createFailed: 'Could not start the audit. Please try again.',
+      loadFailed: 'Could not load SEO data.',
     },
     overview: {
       scoreTrend: 'Score trend',
@@ -5758,11 +5760,6 @@ const en = {
       persistentIssues: 'Persistent issues',
       noPrevious: 'This is the first completed audit for this site.',
       empty: 'No previous audits yet.',
-    },
-    errors: {
-      createFailed: 'Could not start the audit. Please try again.',
-      loadFailed: 'Could not load SEO data.',
-      siteNotFound: 'This website could not be found in your workspace.',
     },
   },
 };

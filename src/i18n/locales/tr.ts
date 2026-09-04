@@ -5661,6 +5661,8 @@ const tr: TranslationKeys = {
     errors: {
       siteNotFound: 'Bu web sitesi bulunamadı. Çalışma alanından kaldırılmış olabilir.',
       startFailed: 'Denetim başlatılamadı. Lütfen kısa süre sonra tekrar deneyin veya sorun devam ederse destek ile iletişime geçin.',
+      createFailed: 'Denetim başlatılamadı. Lütfen tekrar deneyin.',
+      loadFailed: 'SEO verileri yüklenemedi.',
     },
     overview: {
       scoreTrend: 'Puan trendi',
@@ -5746,11 +5748,6 @@ const tr: TranslationKeys = {
       persistentIssues: 'Süregelen sorunlar',
       noPrevious: 'Bu, bu site için tamamlanan ilk denetim.',
       empty: 'Henüz önceki denetim yok.',
-    },
-    errors: {
-      createFailed: 'Denetim başlatılamadı. Lütfen tekrar deneyin.',
-      loadFailed: 'SEO verileri yüklenemedi.',
-      siteNotFound: 'Bu web sitesi çalışma alanınızda bulunamadı.',
     },
   },
 };

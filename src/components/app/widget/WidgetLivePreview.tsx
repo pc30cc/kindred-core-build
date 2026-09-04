@@ -524,7 +524,7 @@ export function WidgetLivePreview({
   .launcher.open svg.chat-icon{display:none;}
   .launcher:not(.open) svg.close-icon{display:none;}
   .launcher .fab-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit;
-    pointer-events:none;clip-path:circle(75% at 50% 50%);transition:clip-path .42s cubic-bezier(.22,1,.36,1);}
+    pointer-events:none;clip-path:circle(75% at 50% 50%);transition:clip-path .55s cubic-bezier(.22,1,.36,1);}
   .launcher.has-image:hover .fab-img{clip-path:circle(0% at 50% 50%);}
   .launcher.open,.launcher.open:hover{transform:translateY(90px);opacity:0;pointer-events:none;animation:none;}
   ${s.fab_animation === true ? '.launcher{animation:gsp 2s ease-in-out infinite}@keyframes gsp{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}' : ''}

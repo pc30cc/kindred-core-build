@@ -187,7 +187,7 @@
     ".launcher.pending{opacity:0;pointer-events:none;visibility:hidden;}",
     /* Reveal animation once config arrives. */
     ".launcher.revealed{opacity:1;pointer-events:auto;visibility:visible;}",
-    ".launcher:hover{transform:scale(1.08);box-shadow:0 5px 16px -4px var(--gs-shadow,rgba(0,0,0,.22));}",
+    ".launcher:hover{transform:translateY(-2px) scale(1.06);box-shadow:0 5px 16px -4px var(--gs-shadow,rgba(0,0,0,.22));transition:transform .3s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease;}",
     ".launcher:active{transform:scale(.96);}",
     ".launcher.bottom-right{right:0;left:auto;}",
     ".launcher.bottom-left{left:0;right:auto;}",
@@ -200,7 +200,7 @@
        sits underneath. No crossfade — a real reveal. */
     ".launcher .fab-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;",
     "border-radius:inherit;pointer-events:none;clip-path:circle(75% at 50% 50%);",
-    "transition:clip-path .42s cubic-bezier(.22,1,.36,1);}",
+    "transition:clip-path .55s cubic-bezier(.22,1,.36,1);}",
     ".launcher.has-image:hover .fab-img{clip-path:circle(0% at 50% 50%);}",
     /* ── FAB ⇄ panel shared origin ──
        Opening the panel drops the FAB out of view (down + shrink) and

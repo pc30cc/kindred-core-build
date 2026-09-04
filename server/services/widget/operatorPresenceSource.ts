@@ -359,6 +359,31 @@ async function readDatabasePresence(
 }
 
 /**
+ * Transition handoff. Inside the bounded handoff window:
+ *   • with a known-good roster ⇒ exactly those operators stay connected;
+ *   • with NO roster at all (cold instance, presence never read here) ⇒
+ *     candidates are treated as connected rather than as offline. Presence
+ *     is *unknown*, not negative, and dropping every candidate would break
+ *     routing and flip the widget to `no_operators_online` for a few minutes.
+ *     Personal availability (force_offline / schedule) still applies, and the
+ *     window closes as soon as real heartbeats refresh the lease.
+ */
+function applyHandoff(
+  connected: Set<string>,
+  userIds: string[],
+  entry: FallbackEntry,
+  ts: number,
+): void {
+  if (ts >= entry.handoffUntil) return;
+  if (entry.roster.length > 0) {
+    const rosterSet = new Set(entry.roster);
+    for (const id of userIds) if (rosterSet.has(id)) connected.add(id);
+    return;
+  }
+  for (const id of userIds) connected.add(id);
+}
+
+/**
  * THE presence contract. Returns which of `userIds` are live right now.
  */
 export async function getConnectedOperators(
@@ -403,10 +428,7 @@ export async function getConnectedOperators(
       PRESENCE_LIVENESS_MS + HANDOFF_MS,
     );
     const connected = new Set(db.connected);
-    if (ts < entry.handoffUntil) {
-      const rosterSet = new Set(entry.roster);
-      for (const id of userIds) if (rosterSet.has(id)) connected.add(id);
-    }
+    applyHandoff(connected, userIds, entry, ts);
     return { mode: 'database', connected, lastSeen: db.lastSeen, degraded: true };
   }
 
@@ -417,9 +439,6 @@ export async function getConnectedOperators(
   const windowMs = entry ? PRESENCE_LIVENESS_MS + HANDOFF_MS : PRESENCE_LIVENESS_MS;
   const db = await readDatabasePresence(config, workspaceId, userIds, ts, windowMs);
   const connected = new Set(db.connected);
-  if (entry && ts < entry.handoffUntil) {
-    const rosterSet = new Set(entry.roster);
-    for (const id of userIds) if (rosterSet.has(id)) connected.add(id);
-  }
+  if (entry) applyHandoff(connected, userIds, entry, ts);
   return { mode: 'database', connected, lastSeen: db.lastSeen, degraded: !!entry };
 }

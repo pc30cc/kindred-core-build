@@ -744,7 +744,7 @@ export function WidgetLivePreview({
     // starts closed and only opens when the rule says a visitor would see it.
     setOpen(!GS_SMART.enabled);
     // Entry parity: when the FAB is the first thing shown it slides up from
-    // outside the browser edge with the same 0.38s curve production uses.
+    // outside the browser edge with the same 0.62s curve production uses.
     if (!isOpen()) {
       [launcher, label].forEach(function (element) {
         if (!element) return;

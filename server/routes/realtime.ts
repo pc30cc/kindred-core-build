@@ -563,12 +563,23 @@ realtimeRouter.post('/operator-connect', perfHttpMiddleware('realtime.operator_c
       workspace_id: parsed.data.workspace_id,
       expires_in_seconds: platform.realtime.tokenTtlSeconds,
     });
+    // Topology-aware endpoint assignment (same contract in all three modes).
+    const assignment = await assignRealtimeEndpoint(config);
+    if (!assignment.ws_url) {
+      return res.json({
+        vendor: 'polling_builtin',
+        capabilities: { supportsRealtime: false, supportsTyping: false, supportsPresence: false, supportsHistoryLoad: true, supportsReconnectSignals: true },
+        effective_policy,
+      });
+    }
     if (parsed.data.intent !== 'policy_poll') {
       getMonitoringCollector().recordGrant(parsed.data.workspace_id, subjectId, tokenTtlMs);
     }
     return res.json({
       vendor: 'centrifugo',
-      ws_url: tk.ws_url,
+      ws_url: assignment.ws_url,
+      node_id: assignment.node_id,
+      deployment_mode: assignment.mode,
       token: tk.token,
       expires_at: tk.expires_at,
       capabilities: resolved.capabilities,

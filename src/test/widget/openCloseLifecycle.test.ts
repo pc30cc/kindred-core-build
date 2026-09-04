@@ -38,9 +38,9 @@ describe("widget open/close lifecycle contract", () => {
     expect(loader).toContain(".launcher.has-image:hover .fab-img{clip-path:circle(0% at 50% 50%);}");
   });
 
-  it("panel grows from the launcher corner (shared origin)", () => {
+  it("panel slides out of the bottom edge, mirroring the launcher", () => {
     expect(css).toMatch(/transform-origin:\s*bottom right/);
-    expect(css).toMatch(/transform:\s*scale\(0\.82\) translateY\(24px\)/);
+    expect(css).toMatch(/transform:\s*translateY\(calc\(100% \+ 40px\)\)/);
     // Both surfaces share ONE anchored corner: the shell is the zero-size
     // fixed parent and each child is absolute at bottom:0 of that corner.
     expect(loader).toContain(".shell.pos-bottom-right{bottom:24px;right:24px;left:auto;top:auto;}");

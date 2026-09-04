@@ -178,7 +178,12 @@ async function negotiateConnect(workspaceId: string): Promise<RealtimeNegotiatio
       credentials: 'include',
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ workspace_id: workspaceId }),
+      // intent:'socket_negotiate' — every call site here (initial open,
+      // scheduleReconnect's re-negotiation, scheduleTokenRefresh's proactive
+      // refresh) is a genuine socket negotiation; the server-side reconnect
+      // classifier tells genuine-vs-routine apart from the elapsed time
+      // since the last grant, not from this field.
+      body: JSON.stringify({ workspace_id: workspaceId, intent: 'socket_negotiate' }),
     });
     if (!res.ok) return null;
     return (await res.json()) as RealtimeNegotiation;

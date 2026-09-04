@@ -39,6 +39,7 @@ import {
 } from '../services/realtime/types.js';
 import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';
 import { emitMetric } from '../services/observability/metrics.js';
+import { getMonitoringCollector } from '../services/observability/collector/index.js';
 import { realtimeControlRouter } from './realtimeControl.js';
 import { resolveEffectivePolicy } from '../services/realtime/effectivePolicy.js';
 import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
@@ -91,6 +92,10 @@ async function enforceWorkspaceOrigin(
 const connectSchema = z.object({
   workspace_id: z.string().uuid(),
   conversation_ids: z.array(z.string().uuid()).optional(),
+  // See operatorConnectSchema's `intent` field. The widget runtime never
+  // sends 'policy_poll' (it has no equivalent polling pattern), so this is
+  // present for schema symmetry and future use, not a behavior change here.
+  intent: z.enum(['socket_negotiate', 'policy_poll']).optional().default('socket_negotiate'),
 });
 
 realtimeRouter.post('/connect', async (req, res) => {
@@ -355,7 +360,16 @@ realtimeRouter.post('/subscribe', perfHttpMiddleware('realtime.subscribe'), asyn
 //  Lets the workspace inbox subscribe to the SAME conversation channels
 //  the visitor widget uses, so agent↔visitor messages flow live both ways.
 // ─────────────────────────────────────────────────────────────────────
-const operatorConnectSchema = z.object({ workspace_id: z.string().uuid() });
+const operatorConnectSchema = z.object({
+  workspace_id: z.string().uuid(),
+  // Reconnect-labeling fix: distinguishes a real socket (re)negotiation from
+  // useEffectivePolicy's 30s policy-only heartbeat, which hits this same
+  // endpoint purely to read `effective_policy` and has nothing to do with
+  // the realtime connection lifecycle. Defaults to 'socket_negotiate' so
+  // older clients (and the vanilla-JS widget runtime, which never sends
+  // 'policy_poll') keep today's behavior.
+  intent: z.enum(['socket_negotiate', 'policy_poll']).optional().default('socket_negotiate'),
+});
 const operatorSubscribeSchema = z.object({
   workspace_id: z.string().uuid(),
   conversation_id: z.string().uuid(),
@@ -374,16 +388,32 @@ realtimeRouter.post('/operator-connect', perfHttpMiddleware('realtime.operator_c
     if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
     const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
     if (!user) return;
+    const subjectId = `op_${user.id}`;
+    const platform = await loadWidgetPlatformRuntimeSettings(config);
+    const tokenTtlMs = platform.realtime.tokenTtlSeconds * 1000;
 
-    // Phase 3 — every operator-connect is a (re)connect attempt. Used to
-    // chart reconnect rates per workspace in the observability panel.
-    emitMetric(config, {
-      metric: 'realtime.reconnect_attempt',
-      workspaceId: parsed.data.workspace_id,
-      driver: 'centrifugo',
-      source: 'operator',
-      tags: { endpoint: 'operator-connect' },
-    });
+    if (parsed.data.intent === 'policy_poll') {
+      // useEffectivePolicy's heartbeat — reads effective_policy only, not a
+      // realtime lifecycle event. Never counted as a reconnect attempt.
+      emitMetric(config, {
+        metric: 'realtime.policy_poll',
+        workspaceId: parsed.data.workspace_id,
+        source: 'operator',
+        tags: { endpoint: 'operator-connect' },
+      });
+    } else {
+      // Reconnect-labeling fix: classify BEFORE minting a new token so the
+      // decision reflects the elapsed time since the last grant, not this
+      // one. See collector/reconnectClassifier.ts for the heuristic.
+      const reconnectKind = getMonitoringCollector().classifyReconnect(parsed.data.workspace_id, subjectId, tokenTtlMs);
+      emitMetric(config, {
+        metric: 'realtime.reconnect_attempt',
+        workspaceId: parsed.data.workspace_id,
+        driver: 'centrifugo',
+        source: 'operator',
+        tags: { endpoint: 'operator-connect', reconnect_kind: reconnectKind },
+      });
+    }
 
     // Phase 6C — derive the public effective policy snapshot so the
     // operator client can honor failover/degradation decisions on every
@@ -414,12 +444,14 @@ realtimeRouter.post('/operator-connect', perfHttpMiddleware('realtime.operator_c
     }
     const driver = await getCentrifugoDriver(config);
     if (!driver) return res.json({ vendor: 'polling_builtin', effective_policy });
-    const platform = await loadWidgetPlatformRuntimeSettings(config);
     const tk = driver.issueConnectionToken({
-      sub: `op_${user.id}`,
+      sub: subjectId,
       workspace_id: parsed.data.workspace_id,
       expires_in_seconds: platform.realtime.tokenTtlSeconds,
     });
+    if (parsed.data.intent !== 'policy_poll') {
+      getMonitoringCollector().recordGrant(parsed.data.workspace_id, subjectId, tokenTtlMs);
+    }
     return res.json({
       vendor: 'centrifugo',
       ws_url: tk.ws_url,

@@ -3,7 +3,7 @@ import {
   touchVisitorLiveness,
   isMissingRpcError,
   VISITOR_LIVENESS_REFRESH_MS,
-} from './visitorLiveness';
+} from './visitorLiveness.js';
 
 /**
  * Faithful in-memory model of public.visitor_touch_liveness, including the

@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { mergeStatus } from './intelligence';
+import { mergeStatus } from './intelligence.js';
 import {
   VISITOR_LIVENESS_ONLINE_MS,
   VISITOR_LIVENESS_OFFLINE_MS,
-} from '../widget/visitorLiveness';
+} from '../widget/visitorLiveness.js';
 
 const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 

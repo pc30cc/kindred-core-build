@@ -381,6 +381,11 @@ app.use('/api/seo', seoRouter);
 // Billing Engine V2 rollout control — Platform Admin only (authorized in-router).
 app.use('/api/admin/billing-v2', adminBillingV2Router);
 
+// Unified billing — super-admin finance panel (currencies, gateways, tax,
+// coupons, metered items, global invoices/payments/customers).
+app.use('/api/admin/billing', adminBillingRouter);
+
+
 // Plans & Feature Gating
 app.use('/api/plans', plansRouter);
 

@@ -1,12 +1,15 @@
 /**
- * Phase 4 — Alerting & anomaly detection.
+ * Alerting & anomaly detection.
  *
  * Pure engine + webhook dispatcher. Rule evaluation itself happens in
- * Postgres via the SECURITY DEFINER function `evaluate_alert_rules()` so
- * counts/ratios are computed atomically against `realtime_metric_events`.
+ * TypeScript (alertEvaluator.ts's evaluateAlertRulesInMemory()) against the
+ * bounded Live Monitoring collector — no Postgres SELECT on any raw
+ * telemetry table. alert_rules and alert_events remain normal Postgres
+ * tables; only the evaluation data source changed from raw rows to the
+ * in-memory collector's query methods.
  *
  * This module:
- *   1. Triggers the SQL evaluator (idempotent; safe to run repeatedly).
+ *   1. Triggers the evaluator (idempotent; safe to run repeatedly).
  *   2. Reads alert_events with `webhook_status = 'pending'` and dispatches
  *      to the optional webhook configured in widget_platform_settings.
  *   3. Emits structured `alert.fired` / `alert.resolved` logs via emitLog.

@@ -1,16 +1,17 @@
 /**
- * Phase 6B — Per-provider health evaluator for the realtime failover engine.
+ * Per-provider health evaluator for the realtime failover engine.
  *
  * Scores each candidate provider as 'healthy' | 'degraded' | 'unhealthy' over
  * the configured `realtime_failover_health_window_seconds` window using
- * signals already available to the platform:
+ * signals read from the bounded Live Monitoring collector (no Postgres
+ * SELECT on any raw telemetry table):
  *
  *   • centrifugo
  *       - direct CentrifugoDriver.health() probe (down → unhealthy)
- *       - error rate from realtime_metric_events (subscribe_failed,
- *         token_refresh_failed) over the window
- *       - p95 latency from perf_request_samples on the realtime route
- *         groups (operator_connect, subscribe)
+ *       - error rate from realtime.subscribe_failed / token_refresh_failed
+ *         counters over the window
+ *       - p95 latency from the collector's perf aggregates on the realtime
+ *         route groups (operator_connect, subscribe)
  *
  *   • supabase_realtime
  *       - we don't run a server-side probe today, so we rely solely on
@@ -25,9 +26,8 @@
  * Hard rules:
  *   • Never throws. On any error, returns 'unknown' for that provider
  *     (treated as healthy by the engine to fail-open).
- *   • Read-only. Does not mutate any tables.
- *   • Bounded query sizes (limit 5_000) — the metric tables already keep
- *     a short retention by the rollup ticker.
+ *   • Read-only. Does not mutate any tables. The collector's own bounded
+ *     ring buffers age out old data for free — no separate retention job.
  */
 
 import type { ServerConfig } from '../../config.js';

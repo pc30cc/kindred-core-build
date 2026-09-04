@@ -102,6 +102,15 @@ export interface BillingOverview {
   aiMonthlyOnAnnual: boolean;
   wallet: { balanceIrr: number; frozen: boolean; autoPayEnabled: boolean };
   upcomingInvoice: InvoiceSummary | null;
+  upcomingInvoiceAlert: {
+    remindersSent: number;
+    remindersTotal: number;
+    stage: 0 | 1 | 2 | 3;
+    pastDue: boolean;
+    suspendAt: string | null;
+    daysToSuspend: number | null;
+  } | null;
+
 }
 
 export interface InvoiceDetail {

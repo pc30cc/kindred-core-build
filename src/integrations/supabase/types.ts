@@ -8350,6 +8350,27 @@ export type Database = {
           },
         ]
       }
+      operator_presence_live: {
+        Row: {
+          last_seen_at: string
+          updated_at: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          last_seen_at?: string
+          updated_at?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          last_seen_at?: string
+          updated_at?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
       phone_verification_challenges: {
         Row: {
           attempt_count: number

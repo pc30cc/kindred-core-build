@@ -3,9 +3,19 @@
  *
  * Self-hosted Express only (no edge functions).
  *
+ * Two separate concerns share one heartbeat request:
+ *   1. LIVE PRESENCE (`operator_presence_live`) — refreshed on EVERY beat,
+ *      one row per (workspace, user), UPSERT, no history. This is the sole
+ *      source of truth for "is this operator connected right now" (see
+ *      server/services/widget/operatorPresence.ts).
+ *   2. ANALYTICS (`operator_activity_samples`) — 5-minute buckets, used only
+ *      for online-time reporting. NEVER read as a liveness signal.
+ *
  * How online time is measured:
- *   The operator panel heartbeats while the tab is open and visible. Each
- *   heartbeat maps to a FIVE-MINUTE bucket in `operator_activity_samples`
+ *   The operator panel heartbeats every 2 minutes while the tab is open and
+ *   visible (tab hidden => no beat => operator goes offline within the
+ *   liveness window; that is the product's "available when using the app"
+ *   semantics). Each heartbeat maps to a FIVE-MINUTE bucket in `operator_activity_samples`
  *   keyed by (workspace, user, bucket), storing whether the operator was
  *   *available* at that moment (derived from `user_availability_prefs`,
  *   the same logic the widget uses).
@@ -34,7 +44,10 @@ import {
   authorizeWorkspaceAccess,
   serverConfigOf,
 } from '../lib/workspaceAuth.js';
-import { computeOperatorState } from '../services/widget/operatorPresence.js';
+import {
+  computeOperatorState,
+  recordOperatorPresenceBeat,
+} from '../services/widget/operatorPresence.js';
 
 export const operatorActivityRouter = Router();
 
@@ -83,12 +96,18 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
     const config = serverConfigOf(req);
     const sb = getServiceClient(config);
 
-    const bucket = floorToBucket(new Date());
+    const now = new Date();
+    const bucket = floorToBucket(now);
     const memoKey = `${workspaceId}:${auth.userId}`;
 
-    // Already recorded this bucket in this process → no database write at all.
-    // Presence itself is served by visitor/operator presence, not by this row,
-    // so skipping the write cannot change anyone's online state.
+    // LIVE PRESENCE — always refreshed, on every beat. Single-row UPSERT in
+    // `operator_presence_live` (no history growth). This, not the analytics
+    // sample below, is what listWorkspacePresence() reads for liveness.
+    await recordOperatorPresenceBeat(config, workspaceId, auth.userId, now);
+
+    // ANALYTICS — already recorded this bucket in this process, so no sample
+    // write at all. Safe: live presence was just refreshed above, so skipping
+    // the analytics row cannot change anyone's online state.
     if (lastWrittenBucket.get(memoKey) === bucket) {
       return res.json({ ok: true, state: 'skipped', bucket });
     }
@@ -100,7 +119,7 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
       .is('workspace_id', null)
       .maybeSingle();
 
-    const { state } = computeOperatorState(prefs as any, new Date());
+    const { state } = computeOperatorState(prefs as any, now);
 
     const { error } = await sb
       .from('operator_activity_samples')

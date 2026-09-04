@@ -17,8 +17,11 @@ import FinanceReport from '@/components/admin/FinanceReport';
 
 function formatPrice(amount: number, currency: string, locale: string): string {
   const normalizedLocale = locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US';
-  return new Intl.NumberFormat(normalizedLocale, { style: 'currency', currency }).format(currency === 'IRR' ? amount : amount / 100);
+  // IRR is stored but Toman is what people read; other currencies keep minor units.
+  if (currency === 'IRR') return formatToman(amount, normalizedLocale);
+  return new Intl.NumberFormat(normalizedLocale, { style: 'currency', currency }).format(amount / 100);
 }
+
 
 export default function AdminBillingPage() {
   const { t, locale } = useTranslation();

@@ -102,6 +102,93 @@
     };
   }
 
+  // ─── Canonical widget session manager ──────────────────────────────
+  // The bus above is only a value holder. THIS is the single owner of
+  // session recovery for one page/widget instance:
+  //
+  //   bus.refresh()  — single-flight POST /api/widget/session/refresh
+  //   bus.recover()  — single-flight: refresh once, and if that cannot
+  //                    succeed, re-bootstrap (bounded by a cooldown) so a
+  //                    token expired beyond the server's grace window is
+  //                    replaced without a page reload. The HttpOnly `dvsid`
+  //                    visitor cookie is sent (credentials: 'include'), so
+  //                    re-bootstrap keeps the SAME visitor identity.
+  //
+  // Both the loader heartbeat and the runtime TokenManager delegate here,
+  // so two layers can never run two competing refresh engines: concurrent
+  // callers await the exact same promise and every consumer converges on
+  // the same token through the bus.
+  (function installSessionManager(bus) {
+    if (!bus || bus.__canonicalSession) return;
+    bus.__canonicalSession = true;
+
+    var cfg = { apiBase: '', workspaceId: '' };
+    var refreshing = null;
+    var recovering = null;
+    var lastBootstrapAt = 0;
+    var BOOTSTRAP_COOLDOWN_MS = 15000;
+
+    bus.configure = function (next) {
+      if (!next) return;
+      if (next.apiBase) cfg.apiBase = next.apiBase;
+      if (next.workspaceId) cfg.workspaceId = next.workspaceId;
+      if (next.token) bus.set(next.token);
+    };
+    bus.config = function () { return { apiBase: cfg.apiBase, workspaceId: cfg.workspaceId }; };
+
+    function adopt(data) {
+      if (!data || !data.session_token) return null;
+      try { bus.set(data.session_token); } catch (_) {}
+      try { if (data.effective_policy) window.__gs_policy = data.effective_policy; } catch (_) {}
+      return data.session_token;
+    }
+
+    function clearRefresh(v) { refreshing = null; return v; }
+
+    bus.refresh = function () {
+      if (refreshing) return refreshing;
+      var token = bus.get();
+      if (!cfg.apiBase || !token) return Promise.resolve(null);
+      refreshing = fetch(cfg.apiBase + '/api/widget/session/refresh', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': token },
+        body: JSON.stringify({ workspace_id: cfg.workspaceId || undefined }),
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(adopt)
+        .catch(function () { return null; })
+        .then(clearRefresh, function () { return clearRefresh(null); });
+      return refreshing;
+    };
+
+    bus.bootstrap = function () {
+      if (!cfg.apiBase || !cfg.workspaceId) return Promise.resolve(null);
+      var now = Date.now();
+      if (now - lastBootstrapAt < BOOTSTRAP_COOLDOWN_MS) return Promise.resolve(null);
+      lastBootstrapAt = now;
+      return fetch(cfg.apiBase + '/api/widget/bootstrap', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: cfg.workspaceId, origin: window.location.origin }),
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(adopt)
+        .catch(function () { return null; });
+    };
+
+    bus.recover = function () {
+      if (recovering) return recovering;
+      recovering = bus.refresh()
+        .then(function (t) { return t || bus.bootstrap(); })
+        .catch(function () { return null; })
+        .then(function (t) { recovering = null; return t; }, function () { recovering = null; return null; });
+      return recovering;
+    };
+  })(window.__gs_token);
+
+
   function processQueue() {
     while (queue.length) {
       var cmd = queue.shift();
@@ -667,8 +754,17 @@
             availabilityOnline = data.availability.state === 'online';
           }
         } catch (_) {}
-        // Publish to shared bus so runtime + realtime driver use the same token.
-        try { window.__gs_token.set(sessionToken); } catch (_) {}
+        // Publish to shared bus so runtime + realtime driver use the same token,
+        // and give the canonical session manager everything it needs to run
+        // refresh / bounded re-bootstrap on behalf of every layer.
+        try {
+          if (window.__gs_token.configure) {
+            window.__gs_token.configure({ apiBase: apiBase, workspaceId: WORKSPACE_ID, token: sessionToken });
+          } else {
+            window.__gs_token.set(sessionToken);
+          }
+        } catch (_) {}
+
         // Phase 6C — stash the effective realtime policy snapshot from
         // bootstrap so the runtime can honor degraded/force_polling/typing
         // suppression / reconnect backoff multiplier without a separate
@@ -1798,14 +1894,21 @@
         return t ? t.slice(0, 300) : null;
       } catch (_) { return null; }
     }
-    // ─── Token state (mutable: refreshed when server returns 401/403) ───
-    // The widget session token has a short TTL (15 min). Without periodic
-    // refresh the heartbeat loop would emit 403/TOKEN_EXPIRED forever, which
-    // upstream proxies (nginx/Coolify) eventually return as 504 *without*
-    // CORS headers — surfacing as a confusing CORS error in the browser.
-    // Read from the shared bus on every send so a refresh by the runtime
-    // tokenManager (or vice-versa) is picked up immediately. Falls back
-    // to the bootstrap token if the bus is somehow not yet initialized.
+    // ─── Token state (owned by the canonical session manager) ─────────
+    // The widget session token has a short TTL (15 min). The loader NEVER
+    // runs its own refresh engine any more — it asks the canonical session
+    // manager on the shared bus, which is single-flight, so a loader
+    // heartbeat recovery and a runtime proactive refresh that happen at the
+    // same moment produce exactly ONE network request and one new token
+    // that both layers adopt.
+    try {
+      if (window.__gs_token && window.__gs_token.configure) {
+        window.__gs_token.configure({ apiBase: apiBase, workspaceId: workspaceId, token: token });
+      } else if (window.__gs_token && token) {
+        window.__gs_token.set(token);
+      }
+    } catch (_) {}
+
     function tokenNow() {
       try {
         var t = window.__gs_token && window.__gs_token.get();
@@ -1813,63 +1916,16 @@
       } catch (_) { return token; }
     }
     var heartbeatTimer = null;
-    var refreshing = null; // Promise<string|null> while a refresh is in flight
     var consecutiveFailures = 0;
     var STOPPED = false;
 
-    function bootstrapSession() {
-      return fetch(apiBase + "/api/widget/bootstrap", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workspace_id: workspaceId, origin: window.location.origin }),
-      })
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (data) {
-          if (data && data.session_token) {
-            try { window.__gs_token.set(data.session_token); } catch (_) {}
-            try {
-              if (data.effective_policy) window.__gs_policy = data.effective_policy;
-            } catch (_) {}
-            return data.session_token;
-          }
-          return null;
-        })
-        .catch(function () { return null; });
-    }
-
-    function refreshToken() {
-      if (refreshing) return refreshing;
-      var t = tokenNow();
-      refreshing = fetch(apiBase + "/api/widget/session/refresh", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json", "X-Widget-Token": t },
-      })
-        .then(function (r) {
-          if (!r.ok) return null;
-          return r.json();
-        })
-        .then(function (data) {
-          if (data && data.session_token) {
-            try { window.__gs_token.set(data.session_token); } catch (_) {}
-            try {
-              if (data.effective_policy) window.__gs_policy = data.effective_policy;
-            } catch (_) {}
-            return data.session_token;
-          }
-          return null;
-        })
-        .catch(function () { return null; })
-        .then(function (tok) { refreshing = null; return tok; });
-      return refreshing;
-    }
-
     function recoverToken() {
-      return refreshToken().then(function (tok) {
-        return tok || bootstrapSession();
-      });
+      try {
+        if (window.__gs_token && window.__gs_token.recover) return window.__gs_token.recover();
+      } catch (_) {}
+      return Promise.resolve(null);
     }
+
 
     fetch(apiBase + "/api/widget/track", {
       method: "POST",

@@ -302,14 +302,18 @@ export function enforceOrigin(req: Request, res: Response, next: NextFunction) {
     return res.status(403).json({ error: 'Origin required', code: 'MISSING_ORIGIN' });
   }
 
-  if (requestOrigin) {
-    res.header('Access-Control-Allow-Origin', requestOrigin);
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Vary', 'Origin');
-  }
+  // NOTE: this middleware deliberately does NOT write CORS headers. All
+  // Access-Control-* headers for widget routes are owned by exactly one
+  // place — widgetCorsMiddleware (server/middleware/widgetCors.ts) — which
+  // verifies the origin against the workspace allow-list before echoing it.
+  // Writing them here as well used to overwrite that decision with an
+  // unconditional echo (a fail-open widening) and, on the refresh path,
+  // produced a partial contract (ACAO without Allow-Credentials) that the
+  // browser rejects. Do not re-add header writes to this function.
 
   next();
 }
+
 
 // ─── Middleware: Rate limiting ───
 export function widgetRateLimit(category: string = 'default') {
@@ -336,31 +340,13 @@ export function widgetRateLimit(category: string = 'default') {
   };
 }
 
-// ─── Dynamic CORS middleware ───
-export function widgetSecurityCors(req: Request, res: Response, next: NextFunction) {
-  const origin = getRequestOrigin(req);
+// ─── Dynamic CORS middleware — REMOVED ───
+// There is exactly one widget CORS implementation:
+//   server/middleware/widgetCors.ts → widgetCorsMiddleware() / applyWidgetCorsHeaders()
+// The previous `widgetSecurityCors` here echoed ANY origin unconditionally.
+// It was unused, but keeping a second, weaker implementation around invites
+// a future mount that silently disables the allow-list. Do not re-add one.
 
-  if (req.method === 'OPTIONS') {
-    if (origin) {
-      res.header('Access-Control-Allow-Origin', origin);
-      res.header('Access-Control-Allow-Credentials', 'true');
-      res.header('Vary', 'Origin');
-    }
-    res.header('Access-Control-Allow-Headers', 'Content-Type, x-widget-token');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
-    res.header('Access-Control-Max-Age', '3600');
-    return res.sendStatus(204);
-  }
-
-  // Set CORS headers for actual requests too (so cookie is honored)
-  if (origin) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Vary', 'Origin');
-  }
-
-  next();
-}
 
 // ─── Workspace resolution ───
 export function resolveWorkspaceId(req: Request, res: Response, candidateWorkspaceId?: string): string | null {

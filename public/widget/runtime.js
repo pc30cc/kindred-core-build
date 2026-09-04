@@ -199,30 +199,71 @@
     }
 
     /**
+     * The canonical session manager installed by the loader on the shared
+     * token bus (window.__gs_token). When present it OWNS the network side
+     * of refresh/recovery for the whole page, so the runtime never opens a
+     * second, competing refresh engine. Absent (runtime loaded standalone,
+     * or unit tests) we fall back to a local single-flight fetch.
+     */
+    function sessionBus() {
+      try {
+        var b = (typeof window !== 'undefined') ? window.__gs_token : null;
+        return (b && b.__canonicalSession) ? b : null;
+      } catch (_) { return null; }
+    }
+
+    /** One network refresh attempt → resolves with the new token. */
+    function performRefresh() {
+      var bus = sessionBus();
+      if (bus && bus.refresh) {
+        return bus.refresh().then(function (t) {
+          if (!t) throw new Error('refresh_failed');
+          return t;
+        });
+      }
+      if (!token || !apiBase) return Promise.reject(new Error('no_token_or_api'));
+      return fetch(apiBase + '/api/widget/session/refresh', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': token },
+      })
+        .then(function (r) {
+          if (!r.ok) throw new Error('refresh_http_' + r.status);
+          return r.json();
+        })
+        .then(function (data) {
+          if (!data || !data.session_token) throw new Error('refresh_no_token');
+          return data.session_token;
+        });
+    }
+
+    /**
+     * Bounded last-resort recovery: ask the canonical session manager to
+     * re-establish the session (refresh, else re-bootstrap with the HttpOnly
+     * visitor cookie so the visitor identity is preserved). Used instead of
+     * permanently disabling the manager after repeated refresh failures —
+     * a visitor must never be stuck until a full page reload.
+     */
+    function recoverSession() {
+      var bus = sessionBus();
+      if (!bus || !bus.recover) return Promise.resolve(null);
+      return bus.recover().then(function (t) {
+        if (!t) return null;
+        adopt(t);
+        return t;
+      }, function () { return null; });
+    }
+
+    /**
      * Refresh the session token. Single-flight: concurrent calls await the
      * same in-flight promise. Returns the new token (or rejects).
      */
     function refresh() {
       if (disabled) return Promise.reject(new Error('token_refresh_disabled'));
       if (inflight) return inflight;
-      if (!token || !apiBase) return Promise.reject(new Error('no_token_or_api'));
-      inflight = fetch(apiBase + '/api/widget/session/refresh', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': token },
-      })
-        .then(function (r) {
-          if (r.status === 401 || r.status === 403) {
-            // Hard fail — token cannot be refreshed. Disable manager.
-            disabled = true;
-            throw new Error('refresh_unauthorized_' + r.status);
-          }
-          if (!r.ok) throw new Error('refresh_http_' + r.status);
-          return r.json();
-        })
-        .then(function (data) {
-          if (!data || !data.session_token) throw new Error('refresh_no_token');
-          token = data.session_token;
+      inflight = performRefresh()
+        .then(function (newToken) {
+          token = newToken;
           consecutiveFailures = 0;
           Util.log('[token] refreshed');
           notify();
@@ -232,19 +273,43 @@
         .catch(function (err) {
           consecutiveFailures += 1;
           if (consecutiveFailures >= maxFailures) {
-            disabled = true;
-            Util.warn('[token] refresh disabled after', consecutiveFailures, 'failures');
-          } else {
-            // Back off and retry later for transient failures.
-            if (refreshTimer) clearTimeout(refreshTimer);
-            refreshTimer = setTimeout(function () { refresh().catch(function () {}); },
-              Math.min(60_000, 5_000 * Math.pow(2, consecutiveFailures - 1)));
+            // Do NOT go permanently dark. Hand over to the canonical
+            // recovery path exactly once; only if that also fails do we
+            // pause the proactive timer (a later wake/realtime auth event
+            // revives it).
+            return recoverSession().then(function (t) {
+              if (t) {
+                consecutiveFailures = 0;
+                return t;
+              }
+              disabled = true;
+              Util.warn('[token] refresh paused after', consecutiveFailures, 'failures');
+              throw err;
+            });
           }
+          // Back off and retry later for transient failures.
+          if (refreshTimer) clearTimeout(refreshTimer);
+          refreshTimer = setTimeout(function () { refresh().catch(function () {}); },
+            Math.min(60_000, 5_000 * Math.pow(2, consecutiveFailures - 1)));
           throw err;
         })
         .then(function (t) { inflight = null; return t; }, function (e) { inflight = null; throw e; });
       return inflight;
     }
+
+    /**
+     * Public recovery entry point used by the realtime driver and the wake
+     * handler: refresh if possible, otherwise a bounded re-bootstrap.
+     * Always resolves (never rejects) with the current token or null.
+     */
+    function recover() {
+      if (disabled) {
+        disabled = false;
+        consecutiveFailures = 0;
+      }
+      return refresh().then(function (t) { return t; }, function () { return recoverSession(); });
+    }
+
 
     /**
      * Fetch wrapper that injects the current token and retries ONCE on
@@ -266,19 +331,27 @@
         return fetch(url, next);
       }
       return doFetch(token).then(function (r) {
-        if ((r.status !== 401 && r.status !== 403) || disabled) return r;
+        if (r.status !== 401 && r.status !== 403) return r;
         // Try to detect token-related failure codes before refreshing.
         // Some 403s (origin/workspace mismatch) cannot be recovered by refresh.
+        // `recover()` (not `refresh()`) is used so a token expired beyond the
+        // server's grace window re-bootstraps instead of stranding the caller.
+        function retryAfterRecovery() {
+          return recover().then(function (newT) {
+            return newT ? doFetch(newT) : r;
+          }, function () { return r; });
+        }
         return r.clone().json().then(function (body) {
           var code = body && body.code;
           var refreshable = code === 'TOKEN_EXPIRED' || code === 'INVALID_TOKEN' || code === 'MISSING_TOKEN' || !code;
           if (!refreshable) return r;
-          return refresh().then(function (newT) { return doFetch(newT); }, function () { return r; });
+          return retryAfterRecovery();
         }, function () {
           // Body wasn't JSON — best-effort retry once.
-          return refresh().then(function (newT) { return doFetch(newT); }, function () { return r; });
+          return retryAfterRecovery();
         });
       });
+
     }
 
     function destroy() {
@@ -299,8 +372,9 @@
       consecutiveFailures = 0;
       if (newToken) token = newToken;
       scheduleProactiveRefresh();
-      // Best-effort: try a refresh now to confirm we're back online.
-      refresh().catch(function () { /* swallowed — caller decides next steps */ });
+      // Best-effort: canonical recovery now (refresh, else bounded
+      // re-bootstrap) to confirm we're back online.
+      recover().catch(function () { /* swallowed — caller decides next steps */ });
     }
 
     // Kick off proactive timer immediately.
@@ -311,11 +385,13 @@
       get: get,
       onChange: onChange,
       refresh: refresh,
+      recover: recover,
       fetchWith: fetchWith,
       destroy: destroy,
       revive: revive,
       isDisabled: function () { return disabled; },
     };
+
   }
 
   // ════════════════════════════════════════════════════════════════════
@@ -4434,6 +4510,10 @@
     ctx.fetchWith = tokenMgr.fetchWith;
     ctx.getToken = tokenMgr.get;
     ctx.tokenManager = tokenMgr;
+    // Canonical session recovery entry point for every other layer
+    // (realtime driver, wake handler). Single-flight all the way down to
+    // the shared session manager on window.__gs_token.
+    ctx.recoverSession = function () { return tokenMgr.recover(); };
 
     // ─── Authenticated media loader (shared: chatUI's inline attachments +
     // this closure's lightbox both need it) ───────────────────────────

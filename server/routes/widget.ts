@@ -458,11 +458,14 @@ widgetRouter.post('/session/refresh', widgetRateLimit('refresh'), perfHttpMiddle
     const newToken = createSessionToken(workspaceId, tokenOrigin || requestOrigin, { sessionNonce: tokenData.nonce });
     const newResult = verifySessionToken(newToken);
 
-    if (requestOrigin) {
-      res.header('Access-Control-Allow-Origin', requestOrigin);
-    }
-
+    // CORS headers are NOT written here. widgetCorsMiddleware already
+    // resolved this request's workspace from the (refresh-grace-verified)
+    // token and wrote the full credentialed contract when the origin is
+    // authorized. Writing a lone Access-Control-Allow-Origin here produced
+    // a response without Allow-Credentials, which the browser rejects —
+    // the exact production "blocked by CORS policy on a 200 OK" symptom.
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+
 
     // Phase 6C — refresh handshake also returns the latest effective policy
     // snapshot so a long-lived widget tab picks up failover/lock/degraded

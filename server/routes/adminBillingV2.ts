@@ -26,6 +26,11 @@ import {
 import { compareShadow } from '../services/billing/shadow.js';
 import { readSchedulerHealth } from '../services/billing/scheduler/index.js';
 import { getBillingV2SchedulerStatus } from '../services/billing/scheduler/ticker.js';
+import {
+  readDunningMetrics,
+  readDunningPolicy,
+  updateDunningPolicy,
+} from '../services/billing/dunning/index.js';
 import { buildWorkspaceBillingReadModel } from '../services/billing/readModel.js';
 import { getServiceClient } from '../supabase.js';
 
@@ -45,6 +50,61 @@ adminBillingV2Router.get('/scheduler/health', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
     res.json({ ...(await readSchedulerHealth(cfg(req))), ticker: getBillingV2SchedulerStatus() });
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// ─── Phase E: dunning observability and platform policy ────────────────────
+// Read-only. Reporting the state of dunning must never advance it.
+adminBillingV2Router.get('/dunning/metrics', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  try {
+    res.json(await readDunningMetrics(cfg(req)));
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+adminBillingV2Router.get('/dunning/policy', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  try {
+    res.json({ policy: await readDunningPolicy(cfg(req)) });
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+/**
+ * Grace length and the fallback plan are platform policy: they are writable
+ * HERE and nowhere else, never per workspace and never from a customer route.
+ */
+const dunningPolicySchema = z
+  .object({
+    reminder_days_before_due: z.array(z.number().int().min(0).max(60)).max(6).optional(),
+    grace_period_days: z.number().int().min(0).max(30).optional(),
+    fallback_plan_id: z.string().uuid().nullable().optional(),
+    send_invoice_issued_email: z.boolean().optional(),
+    send_invoice_issued_sms: z.boolean().optional(),
+    notify_on_due: z.boolean().optional(),
+    notify_on_past_due: z.boolean().optional(),
+    notify_on_fallback: z.boolean().optional(),
+    notification_max_attempts: z.number().int().min(1).max(20).optional(),
+    notification_retry_seconds: z.number().int().min(60).max(86_400).optional(),
+    notification_max_per_hour: z.number().int().min(1).max(500).optional(),
+  })
+  .strict();
+
+adminBillingV2Router.put('/dunning/policy', async (req, res) => {
+  const adminId = await requirePlatformAdmin(req, res);
+  if (!adminId) return;
+  const parsed = dunningPolicySchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_request' });
+  if (Object.keys(parsed.data).length === 0) {
+    return res.status(400).json({ error: 'empty_patch' });
+  }
+  try {
+    res.json({ policy: await updateDunningPolicy(cfg(req), parsed.data, adminId) });
   } catch (e: any) {
     res.status(500).json({ error: String(e?.message || e) });
   }

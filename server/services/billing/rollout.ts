@@ -82,6 +82,13 @@ export const V2_METRICS = {
   billing_v2_invoice_scheduler_failures: 0,
   billing_v2_wallet_autopay_failures: 0,
   billing_v2_period_activation_failures: 0,
+  // Phase E — dunning, grace and notification counters.
+  billing_v2_dunning_failures: 0,
+  billing_v2_invoices_past_due: 0,
+  billing_v2_grace_expiry_failures: 0,
+  billing_v2_free_fallbacks: 0,
+  billing_v2_notifications_sent: 0,
+  billing_v2_notification_failures: 0,
 };
 export type V2MetricName = keyof typeof V2_METRICS;
 

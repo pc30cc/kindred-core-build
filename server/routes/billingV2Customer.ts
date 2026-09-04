@@ -376,11 +376,18 @@ billingV2CustomerRouter.get('/workspaces/:workspaceId/plans', async (req, res) =
         .maybeSingle(),
     ]);
 
+    // Hidden plans (e.g. trial) are admin-only; the customer only ever sees
+    // them when they are the plan they are currently subscribed to.
+    const currentPlanId = (sub as any)?.plan_id ?? null;
+    const visiblePlans = (plans || []).filter(
+      (p: any) => p.is_hidden !== true || p.id === currentPlanId,
+    );
+
     res.json({
-      currentPlanId: (sub as any)?.plan_id ?? null,
+      currentPlanId,
       currentInterval: (sub as any)?.billing_interval ?? null,
       pendingPlanId: (sub as any)?.next_plan_id ?? null,
-      plans: (plans || []).map((p: any) => ({
+      plans: visiblePlans.map((p: any) => ({
         id: p.id,
         name: p.name,
         description: p.description ?? null,

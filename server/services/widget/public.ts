@@ -5,12 +5,37 @@ import { extractHostname, isOriginAllowed, normalizeDomain } from '../../utils/d
 
 const CACHE_TTL = 60_000;
 
+/**
+ * These two caches are keyed by request-derived values (hostname / origin),
+ * so without a bound they grow with the number of DISTINCT hosts a caller
+ * sends — including hosts an attacker can invent. Entries were only ever
+ * checked for freshness on read, never evicted, which made this a steady
+ * heap-growth source. Both are now hard-capped with a TTL sweep, then
+ * oldest-first eviction (Map preserves insertion order).
+ */
+const CACHE_MAX_ENTRIES = 1000;
+
 const workspaceByHostCache = new Map<string, { workspaceId: string | null; ts: number }>();
 const originRulesCache = new Map<string, { domains: string[]; allowSubdomains: boolean; ts: number }>();
+
+function boundCache(cache: Map<string, { ts: number }>): void {
+  if (cache.size <= CACHE_MAX_ENTRIES) return;
+  const now = Date.now();
+  for (const [key, value] of cache) {
+    if (now - value.ts >= CACHE_TTL) cache.delete(key);
+  }
+  let excess = cache.size - CACHE_MAX_ENTRIES;
+  if (excess <= 0) return;
+  for (const key of cache.keys()) {
+    if (excess-- <= 0) break;
+    cache.delete(key);
+  }
+}
 
 function isFresh(ts: number) {
   return Date.now() - ts < CACHE_TTL;
 }
+
 
 function uniqueStrings(values: Array<string | null | undefined>) {
   return Array.from(new Set(values.filter((value): value is string => !!value && value.trim().length > 0)));

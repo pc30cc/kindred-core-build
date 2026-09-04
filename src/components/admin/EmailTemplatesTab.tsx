@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/lib/toast';
-import { Save, Trash2, Eye, Code, Mail, Shield, Bell, CreditCard, Copy } from 'lucide-react';
+import { Save, Trash2, Eye, Code, Mail, Shield, Bell, CreditCard, Copy, Receipt } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 
 async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {

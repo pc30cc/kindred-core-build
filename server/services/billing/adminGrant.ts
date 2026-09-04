@@ -87,5 +87,9 @@ export async function adminGrantPlanV2(
     .eq('workspace_id', input.workspaceId)
     .maybeSingle();
 
+  if (!updated || (updated as any).plan_id !== input.planId || (updated as any).current_period_id !== (period as any).id) {
+    throw new Error('subscription_projection_not_updated');
+  }
+
   return updated;
 }

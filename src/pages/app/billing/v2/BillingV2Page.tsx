@@ -22,14 +22,13 @@ import {
 } from '@/components/ui/select';
 import { SkeletonStats, SkeletonCard } from '@/components/common/Skeletons';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { LayoutGrid, Receipt, Gauge, Wallet, Sparkles, ArrowLeftRight, ArrowUpCircle, type LucideIcon } from 'lucide-react';
+import { LayoutGrid, Receipt, Gauge, Wallet, Sparkles, ArrowLeftRight } from 'lucide-react';
 
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
 import { billingV2Overview, billingV2CancelPlanChange, type BillingOverview } from '@/lib/billingV2Api';
 import { billingVerifyCallback } from '@/lib/api';
-import { ErrorState, errorMessage, money, billingDate } from './shared';
+import { ErrorState, errorMessage } from './shared';
 
 import OverviewTab from './OverviewTab';
 import InvoicesTab from './InvoicesTab';
@@ -205,6 +204,7 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
             onPayInvoice={setInvoiceId}
             onCancelPendingChange={cancelPendingChange}
             canceling={canceling}
+            onGoTo={setTab}
           />
         </TabsContent>
 
@@ -252,29 +252,6 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
         onClose={() => setInvoiceId(null)}
         onPaid={refreshAll}
       />
-    </div>
-  );
-}
-
-/** One headline number with an icon — presentation only, no math. */
-function SummaryStat({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border bg-background p-3.5 shadow-sm transition-shadow hover:shadow-md">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-        <Icon className="h-5 w-5" />
-      </span>
-      <div className="min-w-0">
-        <p className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-        <p className="truncate text-base font-bold tabular-nums">{value}</p>
-      </div>
     </div>
   );
 }

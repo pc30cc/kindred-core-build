@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/lib/toast';
-import { Save, Trash2, Eye, Code, Mail, Shield, Bell, CreditCard, Copy } from 'lucide-react';
+import { Save, Trash2, Eye, Code, Mail, Shield, Bell, CreditCard, Copy, Receipt } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 
 async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -39,7 +39,11 @@ const CATEGORIES = [
   { key: 'auth', icon: Shield, slugs: ['email_verify', 'password_reset', 'magic_link', 'welcome'] },
   { key: 'transactional', icon: CreditCard, slugs: ['invite_member', 'invite_otp', 'payment_success', 'payment_failed', 'subscription_renewed', 'subscription_cancelled'] },
   { key: 'notification', icon: Bell, slugs: ['new_conversation', 'task_assigned', 'account_expiry', 'system_alert'] },
+  { key: 'billing', icon: Receipt, slugs: ['invoice_issued', 'invoice_reminder', 'invoice_due', 'invoice_past_due', 'wallet_autopay_insufficient', 'payment_received', 'subscription_restored', 'subscription_free_fallback'] },
 ] as const;
+
+// Every billing notification renders with the same server-provided context.
+const BILLING_VARIABLES = ['{brand}', '{year}', '{invoice_number}', '{amount}', '{due_at}', '{grace_ends_at}', '{plan_name}', '{action_url}'];
 
 const SLUG_VARIABLES: Record<string, string[]> = {
   email_verify: ['{name}', '{brand}', '{action_url}', '{expiry_time}'],
@@ -56,6 +60,14 @@ const SLUG_VARIABLES: Record<string, string[]> = {
   task_assigned: ['{name}', '{brand}', '{task}', '{assigner}', '{action_url}'],
   account_expiry: ['{name}', '{brand}', '{days_left}', '{plan}', '{action_url}'],
   system_alert: ['{brand}', '{title}', '{message}', '{severity}'],
+  invoice_issued: BILLING_VARIABLES,
+  invoice_reminder: BILLING_VARIABLES,
+  invoice_due: BILLING_VARIABLES,
+  invoice_past_due: BILLING_VARIABLES,
+  wallet_autopay_insufficient: BILLING_VARIABLES,
+  payment_received: BILLING_VARIABLES,
+  subscription_restored: BILLING_VARIABLES,
+  subscription_free_fallback: BILLING_VARIABLES,
 };
 
 const LOCALES = [

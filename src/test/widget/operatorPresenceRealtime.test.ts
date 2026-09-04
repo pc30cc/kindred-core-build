@@ -59,7 +59,16 @@ function makeQuery(table: string) {
       if (table === 'operator_presence_live') presenceWrites++;
       return { data: null, error: null };
     },
-    delete: () => q,
+    delete: () => {
+      const dq: any = {
+        eq: (c: string, v: any) => {
+          db[table] = (db[table] || []).filter((r) => r[c] !== v);
+          return Promise.resolve({ data: null, error: null });
+        },
+        then: (resolve: any) => resolve({ data: null, error: null }),
+      };
+      return dq;
+    },
   };
   return q;
 }
@@ -113,7 +122,7 @@ const at = (min: number) => new Date(T0 + min * 60_000);
 /** Mirrors POST /api/operator-activity/heartbeat. */
 const lastBucket = new Map<string, string>();
 async function heartbeat(when: Date) {
-  if (await shouldWriteFallbackPresence(cfg, when.getTime())) {
+  if (await shouldWriteFallbackPresence(cfg, when.getTime(), WS)) {
     await recordOperatorPresenceBeat(cfg, WS, USER, when);
   }
   const bucket = floorToBucket(when);
@@ -144,6 +153,7 @@ function reset() {
   db.user_availability_prefs = [];
   db.operator_activity_samples = [];
   db.operator_presence_live = [];
+  db.operator_presence_fallback_state = [];
 }
 
 describe('operator presence — realtime-first', () => {
@@ -224,28 +234,62 @@ describe('operator presence — realtime-first', () => {
     expect(anyOnline).toBe(true);
   });
 
-  it('G — Centrifugo failure switches to the DB lease, recovery stops the writes', async () => {
-    // Operator had a lease row from before (fallback semantics).
-    await recordOperatorPresenceBeat(cfg, WS, USER, at(0));
-    presenceWrites = 0;
+  it('G — failure with an EMPTY/stale lease table: no false-offline before the first fallback beat', async () => {
+    // 30 minutes of healthy Centrifugo, zero live-presence writes, so the
+    // lease table has NO row at all for this operator.
+    for (let m = 0; m <= 30; m += 2) {
+      await heartbeat(at(m));
+      resetPresenceSourceCache();
+      const [p] = await listWorkspacePresence(cfg, WS, at(m));
+      expect(p.state).toBe('online');
+    }
+    expect(presenceWrites).toBe(0);
+    expect(db.operator_presence_live.length).toBe(0);
 
-    state.members = null; // presence unreadable, no warm snapshot
+    // Presence API goes unreadable at t=31. Operator is still connected.
+    state.members = null;
     resetPresenceSourceCache();
-    const snap = await getConnectedOperators(cfg, WS, [USER], at(1));
-    expect(snap.mode).toBe('database');
-    expect(snap.connected.has(USER)).toBe(true); // grace window, not dropped
-    // Heartbeats now refresh the lease again.
-    expect(await shouldWriteFallbackPresence(cfg, at(1).getTime())).toBe(true);
-    await heartbeat(at(2));
-    expect(presenceWrites).toBeGreaterThan(0);
 
-    // Centrifugo recovers ⇒ DB live-presence writes stop.
+    // Every 10 seconds until the next heartbeat lands (~2 min later) the
+    // operator must stay online for presence, routing and the widget.
+    for (let s10 = 0; s10 <= 12; s10++) {
+      const t = at(31 + s10 / 6);
+      resetPresenceSourceCache(); // worst case: cold instance, no local snapshot
+      const [p] = await listWorkspacePresence(cfg, WS, t);
+      expect(p.state, `t=${t.toISOString()}`).toBe('online');
+      expect(p.reason).not.toBe('not_connected');
+      const { anyOnline } = await anyOperatorOnline(cfg, WS, t);
+      expect(anyOnline).toBe(true);
+    }
+
+    // The breaker is shared + scoped, so the next heartbeat writes the lease.
+    expect(await shouldWriteFallbackPresence(cfg, at(33).getTime(), WS)).toBe(true);
+    await heartbeat(at(33));
+    expect(presenceWrites).toBe(1);
+
+    // Lease is now authoritative: still online well past the roster handoff.
+    const [after] = await listWorkspacePresence(cfg, WS, at(35));
+    expect(after.state).toBe('online');
+
+    // Recovery ⇒ realtime again ⇒ writes stop.
     state.members = new Set([USER]);
     resetPresenceSourceCache();
-    expect(await shouldWriteFallbackPresence(cfg, at(10).getTime())).toBe(false);
+    const [rec] = await listWorkspacePresence(cfg, WS, at(36));
+    expect(rec.state).toBe('online');
+    expect(await shouldWriteFallbackPresence(cfg, at(36).getTime(), WS)).toBe(false);
     const before = presenceWrites;
-    await heartbeat(at(12));
+    await heartbeat(at(38));
     expect(presenceWrites).toBe(before);
+  });
+
+  it('G2 — a workspace-scoped read failure does not force other workspaces into write mode', async () => {
+    state.members = null;
+    resetPresenceSourceCache();
+    await getConnectedOperators(cfg, WS, [USER], at(0));
+    expect(await shouldWriteFallbackPresence(cfg, at(0.1).getTime(), WS)).toBe(true);
+    expect(await shouldWriteFallbackPresence(cfg, at(0.1).getTime(), 'ws-other')).toBe(false);
+    const scopes = db.operator_presence_fallback_state.map((r: any) => r.scope);
+    expect(scopes).toEqual([WS]);
   });
 
   it('H — Supabase/polling providers keep using the DB fallback', async () => {
@@ -260,6 +304,48 @@ describe('operator presence — realtime-first', () => {
     // And it still expires on the DB liveness window.
     const later = await listWorkspacePresence(cfg, WS, new Date(at(0).getTime() + PRESENCE_LIVENESS_MS + 1000));
     expect(later[0].state).toBe('offline');
+  });
+
+  it('K — two instances share the fallback decision and the recovery', async () => {
+    // Instance A and instance B are two fresh module registries over the SAME
+    // database — i.e. two logical servers.
+    vi.resetModules();
+    const A = await import('../../../server/services/widget/operatorPresenceSource');
+    vi.resetModules();
+    const B = await import('../../../server/services/widget/operatorPresenceSource');
+    A.resetPresenceSourceCache();
+    B.resetPresenceSourceCache();
+
+    // Healthy: neither instance writes.
+    expect(await A.shouldWriteFallbackPresence(cfg, at(0).getTime(), WS)).toBe(false);
+    expect(await B.shouldWriteFallbackPresence(cfg, at(0).getTime(), WS)).toBe(false);
+
+    // A sees the presence read fail and trips the shared breaker.
+    state.members = null;
+    A.resetPresenceSourceCache();
+    const snapA = await A.getConnectedOperators(cfg, WS, [USER], at(1));
+    expect(snapA.mode).toBe('database');
+    expect(snapA.connected.has(USER)).toBe(true);
+    expect(db.operator_presence_fallback_state.length).toBe(1);
+
+    // B still believes Centrifugo is fine (its own mode cache is warm), but
+    // the heartbeat that lands on B must refresh the lease anyway.
+    expect(await B.shouldWriteFallbackPresence(cfg, at(1.2).getTime(), WS)).toBe(true);
+    await B.getConnectedOperators(cfg, WS, [USER], at(1.2));
+    presenceWrites = 0;
+    await heartbeat(at(2));
+    expect(presenceWrites).toBe(1);
+
+    // Recovery observed by B ⇒ shared entry removed ⇒ A also stops writing
+    // within the shared-state cache TTL.
+    state.members = new Set([USER]);
+    B.resetPresenceSourceCache();
+    const snapB = await B.getConnectedOperators(cfg, WS, [USER], at(3));
+    expect(snapB.mode).toBe('realtime');
+    expect(db.operator_presence_fallback_state.length).toBe(0);
+    expect(await B.shouldWriteFallbackPresence(cfg, at(3).getTime(), WS)).toBe(false);
+    // A: bounded by the 5s shared-state cache, so probe just past it.
+    expect(await A.shouldWriteFallbackPresence(cfg, at(3).getTime() + 6_000, WS)).toBe(false);
   });
 
   it('I — presence channel is workspace-scoped and operator-only', () => {

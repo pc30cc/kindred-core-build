@@ -3876,6 +3876,7 @@ export type Database = {
         Row: {
           amount_due_irr: number
           amount_paid_irr: number
+          billing_engine_version: string
           billing_interval: string | null
           created_at: string
           currency: string
@@ -3906,6 +3907,7 @@ export type Database = {
         Insert: {
           amount_due_irr?: number
           amount_paid_irr?: number
+          billing_engine_version?: string
           billing_interval?: string | null
           created_at?: string
           currency?: string
@@ -3936,6 +3938,7 @@ export type Database = {
         Update: {
           amount_due_irr?: number
           amount_paid_irr?: number
+          billing_engine_version?: string
           billing_interval?: string | null
           created_at?: string
           currency?: string
@@ -4061,6 +4064,7 @@ export type Database = {
           action_type: string | null
           amount_irr: number
           attempt_count: number
+          billing_engine_version: string
           billing_interval: string | null
           created_at: string
           discount_irr: number
@@ -4091,6 +4095,7 @@ export type Database = {
           action_type?: string | null
           amount_irr: number
           attempt_count?: number
+          billing_engine_version?: string
           billing_interval?: string | null
           created_at?: string
           discount_irr?: number
@@ -4121,6 +4126,7 @@ export type Database = {
           action_type?: string | null
           amount_irr?: number
           attempt_count?: number
+          billing_engine_version?: string
           billing_interval?: string | null
           created_at?: string
           discount_irr?: number
@@ -4431,6 +4437,7 @@ export type Database = {
         Row: {
           activated_at: string | null
           ai_allowance_irr: number
+          billing_engine_version: string
           billing_interval: string
           completed_at: string | null
           created_at: string
@@ -4449,6 +4456,7 @@ export type Database = {
         Insert: {
           activated_at?: string | null
           ai_allowance_irr?: number
+          billing_engine_version?: string
           billing_interval?: string
           completed_at?: string | null
           created_at?: string
@@ -4467,6 +4475,7 @@ export type Database = {
         Update: {
           activated_at?: string | null
           ai_allowance_irr?: number
+          billing_engine_version?: string
           billing_interval?: string
           completed_at?: string | null
           created_at?: string
@@ -4520,6 +4529,91 @@ export type Database = {
           },
         ]
       }
+      billing_v2_audit: {
+        Row: {
+          actor_id: string | null
+          created_at: string
+          details: Json
+          event: string
+          id: string
+          reason: string | null
+          workspace_id: string | null
+        }
+        Insert: {
+          actor_id?: string | null
+          created_at?: string
+          details?: Json
+          event: string
+          id?: string
+          reason?: string | null
+          workspace_id?: string | null
+        }
+        Update: {
+          actor_id?: string | null
+          created_at?: string
+          details?: Json
+          event?: string
+          id?: string
+          reason?: string | null
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_v2_audit_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_v2_rollout: {
+        Row: {
+          activated_at: string | null
+          activated_by: string | null
+          created_at: string
+          cutover_pending_at: string | null
+          last_blockers: Json
+          region: string | null
+          shadow_enabled_at: string | null
+          state: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          activated_at?: string | null
+          activated_by?: string | null
+          created_at?: string
+          cutover_pending_at?: string | null
+          last_blockers?: Json
+          region?: string | null
+          shadow_enabled_at?: string | null
+          state?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          activated_at?: string | null
+          activated_by?: string | null
+          created_at?: string
+          cutover_pending_at?: string | null
+          last_blockers?: Json
+          region?: string | null
+          shadow_enabled_at?: string | null
+          state?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_v2_rollout_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       billing_wallet_accounts: {
         Row: {
           auto_pay_enabled: boolean | null
@@ -4564,6 +4658,7 @@ export type Database = {
       billing_wallet_deposits: {
         Row: {
           amount_irr: number
+          billing_engine_version: string
           created_at: string
           currency: string
           document_number: string
@@ -4578,6 +4673,7 @@ export type Database = {
         }
         Insert: {
           amount_irr: number
+          billing_engine_version?: string
           created_at?: string
           currency?: string
           document_number: string
@@ -4592,6 +4688,7 @@ export type Database = {
         }
         Update: {
           amount_irr?: number
+          billing_engine_version?: string
           created_at?: string
           currency?: string
           document_number?: string
@@ -13766,6 +13863,25 @@ export type Database = {
         }
         Returns: Json
       }
+      billing_v2_activate: {
+        Args: { p_actor_id?: string; p_reason?: string; p_workspace_id: string }
+        Returns: Json
+      }
+      billing_v2_evaluate_cutover: {
+        Args: { p_workspace_id: string }
+        Returns: Json
+      }
+      billing_v2_set_state: {
+        Args: {
+          p_actor_id?: string
+          p_break_glass?: boolean
+          p_reason?: string
+          p_state: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      billing_v2_state: { Args: { p_workspace_id: string }; Returns: string }
       billing_wallet_admin_adjust: {
         Args: {
           p_actor_id?: string

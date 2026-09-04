@@ -17,6 +17,7 @@
  * monthly.
  */
 import { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -41,13 +42,11 @@ export default function PlansTab({
   canManage,
   reloadKey,
   onChanged,
-  onOpenInvoice,
 }: {
   workspaceId: string;
   canManage: boolean;
   reloadKey: number;
   onChanged: () => void;
-  onOpenInvoice: (invoiceId: string) => void;
 }) {
   const { t, locale } = useTranslation();
   const [data, setData] = useState<PlansView | null>(null);
@@ -59,6 +58,8 @@ export default function PlansTab({
   const [mode, setMode] = useState<PlanChangeMode | null>(null);
   const [preview, setPreview] = useState<PlanChangePreview | null>(null);
   const [busy, setBusy] = useState(false);
+  const navigate = useNavigate();
+  const { slug } = useParams<{ slug: string }>();
 
   const load = () => {
     setLoading(true);
@@ -114,7 +115,7 @@ export default function PlansTab({
       onChanged();
       if (res.invoiceId) {
         toast.success(t('billingV2.plans.invoiceCreated', { number: res.invoiceNumber || '' }));
-        onOpenInvoice(res.invoiceId);
+        navigate(`/${slug}/billing/pay/invoice/${res.invoiceId}`);
       } else {
         toast.success(t('billingV2.plans.scheduled'));
       }

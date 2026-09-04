@@ -218,7 +218,6 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
             canManage={canManage}
             reloadKey={reloadKey}
             onChanged={refreshAll}
-            onOpenInvoice={setInvoiceId}
           />
         </TabsContent>
 
@@ -236,7 +235,6 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
             workspaceId={workspaceId}
             canManage={canManage}
             overview={overview}
-            onOpenInvoice={setInvoiceId}
             onChanged={refreshAll}
           />
         </TabsContent>

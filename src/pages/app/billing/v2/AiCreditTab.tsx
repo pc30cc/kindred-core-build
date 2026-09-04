@@ -29,14 +29,12 @@ export default function AiCreditTab({
   workspaceId,
   canManage,
   overview,
-  onOpenInvoice,
   onChanged,
 }: {
   workspaceId: string;
   canManage: boolean;
   /** Cycle + purchased credit already come from the overview read-model. */
   overview: BillingOverview;
-  onOpenInvoice: (invoiceId: string) => void;
   onChanged: () => void;
 }) {
   const { t, locale } = useTranslation();

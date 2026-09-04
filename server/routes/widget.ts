@@ -85,6 +85,8 @@ import {
 import { extractHostname, isOriginAllowed } from '../utils/domain.js';
 import { resolveAvailability, snapshotToWirePayload } from '../services/widget/availability.js';
 import { sendEmail } from '../services/email/index.js';
+import { resolveWorkspaceAppUrl } from '../services/auth-email.js';
+
 import { enrichVisitorSessionGeo } from '../services/geo/index.js';
 import { getClientCountry, hashIp } from '../utils/clientIp.js';
 import { checkTypingAllowed } from '../services/widget/typingRateLimit.js';

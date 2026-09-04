@@ -11506,6 +11506,7 @@ export type Database = {
           fab_help_label: string | null
           fab_icon: string | null
           fab_icon_color: string | null
+          fab_image_url: string | null
           fab_label: string | null
           fab_scale: number | null
           fab_shape: string | null
@@ -11565,6 +11566,7 @@ export type Database = {
           fab_help_label?: string | null
           fab_icon?: string | null
           fab_icon_color?: string | null
+          fab_image_url?: string | null
           fab_label?: string | null
           fab_scale?: number | null
           fab_shape?: string | null
@@ -11624,6 +11626,7 @@ export type Database = {
           fab_help_label?: string | null
           fab_icon?: string | null
           fab_icon_color?: string | null
+          fab_image_url?: string | null
           fab_label?: string | null
           fab_scale?: number | null
           fab_shape?: string | null

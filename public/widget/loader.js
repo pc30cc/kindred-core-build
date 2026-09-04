@@ -165,11 +165,21 @@
   var SHELL_CSS = [
     ":host{all:initial;contain:layout style;}",
     "*,*::before,*::after{box-sizing:border-box;}",
-    ".shell{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1F2937;}",
-    ".launcher{position:fixed;z-index:2147483646;display:flex;align-items:center;justify-content:center;",
+    /* ── Shared corner anchor ──
+       The shell is a ZERO-SIZE fixed box pinned to the configured corner.
+       BOTH the launcher and the panel are absolutely positioned children of
+       it, anchored to the SAME corner (bottom + right, or bottom + left), so
+       the panel grows out of exactly where the FAB sits instead of jumping. */
+    ".shell{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1F2937;",
+    "position:fixed;z-index:2147483646;width:0;height:0;}",
+    ".shell.pos-bottom-right{bottom:24px;right:24px;left:auto;top:auto;}",
+    ".shell.pos-bottom-left{bottom:24px;left:24px;right:auto;top:auto;}",
+    "@media(max-width:440px){.shell.pos-bottom-right{bottom:12px;right:12px;}",
+    ".shell.pos-bottom-left{bottom:12px;left:12px;}}",
+    ".launcher{position:absolute;bottom:0;z-index:2;display:flex;align-items:center;justify-content:center;",
     "width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:50%;border:none;cursor:pointer;",
     "box-shadow:0 3px 12px -4px var(--gs-shadow,rgba(0,0,0,.16)),0 0 0 1px rgba(0,0,0,.03);",
-    "transition:transform .34s cubic-bezier(.22,1,.36,1),box-shadow .2s ease,opacity .24s ease;",
+    "transition:transform .38s cubic-bezier(.4,0,.2,1),box-shadow .2s ease,opacity .28s ease;",
     "background:var(--gs-primary,transparent);color:#fff;font-family:inherit;",
     "opacity:1;}",
     /* Hidden state — keeps the launcher invisible and non-interactive until
@@ -179,8 +189,8 @@
     ".launcher.revealed{opacity:1;pointer-events:auto;visibility:visible;}",
     ".launcher:hover{transform:scale(1.08);box-shadow:0 5px 16px -4px var(--gs-shadow,rgba(0,0,0,.22));}",
     ".launcher:active{transform:scale(.96);}",
-    ".launcher.bottom-right{bottom:24px;right:24px;}",
-    ".launcher.bottom-left{bottom:24px;left:24px;}",
+    ".launcher.bottom-right{right:0;left:auto;}",
+    ".launcher.bottom-left{left:0;right:auto;}",
     ".launcher.square{border-radius:16px;}",
     ".launcher.pulse{animation:gs-fab-pulse 2s ease-in-out infinite;}",
     "@keyframes gs-fab-pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.07);}}",
@@ -196,7 +206,7 @@
        Opening the panel drops the FAB out of view (down + shrink) and
        closing brings it back, so the panel visually grows out of the very
        corner the button occupied. */
-    ".launcher.open,.launcher.open:hover{transform:translateY(calc(100% + 24px)) scale(.5);",
+    ".launcher.open,.launcher.open:hover{transform:translateY(90px);",
     "opacity:0;pointer-events:none;animation:none;}",
 
     ".gs-fab-label{position:fixed;z-index:2147483645;display:inline-flex;align-items:center;",
@@ -317,7 +327,7 @@
     shadowRoot.appendChild(style);
 
     var shellDiv = document.createElement("div");
-    shellDiv.className = "shell";
+    shellDiv.className = "shell pos-bottom-right";
     shellContentEl = shellDiv;
     // Do NOT set a brand color here — that would cause a blue-flash before
     // the workspace's real color arrives via /config. The launcher itself
@@ -483,6 +493,11 @@
     }
 
     var posClass = config.position === "bottom-left" ? "bottom-left" : "bottom-right";
+    // Keep the shared anchor on the SAME corner as the launcher/panel pair.
+    if (shellDiv) {
+      shellDiv.classList.toggle("pos-bottom-left", posClass === "bottom-left");
+      shellDiv.classList.toggle("pos-bottom-right", posClass !== "bottom-left");
+    }
     if (launcherEl) {
       // Set position + reveal in one paint so the user never sees a wrong
       // color first. The CSS transitions opacity so it fades in cleanly.

@@ -31,6 +31,7 @@ import { widgetTextDefault, widgetTextValue } from '@/lib/widgetLocaleDefaults';
 import { SmartRulesTab } from '@/components/app/widget/smart/SmartRulesTab';
 import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
 import { SkeletonForm, Skeleton } from '@/components/common/Skeletons';
+import { storageUpload } from '@/lib/api';
 
 /** Widget behaviour switch → plan capability key. Mirrors the server map in
  *  `server/services/widget/entitlements.ts` (that file is the authority). */

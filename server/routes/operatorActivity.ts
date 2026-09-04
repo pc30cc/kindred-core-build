@@ -206,18 +206,27 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
 
     const rows = (members || []).map((m: any) => {
       const mine = samples.filter((s) => s.user_id === m.user_id);
-      const onlineMinutes = mine.filter((s) => s.available).length;
-      const presentMinutes = mine.length;
-      const dayKeys = new Set(mine.map((s) => s.bucket.slice(0, 10)));
+      // Each stored row represents one 5-minute bucket. Legacy per-minute rows
+      // are collapsed onto their bucket so a minute is never counted twice.
+      const presentBuckets = new Set<string>();
+      const onlineBuckets = new Set<string>();
+      for (const s of mine) {
+        const b = floorToBucket(s.bucket);
+        presentBuckets.add(b);
+        if (s.available) onlineBuckets.add(b);
+      }
+      const onlineMinutes = onlineBuckets.size * BUCKET_MINUTES;
+      const presentMinutes = presentBuckets.size * BUCKET_MINUTES;
+      const dayKeys = new Set(Array.from(presentBuckets).map((b) => b.slice(0, 10)));
       const lastSeen = mine.length ? mine[mine.length - 1].bucket : null;
 
       // per-day online minutes (chart series)
       const daily: Record<string, number> = {};
-      for (const s of mine) {
-        if (!s.available) continue;
-        const k = s.bucket.slice(0, 10);
-        daily[k] = (daily[k] || 0) + 1;
+      for (const b of onlineBuckets) {
+        const k = b.slice(0, 10);
+        daily[k] = (daily[k] || 0) + BUCKET_MINUTES;
       }
+
 
       const assigned = (convs || []).filter((c: any) => c.assigned_to === m.user_id);
       const resolved = assigned.filter((c: any) => c.status === 'resolved' || c.status === 'closed').length;

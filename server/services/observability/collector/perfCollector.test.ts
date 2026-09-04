@@ -82,6 +82,39 @@ describe('PerfCollector', () => {
     expect(c.queryErrorRate('never.instrumented', 300)).toEqual({ rate: 0, sample: 0 });
   });
 
+  it('queryPercentile/queryErrorRate read the 24h hour ring once the window exceeds the 1h minute-ring capacity (alert window semantics fix)', () => {
+    const c = new PerfCollector();
+    for (let i = 0; i < 10; i++) {
+      c.record({ routeGroup: 'realtime.operator_connect', method: 'POST', statusCode: i < 2 ? 500 : 200, durationMs: 100 });
+    }
+    vi.advanceTimersByTime(90 * 60_000); // 90 minutes later — the minute ring has wrapped/aged out
+    // A 1h window genuinely sees nothing any more (minute ring correctly empty).
+    expect(c.queryErrorRate('realtime.operator_connect', 3600)).toEqual({ rate: 0, sample: 0 });
+    // A 2h window must NOT silently stay pinned to the minute ring's ~1h
+    // view — it has to read the hour ring and find the samples.
+    expect(c.queryErrorRate('realtime.operator_connect', 7200)).toEqual({ rate: 0.2, sample: 10 });
+  });
+
+  it('rounds a hour-ring window up to whole hours rather than silently truncating to 1h (documented approximation)', () => {
+    const c = new PerfCollector();
+    c.record({ routeGroup: 'realtime.subscribe', method: 'POST', statusCode: 200, durationMs: 20 });
+    vi.advanceTimersByTime(61 * 60_000); // just past the minute ring's capacity
+    // 3601s rounds UP to 2 whole hour-ring slots, not a precise "~1h+1s"
+    // lookback — proving the approximation is intentional and tested, not
+    // a silent truncation.
+    const pct = c.queryPercentile('realtime.subscribe', 50, 3601);
+    expect(pct.sample).toBe(1);
+  });
+
+  it('clamps a window beyond the intended 24h perf retention to the full hour ring instead of erroring', () => {
+    const c = new PerfCollector();
+    c.record({ routeGroup: 'widget.action', method: 'PUT', statusCode: 200, durationMs: 10 });
+    vi.advanceTimersByTime(2 * 60 * 60_000);
+    const sevenDaysSeconds = 7 * 24 * 60 * 60; // far beyond the 24h perf hour ring
+    const pct = c.queryPercentile('widget.action', 50, sevenDaysSeconds);
+    expect(pct.sample).toBe(1);
+  });
+
   it('queryP95ForRouteGroups merges histograms across multiple route groups (failoverHealth use case)', () => {
     const c = new PerfCollector();
     c.record({ routeGroup: 'realtime.operator_connect', method: 'POST', statusCode: 200, durationMs: 50 });

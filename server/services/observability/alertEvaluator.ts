@@ -126,7 +126,10 @@ async function evaluateCombinedRule(
   const subrules = Array.isArray(rule.subrules) ? rule.subrules : [];
   let value = 0;
   if (subrules.length > 0) {
-    const { data } = await sb.from('alert_events').select('rule_slug').eq('state', 'open').in('rule_slug', subrules);
+    const { data, error } = await sb.from('alert_events').select('rule_slug').eq('state', 'open').in('rule_slug', subrules);
+    if (error) {
+      throw new Error(`alertEvaluator: failed to read open subrule alert_events for combined rule "${rule.slug}": ${error.message}`);
+    }
     value = new Set((data || []).map((row: any) => row.rule_slug)).size;
   }
   // combined has no min_sample gate in the original SQL — always classifies.
@@ -134,24 +137,37 @@ async function evaluateCombinedRule(
   return { severity, threshold, value, sample: subrules.length };
 }
 
+/**
+ * Every persistence/read op below explicitly checks the returned Supabase
+ * `error` and throws rather than silently proceeding — a failed read must
+ * never be treated as "no open alert" (which would insert a duplicate open
+ * alert on top of one Postgres already has), and a failed write must never
+ * be counted as a successful state transition. Throwing here propagates up
+ * through evaluateAlertRulesInMemory -> runAlertCycle's existing catch
+ * (alerting.ts), which logs `alert_evaluator_threw` and leaves alert state
+ * untouched for this tick — the next 60s tick retries from a clean slate.
+ */
 async function applyRuleResult(
   sb: ReturnType<typeof getServiceClient>,
   rule: AlertRuleRow,
   result: RuleEvalResult,
   now: Date,
 ): Promise<boolean> {
-  const { data: openRows } = await sb
+  const { data: openRows, error: openReadError } = await sb
     .from('alert_events')
     .select('id, severity')
     .eq('rule_id', rule.id)
     .eq('state', 'open')
     .order('fired_at', { ascending: false })
     .limit(1);
+  if (openReadError) {
+    throw new Error(`alertEvaluator: failed to read open alert_events for rule "${rule.slug}": ${openReadError.message}`);
+  }
   const open: OpenAlertEventRow | null = openRows && openRows.length > 0 ? (openRows[0] as OpenAlertEventRow) : null;
 
   if (result.severity !== null) {
     if (!open) {
-      await sb.from('alert_events').insert({
+      const { error: insertError } = await sb.from('alert_events').insert({
         rule_id: rule.id,
         rule_slug: rule.slug,
         severity: result.severity,
@@ -171,10 +187,13 @@ async function applyRuleResult(
         },
         webhook_status: 'pending',
       });
+      if (insertError) {
+        throw new Error(`alertEvaluator: failed to open alert for rule "${rule.slug}": ${insertError.message}`);
+      }
       return true;
     }
     if (open.severity !== result.severity) {
-      await sb
+      const { error: severityError } = await sb
         .from('alert_events')
         .update({
           severity: result.severity,
@@ -184,14 +203,23 @@ async function applyRuleResult(
           webhook_status: 'pending',
         })
         .eq('id', open.id);
+      if (severityError) {
+        throw new Error(`alertEvaluator: failed to change severity for rule "${rule.slug}" (alert ${open.id}): ${severityError.message}`);
+      }
       return true;
     }
-    await sb.from('alert_events').update({ metric_value: result.value, sample_size: result.sample }).eq('id', open.id);
+    const { error: touchError } = await sb
+      .from('alert_events')
+      .update({ metric_value: result.value, sample_size: result.sample })
+      .eq('id', open.id);
+    if (touchError) {
+      throw new Error(`alertEvaluator: failed to update open alert for rule "${rule.slug}" (alert ${open.id}): ${touchError.message}`);
+    }
     return false;
   }
 
   if (open) {
-    await sb
+    const { error: resolveError } = await sb
       .from('alert_events')
       .update({
         state: 'resolved',
@@ -202,6 +230,9 @@ async function applyRuleResult(
         webhook_status: 'pending',
       })
       .eq('id', open.id);
+    if (resolveError) {
+      throw new Error(`alertEvaluator: failed to resolve alert for rule "${rule.slug}" (alert ${open.id}): ${resolveError.message}`);
+    }
     return true;
   }
   return false;
@@ -212,11 +243,17 @@ export async function evaluateAlertRulesInMemory(config: ServerConfig): Promise<
   const collector = getMonitoringCollector();
   const now = new Date();
 
-  const { data: settingsRow } = await sb
+  const { data: settingsRow, error: settingsError } = await sb
     .from('widget_platform_settings')
     .select('perf_memory_budget_mb')
     .limit(1)
     .maybeSingle();
+  // Not a state-affecting read (no alert open/resolve depends on it) — a
+  // failure here safely falls back to the default budget rather than
+  // aborting the whole cycle, but must not pass silently either.
+  if (settingsError) {
+    console.error('[alertEvaluator] failed to read perf_memory_budget_mb, using default budget:', settingsError.message);
+  }
   const budgetBytes = (Number((settingsRow as any)?.perf_memory_budget_mb) || 512) * 1024 * 1024;
 
   const { data: rules, error: rulesError } = await sb.from('alert_rules').select('*').eq('enabled', true);
@@ -225,7 +262,17 @@ export async function evaluateAlertRulesInMemory(config: ServerConfig): Promise<
   let evaluated = 0;
   let stateChanges = 0;
 
-  for (const rule of (rules || []) as AlertRuleRow[]) {
+  // Two-phase evaluation: base/ordinary rules always run (and persist their
+  // alert_events writes) before any combined rule, regardless of the DB
+  // row order alert_rules happens to return. Combined rules inspect
+  // *persisted* open child alerts, so evaluating one before its children
+  // have been written this tick would read last tick's stale state instead
+  // of the current one. Splitting into two ordered passes makes the result
+  // independent of row order without needing a dependency graph.
+  const allRules = (rules || []) as AlertRuleRow[];
+  const orderedRules = [...allRules.filter((r) => r.kind !== 'combined'), ...allRules.filter((r) => r.kind === 'combined')];
+
+  for (const rule of orderedRules) {
     evaluated += 1;
     const result = rule.kind === 'combined' ? await evaluateCombinedRule(sb, rule) : evaluateSyncRule(rule, collector, budgetBytes);
     const changed = await applyRuleResult(sb, rule, result, now);

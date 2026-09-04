@@ -10,6 +10,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { getMonitoringCollector, __resetMonitoringCollectorForTests } from './collector/index.js';
 
+type ForceError = 'rulesRead' | 'openRead' | 'combinedRead' | 'insert' | 'update' | 'settingsRead' | undefined;
+
 interface FakeState {
   rules: any[];
   openEventsByRule: Record<string, Array<{ id: string; severity: string }>>;
@@ -17,22 +19,39 @@ interface FakeState {
   updated: Array<{ id: string; patch: any }>;
   combinedOpenSlugs: string[];
   budgetMb?: number;
+  /** Fix 3 regression support: makes the next matching call return an error once, then clears itself. */
+  forceError?: ForceError;
+  nextEventId?: number;
 }
 
 function makeFakeSb(state: FakeState) {
   const from = (name: string) => {
     const f: Record<string, any> = {};
     let limitN: number | null = null;
-    const resolve = (): { data: any; error: null } => {
-      if (name === 'alert_rules') return { data: state.rules, error: null };
+    const resolve = (): { data: any; error: any } => {
+      if (name === 'alert_rules') {
+        if (state.forceError === 'rulesRead') {
+          state.forceError = undefined;
+          return { data: null, error: { message: 'boom-rulesRead' } };
+        }
+        return { data: state.rules, error: null };
+      }
       if (name === 'alert_events') {
         if (f.rule_id !== undefined) {
           // applyRuleResult's "current open row for this rule" lookup.
+          if (state.forceError === 'openRead') {
+            state.forceError = undefined;
+            return { data: null, error: { message: 'boom-openRead' } };
+          }
           const rows = state.openEventsByRule[f.rule_id] || [];
           return { data: limitN != null ? rows.slice(0, limitN) : rows, error: null };
         }
         if (Array.isArray(f.rule_slug)) {
           // evaluateCombinedRule's open-subrule lookup.
+          if (state.forceError === 'combinedRead') {
+            state.forceError = undefined;
+            return { data: null, error: { message: 'boom-combinedRead' } };
+          }
           const matched = state.combinedOpenSlugs.filter((s) => f.rule_slug.includes(s)).map((rule_slug) => ({ rule_slug }));
           return { data: matched, error: null };
         }
@@ -56,17 +75,51 @@ function makeFakeSb(state: FakeState) {
       },
       maybeSingle: async () => {
         if (name === 'widget_platform_settings') {
+          if (state.forceError === 'settingsRead') {
+            state.forceError = undefined;
+            return { data: null, error: { message: 'boom-settingsRead' } };
+          }
           return { data: { perf_memory_budget_mb: state.budgetMb ?? 512 }, error: null };
         }
         return { data: null, error: null };
       },
       insert: async (payload: any) => {
+        if (state.forceError === 'insert') {
+          state.forceError = undefined;
+          return { error: { message: 'boom-insert' } };
+        }
         state.inserted.push(payload);
+        // Live-mutate so a rule evaluated later in the SAME tick (e.g. a
+        // combined rule reading its subrules' open state) observes this
+        // write — needed for the Fix 4 determinism regression test.
+        state.nextEventId = (state.nextEventId || 0) + 1;
+        const id = `evt-auto-${state.nextEventId}`;
+        if (!state.openEventsByRule[payload.rule_id]) state.openEventsByRule[payload.rule_id] = [];
+        state.openEventsByRule[payload.rule_id].unshift({ id, severity: payload.severity });
+        if (payload.state === 'open' && !state.combinedOpenSlugs.includes(payload.rule_slug)) {
+          state.combinedOpenSlugs.push(payload.rule_slug);
+        }
         return { error: null };
       },
       update: (payload: any) => ({
         eq: async (_c: string, v: any) => {
+          if (state.forceError === 'update') {
+            state.forceError = undefined;
+            return { error: { message: 'boom-update' } };
+          }
           state.updated.push({ id: v, patch: payload });
+          // Mirror the write into the live-read state (see insert() above).
+          for (const [ruleId, rows] of Object.entries(state.openEventsByRule)) {
+            const row = rows.find((r) => r.id === v);
+            if (!row) continue;
+            if (payload.state === 'resolved') {
+              state.openEventsByRule[ruleId] = rows.filter((r) => r.id !== v);
+              const rule = state.rules.find((r) => r.id === ruleId);
+              if (rule) state.combinedOpenSlugs = state.combinedOpenSlugs.filter((s) => s !== rule.slug);
+            } else if (payload.severity) {
+              row.severity = payload.severity;
+            }
+          }
           return { error: null };
         },
       }),
@@ -292,5 +345,128 @@ describe('alertEvaluator — lifecycle edge cases', () => {
     const { evaluateAlertRulesInMemory } = await importEvaluator();
     const result = await evaluateAlertRulesInMemory({} as any);
     expect(result.evaluated).toBe(0);
+  });
+});
+
+describe('alertEvaluator — Supabase error handling (Fix 3)', () => {
+  it('a failed read of the current open alert_events row throws rather than proceeding as "no open alert"', async () => {
+    fakeState.openEventsByRule['r-count'] = [{ id: 'evt-1', severity: 'critical' }];
+    fakeState.forceError = 'openRead';
+    fakeState.rules = [rule({ id: 'r-count', kind: 'count', metric: 'realtime.subscribe_failed' })];
+
+    const { evaluateAlertRulesInMemory } = await importEvaluator();
+    await expect(evaluateAlertRulesInMemory({} as any)).rejects.toThrow(/boom-openRead/);
+
+    // Must not have interpreted the failed read as "no open row" and
+    // inserted a duplicate alert on top of the one that's actually open.
+    expect(fakeState.inserted).toHaveLength(0);
+    expect(fakeState.updated).toHaveLength(0);
+  });
+
+  it('a failed insert (opening a new alert) throws and is never counted as a state change', async () => {
+    const collector = getMonitoringCollector();
+    for (let i = 0; i < 12; i++) collector.recordRealtimeMetric({ metric: 'realtime.subscribe_failed' });
+    fakeState.forceError = 'insert';
+    fakeState.rules = [rule({ id: 'r-count', kind: 'count', metric: 'realtime.subscribe_failed', warn_threshold: 5, critical_threshold: 10 })];
+
+    const { evaluateAlertRulesInMemory } = await importEvaluator();
+    await expect(evaluateAlertRulesInMemory({} as any)).rejects.toThrow(/boom-insert/);
+    expect(fakeState.inserted).toHaveLength(0);
+  });
+
+  it('a failed update (severity change on an open alert) throws rather than silently keeping stale severity', async () => {
+    fakeState.openEventsByRule['r-count'] = [{ id: 'evt-1', severity: 'warn' }];
+    const collector = getMonitoringCollector();
+    for (let i = 0; i < 12; i++) collector.recordRealtimeMetric({ metric: 'realtime.subscribe_failed' });
+    fakeState.forceError = 'update';
+    fakeState.rules = [rule({ id: 'r-count', kind: 'count', metric: 'realtime.subscribe_failed', warn_threshold: 5, critical_threshold: 10 })];
+
+    const { evaluateAlertRulesInMemory } = await importEvaluator();
+    await expect(evaluateAlertRulesInMemory({} as any)).rejects.toThrow(/boom-update/);
+    expect(fakeState.updated).toHaveLength(0);
+  });
+
+  it('a failed resolve update throws rather than leaving the alert silently stuck open', async () => {
+    fakeState.openEventsByRule['r-count'] = [{ id: 'evt-1', severity: 'critical' }];
+    fakeState.forceError = 'update';
+    fakeState.rules = [rule({ id: 'r-count', kind: 'count', metric: 'realtime.subscribe_failed' })];
+
+    const { evaluateAlertRulesInMemory } = await importEvaluator();
+    await expect(evaluateAlertRulesInMemory({} as any)).rejects.toThrow(/boom-update/);
+    expect(fakeState.updated).toHaveLength(0);
+  });
+
+  it('a failed read of open subrule events for a combined rule throws rather than evaluating on an empty set', async () => {
+    fakeState.combinedOpenSlugs = ['sub-a'];
+    fakeState.forceError = 'combinedRead';
+    fakeState.rules = [rule({ id: 'r-combined', kind: 'combined', subrules: ['sub-a', 'sub-b'], warn_threshold: 1, critical_threshold: 2 })];
+
+    const { evaluateAlertRulesInMemory } = await importEvaluator();
+    await expect(evaluateAlertRulesInMemory({} as any)).rejects.toThrow(/boom-combinedRead/);
+    expect(fakeState.inserted).toHaveLength(0);
+  });
+});
+
+describe('alertEvaluator — deterministic combined-rule evaluation (Fix 4)', () => {
+  it('a combined rule fires in the SAME tick its child rule opens, even when the DB returns the combined rule before its children', async () => {
+    const collector = getMonitoringCollector();
+    for (let i = 0; i < 12; i++) collector.recordRealtimeMetric({ metric: 'realtime.subscribe_failed' });
+
+    const childRule = rule({
+      id: 'r-child',
+      slug: 'child-slug',
+      kind: 'count',
+      metric: 'realtime.subscribe_failed',
+      warn_threshold: 5,
+      critical_threshold: 10,
+    });
+    const comboRule = rule({
+      id: 'r-combo',
+      slug: 'combo-slug',
+      kind: 'combined',
+      subrules: ['child-slug'],
+      warn_threshold: 1,
+      critical_threshold: 1,
+    });
+    // Adversarial DB row order: the combined rule comes back BEFORE its
+    // child. Naive DB-order iteration would evaluate the combined rule
+    // first, see zero open subrules (the child hasn't opened yet this
+    // tick), and miss the correlated alert until the next cycle.
+    fakeState.rules = [comboRule, childRule];
+    fakeState.openEventsByRule = {};
+    fakeState.combinedOpenSlugs = [];
+
+    const { evaluateAlertRulesInMemory } = await importEvaluator();
+    const result = await evaluateAlertRulesInMemory({} as any);
+
+    expect(result.evaluated).toBe(2);
+    const childAlert = fakeState.inserted.find((i) => i.rule_id === 'r-child');
+    const comboAlert = fakeState.inserted.find((i) => i.rule_id === 'r-combo');
+    expect(childAlert).toMatchObject({ severity: 'critical' });
+    // The combined rule must see the child's alert as already open in this
+    // same tick, not one cycle later.
+    expect(comboAlert).toMatchObject({ severity: 'critical', metric_value: 1 });
+  });
+
+  it('a combined rule correctly resolves in the same tick its last open child resolves, regardless of row order', async () => {
+    fakeState.openEventsByRule = {
+      'r-child': [{ id: 'evt-child', severity: 'critical' }],
+      'r-combo': [{ id: 'evt-combo', severity: 'critical' }],
+    };
+    fakeState.combinedOpenSlugs = ['child-slug'];
+
+    const childRule = rule({ id: 'r-child', slug: 'child-slug', kind: 'count', metric: 'realtime.subscribe_failed', warn_threshold: 5, critical_threshold: 10 });
+    const comboRule = rule({ id: 'r-combo', slug: 'combo-slug', kind: 'combined', subrules: ['child-slug'], warn_threshold: 1, critical_threshold: 1 });
+    // Combined rule listed first again — no traffic recorded, so the child
+    // rule's count is 0 and it resolves this tick.
+    fakeState.rules = [comboRule, childRule];
+
+    const { evaluateAlertRulesInMemory } = await importEvaluator();
+    await evaluateAlertRulesInMemory({} as any);
+
+    const childResolve = fakeState.updated.find((u) => u.id === 'evt-child');
+    const comboResolve = fakeState.updated.find((u) => u.id === 'evt-combo');
+    expect(childResolve).toMatchObject({ patch: { state: 'resolved' } });
+    expect(comboResolve).toMatchObject({ patch: { state: 'resolved' } });
   });
 });

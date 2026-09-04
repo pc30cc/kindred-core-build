@@ -19,7 +19,7 @@ import {
   MAX_DRIVER_KEYS_PER_BUCKET,
   MAX_SOURCE_KEYS_PER_BUCKET,
 } from './constants.js';
-import { RealtimeBucket, makeRealtimeBucket, advanceRealtime, sumRealtimeWindow } from './ringBuffer.js';
+import { RealtimeBucket, RealtimeWindowAgg, makeRealtimeBucket, advanceRealtime, sumRealtimeWindow } from './ringBuffer.js';
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 3_600_000;
@@ -141,11 +141,34 @@ export class RealtimeCollector {
     return out;
   }
 
+  /**
+   * Picks the minute ring (exact, up to 1h) or the hour ring (up to the
+   * intended 7-day retention) depending on the requested window — the
+   * minute ring alone cannot represent anything past MINUTE_SLOTS (60)
+   * minutes, so a window bigger than that must read the hour ring instead
+   * of silently returning a truncated ~1h result. Only one ring is ever
+   * read per call — never both — so overlapping buckets are never double
+   * counted.
+   *
+   * Hour-ring windows are rounded UP to whole hours (e.g. a 5400s / 90min
+   * window reads 2 full hours, not 1.5) — this is a deliberate, tested
+   * approximation, not a silent truncation: `approximate` reports it.
+   */
+  private windowAgg(state: MetricState, windowSeconds: number): { agg: RealtimeWindowAgg; approximate: boolean } {
+    const now = Date.now();
+    const minuteRingCapacitySeconds = MINUTE_SLOTS * 60;
+    if (windowSeconds <= minuteRingCapacitySeconds) {
+      const windowSlots = Math.max(1, Math.ceil(windowSeconds / 60));
+      return { agg: sumRealtimeWindow(state.minuteRing, now, MINUTE_MS, windowSlots), approximate: false };
+    }
+    const windowHours = Math.min(HOURLY_SLOTS_REALTIME, Math.max(1, Math.ceil(windowSeconds / 3600)));
+    return { agg: sumRealtimeWindow(state.hourRing, now, HOUR_MS, windowHours), approximate: true };
+  }
+
   queryCount(metric: string, windowSeconds: number): number {
     const state = this.metrics.get(metric);
     if (!state) return 0;
-    const windowSlots = Math.max(1, Math.ceil(windowSeconds / 60));
-    return sumRealtimeWindow(state.minuteRing, Date.now(), MINUTE_MS, windowSlots).total;
+    return this.windowAgg(state, windowSeconds).agg.total;
   }
 
   queryRatio(numerator: string, denominator: string, windowSeconds: number): { num: number; den: number } {
@@ -155,9 +178,7 @@ export class RealtimeCollector {
   queryCountByDriver(metric: string, driver: string, windowSeconds: number): number {
     const state = this.metrics.get(metric);
     if (!state) return 0;
-    const windowSlots = Math.max(1, Math.ceil(windowSeconds / 60));
-    const agg = sumRealtimeWindow(state.minuteRing, Date.now(), MINUTE_MS, windowSlots);
-    return agg.byDriver[driver] || 0;
+    return this.windowAgg(state, windowSeconds).agg.byDriver[driver] || 0;
   }
 
   lastOccurrence(metric: string): number {

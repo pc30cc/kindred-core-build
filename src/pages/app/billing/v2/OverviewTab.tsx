@@ -275,50 +275,47 @@ export default function OverviewTab({
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {upcomingInvoice ? (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{upcomingInvoice.planName || '—'}</span>
-                    <InvoiceStatusBadge
-                      status={upcomingInvoice.status}
-                      label={t(`billingV2.invoices.statuses.${upcomingInvoice.status}` as any)}
-                    />
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    <CalendarClock className="me-1 inline h-3.5 w-3.5" />
-                    {upcomingInvoice.activatesAt
-                      ? t('billingV2.overview.activatesOn', {
-                          date: billingDate(upcomingInvoice.activatesAt, locale),
-                        })
-                      : t('billingV2.overview.dueOn', { date: billingDate(upcomingInvoice.dueAt, locale) })}
-                  </p>
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{upcomingInvoice.planName || '—'}</span>
+                  <InvoiceStatusBadge
+                    status={upcomingInvoice.status}
+                    label={t(`billingV2.invoices.statuses.${upcomingInvoice.status}` as any)}
+                  />
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-lg font-bold">{money(upcomingInvoice.amountDueIrr, locale)}</span>
-                  {upcomingInvoice.amountDueIrr > 0 && canManage && (
-                    <Button size="sm" onClick={() => onPayInvoice(upcomingInvoice.id)}>
-                      {t('billingV2.overview.payNow')}
-                    </Button>
-                  )}
-                </div>
-              </div>
-              {alert && alert.suspendAt && alert.stage >= 1 && (
-                <p className="flex items-start gap-2 rounded-xl bg-background/70 p-3 text-xs text-muted-foreground">
-                  <Info className="mt-0.5 h-4 w-4 shrink-0" />
-                  {t('billingV2.overview.suspendWarning', {
-                    date: billingDate(alert.suspendAt, locale),
-                    days: alert.daysToSuspend ?? 0,
-                  })}
+                <p className="text-sm text-muted-foreground">
+                  <CalendarClock className="me-1 inline h-3.5 w-3.5" />
+                  {upcomingInvoice.activatesAt
+                    ? t('billingV2.overview.activatesOn', {
+                        date: billingDate(upcomingInvoice.activatesAt, locale),
+                      })
+                    : t('billingV2.overview.dueOn', { date: billingDate(upcomingInvoice.dueAt, locale) })}
                 </p>
-              )}
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-lg font-bold">{money(upcomingInvoice.amountDueIrr, locale)}</span>
+                {upcomingInvoice.amountDueIrr > 0 && canManage && (
+                  <Button size="sm" onClick={() => onPayInvoice(upcomingInvoice.id)}>
+                    {t('billingV2.overview.payNow')}
+                  </Button>
+                )}
+              </div>
             </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">{t('billingV2.overview.noNextInvoice')}</p>
-          )}
+            {alert && alert.suspendAt && alert.stage >= 1 && (
+              <p className="flex items-start gap-2 rounded-xl bg-background/70 p-3 text-xs text-muted-foreground">
+                <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                {t('billingV2.overview.suspendWarning', {
+                  date: billingDate(alert.suspendAt, locale),
+                  days: alert.daysToSuspend ?? 0,
+                })}
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
+      )}
 
     </div>
   );

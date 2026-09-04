@@ -195,7 +195,7 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
 
 
 
-        <TabsContent value="overview" className="mt-4">
+        <TabsContent value="overview" className="mt-5">
           <OverviewTab
             overview={overview}
             onPayInvoice={setInvoiceId}
@@ -204,11 +204,11 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
           />
         </TabsContent>
 
-        <TabsContent value="invoices" className="mt-4">
+        <TabsContent value="invoices" className="mt-5">
           <InvoicesTab workspaceId={workspaceId} reloadKey={reloadKey} onOpenInvoice={setInvoiceId} />
         </TabsContent>
 
-        <TabsContent value="plans" className="mt-4">
+        <TabsContent value="plans" className="mt-5">
           <PlansTab
             workspaceId={workspaceId}
             canManage={canManage}
@@ -218,7 +218,7 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
           />
         </TabsContent>
 
-        <TabsContent value="wallet" className="mt-4">
+        <TabsContent value="wallet" className="mt-5">
           <WalletTab
             workspaceId={workspaceId}
             canManage={canManage}
@@ -227,7 +227,7 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
           />
         </TabsContent>
 
-        <TabsContent value="ai" className="mt-4">
+        <TabsContent value="ai" className="mt-5">
           <AiCreditTab
             workspaceId={workspaceId}
             canManage={canManage}
@@ -237,7 +237,7 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
           />
         </TabsContent>
 
-        <TabsContent value="transactions" className="mt-4">
+        <TabsContent value="transactions" className="mt-5">
           <TransactionsTab workspaceId={workspaceId} reloadKey={reloadKey} />
         </TabsContent>
       </Tabs>
@@ -263,13 +263,13 @@ function SummaryStat({
   value: string;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border bg-background/70 p-3">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-        <Icon className="h-4 w-4" />
+    <div className="flex items-center gap-3 rounded-xl border bg-background p-3.5 shadow-sm transition-shadow hover:shadow-md">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+        <Icon className="h-5 w-5" />
       </span>
       <div className="min-w-0">
-        <p className="truncate text-xs text-muted-foreground">{label}</p>
-        <p className="truncate text-sm font-semibold">{value}</p>
+        <p className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+        <p className="truncate text-base font-bold tabular-nums">{value}</p>
       </div>
     </div>
   );

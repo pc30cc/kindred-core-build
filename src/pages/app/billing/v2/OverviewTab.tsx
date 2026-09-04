@@ -10,14 +10,19 @@
  * period says "activates on X", never "active", because pretending otherwise is
  * a financial lie.
  */
+import { useState } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { Progress } from '@/components/ui/progress';
 import { CalendarClock, Wallet, Sparkles, Receipt, Info, X, ArrowUpCircle, Plus } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import type { BillingOverview } from '@/lib/billingV2Api';
-import { billingDate, money, InvoiceStatusBadge } from './shared';
+import { billingV2SetAutoPay } from '@/lib/billingV2Api';
+import { billingDate, money, InvoiceStatusBadge, errorMessage } from './shared';
+
 
 /** Escalation ramp for the next service invoice — index is the server stage. */
 const STAGE_CARD: Record<number, string> = {

@@ -275,7 +275,10 @@ export default function OverviewTab({
             )}
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="border-t pt-4">
+          {!upcomingInvoice ? (
+            <p className="text-sm text-muted-foreground">{t('billingV2.overview.noUpcomingHint')}</p>
+          ) : (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="space-y-1">
@@ -314,9 +317,10 @@ export default function OverviewTab({
               </p>
             )}
           </div>
+          )}
         </CardContent>
       </Card>
-      )}
+
 
     </div>
   );

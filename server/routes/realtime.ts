@@ -1022,8 +1022,169 @@ realtimeRouter.get('/admin/audit', requireAdmin, async (req, res) => {
 
 realtimeRouter.post('/admin/refresh', requireAdmin, (_req, res) => {
   invalidateRealtimeCache();
+  invalidateNodeHealth();
   res.json({ ok: true });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+//  ADMIN: Centrifugo node registry (app_routed_redis / load_balanced_redis)
+//  Super-admin only (requireAdmin = requirePlatformAdmin). Cluster secrets
+//  are never returned here — a node record holds public URLs only.
+// ─────────────────────────────────────────────────────────────────────
+const nodeInputSchema = z.object({
+  id: z.string().min(1).max(64).regex(/^[a-zA-Z0-9_-]+$/).optional(),
+  name: z.string().min(1).max(80).optional(),
+  ws_url: z.string().url(),
+  api_url: z.string().url(),
+  enabled: z.boolean().optional(),
+  accepting_new_connections: z.boolean().optional(),
+  draining: z.boolean().optional(),
+  weight: z.number().min(0).max(1000).optional(),
+  region: z.string().max(64).optional(),
+});
+const nodePatchSchema = nodeInputSchema.partial().omit({ id: true });
+
+async function auditNodeAction(
+  req: any,
+  action: string,
+  detail: Record<string, unknown>,
+  result: 'success' | 'failed' = 'success',
+  errorMessage?: string,
+) {
+  const config: ServerConfig = req.serverConfig;
+  try {
+    await getServiceClient(config).from('realtime_provider_audit').insert({
+      changed_by: req.adminUser?.id ?? null,
+      action,
+      vendor: 'centrifugo',
+      // Node records carry no secrets, so the diff is safe to store as-is.
+      config_diff: detail,
+      result,
+      error_message: errorMessage ?? null,
+      ip_address: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket?.remoteAddress,
+    });
+  } catch (err) {
+    console.warn('[realtime/admin/nodes] audit insert failed:', err);
+  }
+}
+
+/** Node list + live health (cached; forced refresh with ?refresh=1). */
+realtimeRouter.get('/admin/nodes', requireAdmin, async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const cfg = await loadRealtimeConfig(config, true);
+    const nodes = await listNodes(config);
+    const health = nodes.length
+      ? await getClusterHealth(nodes, cfg.centrifugo?.api_key || '', { force: req.query.refresh === '1' })
+      : {};
+    res.json({
+      deployment_mode: resolveDeploymentMode(cfg.centrifugo),
+      load_balancer_ws_url: cfg.centrifugo?.load_balancer_ws_url ?? null,
+      nodes: nodes.map((n) => ({
+        ...n,
+        health: health[n.id] ?? null,
+        effective_status: effectiveNodeStatus(n, health[n.id]),
+      })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Internal error' });
+  }
+});
+
+realtimeRouter.post('/admin/nodes', requireAdmin, async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const parsed = nodeInputSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid node', details: parsed.error.flatten() });
+    const nodes = await addNode(config, parsed.data);
+    await auditNodeAction(req, 'node_add', { id: parsed.data.id ?? null, ws_url: parsed.data.ws_url });
+    res.json({ ok: true, nodes });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Internal error' });
+  }
+});
+
+realtimeRouter.put('/admin/nodes/:id', requireAdmin, async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const parsed = nodePatchSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid patch', details: parsed.error.flatten() });
+    const nodes = await updateNode(config, req.params.id, parsed.data);
+    await auditNodeAction(req, 'node_update', { id: req.params.id, patch: parsed.data });
+    res.json({ ok: true, nodes });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Internal error' });
+  }
+});
+
+realtimeRouter.delete('/admin/nodes/:id', requireAdmin, async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const nodes = await removeNode(config, req.params.id);
+    await auditNodeAction(req, 'node_remove', { id: req.params.id });
+    res.json({ ok: true, nodes });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Internal error' });
+  }
+});
+
+/**
+ * Drain / resume. Draining stops NEW assignments to the node; existing
+ * WebSocket connections are deliberately left alone and migrate on their
+ * own natural reconnect (no forced disconnect, no reconnect storm).
+ */
+realtimeRouter.post('/admin/nodes/:id/drain', requireAdmin, async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const draining = req.body?.draining !== false;
+    const nodes = await setNodeDraining(config, req.params.id, draining);
+    await auditNodeAction(req, draining ? 'node_drain' : 'node_resume', { id: req.params.id });
+    res.json({ ok: true, nodes });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Internal error' });
+  }
+});
+
+/** Probe a single node (forced, bypasses the health cache). */
+realtimeRouter.post('/admin/nodes/:id/test', requireAdmin, async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const cfg = await loadRealtimeConfig(config, true);
+    const nodes = await listNodes(config);
+    const node = nodes.find((n) => n.id === req.params.id);
+    if (!node) return res.status(404).json({ error: 'Node not found' });
+    const health = await getClusterHealth([node], cfg.centrifugo?.api_key || '', { force: true });
+    res.json({ node_id: node.id, health: health[node.id] ?? null });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Internal error' });
+  }
+});
+
+/** Probe every node at once. */
+realtimeRouter.post('/admin/nodes/test-all', requireAdmin, async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const cfg = await loadRealtimeConfig(config, true);
+    const nodes = await listNodes(config);
+    const health = await getClusterHealth(nodes, cfg.centrifugo?.api_key || '', { force: true });
+    res.json({ health });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Internal error' });
+  }
+});
+
+/** Preflight the CURRENT stored config without changing anything. */
+realtimeRouter.post('/admin/preflight', requireAdmin, async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const cfg = await loadRealtimeConfig(config, true);
+    res.json(await preflightTopology(cfg));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Internal error' });
+  }
+});
+
+
 
 // ─── helpers ────────────────────────────────────────────────────────
 function mergeCentrifugo(prev: any, next: any): any {

@@ -22,5 +22,13 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     persistSession: false,
     autoRefreshToken: false,
     detectSessionInUrl: false,
+    // Distinct storage key + no-op lock: the embeddable widget runtime loads
+    // its own supabase-js instance on the same page. Sharing the default
+    // `sb-<ref>-auth-token` key makes both GoTrue instances contend for the
+    // same Navigator LockManager lock, which throws
+    // "Acquiring an exclusive Navigator LockManager lock ... immediately failed"
+    // in the visitor's console. Neither client uses Supabase Auth at all.
+    storageKey: 'gs-dashboard-no-auth',
+    lock: async (_name: string, _acquireTimeout: number, fn: () => Promise<unknown>) => fn(),
   }
 });

@@ -66,3 +66,9 @@ CREATE TABLE IF NOT EXISTS public.visitor_sessions (
   workspace_id uuid REFERENCES public.workspaces(id) ON DELETE CASCADE,
   created_at   timestamptz NOT NULL DEFAULT now()
 );
+
+-- Supabase RLS helpers the chain's policies reference. Never authenticated in
+-- tests: they return NULL, which is exactly "no end-user session".
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
+CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$ SELECT NULL::text $$;
+CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$ SELECT '{}'::jsonb $$;

@@ -12,7 +12,7 @@ import {
   Zap, ShieldAlert, ExternalLink, Bell, EyeOff,
   Clock, UserCog, Building2, HelpCircle, Sparkles,
   AlertCircle, Check, Ban, Lock,
-  PhoneCall, Radar,
+  PhoneCall,
   PanelLeftClose, PanelLeftOpen,
   Plug,
 } from 'lucide-react';
@@ -265,9 +265,6 @@ export function AppSidebar() {
       : []),
     ...(moduleInPlan('contacts')
       ? [{ key: 'contacts', path: '/contacts', icon: Users, accent: 'amber', locked: false } as const]
-      : []),
-    ...(isWsAdmin
-      ? [{ key: 'seo', path: '/seo', icon: Radar, accent: 'sky', locked: false } as const]
       : []),
     // Knowledge Base and Team are CORE products — never plan-gated.
     { key: 'knowledgeBase', path: '/knowledge-base', icon: BookOpen, accent: 'cyan', locked: false },

@@ -42,6 +42,17 @@ export interface V2ReadModel {
   pendingPlanChange: { type: string; nextPlanId: string | null } | null;
   wallet: { availableBalanceIrr: number; frozen: boolean };
   ai: { allowanceIrr: number; periodBound: boolean };
+  /**
+   * Phase E dunning state. Purely reported: every timestamp is the server's,
+   * so the UI counts down against database truth instead of the browser clock.
+   */
+  dunning: {
+    pastDue: boolean;
+    pastDueSince: string | null;
+    gracePeriodEndsAt: string | null;
+    freeFallbackAt: string | null;
+    serverTime: string;
+  };
   openInvoices: Array<{ id: string; invoiceNumber: string; status: string; amountDueIrr: number }>;
 }
 
@@ -55,7 +66,7 @@ export async function buildWorkspaceBillingReadModel(
   const { data: sub } = await sb
     .from('workspace_subscriptions')
     .select(
-      'status, plan_id, billing_interval, current_period_id, current_period_end, next_invoice_at, next_plan_id, pending_change_type, billing_engine_version, v2_allowance_effective_period_id',
+      'status, plan_id, billing_interval, current_period_id, current_period_end, next_invoice_at, next_plan_id, pending_change_type, billing_engine_version, v2_allowance_effective_period_id, past_due_since, grace_period_ends_at, free_fallback_at',
     )
     .eq('workspace_id', workspaceId)
     .maybeSingle();
@@ -118,6 +129,13 @@ export async function buildWorkspaceBillingReadModel(
     wallet: {
       availableBalanceIrr: Number(wallet?.available_balance_irr ?? 0),
       frozen: Boolean(wallet?.frozen),
+    },
+    dunning: {
+      pastDue: sub?.status === 'past_due',
+      pastDueSince: (sub?.past_due_since as string | null) ?? null,
+      gracePeriodEndsAt: (sub?.grace_period_ends_at as string | null) ?? null,
+      freeFallbackAt: (sub?.free_fallback_at as string | null) ?? null,
+      serverTime: new Date().toISOString(),
     },
     ai: {
       allowanceIrr: Number(period?.ai_allowance_irr ?? 0),

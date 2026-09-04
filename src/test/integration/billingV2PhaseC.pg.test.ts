@@ -33,6 +33,7 @@ if (REQUIRED && !DSN) {
 const suite = DSN ? describe : describe.skip;
 
 const CHAIN = [
+  'scripts/ci/billing-test-bootstrap.sql',
   'database/migrations/016a_selfhost_product_parity_base_tables.sql',
   'database/migrations/073_ai_usage_billing.sql',
   'database/migrations/074_ai_billing_pricing_append_only.sql',

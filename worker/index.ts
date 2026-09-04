@@ -28,7 +28,6 @@ const ALLOWED = new Set([
   'regression-runner',
   'channels',
   'invitations',
-  'seo-crawler',
   'all',
 ]);
 
@@ -73,10 +72,6 @@ async function main() {
     const entitlement = await bootstrap.syncSeatEntitlementMode(config);
     if (!entitlement.ok) throw new Error('invitation entitlement bootstrap failed');
     worker.startInvitationWorker(config);
-  }
-  if (RAW_KIND === 'seo-crawler' || RAW_KIND === 'all') {
-    const mod = await import('./seo-crawler/index.js');
-    mod.startSeoCrawlerWorker?.();
   }
 
 

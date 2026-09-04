@@ -73,42 +73,6 @@ async function applyCallCenterSettingsStub(db: PgQueryable): Promise<void> {
 }
 
 /**
- * `public.platform_branding` (104_platform_ui_defaults.sql) and
- * `public.billing_payments.amount`/`.refund_amount` (105_billing_payment_
- * state_machine.sql) — the SAME kind of self-host/hosted parity gap as
- * `call_center_settings` above (created with full history only in
- * supabase/migrations/, never in database/migrations/), discovered while
- * verifying the SEO feature's own migration (121_seo_audit_core.sql)
- * replays against the full chain. Same rationale, same scope: unblocks the
- * chain far enough for unrelated suites to run; not a substitute for a real
- * self-host migration reconstructing either table's full hosted history.
- */
-async function applyBillingAndBrandingGapStubs(db: PgQueryable): Promise<void> {
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS public.platform_branding (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid()
-    );
-    CREATE TABLE IF NOT EXISTS public.billing_payments (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      workspace_id uuid,
-      amount bigint,
-      refund_amount bigint DEFAULT 0,
-      provider_name text,
-      provider_payment_id text,
-      payment_intent_id uuid,
-      purchase_type text,
-      action_type text,
-      plan_id uuid,
-      plan_name_snapshot text,
-      billing_interval text,
-      paid_at timestamptz,
-      invoice_number text,
-      created_at timestamptz DEFAULT now()
-    );
-  `);
-}
-
-/**
  * database/migrations/*.sql in filename order, with NO exclusions.
  *
  * 017 and 018 used to be skipped here: they reference base product tables
@@ -150,7 +114,6 @@ export const AUTH_CHAIN_EXCLUDED_FILES = new Set<string>([]);
 export async function ensureAuthChainInstalled(db: PgQueryable): Promise<void> {
   await applyAuthSchemaStub(db);
   await applyCallCenterSettingsStub(db);
-  await applyBillingAndBrandingGapStubs(db);
 
   const dir = resolve(process.cwd(), 'database/migrations');
   const allFiles = readdirSync(dir)

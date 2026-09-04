@@ -102,6 +102,13 @@ export interface BillingOverview {
   aiMonthlyOnAnnual: boolean;
   wallet: { balanceIrr: number; frozen: boolean; autoPayEnabled: boolean };
   upcomingInvoice: InvoiceSummary | null;
+  dunning: {
+    pastDue: boolean;
+    pastDueSince: string | null;
+    gracePeriodEndsAt: string | null;
+    freeFallbackAt: string | null;
+    serverTime: string;
+  };
 }
 
 export interface InvoiceDetail {

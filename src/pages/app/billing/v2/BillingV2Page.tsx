@@ -27,6 +27,7 @@ import { toast } from '@/lib/toast';
 import { billingV2Overview, billingV2CancelPlanChange, type BillingOverview } from '@/lib/billingV2Api';
 import { ErrorState, errorMessage } from './shared';
 import OverviewTab from './OverviewTab';
+import DunningBanner from './DunningBanner';
 import InvoicesTab from './InvoicesTab';
 import PlansTab from './PlansTab';
 import WalletTab from './WalletTab';
@@ -112,6 +113,9 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
         <h1 className="text-2xl font-bold">{t('billingV2.title')}</h1>
         <p className="text-sm text-muted-foreground">{t('billingV2.subtitle')}</p>
       </div>
+
+      {/* Dunning state is workspace-wide, so it sits above the tabs. */}
+      <DunningBanner overview={overview} onPayInvoice={setInvoiceId} />
 
       <Tabs value={tab} onValueChange={setTab}>
         {/* Mobile: a select keeps six sections reachable at 360px. */}

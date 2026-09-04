@@ -79,7 +79,7 @@ import AiAgentActivityPage from "@/pages/app/ai-agent/ActivityPage";
 import { AdvancedAiAgentGuard } from "@/features/ai-agent/AdvancedAiAgentGuard";
 import EmailPage from "@/pages/app/EmailPage";
 import BillingPage from "@/pages/app/BillingPage";
-import BillingPaymentPage from "@/pages/app/billing/v2/PaymentPage";
+import BillingPaymentPage from "@/pages/app/billing/PaymentPage";
 import SeoPage from "@/pages/app/seo/SeoPage";
 import SettingsGeneralPage from "@/pages/app/settings/GeneralPage";
 import SettingsIntegrationsPage from "@/pages/app/settings/IntegrationsPage";

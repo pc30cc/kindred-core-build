@@ -108,7 +108,7 @@ export interface IntelOptions {
   viewerRole?: 'owner' | 'admin' | 'agent' | 'billing' | string | null;
 }
 
-function mergeStatus(
+export function mergeStatus(
   presenceStatus: string | null,
   presenceUpdatedAt: string | null,
   sessionLastSeen: string,
@@ -118,11 +118,16 @@ function mergeStatus(
   // Thresholds are derived from the coalesced liveness write interval
   // (see server/services/widget/visitorLiveness.ts) so a suppressed
   // heartbeat write can never surface as a false idle/offline.
-  if (presenceStatus === 'online' && ageMs > VISITOR_LIVENESS_ONLINE_MS) return 'idle';
+  //
+  // Order matters: offline is evaluated FIRST. Checking the idle rule first
+  // pinned any row whose stored status is still 'online' at 'idle' forever,
+  // because a stale visitor is (trivially) also past the idle threshold.
   if (ageMs > VISITOR_LIVENESS_OFFLINE_MS) return 'offline';
+  if (presenceStatus === 'online' && ageMs > VISITOR_LIVENESS_ONLINE_MS) return 'idle';
 
   return (presenceStatus as VisitorIntelligenceItem['status']) ?? 'unknown';
 }
+
 
 export async function listVisitorIntelligence(
   config: ServerConfig,

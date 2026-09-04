@@ -231,7 +231,7 @@ billingRouter.get('/status/:workspaceId', async (req, res) => {
 
   const { data: sub } = await supabase
     .from('workspace_subscriptions')
-    .select('*, billing_plans(*)')
+    .select('*, billing_plans!workspace_subscriptions_plan_id_fkey(*)')
     .eq('workspace_id', workspaceId)
     .maybeSingle();
 

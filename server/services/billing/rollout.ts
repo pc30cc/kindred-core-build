@@ -124,22 +124,37 @@ export async function auditV2(
   }
 }
 
+/**
+ * UNIFIED BILLING — there is only one engine now. Every workspace is enrolled
+ * (migration 126 backfills existing ones and a trigger enrolls new ones), so
+ * this reads as `v2_active` and self-heals a missing row rather than falling
+ * back to a legacy engine that no longer exists.
+ */
 export async function getRolloutState(
   config: ServerConfig,
   workspaceId: string,
 ): Promise<RolloutState> {
-  const { data } = await getServiceClient(config)
+  const client = getServiceClient(config);
+  const { data } = await client
     .from('billing_v2_rollout')
     .select('state')
     .eq('workspace_id', workspaceId)
     .maybeSingle();
-  return ((data as { state?: string } | null)?.state as RolloutState) || 'legacy';
+  const state = (data as { state?: string } | null)?.state;
+  if (state !== 'v2_active') {
+    await client
+      .from('billing_v2_rollout')
+      .upsert({ workspace_id: workspaceId, state: 'v2_active' }, { onConflict: 'workspace_id' });
+  }
+  return 'v2_active';
 }
 
-/** True only for `v2_active`. Shadow is NEVER an authority. */
+/** Always true: the invoice engine is the only commercial authority. */
 export async function isV2Active(config: ServerConfig, workspaceId: string): Promise<boolean> {
-  return (await getRolloutState(config, workspaceId)) === 'v2_active';
+  await getRolloutState(config, workspaceId);
+  return true;
 }
+
 
 export async function evaluateCutover(
   config: ServerConfig,

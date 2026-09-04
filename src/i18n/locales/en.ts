@@ -41,7 +41,7 @@ const en = {
       allowance: 'Cycle allowance', used: 'Used', remaining: 'Remaining',
       purchasedCredit: 'Purchased credit', purchasedNote: 'Purchased credit is separate from the plan allowance.',
       wallet: 'Wallet', walletBalance: 'Balance', autoPayOn: 'Auto-pay on', autoPayOff: 'Auto-pay off',
-      upcomingInvoice: 'Next service invoice', dueOn: 'Due {{date}}', payNow: 'Pay invoice',
+      upcomingInvoice: 'Next due date', dueOn: 'Due {{date}}', payNow: 'Pay invoice',
       reminderCount: 'Reminder {{sent}} of {{total}}',
       suspendWarning: 'If it stays unpaid, service is limited on {{date}} (about {{days}} days from now).',
       activatesOn: 'Paid — activates on {{date}}',

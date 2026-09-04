@@ -43,7 +43,7 @@ const fa: TranslationKeys = {
       allowance: 'اعتبار این چرخه', used: 'مصرف‌شده', remaining: 'باقی‌مانده',
       purchasedCredit: 'اعتبار خریداری‌شده', purchasedNote: 'اعتبار خریداری‌شده جدا از اعتبار پلن است.',
       wallet: 'کیف پول', walletBalance: 'موجودی', autoPayOn: 'پرداخت خودکار فعال', autoPayOff: 'پرداخت خودکار غیرفعال',
-      upcomingInvoice: 'فاکتور سرویس بعدی', dueOn: 'سررسید {{date}}', payNow: 'پرداخت فاکتور',
+      upcomingInvoice: 'سررسید بعدی', dueOn: 'سررسید {{date}}', payNow: 'پرداخت فاکتور',
       reminderCount: 'یادآوری {{sent}} از {{total}}',
       suspendWarning: 'در صورت پرداخت نشدن، سرویس در تاریخ {{date}} (حدود {{days}} روز دیگر) موقتاً محدود می‌شود.',
       activatesOn: 'پرداخت شده — فعال‌سازی در {{date}}',

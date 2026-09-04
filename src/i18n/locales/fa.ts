@@ -5020,7 +5020,7 @@ const fa: TranslationKeys = {
         title: 'چه چیزی نمایش داده شود؟',
         presentation: 'نحوهٔ نمایش',
         modes: {
-          launcher_nudge: 'حباب کنار دکمهٔ شناور',
+          launcher_nudge: 'حباب بالای دکمهٔ شناور',
           open_widget: 'باز شدن ابزارک',
           home_card: 'کارت در صفحهٔ خانهٔ ابزارک',
           chat_message: 'پیام داخل گفتگو',

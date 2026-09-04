@@ -98,9 +98,50 @@ export async function loadFailoverState(
   }
 }
 
+/**
+ * Write-on-change persistence.
+ *
+ * The failover ticker runs every 30s and previously UPSERTed this single row
+ * on every tick, even when nothing changed — ~2 writes/minute forever. We now
+ * only touch Postgres when a *material* field changed (effective provider,
+ * failover/failback bookkeeping, cooldown, or a per-provider health status
+ * transition), plus a slow heartbeat write so `last_evaluated_at` never goes
+ * stale for operators watching the admin panel.
+ *
+ * Latency/error-rate numbers inside `last_health` are deliberately NOT part of
+ * the signature: they jitter on every sample and would defeat the whole point.
+ * The in-memory cache always holds the freshest values regardless.
+ */
+const HEARTBEAT_PERSIST_MS = 15 * 60 * 1000;
+let lastPersistedAt = 0;
+let lastPersistedSignature: string | null = null;
+
+function healthStatusSignature(health: Record<string, unknown>): string {
+  const providers = (health as any)?.providers;
+  if (!providers || typeof providers !== 'object') return '';
+  return Object.keys(providers)
+    .sort()
+    .map((k) => `${k}=${(providers as any)[k]?.status ?? 'unknown'}`)
+    .join(',');
+}
+
+function materialSignature(s: FailoverState): string {
+  return [
+    s.effective_provider,
+    s.last_failover_at ?? '',
+    s.last_failover_reason ?? '',
+    s.candidate_recovery_provider ?? '',
+    s.candidate_recovery_since ?? '',
+    s.failback_eligible_at ?? '',
+    s.cooldown_until ?? '',
+    healthStatusSignature(s.last_health),
+  ].join('|');
+}
+
 export async function saveFailoverState(
   config: ServerConfig,
   patch: Partial<FailoverState>,
+  options: { force?: boolean } = {},
 ): Promise<FailoverState> {
   const prev = await loadFailoverState(config, true);
   const merged: FailoverState = {
@@ -108,6 +149,18 @@ export async function saveFailoverState(
     ...patch,
     updated_at: new Date().toISOString(),
   };
+
+  const signature = materialSignature(merged);
+  const now = Date.now();
+  const unchanged = lastPersistedSignature !== null && signature === lastPersistedSignature;
+  const heartbeatDue = now - lastPersistedAt >= HEARTBEAT_PERSIST_MS;
+
+  if (!options.force && unchanged && !heartbeatDue) {
+    // No state change worth a write. Keep the fresh values in memory only.
+    cache = { value: merged, loadedAt: now };
+    return merged;
+  }
+
   const sb = getServiceClient(config);
   const { error } = await (sb.from as any)('realtime_failover_state').upsert(
     {
@@ -126,10 +179,14 @@ export async function saveFailoverState(
     { onConflict: 'id' },
   );
   if (error) throw new Error(error.message);
-  cache = { value: merged, loadedAt: Date.now() };
+  lastPersistedAt = now;
+  lastPersistedSignature = signature;
+  cache = { value: merged, loadedAt: now };
   return merged;
 }
 
 export function __resetFailoverStateCacheForTests(): void {
   cache = null;
+  lastPersistedAt = 0;
+  lastPersistedSignature = null;
 }

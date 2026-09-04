@@ -22,10 +22,6 @@ vi.mock('../../../server/supabase.js', () => ({ getServiceClient: vi.fn() }));
 // immunity to a rotated client session_id), and AI Run linkage.
 // ─────────────────────────────────────────────────────────────────────
 vi.mock('../../../server/services/widget/aiNudge/policy.js', () => ({ resolveEffectiveAiNudgePolicy: vi.fn() }));
-vi.mock('../../../server/services/widget/aiNudge/dedup.js', () => ({
-  isDuplicateAiNudgeContext: vi.fn().mockReturnValue(false),
-  recordAiNudgeEvaluation: vi.fn(),
-}));
 vi.mock('../../../server/services/widget/aiNudge/sessionState.js', () => ({
   acquireAiNudgeEvaluation: vi.fn(),
 }));
@@ -310,6 +306,195 @@ describe('evaluate.ts — full orchestration hardening', () => {
     const completionArgs = (executeAICompletion as any).mock.calls[0][1];
     expect(completionArgs.requestId).toContain('eval-new-2');
     expect(completionArgs.billing.operationKey).toContain('eval-new-2');
+  });
+
+  /**
+   * A stateful fake widget_ai_nudges table that actually enforces the
+   * UNIQUE (workspace_id, evaluation_id) constraint the migration adds —
+   * a second insert for a key already in `store` returns a 23505 error,
+   * exactly like Postgres would. Used by the cross-replica/lost-response/
+   * owner-crash race tests below, where "another replica" or "a retry" is
+   * simulated as a second evaluateAiProactiveNudge() call sharing this
+   * same in-memory table.
+   */
+  function makeRaceSimSupabase(opts: { freqResult?: { data: any; error: any } } = {}) {
+    const store = new Map<string, any>();
+    let nextId = 1;
+    const fake = {
+      from: (table: string) => {
+        if (table !== 'widget_ai_nudges') {
+          return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) };
+        }
+        return {
+          select: () => ({
+            eq: (_col1: string, val1: any) => ({
+              eq: (_col2: string, val2: any) => ({
+                in: () => ({ gte: () => ({ order: () => ({ limit: async () => opts.freqResult ?? { data: [], error: null } }) }) }),
+                maybeSingle: async () => ({ data: store.get(`${val1}:${val2}`) || null, error: null }),
+              }),
+            }),
+          }),
+          insert: (row: any) => ({
+            select: () => ({
+              single: async () => {
+                const key = `${row.workspace_id}:${row.evaluation_id}`;
+                if (store.has(key)) {
+                  return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "idx_widget_ai_nudges_evaluation"' } };
+                }
+                const id = `nudge-${nextId++}`;
+                store.set(key, { id, message: row.message, topic: row.topic, cta_label: row.cta_label, cta_action: row.cta_action, cta_url: row.cta_url });
+                return { data: { id }, error: null };
+              },
+            }),
+          }),
+        };
+      },
+    };
+    return { fake, store };
+  }
+
+  it('race fix test 5 — cross-replica concurrency: the follower makes ZERO provider calls, the owner makes exactly ONE, and a later replay recovers the persisted nudge with zero more', async () => {
+    const { resolveEffectiveAiNudgePolicy } = await import('../../../server/services/widget/aiNudge/policy.js');
+    (resolveEffectiveAiNudgePolicy as any).mockResolvedValue(BASE_POLICY);
+    const { acquireAiNudgeEvaluation } = await import('../../../server/services/widget/aiNudge/sessionState.js');
+    const { getServiceClient } = await import('../../../server/supabase.js');
+    const { executeAICompletion } = await import('../../../server/services/ai/index.js');
+    const { beginAiRunGuarded, settleAiRun } = await import('../../../server/services/ai-billing/runContext.js');
+    (executeAICompletion as any).mockResolvedValue({ text: SHOW_DECISION_RAW });
+    (beginAiRunGuarded as any).mockResolvedValue({ runId: 'run-shared', stepSeq: 1, workspaceId: 'ws-1' });
+
+    const { fake } = makeRaceSimSupabase();
+    (getServiceClient as any).mockReturnValue(fake);
+    const evaluateAiProactiveNudge = (await import('../../../server/services/widget/aiNudge/evaluate.js')).evaluateAiProactiveNudge;
+    const input = {
+      workspaceId: 'ws-1', trustedSessionKey: 'trusted-abc', visitorId: null, sessionId: null,
+      locale: 'en', device: 'desktop' as const, ctx: baseCtx() as any, journey: baseJourney() as any,
+    };
+
+    // Replica B reaches the durable RPC FIRST and is told isNew:false — the
+    // RPC already handed evaluationId E to replica A, which has not
+    // inserted its nudge row yet. This is the exact race the fix closes.
+    (acquireAiNudgeEvaluation as any).mockResolvedValueOnce({ evaluationId: 'E', evaluationCount: 1, isNew: false });
+    const resultB = await evaluateAiProactiveNudge({} as any, input);
+    expect(resultB).toEqual({ decision: 'suppress' });
+    expect(executeAICompletion).not.toHaveBeenCalled();
+    expect(beginAiRunGuarded).not.toHaveBeenCalled();
+
+    // Replica A owns evaluationId E (isNew:true) and is the only one that executes.
+    (acquireAiNudgeEvaluation as any).mockResolvedValueOnce({ evaluationId: 'E', evaluationCount: 1, isNew: true });
+    const resultA = await evaluateAiProactiveNudge({} as any, input);
+    expect(resultA.decision).toBe('show');
+    expect(executeAICompletion).toHaveBeenCalledTimes(1);
+    expect(beginAiRunGuarded).toHaveBeenCalledTimes(1);
+    expect(settleAiRun).toHaveBeenCalledTimes(1);
+
+    // A later replay of the SAME evaluationId (another follower, or a
+    // retry) recovers A's persisted row — zero additional provider calls.
+    (acquireAiNudgeEvaluation as any).mockResolvedValueOnce({ evaluationId: 'E', evaluationCount: 1, isNew: false });
+    const resultReplay = await evaluateAiProactiveNudge({} as any, input);
+    expect(resultReplay.decision).toBe('show');
+    expect(resultReplay.nudgeId).toBe(resultA.nudgeId);
+    expect(executeAICompletion).toHaveBeenCalledTimes(1);
+    expect(beginAiRunGuarded).toHaveBeenCalledTimes(1);
+  });
+
+  it('race fix test 6 — lost-response recovery: a same-process retry after a lost HTTP response recovers the persisted nudge with zero additional charge', async () => {
+    const { resolveEffectiveAiNudgePolicy } = await import('../../../server/services/widget/aiNudge/policy.js');
+    (resolveEffectiveAiNudgePolicy as any).mockResolvedValue(BASE_POLICY);
+    const { acquireAiNudgeEvaluation } = await import('../../../server/services/widget/aiNudge/sessionState.js');
+    const { getServiceClient } = await import('../../../server/supabase.js');
+    const { executeAICompletion } = await import('../../../server/services/ai/index.js');
+    const { beginAiRunGuarded } = await import('../../../server/services/ai-billing/runContext.js');
+    (executeAICompletion as any).mockResolvedValue({ text: SHOW_DECISION_RAW });
+    (beginAiRunGuarded as any).mockResolvedValue({ runId: 'run-1', stepSeq: 1, workspaceId: 'ws-1' });
+    const { fake } = makeRaceSimSupabase();
+    (getServiceClient as any).mockReturnValue(fake);
+    const evaluateAiProactiveNudge = (await import('../../../server/services/widget/aiNudge/evaluate.js')).evaluateAiProactiveNudge;
+    const input = {
+      workspaceId: 'ws-1', trustedSessionKey: 'trusted-abc', visitorId: null, sessionId: null,
+      locale: 'en', device: 'desktop' as const, ctx: baseCtx() as any, journey: baseJourney() as any,
+    };
+
+    // 1-3: the evaluation executes successfully and the nudge persists —
+    // then the HTTP response back to the widget is (hypothetically) lost.
+    (acquireAiNudgeEvaluation as any).mockResolvedValueOnce({ evaluationId: 'E', evaluationCount: 1, isNew: true });
+    const first = await evaluateAiProactiveNudge({} as any, input);
+    expect(first.decision).toBe('show');
+    expect(executeAICompletion).toHaveBeenCalledTimes(1);
+
+    // 4: the widget retries the SAME context on the SAME Core process. With
+    // no in-process dedup cache to (incorrectly) suppress it, the retry
+    // reaches the durable RPC, which — for a retry within the dedup window
+    // — hands back the SAME evaluationId with isNew:false.
+    (acquireAiNudgeEvaluation as any).mockResolvedValueOnce({ evaluationId: 'E', evaluationCount: 1, isNew: false });
+    const retry = await evaluateAiProactiveNudge({} as any, input);
+    expect(acquireAiNudgeEvaluation).toHaveBeenCalledTimes(2);
+    expect(retry.decision).toBe('show');
+    expect(retry.nudgeId).toBe(first.nudgeId);
+    expect(executeAICompletion).toHaveBeenCalledTimes(1); // zero additional call
+    expect(beginAiRunGuarded).toHaveBeenCalledTimes(1); // zero additional charge
+  });
+
+  it('race fix test 7 — owner-crash/follower: a follower for an unpersisted evaluation never calls AI; after the dedup window a fresh evaluationId allows exactly one new execution', async () => {
+    const { resolveEffectiveAiNudgePolicy } = await import('../../../server/services/widget/aiNudge/policy.js');
+    (resolveEffectiveAiNudgePolicy as any).mockResolvedValue(BASE_POLICY);
+    const { acquireAiNudgeEvaluation } = await import('../../../server/services/widget/aiNudge/sessionState.js');
+    const { getServiceClient } = await import('../../../server/supabase.js');
+    const { executeAICompletion } = await import('../../../server/services/ai/index.js');
+    const { beginAiRunGuarded } = await import('../../../server/services/ai-billing/runContext.js');
+    (executeAICompletion as any).mockResolvedValue({ text: SHOW_DECISION_RAW });
+    (beginAiRunGuarded as any).mockResolvedValue({ runId: 'run-2', stepSeq: 1, workspaceId: 'ws-1' });
+    const { fake } = makeRaceSimSupabase();
+    (getServiceClient as any).mockReturnValue(fake);
+    const evaluateAiProactiveNudge = (await import('../../../server/services/widget/aiNudge/evaluate.js')).evaluateAiProactiveNudge;
+    const input = {
+      workspaceId: 'ws-1', trustedSessionKey: 'trusted-abc', visitorId: null, sessionId: null,
+      locale: 'en', device: 'desktop' as const, ctx: baseCtx() as any, journey: baseJourney() as any,
+    };
+
+    // The owner that acquired evaluationId E as isNew:true crashed before
+    // ever persisting a nudge row — the store has no entry for E. A
+    // follower now receives isNew:false for the SAME evaluationId.
+    (acquireAiNudgeEvaluation as any).mockResolvedValueOnce({ evaluationId: 'E', evaluationCount: 1, isNew: false });
+    const followerResult = await evaluateAiProactiveNudge({} as any, input);
+    expect(followerResult).toEqual({ decision: 'suppress' });
+    expect(executeAICompletion).not.toHaveBeenCalled();
+    expect(beginAiRunGuarded).not.toHaveBeenCalled();
+
+    // Only once the durable dedup window has fully lapsed does the RPC
+    // mint a genuinely NEW evaluationId — exactly one new execution is
+    // then allowed for this fingerprint.
+    (acquireAiNudgeEvaluation as any).mockResolvedValueOnce({ evaluationId: 'E2', evaluationCount: 2, isNew: true });
+    const laterResult = await evaluateAiProactiveNudge({} as any, input);
+    expect(laterResult.decision).toBe('show');
+    expect(executeAICompletion).toHaveBeenCalledTimes(1);
+    expect(beginAiRunGuarded).toHaveBeenCalledTimes(1);
+  });
+
+  it('race fix — an insert-time unique-violation (23505) on evaluation_id is treated as a safe replay, not a visitor-facing error', async () => {
+    const { resolveEffectiveAiNudgePolicy } = await import('../../../server/services/widget/aiNudge/policy.js');
+    (resolveEffectiveAiNudgePolicy as any).mockResolvedValue(BASE_POLICY);
+    const { acquireAiNudgeEvaluation } = await import('../../../server/services/widget/aiNudge/sessionState.js');
+    const { getServiceClient } = await import('../../../server/supabase.js');
+    const { executeAICompletion } = await import('../../../server/services/ai/index.js');
+    const { beginAiRunGuarded } = await import('../../../server/services/ai-billing/runContext.js');
+    (executeAICompletion as any).mockResolvedValue({ text: SHOW_DECISION_RAW });
+    (beginAiRunGuarded as any).mockResolvedValue({ runId: 'run-3', stepSeq: 1, workspaceId: 'ws-1' });
+    // isNew:true (this caller believes it owns the insert) but the store
+    // ALREADY has a row for this evaluationId — simulates a bug or an
+    // unforeseen race at the acquisition layer; the DB-level UNIQUE index
+    // is the final backstop.
+    (acquireAiNudgeEvaluation as any).mockResolvedValue({ evaluationId: 'E', evaluationCount: 1, isNew: true });
+    const { fake, store } = makeRaceSimSupabase();
+    store.set('ws-1:E', { id: 'nudge-already-there', message: 'Need help choosing a plan?', topic: 'pricing', cta_label: 'Chat now', cta_action: 'open_chat', cta_url: null });
+    (getServiceClient as any).mockReturnValue(fake);
+    const evaluateAiProactiveNudge = (await import('../../../server/services/widget/aiNudge/evaluate.js')).evaluateAiProactiveNudge;
+    const result = await evaluateAiProactiveNudge({} as any, {
+      workspaceId: 'ws-1', trustedSessionKey: 'trusted-abc', visitorId: null, sessionId: null,
+      locale: 'en', device: 'desktop', ctx: baseCtx() as any, journey: baseJourney() as any,
+    });
+    expect(result.decision).toBe('show');
+    expect(result.nudgeId).toBe('nudge-already-there');
   });
 
   it('useJourney=false: recentPages never reach the eligibility score or the AI prompt', async () => {

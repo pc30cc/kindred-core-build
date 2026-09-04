@@ -73,7 +73,11 @@ DO $$ BEGIN IF to_regclass('public.widget_ai_nudges') IS NOT NULL AND to_regclas
 
 CREATE INDEX IF NOT EXISTS idx_widget_ai_nudges_ws_created ON public.widget_ai_nudges USING btree (workspace_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_widget_ai_nudges_session ON public.widget_ai_nudges USING btree (workspace_id, session_key, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_widget_ai_nudges_evaluation ON public.widget_ai_nudges USING btree (workspace_id, evaluation_id) WHERE (evaluation_id IS NOT NULL);
+-- UNIQUE: the final DB-level guarantee that no two rows ever exist for the
+-- same durable evaluation_id, even if application-level ownership
+-- (acquireAiNudgeEvaluation's isNew flag) were ever violated by a bug or
+-- an unforeseen race. See evaluate.ts's insert-conflict (23505) handling.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_widget_ai_nudges_evaluation ON public.widget_ai_nudges USING btree (workspace_id, evaluation_id) WHERE (evaluation_id IS NOT NULL);
 
 ALTER TABLE public.widget_ai_nudges ENABLE ROW LEVEL SECURITY;
 

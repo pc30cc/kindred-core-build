@@ -117,7 +117,14 @@ CREATE POLICY "Workspace members can view ai nudges"
 
 CREATE INDEX idx_widget_ai_nudges_ws_created ON public.widget_ai_nudges (workspace_id, created_at DESC);
 CREATE INDEX idx_widget_ai_nudges_session ON public.widget_ai_nudges (workspace_id, session_key, created_at DESC);
-CREATE INDEX idx_widget_ai_nudges_evaluation ON public.widget_ai_nudges (workspace_id, evaluation_id) WHERE evaluation_id IS NOT NULL;
+-- UNIQUE, not a plain index: this is the final, database-level guarantee
+-- that no two rows can ever exist for the same durable evaluation_id, even
+-- if application-level ownership (acquireAiNudgeEvaluation's isNew flag)
+-- were ever violated by a bug or an unforeseen race — a second concurrent
+-- insert for the same (workspace_id, evaluation_id) fails with a unique
+-- violation (23505) instead of silently creating a duplicate nudge/second
+-- billable row. See evaluate.ts's insert-conflict handling.
+CREATE UNIQUE INDEX idx_widget_ai_nudges_evaluation ON public.widget_ai_nudges (workspace_id, evaluation_id) WHERE evaluation_id IS NOT NULL;
 
 -- ─────────────────────────────────────────────────────────────────────
 -- 2b. Per-session AI-evaluation ceiling AND durable evaluation identity —

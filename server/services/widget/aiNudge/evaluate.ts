@@ -24,7 +24,6 @@ import { executeAICompletion } from '../../ai/index.js';
 import { beginAiRunGuarded, settleAiRun, failAiRun, type AiRunContext } from '../../ai-billing/runContext.js';
 import { isAllowanceExhausted } from '../../ai-billing/errors.js';
 import { resolveEffectiveAiNudgePolicy } from './policy.js';
-import { isDuplicateAiNudgeContext, recordAiNudgeEvaluation } from './dedup.js';
 import { acquireAiNudgeEvaluation } from './sessionState.js';
 import { parseAiNudgeDecision, type AiNudgeDecision } from './contract.js';
 import {
@@ -246,18 +245,14 @@ export async function evaluateAiProactiveNudge(
     return SUPPRESS;
   }
 
-  // In-process dedup — a fast, PERFORMANCE-ONLY pre-filter that collapses
-  // near-simultaneous duplicate requests for the exact same context
-  // (double-tab, retry) before they ever reach the database. This cache is
-  // NOT the correctness boundary: it is process-local and cleared on
-  // restart, and it fails OPEN if it fails to catch a duplicate. The
-  // durable, cross-replica, restart-safe correctness boundary is the
-  // ai_nudge_acquire_evaluation() DB RPC immediately below.
-  if (isDuplicateAiNudgeContext(workspaceId, trustedSessionKey, eligibility.fingerprint)) {
-    emitMetric(config, { metric: 'ai_nudge.suppressed', workspaceId, source: 'widget', tags: { reason: 'duplicate_context' } });
-    return SUPPRESS;
-  }
-  recordAiNudgeEvaluation(workspaceId, trustedSessionKey, eligibility.fingerprint);
+  // No in-process dedup pre-filter here (removed): an in-memory cache can
+  // never be the correctness boundary for cross-replica/cross-restart
+  // dedup, and it was capable of suppressing a legitimate retry that
+  // should instead recover an already-completed evaluation (a lost HTTP
+  // response followed by a same-process retry). The durable
+  // ai_nudge_acquire_evaluation() DB RPC immediately below is now the
+  // ONLY thing an otherwise-eligible evaluation can be suppressed by —
+  // it is always reached.
 
   // ─── Durable, atomic, cross-replica evaluation IDENTITY — BEFORE any
   // billable AI execution. No client-supplied counter or session_id is
@@ -285,14 +280,13 @@ export async function evaluateAiProactiveNudge(
 
   emitMetric(config, { metric: 'ai_nudge.evaluated', workspaceId, source: 'widget', tags: { mode: policy.mode, topic: eligibility.topicBucket } });
 
-  // A replay of an already-acquired evaluation (same evaluationId): if the
-  // prior attempt already persisted its result, return that SAME result —
-  // zero additional provider execution/charge, not merely a deduplicated
-  // one. If nothing was persisted yet (the prior attempt is still in
-  // flight, crashed before insert, or suppressed), fall through to the
-  // normal path below; the AI Run's own operationKey+payload-hash
-  // resumption (beginAiRunGuarded) still guarantees at most one billable
-  // execution for this evaluationId even in that case.
+  // isNew:false means the durable RPC has already handed this exact
+  // evaluationId to a DIFFERENT caller (this process, another replica, or
+  // an earlier request on this same connection) — this caller is a
+  // FOLLOWER, never the owner, for this evaluation. A follower must NEVER
+  // execute the provider: not beginAiRunGuarded, not executeAICompletion.
+  // Ownership of execution belongs exclusively to whichever caller
+  // received isNew:true for this evaluationId.
   if (!isNewEvaluation) {
     try {
       const sb = getServiceClient(config);
@@ -312,7 +306,16 @@ export async function evaluateAiProactiveNudge(
           cta: row.cta_action ? { label: row.cta_label || '', action: row.cta_action, url: row.cta_url || undefined } : undefined,
         };
       }
-    } catch { /* fall through — AI Run idempotency below still protects billing */ }
+    } catch { /* treated the same as "not found yet" below — never falls through to execution */ }
+    // The owner hasn't persisted a result yet (still executing, or it
+    // crashed before insert) — this follower returns a safe, non-billable
+    // pending result instead of ever touching the AI Runtime itself. A
+    // later widget tick/retry re-resolves the SAME evaluationId and will
+    // either find the owner's completed row, or — only once the durable
+    // dedup window has fully lapsed — be handed a genuinely NEW
+    // evaluationId by the RPC, per the existing ceiling/dedup policy.
+    emitMetric(config, { metric: 'ai_nudge.suppressed', workspaceId, source: 'widget', tags: { reason: 'evaluation_pending' } });
+    return SUPPRESS;
   }
 
   let sources: Awaited<ReturnType<typeof retrieveSources>> = [];
@@ -450,7 +453,7 @@ export async function evaluateAiProactiveNudge(
   let nudgeId: string | undefined;
   try {
     const sb = getServiceClient(config);
-    const { data: inserted } = await sb
+    const { data: inserted, error: insertError } = await sb
       .from('widget_ai_nudges' as any)
       .insert({
         workspace_id: workspaceId,
@@ -470,6 +473,34 @@ export async function evaluateAiProactiveNudge(
       })
       .select('id')
       .single();
+    if (insertError) {
+      // A unique-violation on (workspace_id, evaluation_id) means another
+      // caller already won the insert race for this evaluationId despite
+      // this caller having been told isNew:true (belt-and-suspenders on
+      // top of the acquisition RPC's own guarantee). Treat it exactly like
+      // a replay: fetch and return the row that actually won, never a
+      // visitor-facing error, and never execute AI again for it.
+      if ((insertError as any).code === '23505') {
+        const { data: existing } = await sb
+          .from('widget_ai_nudges' as any)
+          .select('id, message, topic, cta_label, cta_action, cta_url')
+          .eq('workspace_id', workspaceId)
+          .eq('evaluation_id', evaluationId)
+          .maybeSingle();
+        if (existing) {
+          const row = existing as any;
+          return {
+            decision: 'show',
+            nudgeId: row.id,
+            message: row.message,
+            topic: row.topic,
+            cta: row.cta_action ? { label: row.cta_label || '', action: row.cta_action, url: row.cta_url || undefined } : undefined,
+          };
+        }
+        return SUPPRESS;
+      }
+      throw insertError;
+    }
     nudgeId = (inserted as any)?.id;
   } catch (err: any) {
     console.error('[ai-nudge] failed to persist generated nudge:', err?.message || err);

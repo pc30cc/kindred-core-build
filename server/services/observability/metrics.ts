@@ -16,6 +16,7 @@
 
 import { getServiceClient } from '../../supabase.js';
 import type { ServerConfig } from '../../config.js';
+import { getMonitoringCollector } from './collector/index.js';
 
 export type MetricSource = 'server' | 'widget' | 'operator';
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -122,6 +123,24 @@ export function emitMetric(config: ServerConfig, event: MetricEvent): void {
     }
 
     if (flags.metricsEnabled) {
+      // Dual-write (Live Monitoring migration, step 2/9): the bounded
+      // in-memory collector is fed from the same call site as the raw DB
+      // insert below so it accumulates real production data before any
+      // reader is cut over to it. Never throws — recordRealtimeMetric()
+      // only touches in-memory structures.
+      try {
+        getMonitoringCollector().recordRealtimeMetric({
+          metric: event.metric,
+          workspaceId: event.workspaceId ?? null,
+          conversationId: event.conversationId ?? null,
+          driver: event.driver ?? null,
+          source,
+          tags,
+        });
+      } catch {
+        // Never break the caller.
+      }
+
       try {
         const sb = getServiceClient(config);
         await sb.from('realtime_metric_events').insert({

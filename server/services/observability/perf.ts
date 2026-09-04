@@ -19,6 +19,7 @@ import { performance, monitorEventLoopDelay } from 'node:perf_hooks';
 import type { RequestHandler } from 'express';
 import { getServiceClient } from '../../supabase.js';
 import type { ServerConfig } from '../../config.js';
+import { getMonitoringCollector, startMonitoringCollector, __resetMonitoringCollectorForTests } from './collector/index.js';
 
 export type RouteGroup =
   | 'realtime.operator_connect'
@@ -60,6 +61,22 @@ export function perfHttpMiddleware(routeGroup: RouteGroup): RequestHandler {
       try {
         const dur = Math.max(0, Math.round(performance.now() - start));
         const code = res.statusCode || 0;
+
+        // Dual-write (Live Monitoring migration, step 2/9): feed the
+        // bounded in-memory collector from the same instrumentation point
+        // as the raw DB buffer below, so it accumulates real production
+        // data before any reader is cut over to it.
+        try {
+          getMonitoringCollector().recordRequestSample({
+            routeGroup,
+            method: req.method,
+            statusCode: code,
+            durationMs: dur,
+          });
+        } catch {
+          // Never break the response cycle.
+        }
+
         if (buffer.length >= BUFFER_MAX) {
           // Drop oldest to bound memory; we'd rather lose samples than block.
           buffer.shift();
@@ -93,6 +110,12 @@ async function flushBuffer(config: ServerConfig): Promise<void> {
 }
 
 export function startPerfCollectors(config: ServerConfig): void {
+  // Dual-write (Live Monitoring migration, step 2/9): the collector samples
+  // process metrics directly from the Node runtime on its own 60s cadence,
+  // independent of the legacy sampleProcess()/perf_process_samples path
+  // below — both run side by side until the legacy path is removed.
+  startMonitoringCollector(config);
+
   if (!flushTimer) {
     flushTimer = setInterval(() => {
       void flushBuffer(config);
@@ -142,4 +165,5 @@ export function __stopPerfCollectorsForTests(): void {
     elDelay.disable();
     elDelay = null;
   }
+  __resetMonitoringCollectorForTests();
 }

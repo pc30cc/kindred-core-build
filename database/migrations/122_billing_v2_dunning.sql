@@ -605,8 +605,11 @@ BEGIN
    WHERE workspace_id = v_inv.workspace_id FOR UPDATE;
 
   IF v_sub.id IS NOT NULL AND v_sub.status IN ('active', 'past_due') THEN
+    -- The FROZEN contract decides the deadline, not today's policy.
     v_grace := COALESCE(v_sub.grace_period_ends_at,
-                        now() + make_interval(days => (v_policy->>'grace_period_days')::int));
+                        now() + make_interval(days => COALESCE(
+                          (public.billing_v2_dunning_snapshot(v_inv.id)->>'grace_period_days')::int,
+                          (v_policy->>'grace_period_days')::int)));
     UPDATE public.workspace_subscriptions
        SET status = 'past_due',
            past_due_since = COALESCE(past_due_since, now()),

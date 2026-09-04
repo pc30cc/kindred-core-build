@@ -347,8 +347,9 @@
     "background:#f6f9fd;border-right:1px solid rgba(15,23,42,.06);",
     "border-bottom:1px solid rgba(15,23,42,.06);border-bottom-right-radius:3px;",
     "transform:rotate(45deg);}",
+    ".smart-nudge{font-family:inherit;}",
     ".smart-nudge .smart-title{font-weight:700;font-size:13.5px;line-height:1.6;}",
-    ".smart-nudge .smart-body{color:#475569;white-space:pre-wrap;word-break:break-word;}",
+    ".smart-nudge .smart-body{color:#475569;font-weight:700;white-space:pre-wrap;word-break:break-word;}",
     ".smart-nudge .smart-cta{align-self:flex-start;border:none;cursor:pointer;padding:8px 16px;",
     "border-radius:999px;font:inherit;font-weight:700;font-size:12.5px;color:#fff;margin-top:4px;",
     "background:var(--gs-primary,#3b82f6);box-shadow:0 6px 16px -8px var(--gs-primary,#3b82f6);",
@@ -371,7 +372,11 @@
     "60%{opacity:1;}to{opacity:1;transform:translateY(0) scale(1);}}",
     "@keyframes gs-smart-out{from{opacity:1;transform:translateY(0) scale(1);}",
     "to{opacity:0;transform:translateY(14px) scale(.84);}}",
-    ".anim-on .smart-nudge{animation:gs-smart-in .38s cubic-bezier(.22,1,.36,1) both;}",
+    /* Entry animation is gated on `.entering`, which JS strips once the
+       bubble has landed. A stylesheet that arrives LATER (the template
+       sheet) therefore cannot re-trigger the intro and make the bubble
+       jump down and rise again. */
+    ".anim-on .smart-nudge.entering{animation:gs-smart-in .38s cubic-bezier(.22,1,.36,1) both;}",
     ".anim-on .smart-nudge.leaving{animation:gs-smart-out .24s cubic-bezier(.4,0,1,1) both;}",
     ".smart-nudge.leaving{pointer-events:none;}",
     ".smart-nudge.bottom-right{transform-origin:100% 100%;}",
@@ -988,6 +993,29 @@
       fontsLink.rel = "stylesheet";
       fontsLink.href = url;
       (document.head || document.documentElement).appendChild(fontsLink);
+      // Mirror the presentation font custom property onto the shadow host.
+      // Custom properties normally inherit into the shadow tree, but the
+      // shell's `all:initial` reset makes that fragile across engines — so
+      // the value is copied explicitly (still opaque: the loader never
+      // learns the family name).
+      var syncFontVar = function () {
+        try {
+          var v = getComputedStyle(document.documentElement)
+            .getPropertyValue("--gs-presentation-font");
+          if (!v || !v.trim()) return false;
+          var shell = shadowRoot && shadowRoot.querySelector(".shell");
+          if (!shell) return false;
+          shell.style.setProperty("--gs-presentation-font", v.trim());
+          return true;
+        } catch (_) { return false; }
+      };
+      fontsLink.addEventListener("load", syncFontVar);
+      var syncTries = 0;
+      (function pollFontVar() {
+        if (syncFontVar()) return;
+        if (syncTries++ > 40) return;
+        setTimeout(pollFontVar, 100);
+      })();
     } catch (_) { /* noop */ }
   }
 
@@ -1721,7 +1749,7 @@
       if (!shellContentEl) return false;
       var posClass = configData.position === "bottom-left" ? "bottom-left" : "bottom-right";
       var el = document.createElement("div");
-      el.className = "smart-nudge " + posClass;
+      el.className = "smart-nudge entering " + posClass;
       // Text direction follows the widget locale so RTL copy (fa/ar/he/ur)
       // reads right-aligned and the CTA flows to the correct edge.
       var nudgeLocale = String(
@@ -1731,6 +1759,11 @@
 
       el.innerHTML = surfaceHtml(content, (rule.presentation_config || {}).dismissible);
       shellContentEl.appendChild(el);
+      // Drop the intro class once it has played so a late-arriving template
+      // stylesheet cannot restart the entry animation mid-life.
+      var settle = function () { try { el.classList.remove("entering"); } catch (_) {} };
+      try { el.addEventListener("animationend", settle, { once: true }); } catch (_) {}
+      setTimeout(settle, 480);
       activeSurface = { ruleId: rule.id, el: el };
 
       var dismissBtn = el.querySelector("[data-smart-dismiss]");

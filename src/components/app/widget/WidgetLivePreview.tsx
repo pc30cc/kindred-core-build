@@ -690,7 +690,8 @@ export function WidgetLivePreview({
       var shell = document.querySelector('.shell');
       if (surface.mode === 'launcher_nudge') {
         var nudge = document.createElement('div');
-        nudge.className = 'smart-nudge ' + ${JSON.stringify(pos)};
+        nudge.className = 'smart-nudge entering ' + ${JSON.stringify(pos)};
+        setTimeout(function () { nudge.classList.remove('entering'); }, 480);
         nudge.setAttribute('data-smart-surface', '');
         /* Geometry + direction come from the production stylesheet contract:
            the bubble hangs above the launcher and follows the widget locale. */

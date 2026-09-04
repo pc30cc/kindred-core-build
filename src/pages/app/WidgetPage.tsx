@@ -613,7 +613,54 @@ function WidgetPageContent() {
                         <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
                       )}
                     </div>
+                    {/* Launcher image — stored through the workspace storage provider. */}
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium">{t('widgetPage.appearance.fabImage')}</Label>
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-muted"
+                        >
+                          {(live as any)?.fab_image_url ? (
+                            <img src={(live as any).fab_image_url} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <Palette className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </div>
+                        <input
+                          ref={fabImageInputRef}
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            e.target.value = '';
+                            if (f) uploadFabImage(f);
+                          }}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={fabImageUploading}
+                          onClick={() => fabImageInputRef.current?.click()}
+                        >
+                          {t('widgetPage.appearance.fabImageUpload')}
+                        </Button>
+                        {(live as any)?.fab_image_url && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setField('fab_image_url' as any, null, 0)}
+                          >
+                            {t('widgetPage.appearance.fabImageRemove')}
+                          </Button>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.fabImageHint')}</p>
+                    </div>
                   </div>
+
 
 
                   {/* 6 — Composer placeholder */}

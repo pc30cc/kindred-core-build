@@ -8357,6 +8357,7 @@ export type Database = {
           handoff_until: string
           reason: string | null
           roster: Json
+          roster_complete: boolean
           scope: string
           updated_at: string
         }
@@ -8366,6 +8367,7 @@ export type Database = {
           handoff_until?: string
           reason?: string | null
           roster?: Json
+          roster_complete?: boolean
           scope: string
           updated_at?: string
         }
@@ -8375,6 +8377,7 @@ export type Database = {
           handoff_until?: string
           reason?: string | null
           roster?: Json
+          roster_complete?: boolean
           scope?: string
           updated_at?: string
         }

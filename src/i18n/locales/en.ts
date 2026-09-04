@@ -5662,6 +5662,9 @@ const en = {
       runningDescription: 'This can take a few minutes depending on the size of the site.',
       failedTitle: 'The last audit failed',
       failedCta: 'Retry Audit',
+      cancelledTitle: 'The last audit was cancelled',
+      cancelledDescription: 'You cancelled this audit before it finished. Start a new one whenever you\'re ready.',
+      cancelledCta: 'Start New Audit',
     },
     limits: {
       workspace_concurrency_limit: 'This workspace has reached its concurrent audit limit. Wait for the current audit to finish.',

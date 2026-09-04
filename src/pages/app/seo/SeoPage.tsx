@@ -178,6 +178,19 @@ export default function SeoPage() {
         </Card>
       )}
 
+      {siteId && crawl && crawl.status === 'cancelled' && (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+            <XCircle className="h-10 w-10 text-muted-foreground" />
+            <h3 className="text-lg font-semibold">{t('seo.empty.cancelledTitle')}</h3>
+            <p className="max-w-md text-sm text-muted-foreground">{t('seo.empty.cancelledDescription')}</p>
+            <Button onClick={handleStart} disabled={startCrawl.isPending} className="gap-2">
+              <Radar className="h-4 w-4" /> {t('seo.empty.cancelledCta')}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {siteId && crawl && crawl.status === 'completed' && (
         <SeoDashboard
           workspaceId={workspaceId}

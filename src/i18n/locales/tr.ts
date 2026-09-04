@@ -5650,6 +5650,9 @@ const tr: TranslationKeys = {
       runningDescription: 'Sitenin büyüklüğüne bağlı olarak bu birkaç dakika sürebilir.',
       failedTitle: 'Son denetim başarısız oldu',
       failedCta: 'Tekrar Dene',
+      cancelledTitle: 'Son denetim iptal edildi',
+      cancelledDescription: 'Bu denetimi tamamlanmadan önce iptal ettiniz. Hazır olduğunuzda yeni bir denetim başlatabilirsiniz.',
+      cancelledCta: 'Yeni Denetim Başlat',
     },
     limits: {
       workspace_concurrency_limit: 'Bu çalışma alanı eşzamanlı denetim sınırına ulaştı. Mevcut denetimin bitmesini bekleyin.',

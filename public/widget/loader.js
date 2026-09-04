@@ -209,16 +209,22 @@
     ".launcher.open,.launcher.open:hover{transform:translateY(90px);",
     "opacity:0;pointer-events:none;animation:none;}",
 
-    ".gs-fab-label{position:fixed;z-index:2147483645;display:inline-flex;align-items:center;",
-    "padding:7px 12px;border-radius:999px;font-size:12px;font-weight:600;font-family:inherit;",
-    "box-shadow:0 4px 14px -4px rgba(0,0,0,.25);white-space:nowrap;background:var(--gs-primary,#3B82F6);color:#fff;}",
+    /* ── Text card beside the FAB ──
+       Anchored to the SAME corner as the launcher and moving with it, so it
+       slides down + fades out together when the panel opens. */
+    ".gs-fab-label{position:absolute;bottom:0;z-index:2;display:flex;flex-direction:column;justify-content:center;",
+    "height:calc(var(--gs-fab-size,56px) - 4px);padding:0 16px;border-radius:.9rem;background:#fff;",
+    "box-shadow:0 8px 20px rgba(0,0,0,.12);white-space:nowrap;font-family:inherit;pointer-events:none;",
+    "transition:transform .38s cubic-bezier(.4,0,.2,1),opacity .28s ease;transform:translateY(0);opacity:1;}",
+    ".gs-fab-label .label-title{font-size:13px;font-weight:600;color:#1c2024;line-height:1.3;}",
+    ".gs-fab-label .label-sub{font-size:11px;color:#60646c;line-height:1.3;}",
+    ".gs-fab-label.open{transform:translateY(90px);opacity:0;pointer-events:none;}",
     /* Icon box is derived from the launcher size so chat ⇄ close never differ. */
     ".launcher svg{width:calc(var(--gs-fab-size,56px) * .46);height:calc(var(--gs-fab-size,56px) * .46);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}",
     /* The launcher is the ONLY open/close control: it stays in place while the
        panel is open and simply swaps the chat icon for a close (X) icon. */
     ".launcher.open svg.chat-icon{display:none;}.launcher:not(.open) svg.close-icon{display:none;}",
-    ".launcher.open ~ .gs-fab-label{opacity:0;visibility:hidden;pointer-events:none;}",
-    ".gs-fab-label{transition:opacity .2s ease;}",
+
     ".badge{position:absolute;top:-2px;right:-2px;min-width:18px;height:18px;border-radius:9px;",
     "background:#EF4444;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;",
     "padding:0 5px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.15);}",

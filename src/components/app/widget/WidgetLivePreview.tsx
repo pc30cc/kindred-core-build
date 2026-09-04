@@ -692,8 +692,11 @@ export function WidgetLivePreview({
         var nudge = document.createElement('div');
         nudge.className = 'smart-nudge ' + ${JSON.stringify(pos)};
         nudge.setAttribute('data-smart-surface', '');
-        nudge.style.bottom = ${JSON.stringify(String(fabSize + 40) + 'px')};
+        /* Geometry + direction come from the production stylesheet contract:
+           the bubble hangs above the launcher and follows the widget locale. */
+        nudge.setAttribute('dir', ${JSON.stringify(dir)});
         nudge.innerHTML = inner;
+
         shell.appendChild(nudge);
       } else if (surface.mode === 'announcement') {
         var ann = document.createElement('div');

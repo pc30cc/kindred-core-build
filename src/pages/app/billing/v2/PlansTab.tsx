@@ -119,46 +119,65 @@ export default function PlansTab({
   if (!data) return null;
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-center gap-2">
-        {(['monthly', 'yearly'] as const).map((i) => (
-          <Button key={i} size="sm" variant={interval === i ? 'default' : 'outline'} onClick={() => setInterval_(i)}>
-            {t(`billingV2.plans.${i}` as any)}
-          </Button>
-        ))}
+    <div className="space-y-6">
+      {/* Segmented switch: one control, one visibly selected state. */}
+      <div className="flex justify-center">
+        <div className="inline-flex rounded-full border bg-muted/60 p-1 shadow-sm">
+          {(['monthly', 'yearly'] as const).map((i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setInterval_(i)}
+              className={`rounded-full px-5 py-2 text-sm font-semibold transition-all ${
+                interval === i
+                  ? 'bg-background text-foreground shadow'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {t(`billingV2.plans.${i}` as any)}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid items-stretch gap-5 md:grid-cols-2 xl:grid-cols-3">
         {data.plans.map((plan) => {
           const isCurrent = plan.id === data.currentPlanId && interval === data.currentInterval;
+          const isPending = !isCurrent && plan.id === data.pendingPlanId;
           const price = interval === 'yearly' ? plan.yearlyPriceIrr : plan.monthlyPriceIrr;
           return (
-            <Card key={plan.id} className={isCurrent ? 'border-primary shadow-sm' : ''}>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center justify-between text-base">
-                  {plan.name}
+            <Card
+              key={plan.id}
+              className={`relative flex h-full flex-col overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-lg ${
+                isCurrent ? 'border-2 border-primary shadow-md' : 'border-2 border-border/70'
+              }`}
+            >
+              {isCurrent && (
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-primary/15 to-transparent" aria-hidden />
+              )}
+              <CardHeader className="relative pb-2">
+                <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+                  <span className="text-lg font-bold">{plan.name}</span>
                   {isCurrent && <Badge>{t('billingV2.plans.currentPlan')}</Badge>}
-                  {!isCurrent && plan.id === data.pendingPlanId && (
-                    <Badge variant="outline">{t('billingV2.overview.pendingChange')}</Badge>
-                  )}
+                  {isPending && <Badge variant="outline">{t('billingV2.overview.pendingChange')}</Badge>}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div>
-                  <span className="text-2xl font-bold">
+              <CardContent className="relative flex flex-1 flex-col gap-4">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-3xl font-extrabold tracking-tight tabular-nums">
                     {plan.isFree ? t('billingV2.plans.free') : money(price, locale)}
                   </span>
                   {!plan.isFree && (
-                    <span className="ms-1 text-xs text-muted-foreground">
+                    <span className="text-xs text-muted-foreground">
                       {interval === 'yearly' ? t('billingV2.plans.perYear') : t('billingV2.plans.perMonth')}
                     </span>
                   )}
                 </div>
 
                 {plan.aiMonthlyAllowanceIrr > 0 && (
-                  <div className="rounded-lg bg-muted/60 p-2.5">
-                    <p className="flex items-center gap-1.5 text-xs font-medium">
-                      <Sparkles className="h-3.5 w-3.5 text-primary" />
+                  <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-3">
+                    <p className="flex items-center gap-1.5 text-xs font-semibold">
+                      <Sparkles className="h-3.5 w-3.5 text-violet-600" />
                       {t('billingV2.plans.aiMonthly', { amount: money(plan.aiMonthlyAllowanceIrr, locale) })}
                     </p>
                     {interval === 'yearly' && (
@@ -168,10 +187,10 @@ export default function PlansTab({
                 )}
 
                 {Array.isArray(plan.features) && plan.features.length > 0 && (
-                  <ul className="space-y-1 text-xs text-muted-foreground">
+                  <ul className="space-y-1.5 text-sm text-muted-foreground">
                     {(plan.features as string[]).slice(0, 6).map((f, idx) => (
-                      <li key={idx} className="flex items-start gap-1.5">
-                        <Check className="mt-0.5 h-3 w-3 shrink-0 text-primary" />
+                      <li key={idx} className="flex items-start gap-2">
+                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                         <span>{String(f)}</span>
                       </li>
                     ))}
@@ -179,7 +198,8 @@ export default function PlansTab({
                 )}
 
                 <Button
-                  className="w-full"
+                  size="lg"
+                  className="!mt-auto w-full text-base"
                   variant={isCurrent ? 'outline' : 'default'}
                   disabled={isCurrent || !canManage || busy !== null}
                   onClick={() => choosePlan(plan)}
@@ -192,7 +212,7 @@ export default function PlansTab({
           );
         })}
       </div>
-
     </div>
   );
 }
+

@@ -65,7 +65,17 @@ vi.mock('../../../server/supabase', () => ({ getServiceClient: () => fakeClient 
 // The realtime-first Centrifugo path has its own suite:
 // operatorPresenceRealtime.test.ts
 vi.mock('../../../server/services/realtime/index.js', () => ({
+  // Native database deployment: the CONFIGURED primary is polling, so there
+  // is no realtime→DB transition to protect and no fail-open.
+  loadRealtimeConfig: async () => ({
+    vendor: 'polling_builtin',
+    enabled: true,
+    fallback_policy: 'lenient',
+    fallback_vendor: 'polling_builtin',
+    centrifugo: {},
+  }),
   resolveRealtimeProvider: async () => ({
+
     effective_vendor: 'polling_builtin',
     capabilities: { supportsPresence: false },
     public_config: {},

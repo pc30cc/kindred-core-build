@@ -48,7 +48,7 @@ function useDict() {
 function money(map: Record<string, number> | undefined, intl: string): string {
   const entries = Object.entries(map || {});
   if (entries.length === 0) return '—';
-  return entries.map(([cur, val]) => `${val.toLocaleString(intl)} ${cur}`).join(' · ');
+  return entries.map(([cur, val]) => formatMoney(val, cur, intl)).join(' · ');
 }
 
 export function FinanceOverviewTab() {

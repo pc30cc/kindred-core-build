@@ -1163,7 +1163,7 @@ billingRouter.post('/portal', async (req, res) => {
   if (!resolved) return res.status(400).json({ error: 'No billing config found' });
 
   try {
-    const result = await provider.getPortalUrl(resolved.config, sub.provider_customer_id, returnUrl || '/app/billing');
+    const result = await provider.getPortalUrl(resolved.config, sub.provider_customer_id, returnUrl || (await resolveWorkspaceAppUrl(config, workspaceId, '/billing')));
     res.json(result);
   } catch (e: any) {
     res.status(500).json({ error: e.message });

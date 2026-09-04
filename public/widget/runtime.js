@@ -2632,6 +2632,15 @@
     // first time the card appears — later re-renders (e.g. another store
     // update while it's still on screen) just show the full text.
     var handoffPrechatSubtitleAnimated = false;
+    // Pre-chat form draft. A re-render can be triggered by any unrelated
+    // store update (presence, transport, smart engagement) while the visitor
+    // is typing or while the submit request is in flight — without this the
+    // freshly painted form comes back with EMPTY inputs. The draft is the
+    // single source of truth for the field values until the visitor is
+    // identified.
+    var prechatDraft = { name: '', email: '', phone: '' };
+    var prechatSubmitting = false;
+
 
     // ─── Chat auto-scroll ───
     // The message list must follow new content (operator/AI replies, streamed

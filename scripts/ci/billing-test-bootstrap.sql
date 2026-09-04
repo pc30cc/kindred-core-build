@@ -9,6 +9,14 @@
 -- migration, and it is never applied to any real database.
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+CREATE SCHEMA IF NOT EXISTS auth;
+CREATE TABLE IF NOT EXISTS auth.users (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email text,
+  phone text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS public.profiles (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   email       text,

@@ -115,6 +115,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/100_generic_verification_admin_settings_hardening.sql',
     hosted: 'supabase/migrations/20260904000000_generic_verification_admin_settings_hardening.sql',
   },
+  {
+    label: '108 — SEO / Website Audit core schema (generic job queue + seo_* tables)',
+    selfHost: 'database/migrations/121_seo_audit_core.sql',
+    hosted: 'supabase/migrations/20260906000000_seo_audit_core.sql',
+  },
 
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered

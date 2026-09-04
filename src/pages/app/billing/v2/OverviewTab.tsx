@@ -252,9 +252,10 @@ export default function OverviewTab({
         </p>
       )}
 
-      {/* ── Next service invoice ─────────────────────────────────────── */}
-      {/* The colour ramp is the SERVER's escalation stage, never a local date
-          comparison: calm → first reminders → last reminder → past due. */}
+      {/* ── Next due date ────────────────────────────────────────────── */}
+      {/* Nothing is rendered until a real service invoice exists — a
+          workspace with no plan has no due date to show. */}
+      {upcomingInvoice && (
       <Card className={STAGE_CARD[alertStage]}>
         <CardHeader className="pb-3">
           <CardTitle className="flex flex-wrap items-center gap-2 text-base">

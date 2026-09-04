@@ -48,6 +48,7 @@ import {
   computeOperatorState,
   recordOperatorPresenceBeat,
 } from '../services/widget/operatorPresence.js';
+import { shouldWriteFallbackPresence } from '../services/widget/operatorPresenceSource.js';
 
 export const operatorActivityRouter = Router();
 
@@ -100,16 +101,21 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
     const bucket = floorToBucket(now);
     const memoKey = `${workspaceId}:${auth.userId}`;
 
-    // LIVE PRESENCE — always refreshed, on every beat. Single-row UPSERT in
-    // `operator_presence_live` (no history growth). This, not the analytics
-    // sample below, is what listWorkspacePresence() reads for liveness.
-    await recordOperatorPresenceBeat(config, workspaceId, auth.userId, now);
+    // LIVE PRESENCE — realtime-first. When Centrifugo presence is the active
+    // source (healthy + presence_enabled), channel membership already carries
+    // liveness and this beat performs ZERO PostgreSQL writes. Only in
+    // database-fallback mode (polling/disabled/Supabase, or Centrifugo
+    // presence unreadable) do we refresh the `operator_presence_live` lease.
+    const fallbackPresence = await shouldWriteFallbackPresence(config, now.getTime());
+    if (fallbackPresence) {
+      await recordOperatorPresenceBeat(config, workspaceId, auth.userId, now);
+    }
 
     // ANALYTICS — already recorded this bucket in this process, so no sample
     // write at all. Safe: live presence was just refreshed above, so skipping
     // the analytics row cannot change anyone's online state.
     if (lastWrittenBucket.get(memoKey) === bucket) {
-      return res.json({ ok: true, state: 'skipped', bucket });
+      return res.json({ ok: true, state: 'skipped', bucket, presence_mode: fallbackPresence ? 'database' : 'realtime' });
     }
 
     const { data: prefs } = await sb
@@ -139,7 +145,7 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
 
     void pruneOldSamples(sb);
 
-    return res.json({ ok: true, state });
+    return res.json({ ok: true, state, presence_mode: fallbackPresence ? 'database' : 'realtime' });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'Heartbeat failed' });
   }

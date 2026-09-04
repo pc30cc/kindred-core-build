@@ -61,6 +61,19 @@ const fakeClient = { from: (t: string) => makeQuery(t), rpc: async () => ({ data
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeClient }));
 vi.mock('../../../server/supabase', () => ({ getServiceClient: () => fakeClient }));
 
+// This suite pins the DATABASE FALLBACK path (polling/disabled providers).
+// The realtime-first Centrifugo path has its own suite:
+// operatorPresenceRealtime.test.ts
+vi.mock('../../../server/services/realtime/index.js', () => ({
+  resolveRealtimeProvider: async () => ({
+    effective_vendor: 'polling_builtin',
+    capabilities: { supportsPresence: false },
+    public_config: {},
+    health: { status: 'healthy' },
+  }),
+  getCentrifugoDriver: async () => null,
+}));
+
 import {
   listWorkspacePresence,
   anyOperatorOnline,
@@ -69,6 +82,7 @@ import {
   PRESENCE_LIVENESS_MS,
 } from '../../../server/services/widget/operatorPresence';
 import { floorToBucket, BUCKET_MINUTES } from '../../../server/routes/operatorActivity';
+import { resetPresenceSourceCache } from '../../../server/services/widget/operatorPresenceSource';
 
 const WS = 'ws-1';
 const USER = 'user-1';
@@ -96,6 +110,7 @@ function reset(prefs?: Row | null) {
   insertCount = 0;
   presenceWrites = 0;
   lastBucket.clear();
+  resetPresenceSourceCache();
   db.workspace_members = [{ workspace_id: WS, user_id: USER }];
   db.profiles = [{ id: USER, full_name: 'Op', email: 'op@x.io', avatar_url: null }];
   db.user_availability_prefs = prefs ? [prefs] : [];

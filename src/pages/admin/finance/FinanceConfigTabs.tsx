@@ -502,7 +502,7 @@ export function TaxCouponsTab() {
                     <TableCell>
                       {c.discount_type === 'percent'
                         ? `${c.percent_off}%`
-                        : `${c.amount_off_minor?.toLocaleString(locale === 'fa' ? 'fa-IR' : locale)} ${c.currency || ''}`}
+                        : formatMoney(c.amount_off_minor ?? 0, c.currency, locale === 'fa' ? 'fa-IR' : locale)}
                     </TableCell>
                     <TableCell>{c.redeemed_count}{c.max_redemptions ? ` / ${c.max_redemptions}` : ''}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">

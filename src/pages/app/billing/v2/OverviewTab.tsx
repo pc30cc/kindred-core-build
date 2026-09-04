@@ -19,6 +19,21 @@ import { useTranslation } from '@/i18n';
 import type { BillingOverview } from '@/lib/billingV2Api';
 import { billingDate, money, InvoiceStatusBadge } from './shared';
 
+/** Escalation ramp for the next service invoice — index is the server stage. */
+const STAGE_CARD: Record<number, string> = {
+  0: '',
+  1: 'border-2 border-amber-400/60 bg-amber-50/60 dark:bg-amber-500/5',
+  2: 'border-2 border-orange-500/70 bg-orange-50/70 dark:bg-orange-500/10',
+  3: 'border-2 border-destructive/70 bg-destructive/5',
+};
+const STAGE_ICON: Record<number, string> = {
+  0: 'text-primary',
+  1: 'text-amber-600',
+  2: 'text-orange-600',
+  3: 'text-destructive',
+};
+
+
 export default function OverviewTab({
   overview,
   onPayInvoice,

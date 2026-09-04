@@ -271,22 +271,47 @@ async function resolvePresenceState(
   let mode: PresenceMode = 'database';
   let realtimeFailure = false;
   try {
+    // The CONFIGURED primary is the only thing that can tell a realtime
+    // failure apart from native database mode. `effective_vendor` cannot:
+    // under the lenient fallback policy a broken Centrifugo resolves to
+    // `polling_builtin` / source='fallback', which is byte-identical to a
+    // deployment that genuinely runs polling.
+    const cfg = await loadRealtimeConfig(config);
+    const expectsCentrifugoPresence =
+      cfg.enabled === true &&
+      cfg.vendor === 'centrifugo' &&
+      cfg.centrifugo?.presence_enabled === true;
+
     const resolved = await resolveRealtimeProvider(config);
-    const centrifugoPrimary =
+    const realtimeUsable =
       resolved.effective_vendor === 'centrifugo' &&
       resolved.capabilities.supportsPresence &&
-      resolved.public_config.presence_enabled === true;
-    if (centrifugoPrimary && resolved.health.status !== 'down') mode = 'realtime';
-    else if (centrifugoPrimary) realtimeFailure = true;
+      resolved.public_config.presence_enabled === true &&
+      resolved.health.status !== 'down';
+
+    if (expectsCentrifugoPresence && realtimeUsable) {
+      mode = 'realtime';
+    } else if (expectsCentrifugoPresence) {
+      // Configured for realtime presence but the resolver degraded it:
+      // source='fallback' (lenient) or 'failed_closed' (strict), or the
+      // vendor is still Centrifugo but health is down. Either way this is a
+      // realtime→database TRANSITION, not native DB mode.
+      realtimeFailure = true;
+    }
+    // expectsCentrifugoPresence === false ⇒ native database semantics
+    // (polling, Supabase without presence, realtime disabled, or Centrifugo
+    // with presence_enabled=false). The lease has always been written, so
+    // there is nothing to fail open for.
   } catch {
-    // Resolver itself failed: we cannot prove realtime is primary, but we
-    // also cannot prove it is not. Treat it as a realtime failure so the
+    // Resolver/config itself failed: we cannot prove realtime is primary, but
+    // we also cannot prove it is not. Treat it as a realtime failure so the
     // transition handoff protects operators.
     realtimeFailure = true;
   }
   modeState = { mode, realtimeFailure, checkedAt: now };
   return modeState;
 }
+
 
 /**
  * Resolve which presence backend is authoritative right now. Cached for a

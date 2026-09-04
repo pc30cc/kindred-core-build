@@ -224,16 +224,8 @@ export default function PlansTab({
                   </div>
                 )}
 
-                {Array.isArray(plan.features) && plan.features.length > 0 && (
-                  <ul className="space-y-1.5 text-sm text-muted-foreground">
-                    {(plan.features as string[]).slice(0, 6).map((f, idx) => (
-                      <li key={idx} className="flex items-start gap-2">
-                        <Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: `hsl(var(--plan-accent))` }} />
-                        <span>{String(f)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                <PlanFeatureList plan={plan} accentVar="--plan-accent" />
+
 
                 <Button
                   size="lg"
@@ -259,3 +251,111 @@ export default function PlansTab({
   );
 }
 
+
+/** Ordered caps we surface on a plan card — plain, countable promises first. */
+const CAP_KEYS = [
+  'max_agents',
+  'max_conversations',
+  'max_visitors',
+  'max_contacts',
+  'max_kb_articles',
+  'storage_gb',
+  'max_call_minutes_per_month',
+  'max_widget_domains',
+  'data_retention_days',
+] as const;
+
+/** Ordered capability flags. Only the ones the plan actually grants are shown. */
+const FEATURE_KEYS = [
+  'chat_widget',
+  'omnichannel',
+  'telegram',
+  'whatsapp',
+  'instagram',
+  'email',
+  'sms',
+  'bale',
+  'ai_assistant',
+  'advanced_ai_agent',
+  'ai_kb_builder',
+  'ai_operator_assist',
+  'knowledge_base',
+  'help_center',
+  'call_center',
+  'call_recording',
+  'call_queue',
+  'voice_video',
+  'visitor_tracking',
+  'contacts',
+  'widget_smart_engagement',
+  'automation',
+  'analytics',
+  'api_access',
+  'audit_logs',
+  'sso',
+  'custom_branding',
+  'white_label',
+  'remove_powered_by',
+  'priority_support',
+] as const;
+
+/**
+ * Every plan — free included — gets a readable "what you actually get" list,
+ * built from the same limits/entitlements the platform enforces at runtime, so
+ * the card can never promise something the plan does not grant.
+ */
+function PlanFeatureList({ plan, accentVar }: { plan: PlanCard; accentVar: string }) {
+  const { t, locale } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+
+  const limits = (plan.limits || {}) as Record<string, unknown>;
+  const ents = (plan.entitlements || {}) as Record<string, unknown>;
+  const nf = new Intl.NumberFormat(locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US');
+
+  const items: string[] = [];
+  for (const key of CAP_KEYS) {
+    const raw = Number(limits[key]);
+    if (!Number.isFinite(raw) || raw === 0) continue;
+    const value = raw < 0 ? t('billingV2.plans.unlimited') : nf.format(raw);
+    items.push(t(`billingV2.plans.cap.${key}` as any, { value }));
+  }
+  for (const key of FEATURE_KEYS) {
+    if (ents[key] !== true) continue;
+    items.push(t(`billingV2.plans.feat.${key}` as any));
+  }
+  // Legacy free-text features, if an admin ever set them.
+  if (Array.isArray(plan.features)) {
+    for (const f of plan.features as unknown[]) if (typeof f === 'string' && f.trim()) items.push(f.trim());
+  }
+
+  if (items.length === 0) return null;
+  const shown = expanded ? items : items.slice(0, 7);
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {t('billingV2.plans.includedTitle')}
+      </p>
+      <ul className="space-y-1.5 text-sm text-foreground/80">
+        {shown.map((label, idx) => (
+          <li key={idx} className="flex items-start gap-2">
+            <Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: `hsl(var(${accentVar}))` }} />
+            <span>{label}</span>
+          </li>
+        ))}
+      </ul>
+      {items.length > 7 && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="text-xs font-semibold hover:underline"
+          style={{ color: `hsl(var(${accentVar}))` }}
+        >
+          {expanded
+            ? t('billingV2.plans.showLess')
+            : `${t('billingV2.plans.showAll')} (${items.length - 7}+)`}
+        </button>
+      )}
+    </div>
+  );
+}

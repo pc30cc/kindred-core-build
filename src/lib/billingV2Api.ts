@@ -173,6 +173,7 @@ export interface PlanCard {
   /** Monthly AI allowance — for a yearly contract this is still per month. */
   aiMonthlyAllowanceIrr: number;
   limits: Record<string, unknown>;
+  entitlements: Record<string, unknown>;
   features: unknown;
   isFree: boolean;
 }

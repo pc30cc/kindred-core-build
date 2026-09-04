@@ -395,6 +395,7 @@ billingV2CustomerRouter.get('/workspaces/:workspaceId/plans', async (req, res) =
         yearlyPriceIrr: Math.round(Number(p.prices?.IRR?.yearly ?? p.price_yearly ?? 0)) || 0,
         aiMonthlyAllowanceIrr: Math.round(Number(p.limits?.ai_credits_per_month ?? 0)) || 0,
         limits: p.limits ?? {},
+        entitlements: p.entitlements ?? {},
         features: p.features ?? [],
         isFree:
           Number(p.prices?.IRR?.monthly ?? p.price_monthly ?? 0) <= 0 &&

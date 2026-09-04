@@ -19,6 +19,7 @@
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { getConnectedOperators } from './operatorPresenceSource.js';
 
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
 type DayKey = (typeof DAY_KEYS)[number];
@@ -124,31 +125,29 @@ export function computeOperatorState(
 }
 
 /**
- * LIVE PRESENCE SOURCE OF TRUTH — `operator_presence_live`.
+ * LIVE PRESENCE — resolved through the presence provider abstraction in
+ * `operatorPresenceSource.ts`:
  *
- * One row per (workspace, user), UPSERTed by the operator panel heartbeat
- * (POST /api/operator-activity/heartbeat, every 2 minutes while the tab is
- * OPEN AND VISIBLE). The row never grows history, so this is cheap and
- * shared across replicas (no process-local presence state).
+ *   • PRIMARY: Centrifugo presence on the operator-only channel
+ *     `ws:{workspace_id}:operators`. The operator panel subscribes while its
+ *     tab is VISIBLE and unsubscribes when it is hidden or closed, so channel
+ *     membership is the live signal. Multiple tabs of one operator collapse
+ *     into a single presence user. ZERO PostgreSQL writes in this mode.
  *
- * `operator_activity_samples` is ANALYTICS ONLY (5-minute buckets, one row
- * per bucket) and must never be read as a liveness signal: its bucket
- * timestamp is floored, so between bucket writes a continuously connected
- * operator would age out of the liveness window and flicker to
- * `not_connected`.
+ *   • FALLBACK: the `operator_presence_live` lease table, refreshed by the
+ *     2-minute heartbeat, used for polling/disabled/Supabase providers and
+ *     whenever Centrifugo presence is unreadable.
  *
- * Liveness window = 2× the 2-minute heartbeat + 1 minute of skew/jitter.
- * A closed tab, a logout, or a hidden tab (heartbeats stop while hidden —
- * "available when using the app" semantics) therefore goes offline within
- * ~5 minutes.
+ * `operator_activity_samples` is ANALYTICS ONLY and is never read here: its
+ * bucket timestamp is floored to 5 minutes, so a continuously connected
+ * operator would flicker to `not_connected` between bucket writes.
  */
-export const PRESENCE_HEARTBEAT_MS = 120_000;
-export const PRESENCE_LIVENESS_MS = 5 * 60 * 1000;
+export { PRESENCE_HEARTBEAT_MS, PRESENCE_LIVENESS_MS } from './operatorPresenceSource.js';
 
 /**
- * Records a live-presence beat. Single-row UPSERT; no history, no per-beat
- * row growth. Called from the heartbeat route on EVERY beat (unlike the
- * analytics sample, which is written at most once per 5-minute bucket).
+ * Records a fallback live-presence lease beat. Single-row UPSERT; no history.
+ * Called from the heartbeat route ONLY when the presence provider is in
+ * database-fallback mode (see `shouldWriteFallbackPresence`).
  */
 export async function recordOperatorPresenceBeat(
   config: ServerConfig,
@@ -164,7 +163,7 @@ export async function recordOperatorPresenceBeat(
       { workspace_id: workspaceId, user_id: userId, last_seen_at: iso, updated_at: iso },
       { onConflict: 'workspace_id,user_id' },
     );
-  if (error) console.warn('[presence] live beat write failed:', error.message);
+  if (error) console.warn('[presence] fallback lease write failed:', error.message);
 }
 
 export async function listWorkspacePresence(
@@ -201,24 +200,13 @@ export async function listWorkspacePresence(
     profileById.set(p.id, { full_name: p.full_name ?? null, email: p.email ?? null, avatar_url: p.avatar_url ?? null });
   }
 
-  // Liveness: prefs say "may be online", the live presence row says
-  // "actually connected right now". Without this, a member who never opens
-  // the panel (or has no prefs row at all) would render as online forever.
-  const liveSince = new Date(now.getTime() - PRESENCE_LIVENESS_MS).toISOString();
-  const connected = new Set<string>();
-  const lastSeenById = new Map<string, string>();
-  const { data: beats } = await sb
-    .from('operator_presence_live')
-    .select('user_id, last_seen_at')
-    .eq('workspace_id', workspaceId)
-    .in('user_id', ids)
-    .gte('last_seen_at', liveSince);
-  for (const b of (beats || []) as any[]) {
-    connected.add(b.user_id);
-    const prev = lastSeenById.get(b.user_id);
-    if (!prev || prev < b.last_seen_at) lastSeenById.set(b.user_id, b.last_seen_at);
-  }
-
+  // Liveness: prefs say "may be online", the presence provider says
+  // "actually connected right now" (Centrifugo channel membership, or the
+  // DB lease in fallback mode). Without this, a member who never opens the
+  // panel (or has no prefs row at all) would render as online forever.
+  const snapshot = await getConnectedOperators(config, workspaceId, ids, now);
+  const connected = snapshot.connected;
+  const lastSeenById = snapshot.lastSeen;
 
   return ids.map((id: string) => {
     const computed = computeOperatorState(byUser.get(id) || null, now);

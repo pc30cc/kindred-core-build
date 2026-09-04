@@ -313,10 +313,25 @@ CREATE OR REPLACE FUNCTION public.billing_v2_invoice_notification_sync()
 RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
+DECLARE v_res JSONB;
 BEGIN
   IF NEW.status IS DISTINCT FROM OLD.status
      AND NEW.status IN ('paid', 'void', 'expired') THEN
     PERFORM public.billing_v2_cancel_invoice_notifications(NEW.id, 'invoice_' || NEW.status);
+  END IF;
+
+  -- Recovery is path-independent: wallet auto-pay, a gateway callback or an
+  -- operator marking the invoice paid all reach the same deterministic exit
+  -- from dunning. Idempotent, and a no-op once the workspace fell back.
+  IF NEW.status = 'paid' AND OLD.status IS DISTINCT FROM 'paid' THEN
+    v_res := public.billing_v2_restore_subscription(NEW.workspace_id);
+    IF v_res->>'skipped' = 'already_free_fallback' THEN
+      -- Money after fallback is never a silent rollback to the paid plan; it
+      -- is recorded so a human (or Phase F) can decide what it buys.
+      INSERT INTO public.billing_v2_audit (workspace_id, event, reason, details)
+      VALUES (NEW.workspace_id, 'payment_after_free_fallback', 'no_auto_revival',
+              jsonb_build_object('invoice_id', NEW.id, 'amount_irr', NEW.amount_paid_irr));
+    END IF;
   END IF;
   RETURN NEW;
 END;

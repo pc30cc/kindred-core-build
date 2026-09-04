@@ -3158,7 +3158,7 @@ const en = {
       tabs: { metrics: 'Metrics', performance: 'Performance', alerts: 'Alerts', autoActions: 'Auto-actions', realtimeControl: 'Realtime control', reliability: 'SLA and health', enforcement: 'Enforcement' },
       ranges: { hour: 'Last hour', day: '24 hours', week: '7 days' },
       metrics: { counters: 'Metric counters ({{range}})', loadFailed: 'Failed to load summary.', emptyRange: 'No events recorded in this range.', filtered: 'Filtered', recentEvents: 'Recent events', clearFilter: 'Clear filter', metric: 'Metric', driver: 'Driver', source: 'Source', tags: 'Tags', noEvents: 'No events.' },
-      performance: { runRollup: 'Run rollup', endpointLatency: 'Endpoint latency ({{range}})', empty: 'No instrumented requests recorded in this range.', count: 'Count', max: 'Maximum', errors: 'Errors', processMetrics: 'Process metrics (latest sample)', noSamples: 'No process samples yet (sampled every 60 seconds).', heapUsed: 'Heap used', duration: '{{hours}}h {{minutes}}m', sampleCount: '{{count}} samples in the selected range.' },
+      performance: { endpointLatency: 'Endpoint latency ({{range}})', empty: 'No instrumented requests recorded in this range.', count: 'Count', max: 'Maximum', errors: 'Errors', processMetrics: 'Process metrics (latest sample)', noSamples: 'No process samples yet (sampled every 60 seconds).', heapUsed: 'Heap used', duration: '{{hours}}h {{minutes}}m', sampleCount: '{{count}} samples in the selected range.' },
       alerts: {
         title: "Alert rules and events",
         evaluateNow: "Evaluate now",

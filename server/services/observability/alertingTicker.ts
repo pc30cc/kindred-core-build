@@ -6,6 +6,9 @@
 import type { ServerConfig } from '../../config.js';
 import { runAlertCycle } from './alerting.js';
 import { emitLog } from './metrics.js';
+import { acquireTickerLease, releaseTickerLease } from './tickerLease.js';
+
+const LEASE_NAME = 'alerting';
 
 const TICK_MS = 60 * 1000; // 60s
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -19,6 +22,15 @@ export function startAlertingTicker(config: ServerConfig): void {
 }
 
 async function runOnce(config: ServerConfig): Promise<void> {
+  let leased = false;
+  try {
+    leased = await acquireTickerLease(config, LEASE_NAME);
+  } catch (err: any) {
+    emitLog(config, 'warn', 'alert_ticker_lease_unavailable', { error: err?.message || 'unknown' });
+    return; // fail-closed: skip this cycle rather than risk double-evaluating across replicas
+  }
+  if (!leased) return; // another replica already owns this cycle
+
   try {
     const r = await runAlertCycle(config);
     if (r.state_changes > 0) {
@@ -29,6 +41,8 @@ async function runOnce(config: ServerConfig): Promise<void> {
     }
   } catch (err: any) {
     emitLog(config, 'warn', 'alert_cycle_threw', { error: err?.message || 'unknown' });
+  } finally {
+    await releaseTickerLease(config, LEASE_NAME);
   }
 }
 

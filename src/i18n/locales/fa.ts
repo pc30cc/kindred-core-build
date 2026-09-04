@@ -3146,7 +3146,7 @@ const fa: TranslationKeys = {
       tabs: { metrics: 'معیارها', performance: 'کارایی', alerts: 'هشدارها', autoActions: 'عملیات خودکار', realtimeControl: 'کنترل بلادرنگ', reliability: 'SLA و سلامت', enforcement: 'اعمال سیاست' },
       ranges: { hour: 'یک ساعت اخیر', day: '۲۴ ساعت', week: '۷ روز' },
       metrics: { counters: 'شمارنده‌های معیار ({{range}})', loadFailed: 'بارگذاری خلاصه ناموفق بود.', emptyRange: 'در این بازه رخدادی ثبت نشده است.', filtered: 'فیلترشده', recentEvents: 'رخدادهای اخیر', clearFilter: 'پاک کردن فیلتر', metric: 'معیار', driver: 'درایور', source: 'منبع', tags: 'برچسب‌ها', noEvents: 'رخدادی وجود ندارد.' },
-      performance: { runRollup: 'اجرای تجمیع', endpointLatency: 'تأخیر نقاط پایانی ({{range}})', empty: 'در این بازه درخواست ابزاربندی‌شده‌ای ثبت نشده است.', count: 'تعداد', max: 'بیشترین', errors: 'خطاها', processMetrics: 'معیارهای پردازش (آخرین نمونه)', noSamples: 'هنوز نمونه‌ای ثبت نشده است (نمونه‌برداری هر ۶۰ ثانیه).', heapUsed: 'حافظه Heap مصرف‌شده', duration: '{{hours}} ساعت و {{minutes}} دقیقه', sampleCount: '{{count}} نمونه در بازه انتخاب‌شده.' },
+      performance: { endpointLatency: 'تأخیر نقاط پایانی ({{range}})', empty: 'در این بازه درخواست ابزاربندی‌شده‌ای ثبت نشده است.', count: 'تعداد', max: 'بیشترین', errors: 'خطاها', processMetrics: 'معیارهای پردازش (آخرین نمونه)', noSamples: 'هنوز نمونه‌ای ثبت نشده است (نمونه‌برداری هر ۶۰ ثانیه).', heapUsed: 'حافظه Heap مصرف‌شده', duration: '{{hours}} ساعت و {{minutes}} دقیقه', sampleCount: '{{count}} نمونه در بازه انتخاب‌شده.' },
       alerts: {
         title: "قوانین و رخدادهای هشدار",
         evaluateNow: "ارزیابی اکنون",

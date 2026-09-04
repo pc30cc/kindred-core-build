@@ -3150,7 +3150,7 @@ const tr: TranslationKeys = {
       tabs: { metrics: 'Metrikler', performance: 'Performans', alerts: 'Uyarılar', autoActions: 'Otomatik işlemler', realtimeControl: 'Gerçek zamanlı kontrol', reliability: 'SLA ve sağlık', enforcement: 'Yaptırım' },
       ranges: { hour: 'Son saat', day: '24 saat', week: '7 gün' },
       metrics: { counters: 'Metrik sayaçları ({{range}})', loadFailed: 'Özet yüklenemedi.', emptyRange: 'Bu aralıkta olay kaydedilmedi.', filtered: 'Filtrelendi', recentEvents: 'Son olaylar', clearFilter: 'Filtreyi temizle', metric: 'Metrik', driver: 'Sürücü', source: 'Kaynak', tags: 'Etiketler', noEvents: 'Olay yok.' },
-      performance: { runRollup: 'Toplamayı çalıştır', endpointLatency: 'Uç nokta gecikmesi ({{range}})', empty: 'Bu aralıkta ölçümlenmiş istek kaydedilmedi.', count: 'Sayı', max: 'En yüksek', errors: 'Hatalar', processMetrics: 'İşlem metrikleri (son örnek)', noSamples: 'Henüz işlem örneği yok (her 60 saniyede örneklenir).', heapUsed: 'Kullanılan heap', duration: '{{hours}} sa {{minutes}} dk', sampleCount: 'Seçilen aralıkta {{count}} örnek.' },
+      performance: { endpointLatency: 'Uç nokta gecikmesi ({{range}})', empty: 'Bu aralıkta ölçümlenmiş istek kaydedilmedi.', count: 'Sayı', max: 'En yüksek', errors: 'Hatalar', processMetrics: 'İşlem metrikleri (son örnek)', noSamples: 'Henüz işlem örneği yok (her 60 saniyede örneklenir).', heapUsed: 'Kullanılan heap', duration: '{{hours}} sa {{minutes}} dk', sampleCount: 'Seçilen aralıkta {{count}} örnek.' },
       alerts: {
         title: "Uyarı kuralları ve olayları",
         evaluateNow: "Şimdi değerlendir",

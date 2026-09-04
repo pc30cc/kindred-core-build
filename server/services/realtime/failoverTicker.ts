@@ -25,14 +25,28 @@ import {
 import { decideFailover } from './failoverEngine.js';
 import { invalidatePublisherCache } from './resolvePublisher.js';
 import { emitLog } from '../observability/metrics.js';
+import { acquireTickerLease, releaseTickerLease } from '../observability/tickerLease.js';
 
 const TICK_MS = 30_000;
+const LEASE_NAME = 'failover_health';
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 
 export async function runFailoverTickOnce(config: ServerConfig): Promise<void> {
   if (running) return;
   running = true;
+  let leased = false;
+  try {
+    leased = await acquireTickerLease(config, LEASE_NAME);
+  } catch (err: any) {
+    emitLog(config, 'warn', 'failover_ticker_lease_unavailable', { error: err?.message || 'unknown' });
+    running = false;
+    return; // fail-closed: skip this cycle rather than risk conflicting failover decisions across replicas
+  }
+  if (!leased) {
+    running = false;
+    return; // another replica already owns this cycle
+  }
   try {
     const [policy, prev] = await Promise.all([
       loadControlPlane(config, false),
@@ -86,6 +100,7 @@ export async function runFailoverTickOnce(config: ServerConfig): Promise<void> {
     });
   } finally {
     running = false;
+    await releaseTickerLease(config, LEASE_NAME);
   }
 }
 

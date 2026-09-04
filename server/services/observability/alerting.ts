@@ -23,6 +23,7 @@ import { createHmac, randomUUID } from 'node:crypto';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { emitLog } from './metrics.js';
+import { evaluateAlertRulesInMemory } from './alertEvaluator.js';
 
 export interface AlertEngineFlags {
   alertingEnabled: boolean;
@@ -96,7 +97,6 @@ export async function runAlertCycle(config: ServerConfig): Promise<EvaluateResul
     return { evaluated: 0, state_changes: 0, ran_at: new Date().toISOString() };
   }
 
-  const sb = getServiceClient(config);
   let result: EvaluateResult = {
     evaluated: 0,
     state_changes: 0,
@@ -104,17 +104,7 @@ export async function runAlertCycle(config: ServerConfig): Promise<EvaluateResul
   };
 
   try {
-    const { data, error } = await sb.rpc('evaluate_alert_rules');
-    if (error) {
-      emitLog(config, 'warn', 'alert_evaluator_failed', { error: error.message });
-    } else if (data && typeof data === 'object') {
-      const d = data as Record<string, unknown>;
-      result = {
-        evaluated: Number(d.evaluated || 0),
-        state_changes: Number(d.state_changes || 0),
-        ran_at: String(d.ran_at || result.ran_at),
-      };
-    }
+    result = await evaluateAlertRulesInMemory(config);
   } catch (err: any) {
     emitLog(config, 'warn', 'alert_evaluator_threw', { error: err?.message || 'unknown' });
   }

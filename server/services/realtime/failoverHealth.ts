@@ -31,12 +31,12 @@
  */
 
 import type { ServerConfig } from '../../config.js';
-import { getServiceClient } from '../../supabase.js';
 import {
   getCentrifugoDriver,
   loadRealtimeConfig,
 } from './index.js';
 import type { RealtimeProviderId, RealtimeFailoverPolicy } from './controlPlane.js';
+import { getMonitoringCollector } from '../observability/collector/index.js';
 
 export type ProviderHealthStatus =
   | 'healthy'
@@ -80,12 +80,6 @@ const REALTIME_PERF_ROUTE_GROUPS = [
   'realtime.operator_connect',
   'realtime.subscribe',
 ];
-
-function percentileFromSorted(sorted: number[], p: number): number | null {
-  if (sorted.length === 0) return null;
-  const idx = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
-  return sorted[idx];
-}
 
 /**
  * Classify a provider's health from its observed error rate + p95 latency
@@ -132,27 +126,25 @@ function classify(
   return { status: 'healthy', reason: 'within thresholds' };
 }
 
-async function fetchRealtimeMetricRates(
-  config: ServerConfig,
+function windowSecondsFromSince(sinceIso: string): number {
+  return Math.max(1, Math.round((Date.now() - new Date(sinceIso).getTime()) / 1000));
+}
+
+function fetchRealtimeMetricRates(
   driver: 'centrifugo' | 'supabase' | null,
   sinceIso: string,
-): Promise<{ errors: number; total: number }> {
+): { errors: number; total: number } {
   try {
-    const sb = getServiceClient(config);
-    let q = sb
-      .from('realtime_metric_events')
-      .select('metric, driver')
-      .gte('occurred_at', sinceIso)
-      .limit(5_000);
-    if (driver) q = q.eq('driver', driver);
-    const { data, error } = await q;
-    if (error || !data) return { errors: 0, total: 0 };
+    const collector = getMonitoringCollector();
+    const windowSeconds = windowSecondsFromSince(sinceIso);
     let errors = 0;
     let total = 0;
-    for (const row of data) {
-      const m = String(row.metric || '');
-      if (REALTIME_TOTAL_METRICS.has(m)) total += 1;
-      if (REALTIME_ERROR_METRICS.has(m)) errors += 1;
+    for (const metric of REALTIME_TOTAL_METRICS) {
+      const count = driver
+        ? collector.queryRealtimeCountByDriver(metric, driver, windowSeconds)
+        : collector.queryRealtimeCount(metric, windowSeconds);
+      total += count;
+      if (REALTIME_ERROR_METRICS.has(metric)) errors += count;
     }
     return { errors, total };
   } catch {
@@ -160,22 +152,10 @@ async function fetchRealtimeMetricRates(
   }
 }
 
-async function fetchRealtimeP95(
-  config: ServerConfig,
-  sinceIso: string,
-): Promise<{ p95: number | null; sample: number }> {
+function fetchRealtimeP95(sinceIso: string): { p95: number | null; sample: number } {
   try {
-    const sb = getServiceClient(config);
-    const { data, error } = await (sb.from as any)('perf_request_samples')
-      .select('duration_ms, route_group')
-      .in('route_group', REALTIME_PERF_ROUTE_GROUPS)
-      .gte('occurred_at', sinceIso)
-      .limit(5_000);
-    if (error || !data) return { p95: null, sample: 0 };
-    const durations = (data as Array<{ duration_ms: number }>)
-      .map((r) => Number(r.duration_ms) || 0)
-      .sort((a, b) => a - b);
-    return { p95: percentileFromSorted(durations, 95), sample: durations.length };
+    const windowSeconds = windowSecondsFromSince(sinceIso);
+    return getMonitoringCollector().queryPerfP95ForRouteGroups(REALTIME_PERF_ROUTE_GROUPS, windowSeconds);
   } catch {
     return { p95: null, sample: 0 };
   }
@@ -224,11 +204,9 @@ async function evaluateCentrifugo(
     };
   }
 
-  // 2. Aggregate metrics + perf.
-  const [{ errors, total }, { p95, sample }] = await Promise.all([
-    fetchRealtimeMetricRates(config, 'centrifugo', sinceIso),
-    fetchRealtimeP95(config, sinceIso),
-  ]);
+  // 2. Aggregate metrics + perf — synchronous in-memory collector reads.
+  const { errors, total } = fetchRealtimeMetricRates('centrifugo', sinceIso);
+  const { p95, sample } = fetchRealtimeP95(sinceIso);
   const errorRate = total > 0 ? errors / total : null;
   const sampleSize = Math.max(total, sample);
   const cls = classify(errorRate, p95, sampleSize, policy);
@@ -257,10 +235,8 @@ async function evaluateSupabase(
   // No direct probe — Supabase Realtime runs in the managed project.
   // Use error metrics tagged with driver=supabase and the same realtime
   // perf samples (which apply to whichever provider is active).
-  const [{ errors, total }, { p95, sample }] = await Promise.all([
-    fetchRealtimeMetricRates(config, 'supabase', sinceIso),
-    fetchRealtimeP95(config, sinceIso),
-  ]);
+  const { errors, total } = fetchRealtimeMetricRates('supabase', sinceIso);
+  const { p95, sample } = fetchRealtimeP95(sinceIso);
   const errorRate = total > 0 ? errors / total : null;
   const sampleSize = Math.max(total, sample);
   const cls = classify(errorRate, p95, sampleSize, policy);

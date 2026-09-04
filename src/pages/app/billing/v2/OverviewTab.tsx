@@ -58,15 +58,17 @@ export default function OverviewTab({
       ? Math.min(100, Math.round((aiCycle.usedIrr / aiCycle.allowanceIrr) * 100))
       : 0;
 
+  const planIsLive = subscription.status === 'active' || !subscription.planName;
+
   const aiTotalRemaining = (aiCycle?.remainingIrr ?? 0) + (overview.aiPurchasedRemainingIrr ?? 0);
 
 
   return (
     <div className="space-y-4">
       {/* ── Three headline boxes ─────────────────────────────────────── */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid items-stretch gap-4 lg:grid-cols-3">
         {/* Plan */}
-        <Card className="relative overflow-hidden border-2 border-primary/25 lg:col-span-1">
+        <Card className="relative flex h-full flex-col overflow-hidden border-2 border-primary/25 lg:col-span-1">
           <div
             className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-primary/15 to-transparent"
             aria-hidden
@@ -77,15 +79,15 @@ export default function OverviewTab({
               {t('billingV2.overview.currentPlan')}
             </CardTitle>
           </CardHeader>
-          <CardContent className="relative space-y-4">
+          <CardContent className="relative flex flex-1 flex-col space-y-4">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-3xl font-extrabold tracking-tight">
                 {subscription.planName || t('billingV2.overview.free')}
               </span>
-              <Badge variant={subscription.status === 'active' ? 'default' : 'secondary'}>
-                {subscription.status === 'active'
-                  ? t('billingV2.overview.active')
-                  : t('billingV2.overview.inactive')}
+              {/* A workspace with no paid plan is still on a live free plan —
+                  calling that "inactive" reads like a broken account. */}
+              <Badge variant={planIsLive ? 'default' : 'secondary'}>
+                {planIsLive ? t('billingV2.overview.active') : t('billingV2.overview.inactive')}
               </Badge>
               {subscription.isTrial && <Badge variant="outline">{t('billingV2.overview.trial')}</Badge>}
               {subscription.interval && (
@@ -115,19 +117,21 @@ export default function OverviewTab({
               </div>
             )}
 
-
-            {canManage && (
-              <Button size="lg" className="w-full text-base" onClick={() => onGoTo('plans')}>
-                <ArrowUpCircle className="me-2 h-5 w-5" />
-                {t('billingV2.plans.upgrade')}
-              </Button>
-            )}
-            <p className="text-xs text-muted-foreground">{t('billingV2.overview.planBoxHint')}</p>
+            <div className="mt-auto space-y-2 pt-2">
+              {canManage && (
+                <Button size="lg" className="w-full text-base" onClick={() => onGoTo('plans')}>
+                  <ArrowUpCircle className="me-2 h-5 w-5" />
+                  {t('billingV2.plans.upgrade')}
+                </Button>
+              )}
+              <p className="text-xs text-muted-foreground">{t('billingV2.overview.planBoxHint')}</p>
+            </div>
           </CardContent>
         </Card>
 
+
         {/* Wallet */}
-        <Card className="relative overflow-hidden border-2 border-emerald-500/25">
+        <Card className="relative flex h-full flex-col overflow-hidden border-2 border-emerald-500/25">
           <div
             className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-emerald-500/15 to-transparent"
             aria-hidden
@@ -138,7 +142,7 @@ export default function OverviewTab({
               {t('billingV2.overview.wallet')}
             </CardTitle>
           </CardHeader>
-          <CardContent className="relative space-y-4">
+          <CardContent className="relative flex flex-1 flex-col space-y-4">
             <div>
               <p className="text-3xl font-extrabold tracking-tight tabular-nums">
                 {money(wallet.balanceIrr, locale)}
@@ -157,23 +161,25 @@ export default function OverviewTab({
               )}
             </div>
 
-            {canManage && (
-              <Button
-                size="lg"
-                variant="outline"
-                className="w-full border-2 text-base"
-                onClick={() => onGoTo('wallet')}
-              >
-                <Plus className="me-2 h-5 w-5" />
-                {t('billingV2.wallet.deposit')}
-              </Button>
-            )}
-            <p className="text-xs text-muted-foreground">{t('billingV2.overview.walletBoxHint')}</p>
+            <div className="mt-auto space-y-2 pt-2">
+              {canManage && (
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="w-full border-2 text-base"
+                  onClick={() => onGoTo('wallet')}
+                >
+                  <Plus className="me-2 h-5 w-5" />
+                  {t('billingV2.wallet.deposit')}
+                </Button>
+              )}
+              <p className="text-xs text-muted-foreground">{t('billingV2.overview.walletBoxHint')}</p>
+            </div>
           </CardContent>
         </Card>
 
         {/* AI credit */}
-        <Card className="relative overflow-hidden border-2 border-violet-500/25">
+        <Card className="relative flex h-full flex-col overflow-hidden border-2 border-violet-500/25">
           <div
             className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-violet-500/15 to-transparent"
             aria-hidden
@@ -184,7 +190,7 @@ export default function OverviewTab({
               {t('billingV2.ai.title')}
             </CardTitle>
           </CardHeader>
-          <CardContent className="relative space-y-4">
+          <CardContent className="relative flex flex-1 flex-col space-y-4">
             <div>
               <p className="text-3xl font-extrabold tracking-tight tabular-nums">
                 {money(aiTotalRemaining, locale)}
@@ -206,18 +212,20 @@ export default function OverviewTab({
               <p className="text-xs text-muted-foreground">{t('billingV2.ai.noCycle')}</p>
             )}
 
-            {canManage && (
-              <Button
-                size="lg"
-                variant="outline"
-                className="w-full border-2 text-base"
-                onClick={() => onGoTo('ai')}
-              >
-                <Plus className="me-2 h-5 w-5" />
-                {t('billingV2.ai.buy')}
-              </Button>
-            )}
-            <p className="text-xs text-muted-foreground">{t('billingV2.overview.aiBoxHint')}</p>
+            <div className="mt-auto space-y-2 pt-2">
+              {canManage && (
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="w-full border-2 text-base"
+                  onClick={() => onGoTo('ai')}
+                >
+                  <Plus className="me-2 h-5 w-5" />
+                  {t('billingV2.ai.buy')}
+                </Button>
+              )}
+              <p className="text-xs text-muted-foreground">{t('billingV2.overview.aiBoxHint')}</p>
+            </div>
           </CardContent>
         </Card>
       </div>

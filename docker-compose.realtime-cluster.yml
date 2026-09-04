@@ -1,0 +1,113 @@
+# ─────────────────────────────────────────────────────────────────────
+#  Realtime cluster — Redis + TWO Centrifugo nodes on one host.
+#
+#  Purpose: staging / single-server production where you want real
+#  cross-node behaviour (Mode 2 or Mode 3) without two machines. Bring the
+#  whole thing up with one command:
+#
+#      docker compose -f docker-compose.realtime-cluster.yml up -d
+#
+#  Node endpoints (host):
+#      rt-node-01  ws  ->  ${RT_NODE1_PORT:-8001}
+#      rt-node-02  ws  ->  ${RT_NODE2_PORT:-8002}
+#
+#  Register both in Super Admin → Providers → Realtime → Deployment
+#  Architecture, using the PUBLIC wss:// URL your reverse proxy maps to
+#  each port and the internal API URL (http://rt-node-01:8000/api).
+#
+#  Required environment:
+#    REALTIME_REDIS_PASSWORD, CENTRIFUGO_TOKEN_HMAC_SECRET_KEY,
+#    CENTRIFUGO_API_KEY
+# ─────────────────────────────────────────────────────────────────────
+x-centrifugo-node: &centrifugo-node
+  image: centrifugo/centrifugo:v5.4.5
+  restart: unless-stopped
+  command: centrifugo
+  depends_on:
+    realtime-redis:
+      condition: service_healthy
+  ulimits:
+    nofile:
+      soft: 65535
+      hard: 65535
+  healthcheck:
+    test: ["CMD", "sh", "-c", "wget -q -O - http://127.0.0.1:8000/health || exit 1"]
+    interval: 15s
+    timeout: 5s
+    retries: 5
+    start_period: 15s
+  networks:
+    - realtime
+
+x-centrifugo-env: &centrifugo-env
+  CENTRIFUGO_ADDRESS: 0.0.0.0
+  CENTRIFUGO_PORT: 8000
+  CENTRIFUGO_ENGINE: redis
+  CENTRIFUGO_REDIS_ADDRESS: redis://:${REALTIME_REDIS_PASSWORD:?REALTIME_REDIS_PASSWORD is required}@realtime-redis:6379
+  CENTRIFUGO_REDIS_PREFIX: ${REALTIME_REDIS_PREFIX:-kindred-realtime}
+  CENTRIFUGO_TOKEN_HMAC_SECRET_KEY: ${CENTRIFUGO_TOKEN_HMAC_SECRET_KEY:?required}
+  CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY:?required}
+  CENTRIFUGO_API_INSECURE: "false"
+  CENTRIFUGO_ALLOWED_ORIGINS: ${CENTRIFUGO_ALLOWED_ORIGINS:-*}
+  CENTRIFUGO_CLIENT_ANONYMOUS: "false"
+  CENTRIFUGO_CLIENT_CHANNEL_LIMIT: "64"
+  CENTRIFUGO_NAMESPACES: >-
+    [{"name":"ws","presence":true,"join_leave":true,"force_push_join_leave":false,
+    "history_size":50,"history_ttl":"300s","force_recovery":true,
+    "allow_subscribe_for_client":false,"allow_publish_for_client":false,
+    "allow_presence_for_client":true,"allow_history_for_client":true,
+    "subscribe_for_anonymous":false}]
+  CENTRIFUGO_WEBSOCKET_COMPRESSION: "true"
+  CENTRIFUGO_HEALTH: "true"
+  CENTRIFUGO_PROMETHEUS: "true"
+  CENTRIFUGO_LOG_LEVEL: ${CENTRIFUGO_LOG_LEVEL:-info}
+  CENTRIFUGO_ADMIN: "false"
+
+services:
+  realtime-redis:
+    image: redis:7.2.5-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --requirepass
+      - ${REALTIME_REDIS_PASSWORD:?REALTIME_REDIS_PASSWORD is required}
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - ${REALTIME_REDIS_MAXMEMORY:-512mb}
+      - --maxmemory-policy
+      - allkeys-lru
+    environment:
+      REDIS_PASSWORD: ${REALTIME_REDIS_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - realtime
+
+  rt-node-01:
+    <<: *centrifugo-node
+    container_name: rt-node-01
+    ports:
+      - "${RT_NODE1_PORT:-8001}:8000"
+    environment:
+      <<: *centrifugo-env
+      CENTRIFUGO_NAME: rt-node-01
+
+  rt-node-02:
+    <<: *centrifugo-node
+    container_name: rt-node-02
+    ports:
+      - "${RT_NODE2_PORT:-8002}:8000"
+    environment:
+      <<: *centrifugo-env
+      CENTRIFUGO_NAME: rt-node-02
+
+networks:
+  realtime:
+    name: ${REALTIME_NETWORK:-realtime}

@@ -7922,6 +7922,33 @@ export type Database = {
         }
         Relationships: []
       }
+      observability_ticker_lease: {
+        Row: {
+          acquired_at: string | null
+          expires_at: string | null
+          last_finished_at: string | null
+          name: string
+          owner: string | null
+          passes: number
+        }
+        Insert: {
+          acquired_at?: string | null
+          expires_at?: string | null
+          last_finished_at?: string | null
+          name: string
+          owner?: string | null
+          passes?: number
+        }
+        Update: {
+          acquired_at?: string | null
+          expires_at?: string | null
+          last_finished_at?: string | null
+          name?: string
+          owner?: string | null
+          passes?: number
+        }
+        Relationships: []
+      }
       operator_activity_samples: {
         Row: {
           available: boolean
@@ -15197,6 +15224,14 @@ export type Database = {
         Returns: Json
       }
       normalize_domain: { Args: { _input: string }; Returns: string }
+      observability_release_ticker_lease: {
+        Args: { _name: string; _owner: string }
+        Returns: boolean
+      }
+      observability_try_acquire_ticker_lease: {
+        Args: { _name: string; _owner: string; _ttl_seconds?: number }
+        Returns: boolean
+      }
       offboard_workspace_member: {
         Args: {
           _actor_id: string

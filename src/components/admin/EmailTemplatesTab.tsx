@@ -60,6 +60,7 @@ const SLUG_VARIABLES: Record<string, string[]> = {
   task_assigned: ['{name}', '{brand}', '{task}', '{assigner}', '{action_url}'],
   account_expiry: ['{name}', '{brand}', '{days_left}', '{plan}', '{action_url}'],
   system_alert: ['{brand}', '{title}', '{message}', '{severity}'],
+  offline_message_received: ['{brand}', '{contact_name}', '{contact_email}', '{message_body}', '{conversation_id}', '{action_url}'],
   invoice_issued: BILLING_VARIABLES,
   invoice_reminder: BILLING_VARIABLES,
   invoice_due: BILLING_VARIABLES,

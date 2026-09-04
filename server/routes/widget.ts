@@ -85,6 +85,8 @@ import {
 import { extractHostname, isOriginAllowed } from '../utils/domain.js';
 import { resolveAvailability, snapshotToWirePayload } from '../services/widget/availability.js';
 import { sendEmail } from '../services/email/index.js';
+import { resolveWorkspaceAppUrl } from '../services/auth-email.js';
+
 import { enrichVisitorSessionGeo } from '../services/geo/index.js';
 import { getClientCountry, hashIp } from '../utils/clientIp.js';
 import { checkTypingAllowed } from '../services/widget/typingRateLimit.js';
@@ -3294,15 +3296,26 @@ async function notifyOfflineCapture(
   if (!emails.length) return;
 
   const subject = `New offline message`;
+  // Deep-link straight into the conversation inside THIS workspace.
+  let inboxUrl = '';
+  try {
+    inboxUrl = await resolveWorkspaceAppUrl(
+      config,
+      workspaceId,
+      `/inbox?c=${encodeURIComponent(payload.conversationId)}`,
+    );
+  } catch {
+    inboxUrl = '';
+  }
   const safeMsg = payload.message.replace(/[<>]/g, (c) => (c === '<' ? '&lt;' : '&gt;'));
   const html = `
     <p>A visitor left a message while your workspace was offline.</p>
     <p><strong>From:</strong> ${payload.name || 'Anonymous'} ${payload.email ? `&lt;${payload.email}&gt;` : ''}</p>
     <p><strong>Message:</strong></p>
     <blockquote style="border-left:3px solid #ccc;padding-left:12px;">${safeMsg}</blockquote>
-    <p>Open this conversation in the inbox to reply.</p>
+    <p>${inboxUrl ? `<a href="${inboxUrl}">Open this conversation in the inbox to reply.</a>` : 'Open this conversation in the inbox to reply.'}</p>
   `;
-  const text = `New offline message\nFrom: ${payload.name || 'Anonymous'} ${payload.email || ''}\n\n${payload.message}`;
+  const text = `New offline message\nFrom: ${payload.name || 'Anonymous'} ${payload.email || ''}\n\n${payload.message}${inboxUrl ? `\n\n${inboxUrl}` : ''}`;
 
   for (const to of emails) {
     try {
@@ -3318,6 +3331,7 @@ async function notifyOfflineCapture(
           contact_name: payload.name || '',
           contact_email: payload.email || '',
           message_body: payload.message,
+          action_url: inboxUrl,
         },
         locale: payload.locale,
       });

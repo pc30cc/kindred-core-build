@@ -512,6 +512,37 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/preview', 
   }
 });
 
+/** A single deposit proforma — the document the customer pays on its own page. */
+billingV2CustomerRouter.get('/workspaces/:workspaceId/wallet/deposits/:depositId', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  if (!auth) return;
+  const cfg = serverConfigOf(req);
+  try {
+    const sb = getServiceClient(cfg);
+    const { data: deposit } = await sb
+      .from('billing_wallet_deposits')
+      .select('*')
+      .eq('id', req.params.depositId)
+      .eq('workspace_id', req.params.workspaceId)
+      .maybeSingle();
+    if (!deposit) return res.status(404).json({ error: 'NOT_FOUND' });
+    res.json({
+      deposit: {
+        id: (deposit as any).id,
+        documentNumber: (deposit as any).document_number,
+        documentType: 'wallet_deposit',
+        amountIrr: Number((deposit as any).amount_irr),
+        status: (deposit as any).status,
+        createdAt: (deposit as any).created_at,
+      },
+    });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+
+
 billingV2CustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;

@@ -10,14 +10,19 @@
  * period says "activates on X", never "active", because pretending otherwise is
  * a financial lie.
  */
+import { useState } from 'react';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { Progress } from '@/components/ui/progress';
 import { CalendarClock, Wallet, Sparkles, Receipt, Info, X, ArrowUpCircle, Plus } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import type { BillingOverview } from '@/lib/billingV2Api';
-import { billingDate, money, InvoiceStatusBadge } from './shared';
+import { billingV2SetAutoPay } from '@/lib/billingV2Api';
+import { billingDate, money, InvoiceStatusBadge, errorMessage } from './shared';
+
 
 /** Escalation ramp for the next service invoice — index is the server stage. */
 const STAGE_CARD: Record<number, string> = {
@@ -36,14 +41,18 @@ const STAGE_ICON: Record<number, string> = {
 
 export default function OverviewTab({
   overview,
+  workspaceId,
   onPayInvoice,
   onCancelPendingChange,
+  onChanged,
   canceling,
   onGoTo,
 }: {
   overview: BillingOverview;
+  workspaceId: string;
   onPayInvoice: (invoiceId: string) => void;
   onCancelPendingChange: () => void;
+  onChanged: () => void;
   canceling: boolean;
   onGoTo: (tab: 'plans' | 'wallet' | 'ai') => void;
 }) {
@@ -52,6 +61,22 @@ export default function OverviewTab({
   const canManage = overview.permissions.manage;
   const alert = overview.upcomingInvoiceAlert;
   const alertStage = alert?.stage ?? 0;
+  const [savingAutoPay, setSavingAutoPay] = useState(false);
+
+  /** Auto-pay is a money switch: only echo the new state after the server owns it. */
+  async function toggleAutoPay(enabled: boolean) {
+    setSavingAutoPay(true);
+    try {
+      await billingV2SetAutoPay(workspaceId, enabled);
+      toast.success(t('billingV2.wallet.saved'));
+      onChanged();
+    } catch (e) {
+      toast.error(errorMessage(e, t));
+    } finally {
+      setSavingAutoPay(false);
+    }
+  }
+
 
   const cycleUsedPct =
     aiCycle && aiCycle.allowanceIrr > 0
@@ -150,16 +175,29 @@ export default function OverviewTab({
               <p className="mt-1 text-xs text-muted-foreground">{t('billingV2.overview.walletBalance')}</p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={wallet.autoPayEnabled ? 'default' : 'secondary'}>
-                {wallet.autoPayEnabled
-                  ? t('billingV2.overview.autoPayOn')
-                  : t('billingV2.overview.autoPayOff')}
-              </Badge>
-              {wallet.frozen && (
-                <Badge variant="destructive">{t('billingV2.wallet.frozen')}</Badge>
-              )}
+            <div className="flex items-center justify-between gap-3 rounded-lg border bg-background/60 px-3 py-2">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{t('billingV2.wallet.autoPay')}</p>
+                <p className="text-xs text-muted-foreground">
+                  {wallet.autoPayEnabled
+                    ? t('billingV2.overview.autoPayOn')
+                    : t('billingV2.overview.autoPayOff')}
+                </p>
+              </div>
+              <Switch
+                checked={wallet.autoPayEnabled}
+                disabled={!canManage || savingAutoPay}
+                onCheckedChange={toggleAutoPay}
+                aria-label={t('billingV2.wallet.autoPay')}
+              />
             </div>
+
+            {wallet.frozen && (
+              <div>
+                <Badge variant="destructive">{t('billingV2.wallet.frozen')}</Badge>
+              </div>
+            )}
+
 
             <div className="mt-auto space-y-2 pt-2">
               {canManage && (

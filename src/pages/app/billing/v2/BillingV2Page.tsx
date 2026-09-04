@@ -208,11 +208,14 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
         <TabsContent value="overview" className="mt-5">
           <OverviewTab
             overview={overview}
+            workspaceId={workspaceId}
             onPayInvoice={openInvoice}
             onCancelPendingChange={cancelPendingChange}
+            onChanged={refreshAll}
             canceling={canceling}
             onGoTo={setTab}
           />
+
         </TabsContent>
 
         <TabsContent value="invoices" className="mt-5">

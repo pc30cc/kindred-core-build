@@ -150,19 +150,25 @@ async function evaluateCombinedRule(
  * untouched for this tick — the next 60s tick retries from a clean slate.
  */
 /**
- * Flap control.
+ * Flap control + lifecycle-only persistence.
  *
- * A metric sitting right on its threshold used to open and resolve an
- * incident on alternating ticks, and every single tick wrote a row update
- * even when nothing moved. Three cheap, in-process guards fix that without
- * silencing anything:
+ * `alert_events` is an INCIDENT LIFECYCLE store, never a live-metric store.
+ * Exactly three things write a row:
  *
- *   1. OPEN_STREAK  — a rule must breach on N consecutive cycles before an
- *                     incident opens (a genuine breach persists, a blip does not).
- *   2. CLEAR_STREAK — an open incident resolves only after N consecutive
- *                     clear cycles.
- *   3. TOUCH_DELTA  — the "still breaching" update is skipped unless the
- *                     metric actually moved materially since the last write.
+ *   • INSERT   — an incident opens (after OPEN_STREAK consecutive breaches),
+ *                carrying the opening snapshot of metric/threshold/sample.
+ *   • UPDATE   — the severity of an open incident genuinely changes; the
+ *                transition is appended to details.transitions.
+ *   • UPDATE   — the incident resolves (after CLEAR_STREAK clear cycles),
+ *                recording the final metric value.
+ *
+ * While an incident stays open at the same severity NOTHING is written —
+ * no periodic metric_value / sample_size refresh. The live/current value for
+ * the Super Admin panel comes from the Live Monitoring collector read path,
+ * not from re-writing this table every cycle.
+ *
+ * Webhook delivery columns are written only by the dispatcher, and only when
+ * an attempt actually happened or the delivery status actually changed.
  *
  * State is a Map keyed by rule id, so it is bounded by the number of rules.
  * A restart simply re-earns the streaks; it never loses an incident, which
@@ -170,12 +176,10 @@ async function evaluateCombinedRule(
  */
 let OPEN_STREAK = 3;
 let CLEAR_STREAK = 3;
-let TOUCH_DELTA = 0.05; // 5% relative move
 
 interface FlapState {
   breach: number;
   clear: number;
-  lastWrittenValue: number | null;
 }
 
 const flapState = new Map<string, FlapState>();
@@ -183,7 +187,7 @@ const flapState = new Map<string, FlapState>();
 function stateFor(ruleId: string): FlapState {
   let s = flapState.get(ruleId);
   if (!s) {
-    s = { breach: 0, clear: 0, lastWrittenValue: null };
+    s = { breach: 0, clear: 0 };
     flapState.set(ruleId, s);
   }
   return s;
@@ -193,21 +197,16 @@ export function __resetAlertFlapStateForTests(): void {
   flapState.clear();
   OPEN_STREAK = 3;
   CLEAR_STREAK = 3;
-  TOUCH_DELTA = 0.05;
 }
 
 /** Lets the existing golden tests assert single-tick semantics unchanged. */
 export function __setAlertFlapTuningForTests(t: { open?: number; clear?: number; touchDelta?: number }): void {
   if (t.open !== undefined) OPEN_STREAK = t.open;
   if (t.clear !== undefined) CLEAR_STREAK = t.clear;
-  if (t.touchDelta !== undefined) TOUCH_DELTA = t.touchDelta;
+  // touchDelta is accepted for backwards compatibility only — same-severity
+  // "still breaching" writes no longer exist at all.
 }
 
-function movedMaterially(previous: number | null, next: number): boolean {
-  if (previous === null) return true;
-  const base = Math.abs(previous) || 1;
-  return Math.abs(next - previous) / base >= TOUCH_DELTA;
-}
 
 async function applyRuleResult(
   sb: ReturnType<typeof getServiceClient>,

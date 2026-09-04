@@ -382,15 +382,33 @@ plansRouter.post('/admin/assign', async (req, res) => {
     .eq('workspace_id', workspaceId)
     .maybeSingle();
 
-  const { data, error } = await supabase.from('workspace_subscriptions').upsert({
-    workspace_id: workspaceId, plan_id: planId, provider_name: 'manual',
-    status: status || 'active',
-    current_period_start: new Date().toISOString(),
-    current_period_end: expiresAt || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-    updated_at: new Date().toISOString(),
-  }, { onConflict: 'workspace_id' }).select().single();
+  let data: any = null;
 
-  if (error) return res.status(500).json({ error: 'Request failed' });
+  // Under Billing V2 the subscription row is a projection of the active
+  // service period; writing it directly is rejected by the database. Grant a
+  // comped period through the canonical activation path instead.
+  if (await isV2Active((req as any).serverConfig, workspaceId)) {
+    try {
+      data = await adminGrantPlanV2((req as any).serverConfig, {
+        workspaceId,
+        planId,
+        expiresAt: expiresAt || null,
+      });
+    } catch (e: any) {
+      return res.status(500).json({ error: String(e?.message || 'Request failed') });
+    }
+  } else {
+    const { data: legacy, error } = await supabase.from('workspace_subscriptions').upsert({
+      workspace_id: workspaceId, plan_id: planId, provider_name: 'manual',
+      status: status || 'active',
+      current_period_start: new Date().toISOString(),
+      current_period_end: expiresAt || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'workspace_id' }).select().single();
+    if (error) return res.status(500).json({ error: 'Request failed' });
+    data = legacy;
+  }
+
 
   // Log plan change
   await supabase.from('plan_change_log').insert({

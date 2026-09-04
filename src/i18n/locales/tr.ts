@@ -43,7 +43,7 @@ const tr: TranslationKeys = {
       allowance: 'Bu döngüdeki kredi', used: 'Kullanılan', remaining: 'Kalan',
       purchasedCredit: 'Satın alınan kredi', purchasedNote: 'Satın alınan kredi plan kredisinden ayrıdır.',
       wallet: 'Cüzdan', walletBalance: 'Bakiye', autoPayOn: 'Otomatik ödeme açık', autoPayOff: 'Otomatik ödeme kapalı',
-      upcomingInvoice: 'Sonraki hizmet faturası', dueOn: 'Vade {{date}}', payNow: 'Faturayı öde',
+      upcomingInvoice: 'Sonraki vade', dueOn: 'Vade {{date}}', payNow: 'Faturayı öde',
       reminderCount: 'Hatırlatma {{sent}} / {{total}}',
       suspendWarning: 'Ödenmezse hizmet {{date}} tarihinde (yaklaşık {{days}} gün sonra) kısıtlanır.',
       activatesOn: 'Ödendi — {{date}} tarihinde etkinleşir',

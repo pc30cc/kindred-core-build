@@ -825,10 +825,7 @@ BEGIN
       ('public.business_metrics_rollup_and_prune()', 'REQUIRED_BEFORE_ACL'),
       ('public.cleanup_expired_auth_tokens()', 'REQUIRED_BEFORE_ACL'),
       ('public.cleanup_expired_widget_identity()', 'REQUIRED_BEFORE_ACL'),
-      ('public.evaluate_alert_rules()', 'REQUIRED_BEFORE_ACL'),
       ('public.expire_stale_trials()', 'REQUIRED_BEFORE_ACL'),
-      ('public.perf_metrics_rollup_and_prune()', 'REQUIRED_BEFORE_ACL'),
-      ('public.realtime_metrics_rollup_and_prune()', 'REQUIRED_BEFORE_ACL'),
       ('public.sla_reliability_rollup_and_prune()', 'REQUIRED_BEFORE_ACL'),
       ('public.workspace_health_snapshot_compute()', 'REQUIRED_BEFORE_ACL'),
       ('public.admin_list_realtime_audit(integer)', 'REQUIRED_BEFORE_ACL'),
@@ -884,8 +881,13 @@ BEGIN
     checked := checked + 1;
   END LOOP;
 
-  IF checked <> 22 THEN
-    RAISE EXCEPTION 'service-only ACL surface incomplete: % of 22 verified', checked;
+  -- Was 22 until the Live Monitoring migration dropped evaluate_alert_rules(),
+  -- perf_metrics_rollup_and_prune() and realtime_metrics_rollup_and_prune()
+  -- (superseded by the in-memory collector + TypeScript alert evaluator) —
+  -- removed from the manifest above rather than left dangling as
+  -- REQUIRED_BEFORE_ACL entries for functions that no longer exist.
+  IF checked <> 19 THEN
+    RAISE EXCEPTION 'service-only ACL surface incomplete: % of 19 verified', checked;
   END IF;
   RAISE NOTICE 'service-only ACL surface verified: % functions (PUBLIC/anon/authenticated denied, service_role allowed)', checked;
 END

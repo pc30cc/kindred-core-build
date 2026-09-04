@@ -510,20 +510,23 @@ export function WidgetLivePreview({
      visitor's browser, so layout regressions surface here too. */
   .header-op-avatar.has-img img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;}
   /* Launcher styles copied 1:1 from loader.js SHELL_CSS. */
-  .shell .launcher{position:fixed;display:flex;align-items:center;justify-content:center;
+  .shell{position:fixed;width:0;height:0;z-index:2147483646;}
+  .shell.pos-bottom-right{bottom:24px;right:24px;left:auto;top:auto;}
+  .shell.pos-bottom-left{bottom:24px;left:24px;right:auto;top:auto;}
+  .shell .launcher{position:absolute;bottom:0;z-index:2;display:flex;align-items:center;justify-content:center;
     width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:${fabRadius};border:none;cursor:pointer;
     box-shadow:0 3px 12px -4px var(--gs-shadow,rgba(0,0,0,.16)),0 0 0 1px rgba(0,0,0,.03);
-    transition:transform .34s cubic-bezier(.22,1,.36,1),box-shadow .2s ease,opacity .24s ease;
-     background:${esc(primary)};color:${esc(fabIconColor)};z-index:2147483646;}
-  .launcher.bottom-right{bottom:24px;right:24px;}
-  .launcher.bottom-left{bottom:24px;left:24px;}
+    transition:transform .38s cubic-bezier(.4,0,.2,1),box-shadow .2s ease,opacity .28s ease;
+     background:${esc(primary)};color:${esc(fabIconColor)};}
+  .launcher.bottom-right{right:0;left:auto;}
+  .launcher.bottom-left{left:0;right:auto;}
   .shell .launcher svg{width:calc(var(--gs-fab-size,56px) * .46);height:calc(var(--gs-fab-size,56px) * .46);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
   .launcher.open svg.chat-icon{display:none;}
   .launcher:not(.open) svg.close-icon{display:none;}
   .launcher .fab-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit;
     pointer-events:none;clip-path:circle(75% at 50% 50%);transition:clip-path .42s cubic-bezier(.22,1,.36,1);}
   .launcher.has-image:hover .fab-img{clip-path:circle(0% at 50% 50%);}
-  .launcher.open,.launcher.open:hover{transform:translateY(calc(100% + 24px)) scale(.5);opacity:0;pointer-events:none;animation:none;}
+  .launcher.open,.launcher.open:hover{transform:translateY(90px);opacity:0;pointer-events:none;animation:none;}
   ${s.fab_animation === true ? '.launcher{animation:gsp 2s ease-in-out infinite}@keyframes gsp{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}' : ''}
   .fab-label{position:fixed;bottom:${Math.round(24 + fabSize / 2 - 15)}px;${pos === 'bottom-left' ? `left:${fabSize + 36}px` : `right:${fabSize + 36}px`};
     background:${esc(primary)};color:${esc(s.fab_text_color || '#fff')};padding:7px 12px;border-radius:999px;font-size:12px;font-weight:600;
@@ -541,7 +544,7 @@ export function WidgetLivePreview({
     <div class="block"></div>
     <div class="cards"><div></div><div></div><div></div></div>
   </div>
-  <div class="shell${s.fab_animation === true ? ' anim-on' : ''}">
+  <div class="shell pos-${pos}${s.fab_animation === true ? ' anim-on' : ''}">
     <div class="panel ${pos} visible${rtl ? ' panel-rtl' : ''}${s.fab_animation === true ? ' anim-on' : ''}" dir="${dir}"></div>
     <button type="button" class="launcher ${pos}${fabImage ? ' has-image' : ''}" id="gs-launcher" aria-label="chat">
       <svg class="chat-icon" viewBox="0 0 24 24">${fabIcon}</svg>

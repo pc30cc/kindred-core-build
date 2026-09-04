@@ -338,7 +338,9 @@ export async function buildBillingOverview(
           ? Boolean((policyRes.data as any)?.wallet_auto_pay_default ?? true)
           : Boolean(wallet.auto_pay_enabled),
     },
-    upcomingInvoice: candidates.length ? toInvoiceSummary(candidates[0]) : null,
+    upcomingInvoice: headInvoice ? toInvoiceSummary(headInvoice) : null,
+    upcomingInvoiceAlert,
+
   };
 }
 

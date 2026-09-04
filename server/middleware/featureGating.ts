@@ -24,6 +24,22 @@ interface EntitlementResult {
 // ─── Cache ───
 const cache = new Map<string, { result: EntitlementResult; expiresAt: number }>();
 const CACHE_TTL = 60_000;
+/** Bound: expired entries were never evicted, so the map grew with every
+ *  workspace×feature pair ever seen. Swept on write. */
+const CACHE_MAX_ENTRIES = 2000;
+
+function boundEntitlementCache(): void {
+  if (cache.size <= CACHE_MAX_ENTRIES) return;
+  const now = Date.now();
+  for (const [key, value] of cache) {
+    if (value.expiresAt <= now) cache.delete(key);
+  }
+  let excess = cache.size - CACHE_MAX_ENTRIES;
+  for (const key of cache.keys()) {
+    if (excess-- <= 0) break;
+    cache.delete(key);
+  }
+}
 
 function cacheKey(workspaceId: string, feature: string): string {
   return `${workspaceId}:${feature}`;
@@ -97,6 +113,7 @@ export async function checkEntitlementFromDB(
         reason: 'self_host_billing_schema_absent',
       };
       cache.set(key, { result, expiresAt: Date.now() + CACHE_TTL });
+      boundEntitlementCache();
       return result;
     }
 
@@ -121,6 +138,7 @@ export async function checkEntitlementFromDB(
     };
 
     cache.set(key, { result, expiresAt: Date.now() + CACHE_TTL });
+      boundEntitlementCache();
     return result;
   } catch (err: any) {
     console.error('[FeatureGating] Exception:', err.message);

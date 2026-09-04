@@ -1187,6 +1187,113 @@ realtimeRouter.post('/admin/preflight', requireAdmin, async (req, res) => {
 
 
 // ─── helpers ────────────────────────────────────────────────────────
+
+export interface TopologyPreflight {
+  ok: boolean;
+  mode: string;
+  errors: string[];
+  warnings: string[];
+  checks: Record<string, { ok: boolean; detail?: string }>;
+}
+
+/**
+ * Preflight for a topology before it is activated (§53).
+ *
+ *  single_memory       — the classic single-node requirements.
+ *  app_routed_redis    — ≥1 healthy node, the SHARED cluster API key must be
+ *                        accepted by every node, and with ≥2 nodes the nodes
+ *                        must actually see each other through the Redis
+ *                        engine (each node's `info` reports the whole
+ *                        cluster) plus a real cross-node publish.
+ *  load_balanced_redis — a valid public LB WebSocket URL.
+ */
+export async function preflightTopology(cfg: RealtimeProviderConfig): Promise<TopologyPreflight> {
+  const c = cfg.centrifugo || {};
+  const mode = resolveDeploymentMode(c);
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const checks: TopologyPreflight['checks'] = {};
+
+  if (!c.token_hmac_secret) errors.push('Cluster HMAC token secret is missing');
+  if (!c.api_key) errors.push('Cluster API key is missing');
+  checks.cluster_secrets = { ok: !!c.token_hmac_secret && !!c.api_key };
+
+  if (mode === 'single_memory') {
+    const ok = !!(c.ws_url && c.api_url);
+    if (!ok) errors.push('WebSocket URL and API URL are required');
+    checks.single_node_urls = { ok };
+    if (ok && c.api_key) {
+      const h = await new CentrifugoDriver(c as any).info();
+      checks.node_health = { ok: h.status === 'healthy', detail: h.message };
+      if (h.status !== 'healthy') errors.push(`Centrifugo unreachable: ${h.message}`);
+    }
+    return { ok: errors.length === 0, mode, errors, warnings, checks };
+  }
+
+  if (mode === 'load_balanced_redis') {
+    const lb = c.load_balancer_ws_url?.trim();
+    checks.load_balancer_url = { ok: !!lb, detail: lb };
+    if (!lb) errors.push('Load balancer WebSocket URL is required');
+  }
+
+  const nodes = normalizeNodes(c.nodes);
+  const enabled = nodes.filter((n) => n.enabled);
+  checks.nodes_registered = { ok: nodes.length > 0, detail: `${nodes.length} node(s)` };
+  if (mode === 'app_routed_redis' && !enabled.length) {
+    errors.push('At least one enabled node is required for app-routed mode');
+  }
+  if (mode === 'load_balanced_redis' && !nodes.length) {
+    warnings.push('No nodes registered — health of the pool behind the load balancer cannot be verified');
+  }
+
+  if (enabled.length && c.api_key) {
+    const health = await getClusterHealth(enabled, c.api_key, { force: true });
+    const healthy = enabled.filter((n) => health[n.id]?.status === 'healthy');
+    checks.healthy_nodes = { ok: healthy.length > 0, detail: `${healthy.length}/${enabled.length} healthy` };
+    if (!healthy.length) errors.push('No healthy node could be reached with the shared cluster API key');
+
+    for (const n of enabled) {
+      const h = health[n.id];
+      if (h && h.status !== 'healthy') warnings.push(`Node ${n.id}: ${h.status} — ${h.message ?? 'no detail'}`);
+    }
+
+    if (healthy.length >= 2) {
+      // Redis coordination proof: with a shared Redis engine every node
+      // reports the whole cluster in `info`, so num_nodes > 1 on a node can
+      // only happen when the engine is genuinely shared.
+      const driverA = new CentrifugoDriver({ ...(c as any), api_url: healthy[0].api_url });
+      const infoA = await driverA.info();
+      const coordinated = (infoA.num_nodes ?? 1) >= 2;
+      checks.redis_coordination = {
+        ok: coordinated,
+        detail: `node ${healthy[0].id} sees ${infoA.num_nodes ?? 1} cluster node(s)`,
+      };
+      if (!coordinated) errors.push('Nodes do not see each other — shared Redis engine could not be proven');
+
+      // Cross-node publish: publishing through node A must be accepted; with
+      // a shared engine the message reaches subscribers attached to node B.
+      const pub = await driverA.publish(`ws:preflight:conv:${Date.now()}`, { kind: 'preflight' });
+      checks.cross_node_publish = { ok: pub.ok, detail: pub.error };
+      if (!pub.ok) errors.push(`Cross-node publish failed: ${pub.error}`);
+
+      checks.presence_enabled = { ok: c.presence_enabled !== false };
+      if (c.presence_enabled === false) warnings.push('Presence is disabled — operator live presence will use the database fallback');
+    } else if (mode === 'app_routed_redis') {
+      warnings.push('Only one healthy node — cross-node publish/presence was not verified');
+    }
+
+    // Router sanity: the selection layer must be able to return a node.
+    const picked = selectNode(nodes, health);
+    checks.router_can_select = { ok: !!picked.node, detail: picked.node?.id ?? picked.reason };
+    if (mode === 'app_routed_redis' && !picked.node) {
+      errors.push(`Node router cannot select any node (${picked.reason})`);
+    }
+  }
+
+  return { ok: errors.length === 0, mode, errors, warnings, checks };
+}
+
+
 function mergeCentrifugo(prev: any, next: any): any {
   const result: any = { ...(prev || {}) };
   if (!next) return result;

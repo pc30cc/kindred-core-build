@@ -99,7 +99,29 @@ function isAllowedCallbackUrl(req: any, raw: string): boolean {
   }
 }
 
-// ─── Platform commercial configuration (read-only for the customer) ────────
+/**
+ * Which gateway actually runs this checkout.
+ *
+ * When the customer picked one of the ACTIVE gateways we honour that choice —
+ * but only after re-validating it against the payable list on the server, so a
+ * crafted request cannot reach a disabled or unimplemented provider. With no
+ * explicit choice we fall back to the configured default resolution.
+ */
+async function resolveCheckoutProvider(cfg: any, workspaceId: string, providerName?: string | null) {
+  if (providerName) {
+    const gateways = await listPayableGateways(cfg, 'IRR');
+    const gateway = gateways.find((g) => g.provider_name === providerName);
+    if (!gateway) return null;
+    const handler = getProvider(gateway.provider_name);
+    if (!handler) return null;
+    return {
+      provider: handler,
+      config: { provider: gateway.provider_name, ...(gateway.config || {}) } as any,
+    };
+  }
+  return resolveBillingConfig(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, workspaceId);
+}
+
 
 /** Payment methods the customer may actually use for a given currency. */
 billingV2CustomerRouter.get('/workspaces/:workspaceId/gateways', async (req, res) => {

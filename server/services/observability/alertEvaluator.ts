@@ -216,7 +216,7 @@ async function applyRuleResult(
 ): Promise<boolean> {
   const { data: openRows, error: openReadError } = await sb
     .from('alert_events')
-    .select('id, severity')
+    .select('id, severity, metric_value, threshold_value, sample_size, details')
     .eq('rule_id', rule.id)
     .eq('state', 'open')
     .order('fired_at', { ascending: false })
@@ -251,17 +251,27 @@ async function applyRuleResult(
           route_group: rule.route_group,
           aggregation: rule.aggregation,
           subrules: rule.subrules,
+          // Opening snapshot — immutable evidence of why the incident opened.
+          opened: {
+            at: now.toISOString(),
+            severity: result.severity,
+            metric_value: result.value,
+            threshold_value: result.threshold,
+            sample_size: result.sample,
+          },
         },
         webhook_status: 'pending',
       });
       if (insertError) {
         throw new Error(`alertEvaluator: failed to open alert for rule "${rule.slug}": ${insertError.message}`);
       }
-      flap.lastWrittenValue = result.value;
       return true;
     }
     if (open.severity !== result.severity) {
-      // Severity escalation/de-escalation updates the SAME incident.
+      // Severity escalation/de-escalation updates the SAME incident and
+      // records a snapshot of the transition for the audit trail.
+      const baseDetails = (open.details && typeof open.details === 'object' ? open.details : {}) as Record<string, unknown>;
+      const priorTransitions = Array.isArray((baseDetails as any).transitions) ? ((baseDetails as any).transitions as unknown[]) : [];
       const { error: severityError } = await sb
         .from('alert_events')
         .update({
@@ -269,26 +279,31 @@ async function applyRuleResult(
           metric_value: result.value,
           threshold_value: result.threshold,
           sample_size: result.sample,
+          details: {
+            ...baseDetails,
+            transitions: [
+              ...priorTransitions.slice(-MAX_TRANSITIONS + 1),
+              {
+                at: now.toISOString(),
+                from_severity: open.severity,
+                to_severity: result.severity,
+                metric_value: result.value,
+                threshold_value: result.threshold,
+                sample_size: result.sample,
+              },
+            ],
+          },
           webhook_status: 'pending',
         })
         .eq('id', open.id);
       if (severityError) {
         throw new Error(`alertEvaluator: failed to change severity for rule "${rule.slug}" (alert ${open.id}): ${severityError.message}`);
       }
-      flap.lastWrittenValue = result.value;
       return true;
     }
-    // Still breaching at the same severity: only refresh the row when the
-    // number actually changed enough to be worth a write.
-    if (!movedMaterially(flap.lastWrittenValue, result.value)) return false;
-    const { error: touchError } = await sb
-      .from('alert_events')
-      .update({ metric_value: result.value, sample_size: result.sample })
-      .eq('id', open.id);
-    if (touchError) {
-      throw new Error(`alertEvaluator: failed to update open alert for rule "${rule.slug}" (alert ${open.id}): ${touchError.message}`);
-    }
-    flap.lastWrittenValue = result.value;
+    // Still breaching at the same severity: the incident is already recorded
+    // and nothing about its lifecycle changed. Deliberately NO write — the
+    // current metric value is served from the Live Monitoring collector.
     return false;
   }
 
@@ -298,6 +313,7 @@ async function applyRuleResult(
     flap.clear += 1;
     // Hysteresis: a single clear sample is not a recovery.
     if (flap.clear < CLEAR_STREAK) return false;
+    const baseDetails = (open.details && typeof open.details === 'object' ? open.details : {}) as Record<string, unknown>;
     const { error: resolveError } = await sb
       .from('alert_events')
       .update({
@@ -306,6 +322,14 @@ async function applyRuleResult(
         resolved_at: now.toISOString(),
         metric_value: result.value,
         sample_size: result.sample,
+        details: {
+          ...baseDetails,
+          resolved: {
+            at: now.toISOString(),
+            metric_value: result.value,
+            sample_size: result.sample,
+          },
+        },
         webhook_status: 'pending',
       })
       .eq('id', open.id);
@@ -313,11 +337,11 @@ async function applyRuleResult(
       throw new Error(`alertEvaluator: failed to resolve alert for rule "${rule.slug}" (alert ${open.id}): ${resolveError.message}`);
     }
     flap.clear = 0;
-    flap.lastWrittenValue = null;
     return true;
   }
   flap.clear = 0;
   return false;
+
 }
 
 

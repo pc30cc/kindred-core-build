@@ -9,6 +9,7 @@ import { loadConfig } from './config.js';
 import { widgetRouter } from './routes/widget.js';
 import { visitorRouter, visitorsAdminRouter } from './routes/visitors.js';
 import { healthRouter } from './routes/health.js';
+import { metricsExportRouter } from './routes/metricsExport.js';
 import { emailRouter } from './routes/email.js';
 import { authSecurityRouter } from './routes/auth.js';
 import { authEmailRouter } from './routes/auth-email.js';
@@ -75,7 +76,6 @@ import { syncSeatEntitlementMode } from './services/invitations/bootstrap.js';
 import { ensureInvitationSecrets } from './services/invitations/secretBootstrap.js';
 
 import { startPrivacyExpirySweep } from './services/privacy/expirySweep.js';
-import { startMetricsRollup } from './services/observability/rollupTicker.js';
 import { startAiBillingRecovery } from './services/ai-billing/recoveryTicker.js';
 import { startBillingV2Schedulers } from './services/billing/scheduler/ticker.js';
 import { startAlertingTicker } from './services/observability/alertingTicker.js';
@@ -299,6 +299,13 @@ app.use('/api/', abuseDetectionMiddleware());
 
 // Health (no rate limit)
 app.use('/api/health', healthRouter);
+
+// Prometheus/OpenTelemetry readiness stub — off by default (404) unless
+// OBSERVABILITY_PROMETHEUS_ENABLED=1, and token-gated even when enabled.
+// Mounted at the top level (not /api) to match standard scrape conventions;
+// scrapers don't carry the admin session cookie so this isn't under
+// adminRouter's requireAdmin gate — see server/routes/metricsExport.ts.
+app.use('/metrics', metricsExportRouter);
 
 // Auth security (brute force + captcha). The strict 5/min limiter is applied
 // per-route inside authSecurityRouter (login/signup/etc.), NOT blanket here —
@@ -551,8 +558,6 @@ app.listen(config.port, () => {
   // GDPR — start hourly TTL purge for expired export artifacts (provider-based).
   startPrivacyExpirySweep(config);
 
-  // Phase 3 — start in-process metrics rollup (every 10 min). Best-effort.
-  startMetricsRollup(config);
   // AI billing — automatic, idempotent recovery/reconciliation pass.
   startAiBillingRecovery(config);
   // Billing Engine V2 — renewal invoices, wallet auto-pay and period activation.

@@ -1,12 +1,15 @@
 /**
- * Phase 4 — Alerting & anomaly detection.
+ * Alerting & anomaly detection.
  *
  * Pure engine + webhook dispatcher. Rule evaluation itself happens in
- * Postgres via the SECURITY DEFINER function `evaluate_alert_rules()` so
- * counts/ratios are computed atomically against `realtime_metric_events`.
+ * TypeScript (alertEvaluator.ts's evaluateAlertRulesInMemory()) against the
+ * bounded Live Monitoring collector — no Postgres SELECT on any raw
+ * telemetry table. alert_rules and alert_events remain normal Postgres
+ * tables; only the evaluation data source changed from raw rows to the
+ * in-memory collector's query methods.
  *
  * This module:
- *   1. Triggers the SQL evaluator (idempotent; safe to run repeatedly).
+ *   1. Triggers the evaluator (idempotent; safe to run repeatedly).
  *   2. Reads alert_events with `webhook_status = 'pending'` and dispatches
  *      to the optional webhook configured in widget_platform_settings.
  *   3. Emits structured `alert.fired` / `alert.resolved` logs via emitLog.
@@ -23,6 +26,7 @@ import { createHmac, randomUUID } from 'node:crypto';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { emitLog } from './metrics.js';
+import { evaluateAlertRulesInMemory } from './alertEvaluator.js';
 
 export interface AlertEngineFlags {
   alertingEnabled: boolean;
@@ -96,7 +100,6 @@ export async function runAlertCycle(config: ServerConfig): Promise<EvaluateResul
     return { evaluated: 0, state_changes: 0, ran_at: new Date().toISOString() };
   }
 
-  const sb = getServiceClient(config);
   let result: EvaluateResult = {
     evaluated: 0,
     state_changes: 0,
@@ -104,17 +107,7 @@ export async function runAlertCycle(config: ServerConfig): Promise<EvaluateResul
   };
 
   try {
-    const { data, error } = await sb.rpc('evaluate_alert_rules');
-    if (error) {
-      emitLog(config, 'warn', 'alert_evaluator_failed', { error: error.message });
-    } else if (data && typeof data === 'object') {
-      const d = data as Record<string, unknown>;
-      result = {
-        evaluated: Number(d.evaluated || 0),
-        state_changes: Number(d.state_changes || 0),
-        ran_at: String(d.ran_at || result.ran_at),
-      };
-    }
+    result = await evaluateAlertRulesInMemory(config);
   } catch (err: any) {
     emitLog(config, 'warn', 'alert_evaluator_threw', { error: err?.message || 'unknown' });
   }

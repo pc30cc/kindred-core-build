@@ -72,7 +72,9 @@ async function negotiate(workspaceId: string): Promise<RealtimeNegotiation | nul
       credentials: 'include',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workspace_id: workspaceId }),
+      // This resolver runs once per tab per workspace (memoized in `cache`
+      // below) — the very first negotiation, never a refresh or reconnect.
+      body: JSON.stringify({ workspace_id: workspaceId, intent: 'initial' }),
     });
     if (!res.ok) return null;
     return (await res.json()) as RealtimeNegotiation;

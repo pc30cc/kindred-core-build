@@ -58,9 +58,3 @@ export async function fetchPerfProcess(range: PerfRange = '1h'): Promise<PerfPro
   return res.json();
 }
 
-export async function triggerPerfRollup(): Promise<{ ok: boolean }> {
-  const headers = { ...({}), 'Content-Type': 'application/json' };
-  const res = await fetch(`${API_BASE}/api/admin/perf/rollup`, {credentials: 'include', method: 'POST', headers });
-  if (!res.ok) throw new Error(`Failed to trigger rollup: ${res.status}`);
-  return res.json();
-}

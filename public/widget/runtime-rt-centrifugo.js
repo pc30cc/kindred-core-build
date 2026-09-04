@@ -119,12 +119,14 @@
         .catch(function () { return null; });
     }
 
-    function refreshConnectToken() {
+    // intent: 'initial' (no token yet — see connect() below) or 'reconnect'
+    // (scheduleReconnect, which only fires after ws.onclose — a real drop).
+    function refreshConnectToken(intent) {
       return fetch(ctx.apiBase + '/api/realtime/connect', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json', 'X-Widget-Token': ctx.sessionToken || '' },
-        body: JSON.stringify({ workspace_id: ctx.workspaceId }),
+        body: JSON.stringify({ workspace_id: ctx.workspaceId, intent: intent || 'initial' }),
       })
         .then(function (r) { return r.json(); })
         .then(function (data) {
@@ -298,7 +300,7 @@
         var localExpired = !connectToken || Date.now() > (connectTokenExpiresAt - 60000);
         var mustRefreshDueToFailure = reconnectAttempt > 1;
         if (localExpired || mustRefreshDueToFailure) {
-          refreshConnectToken().then(function (ok) {
+          refreshConnectToken('reconnect').then(function (ok) {
             if (!ok) {
               log('[rt:centrifugo] token refresh failed; will retry');
               scheduleReconnect();
@@ -440,7 +442,7 @@
         manuallyClosed = false;
         // If we have no token yet (resolver gave one already, but be defensive), fetch one.
         if (!connectToken) {
-          refreshConnectToken().then(openSocket);
+          refreshConnectToken('initial').then(openSocket);
         } else {
           openSocket();
         }

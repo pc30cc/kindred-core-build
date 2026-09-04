@@ -8350,105 +8350,6 @@ export type Database = {
           },
         ]
       }
-      perf_process_samples: {
-        Row: {
-          event_loop_lag_ms: number
-          heap_total_bytes: number
-          heap_used_bytes: number
-          id: string
-          occurred_at: string
-          rss_bytes: number
-          uptime_seconds: number
-        }
-        Insert: {
-          event_loop_lag_ms: number
-          heap_total_bytes: number
-          heap_used_bytes: number
-          id?: string
-          occurred_at?: string
-          rss_bytes: number
-          uptime_seconds: number
-        }
-        Update: {
-          event_loop_lag_ms?: number
-          heap_total_bytes?: number
-          heap_used_bytes?: number
-          id?: string
-          occurred_at?: string
-          rss_bytes?: number
-          uptime_seconds?: number
-        }
-        Relationships: []
-      }
-      perf_request_hourly: {
-        Row: {
-          bucket_hour: string
-          count: number
-          error_count: number
-          histogram: Json
-          max_ms: number
-          method: string
-          route_group: string
-          status_group: string
-          sum_ms: number
-        }
-        Insert: {
-          bucket_hour: string
-          count?: number
-          error_count?: number
-          histogram?: Json
-          max_ms?: number
-          method: string
-          route_group: string
-          status_group: string
-          sum_ms?: number
-        }
-        Update: {
-          bucket_hour?: string
-          count?: number
-          error_count?: number
-          histogram?: Json
-          max_ms?: number
-          method?: string
-          route_group?: string
-          status_group?: string
-          sum_ms?: number
-        }
-        Relationships: []
-      }
-      perf_request_samples: {
-        Row: {
-          duration_ms: number
-          id: string
-          is_error: boolean
-          method: string
-          occurred_at: string
-          route_group: string
-          status_code: number
-          status_group: string
-        }
-        Insert: {
-          duration_ms: number
-          id?: string
-          is_error?: boolean
-          method: string
-          occurred_at?: string
-          route_group: string
-          status_code: number
-          status_group: string
-        }
-        Update: {
-          duration_ms?: number
-          id?: string
-          is_error?: boolean
-          method?: string
-          occurred_at?: string
-          route_group?: string
-          status_code?: number
-          status_group?: string
-        }
-        Relationships: []
-      }
       phone_verification_challenges: {
         Row: {
           attempt_count: number
@@ -9331,60 +9232,6 @@ export type Database = {
           last_failover_reason?: string | null
           last_health?: Json
           updated_at?: string
-        }
-        Relationships: []
-      }
-      realtime_metric_events: {
-        Row: {
-          conversation_id: string | null
-          driver: string | null
-          id: string
-          metric: string
-          occurred_at: string
-          source: string
-          tags: Json
-          workspace_id: string | null
-        }
-        Insert: {
-          conversation_id?: string | null
-          driver?: string | null
-          id?: string
-          metric: string
-          occurred_at?: string
-          source?: string
-          tags?: Json
-          workspace_id?: string | null
-        }
-        Update: {
-          conversation_id?: string | null
-          driver?: string | null
-          id?: string
-          metric?: string
-          occurred_at?: string
-          source?: string
-          tags?: Json
-          workspace_id?: string | null
-        }
-        Relationships: []
-      }
-      realtime_metric_hourly: {
-        Row: {
-          bucket_hour: string
-          count: number
-          driver: string
-          metric: string
-        }
-        Insert: {
-          bucket_hour: string
-          count?: number
-          driver?: string
-          metric: string
-        }
-        Update: {
-          bucket_hour?: string
-          count?: number
-          driver?: string
-          metric?: string
         }
         Relationships: []
       }
@@ -15352,7 +15199,6 @@ export type Database = {
           matched_by: string
         }[]
       }
-      evaluate_alert_rules: { Args: never; Returns: Json }
       expire_invitations_v2: { Args: { _limit?: number }; Returns: number }
       expire_stale_trials: { Args: never; Returns: number }
       fail_entitlement_fanout: {
@@ -15589,7 +15435,6 @@ export type Database = {
         }
         Returns: Json
       }
-      perf_metrics_rollup_and_prune: { Args: never; Returns: Json }
       phone_status_matches: {
         Args: { _filter: string; _phone: string; _verified_at: string }
         Returns: boolean
@@ -15680,7 +15525,6 @@ export type Database = {
         Args: { _user_id: string }
         Returns: undefined
       }
-      realtime_metrics_rollup_and_prune: { Args: never; Returns: Json }
       reclaim_expired_invitation_jobs: { Args: never; Returns: number }
       redeem_email_verify_token: {
         Args: { _token_hash: string }

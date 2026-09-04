@@ -1692,15 +1692,17 @@
     // Driver vendors ('centrifugo', 'supabase') are dispatched through the
     // resolver module + driver-specific runtime script. Non-driver vendors
     // ('polling_builtin', 'disabled') are handled inline.
-    function resolveRealtimeAndStart() {
+    function resolveRealtimeAndStart(intent) {
       var url = ctx.apiBase + '/api/realtime/connect';
       // Use the token-aware wrapper — realtime resolve is one of the most
       // expensive widget bootstraps and a stale token here would otherwise
       // poison every downstream subscribe attempt.
+      // intent: 'initial' (connect()) or 'reconnect' (forced reconnect()
+      // after a background sleep / dead socket) — the caller declares which.
       ctx.fetchWith(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: ctx.workspaceId }),
+        body: JSON.stringify({ workspace_id: ctx.workspaceId, intent: intent || 'initial' }),
       })
         .then(function (r) { return r.json(); })
         .then(function (resolved) {
@@ -1849,7 +1851,7 @@
       } else {
         setConnectionState('connecting');
       }
-      resolveRealtimeAndStart();
+      resolveRealtimeAndStart('initial');
     }
     function disconnect() {
       manuallyClosed = true;
@@ -1912,7 +1914,7 @@
       } else {
         setConnectionState('connecting');
       }
-      resolveRealtimeAndStart();
+      resolveRealtimeAndStart('reconnect');
     }
 
     // ─── Typing — delegated to realtime driver if available, no-op otherwise.

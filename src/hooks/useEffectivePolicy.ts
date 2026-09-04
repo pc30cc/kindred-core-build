@@ -23,7 +23,10 @@ async function fetchPolicy(workspaceId: string): Promise<EffectivePolicySnapshot
       credentials: 'include',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workspace_id: workspaceId }),
+      // intent:'policy_poll' — this hook only reads effective_policy on a
+      // 30s heartbeat; it is not a realtime connection lifecycle event and
+      // must never be counted as a reconnect_attempt server-side.
+      body: JSON.stringify({ workspace_id: workspaceId, intent: 'policy_poll' }),
     });
     if (!res.ok) return null;
     const json = await res.json();

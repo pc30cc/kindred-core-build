@@ -2,16 +2,14 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   fetchPerfSummary,
   fetchPerfProcess,
-  triggerPerfRollup,
   type PerfRange,
 } from '@/lib/admin-perf-api';
-import { RefreshCw, Activity, Cpu, MemoryStick } from 'lucide-react';
+import { Activity, Cpu, MemoryStick } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 
 function formatBytes(n: number): string {
@@ -59,25 +57,13 @@ export default function PerformancePanel() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Tabs value={range} onValueChange={(v) => setRange(v as PerfRange)}>
-            <TabsList>
-              <TabsTrigger value="1h">{t('admin.observability.ranges.hour' as any)}</TabsTrigger>
-              <TabsTrigger value="24h">{t('admin.observability.ranges.day' as any)}</TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={async () => {
-            await triggerPerfRollup();
-            await summaryQ.refetch();
-          }}
-        >
-          <RefreshCw className="me-2 h-3 w-3" /> {t('admin.observability.performance.runRollup' as any)}
-        </Button>
+      <div className="flex items-center gap-2">
+        <Tabs value={range} onValueChange={(v) => setRange(v as PerfRange)}>
+          <TabsList>
+            <TabsTrigger value="1h">{t('admin.observability.ranges.hour' as any)}</TabsTrigger>
+            <TabsTrigger value="24h">{t('admin.observability.ranges.day' as any)}</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
       <Card className="bg-card border-border">

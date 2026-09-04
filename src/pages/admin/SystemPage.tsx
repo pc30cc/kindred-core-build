@@ -214,7 +214,13 @@ export default function AdminSystemPage() {
             </Link>
           </CardHeader>
           <CardContent className="space-y-2">
-            {summaryRows.map((r) => (
+            {summary.isLoading && (
+              <p className="text-muted-foreground text-sm">{t('admin.common.loading' as any)}</p>
+            )}
+            {summary.error && !summary.isLoading && (
+              <p className="text-destructive text-sm">{t('admin.system.metricsUnavailable' as any)}</p>
+            )}
+            {!summary.isLoading && !summary.error && summaryRows.map((r) => (
               <div key={r.metric} className="flex items-center justify-between">
                 <span className="text-muted-foreground text-sm">{r.label}</span>
                 <Badge variant="outline">{counts[r.metric]?.total ?? 0}</Badge>
@@ -236,10 +242,16 @@ export default function AdminSystemPage() {
             </Link>
           </CardHeader>
           <CardContent className="space-y-2">
-            {perfRows.length === 0 && (
+            {perfSummaryQ.isLoading && (
+              <p className="text-muted-foreground text-sm">{t('admin.common.loading' as any)}</p>
+            )}
+            {(perfSummaryQ.error || perfProcessQ.error) && !perfSummaryQ.isLoading && (
+              <p className="text-destructive text-sm">{t('admin.system.performanceUnavailable' as any)}</p>
+            )}
+            {!perfSummaryQ.isLoading && !perfSummaryQ.error && !perfProcessQ.error && perfRows.length === 0 && (
               <p className="text-muted-foreground text-sm">{t('admin.system.noPerformance' as any)}</p>
             )}
-            {perfRows.map((r) => (
+            {!perfSummaryQ.error && !perfProcessQ.error && perfRows.map((r) => (
               <div
                 key={`${r.route_group}|${r.method}`}
                 className="flex items-center justify-between"

@@ -469,10 +469,23 @@ plansRouter.get('/admin/subscriptions', async (req, res) => {
   const supabase = createClient(url, key);
   const { data, error } = await supabase
     .from('workspace_subscriptions')
-    .select('*, billing_plans(name, slug)')
+    .select('*')
     .order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: 'Request failed' });
-  res.json({ subscriptions: data || [] });
+
+  const planIds = [...new Set((data || []).map((sub: any) => sub.plan_id).filter(Boolean))];
+  const { data: plans, error: plansError } = planIds.length
+    ? await supabase.from('billing_plans').select('id, name, slug').in('id', planIds)
+    : { data: [], error: null };
+  if (plansError) return res.status(500).json({ error: 'Request failed' });
+
+  const plansById = new Map((plans || []).map((plan: any) => [plan.id, plan]));
+  res.json({
+    subscriptions: (data || []).map((sub: any) => ({
+      ...sub,
+      billing_plans: plansById.get(sub.plan_id) || null,
+    })),
+  });
 });
 
 // ═══════════════════════════════════════════════════════════

@@ -27,7 +27,7 @@ import {
   Radio, Settings, TestTube, RefreshCw, ShieldAlert, History, CheckCircle, AlertTriangle, XCircle, Zap,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-import { useTranslation } from 'react-i18next';
+import { useTranslation } from '@/i18n';
 import { realtimeAdminApi, type RealtimeAdminConfig } from '@/lib/realtime-admin-api';
 import { RealtimeTopologyTab } from './RealtimeTopologyTab';
 

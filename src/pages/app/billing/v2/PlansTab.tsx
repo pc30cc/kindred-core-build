@@ -224,16 +224,8 @@ export default function PlansTab({
                   </div>
                 )}
 
-                {Array.isArray(plan.features) && plan.features.length > 0 && (
-                  <ul className="space-y-1.5 text-sm text-muted-foreground">
-                    {(plan.features as string[]).slice(0, 6).map((f, idx) => (
-                      <li key={idx} className="flex items-start gap-2">
-                        <Check className="mt-0.5 h-4 w-4 shrink-0" style={{ color: `hsl(var(--plan-accent))` }} />
-                        <span>{String(f)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                <PlanFeatureList plan={plan} accentVar="--plan-accent" />
+
 
                 <Button
                   size="lg"

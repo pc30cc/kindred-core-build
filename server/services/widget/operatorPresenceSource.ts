@@ -53,8 +53,10 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import {
   getCentrifugoDriver,
+  loadRealtimeConfig,
   resolveRealtimeProvider,
 } from '../realtime/index.js';
+
 import { buildOperatorPresenceChannelName } from '../realtime/types.js';
 
 /** Heartbeat cadence of the operator panel (fallback mode only). */

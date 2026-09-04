@@ -1,13 +1,14 @@
 /**
- * Phase 3 — Observability surface (server-only).
+ * Observability surface (server-only).
  *
  * Two outputs, gated independently by widget_platform_settings:
- *   1. DB counter event   → realtime_metric_events  (admin panel reads this)
- *   2. Structured JSON log → stdout                  (log shipper reads this)
+ *   1. Bounded in-memory counter → server/services/observability/collector/
+ *      (admin panel reads this via getMonitoringCollector())
+ *   2. Structured JSON log → stdout (log shipper reads this)
  *
  * Design rules:
- *   • Never throws. Counter inserts are fire-and-forget; the realtime/widget
- *     hot path must not be blocked or affected if the DB is down.
+ *   • Never throws. Recording is fire-and-forget; the realtime/widget hot
+ *     path must never be blocked or affected by it.
  *   • Never stores message bodies, IPs, visitor IDs, tokens, or PII.
  *   • Tag values are bounded — short low-cardinality strings only.
  *   • Settings are cached for 60s.
@@ -123,11 +124,11 @@ export function emitMetric(config: ServerConfig, event: MetricEvent): void {
     }
 
     if (flags.metricsEnabled) {
-      // Dual-write (Live Monitoring migration, step 2/9): the bounded
-      // in-memory collector is fed from the same call site as the raw DB
-      // insert below so it accumulates real production data before any
-      // reader is cut over to it. Never throws — recordRealtimeMetric()
-      // only touches in-memory structures.
+      // Live Monitoring: bounded in-memory collector only — see
+      // server/services/observability/collector/. No Postgres write here
+      // (realtime_metric_events was dropped; see the Live Monitoring
+      // migration). Never throws — recordRealtimeMetric() only touches
+      // in-memory structures.
       try {
         getMonitoringCollector().recordRealtimeMetric({
           metric: event.metric,
@@ -139,20 +140,6 @@ export function emitMetric(config: ServerConfig, event: MetricEvent): void {
         });
       } catch {
         // Never break the caller.
-      }
-
-      try {
-        const sb = getServiceClient(config);
-        await sb.from('realtime_metric_events').insert({
-          metric: event.metric,
-          workspace_id: event.workspaceId ?? null,
-          conversation_id: event.conversationId ?? null,
-          driver: event.driver ?? null,
-          source,
-          tags,
-        });
-      } catch {
-        // Best-effort — never break the caller.
       }
     }
 

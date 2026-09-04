@@ -73,7 +73,6 @@ import { syncSeatEntitlementMode } from './services/invitations/bootstrap.js';
 import { ensureInvitationSecrets } from './services/invitations/secretBootstrap.js';
 
 import { startPrivacyExpirySweep } from './services/privacy/expirySweep.js';
-import { startMetricsRollup } from './services/observability/rollupTicker.js';
 import { startAiBillingRecovery } from './services/ai-billing/recoveryTicker.js';
 import { startBillingV2Schedulers } from './services/billing/scheduler/ticker.js';
 import { startAlertingTicker } from './services/observability/alertingTicker.js';
@@ -544,8 +543,6 @@ app.listen(config.port, () => {
   // GDPR — start hourly TTL purge for expired export artifacts (provider-based).
   startPrivacyExpirySweep(config);
 
-  // Phase 3 — start in-process metrics rollup (every 10 min). Best-effort.
-  startMetricsRollup(config);
   // AI billing — automatic, idempotent recovery/reconciliation pass.
   startAiBillingRecovery(config);
   // Billing Engine V2 — renewal invoices, wallet auto-pay and period activation.

@@ -53,7 +53,7 @@ const CHAIN = [
   'database/migrations/118_billing_v2_schedulers.sql',
   'database/migrations/119_billing_v2_entitlement_cycles.sql',
   'database/migrations/120_billing_v2_wallet_deposit_checkout.sql',
-  'database/migrations/121_billing_v2_dunning.sql',
+  'database/migrations/122_billing_v2_dunning.sql',
 ];
 
 let client: any;

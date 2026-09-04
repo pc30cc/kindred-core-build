@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogT
 import { Plus, Trash2, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/i18n';
+import { formatMoney } from '@/lib/money';
 import {
   adminBillingApi,
   type AdminCurrency,

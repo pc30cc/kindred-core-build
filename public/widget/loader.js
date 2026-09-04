@@ -327,29 +327,45 @@
     ".error-toast.visible{display:block;}",
     /* Mobile keeps the configured size — parity between closed and open. */
     /* ── Smart Engagement: launcher nudge only (loader-owned surface). ── */
-    /* Values mirror .smart-nudge / .smart-title / .smart-body / .smart-cta / */
-    /* .smart-dismiss in runtime.css exactly — same look, no runtime.css load. */
-    ".smart-nudge{position:fixed;z-index:6;max-width:280px;display:flex;flex-direction:column;gap:8px;",
-    "padding:12px 14px;border-radius:16px;background:#fff;color:#1f2937;",
-    "border:1px solid rgba(15,23,42,.08);",
-    "box-shadow:0 18px 40px -18px rgba(2,6,23,.45),0 2px 6px -2px rgba(2,6,23,.12);",
-    "font-size:13px;line-height:1.6;bottom:96px;}",
+    /* Values mirror the .smart-nudge block in presentation-web-yar.css so the
+       bubble looks identical before/after the template stylesheet lands. */
+    ".smart-nudge{position:absolute;z-index:6;bottom:calc(var(--gs-fab-size,56px) + 22px);",
+    "width:max-content;max-width:290px;display:flex;flex-direction:column;gap:6px;",
+    "padding:14px 16px;border-radius:18px;color:#1c2024;",
+    "background:linear-gradient(180deg,#ffffff 0%,#fbfcfe 100%);",
+    "border:1px solid rgba(15,23,42,.07);",
+    "box-shadow:0 22px 48px -22px rgba(2,6,23,.45),0 3px 10px -5px rgba(2,6,23,.14);",
+    "font-size:13px;line-height:1.8;}",
     ".smart-nudge[hidden]{display:none !important;}",
-    ".smart-nudge .smart-title{font-weight:700;font-size:13px;}",
+    /* Tail: a rotated square welded to the bubble edge closest to the FAB. */
+    ".smart-nudge::after{content:'';position:absolute;bottom:-7px;width:14px;height:14px;",
+    "background:#fbfcfe;border-right:1px solid rgba(15,23,42,.07);",
+    "border-bottom:1px solid rgba(15,23,42,.07);border-bottom-right-radius:3px;",
+    "transform:rotate(45deg);}",
+    ".smart-nudge .smart-title{font-weight:700;font-size:13.5px;line-height:1.6;}",
     ".smart-nudge .smart-body{color:#475569;white-space:pre-wrap;word-break:break-word;}",
-    ".smart-nudge .smart-cta{align-self:flex-start;border:none;cursor:pointer;padding:7px 14px;",
-    "border-radius:999px;font:inherit;font-weight:700;font-size:12px;color:#fff;",
-    "background:var(--gs-primary,#3b82f6);}",
-    ".smart-nudge .smart-dismiss{position:absolute;top:-8px;width:22px;height:22px;border-radius:50%;",
-    "border:1px solid rgba(15,23,42,.1);background:#fff;color:#64748b;cursor:pointer;display:flex;",
-    "align-items:center;justify-content:center;font-size:13px;line-height:1;padding:0;}",
-    ".smart-nudge.bottom-right{right:24px;}",
-    ".smart-nudge.bottom-left{left:24px;}",
-    ".smart-nudge.bottom-right .smart-dismiss{left:-8px;}",
-    ".smart-nudge.bottom-left .smart-dismiss{right:-8px;}",
-    "@keyframes gs-smart-in{from{opacity:0;transform:translateY(10px) scale(.96);}to{opacity:1;transform:translateY(0) scale(1);}}",
+    ".smart-nudge .smart-cta{align-self:flex-start;border:none;cursor:pointer;padding:8px 16px;",
+    "border-radius:999px;font:inherit;font-weight:700;font-size:12.5px;color:#fff;margin-top:2px;",
+    "background:var(--gs-primary,#3b82f6);box-shadow:0 6px 16px -8px var(--gs-primary,#3b82f6);",
+    "transition:filter .15s ease,transform .15s ease;}",
+    ".smart-nudge .smart-cta:hover{filter:brightness(1.06);transform:translateY(-1px);}",
+    /* Close control always sits OUTSIDE the bubble, top-right, in every dir. */
+    ".smart-nudge .smart-dismiss{position:absolute;top:-10px;inset-inline:auto;right:-10px;left:auto;",
+    "width:24px;height:24px;border-radius:50%;border:1px solid rgba(15,23,42,.08);background:#fff;",
+    "color:#60646c;cursor:pointer;display:flex;align-items:center;justify-content:center;",
+    "font-size:14px;line-height:1;padding:0;box-shadow:0 4px 12px -5px rgba(2,6,23,.4);",
+    "transition:background-color .15s ease,color .15s ease;}",
+    ".smart-nudge .smart-dismiss:hover{background:#f0f0f3;color:#1c2024;}",
+    ".smart-nudge.bottom-right{right:0;left:auto;}",
+    ".smart-nudge.bottom-left{left:0;right:auto;}",
+    ".smart-nudge.bottom-right::after{right:18px;}",
+    ".smart-nudge.bottom-left::after{left:18px;}",
+    "@keyframes gs-smart-in{from{opacity:0;transform:translateY(10px) scale(.94);}to{opacity:1;transform:translateY(0) scale(1);}}",
     ".anim-on .smart-nudge{animation:gs-smart-in .34s cubic-bezier(.22,1,.36,1) both;}",
-    "@media(max-width:480px){.smart-nudge{bottom:84px;max-width:calc(100vw - 40px);}}",
+    ".smart-nudge.bottom-right{transform-origin:100% 100%;}",
+    ".smart-nudge.bottom-left{transform-origin:0 100%;}",
+    "@media(max-width:480px){.smart-nudge{max-width:calc(100vw - 48px);}}",
+
   ].join("");
 
   // ─── <gs-widget> custom element ───

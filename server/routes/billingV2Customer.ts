@@ -253,7 +253,10 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/pay-w
   }
 });
 
-const checkoutSchema = z.object({ callbackUrl: z.string().url() });
+const checkoutSchema = z.object({
+  callbackUrl: z.string().url(),
+  providerName: z.string().min(2).max(60).optional(),
+});
 
 /** Start a gateway collection for an open invoice. */
 billingV2CustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkout', async (req, res) => {

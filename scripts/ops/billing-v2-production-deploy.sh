@@ -92,8 +92,9 @@ BILLING_V2_MIGRATIONS=(
 for n in "${BILLING_V2_MIGRATIONS[@]}"; do
   f="database/migrations/$n"
   [ -f "$f" ] || { echo "missing migration file: $f" >&2; exit 1; }
-
+  present="$("${PSQL[@]}" -c "SELECT 1 FROM public.ops_schema_migrations WHERE filename = '$n'")"
   if [ "$present" = "1" ]; then SKIPPED+=("$n"); continue; fi
+
   sum="$(sha256sum "$f" | awk '{print $1}')"
   if [ "$DRY_RUN" = "1" ]; then echo "WOULD APPLY $n"; APPLIED+=("$n"); continue; fi
   start=$(date +%s%3N)

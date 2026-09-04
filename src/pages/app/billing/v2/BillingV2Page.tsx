@@ -77,6 +77,36 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
     setReloadKey((k) => k + 1);
   }, [load]);
 
+  /**
+   * Gateway return. The redirect carries `intent` + `provider` (added by the
+   * server when the checkout session was created) plus the raw gateway params.
+   * Verification is server-side; the URL is cleaned afterwards so a refresh
+   * cannot replay it.
+   */
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const intentId = url.searchParams.get('intent');
+    const provider = url.searchParams.get('provider');
+    if (!intentId || !provider) return;
+
+    const params: Record<string, string> = {};
+    url.searchParams.forEach((value, key) => {
+      if (key !== 'intent' && key !== 'provider') params[key] = value;
+    });
+
+    ['intent', 'provider', ...Object.keys(params)].forEach((k) => url.searchParams.delete(k));
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+
+    billingVerifyCallback({ workspaceId, provider, params, intentId })
+      .then((res: any) => {
+        if (res?.verified) toast.success(t('billingV2.common.paymentSucceeded'));
+        else toast.error(t('billingV2.common.paymentFailed'));
+      })
+      .catch((e) => toast.error(errorMessage(e, t)))
+      .finally(() => refreshAll());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId]);
+
   async function cancelPendingChange() {
     setCanceling(true);
     try {
@@ -89,6 +119,7 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
       setCanceling(false);
     }
   }
+
 
   if (loading && !overview) {
     return (

@@ -5670,6 +5670,10 @@ const en = {
       retryAfter: 'You can run another audit in about {{minutes}} minute(s).',
       maxPages: 'Up to {{count}} pages per audit on your current plan.',
     },
+    errors: {
+      siteNotFound: 'This website could not be found. It may have been removed from the workspace.',
+      startFailed: 'Could not start the audit. Please try again in a moment, or contact support if this keeps happening.',
+    },
     overview: {
       scoreTrend: 'Score trend',
       indexable: 'Indexable',

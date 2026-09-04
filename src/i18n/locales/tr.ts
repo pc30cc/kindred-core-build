@@ -5658,6 +5658,10 @@ const tr: TranslationKeys = {
       retryAfter: 'Yaklaşık {{minutes}} dakika sonra yeni bir denetim çalıştırabilirsiniz.',
       maxPages: 'Mevcut planınızda denetim başına en fazla {{count}} sayfa taranır.',
     },
+    errors: {
+      siteNotFound: 'Bu web sitesi bulunamadı. Çalışma alanından kaldırılmış olabilir.',
+      startFailed: 'Denetim başlatılamadı. Lütfen kısa süre sonra tekrar deneyin veya sorun devam ederse destek ile iletişime geçin.',
+    },
     overview: {
       scoreTrend: 'Puan trendi',
       indexable: 'Dizinlenebilir',

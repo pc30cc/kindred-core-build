@@ -3626,6 +3626,90 @@ export type Database = {
           },
         ]
       }
+      billing_entitlement_cycles: {
+        Row: {
+          activated_at: string | null
+          ai_allowance_irr: number
+          allowance_granted_at: string | null
+          allowance_lot_id: string | null
+          allowance_state: string
+          attempt_count: number
+          billing_engine_version: string
+          completed_at: string | null
+          created_at: string
+          cycle_end: string
+          cycle_index: number
+          cycle_start: string
+          id: string
+          last_error: string | null
+          next_attempt_at: string
+          snapshot: Json
+          status: string
+          subscription_id: string
+          subscription_period_id: string
+          workspace_id: string
+        }
+        Insert: {
+          activated_at?: string | null
+          ai_allowance_irr?: number
+          allowance_granted_at?: string | null
+          allowance_lot_id?: string | null
+          allowance_state?: string
+          attempt_count?: number
+          billing_engine_version?: string
+          completed_at?: string | null
+          created_at?: string
+          cycle_end: string
+          cycle_index: number
+          cycle_start: string
+          id?: string
+          last_error?: string | null
+          next_attempt_at?: string
+          snapshot?: Json
+          status?: string
+          subscription_id: string
+          subscription_period_id: string
+          workspace_id: string
+        }
+        Update: {
+          activated_at?: string | null
+          ai_allowance_irr?: number
+          allowance_granted_at?: string | null
+          allowance_lot_id?: string | null
+          allowance_state?: string
+          attempt_count?: number
+          billing_engine_version?: string
+          completed_at?: string | null
+          created_at?: string
+          cycle_end?: string
+          cycle_index?: number
+          cycle_start?: string
+          id?: string
+          last_error?: string | null
+          next_attempt_at?: string
+          snapshot?: Json
+          status?: string
+          subscription_id?: string
+          subscription_period_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_entitlement_cycles_subscription_period_id_fkey"
+            columns: ["subscription_period_id"]
+            isOneToOne: false
+            referencedRelation: "billing_subscription_periods"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_entitlement_cycles_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       billing_events: {
         Row: {
           amount: number | null
@@ -3990,6 +4074,94 @@ export type Database = {
           },
           {
             foreignKeyName: "billing_invoices_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_notification_jobs: {
+        Row: {
+          attempt_count: number
+          channel: string
+          created_at: string
+          id: string
+          idempotency_key: string
+          invoice_id: string | null
+          last_error: string | null
+          lease_until: string | null
+          locale: string | null
+          max_attempts: number
+          next_attempt_at: string
+          notification_type: string
+          payload: Json
+          scheduled_at: string
+          sent_at: string | null
+          status: string
+          subscription_id: string | null
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          attempt_count?: number
+          channel: string
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          invoice_id?: string | null
+          last_error?: string | null
+          lease_until?: string | null
+          locale?: string | null
+          max_attempts?: number
+          next_attempt_at?: string
+          notification_type: string
+          payload?: Json
+          scheduled_at?: string
+          sent_at?: string | null
+          status?: string
+          subscription_id?: string | null
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          attempt_count?: number
+          channel?: string
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          invoice_id?: string | null
+          last_error?: string | null
+          lease_until?: string | null
+          locale?: string | null
+          max_attempts?: number
+          next_attempt_at?: string
+          notification_type?: string
+          payload?: Json
+          scheduled_at?: string
+          sent_at?: string | null
+          status?: string
+          subscription_id?: string | null
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_notification_jobs_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "billing_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_notification_jobs_subscription_id_fkey"
+            columns: ["subscription_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_subscriptions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_notification_jobs_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -4413,6 +4585,41 @@ export type Database = {
         }
         Relationships: []
       }
+      billing_retention_signals: {
+        Row: {
+          cleared_at: string | null
+          details: Json
+          reason: string
+          signaled_at: string
+          state: string
+          workspace_id: string
+        }
+        Insert: {
+          cleared_at?: string | null
+          details?: Json
+          reason: string
+          signaled_at?: string
+          state?: string
+          workspace_id: string
+        }
+        Update: {
+          cleared_at?: string | null
+          details?: Json
+          reason?: string
+          signaled_at?: string
+          state?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_retention_signals_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       billing_subscription_applications: {
         Row: {
           action_type: string
@@ -4683,29 +4890,89 @@ export type Database = {
       billing_v2_policy: {
         Row: {
           collection_ttl_seconds: number
+          fallback_plan_id: string | null
+          grace_period_days: number
           id: boolean
           invoice_due_offset_days: number
           invoice_lead_time_days: number
+          notification_max_attempts: number
+          notification_max_per_hour: number
+          notification_retry_seconds: number
+          notify_on_due: boolean
+          notify_on_fallback: boolean
+          notify_on_past_due: boolean
+          reminder_days_before_due: number[]
+          send_invoice_issued_email: boolean
+          send_invoice_issued_sms: boolean
           updated_at: string
           wallet_auto_pay_default: boolean
+          wallet_deposit_allow_custom: boolean
+          wallet_deposit_max_irr: number
+          wallet_deposit_min_irr: number
+          wallet_deposit_presets_irr: number[]
         }
         Insert: {
           collection_ttl_seconds?: number
+          fallback_plan_id?: string | null
+          grace_period_days?: number
           id?: boolean
           invoice_due_offset_days?: number
           invoice_lead_time_days?: number
+          notification_max_attempts?: number
+          notification_max_per_hour?: number
+          notification_retry_seconds?: number
+          notify_on_due?: boolean
+          notify_on_fallback?: boolean
+          notify_on_past_due?: boolean
+          reminder_days_before_due?: number[]
+          send_invoice_issued_email?: boolean
+          send_invoice_issued_sms?: boolean
           updated_at?: string
           wallet_auto_pay_default?: boolean
+          wallet_deposit_allow_custom?: boolean
+          wallet_deposit_max_irr?: number
+          wallet_deposit_min_irr?: number
+          wallet_deposit_presets_irr?: number[]
         }
         Update: {
           collection_ttl_seconds?: number
+          fallback_plan_id?: string | null
+          grace_period_days?: number
           id?: boolean
           invoice_due_offset_days?: number
           invoice_lead_time_days?: number
+          notification_max_attempts?: number
+          notification_max_per_hour?: number
+          notification_retry_seconds?: number
+          notify_on_due?: boolean
+          notify_on_fallback?: boolean
+          notify_on_past_due?: boolean
+          reminder_days_before_due?: number[]
+          send_invoice_issued_email?: boolean
+          send_invoice_issued_sms?: boolean
           updated_at?: string
           wallet_auto_pay_default?: boolean
+          wallet_deposit_allow_custom?: boolean
+          wallet_deposit_max_irr?: number
+          wallet_deposit_min_irr?: number
+          wallet_deposit_presets_irr?: number[]
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "billing_v2_policy_fallback_plan_id_fkey"
+            columns: ["fallback_plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_v2_policy_fallback_plan_id_fkey"
+            columns: ["fallback_plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans_public"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       billing_v2_rollout: {
         Row: {
@@ -4790,18 +5057,27 @@ export type Database = {
       billing_v2_workspace_policy: {
         Row: {
           invoice_lead_time_days: number | null
+          notifications_enabled: boolean | null
+          reminder_days_before_due: number[] | null
+          send_invoice_issued_sms: boolean | null
           updated_at: string
           wallet_auto_pay_enabled: boolean | null
           workspace_id: string
         }
         Insert: {
           invoice_lead_time_days?: number | null
+          notifications_enabled?: boolean | null
+          reminder_days_before_due?: number[] | null
+          send_invoice_issued_sms?: boolean | null
           updated_at?: string
           wallet_auto_pay_enabled?: boolean | null
           workspace_id: string
         }
         Update: {
           invoice_lead_time_days?: number | null
+          notifications_enabled?: boolean | null
+          reminder_days_before_due?: number[] | null
+          send_invoice_issued_sms?: boolean | null
           updated_at?: string
           wallet_auto_pay_enabled?: boolean | null
           workspace_id?: string
@@ -14073,9 +14349,21 @@ export type Database = {
         Args: { p_count?: number; p_interval: string; p_ts: string }
         Returns: string
       }
+      billing_v2_apply_free_fallback: {
+        Args: { p_workspace_id: string }
+        Returns: Json
+      }
       billing_v2_apply_period_allowance: {
         Args: { p_period_id: string }
         Returns: Json
+      }
+      billing_v2_billing_recipient: {
+        Args: { p_workspace_id: string }
+        Returns: Json
+      }
+      billing_v2_cancel_invoice_notifications: {
+        Args: { p_invoice_id: string; p_reason?: string; p_types?: string[] }
+        Returns: number
       }
       billing_v2_claim_jobs: {
         Args: { p_job_type: string; p_lease_seconds?: number; p_limit?: number }
@@ -14102,15 +14390,60 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      billing_v2_claim_notification_jobs: {
+        Args: { p_lease_seconds?: number; p_limit?: number }
+        Returns: {
+          attempt_count: number
+          channel: string
+          created_at: string
+          id: string
+          idempotency_key: string
+          invoice_id: string | null
+          last_error: string | null
+          lease_until: string | null
+          locale: string | null
+          max_attempts: number
+          next_attempt_at: string
+          notification_type: string
+          payload: Json
+          scheduled_at: string
+          sent_at: string | null
+          status: string
+          subscription_id: string | null
+          updated_at: string
+          workspace_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "billing_notification_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       billing_v2_complete_job: {
         Args: { p_job_id: string; p_result?: Json }
         Returns: undefined
+      }
+      billing_v2_complete_notification_job:
+        | { Args: { p_job_id: string; p_result: Json }; Returns: Json }
+        | {
+            Args: { p_error?: string; p_job_id: string; p_status?: string }
+            Returns: undefined
+          }
+      billing_v2_current_entitlement_cycle: {
+        Args: { p_workspace_id: string }
+        Returns: Json
       }
       billing_v2_defer_job: {
         Args: { p_job_id: string; p_reason?: string }
         Returns: undefined
       }
       billing_v2_document_number: { Args: never; Returns: string }
+      billing_v2_dunning_metrics: { Args: never; Returns: Json }
+      billing_v2_dunning_snapshot: {
+        Args: { p_invoice_id: string }
+        Returns: Json
+      }
       billing_v2_enqueue_job: {
         Args: {
           p_dedupe_key: string
@@ -14120,8 +14453,24 @@ export type Database = {
         }
         Returns: string
       }
+      billing_v2_enqueue_notification: {
+        Args: {
+          p_channel: string
+          p_invoice_id?: string
+          p_payload?: Json
+          p_scheduled_at?: string
+          p_suffix?: string
+          p_type: string
+          p_workspace_id: string
+        }
+        Returns: string
+      }
       billing_v2_ensure_free_period: {
         Args: { p_workspace_id: string }
+        Returns: Json
+      }
+      billing_v2_ensure_period_cycles: {
+        Args: { p_period_id: string }
         Returns: Json
       }
       billing_v2_evaluate_cutover: {
@@ -14131,6 +14480,14 @@ export type Database = {
       billing_v2_fail_job: {
         Args: { p_error: string; p_job_id: string }
         Returns: undefined
+      }
+      billing_v2_fail_notification_job: {
+        Args: { p_error: string; p_job_id: string }
+        Returns: undefined
+      }
+      billing_v2_grant_cycle_allowance: {
+        Args: { p_cycle_id: string }
+        Returns: Json
       }
       billing_v2_issue_renewal_invoice: {
         Args: { p_force?: boolean; p_workspace_id: string }
@@ -14145,7 +14502,35 @@ export type Database = {
         }
         Returns: undefined
       }
+      billing_v2_period_cycles_grant: {
+        Args: { p_period_id: string }
+        Returns: boolean
+      }
+      billing_v2_period_monthly_allowance: {
+        Args: {
+          p_period: Database["public"]["Tables"]["billing_subscription_periods"]["Row"]
+        }
+        Returns: number
+      }
       billing_v2_policy_for: { Args: { p_workspace_id: string }; Returns: Json }
+      billing_v2_process_due_invoice: {
+        Args: { p_invoice_id: string }
+        Returns: Json
+      }
+      billing_v2_resolve_billing_recipient: {
+        Args: { p_workspace_id: string }
+        Returns: Json
+      }
+      billing_v2_restore_subscription: {
+        Args: { p_workspace_id: string }
+        Returns: Json
+      }
+      billing_v2_run_dunning: { Args: { p_limit?: number }; Returns: Json }
+      billing_v2_run_entitlement_cycles: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
+      billing_v2_run_grace_expiry: { Args: { p_limit?: number }; Returns: Json }
       billing_v2_run_invoice_scheduler: {
         Args: { p_limit?: number }
         Returns: Json
@@ -14156,6 +14541,10 @@ export type Database = {
       }
       billing_v2_run_wallet_autopay: {
         Args: { p_limit?: number }
+        Returns: Json
+      }
+      billing_v2_schedule_invoice_notifications: {
+        Args: { p_invoice_id: string }
         Returns: Json
       }
       billing_v2_scheduler_health: { Args: never; Returns: Json }
@@ -14169,11 +14558,20 @@ export type Database = {
         }
         Returns: Json
       }
+      billing_v2_skip_notification_job: {
+        Args: { p_job_id: string; p_reason?: string }
+        Returns: Json
+      }
       billing_v2_state: { Args: { p_workspace_id: string }; Returns: string }
+      billing_v2_sync_period_cycles: {
+        Args: { p_period_id: string }
+        Returns: Json
+      }
       billing_v2_wallet_autopay_invoice: {
         Args: { p_invoice_id: string }
         Returns: Json
       }
+      billing_v2_wallet_deposit_config: { Args: never; Returns: Json }
       billing_wallet_admin_adjust: {
         Args: {
           p_actor_id?: string

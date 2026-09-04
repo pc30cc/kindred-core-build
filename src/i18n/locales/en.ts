@@ -3,6 +3,14 @@ const en = {
     title: 'Plan & Payment',
     subtitle: 'Manage your workspace plan, invoices, wallet and AI credit.',
     tabs: { overview: 'Overview', invoices: 'Invoices', plans: 'Plans', wallet: 'Wallet', aiCredit: 'AI Credit', transactions: 'Transactions' },
+    dunning: {
+      pastDueTitle: 'Payment overdue',
+      pastDueBody: 'Your renewal invoice was not paid on its due date. Please pay it to keep your current plan.',
+      graceBody: 'Your renewal invoice is unpaid. You have until {{date}} ({{days}} days left) before this workspace moves to the free plan.',
+      fallbackTitle: 'Workspace moved to the free plan',
+      fallbackBody: 'Because the invoice stayed unpaid, this workspace moved to the free plan on {{date}}. Your data was not deleted and paying a new plan restores it.',
+      payNow: 'Pay invoice',
+    },
     common: {
       retry: 'Try again', loadFailed: 'Could not load this section.', empty: 'Nothing here yet.',
       page: 'Page {{page}} of {{pages}}', prev: 'Previous', next: 'Next', close: 'Close', cancel: 'Cancel',
@@ -3302,6 +3310,7 @@ const en = {
       title: 'Finance & Auditing',
       subtitle: 'Platform billing, AI cost and the change trail in one place',
       tabs: {
+        dunning: 'Dunning policy',
         billing: 'Billing & payments',
         ai: 'AI usage',
         audit: 'Audit log',

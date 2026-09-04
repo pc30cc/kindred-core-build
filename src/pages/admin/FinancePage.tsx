@@ -9,13 +9,14 @@
  */
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSearchParams } from 'react-router-dom';
-import { CreditCard, Sparkles, FileText } from 'lucide-react';
+import { CreditCard, Sparkles, FileText, BellRing } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import AdminBillingPage from './BillingPage';
 import AdminAiBillingPage from './AiBillingPage';
 import AdminAuditLogsPage from './AuditLogsPage';
+import DunningPolicyPage from './DunningPolicyPage';
 
-const TABS = ['billing', 'ai', 'audit'] as const;
+const TABS = ['billing', 'ai', 'dunning', 'audit'] as const;
 type TabKey = (typeof TABS)[number];
 
 export default function AdminFinancePage() {
@@ -47,6 +48,10 @@ export default function AdminFinancePage() {
             <Sparkles className="w-4 h-4" />
             {t('admin.finance.tabs.ai' as never)}
           </TabsTrigger>
+          <TabsTrigger value="dunning" className="gap-2">
+            <BellRing className="w-4 h-4" />
+            {t('admin.finance.tabs.dunning' as never)}
+          </TabsTrigger>
           <TabsTrigger value="audit" className="gap-2">
             <FileText className="w-4 h-4" />
             {t('admin.finance.tabs.audit' as never)}
@@ -55,6 +60,7 @@ export default function AdminFinancePage() {
 
         <TabsContent value="billing" className="mt-0"><AdminBillingPage /></TabsContent>
         <TabsContent value="ai" className="mt-0"><AdminAiBillingPage /></TabsContent>
+        <TabsContent value="dunning" className="mt-0"><DunningPolicyPage /></TabsContent>
         <TabsContent value="audit" className="mt-0"><AdminAuditLogsPage /></TabsContent>
       </Tabs>
     </div>

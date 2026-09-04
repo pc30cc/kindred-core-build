@@ -24,6 +24,7 @@ import {
   readMetrics,
 } from '../services/billing/rollout.js';
 import { compareShadow } from '../services/billing/shadow.js';
+import { readDunningMetrics } from '../services/billing/dunning/index.js';
 import { readSchedulerHealth } from '../services/billing/scheduler/index.js';
 import { getBillingV2SchedulerStatus } from '../services/billing/scheduler/ticker.js';
 import { buildWorkspaceBillingReadModel } from '../services/billing/readModel.js';
@@ -150,4 +151,86 @@ adminBillingV2Router.get('/workspaces/:id/audit', async (req, res) => {
     .order('created_at', { ascending: false })
     .limit(100);
   res.json({ events: data || [] });
+});
+
+// ── Phase E: dunning policy and operational counters ──────────────────────
+// Grace and fallback are platform-level on purpose: a workspace can never
+// extend its own grace period or pick where it lands.
+
+adminBillingV2Router.get('/dunning/policy', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const sb = getServiceClient(cfg(req));
+  const { data, error } = await sb.from('billing_v2_policy').select('*').eq('id', true).maybeSingle();
+  if (error) return res.status(500).json({ error: String(error.message) });
+  const { data: plans } = await sb
+    .from('billing_plans')
+    .select('id, name, slug, is_free')
+    .order('name');
+  res.json({ policy: data ?? null, plans: plans || [] });
+});
+
+const dunningPolicySchema = z.object({
+  reminder_days_before_due: z.array(z.number().int().min(0).max(60)).min(1).max(6).optional(),
+  send_invoice_issued_email: z.boolean().optional(),
+  send_invoice_issued_sms: z.boolean().optional(),
+  notify_on_due: z.boolean().optional(),
+  notify_on_past_due: z.boolean().optional(),
+  notify_on_fallback: z.boolean().optional(),
+  grace_period_days: z.number().int().min(0).max(30).optional(),
+  fallback_plan_id: z.string().uuid().nullable().optional(),
+  notification_max_attempts: z.number().int().min(1).max(20).optional(),
+  notification_retry_minutes: z.number().int().min(1).max(720).optional(),
+  notification_daily_cap: z.number().int().min(1).max(50).optional(),
+});
+
+adminBillingV2Router.put('/dunning/policy', async (req, res) => {
+  const adminId = await requirePlatformAdmin(req, res);
+  if (!adminId) return;
+  const parsed = dunningPolicySchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'invalid_request', detail: parsed.error.flatten() });
+  }
+  const patch = parsed.data;
+  if (Object.keys(patch).length === 0) return res.status(400).json({ error: 'invalid_request' });
+
+  const sb = getServiceClient(cfg(req));
+
+  // A fallback plan that is not free would silently bill a customer who
+  // already failed to pay — refuse it here rather than at fallback time.
+  if (patch.fallback_plan_id) {
+    const { data: plan } = await sb
+      .from('billing_plans')
+      .select('id, is_free')
+      .eq('id', patch.fallback_plan_id)
+      .maybeSingle();
+    if (!plan) return res.status(400).json({ error: 'fallback_plan_not_found' });
+    if (!plan.is_free) return res.status(400).json({ error: 'fallback_plan_must_be_free' });
+  }
+
+  const { data, error } = await sb
+    .from('billing_v2_policy')
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('id', true)
+    .select('*')
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: String(error.message) });
+
+  await sb.from('billing_v2_audit').insert({
+    workspace_id: null,
+    event: 'dunning_policy_updated',
+    actor_id: adminId,
+    reason: 'super_admin_update',
+    details: patch,
+  });
+
+  res.json({ policy: data });
+});
+
+adminBillingV2Router.get('/dunning/metrics', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  try {
+    res.json({ metrics: await readDunningMetrics(cfg(req)) });
+  } catch (e: any) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
 });

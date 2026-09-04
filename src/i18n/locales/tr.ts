@@ -5,6 +5,14 @@ const tr: TranslationKeys = {
     title: 'Plan ve Ödeme',
     subtitle: 'Çalışma alanınızın planını, faturalarını, cüzdanını ve yapay zekâ kredisini yönetin.',
     tabs: { overview: 'Genel bakış', invoices: 'Faturalar', plans: 'Planlar', wallet: 'Cüzdan', aiCredit: 'YZ Kredisi', transactions: 'İşlemler' },
+    dunning: {
+      pastDueTitle: 'Ödeme gecikti',
+      pastDueBody: 'Yenileme faturanız vadesinde ödenmedi. Mevcut planınızı korumak için lütfen ödeyin.',
+      graceBody: 'Yenileme faturanız ödenmedi. Bu çalışma alanı ücretsiz plana geçmeden önce {{date}} tarihine kadar ({{days}} gün) süreniz var.',
+      fallbackTitle: 'Çalışma alanı ücretsiz plana geçti',
+      fallbackBody: 'Fatura ödenmediği için bu çalışma alanı {{date}} tarihinde ücretsiz plana geçti. Verileriniz silinmedi; yeni bir plan ödemesiyle geri yüklenir.',
+      payNow: 'Faturayı öde',
+    },
     common: {
       retry: 'Tekrar dene', loadFailed: 'Bu bölüm yüklenemedi.', empty: 'Henüz kayıt yok.',
       page: 'Sayfa {{page}} / {{pages}}', prev: 'Önceki', next: 'Sonraki', close: 'Kapat', cancel: 'Vazgeç',
@@ -3291,6 +3299,7 @@ const tr: TranslationKeys = {
       title: 'Finans ve Denetim',
       subtitle: 'Platform faturalandırma, yapay zeka maliyeti ve değişiklik izi tek yerde',
       tabs: {
+        dunning: 'Tahsilat politikası',
         billing: 'Faturalar ve ödemeler',
         ai: 'Yapay zeka',
         audit: 'Denetim günlüğü',

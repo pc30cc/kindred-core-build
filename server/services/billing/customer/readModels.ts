@@ -80,6 +80,18 @@ export interface BillingOverview {
   aiMonthlyOnAnnual: boolean;
   wallet: { balanceIrr: number; frozen: boolean; autoPayEnabled: boolean };
   upcomingInvoice: InvoiceSummary | null;
+  /**
+   * Dunning state, reported only. `serverTime` travels with the deadlines so
+   * the countdown in the UI is measured against the server's clock and a
+   * customer with a skewed device never sees a wrong grace deadline.
+   */
+  dunning: {
+    pastDue: boolean;
+    pastDueSince: string | null;
+    gracePeriodEndsAt: string | null;
+    freeFallbackAt: string | null;
+    serverTime: string;
+  };
 }
 
 function num(v: unknown): number {
@@ -125,7 +137,7 @@ export async function buildBillingOverview(
     sb
       .from('workspace_subscriptions')
       .select(
-        'status, plan_id, billing_interval, current_period_start, current_period_end, next_invoice_at, next_plan_id, pending_change_type, cancel_at_period_end, trial_ends_at, billing_plans:plan_id(name, prices, limits)',
+        'status, plan_id, billing_interval, current_period_start, current_period_end, next_invoice_at, next_plan_id, pending_change_type, cancel_at_period_end, trial_ends_at, past_due_since, grace_period_ends_at, free_fallback_at, billing_plans:plan_id(name, prices, limits)',
       )
       .eq('workspace_id', workspaceId)
       .maybeSingle(),
@@ -267,6 +279,13 @@ export async function buildBillingOverview(
       : null,
     aiPurchasedRemainingIrr: purchasedRemaining,
     aiMonthlyOnAnnual: interval === 'yearly',
+    dunning: {
+      pastDue: sub?.status === 'past_due',
+      pastDueSince: sub?.past_due_since ?? null,
+      gracePeriodEndsAt: sub?.grace_period_ends_at ?? null,
+      freeFallbackAt: sub?.free_fallback_at ?? null,
+      serverTime: new Date().toISOString(),
+    },
     wallet: {
       balanceIrr: num(wallet?.available_balance_irr),
       frozen: Boolean(wallet?.frozen),

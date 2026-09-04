@@ -104,6 +104,17 @@ BEGIN
 END;
 $$;
 
+-- ─── 1b. Free-fallback is a first-class period source ───────────────────────
+-- 113 froze the allowed sources before this lifecycle existed. Widening the
+-- CHECK (never rewriting 113) lets a fallback period be told apart from a
+-- normal free plan for the rest of its life — which is what the retention
+-- signal and the audit trail are read against.
+ALTER TABLE public.billing_subscription_periods
+  DROP CONSTRAINT IF EXISTS billing_subscription_periods_source_check;
+ALTER TABLE public.billing_subscription_periods
+  ADD CONSTRAINT billing_subscription_periods_source_check
+  CHECK (source IN ('invoice', 'legacy_migration', 'free_plan', 'trial', 'admin', 'free_fallback'));
+
 -- ─── 2. Durable, idempotent notification queue ──────────────────────────────
 CREATE TABLE IF NOT EXISTS public.billing_notification_jobs (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),

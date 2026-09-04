@@ -11,13 +11,22 @@
  */
 import type { ServerConfig } from '../../../config.js';
 import { runRenewalInvoiceScheduler, runWalletAutoPay, runPeriodActivation } from './index.js';
+import { runDunning, runGraceExpiry, runNotificationWorker } from '../dunning/index.js';
 
 const TICK_MS = 5 * 60 * 1000;
 const FIRST_RUN_DELAY_MS = 90_000;
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
-let lastRun: { at: string; renewal: unknown; wallet: unknown; activation: unknown } | null = null;
+let lastRun: {
+  at: string;
+  renewal: unknown;
+  wallet: unknown;
+  activation: unknown;
+  dunning: unknown;
+  grace: unknown;
+  notifications: unknown;
+} | null = null;
 let lastError: { at: string; message: string } | null = null;
 
 export function startBillingV2Schedulers(config: ServerConfig): void {
@@ -44,7 +53,16 @@ export async function tick(config: ServerConfig): Promise<void> {
     const renewal = await runRenewalInvoiceScheduler(config);
     const wallet = await runWalletAutoPay(config);
     const activation = await runPeriodActivation(config);
-    lastRun = { at: new Date().toISOString(), renewal, wallet, activation };
+    // Dunning runs AFTER activation: an invoice paid earlier in this same tick
+    // must never be treated as unpaid a few milliseconds later.
+    const dunning = await runDunning(config);
+    // Grace expiry is last, so a payment seen anywhere above already won.
+    const grace = await runGraceExpiry(config);
+    // Delivery never gates the lifecycle above it.
+    const notifications = await runNotificationWorker(config).catch((err: any) => ({
+      error: String(err?.message || err),
+    }));
+    lastRun = { at: new Date().toISOString(), renewal, wallet, activation, dunning, grace, notifications };
     lastError = null;
   } catch (err: any) {
     lastError = { at: new Date().toISOString(), message: String(err?.message || err) };

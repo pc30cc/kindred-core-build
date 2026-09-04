@@ -12,6 +12,7 @@
  * one less).
  */
 import { monitorEventLoopDelay } from 'node:perf_hooks';
+import { getHeapStatistics } from 'node:v8';
 import { PROCESS_TREND_CAPACITY } from './constants.js';
 
 export interface ProcessSnapshot {
@@ -20,6 +21,8 @@ export interface ProcessSnapshot {
   rss_bytes: number;
   heap_used_bytes: number;
   heap_total_bytes: number;
+  /** V8's hard ceiling for this process. Constant for the process lifetime. */
+  heap_limit_bytes: number;
   uptime_seconds: number;
 }
 
@@ -30,9 +33,23 @@ export interface ProcessTrend {
   latest: ProcessSnapshot | null;
 }
 
-export type ProcessAverageMetric = 'event_loop_lag_ms' | 'rss_pct_of_budget' | 'heap_used_over_total';
+export type ProcessAverageMetric =
+  | 'event_loop_lag_ms'
+  | 'rss_pct_of_budget'
+  | 'heap_used_over_total'
+  /**
+   * True heap saturation: heapUsed / V8 heap_size_limit.
+   *
+   * heap_used_over_total is NOT a saturation signal — V8 keeps heapTotal
+   * only slightly above heapUsed and shrinks it after a GC, so a healthy
+   * process idles around 0.75-0.95 on that ratio and any threshold on it
+   * fires constantly. The limit is fixed, so this ratio only rises when the
+   * process is genuinely approaching OOM.
+   */
+  | 'heap_used_over_limit';
 
 const DEFAULT_BUDGET_BYTES = 512 * 1024 * 1024;
+const HEAP_LIMIT_BYTES = getHeapStatistics().heap_size_limit;
 
 export class ProcessCollector {
   private elDelay: ReturnType<typeof monitorEventLoopDelay> | null = null;
@@ -59,6 +76,7 @@ export class ProcessCollector {
       rss_bytes: mem.rss,
       heap_used_bytes: mem.heapUsed,
       heap_total_bytes: mem.heapTotal,
+      heap_limit_bytes: HEAP_LIMIT_BYTES,
       uptime_seconds: Math.round(process.uptime()),
     };
   }
@@ -121,6 +139,11 @@ export class ProcessCollector {
       const budget = budgetBytes && budgetBytes > 0 ? budgetBytes : DEFAULT_BUDGET_BYTES;
       const avg = within.reduce((sum, s) => sum + s.rss_bytes / budget, 0) / within.length;
       return { value: avg, sample: within.length };
+    }
+    if (metric === 'heap_used_over_limit') {
+      const avgUsedB = within.reduce((sum, s) => sum + s.heap_used_bytes, 0) / within.length;
+      const limit = within[within.length - 1].heap_limit_bytes || HEAP_LIMIT_BYTES;
+      return { value: limit > 0 ? avgUsedB / limit : 0, sample: within.length };
     }
     // heap_used_over_total — AVG(heap_used)/AVG(heap_total), matching the
     // original SQL semantics exactly (not an average of per-sample ratios).

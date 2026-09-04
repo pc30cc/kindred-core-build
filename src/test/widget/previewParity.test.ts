@@ -46,16 +46,17 @@ describe('preview never redefines widget geometry or lifecycle', () => {
 });
 
 describe('production panel positioning contract', () => {
-  it('positions the panel itself — never a phantom .shell.pos-* class', () => {
-    expect(css).not.toContain('.shell.pos-bottom-right');
-    expect(css).not.toContain('.shell.pos-bottom-left');
-    expect(css).toMatch(/\.panel\s*\{[\s\S]*?position:\s*fixed/);
+  it('positions the panel inside the loader-owned corner anchor', () => {
+    // The loader owns the zero-size fixed anchor (.shell.pos-*) and BOTH the
+    // launcher and the panel are absolute children pinned to that corner.
+    expect(loader).toContain('.shell.pos-bottom-right');
+    expect(loader).toContain('.shell.pos-bottom-left');
+    expect(css).toMatch(/\.panel\s*\{[\s\S]*?position:\s*absolute/);
   });
 
-  it('anchors the panel above the launcher with the design geometry', () => {
-    expect(css).toContain('bottom: calc(24px + var(--gs-fab-size, 56px) + 14px)');
-    expect(css).toMatch(/\.panel\.bottom-right\s*\{[\s\S]*?right:\s*24px/);
-    expect(css).toMatch(/\.panel\.bottom-left\s*\{[\s\S]*?left:\s*24px/);
+  it('anchors the panel to the same corner as the launcher', () => {
+    expect(css).toMatch(/\.panel\.bottom-right\s*\{[\s\S]*?right:\s*0/);
+    expect(css).toMatch(/\.panel\.bottom-left\s*\{[\s\S]*?left:\s*0/);
     expect(css).toMatch(/width:\s*420px/);
     expect(css).toMatch(/height:\s*680px/);
     expect(css).toMatch(/max-height:\s*calc\(100dvh - 118px\)/);

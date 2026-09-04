@@ -90,6 +90,8 @@ import {
 import { extractHostname, isOriginAllowed } from '../utils/domain.js';
 import { resolveAvailability, snapshotToWirePayload } from '../services/widget/availability.js';
 import { sendEmail } from '../services/email/index.js';
+import { resolveWorkspaceAppUrl } from '../services/auth-email.js';
+
 import { enrichVisitorSessionGeo } from '../services/geo/index.js';
 import { getClientCountry, hashIp } from '../utils/clientIp.js';
 import { checkTypingAllowed } from '../services/widget/typingRateLimit.js';
@@ -175,6 +177,7 @@ const DEFAULT_WIDGET_SETTINGS = {
   fab_label: '',
   fab_scale: 100,
   fab_icon_color: '#ffffff',
+  fab_image_url: null as string | null,
   fab_text_color: '#ffffff',
   default_mode: 'chat',
   chat_enabled: true,
@@ -460,11 +463,14 @@ widgetRouter.post('/session/refresh', widgetRateLimit('refresh'), perfHttpMiddle
     const newToken = createSessionToken(workspaceId, tokenOrigin || requestOrigin, { sessionNonce: tokenData.nonce });
     const newResult = verifySessionToken(newToken);
 
-    if (requestOrigin) {
-      res.header('Access-Control-Allow-Origin', requestOrigin);
-    }
-
+    // CORS headers are NOT written here. widgetCorsMiddleware already
+    // resolved this request's workspace from the (refresh-grace-verified)
+    // token and wrote the full credentialed contract when the origin is
+    // authorized. Writing a lone Access-Control-Allow-Origin here produced
+    // a response without Allow-Credentials, which the browser rejects —
+    // the exact production "blocked by CORS policy on a 200 OK" symptom.
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+
 
     // Phase 6C — refresh handshake also returns the latest effective policy
     // snapshot so a long-lived widget tab picks up failover/lock/degraded
@@ -916,6 +922,11 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         iconColor: ws.fab_icon_color || '#ffffff',
         textColor: ws.fab_text_color || '#ffffff',
         animation: ws.fab_animation ?? true,
+        // Optional launcher image (stored via the workspace storage provider).
+        // On hover the runtime circle-reveals the configured icon underneath.
+        imageUrl: typeof ws.fab_image_url === 'string' && /^https?:\/\//i.test(ws.fab_image_url.trim())
+          ? ws.fab_image_url.trim()
+          : null,
       },
       features: {
         chat: ws.chat_enabled ?? true,
@@ -3502,15 +3513,26 @@ async function notifyOfflineCapture(
   if (!emails.length) return;
 
   const subject = `New offline message`;
+  // Deep-link straight into the conversation inside THIS workspace.
+  let inboxUrl = '';
+  try {
+    inboxUrl = await resolveWorkspaceAppUrl(
+      config,
+      workspaceId,
+      `/inbox?c=${encodeURIComponent(payload.conversationId)}`,
+    );
+  } catch {
+    inboxUrl = '';
+  }
   const safeMsg = payload.message.replace(/[<>]/g, (c) => (c === '<' ? '&lt;' : '&gt;'));
   const html = `
     <p>A visitor left a message while your workspace was offline.</p>
     <p><strong>From:</strong> ${payload.name || 'Anonymous'} ${payload.email ? `&lt;${payload.email}&gt;` : ''}</p>
     <p><strong>Message:</strong></p>
     <blockquote style="border-left:3px solid #ccc;padding-left:12px;">${safeMsg}</blockquote>
-    <p>Open this conversation in the inbox to reply.</p>
+    <p>${inboxUrl ? `<a href="${inboxUrl}">Open this conversation in the inbox to reply.</a>` : 'Open this conversation in the inbox to reply.'}</p>
   `;
-  const text = `New offline message\nFrom: ${payload.name || 'Anonymous'} ${payload.email || ''}\n\n${payload.message}`;
+  const text = `New offline message\nFrom: ${payload.name || 'Anonymous'} ${payload.email || ''}\n\n${payload.message}${inboxUrl ? `\n\n${inboxUrl}` : ''}`;
 
   for (const to of emails) {
     try {
@@ -3526,6 +3548,7 @@ async function notifyOfflineCapture(
           contact_name: payload.name || '',
           contact_email: payload.email || '',
           message_body: payload.message,
+          action_url: inboxUrl,
         },
         locale: payload.locale,
       });

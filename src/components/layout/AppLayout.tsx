@@ -17,6 +17,7 @@ import DegradedModeBanner from '@/components/realtime/DegradedModeBanner';
 import { OperatorCallProvider } from '@/features/calls/OperatorCallContext';
 import { FloatingOperatorCallWindow } from '@/features/calls/FloatingOperatorCallWindow';
 import { useOperatorHeartbeat } from '@/hooks/useOperatorHeartbeat';
+import { useOperatorPresenceChannel } from '@/hooks/useOperatorPresenceChannel';
 
 // Cooldown between two resend attempts. The authoritative cooldown lives on
 // the server (`/api/account/resend-verification` answers 429 with
@@ -161,6 +162,8 @@ export function AppLayout() {
   const showVerificationBanner = user && !user.emailVerified;
   // Presence heartbeat → powers the "Operator activity" report.
   useOperatorHeartbeat(workspace?.id);
+  // Primary live-presence signal (Centrifugo channel membership while visible).
+  useOperatorPresenceChannel(workspace?.id);
   // Inbox is a full-bleed workspace surface: no page gutters, no page scroll.
   const { pathname } = useLocation();
   const isFullBleed =

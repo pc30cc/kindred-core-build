@@ -102,6 +102,93 @@
     };
   }
 
+  // ─── Canonical widget session manager ──────────────────────────────
+  // The bus above is only a value holder. THIS is the single owner of
+  // session recovery for one page/widget instance:
+  //
+  //   bus.refresh()  — single-flight POST /api/widget/session/refresh
+  //   bus.recover()  — single-flight: refresh once, and if that cannot
+  //                    succeed, re-bootstrap (bounded by a cooldown) so a
+  //                    token expired beyond the server's grace window is
+  //                    replaced without a page reload. The HttpOnly `dvsid`
+  //                    visitor cookie is sent (credentials: 'include'), so
+  //                    re-bootstrap keeps the SAME visitor identity.
+  //
+  // Both the loader heartbeat and the runtime TokenManager delegate here,
+  // so two layers can never run two competing refresh engines: concurrent
+  // callers await the exact same promise and every consumer converges on
+  // the same token through the bus.
+  (function installSessionManager(bus) {
+    if (!bus || bus.__canonicalSession) return;
+    bus.__canonicalSession = true;
+
+    var cfg = { apiBase: '', workspaceId: '' };
+    var refreshing = null;
+    var recovering = null;
+    var lastBootstrapAt = 0;
+    var BOOTSTRAP_COOLDOWN_MS = 15000;
+
+    bus.configure = function (next) {
+      if (!next) return;
+      if (next.apiBase) cfg.apiBase = next.apiBase;
+      if (next.workspaceId) cfg.workspaceId = next.workspaceId;
+      if (next.token) bus.set(next.token);
+    };
+    bus.config = function () { return { apiBase: cfg.apiBase, workspaceId: cfg.workspaceId }; };
+
+    function adopt(data) {
+      if (!data || !data.session_token) return null;
+      try { bus.set(data.session_token); } catch (_) {}
+      try { if (data.effective_policy) window.__gs_policy = data.effective_policy; } catch (_) {}
+      return data.session_token;
+    }
+
+    function clearRefresh(v) { refreshing = null; return v; }
+
+    bus.refresh = function () {
+      if (refreshing) return refreshing;
+      var token = bus.get();
+      if (!cfg.apiBase || !token) return Promise.resolve(null);
+      refreshing = fetch(cfg.apiBase + '/api/widget/session/refresh', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': token },
+        body: JSON.stringify({ workspace_id: cfg.workspaceId || undefined }),
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(adopt)
+        .catch(function () { return null; })
+        .then(clearRefresh, function () { return clearRefresh(null); });
+      return refreshing;
+    };
+
+    bus.bootstrap = function () {
+      if (!cfg.apiBase || !cfg.workspaceId) return Promise.resolve(null);
+      var now = Date.now();
+      if (now - lastBootstrapAt < BOOTSTRAP_COOLDOWN_MS) return Promise.resolve(null);
+      lastBootstrapAt = now;
+      return fetch(cfg.apiBase + '/api/widget/bootstrap', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: cfg.workspaceId, origin: window.location.origin }),
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(adopt)
+        .catch(function () { return null; });
+    };
+
+    bus.recover = function () {
+      if (recovering) return recovering;
+      recovering = bus.refresh()
+        .then(function (t) { return t || bus.bootstrap(); })
+        .catch(function () { return null; })
+        .then(function (t) { recovering = null; return t; }, function () { recovering = null; return null; });
+      return recovering;
+    };
+  })(window.__gs_token);
+
+
   function processQueue() {
     while (queue.length) {
       var cmd = queue.shift();
@@ -165,35 +252,72 @@
   var SHELL_CSS = [
     ":host{all:initial;contain:layout style;}",
     "*,*::before,*::after{box-sizing:border-box;}",
-    ".shell{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1F2937;}",
-    ".launcher{position:fixed;z-index:2147483646;display:flex;align-items:center;justify-content:center;",
+    /* ── Shared corner anchor ──
+       The shell is a ZERO-SIZE fixed box pinned to the configured corner.
+       BOTH the launcher and the panel are absolutely positioned children of
+       it, anchored to the SAME corner (bottom + right, or bottom + left), so
+       the panel grows out of exactly where the FAB sits instead of jumping. */
+    ".shell{font-family:var(--gs-presentation-font,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif);color:#1F2937;",
+    "position:fixed;z-index:2147483646;width:0;height:0;}",
+    ".shell.pos-bottom-right{bottom:24px;right:24px;left:auto;top:auto;}",
+    ".shell.pos-bottom-left{bottom:24px;left:24px;right:auto;top:auto;}",
+    "@media(max-width:440px){.shell.pos-bottom-right{bottom:12px;right:12px;}",
+    ".shell.pos-bottom-left{bottom:12px;left:12px;}}",
+    ".launcher{position:absolute;bottom:0;z-index:2;display:flex;align-items:center;justify-content:center;",
+    "--gs-fab-exit:calc(var(--gs-fab-size,56px) + 56px);",
     "width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:50%;border:none;cursor:pointer;",
     "box-shadow:0 3px 12px -4px var(--gs-shadow,rgba(0,0,0,.16)),0 0 0 1px rgba(0,0,0,.03);",
-    "transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease,opacity .2s ease;",
+    "transition:transform .62s cubic-bezier(.33,1,.68,1),box-shadow .2s ease;",
     "background:var(--gs-primary,transparent);color:#fff;font-family:inherit;",
     "opacity:1;}",
+    /* First paint: the FAB starts fully outside the browser edge and slides
+       up into the corner with the shared open/close timing. */
+    ".launcher.enter,.launcher.enter:hover{transform:translateY(var(--gs-fab-exit,112px));animation:none!important;}",
     /* Hidden state — keeps the launcher invisible and non-interactive until
        /config resolves and we know the brand color. Eliminates blue flash. */
     ".launcher.pending{opacity:0;pointer-events:none;visibility:hidden;}",
     /* Reveal animation once config arrives. */
     ".launcher.revealed{opacity:1;pointer-events:auto;visibility:visible;}",
-    ".launcher:hover{transform:scale(1.08);box-shadow:0 5px 16px -4px var(--gs-shadow,rgba(0,0,0,.22));}",
+    ".launcher:hover{transform:translateY(-2px) scale(1.06);box-shadow:0 5px 16px -4px var(--gs-shadow,rgba(0,0,0,.22));transition:transform .3s cubic-bezier(.34,1.56,.64,1),box-shadow .2s ease;}",
     ".launcher:active{transform:scale(.96);}",
-    ".launcher.bottom-right{bottom:24px;right:24px;}",
-    ".launcher.bottom-left{bottom:24px;left:24px;}",
+    ".launcher.bottom-right{right:0;left:auto;}",
+    ".launcher.bottom-left{left:0;right:auto;}",
     ".launcher.square{border-radius:16px;}",
     ".launcher.pulse{animation:gs-fab-pulse 2s ease-in-out infinite;}",
     "@keyframes gs-fab-pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.07);}}",
-    ".gs-fab-label{position:fixed;z-index:2147483645;display:inline-flex;align-items:center;",
-    "padding:7px 12px;border-radius:999px;font-size:12px;font-weight:600;font-family:inherit;",
-    "box-shadow:0 4px 14px -4px rgba(0,0,0,.25);white-space:nowrap;background:var(--gs-primary,#3B82F6);color:#fff;}",
+    /* ── Custom launcher image with a circle-reveal hover ──
+       The uploaded image covers the button and, on hover, its clip-path
+       circle collapses to the centre revealing the configured icon that
+       sits underneath. No crossfade — a real reveal. */
+    ".launcher .fab-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;",
+    "border-radius:inherit;pointer-events:none;clip-path:circle(75% at 50% 50%);",
+    "transition:clip-path .55s cubic-bezier(.22,1,.36,1);}",
+    ".launcher.has-image:hover .fab-img{clip-path:circle(0% at 50% 50%);}",
+    /* ── FAB ⇄ panel shared origin ──
+       Opening the panel drops the FAB out of view (down + shrink) and
+       closing brings it back, so the panel visually grows out of the very
+       corner the button occupied. */
+    ".launcher.open,.launcher.open:hover{transform:translateY(var(--gs-fab-exit,112px));",
+    "pointer-events:none;animation:none;}",
+
+    /* ── Text card beside the FAB ──
+       Anchored to the SAME corner as the launcher and moving with it, so it
+       slides down + fades out together when the panel opens. */
+    ".gs-fab-label{position:absolute;bottom:0;z-index:2;display:flex;flex-direction:column;justify-content:center;",
+    "--gs-fab-exit:calc(var(--gs-fab-size,56px) + 56px);",
+    "height:calc(var(--gs-fab-size,56px) - 4px);padding:0 16px;border-radius:.9rem;background:#fff;",
+    "box-shadow:0 8px 20px rgba(0,0,0,.12);white-space:nowrap;font-family:inherit;pointer-events:none;",
+    "transition:transform .62s cubic-bezier(.33,1,.68,1);transform:translateY(0);}",
+    ".gs-fab-label .label-title{font-size:13px;font-weight:600;color:#1c2024;line-height:1.3;}",
+    ".gs-fab-label .label-sub{font-size:11px;color:#60646c;line-height:1.3;}",
+    ".gs-fab-label.enter{transform:translateY(var(--gs-fab-exit,112px));}",
+    ".gs-fab-label.open{transform:translateY(var(--gs-fab-exit,112px));pointer-events:none;}",
     /* Icon box is derived from the launcher size so chat ⇄ close never differ. */
     ".launcher svg{width:calc(var(--gs-fab-size,56px) * .46);height:calc(var(--gs-fab-size,56px) * .46);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}",
     /* The launcher is the ONLY open/close control: it stays in place while the
        panel is open and simply swaps the chat icon for a close (X) icon. */
     ".launcher.open svg.chat-icon{display:none;}.launcher:not(.open) svg.close-icon{display:none;}",
-    ".launcher.open ~ .gs-fab-label{opacity:0;visibility:hidden;pointer-events:none;}",
-    ".gs-fab-label{transition:opacity .2s ease;}",
+
     ".badge{position:absolute;top:-2px;right:-2px;min-width:18px;height:18px;border-radius:9px;",
     "background:#EF4444;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;",
     "padding:0 5px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.15);}",
@@ -203,29 +327,62 @@
     ".error-toast.visible{display:block;}",
     /* Mobile keeps the configured size — parity between closed and open. */
     /* ── Smart Engagement: launcher nudge only (loader-owned surface). ── */
-    /* Values mirror .smart-nudge / .smart-title / .smart-body / .smart-cta / */
-    /* .smart-dismiss in runtime.css exactly — same look, no runtime.css load. */
-    ".smart-nudge{position:fixed;z-index:6;max-width:280px;display:flex;flex-direction:column;gap:8px;",
-    "padding:12px 14px;border-radius:16px;background:#fff;color:#1f2937;",
-    "border:1px solid rgba(15,23,42,.08);",
-    "box-shadow:0 18px 40px -18px rgba(2,6,23,.45),0 2px 6px -2px rgba(2,6,23,.12);",
-    "font-size:13px;line-height:1.6;bottom:96px;}",
+    /* Values mirror the .smart-nudge block in the active template stylesheet so
+       bubble looks identical before/after the template stylesheet lands. */
+    ".smart-nudge{position:absolute;z-index:6;bottom:calc(var(--gs-fab-size,56px) + 12px);",
+    "width:max-content;max-width:288px;display:flex;flex-direction:column;gap:5px;",
+    "padding:13px 15px 14px;border-radius:16px;color:#1c2024;",
+    "background:linear-gradient(158deg,#ffffff 0%,#ffffff 55%,#f4f7fc 100%);",
+    "border:1px solid rgba(15,23,42,.06);",
+    "box-shadow:0 18px 38px -20px rgba(2,6,23,.42),0 2px 6px -3px rgba(2,6,23,.12),",
+    "inset 0 1px 0 rgba(255,255,255,.9);",
+    "font-size:13px;line-height:1.75;}",
+    /* Accent hairline welded to the top edge — ties the bubble to the FAB. */
+    ".smart-nudge::before{content:\'\';position:absolute;top:0;inset-inline:14px;height:2px;",
+    "border-radius:2px;opacity:.85;",
+    "background:linear-gradient(90deg,transparent,var(--gs-primary,#3b82f6),transparent);}",
     ".smart-nudge[hidden]{display:none !important;}",
-    ".smart-nudge .smart-title{font-weight:700;font-size:13px;}",
-    ".smart-nudge .smart-body{color:#475569;white-space:pre-wrap;word-break:break-word;}",
-    ".smart-nudge .smart-cta{align-self:flex-start;border:none;cursor:pointer;padding:7px 14px;",
-    "border-radius:999px;font:inherit;font-weight:700;font-size:12px;color:#fff;",
-    "background:var(--gs-primary,#3b82f6);}",
-    ".smart-nudge .smart-dismiss{position:absolute;top:-8px;width:22px;height:22px;border-radius:50%;",
-    "border:1px solid rgba(15,23,42,.1);background:#fff;color:#64748b;cursor:pointer;display:flex;",
-    "align-items:center;justify-content:center;font-size:13px;line-height:1;padding:0;}",
-    ".smart-nudge.bottom-right{right:24px;}",
-    ".smart-nudge.bottom-left{left:24px;}",
-    ".smart-nudge.bottom-right .smart-dismiss{left:-8px;}",
-    ".smart-nudge.bottom-left .smart-dismiss{right:-8px;}",
-    "@keyframes gs-smart-in{from{opacity:0;transform:translateY(10px) scale(.96);}to{opacity:1;transform:translateY(0) scale(1);}}",
-    ".anim-on .smart-nudge{animation:gs-smart-in .34s cubic-bezier(.22,1,.36,1) both;}",
-    "@media(max-width:480px){.smart-nudge{bottom:84px;max-width:calc(100vw - 40px);}}",
+    /* Tail: a rotated square welded to the bubble edge closest to the FAB. */
+    ".smart-nudge::after{content:\'\';position:absolute;bottom:-6px;width:12px;height:12px;",
+    "background:#f6f9fd;border-right:1px solid rgba(15,23,42,.06);",
+    "border-bottom:1px solid rgba(15,23,42,.06);border-bottom-right-radius:3px;",
+    "transform:rotate(45deg);}",
+    ".smart-nudge{font-family:inherit;}",
+    ".smart-nudge .smart-title{font-weight:700;font-size:13.5px;line-height:1.6;}",
+    ".smart-nudge .smart-body{color:#475569;font-weight:700;white-space:pre-wrap;word-break:break-word;}",
+    ".smart-nudge .smart-cta{align-self:flex-start;border:none;cursor:pointer;padding:8px 16px;",
+    "border-radius:999px;font:inherit;font-weight:700;font-size:12.5px;color:#fff;margin-top:4px;",
+    "background:var(--gs-primary,#3b82f6);box-shadow:0 6px 16px -8px var(--gs-primary,#3b82f6);",
+    "transition:filter .15s ease,transform .15s ease;}",
+    ".smart-nudge .smart-cta:hover{filter:brightness(1.06);transform:translateY(-1px);}",
+    /* Close control always sits OUTSIDE the bubble, top-right, in every dir. */
+    ".smart-nudge .smart-dismiss{position:absolute;top:-9px;inset-inline:auto;right:-9px;left:auto;",
+    "width:22px;height:22px;border-radius:50%;border:1px solid rgba(15,23,42,.08);background:#fff;",
+    "color:#60646c;cursor:pointer;display:flex;align-items:center;justify-content:center;",
+    "font-size:13px;line-height:1;padding:0;box-shadow:0 4px 12px -5px rgba(2,6,23,.4);",
+    "transition:background-color .15s ease,color .15s ease;}",
+    ".smart-nudge .smart-dismiss:hover{background:#f0f0f3;color:#1c2024;}",
+    ".smart-nudge.bottom-right{right:0;left:auto;}",
+    ".smart-nudge.bottom-left{left:0;right:auto;}",
+    ".smart-nudge.bottom-right::after{right:18px;}",
+    ".smart-nudge.bottom-left::after{left:18px;}",
+    /* Shared origin with the FAB: the bubble rises out from under the button,
+       fading in, and sinks back into it on close. */
+    "@keyframes gs-smart-in{from{opacity:0;transform:translateY(16px) scale(.82);}",
+    "60%{opacity:1;}to{opacity:1;transform:translateY(0) scale(1);}}",
+    "@keyframes gs-smart-out{from{opacity:1;transform:translateY(0) scale(1);}",
+    "to{opacity:0;transform:translateY(14px) scale(.84);}}",
+    /* Entry animation is gated on `.entering`, which JS strips once the
+       bubble has landed. A stylesheet that arrives LATER (the template
+       sheet) therefore cannot re-trigger the intro and make the bubble
+       jump down and rise again. */
+    ".anim-on .smart-nudge.entering{animation:gs-smart-in .38s cubic-bezier(.22,1,.36,1) both;}",
+    ".anim-on .smart-nudge.leaving{animation:gs-smart-out .24s cubic-bezier(.4,0,1,1) both;}",
+    ".smart-nudge.leaving{pointer-events:none;}",
+    ".smart-nudge.bottom-right{transform-origin:100% 100%;}",
+    ".smart-nudge.bottom-left{transform-origin:0 100%;}",
+    "@media(max-width:480px){.smart-nudge{max-width:calc(100vw - 48px);}}",
+
   ].join("");
 
   // ─── <gs-widget> custom element ───
@@ -302,7 +459,7 @@
     shadowRoot.appendChild(style);
 
     var shellDiv = document.createElement("div");
-    shellDiv.className = "shell";
+    shellDiv.className = "shell pos-bottom-right";
     shellContentEl = shellDiv;
     // Do NOT set a brand color here — that would cause a blue-flash before
     // the workspace's real color arrives via /config. The launcher itself
@@ -399,6 +556,29 @@
   }
 
   var fabLabelEl = null;
+  function playFabEntry(element) {
+    if (!element) return;
+    var distance = "var(--gs-fab-exit,112px)";
+    // Use a real keyframe animation rather than relying only on a class
+    // transition. The launcher is hidden while config loads, so some browsers
+    // otherwise coalesce the hidden and revealed paints and skip the movement.
+    if (typeof element.animate === "function") {
+      element.classList.remove("enter");
+      element.animate(
+        [
+          { transform: "translateY(" + distance + ")" },
+          { transform: "translateY(0)" },
+        ],
+        { duration: 620, easing: "cubic-bezier(.33,1,.68,1)", fill: "none" }
+      );
+      return;
+    }
+    element.classList.add("enter");
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () { element.classList.remove("enter"); });
+    });
+  }
+
   function applyFabConfig(config, posClass) {
     var fab = (config && config.fab) || {};
     var scale = normalizeFabScale(fab.scale);
@@ -416,25 +596,43 @@
     if (fab.animation === true) launcherEl.classList.add("pulse");
     launcherEl.style.color = fab.iconColor || "#ffffff";
     var icon = FAB_ICONS[fab.icon] || FAB_ICONS.chat;
+    var imageUrl = typeof fab.imageUrl === "string" ? fab.imageUrl.trim() : "";
+    if (imageUrl && !/^https?:\/\//i.test(imageUrl)) imageUrl = "";
+    launcherEl.classList.toggle("has-image", !!imageUrl);
     launcherEl.innerHTML =
       '<svg class="chat-icon" viewBox="0 0 24 24">' + icon + '</svg>' +
-      '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+      '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      (imageUrl
+        ? '<img class="fab-img" alt="" aria-hidden="true" src="' + imageUrl.replace(/"/g, "&quot;") + '">'
+        : '');
 
-    // Optional text chip beside the launcher.
+
+    // Optional text card beside the launcher (title + optional sub-line).
     var shellDiv2 = shadowRoot.querySelector(".shell");
     if (fabLabelEl && fabLabelEl.parentNode) fabLabelEl.parentNode.removeChild(fabLabelEl);
     fabLabelEl = null;
     var label = fab.label ? String(fab.label).trim() : "";
+    var subLabel = fab.subLabel ? String(fab.subLabel).trim() : "";
     if (label && shellDiv2) {
       fabLabelEl = document.createElement("div");
-      fabLabelEl.className = "gs-fab-label";
-      fabLabelEl.textContent = label;
-      fabLabelEl.style.bottom = Math.round(24 + size / 2 - 15) + "px";
-      if (posClass === "bottom-left") fabLabelEl.style.left = (size + 36) + "px";
-      else fabLabelEl.style.right = (size + 36) + "px";
-      if (fab.textColor) fabLabelEl.style.color = fab.textColor;
+      fabLabelEl.className = "gs-fab-label" + (isOpen ? " open" : "");
+      var titleEl = document.createElement("span");
+      titleEl.className = "label-title";
+      titleEl.textContent = label;
+      if (fab.textColor) titleEl.style.color = fab.textColor;
+      fabLabelEl.appendChild(titleEl);
+      if (subLabel) {
+        var subEl = document.createElement("span");
+        subEl.className = "label-sub";
+        subEl.textContent = subLabel;
+        fabLabelEl.appendChild(subEl);
+      }
+      // Same corner anchor as the launcher, offset by the FAB box + 10px gap.
+      if (posClass === "bottom-left") fabLabelEl.style.left = (size + 10) + "px";
+      else fabLabelEl.style.right = (size + 10) + "px";
       shellDiv2.appendChild(fabLabelEl);
     }
+
   }
 
   /** Launcher shadow is DERIVED from the brand colour — never configured. */
@@ -461,14 +659,27 @@
     }
 
     var posClass = config.position === "bottom-left" ? "bottom-left" : "bottom-right";
+    // Keep the shared anchor on the SAME corner as the launcher/panel pair.
+    if (shellDiv) {
+      shellDiv.classList.toggle("pos-bottom-left", posClass === "bottom-left");
+      shellDiv.classList.toggle("pos-bottom-right", posClass !== "bottom-left");
+    }
     if (launcherEl) {
       // Set position + reveal in one paint so the user never sees a wrong
       // color first. The CSS transitions opacity so it fades in cleanly.
-      launcherEl.className = "launcher " + posClass + " revealed";
+      var firstReveal = launcherEl.classList.contains("pending");
+      launcherEl.className = "launcher " + posClass + " revealed" + (firstReveal ? " enter" : "");
       // ─── Workspace launcher (FAB) customization ───
       // The operator configures these under Widget → Appearance. The live
       // preview renders the exact same rules, so site == preview.
       applyFabConfig(config, posClass);
+      if (firstReveal) {
+        // Entry: force a genuine below-viewport → resting-position movement.
+        // No opacity animation is involved.
+        var labelEl = shellDiv && shellDiv.querySelector(".gs-fab-label");
+        playFabEntry(launcherEl);
+        playFabEntry(labelEl);
+      }
     }
   }
 
@@ -576,8 +787,17 @@
             availabilityOnline = data.availability.state === 'online';
           }
         } catch (_) {}
-        // Publish to shared bus so runtime + realtime driver use the same token.
-        try { window.__gs_token.set(sessionToken); } catch (_) {}
+        // Publish to shared bus so runtime + realtime driver use the same token,
+        // and give the canonical session manager everything it needs to run
+        // refresh / bounded re-bootstrap on behalf of every layer.
+        try {
+          if (window.__gs_token.configure) {
+            window.__gs_token.configure({ apiBase: apiBase, workspaceId: WORKSPACE_ID, token: sessionToken });
+          } else {
+            window.__gs_token.set(sessionToken);
+          }
+        } catch (_) {}
+
         // Phase 6C — stash the effective realtime policy snapshot from
         // bootstrap so the runtime can honor degraded/force_polling/typing
         // suppression / reconnect backoff multiplier without a separate
@@ -612,6 +832,7 @@
         configData._loaderVersion = LOADER_VERSION;
         if (config.debugMode) DEBUG = true;
 
+        injectPresentationFonts(config.presentationFontsUrl || "");
         applyConfigToShell(config);
         attachLauncherClick({ launcherOnly: false });
 
@@ -691,6 +912,7 @@
       isOpen = false;
     }
     if (launcherEl) launcherEl.classList.toggle("open", !!isOpen);
+    if (fabLabelEl) fabLabelEl.classList.toggle("open", !!isOpen);
     return isOpen;
   }
 
@@ -706,13 +928,26 @@
   }
   function triggerClose() {
     var inst = runtimeInstanceRef();
+    var wasOpen = isOpen || !!(launcherEl && launcherEl.classList.contains("open"));
     if (runtimeLoaded && inst) {
       try { inst.close(); } catch (_) {}
       syncOpenStateFromRuntime();
+      // Closing removes both visibility classes in one browser task. Run an
+      // explicit below-edge → resting-position animation so the browser cannot
+      // coalesce those style changes: the FAB rises while the panel descends.
+      if (wasOpen) {
+        playFabEntry(launcherEl);
+        playFabEntry(fabLabelEl);
+      }
       return;
     }
     isOpen = false;
     if (launcherEl) launcherEl.classList.remove("open");
+    if (fabLabelEl) fabLabelEl.classList.remove("open");
+    if (wasOpen) {
+      playFabEntry(launcherEl);
+      playFabEntry(fabLabelEl);
+    }
   }
   // Exposed so the panel's own collapse chevron can close deterministically
   // instead of round-tripping through a hidden launcher click (which could
@@ -743,6 +978,47 @@
   // actually opens once ready and whether a load failure surfaces a visible
   // error — a silent preload must never pop an error at a visitor who
   // hasn't asked for anything yet.
+  // Presentation-owned font asset (opaque to the loader: no family, no
+  // template id). Injected at DOCUMENT level so `document.fonts` sees the
+  // faces, and injected EARLY — pre-runtime surfaces (the launcher nudge)
+  // must already paint in the template's own typeface. The stylesheet is
+  // also expected to publish a generic `--gs-presentation-font` custom
+  // property, which the shell consumes through a var() fallback.
+  function injectPresentationFonts(url) {
+    if (!url) return;
+    try {
+      if (document.getElementById("gs-presentation-fonts")) return;
+      var fontsLink = document.createElement("link");
+      fontsLink.id = "gs-presentation-fonts";
+      fontsLink.rel = "stylesheet";
+      fontsLink.href = url;
+      (document.head || document.documentElement).appendChild(fontsLink);
+      // Mirror the presentation font custom property onto the shadow host.
+      // Custom properties normally inherit into the shadow tree, but the
+      // shell's `all:initial` reset makes that fragile across engines — so
+      // the value is copied explicitly (still opaque: the loader never
+      // learns the family name).
+      var syncFontVar = function () {
+        try {
+          var v = getComputedStyle(document.documentElement)
+            .getPropertyValue("--gs-presentation-font");
+          if (!v || !v.trim()) return false;
+          var shell = shadowRoot && shadowRoot.querySelector(".shell");
+          if (!shell) return false;
+          shell.style.setProperty("--gs-presentation-font", v.trim());
+          return true;
+        } catch (_) { return false; }
+      };
+      fontsLink.addEventListener("load", syncFontVar);
+      var syncTries = 0;
+      (function pollFontVar() {
+        if (syncFontVar()) return;
+        if (syncTries++ > 40) return;
+        setTimeout(pollFontVar, 100);
+      })();
+    } catch (_) { /* noop */ }
+  }
+
   function loadRuntimeAssets() {
     if (runtimeLoaded || runtimeLoading) return;
     runtimeLoading = true;
@@ -902,17 +1178,7 @@
     // It is injected at DOCUMENT level (not the shadow root) because
     // `document.fonts.load()` — used by the template's own prepare() gate —
     // only sees document-level faces.
-    if (presentationFontsCss) {
-      try {
-        if (!document.getElementById("gs-presentation-fonts")) {
-          var fontsLink = document.createElement("link");
-          fontsLink.id = "gs-presentation-fonts";
-          fontsLink.rel = "stylesheet";
-          fontsLink.href = presentationFontsCss;
-          (document.head || document.documentElement).appendChild(fontsLink);
-        }
-      } catch (_) { /* noop */ }
-    }
+    injectPresentationFonts(presentationFontsCss);
 
 
     // Template stylesheet — injected AFTER runtime.css so template rules
@@ -1324,13 +1590,14 @@
     // its 'shown' ack fails during widget token rotation/expiry — without
     // recovery, backend status stays stuck at 'generated' forever even
     // though the visitor genuinely saw it. This uses the SAME canonical
-    // token-recovery sequence as the tracking heartbeat (promoted onto
-    // window.__gs_token.recover by startTracking — see loader.js above),
-    // never an independent auth/session implementation, and retries the
-    // SAME event exactly once — safe because the server derives its own
-    // idempotency key for 'ai_proactive' events server-side, so a retry can
-    // never double-record. Non-auth failures stay best-effort and never
-    // throw, so a reporting failure can never break the visitor widget.
+    // widget session manager every other layer uses (window.__gs_token.
+    // recover — installed once by installSessionManager near the top of
+    // this file), never an independent auth/session implementation, and
+    // retries the SAME event exactly once — safe because the server
+    // derives its own idempotency key for 'ai_proactive' events
+    // server-side, so a retry can never double-record. Non-auth failures
+    // stay best-effort and never throw, so a reporting failure can never
+    // break the visitor widget.
     function reportAiEvent(nudgeId, type) {
       function send(tok, isRetry) {
         return fetch(apiBase + "/api/widget/smart/event", {
@@ -1677,10 +1944,24 @@
     // the runtime (inst.showSmart) so they render inside the real widget
     // chrome — the loader never paints a floating announcement itself.
     function clearSurface() {
-      if (activeSurface && activeSurface.el && activeSurface.el.parentNode) {
-        activeSurface.el.parentNode.removeChild(activeSurface.el);
-      }
+      var surface = activeSurface;
       activeSurface = null;
+      if (!surface || !surface.el || !surface.el.parentNode) return;
+      // Sink the bubble back into the launcher instead of yanking it out of
+      // the DOM. The removal is guarded by a timeout so a disabled/absent
+      // animation can never leave the surface stuck on screen.
+      var el = surface.el;
+      var removed = false;
+      var drop = function () {
+        if (removed) return;
+        removed = true;
+        if (el.parentNode) el.parentNode.removeChild(el);
+      };
+      try {
+        el.classList.add("leaving");
+        el.addEventListener("animationend", drop);
+        setTimeout(drop, 320);
+      } catch (_) { drop(); }
     }
 
     function surfaceHtml(content, dismissible) {
@@ -1704,9 +1985,21 @@
       if (!shellContentEl) return false;
       var posClass = configData.position === "bottom-left" ? "bottom-left" : "bottom-right";
       var el = document.createElement("div");
-      el.className = "smart-nudge " + posClass;
+      el.className = "smart-nudge entering " + posClass;
+      // Text direction follows the widget locale so RTL copy (fa/ar/he/ur)
+      // reads right-aligned and the CTA flows to the correct edge.
+      var nudgeLocale = String(
+        (configData && configData.locale) || document.documentElement.lang || navigator.language || "en"
+      ).toLowerCase().split("-")[0];
+      el.setAttribute("dir", ["fa", "ar", "he", "ur"].indexOf(nudgeLocale) >= 0 ? "rtl" : "ltr");
+
       el.innerHTML = surfaceHtml(content, (rule.presentation_config || {}).dismissible);
       shellContentEl.appendChild(el);
+      // Drop the intro class once it has played so a late-arriving template
+      // stylesheet cannot restart the entry animation mid-life.
+      var settle = function () { try { el.classList.remove("entering"); } catch (_) {} };
+      try { el.addEventListener("animationend", settle, { once: true }); } catch (_) {}
+      setTimeout(settle, 480);
       activeSurface = { ruleId: rule.id, el: el };
 
       var dismissBtn = el.querySelector("[data-smart-dismiss]");
@@ -1932,14 +2225,21 @@
         return t ? t.slice(0, 300) : null;
       } catch (_) { return null; }
     }
-    // ─── Token state (mutable: refreshed when server returns 401/403) ───
-    // The widget session token has a short TTL (15 min). Without periodic
-    // refresh the heartbeat loop would emit 403/TOKEN_EXPIRED forever, which
-    // upstream proxies (nginx/Coolify) eventually return as 504 *without*
-    // CORS headers — surfacing as a confusing CORS error in the browser.
-    // Read from the shared bus on every send so a refresh by the runtime
-    // tokenManager (or vice-versa) is picked up immediately. Falls back
-    // to the bootstrap token if the bus is somehow not yet initialized.
+    // ─── Token state (owned by the canonical session manager) ─────────
+    // The widget session token has a short TTL (15 min). The loader NEVER
+    // runs its own refresh engine any more — it asks the canonical session
+    // manager on the shared bus, which is single-flight, so a loader
+    // heartbeat recovery and a runtime proactive refresh that happen at the
+    // same moment produce exactly ONE network request and one new token
+    // that both layers adopt.
+    try {
+      if (window.__gs_token && window.__gs_token.configure) {
+        window.__gs_token.configure({ apiBase: apiBase, workspaceId: workspaceId, token: token });
+      } else if (window.__gs_token && token) {
+        window.__gs_token.set(token);
+      }
+    } catch (_) {}
+
     function tokenNow() {
       try {
         var t = window.__gs_token && window.__gs_token.get();
@@ -1947,71 +2247,21 @@
       } catch (_) { return token; }
     }
     var heartbeatTimer = null;
-    var refreshing = null; // Promise<string|null> while a refresh is in flight
     var consecutiveFailures = 0;
     var STOPPED = false;
 
-    function bootstrapSession() {
-      return fetch(apiBase + "/api/widget/bootstrap", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workspace_id: workspaceId, origin: window.location.origin }),
-      })
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (data) {
-          if (data && data.session_token) {
-            try { window.__gs_token.set(data.session_token); } catch (_) {}
-            try {
-              if (data.effective_policy) window.__gs_policy = data.effective_policy;
-            } catch (_) {}
-            return data.session_token;
-          }
-          return null;
-        })
-        .catch(function () { return null; });
-    }
-
-    function refreshToken() {
-      if (refreshing) return refreshing;
-      var t = tokenNow();
-      refreshing = fetch(apiBase + "/api/widget/session/refresh", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json", "X-Widget-Token": t },
-      })
-        .then(function (r) {
-          if (!r.ok) return null;
-          return r.json();
-        })
-        .then(function (data) {
-          if (data && data.session_token) {
-            try { window.__gs_token.set(data.session_token); } catch (_) {}
-            try {
-              if (data.effective_policy) window.__gs_policy = data.effective_policy;
-            } catch (_) {}
-            return data.session_token;
-          }
-          return null;
-        })
-        .catch(function () { return null; })
-        .then(function (tok) { refreshing = null; return tok; });
-      return refreshing;
-    }
-
     function recoverToken() {
-      return refreshToken().then(function (tok) {
-        return tok || bootstrapSession();
-      });
+      try {
+        if (window.__gs_token && window.__gs_token.recover) return window.__gs_token.recover();
+      } catch (_) {}
+      return Promise.resolve(null);
     }
 
-    // Promote this canonical, already-proven recovery sequence (refresh,
-    // fall back to bootstrap) onto the shared token bus so every other
-    // caller in the widget — e.g. startSmart()'s AI-nudge lifecycle
-    // reporter — recovers a widget session the SAME way this heartbeat
-    // loop does, instead of inventing a second, independent recovery path.
-    // Idempotent-safe to overwrite: startTracking runs exactly once.
-    try { window.__gs_token.recover = recoverToken; } catch (_) {}
+    // NOTE: window.__gs_token.recover/.refresh/.bootstrap are the canonical
+    // widget session manager installed once above (installSessionManager)
+    // — recoverToken() here is just a thin local wrapper around that same
+    // bus method (see its definition above), so nothing needs to be
+    // (re)assigned onto the bus from inside startTracking.
 
     fetch(apiBase + "/api/widget/track", {
       method: "POST",

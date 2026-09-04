@@ -108,6 +108,7 @@ export function channelBelongsToWorkspace(channel: string, workspaceId: string):
   if (!workspaceId || typeof workspaceId !== 'string') return false;
   if (channel === `ws:${workspaceId}:inbox`) return true;
   if (channel === `ws:${workspaceId}:visitors`) return true;
+  if (channel === `ws:${workspaceId}:operators`) return true;
   // Conversation channel — the conversation id segment must be non-empty
   // and contain only safe characters (UUIDs and short opaque ids).
   const convPrefix = `ws:${workspaceId}:conv:`;
@@ -144,4 +145,22 @@ export function buildVisitorsChannelName(workspaceId: string): string {
  */
 export function isVisitorsChannel(channel: string, workspaceId: string): boolean {
   return channel === `ws:${workspaceId}:visitors`;
+}
+
+/**
+ * Build the operator-only LIVE PRESENCE channel for a workspace.
+ *
+ * Membership of this channel IS the live-presence signal: the operator
+ * panel subscribes while its tab is visible and unsubscribes when the tab
+ * is hidden or closed. Centrifugo's presence API over this channel is the
+ * primary source of truth for "who is connected right now" — PostgreSQL is
+ * only a fallback. Widget/visitor tokens MUST NEVER be issuable here.
+ */
+export function buildOperatorPresenceChannelName(workspaceId: string): string {
+  return `ws:${workspaceId}:operators`;
+}
+
+/** Returns true iff the channel is the operator-only presence channel. */
+export function isOperatorPresenceChannel(channel: string, workspaceId: string): boolean {
+  return channel === `ws:${workspaceId}:operators`;
 }

@@ -22,7 +22,7 @@ import {
   billingV2SetAutoPay,
   billingV2DepositPreview,
   type WalletView,
-} from '@/lib/billingV2Api';
+} from '@/lib/billingApi';
 
 import { billingDate, money, Ltr, ErrorState, EmptyState, Pager, errorMessage } from './shared';
 

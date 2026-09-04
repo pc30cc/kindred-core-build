@@ -8350,6 +8350,60 @@ export type Database = {
           },
         ]
       }
+      operator_presence_fallback_state: {
+        Row: {
+          activated_at: string
+          expires_at: string
+          handoff_until: string
+          reason: string | null
+          roster: Json
+          roster_complete: boolean
+          scope: string
+          updated_at: string
+        }
+        Insert: {
+          activated_at?: string
+          expires_at: string
+          handoff_until?: string
+          reason?: string | null
+          roster?: Json
+          roster_complete?: boolean
+          scope: string
+          updated_at?: string
+        }
+        Update: {
+          activated_at?: string
+          expires_at?: string
+          handoff_until?: string
+          reason?: string | null
+          roster?: Json
+          roster_complete?: boolean
+          scope?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      operator_presence_live: {
+        Row: {
+          last_seen_at: string
+          updated_at: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          last_seen_at?: string
+          updated_at?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          last_seen_at?: string
+          updated_at?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
       phone_verification_challenges: {
         Row: {
           attempt_count: number
@@ -11506,6 +11560,7 @@ export type Database = {
           fab_help_label: string | null
           fab_icon: string | null
           fab_icon_color: string | null
+          fab_image_url: string | null
           fab_label: string | null
           fab_scale: number | null
           fab_shape: string | null
@@ -11565,6 +11620,7 @@ export type Database = {
           fab_help_label?: string | null
           fab_icon?: string | null
           fab_icon_color?: string | null
+          fab_image_url?: string | null
           fab_label?: string | null
           fab_scale?: number | null
           fab_shape?: string | null
@@ -11624,6 +11680,7 @@ export type Database = {
           fab_help_label?: string | null
           fab_icon?: string | null
           fab_icon_color?: string | null
+          fab_image_url?: string | null
           fab_label?: string | null
           fab_scale?: number | null
           fab_shape?: string | null

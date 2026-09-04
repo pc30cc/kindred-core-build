@@ -22,7 +22,8 @@ import { getServiceClient } from '../../../supabase.js';
 import { bumpMetric } from '../rollout.js';
 import { sendEmail } from '../../email/index.js';
 import { sendSms } from '../../sms/index.js';
-import { renderBillingNotification, type BillingNotificationType } from './messages.js';
+import { resolveWorkspaceAppUrl } from '../../auth-email.js';
+import { renderBillingNotification, buildBillingTemplateData, type BillingNotificationType } from './messages.js';
 
 export interface NotificationBatchResult {
   claimed: number;
@@ -61,6 +62,13 @@ async function resolveRecipient(config: ServerConfig, workspaceId: string): Prom
   };
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 export async function dispatchBillingNotifications(
   config: ServerConfig,
   limit = 25,
@@ -73,6 +81,30 @@ export async function dispatchBillingNotifications(
   if (error) throw new Error(String(error.message || 'billing_v2_claim_notification_jobs_failed'));
 
   const jobs = (data ?? []) as NotificationJob[];
+  // The branded templates render a CTA button and must never emit an empty
+  // href — and it must point at THE billed workspace, not whichever workspace
+  // happens to be first for the recipient. Resolved once per workspace/batch.
+  //
+  // When the job is about a specific invoice the CTA must open THAT invoice's
+  // payable document (`/:slug/billing/pay/invoice/:id`), not the billing hub —
+  // a customer who clicks "pay invoice 1404-000123" must land on it directly.
+  // Jobs with no invoice (free fallback, restored subscription) keep the hub.
+  const billingUrlByKey = new Map<string, string>();
+  async function billingUrlFor(workspaceId: string, invoiceId: string | null): Promise<string> {
+    const path = invoiceId ? `/billing/pay/invoice/${encodeURIComponent(invoiceId)}` : '/billing';
+    const key = `${workspaceId}::${path}`;
+    const cached = billingUrlByKey.get(key);
+    if (cached !== undefined) return cached;
+    let url = '';
+    try {
+      url = await resolveWorkspaceAppUrl(config, workspaceId, path);
+    } catch {
+      url = '';
+    }
+    billingUrlByKey.set(key, url);
+    return url;
+  }
+
   const result: NotificationBatchResult = { claimed: jobs.length, sent: 0, skipped: 0, failed: 0 };
 
   for (const job of jobs) {
@@ -99,8 +131,18 @@ export async function dispatchBillingNotifications(
           ? await sendEmail(config, {
               workspaceId: job.workspace_id,
               to: target,
+              // The branded copy lives in `email_templates` under a slug equal
+              // to the notification type, edited in Branding → Email templates.
+              // The rendered fallback below is used verbatim when an admin has
+              // not authored a template for this slug/locale yet.
+              templateSlug: job.notification_type,
+              templateData: buildBillingTemplateData(locale, {
+                ...(job.payload || {}),
+                action_url: await billingUrlFor(job.workspace_id, job.invoice_id),
+              }),
               subject: msg.subject,
               text: msg.text,
+              html: `<p>${escapeHtml(msg.text).replace(/\n/g, '<br />')}</p>`,
               locale: locale ?? undefined,
             })
           : await sendSms(config, { to: target, body: `${msg.subject}\n${msg.text}` });

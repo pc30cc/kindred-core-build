@@ -88,7 +88,7 @@ describe('smart scenario preview', () => {
     expect(srcdoc(scenario('home_card'))).toContain('"mode":"home_card"');
     expect(srcdoc(scenario('chat_message'), 'chat')).toContain('"mode":"chat_message"');
     const doc = srcdoc(scenario('home_card'));
-    expect(doc).toContain("'smart-nudge '");
+    expect(doc).toContain("'smart-nudge entering '");
     expect(doc).toContain("ann.className = 'smart-announce'");
     expect(doc).toContain("card.className = 'smart-home-card'");
     expect(doc).toContain("dock.className = 'smart-chat-dock'");

@@ -1,0 +1,1 @@
+ALTER TABLE public.widget_settings ADD COLUMN IF NOT EXISTS fab_image_url text;

@@ -259,6 +259,21 @@ async function operatorVisitorsSubscribe(workspaceId: string): Promise<Subscribe
   }
 }
 
+async function operatorPresenceSubscribe(workspaceId: string): Promise<SubscribeResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/realtime/operator-presence-subscribe`, {
+      credentials: 'include',
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ workspace_id: workspaceId }),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as SubscribeResponse;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Parse a workspace channel and decide which subscription endpoint to use.
  *  - ws:<wsId>:conv:<convId> → per-conversation token endpoint
@@ -268,7 +283,8 @@ async function operatorVisitorsSubscribe(workspaceId: string): Promise<Subscribe
 type ParsedChannel =
   | { kind: 'conversation'; workspaceId: string; conversationId: string }
   | { kind: 'inbox'; workspaceId: string }
-  | { kind: 'visitors'; workspaceId: string };
+  | { kind: 'visitors'; workspaceId: string }
+  | { kind: 'operators'; workspaceId: string };
 
 function parseChannel(channel: string): ParsedChannel | null {
   let m = /^ws:([^:]+):conv:(.+)$/.exec(channel);
@@ -277,6 +293,8 @@ function parseChannel(channel: string): ParsedChannel | null {
   if (m) return { kind: 'inbox', workspaceId: m[1] };
   m = /^ws:([^:]+):visitors$/.exec(channel);
   if (m) return { kind: 'visitors', workspaceId: m[1] };
+  m = /^ws:([^:]+):operators$/.exec(channel);
+  if (m) return { kind: 'operators', workspaceId: m[1] };
   return null;
 }
 
@@ -968,6 +986,7 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
     const refresh = (): Promise<SubscribeResponse | null> => {
       if (parsed.kind === 'conversation') return operatorSubscribe(parsed.workspaceId, parsed.conversationId);
       if (parsed.kind === 'inbox') return operatorInboxSubscribe(parsed.workspaceId);
+      if (parsed.kind === 'operators') return operatorPresenceSubscribe(parsed.workspaceId);
       return operatorVisitorsSubscribe(parsed.workspaceId);
     };
 
@@ -980,7 +999,9 @@ export class CentrifugoClientProvider implements ClientRealtimeProvider {
         ? `ws:${parsed.workspaceId}:conv:${parsed.conversationId}`
         : parsed.kind === 'inbox'
           ? `ws:${parsed.workspaceId}:inbox`
-          : `ws:${parsed.workspaceId}:visitors`;
+          : parsed.kind === 'operators'
+            ? `ws:${parsed.workspaceId}:operators`
+            : `ws:${parsed.workspaceId}:visitors`;
 
     handlers.onStatus?.('connecting');
 

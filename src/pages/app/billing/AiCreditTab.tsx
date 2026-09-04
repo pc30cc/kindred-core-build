@@ -19,7 +19,7 @@ import { Progress } from '@/components/ui/progress';
 import { Loader2, Sparkles, FileText } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
-import { billingV2CreateAiCreditInvoice, type BillingOverview } from '@/lib/billingV2Api';
+import { billingV2CreateAiCreditInvoice, type BillingOverview } from '@/lib/billingApi';
 import { billingDate, money, errorMessage } from './shared';
 
 const RIAL_PER_TOMAN = 10;

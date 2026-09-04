@@ -73,6 +73,17 @@
      */
     var firstConnectDone = false;
 
+    // ── Widget-session auth accounting (Fix 6) ────────────────────────
+    // A 401/403 from /api/realtime/connect is NOT a transport problem: the
+    // widget session token is stale. Retrying the negotiation with the same
+    // bad token is what produced the endless `POST /api/realtime/connect
+    // 401` storm in production. Auth failures are handled by handing over
+    // to the canonical widget-session recovery, and are bounded.
+    var authRecoveryInflight = null;
+    var authRecoveries = 0;
+    var MAX_AUTH_RECOVERIES = 3;
+    var authStopped = false;        // bounded degraded state, no reconnects
+
     var capabilities = Object.assign({
       driver: 'centrifugo',
       supportsRealtime: true,
@@ -103,12 +114,55 @@
       if (hooks.onConnectionState) hooks.onConnectionState(s);
     }
 
+    // ── Widget session token (always read the CANONICAL latest value) ──
+    // The shared bus is the single source of truth; ctx.sessionToken is a
+    // mirrored snapshot kept only for backwards compatibility.
+    function currentToken() {
+      try {
+        var bus = (typeof window !== 'undefined') ? window.__gs_token : null;
+        var t = bus && bus.get && bus.get();
+        if (t) return t;
+      } catch (_) {}
+      return ctx.sessionToken || '';
+    }
+
+    /**
+     * Hand control to the canonical widget-session recovery (single-flight).
+     * Resolves with a fresh token, or null when the session cannot be
+     * re-established.
+     */
+    function recoverWidgetSession() {
+      if (authRecoveryInflight) return authRecoveryInflight;
+      var p;
+      try {
+        if (ctx.recoverSession) p = Promise.resolve(ctx.recoverSession());
+        else if (typeof window !== 'undefined' && window.__gs_token && window.__gs_token.recover) {
+          p = Promise.resolve(window.__gs_token.recover());
+        } else p = Promise.resolve(null);
+      } catch (_) { p = Promise.resolve(null); }
+      authRecoveryInflight = p.then(function (t) {
+        authRecoveryInflight = null;
+        return t || null;
+      }, function () { authRecoveryInflight = null; return null; });
+      return authRecoveryInflight;
+    }
+
+    /** Enter bounded degraded mode — no further realtime auth attempts. */
+    function stopOnAuthFailure(reason) {
+      if (authStopped) return;
+      authStopped = true;
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      log('[rt:centrifugo] realtime auth unrecoverable → degraded', reason);
+      setState('offline');
+      if (hooks.fallbackToPolling) hooks.fallbackToPolling(reason || 'auth_failed');
+    }
+
     // ── Backend token endpoints ─────────────────────────────────────────
     function fetchSubToken(cid) {
       return fetch(ctx.apiBase + '/api/realtime/subscribe', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': ctx.sessionToken || '' },
+        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': currentToken() },
         body: JSON.stringify({ workspace_id: ctx.workspaceId, conversation_id: cid }),
       })
         .then(function (r) { return r.json(); })
@@ -121,22 +175,42 @@
 
     // intent: 'initial' (no token yet — see connect() below) or 'reconnect'
     // (scheduleReconnect, which only fires after ws.onclose — a real drop).
-    function refreshConnectToken(intent) {
+    // Returns true (negotiated), false (transport/other failure — normal
+    // bounded reconnect applies) or the string 'auth_failed' (widget session
+    // could not be recovered — the caller must NOT keep retrying).
+    function refreshConnectToken(intent, opts) {
+      opts = opts || {};
+      if (authStopped) return Promise.resolve('auth_failed');
       return fetch(ctx.apiBase + '/api/realtime/connect', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': ctx.sessionToken || '' },
+        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': currentToken() },
         body: JSON.stringify({ workspace_id: ctx.workspaceId, intent: intent || 'initial' }),
       })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          if (data && data.vendor === 'centrifugo' && data.token) {
-            connectToken = data.token;
-            connectTokenExpiresAt = data.expires_at || 0;
-            wsUrl = data.ws_url || wsUrl;
-            return true;
+        .then(function (r) {
+          if (r.status === 401 || r.status === 403) {
+            // Widget session auth failure — never re-attempt realtime with
+            // the same token. Recover the session ONCE, then retry the
+            // negotiation exactly once with the fresh token.
+            if (opts.isRetry) return 'auth_failed';
+            if (authRecoveries >= MAX_AUTH_RECOVERIES) return 'auth_failed';
+            authRecoveries += 1;
+            return recoverWidgetSession().then(function (t) {
+              if (!t) return 'auth_failed';
+              return refreshConnectToken(intent, { isRetry: true });
+            });
           }
-          return false;
+          if (!r.ok) return false;
+          return r.json().then(function (data) {
+            if (data && data.vendor === 'centrifugo' && data.token) {
+              connectToken = data.token;
+              connectTokenExpiresAt = data.expires_at || 0;
+              wsUrl = data.ws_url || wsUrl;
+              authRecoveries = 0;
+              return true;
+            }
+            return false;
+          }, function () { return false; });
         })
         .catch(function () { return false; });
     }
@@ -150,7 +224,7 @@
       fetch(ctx.apiBase + '/api/realtime/reconnect-signal', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': ctx.sessionToken || '' },
+        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': currentToken() },
         body: JSON.stringify({ workspace_id: ctx.workspaceId }),
       }).catch(function () {});
     }
@@ -282,6 +356,9 @@
     // ── Reconnect ───────────────────────────────────────────────────────
     function scheduleReconnect() {
       if (manuallyClosed) return;
+      // Bounded degraded mode after unrecoverable widget-session auth
+      // failure: no more sockets, no more /connect calls, no 401 storm.
+      if (authStopped) return;
       reconnectAttempt += 1;
       var baseDelay = Math.min(30000, 1000 * Math.pow(2, Math.min(reconnectAttempt, 5)));
       // Phase 6C — apply the effective policy reconnect backoff multiplier
@@ -325,6 +402,7 @@
           // reply (see firstConnectDone's assignment in openSocket) is.
           if (localExpired || mustRefreshDueToFailure) {
             refreshConnectToken('initial').then(function (ok) {
+              if (ok === 'auth_failed') { stopOnAuthFailure('realtime_auth_failed'); return; }
               if (!ok) {
                 log('[rt:centrifugo] initial token fetch failed; will retry');
                 scheduleReconnect();
@@ -342,6 +420,7 @@
         // was genuinely lost — real reconnect accounting applies.
         if (localExpired || mustRefreshDueToFailure) {
           refreshConnectToken('reconnect').then(function (ok) {
+            if (ok === 'auth_failed') { stopOnAuthFailure('realtime_auth_failed'); return; }
             if (!ok) {
               log('[rt:centrifugo] token refresh failed; will retry');
               scheduleReconnect();
@@ -488,8 +567,13 @@
       connect: function () {
         manuallyClosed = false;
         // If we have no token yet (resolver gave one already, but be defensive), fetch one.
+        authStopped = false;
+        authRecoveries = 0;
         if (!connectToken) {
-          refreshConnectToken('initial').then(openSocket);
+          refreshConnectToken('initial').then(function (ok) {
+            if (ok === 'auth_failed') { stopOnAuthFailure('realtime_auth_failed'); return; }
+            openSocket();
+          });
         } else {
           openSocket();
         }

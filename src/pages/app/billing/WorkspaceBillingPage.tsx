@@ -27,7 +27,7 @@ import { LayoutGrid, Receipt, Gauge, Wallet, Sparkles, ArrowLeftRight } from 'lu
 
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
-import { billingV2Overview, billingV2CancelPlanChange, type BillingOverview } from '@/lib/billingV2Api';
+import { billingV2Overview, billingV2CancelPlanChange, type BillingOverview } from '@/lib/billingApi';
 import { billingVerifyCallback } from '@/lib/api';
 import { ErrorState, errorMessage } from './shared';
 
@@ -47,7 +47,7 @@ const TABS = [
   { value: 'transactions', labelKey: 'transactions', icon: ArrowLeftRight },
 ] as const;
 
-export default function BillingV2Page({ workspaceId }: { workspaceId: string }) {
+export default function WorkspaceBillingPage({ workspaceId }: { workspaceId: string }) {
   const { t, dir } = useTranslation();
   const [overview, setOverview] = useState<BillingOverview | null>(null);
   const [loading, setLoading] = useState(true);

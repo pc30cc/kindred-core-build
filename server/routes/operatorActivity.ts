@@ -3,14 +3,38 @@
  *
  * Self-hosted Express only (no edge functions).
  *
+ * Two separate concerns share one heartbeat request:
+ *   1. LIVE PRESENCE — realtime-first. While Centrifugo presence is the
+ *      active source, channel membership carries liveness and this beat
+ *      writes NOTHING. Only in database-fallback mode (polling/disabled/
+ *      Supabase, or a tripped presence circuit breaker — shared across
+ *      instances via `operator_presence_fallback_state`) does the beat
+ *      UPSERT the `operator_presence_live` lease: one row per
+ *      (workspace, user), no history. See
+ *      server/services/widget/operatorPresenceSource.ts.
+ *   2. ANALYTICS (`operator_activity_samples`) — 5-minute buckets, used only
+ *      for online-time reporting. NEVER read as a liveness signal.
+ *
  * How online time is measured:
- *   The operator panel sends a heartbeat every 60s while the tab is open
- *   and visible. Each heartbeat upserts a row into
- *   `operator_activity_samples` keyed by (workspace, user, minute bucket),
- *   and stores whether the operator was *available* at that moment
- *   (derived from `user_availability_prefs`, the same logic the widget
- *   uses). Online minutes = number of distinct buckets.
- *   Duplicate heartbeats are idempotent thanks to the unique index.
+ *   The operator panel heartbeats every 2 minutes while the tab is open and
+ *   visible (tab hidden => no beat => operator goes offline within the
+ *   liveness window; that is the product's "available when using the app"
+ *   semantics). Each heartbeat maps to a FIVE-MINUTE bucket in `operator_activity_samples`
+ *   keyed by (workspace, user, bucket), storing whether the operator was
+ *   *available* at that moment (derived from `user_availability_prefs`,
+ *   the same logic the widget uses).
+ *
+ *   Write cost: at most one row — and, thanks to the in-process
+ *   `lastWrittenBucket` guard, at most one INSERT attempt — per
+ *   (workspace, user, 5-minute bucket). Repeat heartbeats inside the same
+ *   bucket touch the database zero times. The UNIQUE index remains the
+ *   authority across replicas/restarts (UPSERT, ignoreDuplicates).
+ *
+ *   Online minutes = distinct available buckets × 5. Legacy 1-minute rows
+ *   collapse into their 5-minute slot, so history stays readable.
+ *
+ * Retention: rows older than RETENTION_DAYS are pruned at most once an hour
+ * from this process, which covers the full MAX_DAYS reporting window.
  *
  * ─── ROUTES ────────────────────────────────────────────────────────
  *   POST /api/operator-activity/heartbeat  { workspace_id }
@@ -24,16 +48,44 @@ import {
   authorizeWorkspaceAccess,
   serverConfigOf,
 } from '../lib/workspaceAuth.js';
-import { computeOperatorState } from '../services/widget/operatorPresence.js';
+import {
+  computeOperatorState,
+  recordOperatorPresenceBeat,
+} from '../services/widget/operatorPresence.js';
+import { shouldWriteFallbackPresence } from '../services/widget/operatorPresenceSource.js';
 
 export const operatorActivityRouter = Router();
 
 const MAX_DAYS = 90;
+export const BUCKET_MINUTES = 5;
+const BUCKET_MS = BUCKET_MINUTES * 60_000;
+const RETENTION_DAYS = 120; // > MAX_DAYS, so every reportable window stays intact
 
-function floorToMinute(d: Date) {
-  const x = new Date(d);
-  x.setSeconds(0, 0);
-  return x.toISOString();
+/** Floors a timestamp to the containing 5-minute bucket. */
+export function floorToBucket(d: Date | string): string {
+  const ms = typeof d === 'string' ? new Date(d).getTime() : d.getTime();
+  return new Date(Math.floor(ms / BUCKET_MS) * BUCKET_MS).toISOString();
+}
+
+/**
+ * Per-process memo of the last bucket already persisted for a given
+ * (workspace, user). Bounded: one entry per active operator, swept whenever
+ * it grows past the cap. Losing it only costs one redundant idempotent
+ * UPSERT after a restart.
+ */
+const lastWrittenBucket = new Map<string, string>();
+const LAST_WRITTEN_MAX = 5000;
+
+let lastPruneAt = 0;
+const PRUNE_EVERY_MS = 60 * 60_000;
+
+async function pruneOldSamples(sb: ReturnType<typeof getServiceClient>): Promise<void> {
+  const now = Date.now();
+  if (now - lastPruneAt < PRUNE_EVERY_MS) return;
+  lastPruneAt = now;
+  const cutoff = new Date(now - RETENTION_DAYS * 86_400_000).toISOString();
+  const { error } = await sb.from('operator_activity_samples').delete().lt('bucket', cutoff);
+  if (error) console.warn('[operator-activity] retention prune failed:', error.message);
 }
 
 // ── POST /heartbeat ───────────────────────────────────────────────
@@ -49,6 +101,27 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
     const config = serverConfigOf(req);
     const sb = getServiceClient(config);
 
+    const now = new Date();
+    const bucket = floorToBucket(now);
+    const memoKey = `${workspaceId}:${auth.userId}`;
+
+    // LIVE PRESENCE — realtime-first. When Centrifugo presence is the active
+    // source (healthy + presence_enabled), channel membership already carries
+    // liveness and this beat performs ZERO PostgreSQL writes. Only in
+    // database-fallback mode (polling/disabled/Supabase, or Centrifugo
+    // presence unreadable) do we refresh the `operator_presence_live` lease.
+    const fallbackPresence = await shouldWriteFallbackPresence(config, now.getTime(), workspaceId);
+    if (fallbackPresence) {
+      await recordOperatorPresenceBeat(config, workspaceId, auth.userId, now);
+    }
+
+    // ANALYTICS — already recorded this bucket in this process, so no sample
+    // write at all. Safe: live presence was just refreshed above, so skipping
+    // the analytics row cannot change anyone's online state.
+    if (lastWrittenBucket.get(memoKey) === bucket) {
+      return res.json({ ok: true, state: 'skipped', bucket, presence_mode: fallbackPresence ? 'database' : 'realtime' });
+    }
+
     const { data: prefs } = await sb
       .from('user_availability_prefs')
       .select('user_id, force_offline, available_when_using_app, schedule_enabled, timezone, weekly_schedule')
@@ -56,7 +129,7 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
       .is('workspace_id', null)
       .maybeSingle();
 
-    const { state } = computeOperatorState(prefs as any, new Date());
+    const { state } = computeOperatorState(prefs as any, now);
 
     const { error } = await sb
       .from('operator_activity_samples')
@@ -64,18 +137,24 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
         {
           workspace_id: workspaceId,
           user_id: auth.userId,
-          bucket: floorToMinute(new Date()),
+          bucket,
           available: state === 'online',
         },
         { onConflict: 'workspace_id,user_id,bucket', ignoreDuplicates: true },
       );
     if (error) return res.status(500).json({ error: error.message });
 
-    return res.json({ ok: true, state });
+    if (lastWrittenBucket.size >= LAST_WRITTEN_MAX) lastWrittenBucket.clear();
+    lastWrittenBucket.set(memoKey, bucket);
+
+    void pruneOldSamples(sb);
+
+    return res.json({ ok: true, state, presence_mode: fallbackPresence ? 'database' : 'realtime' });
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'Heartbeat failed' });
   }
 });
+
 
 // ── GET /:workspaceId/stats ───────────────────────────────────────
 operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
@@ -156,18 +235,27 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
 
     const rows = (members || []).map((m: any) => {
       const mine = samples.filter((s) => s.user_id === m.user_id);
-      const onlineMinutes = mine.filter((s) => s.available).length;
-      const presentMinutes = mine.length;
-      const dayKeys = new Set(mine.map((s) => s.bucket.slice(0, 10)));
+      // Each stored row represents one 5-minute bucket. Legacy per-minute rows
+      // are collapsed onto their bucket so a minute is never counted twice.
+      const presentBuckets = new Set<string>();
+      const onlineBuckets = new Set<string>();
+      for (const s of mine) {
+        const b = floorToBucket(s.bucket);
+        presentBuckets.add(b);
+        if (s.available) onlineBuckets.add(b);
+      }
+      const onlineMinutes = onlineBuckets.size * BUCKET_MINUTES;
+      const presentMinutes = presentBuckets.size * BUCKET_MINUTES;
+      const dayKeys = new Set(Array.from(presentBuckets).map((b) => b.slice(0, 10)));
       const lastSeen = mine.length ? mine[mine.length - 1].bucket : null;
 
       // per-day online minutes (chart series)
       const daily: Record<string, number> = {};
-      for (const s of mine) {
-        if (!s.available) continue;
-        const k = s.bucket.slice(0, 10);
-        daily[k] = (daily[k] || 0) + 1;
+      for (const b of onlineBuckets) {
+        const k = b.slice(0, 10);
+        daily[k] = (daily[k] || 0) + BUCKET_MINUTES;
       }
+
 
       const assigned = (convs || []).filter((c: any) => c.assigned_to === m.user_id);
       const resolved = assigned.filter((c: any) => c.status === 'resolved' || c.status === 'closed').length;

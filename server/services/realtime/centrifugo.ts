@@ -160,7 +160,45 @@ export class CentrifugoDriver {
     }
   }
 
+  /**
+   * Server-side presence read for a channel.
+   *
+   * Returns the distinct `user` (JWT `sub`) values currently subscribed to
+   * the channel — Centrifugo deduplicates nothing for us, so multiple tabs
+   * of the same operator appear as multiple clients under one `user`.
+   * `null` means "presence could not be read" (transport error, presence
+   * disabled on the namespace) and MUST NOT be interpreted as "nobody is
+   * online" — callers fall back to the PostgreSQL lease instead.
+   */
+  async presenceUsers(channel: string): Promise<string[] | null> {
+    if (!this.cfg.api_url || !this.cfg.api_key) return null;
+    try {
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 4000);
+      const res = await fetch(this.cfg.api_url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': this.cfg.api_key },
+        body: JSON.stringify({ method: 'presence', params: { channel } }),
+        signal: ctrl.signal,
+      });
+      clearTimeout(timeout);
+      if (!res.ok) return null;
+      const json: unknown = await res.json().catch(() => null);
+      if (!isCentrifugoApiResponse(json) || json.error) return null;
+      const presence = (json.result as { presence?: Record<string, { user?: string }> } | undefined)?.presence;
+      if (!presence || typeof presence !== 'object') return null;
+      const users = new Set<string>();
+      for (const client of Object.values(presence)) {
+        if (client && typeof client.user === 'string' && client.user) users.add(client.user);
+      }
+      return [...users];
+    } catch {
+      return null;
+    }
+  }
+
   /** Server-to-server publish (used by backend to broadcast new messages, optional). */
+
   async publish(channel: string, data: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
     if (!this.cfg.api_url || !this.cfg.api_key) {
       return { ok: false, error: 'Centrifugo API not configured' };

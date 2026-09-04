@@ -154,11 +154,12 @@ function deepMerge<T>(base: T, patch: any): T {
 
 export async function getMapGeoSettings(config: ServerConfig): Promise<MapGeoSettings> {
   const sb = getServiceClient(config);
-  const { data } = await sb
+  const { data, error } = await sb
     .from('app_runtime_config')
     .select('value')
     .eq('key', 'map_geo_settings')
     .maybeSingle();
+  if (error) throw new Error(`Failed to load map and geo settings: ${error.message}`);
   return deepMerge(DEFAULTS, data?.value);
 }
 
@@ -169,10 +170,16 @@ export async function patchMapGeoSettings(
   const sb = getServiceClient(config);
   const current = await getMapGeoSettings(config);
   const merged = deepMerge(current, patch);
-  await sb
+  const { data, error } = await sb
     .from('app_runtime_config')
-    .upsert({ key: 'map_geo_settings', value: merged as any, updated_at: new Date().toISOString() }, { onConflict: 'key' });
-  return merged;
+    .upsert(
+      { key: 'map_geo_settings', value: merged as any, updated_at: new Date().toISOString() },
+      { onConflict: 'key' },
+    )
+    .select('value')
+    .single();
+  if (error) throw new Error(`Failed to save map and geo settings: ${error.message}`);
+  return deepMerge(DEFAULTS, data?.value);
 }
 
 export const MAP_GEO_DEFAULTS = DEFAULTS;

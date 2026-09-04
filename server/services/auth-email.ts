@@ -271,3 +271,32 @@ export async function issueRecoveryEmail(
     return { success: false, error: error instanceof Error ? error.message : 'Failed to send recovery email' };
   }
 }
+
+/**
+ * Build a WORKSPACE-SCOPED absolute app URL for an outbound email.
+ *
+ * Emails are sent about one specific workspace, so their links must land in
+ * THAT workspace. A slug-less `/app/...` link is resolved client-side by
+ * WorkspaceRedirect, which forwards to the user's FIRST workspace — the wrong
+ * one for anybody who belongs to several. Resolving the slug here removes that
+ * ambiguity; if the slug cannot be read we fall back to the legacy `/app`
+ * path, which still reaches a valid page.
+ */
+export async function resolveWorkspaceAppUrl(
+  config: ServerConfig,
+  workspaceId: string | null | undefined,
+  path: string,
+): Promise<string> {
+  const base = await resolveAppBaseUrl(config);
+  const suffix = path.startsWith('/') ? path : `/${path}`;
+  if (!workspaceId) return `${base}/app${suffix}`;
+  try {
+    const sb = getServiceClient(config);
+    const { data } = await sb.from('workspaces').select('slug').eq('id', workspaceId).maybeSingle();
+    const slug = (data as { slug?: string } | null)?.slug;
+    if (slug) return `${base}/${slug}${suffix}`;
+  } catch {
+    /* fall through to the slug-less path */
+  }
+  return `${base}/app${suffix}`;
+}

@@ -140,7 +140,16 @@
       }
       return loadSupabaseClient().then(function (createClient) {
         client = createClient(url, key, {
-          auth: { persistSession: false, autoRefreshToken: false },
+          auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false,
+            // The host page may run the dashboard app (its own supabase-js).
+            // A dedicated storage key + no-op lock keeps the two instances
+            // from contending for the same Navigator LockManager lock.
+            storageKey: 'gs-widget-no-auth',
+            lock: function (_name, _timeout, fn) { return fn(); },
+          },
           realtime: { params: { eventsPerSecond: 10 } },
         });
         return client;

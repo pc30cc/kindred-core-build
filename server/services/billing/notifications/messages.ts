@@ -171,6 +171,27 @@ const TR: Copy = {
 
 const COPY: Record<BillingLocale, Copy> = { fa: FA, en: EN, tr: TR };
 
+/**
+ * Template context for the branding-managed email templates.
+ * Same numbers the plain-text fallback uses — the copy lives in
+ * `public.email_templates` (Branding → Email templates), keyed by the
+ * notification type as slug.
+ */
+export function buildBillingTemplateData(
+  locale: string | null | undefined,
+  payload: Record<string, unknown> = {},
+): Record<string, string> {
+  const loc = normalizeLocale(locale);
+  return {
+    invoice_number: String(payload.invoice_number ?? '—'),
+    amount: formatIrr(payload.amount_irr, loc),
+    due_at: formatDate(payload.due_at, loc),
+    grace_ends_at: formatDate(payload.grace_period_ends_at, loc),
+    plan_name: String(payload.plan_name ?? (loc === 'fa' ? 'رایگان' : 'Free')),
+    action_url: String(payload.action_url ?? ''),
+  };
+}
+
 export function renderBillingNotification(
   type: BillingNotificationType,
   locale: string | null | undefined,

@@ -6,7 +6,7 @@
  */
 import { SkeletonCard, SkeletonStats } from '@/components/common/Skeletons';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
-import BillingV2Page from './billing/v2/BillingV2Page';
+import WorkspaceBillingPage from './billing/WorkspaceBillingPage';
 
 export default function BillingPage() {
   const { workspace, isLoading } = useActiveWorkspace();
@@ -20,5 +20,5 @@ export default function BillingPage() {
     );
   }
 
-  return <BillingV2Page workspaceId={workspace.id} />;
+  return <WorkspaceBillingPage workspaceId={workspace.id} />;
 }

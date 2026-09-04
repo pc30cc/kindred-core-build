@@ -12,7 +12,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { SkeletonTable } from '@/components/common/Skeletons';
 import { useTranslation } from '@/i18n';
-import { billingV2Transactions, type CustomerTransaction } from '@/lib/billingV2Api';
+import { billingV2Transactions, type CustomerTransaction } from '@/lib/billingApi';
 import { billingDate, money, Ltr, ErrorState, EmptyState, Pager, errorMessage } from './shared';
 
 function statusVariant(status: string, needsReview?: boolean) {

@@ -33,7 +33,7 @@ import {
   type PlanCard,
   type PlanChangeMode,
   type PlanChangePreview,
-} from '@/lib/billingV2Api';
+} from '@/lib/billingApi';
 import { money, ErrorState, errorMessage } from './shared';
 
 export default function PlansTab({

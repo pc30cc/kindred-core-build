@@ -360,7 +360,7 @@ export function billingV2DepositPreview(workspaceId: string, amountIrr: number) 
 }
 
 export function billingV2DepositCheckout(workspaceId: string, depositId: string, callbackUrl: string) {
-  return request<{ success: true; checkoutUrl?: string; url?: string; intentId: string; documentNumber: string }>(
+  return request<{ success: true; paymentUrl?: string; checkoutUrl?: string; url?: string; intentId: string; documentNumber: string }>(
     `${base(workspaceId)}/wallet/deposit/checkout`,
     { method: 'POST', body: JSON.stringify({ depositId, callbackUrl }) },
   );

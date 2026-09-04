@@ -150,16 +150,29 @@ export default function OverviewTab({
               <p className="mt-1 text-xs text-muted-foreground">{t('billingV2.overview.walletBalance')}</p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={wallet.autoPayEnabled ? 'default' : 'secondary'}>
-                {wallet.autoPayEnabled
-                  ? t('billingV2.overview.autoPayOn')
-                  : t('billingV2.overview.autoPayOff')}
-              </Badge>
-              {wallet.frozen && (
-                <Badge variant="destructive">{t('billingV2.wallet.frozen')}</Badge>
-              )}
+            <div className="flex items-center justify-between gap-3 rounded-lg border bg-background/60 px-3 py-2">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{t('billingV2.wallet.autoPay')}</p>
+                <p className="text-xs text-muted-foreground">
+                  {wallet.autoPayEnabled
+                    ? t('billingV2.overview.autoPayOn')
+                    : t('billingV2.overview.autoPayOff')}
+                </p>
+              </div>
+              <Switch
+                checked={wallet.autoPayEnabled}
+                disabled={!canManage || savingAutoPay}
+                onCheckedChange={toggleAutoPay}
+                aria-label={t('billingV2.wallet.autoPay')}
+              />
             </div>
+
+            {wallet.frozen && (
+              <div>
+                <Badge variant="destructive">{t('billingV2.wallet.frozen')}</Badge>
+              </div>
+            )}
+
 
             <div className="mt-auto space-y-2 pt-2">
               {canManage && (

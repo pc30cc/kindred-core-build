@@ -94,8 +94,8 @@ describe('widget presentation — web-yar renderer contract', () => {
     expect(html).not.toContain('data-chat-header');
     expect(html).not.toContain('composer-zone');
     expect(html).not.toContain('wy-footer');
-    // The launcher is the only close control and there is no bottom tab bar.
-    expect(html).not.toContain('data-panel-close');
+    // The launcher hides while open, so the shell owns the close control.
+    expect(html).toContain('data-panel-close');
     expect(html).not.toContain('data-tab="chat"');
   });
 

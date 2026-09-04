@@ -21,11 +21,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { SkeletonStats, SkeletonCard } from '@/components/common/Skeletons';
-import { LayoutGrid, Receipt, Gauge, Wallet, Sparkles, ArrowLeftRight } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { LayoutGrid, Receipt, Gauge, Wallet, Sparkles, ArrowLeftRight, type LucideIcon } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
 import { billingV2Overview, billingV2CancelPlanChange, type BillingOverview } from '@/lib/billingV2Api';
-import { ErrorState, errorMessage } from './shared';
+import { ErrorState, errorMessage, money, billingDate } from './shared';
+
 import OverviewTab from './OverviewTab';
 import InvoicesTab from './InvoicesTab';
 import PlansTab from './PlansTab';
@@ -44,7 +46,7 @@ const TABS = [
 ] as const;
 
 export default function BillingV2Page({ workspaceId }: { workspaceId: string }) {
-  const { t, dir } = useTranslation();
+  const { t, dir, locale } = useTranslation();
   const [overview, setOverview] = useState<BillingOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -107,10 +109,48 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
   const canManage = overview.permissions.manage;
 
   return (
-    <div className="animate-fade-in space-y-5 p-4 text-start md:p-6 lg:p-8" dir={dir}>
-      <div>
-        <h1 className="text-2xl font-bold">{t('billingV2.title')}</h1>
-        <p className="text-sm text-muted-foreground">{t('billingV2.subtitle')}</p>
+    <div className="animate-fade-in space-y-6 p-4 text-start md:p-6 lg:p-8" dir={dir}>
+      <div className="rounded-2xl border bg-card/60 p-5 shadow-sm backdrop-blur md:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold">{t('billingV2.title')}</h1>
+            <p className="text-sm text-muted-foreground">{t('billingV2.subtitle')}</p>
+          </div>
+          <Badge variant={overview.subscription.status === 'active' ? 'default' : 'secondary'}>
+            {overview.subscription.planName || t('billingV2.overview.free')}
+          </Badge>
+        </div>
+
+        {/* Four numbers a workspace owner actually asks for, above the fold. */}
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <SummaryStat
+            icon={Wallet}
+            label={t('billingV2.overview.walletBalance')}
+            value={money(overview.wallet.balanceIrr, locale)}
+          />
+          <SummaryStat
+            icon={Sparkles}
+            label={t('billingV2.overview.remaining')}
+            value={money(
+              (overview.aiCycle?.remainingIrr ?? 0) + (overview.aiPurchasedRemainingIrr ?? 0),
+              locale,
+            )}
+          />
+          <SummaryStat
+            icon={Receipt}
+            label={t('billingV2.overview.upcomingInvoice')}
+            value={
+              overview.upcomingInvoice
+                ? money(overview.upcomingInvoice.amountDueIrr, locale)
+                : t('billingV2.overview.noNextInvoice')
+            }
+          />
+          <SummaryStat
+            icon={Gauge}
+            label={t('billingV2.overview.periodEnd')}
+            value={billingDate(overview.servicePeriod?.end, locale)}
+          />
+        </div>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
@@ -130,14 +170,19 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
           </Select>
         </div>
 
-        <TabsList className="hidden w-full justify-start overflow-x-auto md:flex">
+        <TabsList className="hidden h-auto w-full flex-wrap justify-start gap-1 rounded-xl bg-muted/60 p-1 md:flex">
           {TABS.map((item) => (
-            <TabsTrigger key={item.value} value={item.value} className="gap-1.5">
+            <TabsTrigger
+              key={item.value}
+              value={item.value}
+              className="gap-1.5 rounded-lg px-3 py-2 text-sm data-[state=active]:shadow-sm"
+            >
               <item.icon className="h-4 w-4" />
               {t(`billingV2.tabs.${item.labelKey}` as any)}
             </TabsTrigger>
           ))}
         </TabsList>
+
 
         <TabsContent value="overview" className="mt-4">
           <OverviewTab
@@ -192,6 +237,29 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
         onClose={() => setInvoiceId(null)}
         onPaid={refreshAll}
       />
+    </div>
+  );
+}
+
+/** One headline number with an icon — presentation only, no math. */
+function SummaryStat({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border bg-background/70 p-3">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="min-w-0">
+        <p className="truncate text-xs text-muted-foreground">{label}</p>
+        <p className="truncate text-sm font-semibold">{value}</p>
+      </div>
     </div>
   );
 }

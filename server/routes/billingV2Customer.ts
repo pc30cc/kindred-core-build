@@ -16,7 +16,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { getServiceClient } from '../supabase.js';
-import { resolveBillingConfig, logBillingEvent } from '../services/billing/index.js';
+import { resolveBillingConfig, logBillingEvent, getProvider } from '../services/billing/index.js';
 import {
   buildBillingOverview,
   listInvoices,
@@ -99,7 +99,29 @@ function isAllowedCallbackUrl(req: any, raw: string): boolean {
   }
 }
 
-// ─── Platform commercial configuration (read-only for the customer) ────────
+/**
+ * Which gateway actually runs this checkout.
+ *
+ * When the customer picked one of the ACTIVE gateways we honour that choice —
+ * but only after re-validating it against the payable list on the server, so a
+ * crafted request cannot reach a disabled or unimplemented provider. With no
+ * explicit choice we fall back to the configured default resolution.
+ */
+async function resolveCheckoutProvider(cfg: any, workspaceId: string, providerName?: string | null) {
+  if (providerName) {
+    const gateways = await listPayableGateways(cfg, 'IRR');
+    const gateway = gateways.find((g) => g.provider_name === providerName);
+    if (!gateway) return null;
+    const handler = getProvider(gateway.provider_name);
+    if (!handler) return null;
+    return {
+      provider: handler,
+      config: { provider: gateway.provider_name, ...(gateway.config || {}) } as any,
+    };
+  }
+  return resolveBillingConfig(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, workspaceId);
+}
+
 
 /** Payment methods the customer may actually use for a given currency. */
 billingV2CustomerRouter.get('/workspaces/:workspaceId/gateways', async (req, res) => {
@@ -231,7 +253,10 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/pay-w
   }
 });
 
-const checkoutSchema = z.object({ callbackUrl: z.string().url() });
+const checkoutSchema = z.object({
+  callbackUrl: z.string().url(),
+  providerName: z.string().min(2).max(60).optional(),
+});
 
 /** Start a gateway collection for an open invoice. */
 billingV2CustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkout', async (req, res) => {
@@ -256,7 +281,7 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/check
       return res.status(409).json({ error: 'INVOICE_NOT_PAYABLE' });
     }
 
-    const resolved = await resolveBillingConfig(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, workspaceId);
+    const resolved = await resolveCheckoutProvider(cfg, workspaceId, parsed.data.providerName);
     if (!resolved) return res.status(400).json({ error: 'NO_PROVIDER_CONFIGURED' });
     if (!IRAN_PROVIDERS.has(resolved.provider.name)) {
       return res.status(400).json({ error: 'PROVIDER_NOT_SUPPORTED' });
@@ -487,11 +512,46 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/preview', 
   }
 });
 
+/** A single deposit proforma — the document the customer pays on its own page. */
+billingV2CustomerRouter.get('/workspaces/:workspaceId/wallet/deposits/:depositId', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  if (!auth) return;
+  const cfg = serverConfigOf(req);
+  try {
+    const sb = getServiceClient(cfg);
+    const { data: deposit } = await sb
+      .from('billing_wallet_deposits')
+      .select('*')
+      .eq('id', req.params.depositId)
+      .eq('workspace_id', req.params.workspaceId)
+      .maybeSingle();
+    if (!deposit) return res.status(404).json({ error: 'NOT_FOUND' });
+    res.json({
+      deposit: {
+        id: (deposit as any).id,
+        documentNumber: (deposit as any).document_number,
+        documentType: 'wallet_deposit',
+        amountIrr: Number((deposit as any).amount_irr),
+        status: (deposit as any).status,
+        createdAt: (deposit as any).created_at,
+      },
+    });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+
+
 billingV2CustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const parsed = z
-    .object({ depositId: z.string().uuid(), callbackUrl: z.string().url() })
+    .object({
+      depositId: z.string().uuid(),
+      callbackUrl: z.string().url(),
+      providerName: z.string().min(2).max(60).optional(),
+    })
     .safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   const cfg = serverConfigOf(req);
@@ -511,7 +571,7 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout',
     if (!deposit) return res.status(404).json({ error: 'NOT_FOUND' });
     if ((deposit as any).status !== 'pending') return res.status(409).json({ error: 'DEPOSIT_NOT_PENDING' });
 
-    const resolved = await resolveBillingConfig(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, workspaceId);
+    const resolved = await resolveCheckoutProvider(cfg, workspaceId, parsed.data.providerName);
     if (!resolved) return res.status(400).json({ error: 'NO_PROVIDER_CONFIGURED' });
     if (!IRAN_PROVIDERS.has(resolved.provider.name)) return res.status(400).json({ error: 'PROVIDER_NOT_SUPPORTED' });
 

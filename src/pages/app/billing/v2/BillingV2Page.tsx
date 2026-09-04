@@ -12,6 +12,7 @@
  * locally to feel fast.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select,
@@ -36,7 +37,6 @@ import PlansTab from './PlansTab';
 import WalletTab from './WalletTab';
 import AiCreditTab from './AiCreditTab';
 import TransactionsTab from './TransactionsTab';
-import InvoiceDetailDialog from './InvoiceDetailDialog';
 
 const TABS = [
   { value: 'overview', labelKey: 'overview', icon: LayoutGrid },
@@ -54,8 +54,15 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<string>('overview');
   const [reloadKey, setReloadKey] = useState(0);
-  const [invoiceId, setInvoiceId] = useState<string | null>(null);
   const [canceling, setCanceling] = useState(false);
+  const navigate = useNavigate();
+  const { slug } = useParams<{ slug: string }>();
+
+  /** Every invoice opens as its own payable document page, never a dialog. */
+  const openInvoice = useCallback(
+    (id: string) => navigate(`/${slug}/billing/pay/invoice/${id}`),
+    [navigate, slug],
+  );
 
   const load = useCallback(() => {
     setLoading(true);
@@ -201,7 +208,7 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
         <TabsContent value="overview" className="mt-5">
           <OverviewTab
             overview={overview}
-            onPayInvoice={setInvoiceId}
+            onPayInvoice={openInvoice}
             onCancelPendingChange={cancelPendingChange}
             canceling={canceling}
             onGoTo={setTab}
@@ -209,7 +216,7 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
         </TabsContent>
 
         <TabsContent value="invoices" className="mt-5">
-          <InvoicesTab workspaceId={workspaceId} reloadKey={reloadKey} onOpenInvoice={setInvoiceId} />
+          <InvoicesTab workspaceId={workspaceId} reloadKey={reloadKey} onOpenInvoice={openInvoice} />
         </TabsContent>
 
         <TabsContent value="plans" className="mt-5">
@@ -218,7 +225,6 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
             canManage={canManage}
             reloadKey={reloadKey}
             onChanged={refreshAll}
-            onOpenInvoice={setInvoiceId}
           />
         </TabsContent>
 
@@ -236,7 +242,6 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
             workspaceId={workspaceId}
             canManage={canManage}
             overview={overview}
-            onOpenInvoice={setInvoiceId}
             onChanged={refreshAll}
           />
         </TabsContent>
@@ -246,12 +251,6 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
         </TabsContent>
       </Tabs>
 
-      <InvoiceDetailDialog
-        workspaceId={workspaceId}
-        invoiceId={invoiceId}
-        onClose={() => setInvoiceId(null)}
-        onPaid={refreshAll}
-      />
     </div>
   );
 }

@@ -10,13 +10,13 @@
  * screen like every other charge.
  */
 import { useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Loader2, Sparkles, Plus } from 'lucide-react';
+import { Loader2, Sparkles, FileText } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
 import { billingV2CreateAiCreditInvoice, type BillingOverview } from '@/lib/billingV2Api';
@@ -29,20 +29,19 @@ export default function AiCreditTab({
   workspaceId,
   canManage,
   overview,
-  onOpenInvoice,
   onChanged,
 }: {
   workspaceId: string;
   canManage: boolean;
   /** Cycle + purchased credit already come from the overview read-model. */
   overview: BillingOverview;
-  onOpenInvoice: (invoiceId: string) => void;
   onChanged: () => void;
 }) {
   const { t, locale } = useTranslation();
-  const [open, setOpen] = useState(false);
   const [amountToman, setAmountToman] = useState('');
   const [busy, setBusy] = useState(false);
+  const navigate = useNavigate();
+  const { slug } = useParams<{ slug: string }>();
 
   async function buy() {
     const toman = Number(amountToman);
@@ -53,10 +52,9 @@ export default function AiCreditTab({
     setBusy(true);
     try {
       const res = await billingV2CreateAiCreditInvoice(workspaceId, toman * RIAL_PER_TOMAN);
-      setOpen(false);
       onChanged();
       toast.success(t('billingV2.ai.invoiceCreated', { number: res.invoiceNumber || '' }));
-      if (res.invoiceId) onOpenInvoice(res.invoiceId);
+      if (res.invoiceId) navigate(`/${slug}/billing/pay/invoice/${res.invoiceId}`);
     } catch (e) {
       toast.error(errorMessage(e, t));
     } finally {
@@ -114,55 +112,44 @@ export default function AiCreditTab({
             <p className="text-3xl font-bold">{money(overview.aiPurchasedRemainingIrr, locale)}</p>
             <p className="text-xs text-muted-foreground">{t('billingV2.ai.consumptionNote')}</p>
             {canManage && (
-              <Button
-                size="lg"
-                className="w-full"
-                onClick={() => {
-                  setAmountToman('');
-                  setOpen(true);
-                }}
-              >
-                <Plus className="me-2 h-4 w-4" />
-                {t('billingV2.ai.buy')}
-              </Button>
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-2">
+                  {PRESET_TOMAN.map((p) => (
+                    <Button
+                      key={p}
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => setAmountToman(String(p))}
+                    >
+                      {money(p * RIAL_PER_TOMAN, locale)}
+                    </Button>
+                  ))}
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground" htmlFor="ai-amount">
+                    {t('billingV2.wallet.customLabel')}
+                  </label>
+                  <Input
+                    id="ai-amount"
+                    inputMode="numeric"
+                    dir="ltr"
+                    value={amountToman}
+                    onChange={(e) => setAmountToman(e.target.value.replace(/[^\d]/g, ''))}
+                    placeholder={t('billingV2.wallet.custom')}
+                  />
+                  <p className="text-xs text-muted-foreground">{t('billingV2.ai.buyNote')}</p>
+                </div>
+                <Button size="lg" className="w-full gap-2" disabled={busy} onClick={buy}>
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                  {t('billingV2.ai.issueCreditInvoice')}
+                </Button>
+              </div>
             )}
           </CardContent>
         </Card>
       </div>
 
-      <Dialog open={open} onOpenChange={(o) => !o && setOpen(false)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('billingV2.ai.buyTitle')}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="flex flex-wrap gap-2">
-              {PRESET_TOMAN.map((p) => (
-                <Button key={p} size="sm" variant="outline" onClick={() => setAmountToman(String(p))}>
-                  {money(p * RIAL_PER_TOMAN, locale)}
-                </Button>
-              ))}
-            </div>
-            <Input
-              inputMode="numeric"
-              dir="ltr"
-              value={amountToman}
-              onChange={(e) => setAmountToman(e.target.value.replace(/[^\d]/g, ''))}
-              placeholder={t('billingV2.wallet.custom')}
-            />
-            <p className="text-xs text-muted-foreground">{t('billingV2.ai.buyNote')}</p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)} disabled={busy}>
-              {t('billingV2.common.cancel')}
-            </Button>
-            <Button onClick={buy} disabled={busy}>
-              {busy && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
-              {t('billingV2.ai.createInvoice')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

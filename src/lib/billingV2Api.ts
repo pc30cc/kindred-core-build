@@ -286,7 +286,39 @@ export function billingV2PayInvoiceFromWallet(workspaceId: string, invoiceId: st
   );
 }
 
-export function billingV2InvoiceCheckout(workspaceId: string, invoiceId: string, callbackUrl: string) {
+export interface PayableGateway {
+  provider_name: string;
+  display_name: Record<string, string> | null;
+  is_test: boolean;
+  currencies: string[];
+}
+
+/** Active payment methods for a currency — decided by the platform, not the UI. */
+export function billingV2Gateways(workspaceId: string, currency = 'IRR') {
+  return request<{ currency: string; gateways: PayableGateway[] }>(
+    `${base(workspaceId)}/gateways?currency=${encodeURIComponent(currency)}`,
+  );
+}
+
+export interface DepositDocument {
+  id: string;
+  documentNumber: string;
+  documentType: 'wallet_deposit';
+  amountIrr: number;
+  status?: string;
+  createdAt: string;
+}
+
+export function billingV2DepositDetail(workspaceId: string, depositId: string) {
+  return request<{ deposit: DepositDocument }>(`${base(workspaceId)}/wallet/deposits/${depositId}`);
+}
+
+export function billingV2InvoiceCheckout(
+  workspaceId: string,
+  invoiceId: string,
+  callbackUrl: string,
+  providerName?: string,
+) {
   return request<{
     success: true;
     paymentUrl?: string;
@@ -296,7 +328,7 @@ export function billingV2InvoiceCheckout(workspaceId: string, invoiceId: string,
     invoiceNumber: string;
   }>(
     `${base(workspaceId)}/invoices/${invoiceId}/checkout`,
-    { method: 'POST', body: JSON.stringify({ callbackUrl }) },
+    { method: 'POST', body: JSON.stringify({ callbackUrl, providerName }) },
   );
 }
 
@@ -359,10 +391,15 @@ export function billingV2DepositPreview(workspaceId: string, amountIrr: number) 
   });
 }
 
-export function billingV2DepositCheckout(workspaceId: string, depositId: string, callbackUrl: string) {
+export function billingV2DepositCheckout(
+  workspaceId: string,
+  depositId: string,
+  callbackUrl: string,
+  providerName?: string,
+) {
   return request<{ success: true; paymentUrl?: string; checkoutUrl?: string; url?: string; intentId: string; documentNumber: string }>(
     `${base(workspaceId)}/wallet/deposit/checkout`,
-    { method: 'POST', body: JSON.stringify({ depositId, callbackUrl }) },
+    { method: 'POST', body: JSON.stringify({ depositId, callbackUrl, providerName }) },
   );
 }
 

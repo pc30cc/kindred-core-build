@@ -1,5 +1,19 @@
 const en = {
     billingV2: {
+    checkout: {
+      back: 'Back to billing',
+      print: 'Print',
+      invoiceTitle: 'Invoice',
+      depositTitle: 'Wallet top-up invoice',
+      depositLine: 'Wallet top-up',
+      payable: 'Amount payable',
+      chooseGateway: 'Choose a payment method',
+      chooseGatewayHint: 'Pick one of the active gateways, then continue to payment.',
+      testGateway: 'Test gateway',
+      noGateway: 'No active payment gateway is available right now. Please contact support.',
+      payNow: 'Pay {{amount}}',
+      alreadyPaid: 'This document is already paid.',
+    },
     title: 'Plan & Payment',
     subtitle: 'Manage your workspace plan, invoices, wallet and AI credit.',
     tabs: { overview: 'Overview', invoices: 'Invoices', plans: 'Plans', wallet: 'Wallet', aiCredit: 'AI Credit', transactions: 'Transactions' },
@@ -65,6 +79,8 @@ const en = {
       invoiceCreated: 'Invoice {{number}} created.', scheduled: 'Plan change scheduled.',
     },
     wallet: {
+      customLabel: 'Amount (Toman)',
+      issueDepositInvoice: 'Issue top-up invoice',
       title: 'Wallet', balance: 'Wallet balance', deposit: 'Add funds', depositTitle: 'Add funds to wallet',
       presets: 'Suggested amounts', custom: 'Custom amount', range: 'Between {{min}} and {{max}}',
       autoPay: 'Automatic payment', autoPayDesc: 'Issuing an invoice does not debit your wallet; payment happens on the due date.',
@@ -75,6 +91,7 @@ const en = {
       entryTypes: { deposit: 'Wallet top-up', invoice_payment: 'Invoice payment', refund: 'Refund', credit: 'Credit', debit: 'Debit', admin_adjustment: 'Support adjustment', chargeback: 'Chargeback' },
     },
     ai: {
+      issueCreditInvoice: 'Issue credit invoice',
       title: 'AI Credit', cycleAllowance: 'Plan allowance this cycle', used: 'Used', remaining: 'Remaining',
       cycleRange: 'Cycle: {{start}} — {{end}}', annualBadge: 'Monthly release on a yearly plan',
       purchased: 'Purchased credit', buy: 'Buy AI credit', buyTitle: 'Buy AI credit', amount: 'Amount',

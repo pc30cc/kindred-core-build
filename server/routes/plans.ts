@@ -25,6 +25,9 @@ import {
   handleWorkspaceEntitlementChanged,
   handlePlanDefinitionChanged,
 } from '../services/billing/entitlementChange.js';
+import { isV2Active } from '../services/billing/rollout.js';
+import { adminGrantPlanV2 } from '../services/billing/adminGrant.js';
+
 
 export const plansRouter = Router();
 

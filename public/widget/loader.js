@@ -431,9 +431,16 @@
     if (fab.animation === true) launcherEl.classList.add("pulse");
     launcherEl.style.color = fab.iconColor || "#ffffff";
     var icon = FAB_ICONS[fab.icon] || FAB_ICONS.chat;
+    var imageUrl = typeof fab.imageUrl === "string" ? fab.imageUrl.trim() : "";
+    if (imageUrl && !/^https?:\/\//i.test(imageUrl)) imageUrl = "";
+    launcherEl.classList.toggle("has-image", !!imageUrl);
     launcherEl.innerHTML =
       '<svg class="chat-icon" viewBox="0 0 24 24">' + icon + '</svg>' +
-      '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+      '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
+      (imageUrl
+        ? '<img class="fab-img" alt="" aria-hidden="true" src="' + imageUrl.replace(/"/g, "&quot;") + '">'
+        : '');
+
 
     // Optional text chip beside the launcher.
     var shellDiv2 = shadowRoot.querySelector(".shell");

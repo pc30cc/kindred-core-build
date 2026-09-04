@@ -39,7 +39,7 @@ export interface OperatorPresence {
     | 'day_disabled'
     | 'not_connected'
     | 'no_prefs';
-  /** Last heartbeat bucket seen for this operator (null when never/stale). */
+  /** Last live-presence beat seen for this operator (null when never/stale). */
   last_seen_at?: string | null;
 }
 

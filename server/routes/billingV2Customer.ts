@@ -16,7 +16,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { getServiceClient } from '../supabase.js';
-import { resolveBillingConfig, logBillingEvent } from '../services/billing/index.js';
+import { resolveBillingConfig, logBillingEvent, getProvider } from '../services/billing/index.js';
 import {
   buildBillingOverview,
   listInvoices,

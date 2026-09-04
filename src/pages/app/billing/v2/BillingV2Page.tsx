@@ -48,7 +48,7 @@ const TABS = [
 ] as const;
 
 export default function BillingV2Page({ workspaceId }: { workspaceId: string }) {
-  const { t, dir, locale } = useTranslation();
+  const { t, dir } = useTranslation();
   const [overview, setOverview] = useState<BillingOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

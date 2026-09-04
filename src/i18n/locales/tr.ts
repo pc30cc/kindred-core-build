@@ -11,6 +11,8 @@ const tr: TranslationKeys = {
       confirm: 'Onayla', back: 'Geri', amount: 'Tutar', date: 'Tarih', status: 'Durum', actions: 'İşlemler',
       view: 'Görüntüle', total: 'Toplam', yes: 'Evet', no: 'Hayır', notAvailable: '—',
       continue: 'Devam',
+      paymentSucceeded: 'Ödeme başarıyla tamamlandı.',
+      paymentFailed: 'Ödeme doğrulanamadı.',
     },
     overview: {
       currentPlan: 'Mevcut plan', free: 'Ücretsiz', trial: 'Deneme', trialEnds: 'Deneme {{date}} tarihinde bitiyor',

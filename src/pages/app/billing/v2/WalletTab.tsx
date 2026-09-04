@@ -110,7 +110,7 @@ export default function WalletTab({
     try {
       const callbackUrl = `${window.location.origin}${window.location.pathname}`;
       const res = await billingV2DepositCheckout(workspaceId, preview.id, callbackUrl);
-      const url = res.checkoutUrl || res.url;
+      const url = res.paymentUrl || res.checkoutUrl || res.url;
       if (!url) throw new Error('NO_PROVIDER_CONFIGURED');
       window.location.href = url;
     } catch (e) {

@@ -149,6 +149,7 @@ async function readCentrifugoPresence(
   if (pending) return pending;
 
   const promise = (async () => {
+    const readAt = now;
     try {
       const driver = await getCentrifugoDriver(config);
       if (!driver) return null;
@@ -160,7 +161,7 @@ async function readCentrifugoPresence(
       for (const u of users) {
         if (u.startsWith('op_')) ids.add(u.slice(3));
       }
-      boundedSet(realtimeCache, workspaceId, { users: ids, at: Date.now() });
+      boundedSet(realtimeCache, workspaceId, { users: ids, at: readAt });
       return ids;
     } catch {
       return null;

@@ -49,6 +49,9 @@ import {
 
 
 import { loadPublicSmartRules, recordSmartEvent } from '../services/widget/smartEngagement.js';
+import { evaluateAiProactiveNudge } from '../services/widget/aiNudge/evaluate.js';
+import { resolveEffectiveAiNudgePolicy } from '../services/widget/aiNudge/policy.js';
+import { AI_JOURNEY_MAX_PAGES, type AiJourneyContext, type SmartEvalContext } from '../../src/lib/widget/smartEngine.js';
 import {
   createSessionToken,
   verifySessionToken,
@@ -598,6 +601,19 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       ws.smart_engagement_enabled === true,
     );
 
+    // AI Proactive Nudge — only {enabled, mode} ever reach the browser.
+    // Guidance text, path targeting and platform ceilings stay server-side;
+    // POST /api/widget/nudge/evaluate re-resolves the full policy itself on
+    // every call, so a stale/forged client value here can only ever waste
+    // one harmless round-trip, never bypass a limit.
+    let aiProactiveSnapshot: { enabled: boolean; mode: string } = { enabled: false, mode: 'off' };
+    if (ws.smart_engagement_enabled === true) {
+      try {
+        const nudgePolicy = await resolveEffectiveAiNudgePolicy(config, workspaceId);
+        aiProactiveSnapshot = { enabled: nudgePolicy.available, mode: nudgePolicy.mode };
+      } catch { /* fail closed — no AI proactive snapshot */ }
+    }
+
     // Get workspace info + team members
     const { data: workspace } = await supabase
       .from('workspaces').select('name').eq('id', workspaceId).maybeSingle();
@@ -983,6 +999,8 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
           ? versionedAssetUrl(assetBase ? `${assetBase}/widget/${smartEngineName}` : null)
           : null,
         rules: smartPayload.rules,
+        // AI Proactive Nudge — {enabled, mode} only, see resolveEffectiveAiNudgePolicy.
+        aiProactive: aiProactiveSnapshot,
       },
       // Phase 4 — AI Agent snapshot. Used by the widget runtime to decide
       // whether to suppress the generic welcome greeting (the AI intro will
@@ -1006,14 +1024,17 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
 // Token + origin enforced by the middleware above. Idempotent by key.
 // ═══════════════════════════════════════════════
 const smartEventSchema = z.object({
-  rule_id: z.string().uuid(),
+  rule_id: z.string().uuid().optional(),
   rule_version: z.number().int().min(1).max(100000).optional(),
+  /** AI Proactive Nudge lifecycle events set source:'ai_proactive' + ai_nudge_id instead of rule_id. */
+  source: z.enum(['rule', 'ai_proactive']).optional().default('rule'),
+  ai_nudge_id: z.string().uuid().optional(),
   event_type: z.enum(['shown', 'opened', 'dismissed', 'cta_clicked', 'widget_opened', 'conversation_started', 'suppressed']),
   visitor_id: z.string().max(120).optional().nullable(),
   session_id: z.string().max(120).optional().nullable(),
   page_path: z.string().max(500).optional().nullable(),
   idempotency_key: z.string().min(6).max(120),
-});
+}).refine((d) => (d.source === 'ai_proactive' ? !!d.ai_nudge_id : !!d.rule_id), { message: 'rule_id or ai_nudge_id required' });
 
 widgetRouter.post('/smart/event', widgetRateLimit('default'), async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
@@ -1030,6 +1051,8 @@ widgetRouter.post('/smart/event', widgetRateLimit('default'), async (req: Reques
       workspaceId,
       ruleId: parsed.data.rule_id,
       ruleVersion: parsed.data.rule_version,
+      source: parsed.data.source,
+      aiNudgeId: parsed.data.ai_nudge_id,
       visitorId: parsed.data.visitor_id ?? null,
       sessionId: parsed.data.session_id ?? null,
       eventType: parsed.data.event_type,
@@ -1037,13 +1060,133 @@ widgetRouter.post('/smart/event', widgetRateLimit('default'), async (req: Reques
       idempotencyKey: parsed.data.idempotency_key,
     });
     if (!result.ok) {
-      const status = result.reason === 'rule_workspace_mismatch' ? 403 : 400;
+      const status = (result.reason === 'rule_workspace_mismatch' || result.reason === 'nudge_workspace_mismatch') ? 403 : 400;
       return res.status(status).json({ error: result.reason || 'rejected' });
     }
     res.json({ ok: true });
   } catch (err: any) {
     console.error('[smart-event] failed:', err?.message || err);
     res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ═══════════════════════════════════════════════
+// AI Proactive Nudge — POST /api/widget/nudge/evaluate
+//
+// Called by the widget loader only when the client-side deterministic gate
+// (SmartEngine.evaluateAiProactiveEligibility, run against the SAME rule
+// set for defense-in-depth) already thinks AI *may* be worth asking. This
+// endpoint independently re-verifies eligibility server-side (never trusts
+// the client's own frequency/cooldown bookkeeping for cost control) before
+// spending an AI call. Token + origin already enforced by the middleware
+// mounted above. Never blocks/slows the rest of the widget on failure.
+// ═══════════════════════════════════════════════
+const nudgePageSchema = z.object({
+  path: z.string().max(500),
+  title: z.string().max(300).optional().nullable(),
+});
+const nudgeEvaluateSchema = z.object({
+  visitor_id: z.string().max(120).optional().nullable(),
+  session_id: z.string().max(120).optional().nullable(),
+  locale: z.string().max(10).default('en'),
+  device: z.enum(['desktop', 'mobile', 'tablet']).default('desktop'),
+  current: nudgePageSchema,
+  recent_pages: z.array(nudgePageSchema.extend({ ts: z.number() })).max(AI_JOURNEY_MAX_PAGES).default([]),
+  session_page_count: z.number().int().min(0).max(100000).default(1),
+  returning: z.boolean().default(false),
+  previous_nudge: z.object({ topic: z.string().max(60), dismissed: z.boolean(), engaged: z.boolean() }).optional().nullable(),
+  referrer: z.string().max(1000).optional().nullable(),
+  utm: z.object({ source: z.string().max(200).optional(), medium: z.string().max(200).optional(), campaign: z.string().max(200).optional() }).optional().nullable(),
+  signals: z.object({
+    elapsedMs: z.number().min(0).max(24 * 3600_000).default(0),
+    scrollPercent: z.number().min(0).max(100).default(0),
+    inactiveMs: z.number().min(0).max(24 * 3600_000).default(0),
+    exitIntent: z.boolean().default(false),
+    pageHidden: z.boolean().optional(),
+  }),
+  interaction: z.object({
+    widgetOpen: z.boolean().optional(),
+    conversationActive: z.boolean().optional(),
+    visitorTyping: z.boolean().optional(),
+    callActive: z.boolean().optional(),
+    prechatOpen: z.boolean().optional(),
+    anotherRuleShowing: z.boolean().optional(),
+    visitorReplied: z.boolean().optional(),
+    widgetError: z.boolean().optional(),
+  }),
+  online: z.boolean().default(true),
+});
+
+/** Strips sensitive query params and truncates — same deny-list as page_context elsewhere in this file. */
+function sanitizeNudgePath(raw: string | null | undefined): string {
+  if (!raw) return '/';
+  try {
+    const u = new URL(raw, 'https://placeholder.invalid');
+    for (const k of ['token', 'access_token', 'refresh_token', 'code', 'password', 'session', 'auth', 'key', 'secret', 'api_key', 'sig', 'signature']) {
+      u.searchParams.delete(k);
+    }
+    return (u.pathname + (u.search || '')).slice(0, 500) || '/';
+  } catch {
+    return String(raw).split('?')[0].slice(0, 500) || '/';
+  }
+}
+
+widgetRouter.post('/nudge/evaluate', widgetRateLimit('default'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
+  if (res.headersSent) return;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const parsed = nudgeEvaluateSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.json({ decision: 'suppress' }); // fail closed, never surface schema errors to the page
+
+  try {
+    const d = parsed.data;
+    // Visitor identity: the signed HttpOnly cookie is authoritative, same
+    // precedence as every other widget route — a client-supplied session_id
+    // is only ever used as a display/bookkeeping key, never for authorization.
+    const visitorId = readVisitorCookie(req as any, workspaceId)?.v || d.visitor_id || null;
+    const journey: AiJourneyContext = {
+      current: { path: sanitizeNudgePath(d.current.path), title: d.current.title || undefined, ts: Date.now() },
+      recentPages: d.recent_pages.map((p) => ({ path: sanitizeNudgePath(p.path), title: p.title || undefined, ts: p.ts })),
+      sessionPageCount: d.session_page_count,
+      returning: d.returning,
+      previousNudge: d.previous_nudge
+        ? { topic: d.previous_nudge.topic, dismissed: d.previous_nudge.dismissed, engaged: d.previous_nudge.engaged }
+        : null,
+    };
+    const ctx: SmartEvalContext = {
+      masterEnabled: true,
+      mode: 'production',
+      page: { url: journey.current.path, path: journey.current.path, hostname: '', title: journey.current.title },
+      referrer: d.referrer || undefined,
+      utm: d.utm || undefined,
+      device: d.device,
+      locale: d.locale,
+      visitor: { isReturning: d.returning, sessionPageCount: d.session_page_count },
+      availability: { online: d.online },
+      interaction: d.interaction,
+      signals: {
+        elapsedMs: d.signals.elapsedMs,
+        scrollPercent: d.signals.scrollPercent,
+        inactiveMs: d.signals.inactiveMs,
+        exitIntent: d.signals.exitIntent,
+        pageHidden: d.signals.pageHidden,
+      },
+    };
+    const result = await evaluateAiProactiveNudge(config, {
+      workspaceId,
+      visitorId,
+      sessionId: d.session_id ?? null,
+      locale: d.locale,
+      device: d.device,
+      ctx,
+      journey,
+    });
+    res.json(result);
+  } catch (err: any) {
+    console.error('[nudge-evaluate] failed:', err?.message || err);
+    res.json({ decision: 'suppress' });
   }
 });
 
@@ -1568,6 +1711,17 @@ const messageSchema = z.object({
     currentPageTitle: z.string().max(300).optional().nullable(),
     referrer: z.string().max(1000).optional().nullable(),
   }).optional().nullable(),
+  /**
+   * AI Proactive Nudge continuity — sent only when this message resulted
+   * from the visitor clicking a nudge's CTA. `nudge_id` is re-validated
+   * against widget_ai_nudges (workspace-scoped) below; topic/message are
+   * NEVER trusted verbatim from the client, only the id is used as a
+   * lookup key.
+   */
+  nudge_context: z.object({
+    source: z.literal('ai_proactive_nudge'),
+    nudge_id: z.string().uuid(),
+  }).optional().nullable(),
 }).refine(
   d => !!((d.message && d.message.trim()) || (d.body && d.body.trim()) || d.attachment_id),
   { message: 'message, body, or attachment_id required' }
@@ -1669,6 +1823,31 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
   } catch (err: any) {
     console.warn('[widget-message] page_context parse failed:', err?.message || err);
     pageContext = null;
+  }
+
+  // ─── AI Proactive Nudge continuity ────────────────────────────────────
+  // The client sends only `nudge_id` — topic/message are ALWAYS re-read
+  // from widget_ai_nudges here, scoped to this workspace, so a forged or
+  // cross-workspace nudge_id can never inject arbitrary text into the
+  // AI Agent's prompt.
+  let nudgeContext: { topic: string; message: string } | null = null;
+  let nudgeIdForAttribution: string | null = null;
+  const nudgeCtxInput = (data as any).nudge_context || null;
+  if (nudgeCtxInput?.nudge_id) {
+    try {
+      const { data: nudgeRow } = await supabase
+        .from('widget_ai_nudges')
+        .select('id, topic, message')
+        .eq('id', nudgeCtxInput.nudge_id)
+        .eq('workspace_id', workspaceId)
+        .maybeSingle();
+      if (nudgeRow) {
+        nudgeContext = { topic: String(nudgeRow.topic || '').slice(0, 60), message: String(nudgeRow.message || '').slice(0, 400) };
+        nudgeIdForAttribution = nudgeRow.id as string;
+      }
+    } catch (err: any) {
+      console.warn('[widget-message] nudge_context lookup failed:', err?.message || err);
+    }
   }
 
   try {
@@ -1924,11 +2103,27 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
           attachment_id: data.attachment_id || undefined,
           department_id: data.department_id || undefined,
           page_context: pageContext || undefined,
+          nudge_context: nudgeIdForAttribution ? { source: 'ai_proactive_nudge', nudge_id: nudgeIdForAttribution } : undefined,
         },
       })
       .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')
       .single();
     if (msgErr) throw msgErr;
+
+    // AI Proactive Nudge attribution — best-effort, never blocks the message.
+    if (nudgeIdForAttribution && convId) {
+      void supabase.from('widget_ai_nudges').update({ status: 'converted' }).eq('id', nudgeIdForAttribution).eq('workspace_id', workspaceId);
+      void supabase.from('widget_smart_events').insert({
+        workspace_id: workspaceId,
+        source: 'ai_proactive',
+        ai_nudge_id: nudgeIdForAttribution,
+        event_type: 'conversation_started',
+        visitor_id: body.visitor_id || null,
+        session_id: body.session_id || null,
+        page_path: pageContext?.currentPagePath || null,
+        idempotency_key: `conv_started_${nudgeIdForAttribution}`,
+      });
+    }
 
     // "Awaiting customer reply" threads return to the active queue as soon as
     // the customer writes again. Conditional, atomic and idempotent; the
@@ -2019,6 +2214,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         question: messageBody,
         locale: (req.body && (req.body.locale as string)) || undefined,
         pageContext: pageContext || undefined,
+        nudgeContext: nudgeContext || undefined,
       })
         .then(async (result: any) => {
           // Observability: several engine outcomes (empty question, agent

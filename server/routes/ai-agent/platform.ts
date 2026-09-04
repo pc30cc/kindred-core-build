@@ -12,6 +12,8 @@ import {
   updatePlatformAiAgentSettings,
 } from '../../services/ai-agent/platformSettings.js';
 import { resolveCurrentUserId } from './shared.js';
+import { getServiceClient } from '../../supabase.js';
+import { getMonitoringCollector } from '../../services/observability/collector/index.js';
 
 export const platformRouter: Router = express.Router();
 
@@ -68,5 +70,53 @@ platformRouter.patch('/platform/settings', async (req: Request, res: Response) =
       return res.status(403).json({ error: 'forbidden' });
     }
     return res.status(500).json({ error: e?.message || 'platform_settings_update_failed' });
+  }
+});
+
+// ─── E12 Super Admin: GET /platform/ai-proactive-stats ───
+// Guarded by ADVANCED_PATH_PATTERNS middleware (admin-only). Bounded,
+// aggregate-only cross-workspace view — reuses the same tables the
+// workspace-level stats endpoint reads (widget_ai_nudge_settings,
+// widget_smart_events, ai_runs) plus the existing in-memory observability
+// collector for failure/suppression counts. No raw per-evaluation table.
+platformRouter.get('/platform/ai-proactive-stats', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  try {
+    const sb = getServiceClient(config);
+    const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+    const [{ count: workspacesUsing }, { data: events }, { data: runs }] = await Promise.all([
+      sb.from('widget_ai_nudge_settings' as any).select('workspace_id', { count: 'exact', head: true }).eq('enabled', true),
+      sb.from('widget_smart_events').select('event_type').eq('source', 'ai_proactive').gte('created_at', since).limit(20000),
+      sb.from('ai_runs' as any).select('customer_charge_irr, provider_cost_usd').eq('entry_point', 'proactive_nudge').gte('created_at', since).limit(20000),
+    ]);
+    const counters = { shown: 0, dismissed: 0, cta_clicked: 0, widget_opened: 0, conversation_started: 0 };
+    for (const row of (events || []) as any[]) {
+      if (row.event_type in counters) (counters as any)[row.event_type]++;
+    }
+    let costUsd = 0;
+    let chargeIrr = 0;
+    for (const r of (runs || []) as any[]) {
+      costUsd += Number(r.provider_cost_usd) || 0;
+      chargeIrr += Number(r.customer_charge_irr) || 0;
+    }
+    const collector = getMonitoringCollector();
+    const windowSeconds = 24 * 3600;
+    const failures = {
+      evaluated: collector.queryRealtimeCount('ai_nudge.evaluated', windowSeconds),
+      suppressed: collector.queryRealtimeCount('ai_nudge.suppressed', windowSeconds),
+      shown: collector.queryRealtimeCount('ai_nudge.shown', windowSeconds),
+      timeout: collector.queryRealtimeCount('ai_nudge.timeout', windowSeconds),
+      invalid_response: collector.queryRealtimeCount('ai_nudge.invalid_response', windowSeconds),
+      billing_denied: collector.queryRealtimeCount('ai_nudge.billing_denied', windowSeconds),
+      provider_unavailable: collector.queryRealtimeCount('ai_nudge.provider_unavailable', windowSeconds),
+    };
+    return res.json({
+      workspacesUsing: workspacesUsing || 0,
+      counters,
+      aiUsage: { costUsd, chargeIrr, runs: (runs || []).length },
+      last24h: failures,
+    });
+  } catch (e: any) {
+    return res.status(500).json({ error: e?.message || 'ai_proactive_stats_failed' });
   }
 });

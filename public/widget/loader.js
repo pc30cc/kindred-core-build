@@ -1241,8 +1241,214 @@
       exitIntent = false;
       suppressedThisPage = {};
       session.pages = (Number(session.pages) || 0) + 1;
+      navGeneration++;
+      recordJourneyPage();
       writeJson(window.sessionStorage, sessionKey, session);
     }
+
+    // ─── AI Proactive Nudge — bounded visitor journey (additive) ──────────
+    // AI_JOURNEY_MAX_PAGES mirrors src/lib/widget/smartEngine.ts's exported
+    // constant of the same name — kept in lockstep the same way
+    // buildFrequencyKey/isoWeekKey above are (see smartLoader.test.ts).
+    var AI_JOURNEY_MAX_PAGES = 12;
+    if (!session.journey) session.journey = [];
+    if (!session.aiFreq) {
+      session.aiFreq = { shownInSession: 0, lastShownAt: null, dismissedTopics: [], lastTopic: null, lastEngaged: false, lastFingerprint: null, lastEvalAt: null };
+    }
+    var navGeneration = 0;
+    var aiNudgeInFlight = false;
+    var aiCfg = (config.smart && config.smart.aiProactive) || { enabled: false, mode: "off" };
+
+    function recordJourneyPage() {
+      var path = (window.location.pathname || "/").slice(0, 500);
+      var title = (document.title || "").slice(0, 300);
+      var last = session.journey.length ? session.journey[session.journey.length - 1] : null;
+      if (last && last.path === path) return;
+      session.journey.push({ path: path, title: title, ts: Date.now() });
+      if (session.journey.length > AI_JOURNEY_MAX_PAGES) {
+        session.journey.splice(0, session.journey.length - AI_JOURNEY_MAX_PAGES);
+      }
+    }
+    // Record the initial page load (subsequent navigations go through resetPageSignals above).
+    recordJourneyPage();
+    writeJson(window.sessionStorage, sessionKey, session);
+
+    function aiJourneyContext() {
+      var current = session.journey.length ? session.journey[session.journey.length - 1] : { path: window.location.pathname || "/", title: document.title || "", ts: Date.now() };
+      var lastTopic = session.aiFreq.lastTopic;
+      return {
+        current: current,
+        recentPages: session.journey.slice(0, -1),
+        sessionPageCount: Number(session.pages) || 1,
+        returning: visitorIsNew === null ? false : !visitorIsNew,
+        previousNudge: lastTopic
+          ? { topic: lastTopic, dismissed: session.aiFreq.dismissedTopics.indexOf(lastTopic) !== -1, engaged: !!session.aiFreq.lastEngaged }
+          : null,
+      };
+    }
+
+    // Client-side eligibility is a CHEAP pre-filter only — it exists purely
+    // so a visitor navigating many pages does not trigger a network call on
+    // every single one. It intentionally does NOT know the workspace's real
+    // frequency ceilings (those stay server-side, see policy.ts) — it uses
+    // conservative local placeholders. The server independently re-runs the
+    // SAME evaluateAiProactiveEligibility function with the real, clamped
+    // policy before ever spending an AI call; this local check can only
+    // ever be MORE permissive than the server, never less safe.
+    function aiEligibilityCheck(ctx) {
+      if (!SmartEngineRef || !SmartEngineRef.evaluateAiProactiveEligibility) return null;
+      if (!aiCfg.enabled || aiCfg.mode === "off") return null;
+      var journey = aiJourneyContext();
+      var freqState = {
+        shownInSession: session.aiFreq.shownInSession,
+        lastShownAt: session.aiFreq.lastShownAt,
+        dismissedTopics: session.aiFreq.dismissedTopics,
+        lastEvalFingerprint: session.aiFreq.lastFingerprint,
+        lastEvalAt: session.aiFreq.lastEvalAt,
+      };
+      var localCfg = {
+        mode: aiCfg.mode,
+        maxPerSession: 5,
+        cooldownSeconds: 30,
+        stopAfterDismiss: true,
+        stopAfterWidgetOpen: true,
+        stopAfterConversation: true,
+        mobileEnabled: true,
+      };
+      try {
+        return SmartEngineRef.evaluateAiProactiveEligibility(localCfg, ctx, journey, freqState, new Date());
+      } catch (_) { return null; }
+    }
+
+    function reportAiEvent(nudgeId, type) {
+      try {
+        var token = (window.__gs_token && window.__gs_token.get()) || sessionToken;
+        fetch(apiBase + "/api/widget/smart/event", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+          body: JSON.stringify({
+            workspace_id: WORKSPACE_ID,
+            source: "ai_proactive",
+            ai_nudge_id: nudgeId,
+            event_type: type,
+            page_path: (window.location.pathname || "/").slice(0, 500),
+            idempotency_key: (currentSessionId() + ":" + nudgeId + ":" + type).slice(0, 160),
+          }),
+        }).catch(function () {});
+      } catch (_) {}
+    }
+
+    function runAiNudgeAction(data) {
+      var cta = data.cta || {};
+      if (cta.action === "open_url" && SmartEngineRef && SmartEngineRef.isSafeSmartUrl(cta.url)) {
+        try { window.open(cta.url, "_blank", "noopener,noreferrer"); } catch (_) {}
+        return;
+      }
+      // Continuity into chat — read by the runtime's send path so the AI
+      // Agent continues this exact topic instead of a generic greeting.
+      try { window.__gs_pending_nudge_context = { source: "ai_proactive_nudge", nudge_id: data.nudgeId }; } catch (_) {}
+      openRuntime("chat");
+    }
+
+    function showAiNudge(data) {
+      if (!shellContentEl || activeSurface) return false;
+      var posClass = configData.position === "bottom-left" ? "bottom-left" : "bottom-right";
+      var el = document.createElement("div");
+      el.className = "smart-nudge " + posClass;
+      el.innerHTML = surfaceHtml({ title: "", body: data.message, cta_label: data.cta && data.cta.label }, true);
+      shellContentEl.appendChild(el);
+      activeSurface = { ruleId: "ai:" + data.nudgeId, el: el };
+
+      session.aiFreq.shownInSession = (Number(session.aiFreq.shownInSession) || 0) + 1;
+      session.aiFreq.lastShownAt = Date.now();
+      session.aiFreq.lastTopic = data.topic || null;
+      session.aiFreq.lastEngaged = false;
+      writeJson(window.sessionStorage, sessionKey, session);
+      lastSurfaceAt = Date.now();
+      reportAiEvent(data.nudgeId, "shown");
+
+      var dismissBtn = el.querySelector("[data-smart-dismiss]");
+      if (dismissBtn) {
+        dismissBtn.addEventListener("click", function () {
+          if (data.topic && session.aiFreq.dismissedTopics.indexOf(data.topic) === -1) {
+            session.aiFreq.dismissedTopics.push(data.topic);
+            writeJson(window.sessionStorage, sessionKey, session);
+          }
+          reportAiEvent(data.nudgeId, "dismissed");
+          clearSurface();
+        });
+      }
+      var ctaBtn = el.querySelector("[data-smart-cta]");
+      if (ctaBtn) {
+        ctaBtn.addEventListener("click", function () {
+          session.aiFreq.lastEngaged = true;
+          writeJson(window.sessionStorage, sessionKey, session);
+          reportAiEvent(data.nudgeId, "cta_clicked");
+          clearSurface();
+          runAiNudgeAction(data);
+        });
+      }
+      setTimeout(function () {
+        if (activeSurface && activeSurface.el === el) clearSurface();
+      }, 25000);
+      return true;
+    }
+
+    function requestAiNudge(eligibility) {
+      if (aiNudgeInFlight || isPreview) return;
+      aiNudgeInFlight = true;
+      var journey = aiJourneyContext();
+      var ctx = buildContext();
+      var capturedGen = navGeneration;
+      var token = (window.__gs_token && window.__gs_token.get()) || sessionToken;
+      fetch(apiBase + "/api/widget/nudge/evaluate", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+        body: JSON.stringify({
+          workspace_id: WORKSPACE_ID,
+          // Visitor identity is resolved server-side from the signed
+          // HttpOnly cookie — nothing sent from here is trusted for that.
+          session_id: currentSessionId(),
+          locale: ctx.locale,
+          device: ctx.device,
+          current: { path: journey.current.path, title: journey.current.title },
+          recent_pages: journey.recentPages.map(function (p) { return { path: p.path, title: p.title, ts: p.ts }; }),
+          session_page_count: journey.sessionPageCount,
+          returning: journey.returning,
+          previous_nudge: journey.previousNudge,
+          referrer: document.referrer || "",
+          utm: ctx.utm,
+          signals: ctx.signals,
+          interaction: ctx.interaction,
+          online: ctx.availability.online,
+        }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          aiNudgeInFlight = false;
+          session.aiFreq.lastFingerprint = eligibility.fingerprint;
+          session.aiFreq.lastEvalAt = Date.now();
+          writeJson(window.sessionStorage, sessionKey, session);
+          // Discard a stale response if the visitor already moved to
+          // another page, opened the widget, or another surface appeared
+          // while this request was in flight.
+          if (capturedGen !== navGeneration) return;
+          if (activeSurface) return;
+          if (interactionSnapshot().widgetOpen) return;
+          if (!data || data.decision !== "show" || !data.nudgeId || !data.message) return;
+          showAiNudge(data);
+        })
+        .catch(function () { aiNudgeInFlight = false; });
+    }
+
+    function maybeTryAiNudge(ctx) {
+      if (activeSurface || aiNudgeInFlight) return;
+      var eligibility = aiEligibilityCheck(ctx);
+      if (eligibility && eligibility.eligible) requestAiNudge(eligibility);
+    }
+    // ─── /AI Proactive Nudge ───────────────────────────────────────────────
 
     function measureScroll() {
       try {
@@ -1618,7 +1824,11 @@
         var dp = (Number(rule.priority) || 0) - (Number(best.priority) || 0);
         if (dp > 0 || (dp === 0 && String(rule.id) < String(best.id))) best = rule;
       }
-      if (best) fire(best);
+      // Deterministic precedence: a matched static Smart Engagement rule
+      // ALWAYS outranks an AI proactive candidate — AI is only ever
+      // consulted when nothing else already earned this tick's surface.
+      if (best) { fire(best); return; }
+      maybeTryAiNudge(ctx);
     }
 
     function attachSignals() {

@@ -26,6 +26,7 @@ import type { MaybeRunInput, MaybeRunResult } from './types.js';
 
 export interface PreflightResult {
   pageContext: MaybeRunInput['pageContext'] | null;
+  nudgeContext: MaybeRunInput['nudgeContext'] | null;
   isPageIntent: boolean;
   settings: Awaited<ReturnType<typeof getOrCreateSettings>>;
   runtimeCfg: Awaited<ReturnType<typeof loadAiAgentRuntimeConfig>> | null;
@@ -64,6 +65,7 @@ export async function runPreflightStage(
   }
 
   const pageContext = input.pageContext || null;
+  const nudgeContext = input.nudgeContext || null;
   // E2C — lightweight intent detector for "what is this page" questions.
   const isPageIntent = detectPageIntent(question);
 
@@ -107,5 +109,5 @@ export async function runPreflightStage(
     return { terminal: { ran: false, action: 'skipped', reason: 'spam', runId } };
   }
 
-  return { pageContext, isPageIntent, settings, runtimeCfg, decisionTimeline };
+  return { pageContext, nudgeContext, isPageIntent, settings, runtimeCfg, decisionTimeline };
 }

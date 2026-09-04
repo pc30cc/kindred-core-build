@@ -29,8 +29,26 @@ export interface PlatformAiAgentSettings {
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  /** AI Proactive Nudge — hard platform ceilings. Always dominate workspace config. */
+  ai_proactive_nudge_enabled: boolean;
+  ai_proactive_default_mode: 'off' | 'conservative' | 'balanced' | 'active';
+  ai_proactive_max_per_session_ceiling: number;
+  ai_proactive_min_cooldown_seconds_ceiling: number;
+  ai_proactive_max_evaluations_per_session_ceiling: number;
+  ai_proactive_max_message_length: number;
+  ai_proactive_min_confidence_floor: number;
 }
 
+
+export interface PlatformAiProactiveStats {
+  workspacesUsing: number;
+  counters: { shown: number; dismissed: number; cta_clicked: number; widget_opened: number; conversation_started: number };
+  aiUsage: { costUsd: number; chargeIrr: number; runs: number };
+  last24h: {
+    evaluated: number; suppressed: number; shown: number;
+    timeout: number; invalid_response: number; billing_denied: number; provider_unavailable: number;
+  };
+}
 
 export const platformApi = {
   // E12 — Super Admin only (backend admin guard enforced)
@@ -41,4 +59,6 @@ export const platformApi = {
       method: 'PATCH',
       body: JSON.stringify(patch),
     }) as Promise<{ settings: PlatformAiAgentSettings }>,
+  getAiProactiveStats: () =>
+    jsonFetch(`/api/ai-agent/platform/ai-proactive-stats`) as Promise<PlatformAiProactiveStats>,
 };

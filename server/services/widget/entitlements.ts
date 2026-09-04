@@ -78,6 +78,7 @@ export const WIDGET_CAPABILITY_KEYS = [
   'widget_voice_notes',
   'widget_emoji',
   'widget_smart_engagement',
+  'ai_proactive_nudge',
   'widget_business_hours',
   'widget_domain_allowlist',
   'widget_assignment_routing',

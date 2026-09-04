@@ -61,6 +61,14 @@ export const KNOWN_REALTIME_METRICS: ReadonlySet<string> = new Set([
   'call.webhook.dedup',
   'call.provider.not_ready',
   'call.turn.missing',
+  // ai_nudge.* — AI Proactive Nudge, server/services/widget/aiNudge/evaluate.ts
+  'ai_nudge.evaluated',
+  'ai_nudge.suppressed',
+  'ai_nudge.shown',
+  'ai_nudge.timeout',
+  'ai_nudge.invalid_response',
+  'ai_nudge.billing_denied',
+  'ai_nudge.provider_unavailable',
 ]);
 
 // Route groups actually instrumented by perfHttpMiddleware

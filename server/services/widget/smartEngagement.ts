@@ -138,8 +138,11 @@ export async function recordSmartEvent(
   supabase: any,
   payload: {
     workspaceId: string;
-    ruleId: string;
+    ruleId?: string | null;
     ruleVersion?: number;
+    /** AI Proactive Nudge lifecycle events reference widget_ai_nudges instead of a rule. */
+    source?: 'rule' | 'ai_proactive';
+    aiNudgeId?: string | null;
     visitorId?: string | null;
     sessionId?: string | null;
     eventType: string;
@@ -150,6 +153,45 @@ export async function recordSmartEvent(
   if (!EVENT_TYPES.has(payload.eventType)) return { ok: false, reason: 'invalid_event_type' };
   if (!payload.idempotencyKey) return { ok: false, reason: 'missing_idempotency_key' };
 
+  const source = payload.source || 'rule';
+  const path = payload.pagePath ? String(payload.pagePath).split('?')[0].slice(0, 300) : null;
+
+  if (source === 'ai_proactive') {
+    if (!payload.aiNudgeId) return { ok: false, reason: 'missing_nudge_id' };
+    // Same tenant-isolation principle as the rule branch below: the event
+    // route runs with the service role (bypasses RLS) — verify the nudge
+    // actually belongs to the resolved workspace before inserting, so a
+    // forged/cross-workspace nudge_id can never attribute an event to
+    // another tenant's data.
+    const { data: nudgeRow, error: nudgeErr } = await supabase
+      .from('widget_ai_nudges')
+      .select('workspace_id')
+      .eq('id', payload.aiNudgeId)
+      .maybeSingle();
+    if (nudgeErr) return { ok: false, reason: nudgeErr.message };
+    if (!nudgeRow || nudgeRow.workspace_id !== payload.workspaceId) {
+      return { ok: false, reason: 'nudge_workspace_mismatch' };
+    }
+    const { error } = await supabase.from('widget_smart_events').insert({
+      workspace_id: payload.workspaceId,
+      source: 'ai_proactive',
+      ai_nudge_id: payload.aiNudgeId,
+      visitor_id: payload.visitorId || null,
+      session_id: payload.sessionId || null,
+      event_type: payload.eventType,
+      page_path: path,
+      idempotency_key: String(payload.idempotencyKey).slice(0, 120),
+    });
+    if (error && (error as any).code !== '23505') return { ok: false, reason: error.message };
+    if (payload.eventType === 'dismissed') {
+      void supabase.from('widget_ai_nudges').update({ status: 'dismissed' }).eq('id', payload.aiNudgeId).eq('workspace_id', payload.workspaceId);
+    } else if (payload.eventType === 'cta_clicked') {
+      void supabase.from('widget_ai_nudges').update({ status: 'clicked' }).eq('id', payload.aiNudgeId).eq('workspace_id', payload.workspaceId);
+    }
+    return { ok: true };
+  }
+
+  if (!payload.ruleId) return { ok: false, reason: 'missing_rule_id' };
   // The event route runs with the service role, which bypasses RLS — verify
   // the rule actually belongs to the resolved workspace before inserting so
   // a forged workspace_id can never attribute telemetry to another tenant's
@@ -164,10 +206,9 @@ export async function recordSmartEvent(
     return { ok: false, reason: 'rule_workspace_mismatch' };
   }
 
-  // Only the path is stored — query strings can carry personal data.
-  const path = payload.pagePath ? String(payload.pagePath).split('?')[0].slice(0, 300) : null;
   const { error } = await supabase.from('widget_smart_events').insert({
     workspace_id: payload.workspaceId,
+    source: 'rule',
     rule_id: payload.ruleId,
     rule_version: payload.ruleVersion || 1,
     visitor_id: payload.visitorId || null,

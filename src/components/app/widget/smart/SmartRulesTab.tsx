@@ -19,6 +19,7 @@ import {
 import { createEmptySmartRule, type SmartRuleDraft, type SmartRuleRow } from '@/lib/widget/smartRules';
 import { SmartRuleEditor } from './SmartRuleEditor';
 import { SmartRulePreviewStudio } from './SmartRulePreviewStudio';
+import { AiProactiveNudgeCard } from './AiProactiveNudgeCard';
 
 export interface SmartRulesTabProps {
   workspaceId: string | undefined;
@@ -113,6 +114,9 @@ export function SmartRulesTab({
           <Switch checked={masterEnabled} onCheckedChange={onToggleMaster} />
         </CardContent>
       </Card>
+
+      {/* AI Proactive Nudge — extends this same Smart Engagement surface, never a second engine. */}
+      <AiProactiveNudgeCard workspaceId={workspaceId} smartEngagementEnabled={masterEnabled} />
 
       {list.length === 0 ? (
         <Card className="card-elevated overflow-hidden">

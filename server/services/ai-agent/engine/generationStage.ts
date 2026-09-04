@@ -70,7 +70,7 @@ export async function runGenerationStage(
 ): Promise<{ terminal: MaybeRunResult } | GenerationStageResult> {
   const { workspaceId, conversationId, visitorMessageId } = input;
   const question = (input.question || '').trim();
-  const { settings, runtimeCfg, decisionTimeline, pageContext } = pre;
+  const { settings, runtimeCfg, decisionTimeline, pageContext, nudgeContext } = pre;
   const {
     sb, locale, inputLanguage, languageMeta, detectedTopicsMeta, topTopicSlug,
     guidanceMeta, availability, state,
@@ -248,6 +248,7 @@ export async function runGenerationStage(
     // Phase 2.7 — warn the model when sources materially disagree.
     conflictDetected: strategy.conflictDetected,
     toolResults: toolResultsBlock,
+    nudgeContext: nudgeContext || null,
   }) + (decisionStage.assistFirstActive
     ? `\n\nTURN DIRECTIVE — the visitor asked for a human. A transfer has NOT happened. Acknowledge the request in one short sentence, then make exactly ONE genuinely useful attempt at their actual problem, and close by offering the transfer. Never imply the transfer is already in progress. Suggested tone: "${assistFirstMessage(locale)}"`
     : '');

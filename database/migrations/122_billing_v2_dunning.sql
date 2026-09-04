@@ -378,8 +378,10 @@ BEGIN
       v_at := v_inv.due_at - make_interval(days => GREATEST(v_days, 0));
       CONTINUE WHEN v_at <= now();   -- no stale reminder floods on catch-up
       IF public.billing_v2_enqueue_notification(
-           v_inv.workspace_id, 'invoice_reminder', 'email', v_inv.id, v_at, v_payload,
+           v_inv.workspace_id, 'invoice_reminder', 'email', v_inv.id, v_at,
+           v_payload || jsonb_build_object('days_before_due', v_days),
            v_inv.id::text || ':d' || v_days::text) IS NOT NULL THEN
+
         v_created := v_created + 1;
       END IF;
     END LOOP;

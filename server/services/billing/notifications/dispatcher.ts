@@ -81,16 +81,23 @@ export async function dispatchBillingNotifications(
   if (error) throw new Error(String(error.message || 'billing_v2_claim_notification_jobs_failed'));
 
   const jobs = (data ?? []) as NotificationJob[];
-  // One resolution per batch: the branded templates render a CTA button and
-  // must never emit an empty href.
-  let billingUrl = '';
-  if (jobs.length > 0) {
+  // The branded templates render a CTA button and must never emit an empty
+  // href — and it must point at THE billed workspace, not whichever workspace
+  // happens to be first for the recipient. Resolved once per workspace/batch.
+  const billingUrlByWorkspace = new Map<string, string>();
+  async function billingUrlFor(workspaceId: string): Promise<string> {
+    const cached = billingUrlByWorkspace.get(workspaceId);
+    if (cached !== undefined) return cached;
+    let url = '';
     try {
-      billingUrl = `${await resolveAppBaseUrl(config)}/app/billing`;
+      url = await resolveWorkspaceAppUrl(config, workspaceId, '/billing');
     } catch {
-      billingUrl = '';
+      url = '';
     }
+    billingUrlByWorkspace.set(workspaceId, url);
+    return url;
   }
+
   const result: NotificationBatchResult = { claimed: jobs.length, sent: 0, skipped: 0, failed: 0 };
 
   for (const job of jobs) {

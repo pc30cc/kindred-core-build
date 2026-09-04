@@ -188,6 +188,7 @@ function RealtimeConfigDialog({
   config?: RealtimeAdminConfig;
   onSaved: () => void;
 }) {
+  const { t } = useTranslation();
   const [vendor, setVendor] = useState<'centrifugo' | 'polling_builtin' | 'disabled'>('polling_builtin');
   const [enabled, setEnabled] = useState(true);
   const [fallbackPolicy, setFallbackPolicy] = useState<'lenient' | 'strict'>('lenient');

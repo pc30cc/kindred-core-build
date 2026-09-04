@@ -25,7 +25,7 @@ describe("widget open/close lifecycle contract", () => {
   });
 
   it("launcher slides out of view while open and the panel owns a close control", () => {
-    expect(loader).toContain(".launcher.open{transform:translateY(150%) scale(.6);opacity:0;pointer-events:none;animation:none;}");
+    expect(loader).toContain(".launcher.open,.launcher.open:hover{transform:translateY(calc(100% + 24px)) scale(.5);");
     expect(loader).toContain(".launcher.open svg.chat-icon{display:none;}");
     expect(loader).toContain(".launcher:not(.open) svg.close-icon{display:none;}");
     const tpl = fs.readFileSync(path.join(root, "presentation-web-yar.js"), "utf8");
@@ -38,7 +38,7 @@ describe("widget open/close lifecycle contract", () => {
 
   it("panel grows from the launcher corner (shared origin)", () => {
     expect(css).toMatch(/transform-origin:\s*bottom right/);
-    expect(css).toMatch(/transform:\s*translateY\(18px\) scale\(0\.68\)/);
+    expect(css).toMatch(/transform:\s*translateY\(calc\(var\(--gs-fab-size, 56px\) \/ 2 \+ 14px\)\) scale\(0\.25\)/);
   });
 
   it("template does not re-implement launcher icon state with wrong selectors", () => {

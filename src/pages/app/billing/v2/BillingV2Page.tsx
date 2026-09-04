@@ -110,19 +110,26 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
 
   return (
     <div className="animate-fade-in space-y-6 p-4 text-start md:p-6 lg:p-8" dir={dir}>
-      <div className="rounded-2xl border bg-card/60 p-5 shadow-sm backdrop-blur md:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="relative overflow-hidden rounded-2xl border bg-card p-5 shadow-sm md:p-6">
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-primary/10 to-transparent"
+          aria-hidden
+        />
+        <div className="relative flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold">{t('billingV2.title')}</h1>
-            <p className="text-sm text-muted-foreground">{t('billingV2.subtitle')}</p>
+            <h1 className="text-2xl font-bold tracking-tight md:text-3xl">{t('billingV2.title')}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">{t('billingV2.subtitle')}</p>
           </div>
-          <Badge variant={overview.subscription.status === 'active' ? 'default' : 'secondary'}>
+          <Badge
+            variant={overview.subscription.status === 'active' ? 'default' : 'secondary'}
+            className="rounded-full px-3 py-1 text-sm"
+          >
             {overview.subscription.planName || t('billingV2.overview.free')}
           </Badge>
         </div>
 
         {/* Four numbers a workspace owner actually asks for, above the fold. */}
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="relative mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <SummaryStat
             icon={Wallet}
             label={t('billingV2.overview.walletBalance')}
@@ -157,34 +164,38 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
         {/* Mobile: a select keeps six sections reachable at 360px. */}
         <div className="md:hidden">
           <Select value={tab} onValueChange={setTab}>
-            <SelectTrigger>
+            <SelectTrigger className="h-12 rounded-xl border-2 text-base font-semibold">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {TABS.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
-                  {t(`billingV2.tabs.${item.labelKey}` as any)}
+                  <span className="flex items-center gap-2">
+                    <item.icon className="h-4 w-4" />
+                    {t(`billingV2.tabs.${item.labelKey}` as any)}
+                  </span>
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
 
-        <TabsList className="hidden h-auto w-full flex-wrap justify-start gap-1 rounded-xl bg-muted/60 p-1 md:flex">
+        <TabsList className="hidden h-auto w-full flex-wrap justify-start gap-2 rounded-2xl border bg-card p-2 shadow-sm md:flex">
           {TABS.map((item) => (
             <TabsTrigger
               key={item.value}
               value={item.value}
-              className="gap-1.5 rounded-lg px-3 py-2 text-sm data-[state=active]:shadow-sm"
+              className="group flex-1 gap-2 rounded-xl border border-transparent px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-all hover:bg-muted hover:text-foreground data-[state=active]:border-primary/30 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md"
             >
-              <item.icon className="h-4 w-4" />
-              {t(`billingV2.tabs.${item.labelKey}` as any)}
+              <item.icon className="h-4 w-4 shrink-0 transition-transform group-data-[state=active]:scale-110" />
+              <span className="whitespace-nowrap">{t(`billingV2.tabs.${item.labelKey}` as any)}</span>
             </TabsTrigger>
           ))}
         </TabsList>
 
 
-        <TabsContent value="overview" className="mt-4">
+
+        <TabsContent value="overview" className="mt-5">
           <OverviewTab
             overview={overview}
             onPayInvoice={setInvoiceId}
@@ -193,11 +204,11 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
           />
         </TabsContent>
 
-        <TabsContent value="invoices" className="mt-4">
+        <TabsContent value="invoices" className="mt-5">
           <InvoicesTab workspaceId={workspaceId} reloadKey={reloadKey} onOpenInvoice={setInvoiceId} />
         </TabsContent>
 
-        <TabsContent value="plans" className="mt-4">
+        <TabsContent value="plans" className="mt-5">
           <PlansTab
             workspaceId={workspaceId}
             canManage={canManage}
@@ -207,7 +218,7 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
           />
         </TabsContent>
 
-        <TabsContent value="wallet" className="mt-4">
+        <TabsContent value="wallet" className="mt-5">
           <WalletTab
             workspaceId={workspaceId}
             canManage={canManage}
@@ -216,7 +227,7 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
           />
         </TabsContent>
 
-        <TabsContent value="ai" className="mt-4">
+        <TabsContent value="ai" className="mt-5">
           <AiCreditTab
             workspaceId={workspaceId}
             canManage={canManage}
@@ -226,7 +237,7 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
           />
         </TabsContent>
 
-        <TabsContent value="transactions" className="mt-4">
+        <TabsContent value="transactions" className="mt-5">
           <TransactionsTab workspaceId={workspaceId} reloadKey={reloadKey} />
         </TabsContent>
       </Tabs>
@@ -252,13 +263,13 @@ function SummaryStat({
   value: string;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border bg-background/70 p-3">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-        <Icon className="h-4 w-4" />
+    <div className="flex items-center gap-3 rounded-xl border bg-background p-3.5 shadow-sm transition-shadow hover:shadow-md">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+        <Icon className="h-5 w-5" />
       </span>
       <div className="min-w-0">
-        <p className="truncate text-xs text-muted-foreground">{label}</p>
-        <p className="truncate text-sm font-semibold">{value}</p>
+        <p className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+        <p className="truncate text-base font-bold tabular-nums">{value}</p>
       </div>
     </div>
   );

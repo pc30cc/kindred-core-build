@@ -3304,7 +3304,13 @@
 
       var submitBtn = body.querySelector('[data-prechat-submit]');
       if (submitBtn) {
+        // A repaint mid-flight must not offer a second submit.
+        if (prechatSubmitting) {
+          submitBtn.disabled = true;
+          submitBtn.style.opacity = '0.6';
+        }
         submitBtn.addEventListener('click', function () {
+          if (prechatSubmitting) return;
           var payload = {
             name: getInput('name') ? getInput('name').value.trim() : '',
             email: getInput('email') ? getInput('email').value.trim() : '',
@@ -3320,21 +3326,31 @@
           } else if (identity.isRequired('phone') && !payload.phone) { showError('phone', t('required')); ok = false; }
           if (!ok) return;
 
+          prechatDraft = { name: payload.name, email: payload.email, phone: payload.phone };
+          prechatSubmitting = true;
           submitBtn.disabled = true;
           submitBtn.style.opacity = '0.6';
+          submitBtn.classList.add('is-loading');
           identity.submitPrechat(payload, function (success, resp) {
-            submitBtn.disabled = false;
-            submitBtn.style.opacity = '1';
+            prechatSubmitting = false;
+            // The button may belong to a DOM that was replaced mid-flight.
+            try {
+              submitBtn.disabled = false;
+              submitBtn.style.opacity = '1';
+              submitBtn.classList.remove('is-loading');
+            } catch (_) {}
             if (!success) {
               var f = resp && resp.field;
               if (f) showError(f, t('required'));
               return;
             }
+            prechatDraft = { name: '', email: '', phone: '' };
             if (typeof onSubmitted === 'function') onSubmitted();
           });
         });
       }
     }
+
 
     // "AI is thinking…" — rendered as a trailing row inside the message
     // list itself (like a normal AI bubble that hasn't arrived yet), not

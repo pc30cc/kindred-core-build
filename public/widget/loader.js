@@ -257,7 +257,7 @@
        BOTH the launcher and the panel are absolutely positioned children of
        it, anchored to the SAME corner (bottom + right, or bottom + left), so
        the panel grows out of exactly where the FAB sits instead of jumping. */
-    ".shell{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1F2937;",
+    ".shell{font-family:var(--gs-presentation-font,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif);color:#1F2937;",
     "position:fixed;z-index:2147483646;width:0;height:0;}",
     ".shell.pos-bottom-right{bottom:24px;right:24px;left:auto;top:auto;}",
     ".shell.pos-bottom-left{bottom:24px;left:24px;right:auto;top:auto;}",
@@ -815,6 +815,7 @@
         configData._loaderVersion = LOADER_VERSION;
         if (config.debugMode) DEBUG = true;
 
+        injectPresentationFonts(config.presentationFontsUrl || "");
         applyConfigToShell(config);
         attachLauncherClick({ launcherOnly: false });
 
@@ -960,6 +961,24 @@
   // actually opens once ready and whether a load failure surfaces a visible
   // error — a silent preload must never pop an error at a visitor who
   // hasn't asked for anything yet.
+  // Presentation-owned font asset (opaque to the loader: no family, no
+  // template id). Injected at DOCUMENT level so `document.fonts` sees the
+  // faces, and injected EARLY — pre-runtime surfaces (the launcher nudge)
+  // must already paint in the template's own typeface. The stylesheet is
+  // also expected to publish a generic `--gs-presentation-font` custom
+  // property, which the shell consumes through a var() fallback.
+  function injectPresentationFonts(url) {
+    if (!url) return;
+    try {
+      if (document.getElementById("gs-presentation-fonts")) return;
+      var fontsLink = document.createElement("link");
+      fontsLink.id = "gs-presentation-fonts";
+      fontsLink.rel = "stylesheet";
+      fontsLink.href = url;
+      (document.head || document.documentElement).appendChild(fontsLink);
+    } catch (_) { /* noop */ }
+  }
+
   function loadRuntimeAssets() {
     if (runtimeLoaded || runtimeLoading) return;
     runtimeLoading = true;
@@ -1119,17 +1138,7 @@
     // It is injected at DOCUMENT level (not the shadow root) because
     // `document.fonts.load()` — used by the template's own prepare() gate —
     // only sees document-level faces.
-    if (presentationFontsCss) {
-      try {
-        if (!document.getElementById("gs-presentation-fonts")) {
-          var fontsLink = document.createElement("link");
-          fontsLink.id = "gs-presentation-fonts";
-          fontsLink.rel = "stylesheet";
-          fontsLink.href = presentationFontsCss;
-          (document.head || document.documentElement).appendChild(fontsLink);
-        }
-      } catch (_) { /* noop */ }
-    }
+    injectPresentationFonts(presentationFontsCss);
 
 
     // Template stylesheet — injected AFTER runtime.css so template rules

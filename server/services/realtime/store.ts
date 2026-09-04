@@ -8,7 +8,7 @@
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import type { RealtimeProviderConfig } from './types.js';
+import { normalizeNodes, resolveDeploymentMode, type RealtimeProviderConfig } from './types.js';
 
 const CACHE_TTL_MS = 30_000;
 const RUNTIME_KEY = 'default_realtime_provider';

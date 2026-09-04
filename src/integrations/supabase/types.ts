@@ -3645,7 +3645,7 @@ export type Database = {
           next_attempt_at: string
           snapshot: Json
           status: string
-          subscription_id: string
+          subscription_id: string | null
           subscription_period_id: string
           workspace_id: string
         }
@@ -3667,7 +3667,7 @@ export type Database = {
           next_attempt_at?: string
           snapshot?: Json
           status?: string
-          subscription_id: string
+          subscription_id?: string | null
           subscription_period_id: string
           workspace_id: string
         }
@@ -3689,7 +3689,7 @@ export type Database = {
           next_attempt_at?: string
           snapshot?: Json
           status?: string
-          subscription_id?: string
+          subscription_id?: string | null
           subscription_period_id?: string
           workspace_id?: string
         }
@@ -4895,6 +4895,8 @@ export type Database = {
           id: boolean
           invoice_due_offset_days: number
           invoice_lead_time_days: number
+          new_workspace_default_region: string | null
+          new_workspace_default_state: string
           notification_max_attempts: number
           notification_max_per_hour: number
           notification_retry_seconds: number
@@ -4918,6 +4920,8 @@ export type Database = {
           id?: boolean
           invoice_due_offset_days?: number
           invoice_lead_time_days?: number
+          new_workspace_default_region?: string | null
+          new_workspace_default_state?: string
           notification_max_attempts?: number
           notification_max_per_hour?: number
           notification_retry_seconds?: number
@@ -4941,6 +4945,8 @@ export type Database = {
           id?: boolean
           invoice_due_offset_days?: number
           invoice_lead_time_days?: number
+          new_workspace_default_region?: string | null
+          new_workspace_default_state?: string
           notification_max_attempts?: number
           notification_max_per_hour?: number
           notification_retry_seconds?: number
@@ -14567,6 +14573,7 @@ export type Database = {
         Args: { p_period_id: string }
         Returns: Json
       }
+      billing_v2_validate_policy: { Args: never; Returns: Json }
       billing_v2_wallet_autopay_invoice: {
         Args: { p_invoice_id: string }
         Returns: Json

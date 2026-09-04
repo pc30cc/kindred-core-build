@@ -53,7 +53,8 @@ const CHAIN = [
   'database/migrations/118_billing_v2_schedulers.sql',
   'database/migrations/119_billing_v2_entitlement_cycles.sql',
   'database/migrations/120_billing_v2_wallet_deposit_checkout.sql',
-  'database/migrations/121_billing_v2_dunning.sql',
+  'database/migrations/122_billing_v2_dunning.sql',
+  'database/migrations/123_billing_v2_dunning_hardening.sql',
 ];
 
 let client: any;
@@ -147,9 +148,9 @@ const audits = (ws: string) =>
 
 async function fundWallet(ws: string, amount: number): Promise<void> {
   await client.query(
-    `INSERT INTO public.billing_wallet_accounts (workspace_id, balance_irr, available_balance_irr, auto_pay_enabled)
-     VALUES ($1,$2,$2,true)
-     ON CONFLICT (workspace_id) DO UPDATE SET balance_irr=$2, available_balance_irr=$2, auto_pay_enabled=true`,
+    `INSERT INTO public.billing_wallet_accounts (workspace_id, available_balance_irr, auto_pay_enabled)
+     VALUES ($1,$2,true)
+     ON CONFLICT (workspace_id) DO UPDATE SET available_balance_irr=$2, auto_pay_enabled=true`,
     [ws, amount],
   );
 }
@@ -184,9 +185,9 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
 
   // ── Migration ───────────────────────────────────────────────────────────
 
-  it('applies 121 forward and rerunnably without touching 113–120', async () => {
+  it('applies 122+123 forward and rerunnably without touching 113–120', async () => {
     await client.query(readFileSync(resolve(process.cwd(), CHAIN[CHAIN.length - 1]), 'utf8'));
-    for (const t of ['billing_notification_jobs', 'billing_retention_cases']) {
+    for (const t of ['billing_notification_jobs', 'billing_retention_signals']) {
       expect(
         await one(
           `SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=$1`,
@@ -196,7 +197,7 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     }
     expect(
       await one(
-        `SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='uq_billing_notification_jobs_key'`,
+        `SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='uq_billing_notification_jobs_idem'`,
       ),
     ).toBeTruthy();
   });
@@ -264,7 +265,7 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     await client.query(`UPDATE public.billing_invoices SET due_at = now() - interval '1 minute' WHERE id=$1`, [invoice.id]);
     await fundWallet(ws, 5_000_000);
 
-    const res = (await one(`SELECT public.billing_v2_process_invoice_due($1) AS r`, [invoice.id])).r;
+    const res = (await one(`SELECT public.billing_v2_process_due_invoice($1) AS r`, [invoice.id])).r;
     expect(res.paid).toBe(true);
     expect((await inv(invoice.id)).status).toBe('paid');
     expect((await sub(ws)).status).not.toBe('past_due');
@@ -273,7 +274,7 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
       (j: any) => j.notification_type === 'invoice_reminder' && j.status === 'pending',
     );
     expect(remaining).toHaveLength(0);
-    expect((await jobs(invoice.id)).some((j: any) => j.notification_type === 'payment_succeeded')).toBe(true);
+    expect((await jobs(invoice.id)).some((j: any) => j.notification_type === 'payment_received')).toBe(true);
   });
 
   it('an insufficient wallet produces NO partial debit and moves the invoice to past_due', async () => {
@@ -284,14 +285,14 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     await client.query(`UPDATE public.billing_invoices SET due_at = now() - interval '1 minute' WHERE id=$1`, [invoice.id]);
     await fundWallet(ws, 500_000);
 
-    const res = (await one(`SELECT public.billing_v2_process_invoice_due($1) AS r`, [invoice.id])).r;
+    const res = (await one(`SELECT public.billing_v2_process_due_invoice($1) AS r`, [invoice.id])).r;
     expect(res.past_due).toBe(true);
 
     const after = await inv(invoice.id);
     expect(after.status).toBe('past_due');
     expect(Number(after.amount_paid_irr)).toBe(0);
     const wallet = await one(`SELECT * FROM public.billing_wallet_accounts WHERE workspace_id=$1`, [ws]);
-    expect(Number(wallet.balance_irr)).toBe(500_000);
+    expect(Number(wallet.available_balance_irr)).toBe(500_000);
 
     const sr = await sub(ws);
     expect(sr.status).toBe('past_due');
@@ -312,9 +313,9 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     const invoice = await makeOpenInvoice(ws, s.id, plan, { total: 2_000_000, dueInDays: 0 });
     await client.query(`UPDATE public.billing_invoices SET due_at = now() - interval '1 minute' WHERE id=$1`, [invoice.id]);
 
-    await q(`SELECT public.billing_v2_process_invoice_due($1)`, [invoice.id]);
-    await q(`SELECT public.billing_v2_process_invoice_due($1)`, [invoice.id]);
-    await q(`SELECT public.billing_v2_process_invoice_due($1)`, [invoice.id]);
+    await q(`SELECT public.billing_v2_process_due_invoice($1)`, [invoice.id]);
+    await q(`SELECT public.billing_v2_process_due_invoice($1)`, [invoice.id]);
+    await q(`SELECT public.billing_v2_process_due_invoice($1)`, [invoice.id]);
 
     const pastDue = (await jobs(invoice.id)).filter((j: any) => j.notification_type === 'invoice_past_due');
     expect(pastDue).toHaveLength(2); // email + sms, once each
@@ -333,11 +334,11 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     const invoice = await makeOpenInvoice(ws, s.id, plan, { total: 1_000_000, dueInDays: 0 });
     await client.query(`UPDATE public.billing_invoices SET due_at = now() - interval '1 minute' WHERE id=$1`, [invoice.id]);
 
-    const res = (await one(`SELECT public.billing_v2_process_invoice_due($1) AS r`, [invoice.id])).r;
+    const res = (await one(`SELECT public.billing_v2_process_due_invoice($1) AS r`, [invoice.id])).r;
     expect(res.reason).toBe('auto_pay_disabled');
     expect((await inv(invoice.id)).status).toBe('past_due');
     const wallet = await one(`SELECT * FROM public.billing_wallet_accounts WHERE workspace_id=$1`, [ws]);
-    expect(Number(wallet.balance_irr)).toBe(50_000_000); // untouched: never charge silently
+    expect(Number(wallet.available_balance_irr)).toBe(50_000_000); // untouched: never charge silently
   });
 
   it('does not issue another renewal invoice while the subscription is past_due', async () => {
@@ -346,7 +347,7 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     const s = await makeSubscription(ws, plan, 30);
     const invoice = await makeOpenInvoice(ws, s.id, plan, { total: 1_000_000, dueInDays: 0 });
     await client.query(`UPDATE public.billing_invoices SET due_at = now() - interval '1 minute' WHERE id=$1`, [invoice.id]);
-    await q(`SELECT public.billing_v2_process_invoice_due($1)`, [invoice.id]);
+    await q(`SELECT public.billing_v2_process_due_invoice($1)`, [invoice.id]);
     expect((await sub(ws)).status).toBe('past_due');
 
     const before = await q(`SELECT id FROM public.billing_invoices WHERE workspace_id=$1`, [ws]);
@@ -363,9 +364,9 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     const s = await makeSubscription(ws, plan, 30);
     const invoice = await makeOpenInvoice(ws, s.id, plan, { total: 1_000_000, dueInDays: 0 });
     await client.query(`UPDATE public.billing_invoices SET due_at = now() - interval '1 minute' WHERE id=$1`, [invoice.id]);
-    await q(`SELECT public.billing_v2_process_invoice_due($1)`, [invoice.id]);
+    await q(`SELECT public.billing_v2_process_due_invoice($1)`, [invoice.id]);
 
-    const res = (await one(`SELECT public.billing_v2_expire_grace($1) AS r`, [ws])).r;
+    const res = (await one(`SELECT public.billing_v2_apply_free_fallback($1) AS r`, [ws])).r;
     expect(res.skipped).toBe('grace_active');
     const sr = await sub(ws);
     expect(sr.plan_id).toBe(plan); // still on the paid plan
@@ -378,7 +379,7 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     const s = await makeSubscription(ws, plan, 30);
     const invoice = await makeOpenInvoice(ws, s.id, plan, { total: 1_000_000, dueInDays: 0 });
     await client.query(`UPDATE public.billing_invoices SET due_at = now() - interval '1 minute' WHERE id=$1`, [invoice.id]);
-    await q(`SELECT public.billing_v2_process_invoice_due($1)`, [invoice.id]);
+    await q(`SELECT public.billing_v2_process_due_invoice($1)`, [invoice.id]);
     expect((await sub(ws)).status).toBe('past_due');
 
     await fundWallet(ws, 5_000_000);
@@ -391,7 +392,7 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     expect((await audits(ws)).map((a: any) => a.event)).toContain('invoice_restored_during_grace');
 
     // And the grace worker now finds nothing to do.
-    const res = (await one(`SELECT public.billing_v2_expire_grace($1) AS r`, [ws])).r;
+    const res = (await one(`SELECT public.billing_v2_apply_free_fallback($1) AS r`, [ws])).r;
     expect(res.skipped).toBe('not_past_due:active');
   });
 
@@ -403,14 +404,14 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     const s = await makeSubscription(ws, plan, 30);
     const invoice = await makeOpenInvoice(ws, s.id, plan, { total: 1_000_000, dueInDays: 0 });
     await client.query(`UPDATE public.billing_invoices SET due_at = now() - interval '1 minute' WHERE id=$1`, [invoice.id]);
-    await q(`SELECT public.billing_v2_process_invoice_due($1)`, [invoice.id]);
+    await q(`SELECT public.billing_v2_process_due_invoice($1)`, [invoice.id]);
     await client.query(
       `UPDATE public.workspace_subscriptions SET grace_period_ends_at = now() - interval '1 minute' WHERE workspace_id=$1`,
       [ws],
     );
 
-    const res = (await one(`SELECT public.billing_v2_expire_grace($1) AS r`, [ws])).r;
-    expect(res.fallback).toBe(true);
+    const res = (await one(`SELECT public.billing_v2_apply_free_fallback($1) AS r`, [ws])).r;
+    expect(res.free_fallback).toBe(true);
     expect(res.plan_id).toBe(FREE_PLAN);
 
     const sr = await sub(ws);
@@ -432,11 +433,11 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
 
     // Retention SIGNAL only.
     const retention = await one(
-      `SELECT * FROM public.billing_retention_cases WHERE workspace_id=$1 AND status='open'`,
+      `SELECT * FROM public.billing_retention_signals WHERE workspace_id=$1 AND state='pending'`,
       [ws],
     );
     expect(retention).toBeTruthy();
-    expect(retention.reason).toBe('free_fallback');
+    expect(retention.reason).toBe('free_fallback_nonpayment');
 
     // Nothing was deleted: the invoice and its history are still there.
     expect(await inv(invoice.id)).toBeTruthy();
@@ -453,16 +454,16 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     const s = await makeSubscription(ws, plan, 30);
     const invoice = await makeOpenInvoice(ws, s.id, plan, { total: 1_000_000, dueInDays: 0 });
     await client.query(`UPDATE public.billing_invoices SET due_at = now() - interval '1 minute' WHERE id=$1`, [invoice.id]);
-    await q(`SELECT public.billing_v2_process_invoice_due($1)`, [invoice.id]);
+    await q(`SELECT public.billing_v2_process_due_invoice($1)`, [invoice.id]);
     await client.query(
       `UPDATE public.workspace_subscriptions SET grace_period_ends_at = now() - interval '1 minute' WHERE workspace_id=$1`,
       [ws],
     );
-    await q(`SELECT public.billing_v2_expire_grace($1)`, [ws]);
+    await q(`SELECT public.billing_v2_apply_free_fallback($1)`, [ws]);
     const first = await sub(ws);
 
-    const again = (await one(`SELECT public.billing_v2_expire_grace($1) AS r`, [ws])).r;
-    expect(again.skipped).toBe('already_fallback');
+    const again = (await one(`SELECT public.billing_v2_apply_free_fallback($1) AS r`, [ws])).r;
+    expect(again.skipped).toBe('already_free_fallback');
     const second = await sub(ws);
     expect(second.free_fallback_at).toEqual(first.free_fallback_at);
     expect(
@@ -476,12 +477,12 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     const s = await makeSubscription(ws, plan, 30);
     const invoice = await makeOpenInvoice(ws, s.id, plan, { total: 1_000_000, dueInDays: 0 });
     await client.query(`UPDATE public.billing_invoices SET due_at = now() - interval '1 minute' WHERE id=$1`, [invoice.id]);
-    await q(`SELECT public.billing_v2_process_invoice_due($1)`, [invoice.id]);
+    await q(`SELECT public.billing_v2_process_due_invoice($1)`, [invoice.id]);
     await client.query(
       `UPDATE public.workspace_subscriptions SET grace_period_ends_at = now() - interval '1 minute' WHERE workspace_id=$1`,
       [ws],
     );
-    await q(`SELECT public.billing_v2_expire_grace($1)`, [ws]);
+    await q(`SELECT public.billing_v2_apply_free_fallback($1)`, [ws]);
 
     // A late gateway callback marks the (now expired) invoice paid.
     await client.query(
@@ -502,17 +503,16 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     const s = await makeSubscription(ws, plan, 30);
     const invoice = await makeOpenInvoice(ws, s.id, plan, { total: 1_000_000, dueInDays: 0 });
     await client.query(`UPDATE public.billing_invoices SET due_at = now() - interval '1 minute' WHERE id=$1`, [invoice.id]);
-    await q(`SELECT public.billing_v2_process_invoice_due($1)`, [invoice.id]);
+    await q(`SELECT public.billing_v2_process_due_invoice($1)`, [invoice.id]);
     await client.query(
       `UPDATE public.workspace_subscriptions
-          SET grace_period_ends_at = now() - interval '1 minute',
-              dunning_snapshot = dunning_snapshot - 'fallback_plan_id'
+          SET grace_period_ends_at = now() - interval '1 minute'
         WHERE workspace_id=$1`,
       [ws],
     );
     await client.query(`UPDATE public.billing_v2_policy SET fallback_plan_id = NULL WHERE id`);
 
-    await expect(q(`SELECT public.billing_v2_expire_grace($1)`, [ws])).rejects.toThrow(
+    await expect(q(`SELECT public.billing_v2_apply_free_fallback($1)`, [ws])).rejects.toThrow(
       /fallback_plan_not_configured/,
     );
     expect((await sub(ws)).status).toBe('past_due'); // service is NOT cut off on a config error
@@ -546,7 +546,7 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     const s = await makeSubscription(ws, plan, 30);
     const invoice = await makeOpenInvoice(ws, s.id, plan, { total: 1_000_000, dueInDays: 0 });
     await client.query(`UPDATE public.billing_invoices SET due_at = now() - interval '1 minute' WHERE id=$1`, [invoice.id]);
-    await q(`SELECT public.billing_v2_process_invoice_due($1)`, [invoice.id]);
+    await q(`SELECT public.billing_v2_process_due_invoice($1)`, [invoice.id]);
     await client.query(
       `UPDATE public.workspace_subscriptions SET grace_period_ends_at = now() - interval '1 minute' WHERE workspace_id=$1`,
       [ws],
@@ -557,7 +557,7 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     expect((await sub(ws)).status).toBe('free_fallback');
 
     const r2 = (await one(`SELECT public.billing_v2_run_grace_expiry(25) AS r`)).r;
-    expect(Number(r2.fallback)).toBe(0);
+    expect(Number(r2.fallbacks)).toBe(0);
     expect(Number(r2.failed)).toBe(0);
   });
 
@@ -569,12 +569,12 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     const s = await makeSubscription(ws, plan, 30);
     const invoice = await makeOpenInvoice(ws, s.id, plan, { total: 1_000_000, dueInDays: 10 });
 
-    const claimedA = await q(`SELECT * FROM public.billing_v2_claim_notification_jobs(10, 120)`);
+    const claimedA = await q(`SELECT * FROM public.billing_v2_claim_notification_jobs(500, 120)`);
     const mine = claimedA.filter((j: any) => j.invoice_id === invoice.id);
     expect(mine.length).toBeGreaterThan(0);
 
     // A second claimant gets nothing while the lease is held.
-    const claimedB = await q(`SELECT * FROM public.billing_v2_claim_notification_jobs(10, 120)`);
+    const claimedB = await q(`SELECT * FROM public.billing_v2_claim_notification_jobs(500, 120)`);
     expect(claimedB.filter((j: any) => j.invoice_id === invoice.id)).toHaveLength(0);
 
     await q(`SELECT public.billing_v2_complete_notification_job($1, '{"provider":"stub"}'::jsonb)`, [mine[0].id]);
@@ -642,7 +642,7 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     expect(m).toHaveProperty('grace_subscriptions');
     expect(m).toHaveProperty('fallbacks_total');
     expect(m).toHaveProperty('notification_backlog');
-    expect(m).toHaveProperty('open_retention_cases');
+    expect(m).toHaveProperty('retention_signals_pending');
 
     const h = (await one(`SELECT public.billing_v2_scheduler_health() AS h`)).h;
     expect(h).toHaveProperty('notification_backlog');
@@ -653,7 +653,7 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
   });
 
   it('keeps the dunning surface off anon and authenticated', async () => {
-    for (const fn of ['billing_v2_process_invoice_due', 'billing_v2_expire_grace', 'billing_v2_run_dunning']) {
+    for (const fn of ['billing_v2_process_due_invoice', 'billing_v2_apply_free_fallback', 'billing_v2_run_dunning']) {
       const rows = await q(
         `SELECT has_function_privilege('anon', p.oid, 'EXECUTE') AS anon,
                 has_function_privilege('authenticated', p.oid, 'EXECUTE') AS auth

@@ -100,9 +100,30 @@ function normalize(
     enabled: src?.enabled !== false,
     fallback_policy: src?.fallback_policy === 'strict' ? 'strict' : 'lenient',
     fallback_vendor: src?.fallback_vendor === null ? null : 'polling_builtin',
-    centrifugo: src?.centrifugo || undefined,
+    centrifugo: normalizeCentrifugo(src?.centrifugo),
   };
 }
+
+/**
+ * Topology normalization + backward compatibility.
+ * A config written before deployment modes existed has no `deployment_mode`
+ * and no `nodes` — it normalizes to `single_memory` with an empty registry,
+ * so every existing installation keeps working with zero manual changes.
+ */
+function normalizeCentrifugo(raw: any): RealtimeProviderConfig['centrifugo'] {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const nodes = normalizeNodes(raw.nodes);
+  return {
+    ...raw,
+    deployment_mode: resolveDeploymentMode(raw),
+    nodes,
+    load_balancer_ws_url:
+      typeof raw.load_balancer_ws_url === 'string' && raw.load_balancer_ws_url.trim()
+        ? raw.load_balancer_ws_url.trim()
+        : undefined,
+  };
+}
+
 
 /** Returns a copy of the config with all secret fields masked. Safe to send to UI. */
 export function maskedConfig(cfg: RealtimeProviderConfig): RealtimeProviderConfig {

@@ -1096,7 +1096,7 @@ realtimeRouter.post('/admin/nodes', requireAdmin, async (req, res) => {
     const config: ServerConfig = (req as any).serverConfig;
     const parsed = nodeInputSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid node', details: parsed.error.flatten() });
-    const nodes = await addNode(config, parsed.data);
+    const nodes = await addNode(config, parsed.data as Parameters<typeof addNode>[1]);
     await auditNodeAction(req, 'node_add', { id: parsed.data.id ?? null, ws_url: parsed.data.ws_url });
     res.json({ ok: true, nodes });
   } catch (err: any) {

@@ -60,7 +60,7 @@ const currencySchema = z.object({
 adminBillingRouter.put('/currencies', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
-    res.json({ currency: await upsertCurrency(cfg(req), currencySchema.parse(req.body)) });
+    res.json({ currency: await upsertCurrency(cfg(req), currencySchema.parse(req.body) as any) });
   } catch (e) { fail(res, e); }
 });
 
@@ -87,7 +87,7 @@ adminBillingRouter.post('/exchange-rates', async (req, res) => {
     const body = z
       .object({ base_code: z.string().length(3), quote_code: z.string().length(3), rate: z.number().positive() })
       .parse(req.body);
-    res.json({ rate: await publishExchangeRate(cfg(req), body) });
+    res.json({ rate: await publishExchangeRate(cfg(req), body as any) });
   } catch (e) { fail(res, e); }
 });
 

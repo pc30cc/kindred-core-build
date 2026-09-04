@@ -734,10 +734,31 @@ export function WidgetLivePreview({
     // panel.visible + launcher.open — never a preview-only
     // hidden attribute. Anything else masks real regressions.
     function isOpen() { return panel.classList.contains('visible'); }
+    function playFabEntry(element) {
+      if (!element) return;
+      if (typeof element.animate === 'function') {
+        element.animate(
+          [{ transform: 'translateY(var(--gs-fab-exit,112px))' }, { transform: 'translateY(0)' }],
+          { duration: 620, easing: 'cubic-bezier(.33,1,.68,1)', fill: 'none' }
+        );
+        return;
+      }
+      element.classList.add('enter');
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () { element.classList.remove('enter'); });
+      });
+    }
     function setOpen(open) {
+      var wasOpen = isOpen();
       panel.classList.toggle('visible', !!open);
       launcher.classList.toggle('open', !!open);
       if (label) label.classList.toggle('open', !!open);
+      // Match production's deterministic close choreography: the launcher
+      // rises from below the viewport during the panel's 620ms descent.
+      if (wasOpen && !open) {
+        playFabEntry(launcher);
+        playFabEntry(label);
+      }
     }
     window.__gsSetOpen = setOpen;
     // In the scenario studio the panel state belongs to the simulation, so it
@@ -747,18 +768,7 @@ export function WidgetLivePreview({
     // outside the browser edge with the same 0.62s curve production uses.
     if (!isOpen()) {
       [launcher, label].forEach(function (element) {
-        if (!element) return;
-        if (typeof element.animate === 'function') {
-          element.animate(
-            [{ transform: 'translateY(var(--gs-fab-exit,112px))' }, { transform: 'translateY(0)' }],
-            { duration: 620, easing: 'cubic-bezier(.33,1,.68,1)', fill: 'none' }
-          );
-          return;
-        }
-        element.classList.add('enter');
-        requestAnimationFrame(function () {
-          requestAnimationFrame(function () { element.classList.remove('enter'); });
-        });
+        playFabEntry(element);
       });
     }
     launcher.addEventListener('click', function () {

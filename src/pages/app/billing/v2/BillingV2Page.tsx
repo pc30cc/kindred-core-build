@@ -46,7 +46,7 @@ const TABS = [
 ] as const;
 
 export default function BillingV2Page({ workspaceId }: { workspaceId: string }) {
-  const { t, dir } = useTranslation();
+  const { t, dir, locale } = useTranslation();
   const [overview, setOverview] = useState<BillingOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -237,6 +237,29 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
         onClose={() => setInvoiceId(null)}
         onPaid={refreshAll}
       />
+    </div>
+  );
+}
+
+/** One headline number with an icon — presentation only, no math. */
+function SummaryStat({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border bg-background/70 p-3">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="min-w-0">
+        <p className="truncate text-xs text-muted-foreground">{label}</p>
+        <p className="truncate text-sm font-semibold">{value}</p>
+      </div>
     </div>
   );
 }

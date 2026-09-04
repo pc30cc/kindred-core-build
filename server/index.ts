@@ -29,6 +29,8 @@ import { operatorActivityRouter } from './routes/operatorActivity.js';
 import { billingRouter, billingWebhookRouter } from './routes/billing.js';
 import { billingV2CustomerRouter } from './routes/billingV2Customer.js';
 import { adminBillingV2Router } from './routes/adminBillingV2.js';
+import { adminBillingRouter } from './routes/adminBilling.js';
+
 import { seoRouter } from './routes/seo.js';
 import { plansRouter } from './routes/plans.js';
 import { pluginsRouter, adminPluginsRouter } from './routes/plugins.js';

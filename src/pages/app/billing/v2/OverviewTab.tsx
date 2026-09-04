@@ -100,20 +100,21 @@ export default function OverviewTab({
               )}
             </div>
 
-            <div className="space-y-1.5 rounded-xl bg-muted/50 p-3 text-sm">
-              <Row
-                label={t('billingV2.overview.startedOn')}
-                value={billingDate(servicePeriod?.start, locale)}
-              />
-              <Row
-                label={t('billingV2.overview.renewsOn')}
-                value={
-                  servicePeriod?.end
-                    ? billingDate(servicePeriod.end, locale)
-                    : t('billingV2.overview.noNextInvoice')
-                }
-              />
-            </div>
+            {servicePeriod?.start && (
+              <div className="space-y-1.5 rounded-xl bg-muted/50 p-3 text-sm">
+                <Row
+                  label={t('billingV2.overview.startedOn')}
+                  value={billingDate(servicePeriod.start, locale)}
+                />
+                {servicePeriod.end && (
+                  <Row
+                    label={t('billingV2.overview.renewsOn')}
+                    value={billingDate(servicePeriod.end, locale)}
+                  />
+                )}
+              </div>
+            )}
+
 
             {canManage && (
               <Button size="lg" className="w-full text-base" onClick={() => onGoTo('plans')}>
@@ -253,10 +254,10 @@ export default function OverviewTab({
       )}
 
       {/* ── Next due date ────────────────────────────────────────────── */}
-      {/* Nothing is rendered until a real service invoice exists — a
-          workspace with no plan has no due date to show. */}
-      {upcomingInvoice && (
+      {/* The heading always stays so the section never disappears; the body
+          shows a real invoice when one exists, otherwise a plain hint. */}
       <Card className={STAGE_CARD[alertStage]}>
+
         <CardHeader className="pb-3">
           <CardTitle className="flex flex-wrap items-center gap-2 text-base">
             <Receipt className={`h-4 w-4 ${STAGE_ICON[alertStage]}`} />
@@ -274,7 +275,10 @@ export default function OverviewTab({
             )}
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="border-t pt-4">
+          {!upcomingInvoice ? (
+            <p className="text-sm text-muted-foreground">{t('billingV2.overview.noUpcomingHint')}</p>
+          ) : (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="space-y-1">
@@ -313,9 +317,10 @@ export default function OverviewTab({
               </p>
             )}
           </div>
+          )}
         </CardContent>
       </Card>
-      )}
+
 
     </div>
   );

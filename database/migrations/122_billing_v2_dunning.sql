@@ -395,6 +395,78 @@ BEGIN
 END;
 $$;
 
+-- ─── 7b. The frozen dunning contract ───────────────────────────────────────
+/**
+ * The grace period a customer gets is part of the deal they were offered when
+ * the invoice was issued. A Super Admin who later shortens `grace_period_days`
+ * must not retroactively pull the deadline out from under an invoice that is
+ * already in flight — and one who lengthens it must not silently extend an
+ * expiry the customer was already warned about.
+ *
+ * So the policy is SNAPSHOTTED into `billing_invoices.metadata->'dunning'` at
+ * issue time and read from there for the rest of the invoice's life. Live
+ * policy applies only to invoices issued after the change.
+ *
+ * `metadata` is deliberately outside the issued-invoice freeze list in 113, so
+ * this write is legal on an open invoice; the priced contract stays immutable.
+ */
+CREATE OR REPLACE FUNCTION public.billing_v2_dunning_snapshot(p_invoice_id UUID)
+RETURNS JSONB
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_inv  public.billing_invoices;
+  v_snap JSONB;
+BEGIN
+  SELECT * INTO v_inv FROM public.billing_invoices WHERE id = p_invoice_id;
+  IF v_inv.id IS NULL THEN RETURN NULL; END IF;
+  v_snap := v_inv.metadata->'dunning';
+  IF v_snap IS NULL OR jsonb_typeof(v_snap) <> 'object' THEN
+    -- Pre-Phase-E invoices carry no snapshot; live policy is the only honest
+    -- answer for them, and it is never written back retroactively.
+    RETURN public.billing_v2_policy_for(v_inv.workspace_id);
+  END IF;
+  RETURN v_snap;
+END;
+$$;
+
+/**
+ * Arms the lifecycle the moment an invoice becomes collectible (draft → open,
+ * or inserted open outright): freeze the snapshot, then schedule the messages.
+ * Both steps are idempotent, so a replayed issue pass adds nothing.
+ */
+CREATE OR REPLACE FUNCTION public.billing_v2_invoice_arm_dunning()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE v_policy JSONB;
+BEGIN
+  IF NEW.status <> 'open' THEN RETURN NEW; END IF;
+  IF TG_OP = 'UPDATE' AND OLD.status = 'open' THEN RETURN NEW; END IF;
+
+  IF NEW.metadata->'dunning' IS NULL THEN
+    v_policy := public.billing_v2_policy_for(NEW.workspace_id);
+    UPDATE public.billing_invoices
+       SET metadata = metadata || jsonb_build_object('dunning', jsonb_build_object(
+             'grace_period_days',        (v_policy->>'grace_period_days')::int,
+             'reminder_days_before_due', v_policy->'reminder_days_before_due',
+             'fallback_plan_id',         v_policy->>'fallback_plan_id',
+             'frozen_at',                to_jsonb(now())
+           ))
+     WHERE id = NEW.id;
+  END IF;
+
+  PERFORM public.billing_v2_schedule_invoice_notifications(NEW.id);
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_billing_v2_invoice_arm_dunning ON public.billing_invoices;
+CREATE TRIGGER trg_billing_v2_invoice_arm_dunning
+  AFTER INSERT OR UPDATE OF status ON public.billing_invoices
+  FOR EACH ROW EXECUTE FUNCTION public.billing_v2_invoice_arm_dunning();
+
+
 -- ─── 8. Recovery — deterministic and idempotent ────────────────────────────
 /**
  * Called whenever an invoice is observed paid while its subscription is in

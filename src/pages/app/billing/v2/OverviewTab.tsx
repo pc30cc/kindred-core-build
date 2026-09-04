@@ -254,10 +254,10 @@ export default function OverviewTab({
       )}
 
       {/* ── Next due date ────────────────────────────────────────────── */}
-      {/* Nothing is rendered until a real service invoice exists — a
-          workspace with no plan has no due date to show. */}
-      {upcomingInvoice && (
+      {/* The heading always stays so the section never disappears; the body
+          shows a real invoice when one exists, otherwise a plain hint. */}
       <Card className={STAGE_CARD[alertStage]}>
+
         <CardHeader className="pb-3">
           <CardTitle className="flex flex-wrap items-center gap-2 text-base">
             <Receipt className={`h-4 w-4 ${STAGE_ICON[alertStage]}`} />

@@ -74,11 +74,25 @@ SQL
 
 APPLIED=()
 SKIPPED=()
-for f in database/migrations/1{1,2}*.sql; do
-  n="$(basename "$f")"
-  num="${n%%_*}"
-  [ "$num" -ge 113 ] 2>/dev/null || continue
-  present="$("${PSQL[@]}" -c "SELECT 1 FROM public.ops_schema_migrations WHERE filename = '$n'")"
+# Explicit, ordered Billing V2 chain. 121 is the SEO audit migration and is
+# deliberately NOT part of this runbook.
+BILLING_V2_MIGRATIONS=(
+  113_billing_v2_core.sql
+  114_billing_v2_wallet.sql
+  115_billing_v2_rpcs.sql
+  116_billing_v2_backfill.sql
+  117_billing_v2_rollout.sql
+  118_billing_v2_schedulers.sql
+  119_billing_v2_entitlement_cycles.sql
+  120_billing_v2_wallet_deposit_checkout.sql
+  122_billing_v2_dunning.sql
+  123_billing_v2_dunning_hardening.sql
+  124_billing_v2_default_new_workspaces.sql
+)
+for n in "${BILLING_V2_MIGRATIONS[@]}"; do
+  f="database/migrations/$n"
+  [ -f "$f" ] || { echo "missing migration file: $f" >&2; exit 1; }
+
   if [ "$present" = "1" ]; then SKIPPED+=("$n"); continue; fi
   sum="$(sha256sum "$f" | awk '{print $1}')"
   if [ "$DRY_RUN" = "1" ]; then echo "WOULD APPLY $n"; APPLIED+=("$n"); continue; fi

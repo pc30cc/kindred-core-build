@@ -99,6 +99,11 @@ export interface AdminFinanceOverview {
 export const adminBillingApi = {
   overview: () => request<AdminFinanceOverview>('/overview'),
 
+  // Danger zone: wipes all transactional financial data, keeps configuration.
+  resetBillingData: () =>
+    request<{ ok: true }>('/reset', { method: 'POST', body: JSON.stringify({ confirm: 'RESET-BILLING' }) }),
+
+
   currencies: () => request<{ currencies: AdminCurrency[] }>('/currencies'),
   saveCurrency: (input: Partial<AdminCurrency> & { code: string }) =>
     request<{ currency: AdminCurrency }>('/currencies', { method: 'PUT', body: JSON.stringify(input) }),

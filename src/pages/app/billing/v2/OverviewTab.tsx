@@ -41,14 +41,18 @@ const STAGE_ICON: Record<number, string> = {
 
 export default function OverviewTab({
   overview,
+  workspaceId,
   onPayInvoice,
   onCancelPendingChange,
+  onChanged,
   canceling,
   onGoTo,
 }: {
   overview: BillingOverview;
+  workspaceId: string;
   onPayInvoice: (invoiceId: string) => void;
   onCancelPendingChange: () => void;
+  onChanged: () => void;
   canceling: boolean;
   onGoTo: (tab: 'plans' | 'wallet' | 'ai') => void;
 }) {
@@ -57,6 +61,22 @@ export default function OverviewTab({
   const canManage = overview.permissions.manage;
   const alert = overview.upcomingInvoiceAlert;
   const alertStage = alert?.stage ?? 0;
+  const [savingAutoPay, setSavingAutoPay] = useState(false);
+
+  /** Auto-pay is a money switch: only echo the new state after the server owns it. */
+  async function toggleAutoPay(enabled: boolean) {
+    setSavingAutoPay(true);
+    try {
+      await billingV2SetAutoPay(workspaceId, enabled);
+      toast.success(t('billingV2.wallet.saved'));
+      onChanged();
+    } catch (e) {
+      toast.error(errorMessage(e, t));
+    } finally {
+      setSavingAutoPay(false);
+    }
+  }
+
 
   const cycleUsedPct =
     aiCycle && aiCycle.allowanceIrr > 0

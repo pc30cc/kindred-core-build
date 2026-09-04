@@ -34,6 +34,14 @@ describe("widget open/close lifecycle contract", () => {
     expect(tpl).toContain("data-panel-close");
   });
 
+  it("explicitly raises the launcher while the panel close animation runs", () => {
+    expect(loader).toContain("var wasOpen = isOpen || !!(launcherEl && launcherEl.classList.contains(\"open\"))");
+    expect(loader).toContain("if (wasOpen) {");
+    expect(loader).toContain("playFabEntry(launcherEl)");
+    expect(loader).toContain('{ duration: 620, easing: "cubic-bezier(.33,1,.68,1)", fill: "none" }');
+    expect(css).toContain("transition: transform 0.62s cubic-bezier(0.33, 1, 0.68, 1)");
+  });
+
   it("launcher image reveals the icon with a clip-path circle on hover", () => {
     expect(loader).toContain(".launcher.has-image:hover .fab-img{clip-path:circle(0% at 50% 50%);}");
   });

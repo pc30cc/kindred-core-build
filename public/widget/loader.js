@@ -449,7 +449,7 @@
           { transform: "translateY(" + distance + ")" },
           { transform: "translateY(0)" },
         ],
-        { duration: 520, easing: "cubic-bezier(.22,1,.36,1)", fill: "none" }
+        { duration: 620, easing: "cubic-bezier(.33,1,.68,1)", fill: "none" }
       );
       return;
     }
@@ -798,14 +798,26 @@
   }
   function triggerClose() {
     var inst = runtimeInstanceRef();
+    var wasOpen = isOpen || !!(launcherEl && launcherEl.classList.contains("open"));
     if (runtimeLoaded && inst) {
       try { inst.close(); } catch (_) {}
       syncOpenStateFromRuntime();
+      // Closing removes both visibility classes in one browser task. Run an
+      // explicit below-edge → resting-position animation so the browser cannot
+      // coalesce those style changes: the FAB rises while the panel descends.
+      if (wasOpen) {
+        playFabEntry(launcherEl);
+        playFabEntry(fabLabelEl);
+      }
       return;
     }
     isOpen = false;
     if (launcherEl) launcherEl.classList.remove("open");
     if (fabLabelEl) fabLabelEl.classList.remove("open");
+    if (wasOpen) {
+      playFabEntry(launcherEl);
+      playFabEntry(fabLabelEl);
+    }
   }
   // Exposed so the panel's own collapse chevron can close deterministically
   // instead of round-tripping through a hidden launcher click (which could

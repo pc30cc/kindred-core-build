@@ -113,7 +113,7 @@ export async function checkEntitlementFromDB(
         reason: 'self_host_billing_schema_absent',
       };
       cache.set(key, { result, expiresAt: Date.now() + CACHE_TTL });
-      boundEntitlementCache();
+    boundEntitlementCache();
       return result;
     }
 
@@ -138,7 +138,7 @@ export async function checkEntitlementFromDB(
     };
 
     cache.set(key, { result, expiresAt: Date.now() + CACHE_TTL });
-      boundEntitlementCache();
+    boundEntitlementCache();
     return result;
   } catch (err: any) {
     console.error('[FeatureGating] Exception:', err.message);

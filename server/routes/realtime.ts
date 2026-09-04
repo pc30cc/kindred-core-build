@@ -33,7 +33,7 @@ import {
   effectiveNodeStatus,
   selectNode,
   resolveDeploymentMode,
-  CENTRIFUGO_DEPLOYMENT_MODES,
+  normalizeNodes,
   type RealtimeProviderConfig,
 } from '../services/realtime/index.js';
 import { verifySessionToken } from '../services/widget/security.js';

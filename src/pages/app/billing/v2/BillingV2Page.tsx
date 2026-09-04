@@ -154,54 +154,15 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
             <h1 className="text-2xl font-bold tracking-tight md:text-3xl">{t('billingV2.title')}</h1>
             <p className="mt-1 text-sm text-muted-foreground">{t('billingV2.subtitle')}</p>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge
-              variant={overview.subscription.status === 'active' ? 'default' : 'secondary'}
-              className="rounded-full px-3 py-1 text-sm"
-            >
-              {overview.subscription.planName || t('billingV2.overview.free')}
-            </Badge>
-            {canManage && (
-              <Button size="sm" className="gap-2" onClick={() => setTab('plans')}>
-                <ArrowUpCircle className="h-4 w-4" />
-                {t('billingV2.plans.upgrade')}
-              </Button>
-            )}
-          </div>
-
-        </div>
-
-        {/* Four numbers a workspace owner actually asks for, above the fold. */}
-        <div className="relative mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <SummaryStat
-            icon={Wallet}
-            label={t('billingV2.overview.walletBalance')}
-            value={money(overview.wallet.balanceIrr, locale)}
-          />
-          <SummaryStat
-            icon={Sparkles}
-            label={t('billingV2.overview.remaining')}
-            value={money(
-              (overview.aiCycle?.remainingIrr ?? 0) + (overview.aiPurchasedRemainingIrr ?? 0),
-              locale,
-            )}
-          />
-          <SummaryStat
-            icon={Receipt}
-            label={t('billingV2.overview.upcomingInvoice')}
-            value={
-              overview.upcomingInvoice
-                ? money(overview.upcomingInvoice.amountDueIrr, locale)
-                : t('billingV2.overview.noNextInvoice')
-            }
-          />
-          <SummaryStat
-            icon={Gauge}
-            label={t('billingV2.overview.periodEnd')}
-            value={billingDate(overview.servicePeriod?.end, locale)}
-          />
+          <Badge
+            variant={overview.subscription.status === 'active' ? 'default' : 'secondary'}
+            className="rounded-full px-3 py-1 text-sm"
+          >
+            {overview.subscription.planName || t('billingV2.overview.free')}
+          </Badge>
         </div>
       </div>
+
 
       <Tabs value={tab} onValueChange={setTab}>
         {/* Mobile: a select keeps six sections reachable at 360px. */}

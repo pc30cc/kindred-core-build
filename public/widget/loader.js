@@ -177,11 +177,15 @@
     "@media(max-width:440px){.shell.pos-bottom-right{bottom:12px;right:12px;}",
     ".shell.pos-bottom-left{bottom:12px;left:12px;}}",
     ".launcher{position:absolute;bottom:0;z-index:2;display:flex;align-items:center;justify-content:center;",
+    "--gs-fab-exit:calc(var(--gs-fab-size,56px) + 56px);",
     "width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:50%;border:none;cursor:pointer;",
     "box-shadow:0 3px 12px -4px var(--gs-shadow,rgba(0,0,0,.16)),0 0 0 1px rgba(0,0,0,.03);",
     "transition:transform .38s cubic-bezier(.4,0,.2,1),box-shadow .2s ease,opacity .28s ease;",
     "background:var(--gs-primary,transparent);color:#fff;font-family:inherit;",
     "opacity:1;}",
+    /* First paint: the FAB starts fully outside the browser edge and slides
+       up into the corner with the shared open/close timing. */
+    ".launcher.enter,.launcher.enter:hover{transform:translateY(var(--gs-fab-exit,112px));opacity:0;animation:none!important;}",
     /* Hidden state — keeps the launcher invisible and non-interactive until
        /config resolves and we know the brand color. Eliminates blue flash. */
     ".launcher.pending{opacity:0;pointer-events:none;visibility:hidden;}",
@@ -206,19 +210,21 @@
        Opening the panel drops the FAB out of view (down + shrink) and
        closing brings it back, so the panel visually grows out of the very
        corner the button occupied. */
-    ".launcher.open,.launcher.open:hover{transform:translateY(90px);",
+    ".launcher.open,.launcher.open:hover{transform:translateY(var(--gs-fab-exit,112px));",
     "opacity:0;pointer-events:none;animation:none;}",
 
     /* ── Text card beside the FAB ──
        Anchored to the SAME corner as the launcher and moving with it, so it
        slides down + fades out together when the panel opens. */
     ".gs-fab-label{position:absolute;bottom:0;z-index:2;display:flex;flex-direction:column;justify-content:center;",
+    "--gs-fab-exit:calc(var(--gs-fab-size,56px) + 56px);",
     "height:calc(var(--gs-fab-size,56px) - 4px);padding:0 16px;border-radius:.9rem;background:#fff;",
     "box-shadow:0 8px 20px rgba(0,0,0,.12);white-space:nowrap;font-family:inherit;pointer-events:none;",
     "transition:transform .38s cubic-bezier(.4,0,.2,1),opacity .28s ease;transform:translateY(0);opacity:1;}",
     ".gs-fab-label .label-title{font-size:13px;font-weight:600;color:#1c2024;line-height:1.3;}",
     ".gs-fab-label .label-sub{font-size:11px;color:#60646c;line-height:1.3;}",
-    ".gs-fab-label.open{transform:translateY(90px);opacity:0;pointer-events:none;}",
+    ".gs-fab-label.enter{transform:translateY(var(--gs-fab-exit,112px));opacity:0;}",
+    ".gs-fab-label.open{transform:translateY(var(--gs-fab-exit,112px));opacity:0;pointer-events:none;}",
     /* Icon box is derived from the launcher size so chat ⇄ close never differ. */
     ".launcher svg{width:calc(var(--gs-fab-size,56px) * .46);height:calc(var(--gs-fab-size,56px) * .46);fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}",
     /* The launcher is the ONLY open/close control: it stays in place while the
@@ -518,11 +524,24 @@
     if (launcherEl) {
       // Set position + reveal in one paint so the user never sees a wrong
       // color first. The CSS transitions opacity so it fades in cleanly.
-      launcherEl.className = "launcher " + posClass + " revealed";
+      var firstReveal = launcherEl.classList.contains("pending");
+      launcherEl.className = "launcher " + posClass + " revealed" + (firstReveal ? " enter" : "");
       // ─── Workspace launcher (FAB) customization ───
       // The operator configures these under Widget → Appearance. The live
       // preview renders the exact same rules, so site == preview.
       applyFabConfig(config, posClass);
+      if (firstReveal) {
+        // Entry: the FAB starts outside the browser edge and slides up into
+        // the corner with the same 0.38s curve used for open/close.
+        var labelEl = shellDiv && shellDiv.querySelector(".gs-fab-label");
+        if (labelEl) labelEl.classList.add("enter");
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            launcherEl.classList.remove("enter");
+            if (labelEl) labelEl.classList.remove("enter");
+          });
+        });
+      }
     }
   }
 

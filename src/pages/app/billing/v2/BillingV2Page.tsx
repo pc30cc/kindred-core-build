@@ -22,7 +22,9 @@ import {
 } from '@/components/ui/select';
 import { SkeletonStats, SkeletonCard } from '@/components/common/Skeletons';
 import { Badge } from '@/components/ui/badge';
-import { LayoutGrid, Receipt, Gauge, Wallet, Sparkles, ArrowLeftRight, type LucideIcon } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { LayoutGrid, Receipt, Gauge, Wallet, Sparkles, ArrowLeftRight, ArrowUpCircle, type LucideIcon } from 'lucide-react';
+
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
 import { billingV2Overview, billingV2CancelPlanChange, type BillingOverview } from '@/lib/billingV2Api';
@@ -120,12 +122,21 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
             <h1 className="text-2xl font-bold tracking-tight md:text-3xl">{t('billingV2.title')}</h1>
             <p className="mt-1 text-sm text-muted-foreground">{t('billingV2.subtitle')}</p>
           </div>
-          <Badge
-            variant={overview.subscription.status === 'active' ? 'default' : 'secondary'}
-            className="rounded-full px-3 py-1 text-sm"
-          >
-            {overview.subscription.planName || t('billingV2.overview.free')}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge
+              variant={overview.subscription.status === 'active' ? 'default' : 'secondary'}
+              className="rounded-full px-3 py-1 text-sm"
+            >
+              {overview.subscription.planName || t('billingV2.overview.free')}
+            </Badge>
+            {canManage && (
+              <Button size="sm" className="gap-2" onClick={() => setTab('plans')}>
+                <ArrowUpCircle className="h-4 w-4" />
+                {t('billingV2.plans.upgrade')}
+              </Button>
+            )}
+          </div>
+
         </div>
 
         {/* Four numbers a workspace owner actually asks for, above the fold. */}

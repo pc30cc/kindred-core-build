@@ -3279,8 +3279,12 @@
       ['name', 'email', 'phone'].forEach(function (k) {
         var input = getInput(k);
         if (!input) return;
+        // Repaint restores whatever the visitor typed (or is submitting).
+        if (!input.value && prechatDraft[k]) input.value = prechatDraft[k];
+        else prechatDraft[k] = input.value || '';
         liveValidate(k, input.value);
         input.addEventListener('input', function () {
+          prechatDraft[k] = input.value || '';
           clearError(k);
           liveValidate(k, input.value);
         });
@@ -3292,10 +3296,11 @@
           }
         });
       });
-      if (opts.autofocus !== false) {
+      if (opts.autofocus !== false && !prechatSubmitting) {
         var firstInput = body.querySelector('.prechat-input');
         if (firstInput) try { firstInput.focus({ preventScroll: true }); } catch (_) {}
       }
+
 
       var submitBtn = body.querySelector('[data-prechat-submit]');
       if (submitBtn) {

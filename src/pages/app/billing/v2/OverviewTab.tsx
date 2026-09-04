@@ -143,14 +143,15 @@ export default function OverviewTab({
             )}
 
             <div className="mt-auto space-y-2 pt-2">
+              <p className="text-xs text-muted-foreground">{t('billingV2.overview.planBoxHint')}</p>
               {canManage && (
                 <Button size="lg" className="w-full text-base" onClick={() => onGoTo('plans')}>
                   <ArrowUpCircle className="me-2 h-5 w-5" />
                   {t('billingV2.plans.upgrade')}
                 </Button>
               )}
-              <p className="text-xs text-muted-foreground">{t('billingV2.overview.planBoxHint')}</p>
             </div>
+
           </CardContent>
         </Card>
 

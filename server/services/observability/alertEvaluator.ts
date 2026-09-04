@@ -107,8 +107,10 @@ function evaluateSyncRule(rule: AlertRuleRow, collector: MonitoringCollector, bu
       return { severity, threshold, value, sample };
     }
     case 'process_ratio': {
-      if (rule.metric !== 'heap_used_over_total') return { severity: null, threshold: null, value: 0, sample: 0 };
-      const { value, sample } = collector.queryProcessAverage('heap_used_over_total', rule.window_seconds);
+      if (rule.metric !== 'heap_used_over_total' && rule.metric !== 'heap_used_over_limit') {
+        return { severity: null, threshold: null, value: 0, sample: 0 };
+      }
+      const { value, sample } = collector.queryProcessAverage(rule.metric, rule.window_seconds);
       if (sample < Math.max(rule.min_sample, 1)) return { severity: null, threshold: null, value: 0, sample };
       const { severity, threshold } = classifyThreshold(value, rule);
       return { severity, threshold, value, sample };
@@ -147,6 +149,56 @@ async function evaluateCombinedRule(
  * (alerting.ts), which logs `alert_evaluator_threw` and leaves alert state
  * untouched for this tick — the next 60s tick retries from a clean slate.
  */
+/**
+ * Flap control.
+ *
+ * A metric sitting right on its threshold used to open and resolve an
+ * incident on alternating ticks, and every single tick wrote a row update
+ * even when nothing moved. Three cheap, in-process guards fix that without
+ * silencing anything:
+ *
+ *   1. OPEN_STREAK  — a rule must breach on N consecutive cycles before an
+ *                     incident opens (a genuine breach persists, a blip does not).
+ *   2. CLEAR_STREAK — an open incident resolves only after N consecutive
+ *                     clear cycles.
+ *   3. TOUCH_DELTA  — the "still breaching" update is skipped unless the
+ *                     metric actually moved materially since the last write.
+ *
+ * State is a Map keyed by rule id, so it is bounded by the number of rules.
+ * A restart simply re-earns the streaks; it never loses an incident, which
+ * lives in `alert_events`.
+ */
+const OPEN_STREAK = 3;
+const CLEAR_STREAK = 3;
+const TOUCH_DELTA = 0.05; // 5% relative move
+
+interface FlapState {
+  breach: number;
+  clear: number;
+  lastWrittenValue: number | null;
+}
+
+const flapState = new Map<string, FlapState>();
+
+function stateFor(ruleId: string): FlapState {
+  let s = flapState.get(ruleId);
+  if (!s) {
+    s = { breach: 0, clear: 0, lastWrittenValue: null };
+    flapState.set(ruleId, s);
+  }
+  return s;
+}
+
+export function __resetAlertFlapStateForTests(): void {
+  flapState.clear();
+}
+
+function movedMaterially(previous: number | null, next: number): boolean {
+  if (previous === null) return true;
+  const base = Math.abs(previous) || 1;
+  return Math.abs(next - previous) / base >= TOUCH_DELTA;
+}
+
 async function applyRuleResult(
   sb: ReturnType<typeof getServiceClient>,
   rule: AlertRuleRow,
@@ -164,9 +216,15 @@ async function applyRuleResult(
     throw new Error(`alertEvaluator: failed to read open alert_events for rule "${rule.slug}": ${openReadError.message}`);
   }
   const open: OpenAlertEventRow | null = openRows && openRows.length > 0 ? (openRows[0] as OpenAlertEventRow) : null;
+  const flap = stateFor(rule.id);
 
   if (result.severity !== null) {
+    flap.clear = 0;
+    flap.breach += 1;
+
     if (!open) {
+      // Debounce: wait for a sustained breach before creating an incident.
+      if (flap.breach < OPEN_STREAK) return false;
       const { error: insertError } = await sb.from('alert_events').insert({
         rule_id: rule.id,
         rule_slug: rule.slug,
@@ -190,9 +248,11 @@ async function applyRuleResult(
       if (insertError) {
         throw new Error(`alertEvaluator: failed to open alert for rule "${rule.slug}": ${insertError.message}`);
       }
+      flap.lastWrittenValue = result.value;
       return true;
     }
     if (open.severity !== result.severity) {
+      // Severity escalation/de-escalation updates the SAME incident.
       const { error: severityError } = await sb
         .from('alert_events')
         .update({
@@ -206,8 +266,12 @@ async function applyRuleResult(
       if (severityError) {
         throw new Error(`alertEvaluator: failed to change severity for rule "${rule.slug}" (alert ${open.id}): ${severityError.message}`);
       }
+      flap.lastWrittenValue = result.value;
       return true;
     }
+    // Still breaching at the same severity: only refresh the row when the
+    // number actually changed enough to be worth a write.
+    if (!movedMaterially(flap.lastWrittenValue, result.value)) return false;
     const { error: touchError } = await sb
       .from('alert_events')
       .update({ metric_value: result.value, sample_size: result.sample })
@@ -215,10 +279,16 @@ async function applyRuleResult(
     if (touchError) {
       throw new Error(`alertEvaluator: failed to update open alert for rule "${rule.slug}" (alert ${open.id}): ${touchError.message}`);
     }
+    flap.lastWrittenValue = result.value;
     return false;
   }
 
+  flap.breach = 0;
+
   if (open) {
+    flap.clear += 1;
+    // Hysteresis: a single clear sample is not a recovery.
+    if (flap.clear < CLEAR_STREAK) return false;
     const { error: resolveError } = await sb
       .from('alert_events')
       .update({
@@ -233,10 +303,14 @@ async function applyRuleResult(
     if (resolveError) {
       throw new Error(`alertEvaluator: failed to resolve alert for rule "${rule.slug}" (alert ${open.id}): ${resolveError.message}`);
     }
+    flap.clear = 0;
+    flap.lastWrittenValue = null;
     return true;
   }
+  flap.clear = 0;
   return false;
 }
+
 
 export async function evaluateAlertRulesInMemory(config: ServerConfig): Promise<EvaluateAlertRulesResult> {
   const sb = getServiceClient(config);

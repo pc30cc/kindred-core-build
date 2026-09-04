@@ -107,8 +107,10 @@ function evaluateSyncRule(rule: AlertRuleRow, collector: MonitoringCollector, bu
       return { severity, threshold, value, sample };
     }
     case 'process_ratio': {
-      if (rule.metric !== 'heap_used_over_total') return { severity: null, threshold: null, value: 0, sample: 0 };
-      const { value, sample } = collector.queryProcessAverage('heap_used_over_total', rule.window_seconds);
+      if (rule.metric !== 'heap_used_over_total' && rule.metric !== 'heap_used_over_limit') {
+        return { severity: null, threshold: null, value: 0, sample: 0 };
+      }
+      const { value, sample } = collector.queryProcessAverage(rule.metric, rule.window_seconds);
       if (sample < Math.max(rule.min_sample, 1)) return { severity: null, threshold: null, value: 0, sample };
       const { severity, threshold } = classifyThreshold(value, rule);
       return { severity, threshold, value, sample };

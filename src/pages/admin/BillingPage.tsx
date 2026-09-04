@@ -14,6 +14,7 @@ import {
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
 import FinanceReport from '@/components/admin/FinanceReport';
+import { formatToman } from '@/lib/money';
 
 function formatPrice(amount: number, currency: string, locale: string): string {
   const normalizedLocale = locale === 'fa' ? 'fa-IR' : locale === 'tr' ? 'tr-TR' : 'en-US';

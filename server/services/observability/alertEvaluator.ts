@@ -168,9 +168,9 @@ async function evaluateCombinedRule(
  * A restart simply re-earns the streaks; it never loses an incident, which
  * lives in `alert_events`.
  */
-const OPEN_STREAK = 3;
-const CLEAR_STREAK = 3;
-const TOUCH_DELTA = 0.05; // 5% relative move
+let OPEN_STREAK = 3;
+let CLEAR_STREAK = 3;
+let TOUCH_DELTA = 0.05; // 5% relative move
 
 interface FlapState {
   breach: number;
@@ -191,6 +191,16 @@ function stateFor(ruleId: string): FlapState {
 
 export function __resetAlertFlapStateForTests(): void {
   flapState.clear();
+  OPEN_STREAK = 3;
+  CLEAR_STREAK = 3;
+  TOUCH_DELTA = 0.05;
+}
+
+/** Lets the existing golden tests assert single-tick semantics unchanged. */
+export function __setAlertFlapTuningForTests(t: { open?: number; clear?: number; touchDelta?: number }): void {
+  if (t.open !== undefined) OPEN_STREAK = t.open;
+  if (t.clear !== undefined) CLEAR_STREAK = t.clear;
+  if (t.touchDelta !== undefined) TOUCH_DELTA = t.touchDelta;
 }
 
 function movedMaterially(previous: number | null, next: number): boolean {

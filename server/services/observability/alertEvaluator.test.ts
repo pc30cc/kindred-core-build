@@ -153,8 +153,13 @@ function rule(overrides: Partial<Record<string, any>>): any {
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   __resetMonitoringCollectorForTests();
+  // Golden semantics below are per-tick; flap damping is covered by its own
+  // suite at the bottom of this file.
+  const ev = await import('./alertEvaluator.js');
+  ev.__resetAlertFlapStateForTests();
+  ev.__setAlertFlapTuningForTests({ open: 1, clear: 1, touchDelta: 0 });
   fakeState = { rules: [], openEventsByRule: {}, inserted: [], updated: [], combinedOpenSlugs: [] };
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
@@ -468,5 +473,55 @@ describe('alertEvaluator — deterministic combined-rule evaluation (Fix 4)', ()
     const comboResolve = fakeState.updated.find((u) => u.id === 'evt-combo');
     expect(childResolve).toMatchObject({ patch: { state: 'resolved' } });
     expect(comboResolve).toMatchObject({ patch: { state: 'resolved' } });
+  });
+});
+
+
+describe('alertEvaluator — flap damping', () => {
+  it('needs a sustained breach before opening an incident, then only one insert', async () => {
+    const collector = getMonitoringCollector();
+    for (let i = 0; i < 12; i++) collector.recordRealtimeMetric({ metric: 'realtime.subscribe_failed' });
+    fakeState.rules = [rule({ id: 'r-flap', kind: 'count', metric: 'realtime.subscribe_failed', warn_threshold: 5, critical_threshold: 10 })];
+
+    const ev = await importEvaluator();
+    ev.__resetAlertFlapStateForTests(); // back to production tuning
+
+    await ev.evaluateAlertRulesInMemory({} as any);
+    expect(fakeState.inserted).toHaveLength(0);
+    await ev.evaluateAlertRulesInMemory({} as any);
+    expect(fakeState.inserted).toHaveLength(0);
+    await ev.evaluateAlertRulesInMemory({} as any);
+    expect(fakeState.inserted).toHaveLength(1);
+  });
+
+  it('does not resolve an open incident on a single clear sample', async () => {
+    fakeState.openEventsByRule['r-flap'] = [{ id: 'evt-flap', severity: 'critical' }];
+    fakeState.rules = [rule({ id: 'r-flap', kind: 'count', metric: 'realtime.subscribe_failed' })];
+
+    const ev = await importEvaluator();
+    ev.__resetAlertFlapStateForTests();
+
+    const first = await ev.evaluateAlertRulesInMemory({} as any);
+    expect(first.state_changes).toBe(0);
+    expect(fakeState.updated).toHaveLength(0);
+    await ev.evaluateAlertRulesInMemory({} as any);
+    const third = await ev.evaluateAlertRulesInMemory({} as any);
+    expect(third.state_changes).toBe(1);
+    expect(fakeState.updated).toHaveLength(1);
+  });
+
+  it('skips the "still breaching" write when the metric has barely moved', async () => {
+    const collector = getMonitoringCollector();
+    for (let i = 0; i < 12; i++) collector.recordRealtimeMetric({ metric: 'realtime.subscribe_failed' });
+    fakeState.openEventsByRule['r-flap'] = [{ id: 'evt-flap', severity: 'critical' }];
+    fakeState.rules = [rule({ id: 'r-flap', kind: 'count', metric: 'realtime.subscribe_failed', warn_threshold: 5, critical_threshold: 10 })];
+
+    const ev = await importEvaluator();
+    ev.__resetAlertFlapStateForTests();
+
+    await ev.evaluateAlertRulesInMemory({} as any);
+    const afterFirst = fakeState.updated.length;
+    await ev.evaluateAlertRulesInMemory({} as any);
+    expect(fakeState.updated.length).toBe(afterFirst); // identical value → no write
   });
 });

@@ -343,3 +343,22 @@ adminBillingRouter.get('/audit', async (req, res) => {
     res.json({ events: data || [] });
   } catch (e) { fail(res, e); }
 });
+
+// ─── Danger zone: full financial data reset ────────────────────────────────
+//
+// Clears every transactional financial record (invoices, payments, wallets,
+// subscription periods, allowance cycles, jobs, AI usage) while keeping the
+// commercial configuration (plans, currencies, gateways, tax, coupons).
+// The confirmation string is required by the database function itself, so a
+// stray request can never wipe history by accident.
+
+adminBillingRouter.post('/reset', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  try {
+    const parsed = z.object({ confirm: z.literal('RESET-BILLING') }).parse(req.body ?? {});
+    const { data, error } = await getServiceClient(cfg(req))
+      .rpc('admin_reset_billing_data', { p_confirm: parsed.confirm });
+    if (error) throw new Error(error.message);
+    res.json({ ok: true, result: data });
+  } catch (e) { fail(res, e); }
+});

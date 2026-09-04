@@ -120,4 +120,83 @@ export const realtimeAdminApi = {
   async refresh(): Promise<void> {
     await fetch(`${API_BASE}/api/realtime/admin/refresh`, {credentials: 'include', method: 'POST', headers: {} });
   },
+
+  // ── Multi-node topology (Deployment Mode 2 / 3) ──────────────────
+  // The node registry never carries secrets: a node record holds public
+  // URLs only, and the cluster API key / HMAC secret stay server-side.
+
+  async listNodes(refresh = false): Promise<{
+    deployment_mode: CentrifugoDeploymentMode;
+    load_balancer_ws_url: string | null;
+    nodes: CentrifugoNodeRow[];
+  }> {
+    const res = await fetch(`${API_BASE}/api/realtime/admin/nodes${refresh ? '?refresh=1' : ''}`, {
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error(`Load failed: ${res.status}`);
+    return res.json();
+  },
+
+  async addNode(node: Partial<CentrifugoNodeRecord> & { ws_url: string; api_url: string }): Promise<void> {
+    const res = await fetch(`${API_BASE}/api/realtime/admin/nodes`, {
+      credentials: 'include',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(node),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Add node failed');
+  },
+
+  async updateNode(id: string, patch: Partial<CentrifugoNodeRecord>): Promise<void> {
+    const res = await fetch(`${API_BASE}/api/realtime/admin/nodes/${encodeURIComponent(id)}`, {
+      credentials: 'include',
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Update node failed');
+  },
+
+  async removeNode(id: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/api/realtime/admin/nodes/${encodeURIComponent(id)}`, {
+      credentials: 'include',
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Remove node failed');
+  },
+
+  /** Drain stops NEW assignments; live connections are never force-closed. */
+  async setNodeDraining(id: string, draining: boolean): Promise<void> {
+    const res = await fetch(`${API_BASE}/api/realtime/admin/nodes/${encodeURIComponent(id)}/drain`, {
+      credentials: 'include',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ draining }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Drain failed');
+  },
+
+  async testNode(id: string): Promise<{ node_id: string; health: CentrifugoNodeHealth | null }> {
+    const res = await fetch(`${API_BASE}/api/realtime/admin/nodes/${encodeURIComponent(id)}/test`, {
+      credentials: 'include',
+      method: 'POST',
+    });
+    return res.json();
+  },
+
+  async testAllNodes(): Promise<{ health: Record<string, CentrifugoNodeHealth> }> {
+    const res = await fetch(`${API_BASE}/api/realtime/admin/nodes/test-all`, {
+      credentials: 'include',
+      method: 'POST',
+    });
+    return res.json();
+  },
+
+  async preflight(): Promise<RealtimeTopologyPreflight> {
+    const res = await fetch(`${API_BASE}/api/realtime/admin/preflight`, {
+      credentials: 'include',
+      method: 'POST',
+    });
+    return res.json();
+  },
 };

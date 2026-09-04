@@ -122,8 +122,10 @@ export async function previewPlanChange(
 
   // A downgrade is next-cycle only (V1 policy, no refunds). An upgrade may be
   // taken immediately only when there is a paid window left to prorate into.
-  const allowedModes: PlanChangeMode[] =
-    direction === 'upgrade' && periodEnd && new Date(periodEnd).getTime() > now.getTime()
+  const isFirstPaidSubscription = !currentPlanId && targetPrice > 0;
+  const allowedModes: PlanChangeMode[] = isFirstPaidSubscription
+    ? ['immediate']
+    : direction === 'upgrade' && periodEnd && new Date(periodEnd).getTime() > now.getTime()
       ? ['immediate', 'next_cycle']
       : ['next_cycle'];
 
@@ -134,7 +136,7 @@ export async function previewPlanChange(
   let aiCycleDeltaIrr = 0;
   let effectiveAt = periodEnd ?? now.toISOString();
 
-  if (mode === 'immediate' && periodEnd) {
+  if (mode === 'immediate' && periodEnd && currentPlanId) {
     const proration = computeUpgradeProration({
       now,
       currentPeriodStart: new Date(periodStart ?? now.toISOString()),
@@ -161,6 +163,13 @@ export async function previewPlanChange(
       const delta = Math.max(0, monthlyAllowanceIrr(target) - currentMonthly);
       aiCycleDeltaIrr = Math.round((delta * left) / span);
     }
+  } else if (mode === 'immediate' && isFirstPaidSubscription) {
+    // A workspace without a subscription has no existing period to prorate.
+    // Its first paid plan is a new subscription and the full plan price is due
+    // now. Treating it as a next-cycle change used to create a zero-amount
+    // result and never established the subscription projection.
+    amountIrr = targetPrice;
+    effectiveAt = now.toISOString();
   }
 
   return {
@@ -235,12 +244,13 @@ export async function applyPlanChange(
   const { sub, period } = await loadContext(config, workspaceId);
 
   if (input.mode === 'immediate') {
+    const action = sub?.plan_id ? 'plan_upgrade' : 'plan_new';
     const invoice = await issueSubscriptionInvoice(config, {
       workspaceId,
       subscriptionId: sub?.id ?? null,
       targetPlanId: input.planId,
       interval: input.interval,
-      action: 'plan_upgrade',
+      action,
       currentPlanId: sub?.plan_id ?? null,
       currentPeriodStart: period?.period_start ?? sub?.current_period_start ?? null,
       currentPeriodEnd: period?.period_end ?? sub?.current_period_end ?? null,

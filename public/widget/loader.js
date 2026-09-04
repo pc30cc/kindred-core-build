@@ -745,6 +745,7 @@
       isOpen = false;
     }
     if (launcherEl) launcherEl.classList.toggle("open", !!isOpen);
+    if (fabLabelEl) fabLabelEl.classList.toggle("open", !!isOpen);
     return isOpen;
   }
 
@@ -767,6 +768,7 @@
     }
     isOpen = false;
     if (launcherEl) launcherEl.classList.remove("open");
+    if (fabLabelEl) fabLabelEl.classList.remove("open");
   }
   // Exposed so the panel's own collapse chevron can close deterministically
   // instead of round-tripping through a hidden launcher click (which could

@@ -885,6 +885,10 @@ const adminUpdateSchema = z.object({
     presence_enabled: z.boolean().optional(),
     typing_enabled: z.boolean().optional(),
     token_ttl_seconds: z.number().int().min(60).max(3600).optional(),
+    // Topology (additive — omitting these keeps the stored value, and a
+    // config that never had them behaves exactly as before: single_memory).
+    deployment_mode: z.enum(['single_memory', 'app_routed_redis', 'load_balanced_redis']).optional(),
+    load_balancer_ws_url: z.string().url().optional().or(z.literal('')),
   }).optional(),
 });
 

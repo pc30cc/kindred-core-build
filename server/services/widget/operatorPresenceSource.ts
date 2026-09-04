@@ -401,27 +401,43 @@ async function readDatabasePresence(
 
 /**
  * Transition handoff. Inside the bounded handoff window:
- *   • with a known-good roster ⇒ exactly those operators stay connected;
- *   • with NO roster at all (cold instance, presence never read here) ⇒
- *     candidates are treated as connected rather than as offline. Presence
- *     is *unknown*, not negative, and dropping every candidate would break
- *     routing and flip the widget to `no_operators_online` for a few minutes.
- *     Personal availability (force_offline / schedule) still applies, and the
- *     window closes as soon as real heartbeats refresh the lease.
+ *   • with a COMPLETE workspace roster ⇒ exactly those operators stay
+ *     connected (precise, no false-online);
+ *   • otherwise (global breaker, cold instance with no snapshot, or a
+ *     workspace whose roster exceeds the bounded cap) presence is treated as
+ *     UNKNOWN and fails open: candidates stay connected rather than being
+ *     silently marked offline. Personal availability (force_offline /
+ *     schedule) still applies, and the window closes as soon as real
+ *     heartbeats refresh the lease.
+ * A roster is only ever applied to the workspace it was captured in — the
+ * global entry never carries one, so cross-workspace leakage is impossible.
  */
 function applyHandoff(
   connected: Set<string>,
   userIds: string[],
-  entry: FallbackEntry,
+  entry: FallbackEntry | null,
   ts: number,
 ): void {
-  if (ts >= entry.handoffUntil) return;
-  if (entry.roster.length > 0) {
+  if (!entry || ts >= entry.handoffUntil) return;
+  if (entry.rosterComplete && entry.scope !== GLOBAL_SCOPE) {
     const rosterSet = new Set(entry.roster);
     for (const id of userIds) if (rosterSet.has(id)) connected.add(id);
     return;
   }
   for (const id of userIds) connected.add(id);
+}
+
+/**
+ * Pick the entry that governs THIS workspace's handoff: its own entry when
+ * present (roster-bearing), otherwise the global breaker (roster-less ⇒
+ * fail-open). Never another workspace's roster.
+ */
+function handoffEntryFor(
+  state: Map<string, FallbackEntry>,
+  workspaceId: string,
+  now: number,
+): FallbackEntry | null {
+  return activeEntry(state, workspaceId, now) || activeEntry(state, GLOBAL_SCOPE, now);
 }
 
 /**

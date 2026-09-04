@@ -7,6 +7,41 @@ import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 
 const API_BASE = RESOLVED_API_BASE || '';
 
+export type CentrifugoDeploymentMode = 'single_memory' | 'app_routed_redis' | 'load_balanced_redis';
+
+export interface CentrifugoNodeRecord {
+  id: string;
+  name: string;
+  ws_url: string;
+  api_url: string;
+  enabled: boolean;
+  accepting_new_connections: boolean;
+  draining: boolean;
+  weight: number;
+  region?: string;
+}
+
+export interface CentrifugoNodeHealth {
+  status: 'healthy' | 'degraded' | 'down' | 'unknown';
+  checked_at?: number;
+  message?: string;
+  connections?: number;
+  nodes?: number;
+}
+
+export interface CentrifugoNodeRow extends CentrifugoNodeRecord {
+  health: CentrifugoNodeHealth | null;
+  effective_status: 'healthy' | 'degraded' | 'down' | 'unknown' | 'draining' | 'maintenance';
+}
+
+export interface RealtimeTopologyPreflight {
+  ok: boolean;
+  mode: string;
+  errors: string[];
+  warnings: string[];
+  checks: Record<string, { ok: boolean; detail?: string }>;
+}
+
 export interface RealtimeAdminConfig {
   vendor: 'centrifugo' | 'polling_builtin' | 'disabled';
   enabled: boolean;
@@ -23,6 +58,10 @@ export interface RealtimeAdminConfig {
     presence_enabled?: boolean;
     typing_enabled?: boolean;
     token_ttl_seconds?: number;
+    /** Topology — absent in legacy configs, which behave as single_memory. */
+    deployment_mode?: CentrifugoDeploymentMode;
+    load_balancer_ws_url?: string;
+    nodes?: CentrifugoNodeRecord[];
   };
 }
 

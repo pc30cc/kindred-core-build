@@ -18,17 +18,35 @@
  *
  * `operator_activity_samples` is ANALYTICS ONLY and is never consulted here.
  *
- * Production-safety rules encoded below:
- *   • A Centrifugo presence read that FAILS never means "everyone offline".
- *     The last good snapshot is honoured for a short grace window, and the
- *     DB lease is consulted with an extended liveness window during the
- *     transition, so routing never drops every candidate because the
- *     presence backend blipped.
- *   • Read amplification is bounded: a very short TTL cache plus
- *     single-flight coalescing per workspace, so N concurrent team-presence
- *     / routing / widget reads collapse into one Centrifugo API call.
- *   • Nothing here is durable state — the caches are process-local hints
- *     only, so multi-instance correctness is preserved.
+ * ─── TRANSITION HANDOFF (realtime → database) ─────────────────────────
+ * While Centrifugo is healthy nobody writes the lease, so at the moment of
+ * a failure the `operator_presence_live` row for a connected operator may be
+ * HOURS old — or missing entirely. Widening the DB liveness window cannot
+ * fix that. Instead the transition carries the last known-good realtime
+ * roster: on the FIRST failed read we
+ *   a) publish a shared fallback entry (see below) containing that roster,
+ *      so every instance immediately resumes lease writes on the next beat,
+ *   b) treat the roster as connected until `handoff_until`
+ *      (= heartbeat interval + grace), i.e. long enough for the first
+ *      fallback heartbeat to land,
+ *   c) union the roster with the DB lease, so as soon as real beats arrive
+ *      the lease becomes authoritative and the roster simply expires.
+ * Result: no transient `not_connected`, no routing/widget flap, and no
+ * periodic writes in the healthy path.
+ *
+ * ─── SHARED CIRCUIT-BREAKER STATE (multi-instance) ────────────────────
+ * `operator_presence_fallback_state` holds at most one row per failing
+ * scope — `global` (Centrifugo itself unreachable) or a single workspace id
+ * (that channel's presence read failed). It is written ONLY on activation,
+ * renewal (when its TTL is half-spent) and recovery — never per heartbeat —
+ * and it auto-expires, so one workspace's blip never pins the whole platform
+ * into high-write fallback and a stale row cannot survive a restart storm.
+ * Every instance reads it through a 5-second process-local cache, so the
+ * heartbeat path costs at most one tiny SELECT per instance per 5s.
+ *
+ * Read amplification is bounded elsewhere too: a very short TTL cache plus
+ * single-flight coalescing per workspace collapses N concurrent
+ * team-presence / routing / widget reads into one Centrifugo API call.
  */
 
 import type { ServerConfig } from '../../config.js';
@@ -45,14 +63,22 @@ export const PRESENCE_HEARTBEAT_MS = 120_000;
 export const PRESENCE_LIVENESS_MS = 5 * 60 * 1000;
 /** Extra slack applied to the DB lease right after a realtime→DB transition. */
 export const PRESENCE_TRANSITION_GRACE_MS = 2 * 60 * 1000;
-/** How long a last-known-good realtime snapshot survives a failed read. */
-const REALTIME_SNAPSHOT_GRACE_MS = 60_000;
+/** Roster handoff window: one heartbeat interval + grace. */
+const HANDOFF_MS = PRESENCE_HEARTBEAT_MS + PRESENCE_TRANSITION_GRACE_MS;
+/** Auto-expiry of a fallback entry when nothing refreshes it. */
+const FALLBACK_TTL_MS = 10 * 60 * 1000;
 /** TTL of the presence read cache (request coalescing, not a source of truth). */
 const READ_CACHE_TTL_MS = 3_000;
+/** TTL of the shared fallback-state cache. */
+const SHARED_STATE_TTL_MS = 5_000;
 /** How long the resolved presence mode is cached (avoids a health probe per read). */
 const MODE_CACHE_TTL_MS = 15_000;
-/** Bound on process-local maps. */
+/** Bound on process-local maps and on the persisted roster. */
 const CACHE_MAX = 2_000;
+const ROSTER_MAX = 200;
+
+const GLOBAL_SCOPE = 'global';
+const FALLBACK_TABLE = 'operator_presence_fallback_state';
 
 export type PresenceMode = 'realtime' | 'database';
 
@@ -71,21 +97,138 @@ interface ModeState {
   checkedAt: number;
 }
 
-let modeState: ModeState | null = null;
+interface FallbackEntry {
+  scope: string;
+  reason: string | null;
+  roster: string[];
+  handoffUntil: number;
+  expiresAt: number;
+}
 
 interface RealtimeSnapshot {
   users: Set<string>;
   at: number;
 }
 
+let modeState: ModeState | null = null;
 const realtimeCache = new Map<string, RealtimeSnapshot>();
-const inflight = new Map<string, Promise<Set<string> | null>>();
-/** Timestamp until which the DB fallback lease is considered authoritative. */
-let fallbackUntil = 0;
+const inflight = new Map<string, Promise<PresenceRead>>();
+
+/** Process-local view of the shared circuit-breaker table. */
+let fallbackCache = new Map<string, FallbackEntry>();
+let fallbackLoadedAt = 0;
+let fallbackInflight: Promise<Map<string, FallbackEntry>> | null = null;
 
 function boundedSet<K, V>(map: Map<K, V>, key: K, value: V) {
   if (map.size >= CACHE_MAX) map.clear();
   map.set(key, value);
+}
+
+/* ───────────────────────── shared fallback state ───────────────────────── */
+
+async function loadFallbackState(
+  config: ServerConfig,
+  now: number,
+): Promise<Map<string, FallbackEntry>> {
+  if (now - fallbackLoadedAt < SHARED_STATE_TTL_MS) return fallbackCache;
+  if (fallbackInflight) return fallbackInflight;
+
+  fallbackInflight = (async () => {
+    try {
+      const sb = getServiceClient(config);
+      const { data } = await sb
+        .from(FALLBACK_TABLE)
+        .select('scope, reason, roster, handoff_until, expires_at')
+        .gte('expires_at', new Date(now).toISOString());
+      const next = new Map<string, FallbackEntry>();
+      for (const row of (data || []) as Array<Record<string, any>>) {
+        next.set(String(row.scope), {
+          scope: String(row.scope),
+          reason: row.reason ?? null,
+          roster: Array.isArray(row.roster) ? row.roster.map(String) : [],
+          handoffUntil: Date.parse(row.handoff_until) || 0,
+          expiresAt: Date.parse(row.expires_at) || 0,
+        });
+      }
+      fallbackCache = next;
+      fallbackLoadedAt = now;
+    } catch {
+      // Shared state unreadable: keep the last view. Failing open here would
+      // silently stop lease writes during an outage.
+      fallbackLoadedAt = now;
+    } finally {
+      fallbackInflight = null;
+    }
+    return fallbackCache;
+  })();
+  return fallbackInflight;
+}
+
+function activeEntry(
+  state: Map<string, FallbackEntry>,
+  scope: string,
+  now: number,
+): FallbackEntry | null {
+  const entry = state.get(scope);
+  return entry && entry.expiresAt > now ? entry : null;
+}
+
+/**
+ * Publish/renew a fallback entry. Writes happen only on activation and when
+ * the entry is more than half-spent — never on the heartbeat path.
+ */
+async function activateFallback(
+  config: ServerConfig,
+  scope: string,
+  reason: string,
+  roster: string[],
+  now: number,
+): Promise<FallbackEntry> {
+  const state = await loadFallbackState(config, now);
+  const existing = activeEntry(state, scope, now);
+  const expiresAt = now + FALLBACK_TTL_MS;
+  const handoffUntil = existing ? existing.handoffUntil : now + HANDOFF_MS;
+
+  if (existing && existing.expiresAt - now > FALLBACK_TTL_MS / 2) return existing;
+
+  const entry: FallbackEntry = {
+    scope,
+    reason,
+    roster: existing && existing.handoffUntil > now ? existing.roster : roster.slice(0, ROSTER_MAX),
+    handoffUntil,
+    expiresAt,
+  };
+  fallbackCache.set(scope, entry);
+  try {
+    const sb = getServiceClient(config);
+    await sb.from(FALLBACK_TABLE).upsert(
+      {
+        scope,
+        reason,
+        roster: entry.roster,
+        handoff_until: new Date(entry.handoffUntil).toISOString(),
+        expires_at: new Date(entry.expiresAt).toISOString(),
+        updated_at: new Date(now).toISOString(),
+      },
+      { onConflict: 'scope' },
+    );
+  } catch {
+    // Best effort — the local entry still drives this instance.
+  }
+  return entry;
+}
+
+/** Recovery — remove the entry so every instance stops writing leases. */
+async function clearFallback(config: ServerConfig, scope: string, now: number): Promise<void> {
+  const state = await loadFallbackState(config, now);
+  if (!state.has(scope)) return;
+  fallbackCache.delete(scope);
+  try {
+    const sb = getServiceClient(config);
+    await sb.from(FALLBACK_TABLE).delete().eq('scope', scope);
+  } catch {
+    /* best effort */
+  }
 }
 
 /**
@@ -116,45 +259,62 @@ export async function resolvePresenceMode(
   return mode;
 }
 
-/** Test/ops hook — drop the cached mode + presence reads. */
+/** Test/ops hook — drop every process-local cache. */
 export function resetPresenceSourceCache(): void {
   modeState = null;
   realtimeCache.clear();
   inflight.clear();
-  fallbackUntil = 0;
+  fallbackCache = new Map();
+  fallbackLoadedAt = 0;
+  fallbackInflight = null;
 }
 
 /**
  * True when the DB lease must be refreshed by the heartbeat, i.e. we are NOT
  * in healthy realtime-presence mode. In Centrifugo-healthy mode this returns
  * false and the heartbeat performs ZERO live-presence writes.
+ *
+ * `workspaceId` lets a workspace-scoped presence failure switch only that
+ * workspace's operators into lease writes — a single bad channel never puts
+ * the whole platform into high-write mode.
  */
 export async function shouldWriteFallbackPresence(
   config: ServerConfig,
   now: number = Date.now(),
+  workspaceId?: string,
 ): Promise<boolean> {
-  if (now < fallbackUntil) return true;
+  const state = await loadFallbackState(config, now);
+  if (activeEntry(state, GLOBAL_SCOPE, now)) return true;
+  if (workspaceId && activeEntry(state, workspaceId, now)) return true;
   return (await resolvePresenceMode(config, now)) === 'database';
 }
+
+/* ───────────────────────────── presence reads ──────────────────────────── */
+
+type PresenceRead =
+  | { users: Set<string>; failure: null }
+  | { users: null; failure: 'global' | 'workspace' };
 
 async function readCentrifugoPresence(
   config: ServerConfig,
   workspaceId: string,
   now: number,
-): Promise<Set<string> | null> {
+): Promise<PresenceRead> {
   const cached = realtimeCache.get(workspaceId);
-  if (cached && now - cached.at < READ_CACHE_TTL_MS) return cached.users;
+  if (cached && now - cached.at < READ_CACHE_TTL_MS) return { users: cached.users, failure: null };
 
   const pending = inflight.get(workspaceId);
   if (pending) return pending;
 
-  const promise = (async () => {
+  const promise = (async (): Promise<PresenceRead> => {
     const readAt = now;
     try {
       const driver = await getCentrifugoDriver(config);
-      if (!driver) return null;
+      // No driver at all ⇒ the provider itself is unusable ⇒ global scope.
+      if (!driver) return { users: null, failure: 'global' };
       const users = await driver.presenceUsers(buildOperatorPresenceChannelName(workspaceId));
-      if (!users) return null;
+      // Presence unreadable for THIS channel only ⇒ workspace scope.
+      if (!users) return { users: null, failure: 'workspace' };
       // Subject format is `op_<user_id>` (server-authoritative, minted from
       // the session — never from a client-supplied id).
       const ids = new Set<string>();
@@ -162,9 +322,9 @@ async function readCentrifugoPresence(
         if (u.startsWith('op_')) ids.add(u.slice(3));
       }
       boundedSet(realtimeCache, workspaceId, { users: ids, at: readAt });
-      return ids;
+      return { users: ids, failure: null };
     } catch {
-      return null;
+      return { users: null, failure: 'global' };
     } finally {
       inflight.delete(workspaceId);
     }
@@ -215,41 +375,51 @@ export async function getConnectedOperators(
   const mode = await resolvePresenceMode(config, ts);
 
   if (mode === 'realtime') {
-    const users = await readCentrifugoPresence(config, workspaceId, ts);
-    if (users) {
-      fallbackUntil = 0;
-      const connected = new Set(userIds.filter((id) => users.has(id)));
+    const read = await readCentrifugoPresence(config, workspaceId, ts);
+
+    if (read.failure === null) {
+      // Healthy read ⇒ recovery. Clear whichever scopes were tripped so all
+      // instances stop refreshing leases again.
+      const state = await loadFallbackState(config, ts);
+      if (activeEntry(state, workspaceId, ts)) await clearFallback(config, workspaceId, ts);
+      if (activeEntry(state, GLOBAL_SCOPE, ts)) await clearFallback(config, GLOBAL_SCOPE, ts);
+      const connected = new Set(userIds.filter((id) => read.users.has(id)));
       return { mode: 'realtime', connected, lastSeen: new Map(), degraded: false };
     }
 
-    // Presence read failed. 1) honour the last good snapshot briefly, so a
-    // single API blip never marks the whole team offline.
+    // FAILURE. Trip the shared breaker immediately (scoped), carrying the
+    // last known-good roster so the handoff works even when the lease table
+    // has no row for these operators at all.
+    const scope = read.failure === 'global' ? GLOBAL_SCOPE : workspaceId;
     const stale = realtimeCache.get(workspaceId);
-    if (stale && ts - stale.at < REALTIME_SNAPSHOT_GRACE_MS) {
-      const connected = new Set(userIds.filter((id) => stale.users.has(id)));
-      return { mode: 'realtime', connected, lastSeen: new Map(), degraded: true };
-    }
+    const roster = stale ? [...stale.users] : [];
+    const entry = await activateFallback(config, scope, `presence_read_${read.failure}`, roster, ts);
 
-    // 2) Transition to the DB lease and tell the heartbeat to resume writing.
-    //    Widen the liveness window for one heartbeat interval + grace so
-    //    operators whose lease went stale while realtime was healthy are not
-    //    dropped before their next beat lands.
-    fallbackUntil = ts + PRESENCE_HEARTBEAT_MS + PRESENCE_TRANSITION_GRACE_MS;
-    modeState = { mode: 'database', checkedAt: ts };
     const db = await readDatabasePresence(
       config,
       workspaceId,
       userIds,
       ts,
-      PRESENCE_LIVENESS_MS + PRESENCE_HEARTBEAT_MS + PRESENCE_TRANSITION_GRACE_MS,
+      PRESENCE_LIVENESS_MS + HANDOFF_MS,
     );
-    return { mode: 'database', connected: db.connected, lastSeen: db.lastSeen, degraded: true };
+    const connected = new Set(db.connected);
+    if (ts < entry.handoffUntil) {
+      const rosterSet = new Set(entry.roster);
+      for (const id of userIds) if (rosterSet.has(id)) connected.add(id);
+    }
+    return { mode: 'database', connected, lastSeen: db.lastSeen, degraded: true };
   }
 
-  const windowMs =
-    ts < fallbackUntil
-      ? PRESENCE_LIVENESS_MS + PRESENCE_HEARTBEAT_MS + PRESENCE_TRANSITION_GRACE_MS
-      : PRESENCE_LIVENESS_MS;
+  // Native database mode (polling/disabled/Supabase) — plus the widened
+  // window while a transition entry is still live.
+  const state = await loadFallbackState(config, ts);
+  const entry = activeEntry(state, workspaceId, ts) || activeEntry(state, GLOBAL_SCOPE, ts);
+  const windowMs = entry ? PRESENCE_LIVENESS_MS + HANDOFF_MS : PRESENCE_LIVENESS_MS;
   const db = await readDatabasePresence(config, workspaceId, userIds, ts, windowMs);
-  return { mode: 'database', connected: db.connected, lastSeen: db.lastSeen, degraded: false };
+  const connected = new Set(db.connected);
+  if (entry && ts < entry.handoffUntil) {
+    const rosterSet = new Set(entry.roster);
+    for (const id of userIds) if (rosterSet.has(id)) connected.add(id);
+  }
+  return { mode: 'database', connected, lastSeen: db.lastSeen, degraded: !!entry };
 }

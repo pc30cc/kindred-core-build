@@ -167,12 +167,14 @@ export async function resolveWorkspaceIdFromOrigin(config: ServerConfig, origin:
   const exactMatch = rows.find((row) => row.domain === normalizedHost);
   if (exactMatch) {
     workspaceByHostCache.set(normalizedHost, { workspaceId: exactMatch.workspace_id, ts: Date.now() });
+  boundCache(workspaceByHostCache);
     return exactMatch.workspace_id;
   }
 
   const candidates = rows.filter((row) => normalizedHost.endsWith(`.${row.domain}`));
   if (!candidates.length) {
     workspaceByHostCache.set(normalizedHost, { workspaceId: null, ts: Date.now() });
+  boundCache(workspaceByHostCache);
     return null;
   }
 
@@ -191,6 +193,7 @@ export async function resolveWorkspaceIdFromOrigin(config: ServerConfig, origin:
 
   const workspaceId = matched?.workspace_id || null;
   workspaceByHostCache.set(normalizedHost, { workspaceId, ts: Date.now() });
+  boundCache(workspaceByHostCache);
   return workspaceId;
 }
 
@@ -241,6 +244,7 @@ export async function getWorkspaceOriginRules(config: ServerConfig, workspaceId:
 
 
   originRulesCache.set(workspaceId, { ...result, ts: Date.now() });
+  boundCache(originRulesCache);
   return result;
 }
 

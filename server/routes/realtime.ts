@@ -915,7 +915,32 @@ realtimeRouter.put('/admin/config', requireAdmin, async (req, res) => {
       centrifugo: mergedCentrifugo,
     };
 
+    // ── Safe activation (§52/§53) ────────────────────────────────────
+    // A topology change is only accepted when it can actually serve
+    // traffic. On failure the PREVIOUS config stays active — nothing is
+    // written. `force: true` allows an explicitly audited override.
+    if (next.vendor === 'centrifugo') {
+      const nextMode = resolveDeploymentMode(next.centrifugo);
+      const prevMode = resolveDeploymentMode(prev.centrifugo);
+      const force = req.body?.force === true;
+      if (nextMode !== prevMode || nextMode !== 'single_memory') {
+        const check = await preflightTopology(next);
+        if (!check.ok && !force) {
+          await getServiceClient(config).from('realtime_provider_audit').insert({
+            changed_by: adminUser.id,
+            action: 'preflight_failed',
+            vendor: next.vendor,
+            prev_vendor: prev.vendor,
+            result: 'failed',
+            error_message: check.errors.join('; ').slice(0, 500),
+          });
+          return res.status(400).json({ error: 'Preflight failed', preflight: check });
+        }
+      }
+    }
+
     await saveRealtimeConfig(config, next);
+
 
     // Audit (masked diff only)
     await getServiceClient(config).from('realtime_provider_audit').insert({

@@ -40,10 +40,13 @@ export function useVisitorPresenceForConversation(
       if (body.status === 'unknown' || !body.updated_at) {
         return { status: 'unknown', current_page: body.current_page ?? null, updated_at: null };
       }
-      // Auto-degrade to "offline" if the row is stale (last update > 90s ago).
-      // Heartbeat cadence is roughly every 30s, so 90s is a safe threshold.
+      // Auto-degrade to "offline" only well past the server-side liveness
+      // refresh window. Heartbeats fire every 60s but the server coalesces
+      // writes to at most one per 120s, so anything below ~240s would
+      // report a false "offline" for a visitor who is still on the page.
       const ts = new Date(body.updated_at).getTime();
-      const stale = Date.now() - ts > 90_000;
+      const stale = Date.now() - ts > 240_000;
+
       const effective: VisitorPresenceInfo['status'] = stale ? 'offline' : body.status;
       return {
         status: effective,

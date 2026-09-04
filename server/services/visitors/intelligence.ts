@@ -110,8 +110,12 @@ function mergeStatus(
 ): VisitorIntelligenceItem['status'] {
   const last = presenceUpdatedAt ? new Date(presenceUpdatedAt).getTime() : new Date(sessionLastSeen).getTime();
   const ageMs = Date.now() - last;
-  if (presenceStatus === 'online' && ageMs > 90_000) return 'idle';
-  if (ageMs > 5 * 60_000) return 'offline';
+  // Thresholds are derived from the coalesced liveness write interval
+  // (see server/services/widget/visitorLiveness.ts) so a suppressed
+  // heartbeat write can never surface as a false idle/offline.
+  if (presenceStatus === 'online' && ageMs > VISITOR_LIVENESS_ONLINE_MS) return 'idle';
+  if (ageMs > VISITOR_LIVENESS_OFFLINE_MS) return 'offline';
+
   return (presenceStatus as VisitorIntelligenceItem['status']) ?? 'unknown';
 }
 

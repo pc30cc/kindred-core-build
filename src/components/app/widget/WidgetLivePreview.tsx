@@ -751,7 +751,7 @@ export function WidgetLivePreview({
         if (typeof element.animate === 'function') {
           element.animate(
             [{ transform: 'translateY(var(--gs-fab-exit,112px))' }, { transform: 'translateY(0)' }],
-            { duration: 520, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'none' }
+            { duration: 620, easing: 'cubic-bezier(.33,1,.68,1)', fill: 'none' }
           );
           return;
         }

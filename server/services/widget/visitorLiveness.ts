@@ -82,7 +82,12 @@ export async function touchVisitorLiveness(
     };
   }
 
-  // RPC not deployed → legacy path (still correct, just chattier).
+  // Only a genuinely missing RPC (old self-hosted database) may degrade to the
+  // legacy write pair. Permission errors, SQL/runtime failures, timeouts and
+  // bad input must surface — silently falling back would hide a real bug while
+  // multiplying the write volume we just removed.
+  if (!isMissingRpcError(error)) throw error;
+
   return touchVisitorLivenessFallback(supabase, {
     workspaceId,
     sessionId,
@@ -90,6 +95,25 @@ export async function touchVisitorLiveness(
     currentPage,
   });
 }
+
+/**
+ * True only for "function does not exist" / PostgREST schema-cache misses.
+ * PostgREST reports an undefined routine as PGRST202 (schema cache) and
+ * Postgres as SQLSTATE 42883.
+ */
+export function isMissingRpcError(error: any): boolean {
+  if (!error) return false;
+  const code = String(error.code ?? '');
+  if (code === '42883' || code === 'PGRST202') return true;
+  if (code === '404') return true;
+  const msg = `${error.message ?? ''} ${error.details ?? ''} ${error.hint ?? ''}`.toLowerCase();
+  return (
+    /could not find the function/.test(msg) ||
+    /function .*visitor_touch_liveness.* does not exist/.test(msg) ||
+    /schema cache/.test(msg)
+  );
+}
+
 
 async function touchVisitorLivenessFallback(
   supabase: SupabaseClient<any>,

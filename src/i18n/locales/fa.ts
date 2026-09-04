@@ -11,6 +11,8 @@ const fa: TranslationKeys = {
       confirm: 'تأیید', back: 'بازگشت', amount: 'مبلغ', date: 'تاریخ', status: 'وضعیت', actions: 'عملیات',
       view: 'مشاهده', total: 'جمع', yes: 'بله', no: 'خیر', notAvailable: '—',
       continue: 'ادامه',
+      paymentSucceeded: 'پرداخت با موفقیت انجام شد.',
+      paymentFailed: 'پرداخت تأیید نشد.',
     },
     overview: {
       currentPlan: 'پلن فعلی', free: 'رایگان', trial: 'دوره آزمایشی', trialEnds: 'پایان دوره آزمایشی {{date}}',

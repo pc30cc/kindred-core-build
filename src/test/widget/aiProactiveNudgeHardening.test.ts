@@ -35,26 +35,26 @@ describe('lifecycle.ts — guarded nudge status transitions', () => {
     expect(ok).toBe(true);
   });
 
-  it('rejects a direct generated -> converted jump (never shown/clicked first) by construction — converted allows from generated too per spec, so instead assert dismissed cannot follow itself', async () => {
-    // "dismissed -> shown" must never happen: shown only allows FROM generated.
+  it('"shown -> shown" (replayed ack) cannot re-fire — shown only allows FROM generated', async () => {
     const supabase = { from: () => ({ update: () => fakeUpdateBuilder(false) }) };
     const ok = await transitionNudgeStatus(supabase, { nudgeId: 'n1', workspaceId: 'ws1', to: 'shown' });
     expect(ok).toBe(false);
   });
 
-  it('a second "shown" ack is a safe no-op (idempotent — cannot re-fire from shown)', async () => {
-    // Once already 'shown', the allowed-from list for 'shown' is ['generated']
-    // only, so the WHERE clause simply matches nothing on a replay.
+  it('dismissed/clicked never allow "generated" as a prior state (no skipping the shown step)', async () => {
+    // dismissed and clicked may ONLY follow 'shown' — a nudge still
+    // 'generated' cannot transition directly to either.
     const supabase = { from: () => ({ update: () => fakeUpdateBuilder(false) }) };
-    const ok = await transitionNudgeStatus(supabase, { nudgeId: 'n1', workspaceId: 'ws1', to: 'shown' });
-    expect(ok).toBe(false);
+    const dismissedOk = await transitionNudgeStatus(supabase, { nudgeId: 'n1', workspaceId: 'ws1', to: 'dismissed' });
+    const clickedOk = await transitionNudgeStatus(supabase, { nudgeId: 'n1', workspaceId: 'ws1', to: 'clicked' });
+    expect(dismissedOk).toBe(false);
+    expect(clickedOk).toBe(false);
   });
 
-  it('rejects "converted -> clicked" (converted is terminal, not in clicked\'s allowed-from list)', () => {
-    // Static assertion on the transition table shape: 'clicked' may only
-    // come from 'generated' or 'shown', never from 'converted'.
-    const ALLOWED_FROM_CLICKED = ['generated', 'shown'];
-    expect(ALLOWED_FROM_CLICKED).not.toContain('converted');
+  it('converted allows only from clicked (rejects from generated/shown/dismissed)', async () => {
+    const supabase = { from: () => ({ update: () => fakeUpdateBuilder(false) }) };
+    const ok = await transitionNudgeStatus(supabase, { nudgeId: 'n1', workspaceId: 'ws1', to: 'converted' });
+    expect(ok).toBe(false);
   });
 
   it('"generated" itself has no allowed prior state (it is the initial state, never a transition target)', async () => {
@@ -112,33 +112,43 @@ describe('session.ts — trusted session lineage', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Part 3 — sessionState.ts: atomic evaluation ceiling RPC caller.
+// Part 3 — sessionState.ts: atomic evaluation-identity RPC caller.
 // ─────────────────────────────────────────────────────────────────────
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: vi.fn() }));
 
-describe('sessionState.ts — evaluation ceiling caller', () => {
+describe('sessionState.ts — durable evaluation identity caller', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('calls the atomic RPC with workspace + trusted session key + ceiling, never a client identifier', async () => {
-    const rpc = vi.fn().mockResolvedValue({ data: 3, error: null });
+  it('calls the atomic RPC with workspace + trusted session key + fingerprint + ceiling, never a client identifier', async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: { ok: true, evaluation_id: 'eval-1', evaluation_count: 1, is_new: true }, error: null });
     const { getServiceClient } = await import('../../../server/supabase.js');
     (getServiceClient as any).mockReturnValue({ rpc });
-    const { tryIncrementAiNudgeEvaluationCounter } = await import('../../../server/services/widget/aiNudge/sessionState.js');
-    const result = await tryIncrementAiNudgeEvaluationCounter({} as any, 'ws-1', 'trusted-key-abc', 5);
-    expect(result).toBe(3);
-    expect(rpc).toHaveBeenCalledWith('ai_nudge_try_increment_session_counter', expect.objectContaining({
+    const { acquireAiNudgeEvaluation } = await import('../../../server/services/widget/aiNudge/sessionState.js');
+    const result = await acquireAiNudgeEvaluation({} as any, 'ws-1', 'trusted-key-abc', 'fp-1', 5);
+    expect(result).toEqual({ evaluationId: 'eval-1', evaluationCount: 1, isNew: true });
+    expect(rpc).toHaveBeenCalledWith('ai_nudge_acquire_evaluation', expect.objectContaining({
       _workspace_id: 'ws-1',
       _session_key: 'trusted-key-abc',
+      _fingerprint: 'fp-1',
       _max_evaluations: 5,
     }));
   });
 
-  it('returns null (denied) when the RPC reports the ceiling was reached', async () => {
-    const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
+  it('returns the SAME evaluation_id without incrementing when the RPC reports a replay (is_new: false)', async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: { ok: true, evaluation_id: 'eval-1', evaluation_count: 1, is_new: false }, error: null });
     const { getServiceClient } = await import('../../../server/supabase.js');
     (getServiceClient as any).mockReturnValue({ rpc });
-    const { tryIncrementAiNudgeEvaluationCounter } = await import('../../../server/services/widget/aiNudge/sessionState.js');
-    const result = await tryIncrementAiNudgeEvaluationCounter({} as any, 'ws-1', 'trusted-key-abc', 5);
+    const { acquireAiNudgeEvaluation } = await import('../../../server/services/widget/aiNudge/sessionState.js');
+    const result = await acquireAiNudgeEvaluation({} as any, 'ws-1', 'trusted-key-abc', 'fp-1', 5);
+    expect(result).toEqual({ evaluationId: 'eval-1', evaluationCount: 1, isNew: false });
+  });
+
+  it('returns null (denied) when the RPC reports the ceiling was reached', async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: { ok: false, reason: 'ceiling_reached' }, error: null });
+    const { getServiceClient } = await import('../../../server/supabase.js');
+    (getServiceClient as any).mockReturnValue({ rpc });
+    const { acquireAiNudgeEvaluation } = await import('../../../server/services/widget/aiNudge/sessionState.js');
+    const result = await acquireAiNudgeEvaluation({} as any, 'ws-1', 'trusted-key-abc', 'fp-1', 5);
     expect(result).toBeNull();
   });
 
@@ -146,8 +156,8 @@ describe('sessionState.ts — evaluation ceiling caller', () => {
     const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: 'db down' } });
     const { getServiceClient } = await import('../../../server/supabase.js');
     (getServiceClient as any).mockReturnValue({ rpc });
-    const { tryIncrementAiNudgeEvaluationCounter } = await import('../../../server/services/widget/aiNudge/sessionState.js');
-    const result = await tryIncrementAiNudgeEvaluationCounter({} as any, 'ws-1', 'trusted-key-abc', 5);
+    const { acquireAiNudgeEvaluation } = await import('../../../server/services/widget/aiNudge/sessionState.js');
+    const result = await acquireAiNudgeEvaluation({} as any, 'ws-1', 'trusted-key-abc', 'fp-1', 5);
     expect(result).toBeNull();
   });
 
@@ -155,8 +165,18 @@ describe('sessionState.ts — evaluation ceiling caller', () => {
     const rpc = vi.fn();
     const { getServiceClient } = await import('../../../server/supabase.js');
     (getServiceClient as any).mockReturnValue({ rpc });
-    const { tryIncrementAiNudgeEvaluationCounter } = await import('../../../server/services/widget/aiNudge/sessionState.js');
-    const result = await tryIncrementAiNudgeEvaluationCounter({} as any, 'ws-1', 'trusted-key-abc', 0);
+    const { acquireAiNudgeEvaluation } = await import('../../../server/services/widget/aiNudge/sessionState.js');
+    const result = await acquireAiNudgeEvaluation({} as any, 'ws-1', 'trusted-key-abc', 'fp-1', 0);
+    expect(result).toBeNull();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('never calls the RPC when the fingerprint is missing (fail closed, not "unlimited")', async () => {
+    const rpc = vi.fn();
+    const { getServiceClient } = await import('../../../server/supabase.js');
+    (getServiceClient as any).mockReturnValue({ rpc });
+    const { acquireAiNudgeEvaluation } = await import('../../../server/services/widget/aiNudge/sessionState.js');
+    const result = await acquireAiNudgeEvaluation({} as any, 'ws-1', 'trusted-key-abc', '', 5);
     expect(result).toBeNull();
     expect(rpc).not.toHaveBeenCalled();
   });

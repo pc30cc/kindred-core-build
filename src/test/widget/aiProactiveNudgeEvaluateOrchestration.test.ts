@@ -27,8 +27,7 @@ vi.mock('../../../server/services/widget/aiNudge/dedup.js', () => ({
   recordAiNudgeEvaluation: vi.fn(),
 }));
 vi.mock('../../../server/services/widget/aiNudge/sessionState.js', () => ({
-  tryIncrementAiNudgeEvaluationCounter: vi.fn(),
-  recordAiNudgeShownForSession: vi.fn(),
+  acquireAiNudgeEvaluation: vi.fn(),
 }));
 vi.mock('../../../server/services/ai-agent/settings.js', () => ({ getOrCreateSettings: vi.fn().mockResolvedValue({ agent_name: 'Bot' }) }));
 vi.mock('../../../server/services/ai-agent/retrieval.js', () => ({ retrieveSources: vi.fn().mockResolvedValue([]) }));
@@ -130,7 +129,7 @@ const SHOW_DECISION_RAW = JSON.stringify({
 describe('evaluate.ts — full orchestration hardening', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  async function wireHappyPath(overrides: { freqResult?: any; ceiling?: number | null; policy?: Partial<typeof BASE_POLICY> } = {}) {
+  async function wireHappyPath(overrides: { freqResult?: any; ceiling?: number | null; acquisition?: any; policy?: Partial<typeof BASE_POLICY> } = {}) {
     const { resolveEffectiveAiNudgePolicy } = await import('../../../server/services/widget/aiNudge/policy.js');
     (resolveEffectiveAiNudgePolicy as any).mockResolvedValue({ ...BASE_POLICY, ...(overrides.policy || {}) });
 
@@ -139,8 +138,14 @@ describe('evaluate.ts — full orchestration hardening', () => {
       freqResult: overrides.freqResult ?? { data: [], error: null },
     }));
 
-    const { tryIncrementAiNudgeEvaluationCounter } = await import('../../../server/services/widget/aiNudge/sessionState.js');
-    (tryIncrementAiNudgeEvaluationCounter as any).mockResolvedValue(overrides.ceiling === undefined ? 1 : overrides.ceiling);
+    const { acquireAiNudgeEvaluation } = await import('../../../server/services/widget/aiNudge/sessionState.js');
+    if (overrides.ceiling === null) {
+      (acquireAiNudgeEvaluation as any).mockResolvedValue(null);
+    } else {
+      (acquireAiNudgeEvaluation as any).mockResolvedValue(
+        overrides.acquisition ?? { evaluationId: 'eval-1', evaluationCount: overrides.ceiling ?? 1, isNew: true },
+      );
+    }
 
     const { beginAiRunGuarded } = await import('../../../server/services/ai-billing/runContext.js');
     (beginAiRunGuarded as any).mockResolvedValue({ runId: 'run-123', stepSeq: 1, workspaceId: 'ws-1' });
@@ -226,9 +231,9 @@ describe('evaluate.ts — full orchestration hardening', () => {
     expect(executeAICompletion).not.toHaveBeenCalled();
   });
 
-  it('session-id rotation attack: the evaluation ceiling is keyed on trustedSessionKey, never the client session_id', async () => {
+  it('session-id rotation attack: evaluation identity is acquired on trustedSessionKey, never the client session_id (blocker 4 test D)', async () => {
     const { evaluateAiProactiveNudge } = await wireHappyPath();
-    const { tryIncrementAiNudgeEvaluationCounter } = await import('../../../server/services/widget/aiNudge/sessionState.js');
+    const { acquireAiNudgeEvaluation } = await import('../../../server/services/widget/aiNudge/sessionState.js');
     for (const rotatedSessionId of ['session-A', 'session-B', 'session-C']) {
       await evaluateAiProactiveNudge({} as any, {
         workspaceId: 'ws-1', trustedSessionKey: 'trusted-abc', visitorId: null, sessionId: rotatedSessionId,
@@ -236,11 +241,75 @@ describe('evaluate.ts — full orchestration hardening', () => {
       });
     }
     // Every call used the SAME trusted key regardless of the rotated client session_id.
-    const calls = (tryIncrementAiNudgeEvaluationCounter as any).mock.calls;
+    const calls = (acquireAiNudgeEvaluation as any).mock.calls;
     expect(calls.length).toBe(3);
     for (const call of calls) {
       expect(call[2]).toBe('trusted-abc');
     }
+  });
+
+  it('blocker 4 test A: a replayed evaluation (same evaluationId) with an already-persisted result returns that SAME result — zero additional provider execution', async () => {
+    const { resolveEffectiveAiNudgePolicy } = await import('../../../server/services/widget/aiNudge/policy.js');
+    (resolveEffectiveAiNudgePolicy as any).mockResolvedValue(BASE_POLICY);
+    const { acquireAiNudgeEvaluation } = await import('../../../server/services/widget/aiNudge/sessionState.js');
+    (acquireAiNudgeEvaluation as any).mockResolvedValue({ evaluationId: 'eval-replay-1', evaluationCount: 1, isNew: false });
+    const { getServiceClient } = await import('../../../server/supabase.js');
+    // The widget_ai_nudges select must serve BOTH the frequency-lookup chain
+    // AND the replay-lookup (.eq().eq().maybeSingle()) chain, since
+    // evaluate.ts uses the same table for both.
+    (getServiceClient as any).mockReturnValue({
+      from: (table: string) => {
+        if (table === 'widget_ai_nudges') {
+          return {
+            select: () => ({
+              eq: () => ({
+                eq: () => ({
+                  in: () => ({ gte: () => ({ order: () => ({ limit: async () => ({ data: [], error: null }) }) }) }),
+                  maybeSingle: async () => ({
+                    data: { id: 'existing-nudge-1', message: 'Need help?', topic: 'pricing', cta_label: 'Chat', cta_action: 'open_chat', cta_url: null },
+                    error: null,
+                  }),
+                }),
+              }),
+            }),
+          };
+        }
+        return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) };
+      },
+    });
+    const { executeAICompletion } = await import('../../../server/services/ai/index.js');
+    const { beginAiRunGuarded } = await import('../../../server/services/ai-billing/runContext.js');
+    const evaluateAiProactiveNudge = (await import('../../../server/services/widget/aiNudge/evaluate.js')).evaluateAiProactiveNudge;
+    const result = await evaluateAiProactiveNudge({} as any, {
+      workspaceId: 'ws-1', trustedSessionKey: 'trusted-abc', visitorId: null, sessionId: null,
+      locale: 'en', device: 'desktop', ctx: baseCtx() as any, journey: baseJourney() as any,
+    });
+    expect(result).toEqual({
+      decision: 'show',
+      nudgeId: 'existing-nudge-1',
+      message: 'Need help?',
+      topic: 'pricing',
+      cta: { label: 'Chat', action: 'open_chat', url: undefined },
+    });
+    expect(executeAICompletion).not.toHaveBeenCalled();
+    expect(beginAiRunGuarded).not.toHaveBeenCalled();
+  });
+
+  it('blocker 4 test B: a genuinely new evaluation (isNew: true) always proceeds through a real provider call, keyed by its own evaluationId', async () => {
+    const { evaluateAiProactiveNudge } = await wireHappyPath({ acquisition: { evaluationId: 'eval-new-2', evaluationCount: 2, isNew: true } });
+    const { executeAICompletion } = await import('../../../server/services/ai/index.js');
+    const { beginAiRunGuarded } = await import('../../../server/services/ai-billing/runContext.js');
+    await evaluateAiProactiveNudge({} as any, {
+      workspaceId: 'ws-1', trustedSessionKey: 'trusted-abc', visitorId: null, sessionId: null,
+      locale: 'en', device: 'desktop', ctx: baseCtx() as any, journey: baseJourney() as any,
+    });
+    expect(executeAICompletion).toHaveBeenCalled();
+    const beginArgs = (beginAiRunGuarded as any).mock.calls[0][1];
+    expect(beginArgs.operationKey).toContain('eval-new-2');
+    expect(beginArgs.operationKey).not.toContain('undefined');
+    const completionArgs = (executeAICompletion as any).mock.calls[0][1];
+    expect(completionArgs.requestId).toContain('eval-new-2');
+    expect(completionArgs.billing.operationKey).toContain('eval-new-2');
   });
 
   it('useJourney=false: recentPages never reach the eligibility score or the AI prompt', async () => {

@@ -145,8 +145,6 @@ export async function recordSmartEvent(
     aiNudgeId?: string | null;
     visitorId?: string | null;
     sessionId?: string | null;
-    /** Trusted session lineage (see aiNudge/session.ts) — required for the 'shown' ack. */
-    trustedSessionKey?: string | null;
     eventType: string;
     pagePath?: string | null;
     idempotencyKey: string;
@@ -175,39 +173,27 @@ export async function recordSmartEvent(
       return { ok: false, reason: 'nudge_workspace_mismatch' };
     }
 
-    // ─── Lifecycle: this is the ONLY place "generated" ever becomes
-    // "shown" — the browser's acknowledgement that the bubble actually
-    // attached to the page. A duplicate/replayed/stale ack is a safe
-    // no-op (guarded transition), never a double count. ─────────────────
-    const { transitionNudgeStatus } = await import('./aiNudge/lifecycle.js');
-    if (payload.eventType === 'shown') {
-      const transitioned = await transitionNudgeStatus(supabase, {
-        nudgeId: payload.aiNudgeId,
-        workspaceId: payload.workspaceId,
-        to: 'shown',
-        requireNotExpired: true,
-      });
-      if (transitioned && payload.trustedSessionKey) {
-        const { recordAiNudgeShownForSession } = await import('./aiNudge/sessionState.js');
-        void recordAiNudgeShownForSession(supabase, payload.workspaceId, payload.trustedSessionKey);
-      }
-    } else if (payload.eventType === 'dismissed') {
-      void transitionNudgeStatus(supabase, { nudgeId: payload.aiNudgeId, workspaceId: payload.workspaceId, to: 'dismissed' });
-    } else if (payload.eventType === 'cta_clicked') {
-      void transitionNudgeStatus(supabase, { nudgeId: payload.aiNudgeId, workspaceId: payload.workspaceId, to: 'clicked' });
-    }
-
-    const { error } = await supabase.from('widget_smart_events').insert({
-      workspace_id: payload.workspaceId,
-      source: 'ai_proactive',
-      ai_nudge_id: payload.aiNudgeId,
-      visitor_id: payload.visitorId || null,
-      session_id: payload.sessionId || null,
-      event_type: payload.eventType,
-      page_path: path,
-      idempotency_key: String(payload.idempotencyKey).slice(0, 120),
+    // ─── Lifecycle + event recording: ONE atomic server-side RPC call.
+    // This is the ONLY place an 'ai_proactive' status ever changes and the
+    // ONLY place an 'ai_proactive' widget_smart_events row is inserted, so
+    // they can never disagree. The idempotency key is derived INSIDE the
+    // RPC from immutable identifiers (workspace/nudge/event type) —
+    // payload.idempotencyKey (client-controlled, built from a rotating
+    // client session id) is NEVER used for this source. Out-of-order
+    // arrival (e.g. a click racing ahead of the shown ack) is absorbed by
+    // the RPC atomically backfilling the implied shown step first; an
+    // invalid transition returns ok:false without inserting any event. ───
+    const { data: rpcData, error: rpcError } = await supabase.rpc('ai_nudge_apply_lifecycle_event', {
+      _workspace_id: payload.workspaceId,
+      _nudge_id: payload.aiNudgeId,
+      _event_type: payload.eventType,
+      _visitor_id: payload.visitorId || null,
+      _session_id: payload.sessionId || null,
+      _page_path: path,
     });
-    if (error && (error as any).code !== '23505') return { ok: false, reason: error.message };
+    if (rpcError) return { ok: false, reason: rpcError.message };
+    const result = rpcData as { ok?: boolean; reason?: string } | null;
+    if (!result || !result.ok) return { ok: false, reason: result?.reason || 'lifecycle_event_rejected' };
     return { ok: true };
   }
 

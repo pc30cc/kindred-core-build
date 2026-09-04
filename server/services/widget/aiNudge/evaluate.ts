@@ -25,7 +25,7 @@ import { beginAiRunGuarded, settleAiRun, failAiRun, type AiRunContext } from '..
 import { isAllowanceExhausted } from '../../ai-billing/errors.js';
 import { resolveEffectiveAiNudgePolicy } from './policy.js';
 import { isDuplicateAiNudgeContext, recordAiNudgeEvaluation } from './dedup.js';
-import { tryIncrementAiNudgeEvaluationCounter } from './sessionState.js';
+import { acquireAiNudgeEvaluation } from './sessionState.js';
 import { parseAiNudgeDecision, type AiNudgeDecision } from './contract.js';
 import {
   evaluateAiProactiveEligibility,
@@ -246,33 +246,74 @@ export async function evaluateAiProactiveNudge(
     return SUPPRESS;
   }
 
-  // In-process dedup — collapses near-simultaneous duplicate requests for
-  // the exact same context (double-tab, retry) before they ever reach the
-  // durable evaluation ceiling or a billable AI call. Keyed by the SAME
-  // trusted session lineage as everything else in this function — a
-  // rotated client session_id can never manufacture a fresh dedup slot.
+  // In-process dedup — a fast, PERFORMANCE-ONLY pre-filter that collapses
+  // near-simultaneous duplicate requests for the exact same context
+  // (double-tab, retry) before they ever reach the database. This cache is
+  // NOT the correctness boundary: it is process-local and cleared on
+  // restart, and it fails OPEN if it fails to catch a duplicate. The
+  // durable, cross-replica, restart-safe correctness boundary is the
+  // ai_nudge_acquire_evaluation() DB RPC immediately below.
   if (isDuplicateAiNudgeContext(workspaceId, trustedSessionKey, eligibility.fingerprint)) {
     emitMetric(config, { metric: 'ai_nudge.suppressed', workspaceId, source: 'widget', tags: { reason: 'duplicate_context' } });
     return SUPPRESS;
   }
   recordAiNudgeEvaluation(workspaceId, trustedSessionKey, eligibility.fingerprint);
 
-  // ─── Durable, atomic, cross-replica evaluation ceiling — BEFORE any
-  // billable AI execution. No client-supplied counter is ever authoritative
-  // here; a rotated session_id cannot buy extra allowance because the
-  // ceiling is keyed on the trusted session lineage. ───────────────────
-  const evalCount = await tryIncrementAiNudgeEvaluationCounter(
+  // ─── Durable, atomic, cross-replica evaluation IDENTITY — BEFORE any
+  // billable AI execution. No client-supplied counter or session_id is
+  // ever authoritative here; both the per-session ceiling and the
+  // evaluation's identity are keyed on the trusted session lineage +
+  // context fingerprint, resolved atomically in Postgres so concurrent
+  // requests and multiple replicas can never both mint a fresh id for the
+  // same fingerprint, and a retry of the SAME fingerprint (within the
+  // dedup window) always gets back the SAME evaluationId — which is what
+  // every AI billing/idempotency key below is built from, so a replay can
+  // never mint a second provider charge and a later legitimate evaluation
+  // can never reuse an old settled AI Run. ─────────────────────────────
+  const acquisition = await acquireAiNudgeEvaluation(
     config,
     workspaceId,
     trustedSessionKey,
+    eligibility.fingerprint,
     policy.maxEvaluationsPerSession,
   );
-  if (evalCount === null) {
+  if (acquisition === null) {
     emitMetric(config, { metric: 'ai_nudge.suppressed', workspaceId, source: 'widget', tags: { reason: 'evaluation_ceiling_reached' } });
     return SUPPRESS;
   }
+  const { evaluationId, isNew: isNewEvaluation } = acquisition;
 
   emitMetric(config, { metric: 'ai_nudge.evaluated', workspaceId, source: 'widget', tags: { mode: policy.mode, topic: eligibility.topicBucket } });
+
+  // A replay of an already-acquired evaluation (same evaluationId): if the
+  // prior attempt already persisted its result, return that SAME result —
+  // zero additional provider execution/charge, not merely a deduplicated
+  // one. If nothing was persisted yet (the prior attempt is still in
+  // flight, crashed before insert, or suppressed), fall through to the
+  // normal path below; the AI Run's own operationKey+payload-hash
+  // resumption (beginAiRunGuarded) still guarantees at most one billable
+  // execution for this evaluationId even in that case.
+  if (!isNewEvaluation) {
+    try {
+      const sb = getServiceClient(config);
+      const { data: existing } = await sb
+        .from('widget_ai_nudges' as any)
+        .select('id, message, topic, cta_label, cta_action, cta_url')
+        .eq('workspace_id', workspaceId)
+        .eq('evaluation_id', evaluationId)
+        .maybeSingle();
+      if (existing) {
+        const row = existing as any;
+        return {
+          decision: 'show',
+          nudgeId: row.id,
+          message: row.message,
+          topic: row.topic,
+          cta: row.cta_action ? { label: row.cta_label || '', action: row.cta_action, url: row.cta_url || undefined } : undefined,
+        };
+      }
+    } catch { /* fall through — AI Run idempotency below still protects billing */ }
+  }
 
   let sources: Awaited<ReturnType<typeof retrieveSources>> = [];
   if (policy.useKb) {
@@ -293,14 +334,24 @@ export async function evaluateAiProactiveNudge(
   const systemPrompt = buildNudgeSystemPrompt({ agentName, locale: input.locale, guidance: policy.guidance, hasSources: sources.length > 0 });
   const userPrompt = buildNudgeUserPrompt(journey, sources);
 
-  // ─── AI Run — one logical nudge evaluation = one AI Run, opened by THIS
-  // caller (same pattern as server/services/ai-agent/engine.ts's
-  // openTurnRun/closeTurnRun) so the resulting runId can be persisted on
-  // the generated nudge row for exact per-nudge cost attribution. The
-  // operation key is the trusted session lineage + context fingerprint —
-  // never the client-rotatable session_id — so a replay can only ever
-  // resume the SAME run, never mint a second billable one. ─────────────
-  const operationKey = `nudge:${workspaceId}:${trustedSessionKey}:${eligibility.fingerprint}`;
+  // ─── AI Run — one logical nudge EVALUATION (not fingerprint) = one AI
+  // Run, opened by THIS caller (same pattern as
+  // server/services/ai-agent/engine.ts's openTurnRun/closeTurnRun) so the
+  // resulting runId can be persisted on the generated nudge row for exact
+  // per-nudge cost attribution. The operation key is built from the
+  // durable, server-minted evaluationId — never the raw fingerprint and
+  // never the client-rotatable session_id — so a retry of the SAME
+  // evaluation can only ever resume the SAME run (no double charge), while
+  // a genuinely later evaluation (new evaluationId, even for the same
+  // fingerprint after the dedup window lapses) always gets a fresh run
+  // (no accidental reuse of an old settled run). ───────────────────────
+  const operationKey = `nudge:${workspaceId}:${trustedSessionKey}:${evaluationId}`;
+  // Reusing the AI Runtime's own request-idempotency (withAiIdempotency)
+  // for the same evaluationId means a replay that lands inside this same
+  // process within its short in-flight window returns the memoized
+  // response instead of a second provider call — belt-and-suspenders on
+  // top of the AI Run resumption above, at zero extra infrastructure cost.
+  const aiRequestId = `ai-nudge:${evaluationId}`;
   let runCtx: AiRunContext | null = null;
   try {
     runCtx = await beginAiRunGuarded(config, {
@@ -330,6 +381,7 @@ export async function evaluateAiProactiveNudge(
         jsonMode: true,
         maxTokens: 300,
         temperature: 0.4,
+        requestId: aiRequestId,
         billing: {
           entryPoint: 'proactive_nudge',
           operationKey,
@@ -413,6 +465,7 @@ export async function evaluateAiProactiveNudge(
         page_path: journey.current.path,
         confidence: decision.confidence,
         ai_run_id: runCtx?.runId || null,
+        evaluation_id: evaluationId,
         status: 'generated',
       })
       .select('id')

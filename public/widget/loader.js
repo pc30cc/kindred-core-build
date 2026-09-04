@@ -1320,13 +1320,23 @@
       } catch (_) { return null; }
     }
 
+    // Session-recovery aware lifecycle reporter. A bubble can render while
+    // its 'shown' ack fails during widget token rotation/expiry — without
+    // recovery, backend status stays stuck at 'generated' forever even
+    // though the visitor genuinely saw it. This uses the SAME canonical
+    // token-recovery sequence as the tracking heartbeat (promoted onto
+    // window.__gs_token.recover by startTracking — see loader.js above),
+    // never an independent auth/session implementation, and retries the
+    // SAME event exactly once — safe because the server derives its own
+    // idempotency key for 'ai_proactive' events server-side, so a retry can
+    // never double-record. Non-auth failures stay best-effort and never
+    // throw, so a reporting failure can never break the visitor widget.
     function reportAiEvent(nudgeId, type) {
-      try {
-        var token = (window.__gs_token && window.__gs_token.get()) || sessionToken;
-        fetch(apiBase + "/api/widget/smart/event", {
+      function send(tok, isRetry) {
+        return fetch(apiBase + "/api/widget/smart/event", {
           method: "POST",
           credentials: "include",
-          headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+          headers: { "Content-Type": "application/json", "X-Widget-Token": tok },
           body: JSON.stringify({
             workspace_id: WORKSPACE_ID,
             source: "ai_proactive",
@@ -1335,7 +1345,20 @@
             page_path: (window.location.pathname || "/").slice(0, 500),
             idempotency_key: (currentSessionId() + ":" + nudgeId + ":" + type).slice(0, 160),
           }),
-        }).catch(function () {});
+        })
+          .then(function (r) {
+            if (r.ok || isRetry) return;
+            if (r.status !== 401 && r.status !== 403) return;
+            if (!window.__gs_token || typeof window.__gs_token.recover !== "function") return;
+            return window.__gs_token.recover().then(function (freshTok) {
+              if (freshTok) return send(freshTok, true);
+            });
+          })
+          .catch(function () {});
+      }
+      try {
+        var token = (window.__gs_token && window.__gs_token.get()) || sessionToken;
+        send(token, false);
       } catch (_) {}
     }
 
@@ -1981,6 +2004,14 @@
         return tok || bootstrapSession();
       });
     }
+
+    // Promote this canonical, already-proven recovery sequence (refresh,
+    // fall back to bootstrap) onto the shared token bus so every other
+    // caller in the widget — e.g. startSmart()'s AI-nudge lifecycle
+    // reporter — recovers a widget session the SAME way this heartbeat
+    // loop does, instead of inventing a second, independent recovery path.
+    // Idempotent-safe to overwrite: startTracking runs exactly once.
+    try { window.__gs_token.recover = recoverToken; } catch (_) {}
 
     fetch(apiBase + "/api/widget/track", {
       method: "POST",

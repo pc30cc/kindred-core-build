@@ -84,6 +84,12 @@ CREATE TABLE IF NOT EXISTS public.widget_ai_nudges (
   page_path text,
   confidence numeric,
   ai_run_id uuid REFERENCES public.ai_runs(id) ON DELETE SET NULL,
+  -- Durable evaluation identity this nudge was generated from (see
+  -- widget_ai_nudge_session_state.last_evaluation_id /
+  -- ai_nudge_acquire_evaluation() below) — lets a replayed evaluation
+  -- request look up and return this SAME row instead of paying for a
+  -- second provider execution.
+  evaluation_id uuid,
   -- Lifecycle: generated -> shown -> dismissed | clicked -> converted, or
   -- generated -> expired. "generated" != "shown": a candidate is only
   -- "shown" once the browser acknowledges it actually rendered the bubble.
@@ -111,14 +117,24 @@ CREATE POLICY "Workspace members can view ai nudges"
 
 CREATE INDEX idx_widget_ai_nudges_ws_created ON public.widget_ai_nudges (workspace_id, created_at DESC);
 CREATE INDEX idx_widget_ai_nudges_session ON public.widget_ai_nudges (workspace_id, session_key, created_at DESC);
+CREATE INDEX idx_widget_ai_nudges_evaluation ON public.widget_ai_nudges (workspace_id, evaluation_id) WHERE evaluation_id IS NOT NULL;
 
 -- ─────────────────────────────────────────────────────────────────────
--- 2b. Per-session AI-evaluation ceiling — ONE small aggregate row per
---    (workspace, trusted session), NOT a raw event stream. Durable in
---    Postgres (not in-process) so the ceiling survives a process restart
---    and is shared across every Core replica — see
---    ai_nudge_try_increment_session_counter() below for the atomic,
---    concurrency-safe increment.
+-- 2b. Per-session AI-evaluation ceiling AND durable evaluation identity —
+--    ONE small aggregate row per (workspace, trusted session), NOT a raw
+--    event stream. Durable in Postgres (not in-process) so both the
+--    ceiling and the evaluation identity survive a process restart and
+--    are shared across every Core replica — see
+--    ai_nudge_acquire_evaluation() below. last_fingerprint/
+--    last_evaluation_id let that RPC tell "this is a retry of the same
+--    evaluation" (same fingerprint, still inside the dedup window — reuse
+--    the same evaluation_id, do not consume a ceiling slot) apart from
+--    "this is a genuinely new evaluation" (different fingerprint, or the
+--    same fingerprint after the dedup window lapsed — mint a new
+--    evaluation_id, consume one ceiling slot). This durable identity is
+--    what AI billing operation keys are built from, so a replayed request
+--    can never mint a second provider charge and a later legitimate
+--    evaluation can never reuse an old settled AI Run.
 -- ─────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.widget_ai_nudge_session_state (
   workspace_id uuid NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
@@ -126,6 +142,8 @@ CREATE TABLE IF NOT EXISTS public.widget_ai_nudge_session_state (
   evaluation_count integer NOT NULL DEFAULT 0,
   shown_count integer NOT NULL DEFAULT 0,
   last_evaluated_at timestamptz,
+  last_fingerprint text,
+  last_evaluation_id uuid,
   expires_at timestamptz NOT NULL DEFAULT (now() + interval '24 hours'),
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (workspace_id, session_key),
@@ -137,79 +155,104 @@ ALTER TABLE public.widget_ai_nudge_session_state ENABLE ROW LEVEL SECURITY;
 -- No policy on purpose: service_role only (bypasses RLS), same convention
 -- as public.ai_billing_recovery_lease.
 
--- Atomically increments the per-session evaluation counter and returns the
--- NEW count, or NULL if the ceiling has already been reached — the caller
--- MUST treat NULL as "suppress, zero provider calls, zero AI charge".
--- The single INSERT ... ON CONFLICT DO UPDATE ... WHERE ... statement is
--- what makes this safe under concurrent requests and multiple replicas:
--- Postgres row-locks the conflicting row for the statement's duration, so
--- two simultaneous callers can never both observe "count < ceiling" and
--- both proceed.
-CREATE OR REPLACE FUNCTION public.ai_nudge_try_increment_session_counter(
+-- Atomically resolves ONE evaluation attempt's durable identity for a
+-- trusted session, and returns it as jsonb:
+--   {ok:true, evaluation_id, evaluation_count, is_new}   — proceed
+--   {ok:false, reason:'ceiling_reached'}                 — suppress
+-- A row-level lock (SELECT ... FOR UPDATE) on the single per-session row
+-- makes this safe under concurrent requests and multiple replicas: two
+-- simultaneous callers can never both mint a new evaluation_id for the
+-- same fresh fingerprint, and a retry can never be mistaken for new work.
+CREATE OR REPLACE FUNCTION public.ai_nudge_acquire_evaluation(
   _workspace_id uuid,
   _session_key text,
+  _fingerprint text,
   _max_evaluations integer,
+  _dedup_window_seconds integer DEFAULT 60,
   _ttl_seconds integer DEFAULT 86400
 )
-RETURNS integer
+RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
-  _count integer;
+  _row public.widget_ai_nudge_session_state%ROWTYPE;
+  _now timestamptz := now();
+  _evaluation_id uuid;
+  _evaluation_count integer;
 BEGIN
   IF _workspace_id IS NULL OR _session_key IS NULL OR length(_session_key) = 0 THEN
     RAISE EXCEPTION 'ai_nudge_session_key_required';
+  END IF;
+  IF _fingerprint IS NULL OR length(_fingerprint) = 0 THEN
+    RAISE EXCEPTION 'ai_nudge_fingerprint_required';
   END IF;
   IF _max_evaluations IS NULL OR _max_evaluations < 0 THEN
     RAISE EXCEPTION 'ai_nudge_max_evaluations_invalid';
   END IF;
 
-  INSERT INTO public.widget_ai_nudge_session_state (
-    workspace_id, session_key, evaluation_count, shown_count, last_evaluated_at, expires_at
-  )
-  VALUES (_workspace_id, _session_key, 1, 0, now(), now() + make_interval(secs => _ttl_seconds))
-  ON CONFLICT (workspace_id, session_key) DO UPDATE SET
-    evaluation_count = CASE
-      WHEN widget_ai_nudge_session_state.expires_at < now() THEN 1
-      ELSE widget_ai_nudge_session_state.evaluation_count + 1
-    END,
-    shown_count = CASE
-      WHEN widget_ai_nudge_session_state.expires_at < now() THEN 0
-      ELSE widget_ai_nudge_session_state.shown_count
-    END,
-    last_evaluated_at = now(),
-    expires_at = CASE
-      WHEN widget_ai_nudge_session_state.expires_at < now() THEN now() + make_interval(secs => _ttl_seconds)
-      ELSE widget_ai_nudge_session_state.expires_at
-    END
-  WHERE widget_ai_nudge_session_state.expires_at < now()
-     OR widget_ai_nudge_session_state.evaluation_count < _max_evaluations
-  RETURNING evaluation_count INTO _count;
+  INSERT INTO public.widget_ai_nudge_session_state (workspace_id, session_key, expires_at)
+  VALUES (_workspace_id, _session_key, _now + make_interval(secs => _ttl_seconds))
+  ON CONFLICT (workspace_id, session_key) DO NOTHING;
 
-  RETURN _count;
+  SELECT * INTO _row
+    FROM public.widget_ai_nudge_session_state
+    WHERE workspace_id = _workspace_id AND session_key = _session_key
+    FOR UPDATE;
+
+  -- Fully expired session window: reset counters and fingerprint lineage,
+  -- as if this were a brand-new session.
+  IF _row.expires_at < _now THEN
+    UPDATE public.widget_ai_nudge_session_state
+      SET evaluation_count = 0, shown_count = 0, last_fingerprint = NULL,
+          last_evaluation_id = NULL, last_evaluated_at = NULL,
+          expires_at = _now + make_interval(secs => _ttl_seconds)
+      WHERE workspace_id = _workspace_id AND session_key = _session_key;
+    _row.evaluation_count := 0;
+    _row.last_fingerprint := NULL;
+    _row.last_evaluation_id := NULL;
+    _row.last_evaluated_at := NULL;
+  END IF;
+
+  -- Same fingerprint replayed within the dedup window: a RETRY of the same
+  -- logical evaluation, never a new one — reuse its evaluation_id, do not
+  -- consume another ceiling slot.
+  IF _row.last_fingerprint IS NOT NULL
+     AND _row.last_fingerprint = _fingerprint
+     AND _row.last_evaluation_id IS NOT NULL
+     AND _row.last_evaluated_at IS NOT NULL
+     AND _row.last_evaluated_at >= _now - make_interval(secs => _dedup_window_seconds) THEN
+    UPDATE public.widget_ai_nudge_session_state
+      SET last_evaluated_at = _now
+      WHERE workspace_id = _workspace_id AND session_key = _session_key;
+    RETURN jsonb_build_object(
+      'ok', true, 'evaluation_id', _row.last_evaluation_id,
+      'evaluation_count', _row.evaluation_count, 'is_new', false
+    );
+  END IF;
+
+  -- Genuinely new evaluation (new fingerprint, or the same fingerprint
+  -- after the dedup window lapsed): enforce the ceiling, mint a new id.
+  IF _row.evaluation_count >= _max_evaluations THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'ceiling_reached');
+  END IF;
+
+  _evaluation_id := gen_random_uuid();
+  UPDATE public.widget_ai_nudge_session_state
+    SET evaluation_count = evaluation_count + 1,
+        last_fingerprint = _fingerprint,
+        last_evaluation_id = _evaluation_id,
+        last_evaluated_at = _now
+    WHERE workspace_id = _workspace_id AND session_key = _session_key
+    RETURNING evaluation_count INTO _evaluation_count;
+
+  RETURN jsonb_build_object('ok', true, 'evaluation_id', _evaluation_id, 'evaluation_count', _evaluation_count, 'is_new', true);
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.ai_nudge_try_increment_session_counter(uuid, text, integer, integer) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.ai_nudge_try_increment_session_counter(uuid, text, integer, integer) TO service_role;
-
--- Best-effort observability counter — never gates anything, so a plain
--- (non-atomic-critical) update is fine.
-CREATE OR REPLACE FUNCTION public.ai_nudge_record_shown(_workspace_id uuid, _session_key text)
-RETURNS void
-LANGUAGE sql
-SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $$
-  UPDATE public.widget_ai_nudge_session_state
-  SET shown_count = shown_count + 1
-  WHERE workspace_id = _workspace_id AND session_key = _session_key;
-$$;
-
-REVOKE ALL ON FUNCTION public.ai_nudge_record_shown(uuid, text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.ai_nudge_record_shown(uuid, text) TO service_role;
+REVOKE ALL ON FUNCTION public.ai_nudge_acquire_evaluation(uuid, text, text, integer, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.ai_nudge_acquire_evaluation(uuid, text, text, integer, integer, integer) TO service_role;
 
 -- ─────────────────────────────────────────────────────────────────────
 -- 3. Extend widget_smart_events (the existing, already-analytics-ready
@@ -242,6 +285,152 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_widget_smart_events_ai_nudge
   ON public.widget_smart_events (ai_nudge_id, event_type, created_at DESC)
   WHERE ai_nudge_id IS NOT NULL;
+
+-- ─────────────────────────────────────────────────────────────────────
+-- 3b. Atomic, server-owned lifecycle transition + event recording for an
+--    ai_proactive nudge. This is the ONLY path that may move a
+--    widget_ai_nudges row through shown/dismissed/clicked and the ONLY
+--    path that may insert an 'ai_proactive' widget_smart_events row —
+--    both happen in one transaction (this function call), so analytics
+--    and status can never disagree, and an invalid transition never
+--    leaves behind a lifecycle event.
+--
+--    The idempotency key is computed HERE, server-side, from immutable
+--    identifiers only ('ai_nudge:<workspace>:<nudge>:<event_type>') — a
+--    client-supplied idempotency key is never accepted for this source,
+--    so a rotated client session_id/token, a retried request, or a
+--    duplicate call from another replica can never produce a second
+--    event or a second shown-counter increment.
+--
+--    Out-of-order arrival (e.g. a click racing ahead of the shown ack) is
+--    handled by atomically backfilling the implied generated -> shown
+--    transition (its own canonical 'shown' event + shown_count bump)
+--    before applying the requested transition — the allowed-from table
+--    below stays strictly canonical (no skipped states) while real-world
+--    races are still absorbed safely.
+-- ─────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.ai_nudge_apply_lifecycle_event(
+  _workspace_id uuid,
+  _nudge_id uuid,
+  _event_type text,
+  _visitor_id text DEFAULT NULL,
+  _session_id text DEFAULT NULL,
+  _page_path text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  _nudge public.widget_ai_nudges%ROWTYPE;
+  _target_status text;
+  _idem_key text;
+  _inserted boolean := false;
+  _shown_backfilled boolean := false;
+BEGIN
+  IF _workspace_id IS NULL OR _nudge_id IS NULL OR _event_type IS NULL OR length(_event_type) = 0 THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'invalid_args');
+  END IF;
+
+  SELECT * INTO _nudge
+    FROM public.widget_ai_nudges
+    WHERE id = _nudge_id AND workspace_id = _workspace_id
+    FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'not_found');
+  END IF;
+
+  -- Only these three event types drive a status transition; everything
+  -- else (opened, widget_opened, conversation_started, suppressed) is a
+  -- pure analytics event recorded against the nudge with no status change.
+  _target_status := CASE _event_type
+    WHEN 'shown' THEN 'shown'
+    WHEN 'dismissed' THEN 'dismissed'
+    WHEN 'cta_clicked' THEN 'clicked'
+    ELSE NULL
+  END;
+
+  IF _target_status IS NOT NULL THEN
+    IF _nudge.status = 'generated' AND _target_status <> 'shown' THEN
+      IF _nudge.expires_at < now() THEN
+        UPDATE public.widget_ai_nudges SET status = 'expired' WHERE id = _nudge_id;
+        RETURN jsonb_build_object('ok', false, 'reason', 'expired');
+      END IF;
+      UPDATE public.widget_ai_nudges SET status = 'shown', shown_at = now() WHERE id = _nudge_id;
+      _nudge.status := 'shown';
+      _shown_backfilled := true;
+      INSERT INTO public.widget_smart_events (
+        workspace_id, source, ai_nudge_id, visitor_id, session_id, event_type, page_path, idempotency_key
+      ) VALUES (
+        _workspace_id, 'ai_proactive', _nudge_id, _visitor_id, _session_id, 'shown', _page_path,
+        'ai_nudge:' || _workspace_id::text || ':' || _nudge_id::text || ':shown'
+      )
+      ON CONFLICT (workspace_id, idempotency_key) DO NOTHING;
+      IF _nudge.session_key IS NOT NULL THEN
+        UPDATE public.widget_ai_nudge_session_state
+          SET shown_count = shown_count + 1
+          WHERE workspace_id = _workspace_id AND session_key = _nudge.session_key;
+      END IF;
+    END IF;
+
+    IF _target_status = 'shown' THEN
+      IF _nudge.status = 'shown' THEN
+        NULL; -- idempotent replay: fall through, event insert below is a safe no-op
+      ELSIF _nudge.status = 'generated' THEN
+        IF _nudge.expires_at < now() THEN
+          UPDATE public.widget_ai_nudges SET status = 'expired' WHERE id = _nudge_id;
+          RETURN jsonb_build_object('ok', false, 'reason', 'expired');
+        END IF;
+        UPDATE public.widget_ai_nudges SET status = 'shown', shown_at = now() WHERE id = _nudge_id;
+        IF _nudge.session_key IS NOT NULL THEN
+          UPDATE public.widget_ai_nudge_session_state
+            SET shown_count = shown_count + 1
+            WHERE workspace_id = _workspace_id AND session_key = _nudge.session_key;
+        END IF;
+      ELSE
+        RETURN jsonb_build_object('ok', false, 'reason', 'invalid_transition');
+      END IF;
+    ELSIF _target_status = 'dismissed' THEN
+      IF _nudge.status = 'dismissed' THEN
+        NULL;
+      ELSIF _nudge.status = 'shown' THEN
+        UPDATE public.widget_ai_nudges SET status = 'dismissed' WHERE id = _nudge_id;
+      ELSE
+        RETURN jsonb_build_object('ok', false, 'reason', 'invalid_transition');
+      END IF;
+    ELSIF _target_status = 'clicked' THEN
+      IF _nudge.status = 'clicked' THEN
+        NULL;
+      ELSIF _nudge.status = 'shown' THEN
+        UPDATE public.widget_ai_nudges SET status = 'clicked' WHERE id = _nudge_id;
+      ELSE
+        RETURN jsonb_build_object('ok', false, 'reason', 'invalid_transition');
+      END IF;
+    END IF;
+  END IF;
+
+  _idem_key := 'ai_nudge:' || _workspace_id::text || ':' || _nudge_id::text || ':' || _event_type;
+  INSERT INTO public.widget_smart_events (
+    workspace_id, source, ai_nudge_id, visitor_id, session_id, event_type, page_path, idempotency_key
+  ) VALUES (
+    _workspace_id, 'ai_proactive', _nudge_id, _visitor_id, _session_id, _event_type, _page_path, _idem_key
+  )
+  ON CONFLICT (workspace_id, idempotency_key) DO NOTHING
+  RETURNING true INTO _inserted;
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'status', COALESCE(_target_status, _nudge.status),
+    'inserted', COALESCE(_inserted, false),
+    'shown_backfilled', _shown_backfilled
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.ai_nudge_apply_lifecycle_event(uuid, uuid, text, text, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.ai_nudge_apply_lifecycle_event(uuid, uuid, text, text, text, text) TO service_role;
 
 -- ─────────────────────────────────────────────────────────────────────
 -- 4. Super Admin platform ceilings — reuse the existing

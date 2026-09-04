@@ -1057,10 +1057,6 @@ widgetRouter.post('/smart/event', widgetRateLimit('default'), async (req: Reques
       aiNudgeId: parsed.data.ai_nudge_id,
       visitorId: parsed.data.visitor_id ?? null,
       sessionId: parsed.data.session_id ?? null,
-      // Trusted session lineage — required for the 'shown' ack to update
-      // the durable per-session evaluation/display state. Never trust the
-      // client-supplied session_id for this.
-      trustedSessionKey: resolveTrustedNudgeSessionKey(req),
       eventType: parsed.data.event_type,
       pagePath: parsed.data.page_path ?? null,
       idempotencyKey: parsed.data.idempotency_key,
@@ -2128,18 +2124,22 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
     // AI Proactive Nudge attribution — best-effort, never blocks the message.
     if (nudgeIdForAttribution && convId) {
-      // Guarded transition only — a nudge that was never shown/clicked
-      // cannot silently become "converted" and corrupt attribution.
+      // Guarded transition only — a nudge that was never clicked cannot
+      // silently become "converted" and corrupt attribution.
       void transitionNudgeStatus(supabase, { nudgeId: nudgeIdForAttribution, workspaceId, to: 'converted' });
-      void supabase.from('widget_smart_events').insert({
-        workspace_id: workspaceId,
+      // Route the analytics event through the same canonical, server-owned
+      // idempotency path as every other ai_proactive event (recordSmartEvent
+      // derives the key itself; the value passed here is ignored for this
+      // source), so this call site can never diverge from that convention.
+      void recordSmartEvent(supabase, {
+        workspaceId,
         source: 'ai_proactive',
-        ai_nudge_id: nudgeIdForAttribution,
-        event_type: 'conversation_started',
-        visitor_id: body.visitor_id || null,
-        session_id: body.session_id || null,
-        page_path: pageContext?.currentPagePath || null,
-        idempotency_key: `conv_started_${nudgeIdForAttribution}`,
+        aiNudgeId: nudgeIdForAttribution,
+        eventType: 'conversation_started',
+        visitorId: body.visitor_id || null,
+        sessionId: body.session_id || null,
+        pagePath: pageContext?.currentPagePath || null,
+        idempotencyKey: `conversation_started:${nudgeIdForAttribution}`,
       });
     }
 

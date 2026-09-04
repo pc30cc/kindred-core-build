@@ -4,21 +4,29 @@
  *   generated -> shown -> dismissed | clicked -> converted
  *   generated -> expired (never acknowledged before expires_at)
  *
- * "generated" != "shown": a candidate is only "shown" once the browser
- * acknowledges it actually attached the bubble to the page. Every
- * transition below is a single conditional UPDATE guarded by the allowed
- * prior states, so a stale, replayed, or out-of-order event can never move
- * a nudge backwards (e.g. dismissed -> shown) or skip a state (converted
- * without ever having been shown) and corrupt attribution analytics.
+ * This table is intentionally strict: no skipped or backwards transitions,
+ * ever. Out-of-order arrival (e.g. a CTA click racing ahead of the shown
+ * ack) is NOT handled by loosening this table — it's handled server-side,
+ * atomically, by ai_nudge_apply_lifecycle_event() (see the migration),
+ * which backfills the implied "shown" transition before applying the
+ * requested one, in the same transaction as the canonical, idempotent
+ * event insert. That RPC is the only path allowed to drive
+ * shown/dismissed/clicked for 'ai_proactive' events — see
+ * smartEngagement.ts's recordSmartEvent().
+ *
+ * transitionNudgeStatus() below remains a simple guarded UPDATE (no event
+ * insert) for the one call site that has no analytics event of its own:
+ * the /message handler's generated-by-attribution 'converted' transition,
+ * which is not racy (it only ever follows an already-'clicked' nudge).
  */
 export type NudgeStatus = 'generated' | 'shown' | 'dismissed' | 'clicked' | 'converted' | 'expired';
 
 const ALLOWED_FROM: Record<NudgeStatus, NudgeStatus[]> = {
   generated: [],
   shown: ['generated'],
-  dismissed: ['generated', 'shown'],
-  clicked: ['generated', 'shown'],
-  converted: ['generated', 'shown', 'clicked'],
+  dismissed: ['shown'],
+  clicked: ['shown'],
+  converted: ['clicked'],
   expired: ['generated'],
 };
 

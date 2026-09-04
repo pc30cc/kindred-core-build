@@ -193,21 +193,17 @@ describe('AI Proactive Nudge — cross-workspace nudge_id isolation', () => {
     expect(result.reason).toBe('nudge_workspace_mismatch');
   });
 
-  it('accepts a nudge_id that genuinely belongs to the resolved workspace', async () => {
+  it('accepts a nudge_id that genuinely belongs to the resolved workspace, via the atomic lifecycle RPC', async () => {
     const { recordSmartEvent } = await import('../../../server/services/widget/smartEngagement.js');
-    const updateChain: any = {
-      eq: () => updateChain,
-      in: () => updateChain,
-      gt: () => updateChain,
-      select: async () => ({ data: [{ id: 'genuine-nudge' }], error: null }),
-    };
+    const rpc = vi.fn().mockResolvedValue({ data: { ok: true, status: 'shown', inserted: true, shown_backfilled: false }, error: null });
     const fakeSupabase = {
       from: (table: string) => {
         if (table === 'widget_ai_nudges') {
-          return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { workspace_id: 'ws-1' }, error: null }) }) }), update: () => updateChain };
+          return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { workspace_id: 'ws-1' }, error: null }) }) }) };
         }
         return { insert: async () => ({ error: null }) };
       },
+      rpc,
     };
     const result = await recordSmartEvent(fakeSupabase, {
       workspaceId: 'ws-1',
@@ -219,19 +215,13 @@ describe('AI Proactive Nudge — cross-workspace nudge_id isolation', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('a "shown" ack transitions generated -> shown and increments the trusted session shown counter', async () => {
+  it('a "shown" ack calls the ONE atomic lifecycle RPC with server-known identifiers — never the client-supplied idempotency key', async () => {
     const { recordSmartEvent } = await import('../../../server/services/widget/smartEngagement.js');
-    const updateChain: any = {
-      eq: () => updateChain,
-      in: () => updateChain,
-      gt: () => updateChain,
-      select: async () => ({ data: [{ id: 'genuine-nudge' }], error: null }),
-    };
-    const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
+    const rpc = vi.fn().mockResolvedValue({ data: { ok: true, status: 'shown', inserted: true, shown_backfilled: false }, error: null });
     const fakeSupabase = {
       from: (table: string) => {
         if (table === 'widget_ai_nudges') {
-          return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { workspace_id: 'ws-1' }, error: null }) }) }), update: () => updateChain };
+          return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { workspace_id: 'ws-1' }, error: null }) }) }) };
         }
         return { insert: async () => ({ error: null }) };
       },
@@ -241,29 +231,30 @@ describe('AI Proactive Nudge — cross-workspace nudge_id isolation', () => {
       workspaceId: 'ws-1',
       source: 'ai_proactive',
       aiNudgeId: 'genuine-nudge',
-      trustedSessionKey: 'trusted-key-xyz',
       eventType: 'shown',
-      idempotencyKey: 'k4',
+      // A rotated/attacker-controlled client idempotency key must have zero
+      // influence — the RPC derives its own key server-side.
+      idempotencyKey: 'attacker-controlled-rotating-key',
     });
     expect(result.ok).toBe(true);
-    expect(rpc).toHaveBeenCalledWith('ai_nudge_record_shown', expect.objectContaining({ _session_key: 'trusted-key-xyz' }));
+    expect(rpc).toHaveBeenCalledTimes(1);
+    const [rpcName, rpcArgs] = rpc.mock.calls[0];
+    expect(rpcName).toBe('ai_nudge_apply_lifecycle_event');
+    expect(rpcArgs).toEqual(expect.objectContaining({
+      _workspace_id: 'ws-1',
+      _nudge_id: 'genuine-nudge',
+      _event_type: 'shown',
+    }));
+    expect(JSON.stringify(rpcArgs)).not.toContain('attacker-controlled-rotating-key');
   });
 
-  it('a duplicate "shown" ack (already shown) does not increment the session counter again', async () => {
+  it('surfaces the RPC\'s rejection reason (e.g. an invalid/out-of-order transition) as a failed result, never a silent success', async () => {
     const { recordSmartEvent } = await import('../../../server/services/widget/smartEngagement.js');
-    // The guarded UPDATE matches zero rows because the nudge is no longer
-    // in status 'generated' (already transitioned) — a safe, silent no-op.
-    const updateChain: any = {
-      eq: () => updateChain,
-      in: () => updateChain,
-      gt: () => updateChain,
-      select: async () => ({ data: [], error: null }),
-    };
-    const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
+    const rpc = vi.fn().mockResolvedValue({ data: { ok: false, reason: 'invalid_transition' }, error: null });
     const fakeSupabase = {
       from: (table: string) => {
         if (table === 'widget_ai_nudges') {
-          return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { workspace_id: 'ws-1' }, error: null }) }) }), update: () => updateChain };
+          return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { workspace_id: 'ws-1' }, error: null }) }) }) };
         }
         return { insert: async () => ({ error: null }) };
       },
@@ -273,11 +264,33 @@ describe('AI Proactive Nudge — cross-workspace nudge_id isolation', () => {
       workspaceId: 'ws-1',
       source: 'ai_proactive',
       aiNudgeId: 'genuine-nudge',
-      trustedSessionKey: 'trusted-key-xyz',
-      eventType: 'shown',
+      eventType: 'dismissed',
       idempotencyKey: 'k5',
     });
-    expect(result.ok).toBe(true);
-    expect(rpc).not.toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('invalid_transition');
+  });
+
+  it('a DB-level RPC error is treated as a failed result, never thrown or treated as success', async () => {
+    const { recordSmartEvent } = await import('../../../server/services/widget/smartEngagement.js');
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: 'db down' } });
+    const fakeSupabase = {
+      from: (table: string) => {
+        if (table === 'widget_ai_nudges') {
+          return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { workspace_id: 'ws-1' }, error: null }) }) }) };
+        }
+        return { insert: async () => ({ error: null }) };
+      },
+      rpc,
+    };
+    const result = await recordSmartEvent(fakeSupabase, {
+      workspaceId: 'ws-1',
+      source: 'ai_proactive',
+      aiNudgeId: 'genuine-nudge',
+      eventType: 'shown',
+      idempotencyKey: 'k6',
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('db down');
   });
 });

@@ -94,6 +94,15 @@ export interface PresenceSnapshot {
 
 interface ModeState {
   mode: PresenceMode;
+  /**
+   * True when Centrifugo IS the configured primary presence backend but is
+   * currently unusable (health down / degraded resolution). That is a
+   * realtime→database TRANSITION and needs the same breaker + bounded
+   * handoff as a failed presence read — even though the presence API was
+   * never called. False for native database mode (polling / disabled /
+   * Supabase without presence), where the lease has always been written.
+   */
+  realtimeFailure: boolean;
   checkedAt: number;
 }
 
@@ -254,27 +263,41 @@ async function clearFallback(config: ServerConfig, scope: string, now: number): 
  * few seconds so hot paths (routing, widget bootstrap, team presence poll)
  * don't each run a provider health probe.
  */
+async function resolvePresenceState(
+  config: ServerConfig,
+  now: number = Date.now(),
+): Promise<ModeState> {
+  if (modeState && now - modeState.checkedAt < MODE_CACHE_TTL_MS) return modeState;
+  let mode: PresenceMode = 'database';
+  let realtimeFailure = false;
+  try {
+    const resolved = await resolveRealtimeProvider(config);
+    const centrifugoPrimary =
+      resolved.effective_vendor === 'centrifugo' &&
+      resolved.capabilities.supportsPresence &&
+      resolved.public_config.presence_enabled === true;
+    if (centrifugoPrimary && resolved.health.status !== 'down') mode = 'realtime';
+    else if (centrifugoPrimary) realtimeFailure = true;
+  } catch {
+    // Resolver itself failed: we cannot prove realtime is primary, but we
+    // also cannot prove it is not. Treat it as a realtime failure so the
+    // transition handoff protects operators.
+    realtimeFailure = true;
+  }
+  modeState = { mode, realtimeFailure, checkedAt: now };
+  return modeState;
+}
+
+/**
+ * Resolve which presence backend is authoritative right now. Cached for a
+ * few seconds so hot paths (routing, widget bootstrap, team presence poll)
+ * don't each run a provider health probe.
+ */
 export async function resolvePresenceMode(
   config: ServerConfig,
   now: number = Date.now(),
 ): Promise<PresenceMode> {
-  if (modeState && now - modeState.checkedAt < MODE_CACHE_TTL_MS) return modeState.mode;
-  let mode: PresenceMode = 'database';
-  try {
-    const resolved = await resolveRealtimeProvider(config);
-    if (
-      resolved.effective_vendor === 'centrifugo' &&
-      resolved.capabilities.supportsPresence &&
-      resolved.public_config.presence_enabled === true &&
-      resolved.health.status !== 'down'
-    ) {
-      mode = 'realtime';
-    }
-  } catch {
-    mode = 'database';
-  }
-  modeState = { mode, checkedAt: now };
-  return mode;
+  return (await resolvePresenceState(config, now)).mode;
 }
 
 /** Test/ops hook — drop every process-local cache. */

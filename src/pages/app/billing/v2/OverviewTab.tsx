@@ -35,6 +35,8 @@ export default function OverviewTab({
   const { t, locale } = useTranslation();
   const { subscription, servicePeriod, aiCycle, wallet, upcomingInvoice, pendingPlanChange } = overview;
   const canManage = overview.permissions.manage;
+  const alert = overview.upcomingInvoiceAlert;
+  const alertStage = alert?.stage ?? 0;
 
   const cycleUsedPct =
     aiCycle && aiCycle.allowanceIrr > 0
@@ -42,6 +44,7 @@ export default function OverviewTab({
       : 0;
 
   const aiTotalRemaining = (aiCycle?.remainingIrr ?? 0) + (overview.aiPurchasedRemainingIrr ?? 0);
+
 
   return (
     <div className="space-y-4">

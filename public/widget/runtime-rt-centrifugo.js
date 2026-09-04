@@ -141,6 +141,20 @@
         .catch(function () { return false; });
     }
 
+    // Lightweight reconnect telemetry — the "genuine first reconnect with a
+    // still-valid token" case. Reports the reconnect WITHOUT negotiating
+    // (and thus minting) a new token, since the existing one is about to be
+    // reused directly by openSocket(). Fire-and-forget: never blocks or
+    // delays the actual reconnect.
+    function sendReconnectSignal() {
+      fetch(ctx.apiBase + '/api/realtime/reconnect-signal', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': ctx.sessionToken || '' },
+        body: JSON.stringify({ workspace_id: ctx.workspaceId }),
+      }).catch(function () {});
+    }
+
     // ── Wire send (one JSON object per frame; Centrifugo accepts both
     //    single-frame and '\n'-delimited batches) ────────────────────────
     function rawSend(obj) {
@@ -309,6 +323,12 @@
             openSocket();
           });
         } else {
+          // Genuine first reconnect with a still-valid token: the socket
+          // was unexpectedly lost and we're about to reuse the existing
+          // token rather than re-negotiate. Report it via the lightweight
+          // signal so it isn't silently undercounted — no token remint
+          // needed purely for telemetry.
+          sendReconnectSignal();
           openSocket();
         }
       }, delay);

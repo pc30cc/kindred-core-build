@@ -274,6 +274,57 @@ realtimeRouter.post('/connect', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────
+//  PUBLIC: /api/realtime/reconnect-signal
+//
+//  Lightweight reconnect telemetry for the "genuine first reconnect with
+//  a still-valid token" case: the driver's socket closed unexpectedly but
+//  the connection token hasn't expired, so it reuses the existing token
+//  and reopens the socket directly — no new negotiation needed. Without
+//  this endpoint that case would never reach the server at all, silently
+//  undercounting real reconnects. This endpoint does ONLY bookkeeping —
+//  no Centrifugo token is minted here, on purpose, so a metrics-only call
+//  never forces unnecessary token churn.
+// ─────────────────────────────────────────────────────────────────────
+const reconnectSignalSchema = z.object({ workspace_id: z.string().uuid() });
+
+realtimeRouter.post('/reconnect-signal', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  try {
+    const parsed = reconnectSignalSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+
+    const widgetToken = req.headers['x-widget-token'] as string | undefined;
+    if (!widgetToken) return res.status(401).json({ error: 'Missing widget token' });
+    const tokRes = verifySessionToken(widgetToken);
+    if (!tokRes.valid || tokRes.workspaceId !== parsed.data.workspace_id) {
+      return res.status(401).json({ error: 'Invalid widget session' });
+    }
+    if (!(await enforceWorkspaceOrigin(req, res, config, parsed.data.workspace_id))) return;
+
+    const visitor = readVisitorCookie(req as any, parsed.data.workspace_id);
+    const subjectId = visitor?.v || `vt_${tokRes.nonce || 'anon'}`;
+
+    const { duplicate, hadPriorGrant } = getMonitoringCollector().validateReconnect(
+      parsed.data.workspace_id,
+      subjectId,
+    );
+    if (!duplicate) {
+      emitMetric(config, {
+        metric: 'realtime.reconnect_attempt',
+        workspaceId: parsed.data.workspace_id,
+        driver: 'centrifugo',
+        source: 'widget',
+        tags: { endpoint: 'reconnect-signal', had_prior_grant: String(hadPriorGrant) },
+      });
+    }
+    return res.json({ ok: true });
+  } catch (err: any) {
+    console.error('[realtime/reconnect-signal] error:', err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
 // Public-ish channel subscription token issuer.
 const subscribeSchema = z.object({
   workspace_id: z.string().uuid(),
@@ -502,6 +553,45 @@ realtimeRouter.post('/operator-connect', perfHttpMiddleware('realtime.operator_c
       tags: { endpoint: 'operator-connect', reason: 'internal_error' },
     });
     res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────
+//  ADMIN: /api/realtime/operator-reconnect-signal
+//
+//  Operator-side sibling of /reconnect-signal above — see that endpoint's
+//  comment for why it exists. Reports a genuine reconnect (socket lost,
+//  token still valid, no re-negotiation needed) without minting a new
+//  Centrifugo token.
+// ─────────────────────────────────────────────────────────────────────
+const operatorReconnectSignalSchema = z.object({ workspace_id: z.string().uuid() });
+
+realtimeRouter.post('/operator-reconnect-signal', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  try {
+    const parsed = operatorReconnectSignalSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+    const user = await authorizeOperator(req, res, config, parsed.data.workspace_id);
+    if (!user) return;
+    const subjectId = `op_${user.id}`;
+
+    const { duplicate, hadPriorGrant } = getMonitoringCollector().validateReconnect(
+      parsed.data.workspace_id,
+      subjectId,
+    );
+    if (!duplicate) {
+      emitMetric(config, {
+        metric: 'realtime.reconnect_attempt',
+        workspaceId: parsed.data.workspace_id,
+        driver: 'centrifugo',
+        source: 'operator',
+        tags: { endpoint: 'operator-reconnect-signal', had_prior_grant: String(hadPriorGrant) },
+      });
+    }
+    return res.json({ ok: true });
+  } catch (err: any) {
+    console.error('[realtime/operator-reconnect-signal] error:', err);
+    return res.status(500).json({ error: 'Internal error' });
   }
 });
 

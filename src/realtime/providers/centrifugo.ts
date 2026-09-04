@@ -192,6 +192,25 @@ async function negotiateConnect(
   }
 }
 
+/**
+ * Lightweight reconnect telemetry — the "genuine first reconnect with a
+ * still-valid token" case. Reports the reconnect to the server WITHOUT
+ * negotiating (and thus minting) a new Centrifugo token, since the
+ * existing token is about to be reused directly by openSocket(). Fire-
+ * and-forget: a failure here must never block or delay the actual
+ * reconnect attempt.
+ */
+function sendReconnectSignal(workspaceId: string): void {
+  fetch(`${API_BASE}/api/realtime/operator-reconnect-signal`, {
+    credentials: 'include',
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ workspace_id: workspaceId }),
+  }).catch(() => {
+    /* best-effort telemetry only */
+  });
+}
+
 async function operatorSubscribe(
   workspaceId: string,
   conversationId: string,
@@ -298,6 +317,14 @@ interface SharedConnection {
    * order) lets us evict the oldest in O(1) without a separate LRU lib.
    */
   seenByChannel: Map<string, Map<string, true>>;
+  /**
+   * Set right before scheduleTokenRefresh() intentionally closes the
+   * socket to rotate onto a freshly-refreshed token. The resulting
+   * onclose → scheduleReconnect() must NOT report this as a real
+   * reconnect (nothing was unexpectedly lost) — consumed (read once,
+   * reset to false) by scheduleReconnect's very next timer callback.
+   */
+  expectingCloseForRefresh: boolean;
 }
 
 const sharedConns = new Map<string, SharedConnection>();
@@ -327,6 +354,7 @@ function buildConnection(workspaceId: string, negotiation: RealtimeNegotiation):
     ready: Promise.resolve(),
     generation: 0,
     seenByChannel: new Map(),
+    expectingCloseForRefresh: false,
   };
   // Phase 2 — kick off the hardening-settings prefetch (non-blocking).
   // First connection on this tab will use defaults; subsequent reconnects
@@ -506,6 +534,10 @@ function scheduleReconnect(conn: SharedConnection): void {
     //      token is still valid.
     const localExpired = Date.now() >= conn.tokenExpiresAt - TOKEN_REFRESH_LEAD_MS;
     const mustRefreshDueToFailure = conn.reconnectAttempt > 1;
+    // Consume the self-inflicted-close flag exactly once, before either
+    // branch below runs — it must never leak into a later, genuine close.
+    const wasIntentionalRefreshRotation = conn.expectingCloseForRefresh;
+    conn.expectingCloseForRefresh = false;
     if (localExpired || mustRefreshDueToFailure) {
       // Bust the per-workspace negotiation cache so we don't get a stale
       // token handed back from a memoized resolver.
@@ -528,7 +560,16 @@ function scheduleReconnect(conn: SharedConnection): void {
         scheduleReconnect(conn);
         return;
       }
+    } else if (!wasIntentionalRefreshRotation) {
+      // Genuine first reconnect with a still-valid token: the socket was
+      // unexpectedly lost (network blip, server restart, tab wake) and
+      // we're about to reuse the existing token rather than re-negotiate.
+      // Report it via the lightweight signal so it isn't silently
+      // undercounted — but don't force a token mint just for telemetry.
+      sendReconnectSignal(conn.workspaceId);
     }
+    // else: this close was self-inflicted by scheduleTokenRefresh's
+    // proactive rotation — nothing was lost, so no reconnect is reported.
     try {
       await openSocket(conn);
     } catch (err) {
@@ -567,6 +608,10 @@ function scheduleTokenRefresh(conn: SharedConnection): void {
     // the server-side TTL is generous. Simpler & safer: just rotate the
     // socket. The reconnect path resubscribes everything atomically.
     rtDebug('centrifugo', 'rotating socket for token refresh');
+    // Mark this close as self-inflicted so the onclose → scheduleReconnect
+    // path it triggers doesn't report a real reconnect — the token is
+    // already fresh and nothing was unexpectedly lost.
+    conn.expectingCloseForRefresh = true;
     try { conn.ws.close(); } catch { /* noop */ }
     // onclose → scheduleReconnect picks up with the fresh token.
   }, msUntil);

@@ -27,7 +27,7 @@ import {
   type InvoiceDetail,
   type DepositDocument,
   type PayableGateway,
-} from '@/lib/billingV2Api';
+} from '@/lib/billingApi';
 import { billingDate, money, Ltr, InvoiceStatusBadge, ErrorState, errorMessage } from './shared';
 
 type Kind = 'invoice' | 'deposit';

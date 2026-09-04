@@ -10,7 +10,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { SkeletonTable } from '@/components/common/Skeletons';
 import { useTranslation } from '@/i18n';
-import { billingV2Invoices, type InvoiceSummary } from '@/lib/billingV2Api';
+import { billingV2Invoices, type InvoiceSummary } from '@/lib/billingApi';
 import { billingDate, money, Ltr, InvoiceStatusBadge, ErrorState, EmptyState, Pager, errorMessage } from './shared';
 
 const FILTERS = ['all', 'open', 'paid', 'past_due', 'void', 'expired'] as const;

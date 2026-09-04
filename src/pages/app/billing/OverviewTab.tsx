@@ -19,8 +19,8 @@ import { Switch } from '@/components/ui/switch';
 import { Progress } from '@/components/ui/progress';
 import { CalendarClock, Wallet, Sparkles, Receipt, Info, X, ArrowUpCircle, Plus } from 'lucide-react';
 import { useTranslation } from '@/i18n';
-import type { BillingOverview } from '@/lib/billingV2Api';
-import { billingV2SetAutoPay } from '@/lib/billingV2Api';
+import type { BillingOverview } from '@/lib/billingApi';
+import { billingV2SetAutoPay } from '@/lib/billingApi';
 import { billingDate, money, InvoiceStatusBadge, errorMessage } from './shared';
 
 

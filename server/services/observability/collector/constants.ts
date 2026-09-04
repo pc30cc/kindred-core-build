@@ -64,6 +64,7 @@ export const KNOWN_REALTIME_METRICS: ReadonlySet<string> = new Set([
   // ai_nudge.* — AI Proactive Nudge, server/services/widget/aiNudge/evaluate.ts
   'ai_nudge.evaluated',
   'ai_nudge.suppressed',
+  'ai_nudge.generated',
   'ai_nudge.shown',
   'ai_nudge.timeout',
   'ai_nudge.invalid_response',

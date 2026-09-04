@@ -1348,6 +1348,12 @@
       // Continuity into chat — read by the runtime's send path so the AI
       // Agent continues this exact topic instead of a generic greeting.
       try { window.__gs_pending_nudge_context = { source: "ai_proactive_nudge", nudge_id: data.nudgeId }; } catch (_) {}
+      // Continuity UI on open — a separate, purely-cosmetic echo of the
+      // exact message the visitor already saw in the bubble (never trusted
+      // for grounding/billing, only for suppressing a jarring generic
+      // greeting and showing a quiet "continuing from" cue). Consumed
+      // exactly once by runtime.js's chat-open render path.
+      try { window.__gs_pending_nudge_intro = { message: data.message || "", topic: data.topic || "" }; } catch (_) {}
       openRuntime("chat");
     }
 

@@ -71,6 +71,11 @@ CREATE TABLE IF NOT EXISTS public.widget_ai_nudges (
   workspace_id uuid NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
   visitor_id text,
   session_id text,
+  -- Trusted session lineage (sha256 of the widget token's stable nonce —
+  -- see server/services/widget/aiNudge/session.ts). This, NOT session_id
+  -- above (client-supplied, display/debug only), is what every frequency,
+  -- cooldown, dedup and billing lookup keys on.
+  session_key text NOT NULL,
   topic text NOT NULL,
   message text NOT NULL,
   cta_label text,
@@ -78,14 +83,20 @@ CREATE TABLE IF NOT EXISTS public.widget_ai_nudges (
   cta_url text,
   page_path text,
   confidence numeric,
-  ai_run_id uuid,
-  status text NOT NULL DEFAULT 'shown',
+  ai_run_id uuid REFERENCES public.ai_runs(id) ON DELETE SET NULL,
+  -- Lifecycle: generated -> shown -> dismissed | clicked -> converted, or
+  -- generated -> expired. "generated" != "shown": a candidate is only
+  -- "shown" once the browser acknowledges it actually rendered the bubble.
+  -- See server/services/widget/aiNudge/lifecycle.ts for the guarded
+  -- transition table.
+  status text NOT NULL DEFAULT 'generated',
+  shown_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   expires_at timestamptz NOT NULL DEFAULT (now() + interval '2 hours'),
   CONSTRAINT widget_ai_nudges_topic_len CHECK (length(topic) <= 60),
   CONSTRAINT widget_ai_nudges_message_len CHECK (length(message) <= 400),
   CONSTRAINT widget_ai_nudges_cta_label_len CHECK (cta_label IS NULL OR length(cta_label) <= 60),
-  CONSTRAINT widget_ai_nudges_status_valid CHECK (status IN ('shown','dismissed','clicked','converted','expired')),
+  CONSTRAINT widget_ai_nudges_status_valid CHECK (status IN ('generated','shown','dismissed','clicked','converted','expired')),
   CONSTRAINT widget_ai_nudges_confidence_range CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1))
 );
 
@@ -99,7 +110,106 @@ CREATE POLICY "Workspace members can view ai nudges"
   USING (public.is_workspace_member(workspace_id, auth.uid()));
 
 CREATE INDEX idx_widget_ai_nudges_ws_created ON public.widget_ai_nudges (workspace_id, created_at DESC);
-CREATE INDEX idx_widget_ai_nudges_session ON public.widget_ai_nudges (workspace_id, session_id, created_at DESC);
+CREATE INDEX idx_widget_ai_nudges_session ON public.widget_ai_nudges (workspace_id, session_key, created_at DESC);
+
+-- ─────────────────────────────────────────────────────────────────────
+-- 2b. Per-session AI-evaluation ceiling — ONE small aggregate row per
+--    (workspace, trusted session), NOT a raw event stream. Durable in
+--    Postgres (not in-process) so the ceiling survives a process restart
+--    and is shared across every Core replica — see
+--    ai_nudge_try_increment_session_counter() below for the atomic,
+--    concurrency-safe increment.
+-- ─────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.widget_ai_nudge_session_state (
+  workspace_id uuid NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
+  session_key text NOT NULL,
+  evaluation_count integer NOT NULL DEFAULT 0,
+  shown_count integer NOT NULL DEFAULT 0,
+  last_evaluated_at timestamptz,
+  expires_at timestamptz NOT NULL DEFAULT (now() + interval '24 hours'),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (workspace_id, session_key),
+  CONSTRAINT widget_ai_nudge_session_state_counts_nonneg CHECK (evaluation_count >= 0 AND shown_count >= 0)
+);
+
+GRANT ALL ON public.widget_ai_nudge_session_state TO service_role;
+ALTER TABLE public.widget_ai_nudge_session_state ENABLE ROW LEVEL SECURITY;
+-- No policy on purpose: service_role only (bypasses RLS), same convention
+-- as public.ai_billing_recovery_lease.
+
+-- Atomically increments the per-session evaluation counter and returns the
+-- NEW count, or NULL if the ceiling has already been reached — the caller
+-- MUST treat NULL as "suppress, zero provider calls, zero AI charge".
+-- The single INSERT ... ON CONFLICT DO UPDATE ... WHERE ... statement is
+-- what makes this safe under concurrent requests and multiple replicas:
+-- Postgres row-locks the conflicting row for the statement's duration, so
+-- two simultaneous callers can never both observe "count < ceiling" and
+-- both proceed.
+CREATE OR REPLACE FUNCTION public.ai_nudge_try_increment_session_counter(
+  _workspace_id uuid,
+  _session_key text,
+  _max_evaluations integer,
+  _ttl_seconds integer DEFAULT 86400
+)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  _count integer;
+BEGIN
+  IF _workspace_id IS NULL OR _session_key IS NULL OR length(_session_key) = 0 THEN
+    RAISE EXCEPTION 'ai_nudge_session_key_required';
+  END IF;
+  IF _max_evaluations IS NULL OR _max_evaluations < 0 THEN
+    RAISE EXCEPTION 'ai_nudge_max_evaluations_invalid';
+  END IF;
+
+  INSERT INTO public.widget_ai_nudge_session_state (
+    workspace_id, session_key, evaluation_count, shown_count, last_evaluated_at, expires_at
+  )
+  VALUES (_workspace_id, _session_key, 1, 0, now(), now() + make_interval(secs => _ttl_seconds))
+  ON CONFLICT (workspace_id, session_key) DO UPDATE SET
+    evaluation_count = CASE
+      WHEN widget_ai_nudge_session_state.expires_at < now() THEN 1
+      ELSE widget_ai_nudge_session_state.evaluation_count + 1
+    END,
+    shown_count = CASE
+      WHEN widget_ai_nudge_session_state.expires_at < now() THEN 0
+      ELSE widget_ai_nudge_session_state.shown_count
+    END,
+    last_evaluated_at = now(),
+    expires_at = CASE
+      WHEN widget_ai_nudge_session_state.expires_at < now() THEN now() + make_interval(secs => _ttl_seconds)
+      ELSE widget_ai_nudge_session_state.expires_at
+    END
+  WHERE widget_ai_nudge_session_state.expires_at < now()
+     OR widget_ai_nudge_session_state.evaluation_count < _max_evaluations
+  RETURNING evaluation_count INTO _count;
+
+  RETURN _count;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.ai_nudge_try_increment_session_counter(uuid, text, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.ai_nudge_try_increment_session_counter(uuid, text, integer, integer) TO service_role;
+
+-- Best-effort observability counter — never gates anything, so a plain
+-- (non-atomic-critical) update is fine.
+CREATE OR REPLACE FUNCTION public.ai_nudge_record_shown(_workspace_id uuid, _session_key text)
+RETURNS void
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  UPDATE public.widget_ai_nudge_session_state
+  SET shown_count = shown_count + 1
+  WHERE workspace_id = _workspace_id AND session_key = _session_key;
+$$;
+
+REVOKE ALL ON FUNCTION public.ai_nudge_record_shown(uuid, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.ai_nudge_record_shown(uuid, text) TO service_role;
 
 -- ─────────────────────────────────────────────────────────────────────
 -- 3. Extend widget_smart_events (the existing, already-analytics-ready

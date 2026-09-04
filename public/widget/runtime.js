@@ -5798,6 +5798,16 @@
     // are handed over here so they render with the real widget chrome and
     // report their lifecycle back through the same telemetry callbacks.
     var smartSurface = null;
+    // AI Proactive Nudge continuity — a purely client-side echo of the
+    // nudge message the visitor already saw in the bubble, painted once
+    // into the empty chat view so opening via a nudge's CTA does not lead
+    // with an unrelated generic AI greeting. Never persisted, never a
+    // conversation_messages row, never a trust boundary for grounding
+    // (the real grounded reply comes from /api/widget/message's
+    // nudge_context, re-read server-side by id). Distinct from
+    // window.__gs_pending_nudge_context, which is consumed separately by
+    // runtime-chat.js on the visitor's first real message.
+    var pendingNudgeIntro = null;
     var smartDock = document.createElement('div');
     smartDock.className = 'smart-chat-dock';
     smartDock.hidden = true;
@@ -5884,6 +5894,32 @@
       list.appendChild(row);
       bindSmartSurface(row, s);
       try { var __h = chatScrollHost(); __h.scrollTop = __h.scrollHeight; } catch (_) {}
+    }
+
+    // AI Proactive Nudge — quiet continuation cue. Reuses the exact same
+    // operator-style message-row surface as renderSmartDock (not the AI
+    // intro/greeting pipeline, not a stored message) so opening chat via a
+    // nudge's CTA continues the topic instead of a generic "Hi, I'm X…"
+    // greeting. Only shown while the thread is still empty — once a real
+    // message exists (visitor's own, or the grounded AI reply) the cue is
+    // no longer relevant and must not linger above a real transcript.
+    function renderNudgeIntroBanner() {
+      if (!body) return;
+      var existing = body.querySelector('.nudge-intro-row');
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      if (!pendingNudgeIntro) return;
+      if (shellStore.get().activeTab !== 'chat') return;
+      var list = body.querySelector('.messages');
+      if (!list) return;
+      if (list.children.length > 0) { pendingNudgeIntro = null; return; }
+      var row = document.createElement('div');
+      row.className = 'msg-row operator nudge-intro-row';
+      row.innerHTML = smartOperatorAvatarHtml() +
+        '<div class="msg operator smart-msg">' +
+          '<div class="smart-body">' + Util.escapeHtml(pendingNudgeIntro.message || '') + '</div>' +
+        '</div>';
+      list.appendChild(row);
+      try { var __h2 = chatScrollHost(); __h2.scrollTop = __h2.scrollHeight; } catch (_) {}
     }
 
     function renderSmartAnnounce() {
@@ -7449,17 +7485,31 @@
         // Backend dedupes by conversation/session so it's safe to call
         // every render — the in-flight guard prevents duplicate requests.
         try {
+          // AI Proactive Nudge continuity — consume the pending flag exactly
+          // once and keep it in module-scope state (window global is
+          // cleared immediately) so it survives subsequent re-renders of
+          // this same open cycle.
+          if (window.__gs_pending_nudge_intro) {
+            pendingNudgeIntro = window.__gs_pending_nudge_intro;
+            window.__gs_pending_nudge_intro = null;
+          }
           // Don't let the AI intro race ahead of a Smart Engagement
           // chat_message surface that is the reason this tab is open —
           // the visitor should see the operator-configured nudge first,
           // not have the AI cut in front of it. Once that surface is
           // dismissed, the next render (smartSurface null) fires normally.
-          if (state.name === ENTRY_FLOW_STATE.AI_CHAT && !smartSurface) {
+          // A pending nudge intro suppresses the generic AI greeting the
+          // same way — the visitor already saw this exact message in the
+          // launcher bubble; a "Hi, I'm X…" greeting right after it would
+          // be jarring and repetitive, and the nudge context must continue
+          // the topic, not restart it.
+          if (state.name === ENTRY_FLOW_STATE.AI_CHAT && !smartSurface && !pendingNudgeIntro) {
             if (canRequestVisitorAiIntro()) requestAiAgentIntro('chat_open');
           }
         } catch (_) {}
         chatUI.renderChat(mountChatFrame() || body);
         renderSmartDock();
+        renderNudgeIntroBanner();
       } else if (tab === 'help') {
         if (inputBar) inputBar.style.display = 'none';
         // Knowledge Base cold entry: articles are fetched lazily, so paint the

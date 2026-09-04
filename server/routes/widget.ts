@@ -51,6 +51,8 @@ import {
 import { loadPublicSmartRules, recordSmartEvent } from '../services/widget/smartEngagement.js';
 import { evaluateAiProactiveNudge } from '../services/widget/aiNudge/evaluate.js';
 import { resolveEffectiveAiNudgePolicy } from '../services/widget/aiNudge/policy.js';
+import { resolveTrustedNudgeSessionKey } from '../services/widget/aiNudge/session.js';
+import { transitionNudgeStatus } from '../services/widget/aiNudge/lifecycle.js';
 import { AI_JOURNEY_MAX_PAGES, type AiJourneyContext, type SmartEvalContext } from '../../src/lib/widget/smartEngine.js';
 import {
   createSessionToken,
@@ -1055,6 +1057,10 @@ widgetRouter.post('/smart/event', widgetRateLimit('default'), async (req: Reques
       aiNudgeId: parsed.data.ai_nudge_id,
       visitorId: parsed.data.visitor_id ?? null,
       sessionId: parsed.data.session_id ?? null,
+      // Trusted session lineage — required for the 'shown' ack to update
+      // the durable per-session evaluation/display state. Never trust the
+      // client-supplied session_id for this.
+      trustedSessionKey: resolveTrustedNudgeSessionKey(req),
       eventType: parsed.data.event_type,
       pagePath: parsed.data.page_path ?? null,
       idempotencyKey: parsed.data.idempotency_key,
@@ -1140,12 +1146,21 @@ widgetRouter.post('/nudge/evaluate', widgetRateLimit('default'), async (req: Req
   const parsed = nudgeEvaluateSchema.safeParse(req.body || {});
   if (!parsed.success) return res.json({ decision: 'suppress' }); // fail closed, never surface schema errors to the page
 
+  // Trusted session lineage — derived from the verified widget token's
+  // nonce (enforceWidgetToken, mounted above), never from client-supplied
+  // session_id/visitor_id. This is the ONLY identity that may gate AI
+  // evaluation quota, cooldown, dedup, or AI billing identity for this
+  // feature — see server/services/widget/aiNudge/session.ts.
+  const trustedSessionKey = resolveTrustedNudgeSessionKey(req);
+  if (!trustedSessionKey) return res.json({ decision: 'suppress' }); // fail closed — no verified token context
+
   try {
     const d = parsed.data;
     // Visitor identity: the signed HttpOnly cookie is authoritative, same
-    // precedence as every other widget route — a client-supplied session_id
-    // is only ever used as a display/bookkeeping key, never for authorization.
-    const visitorId = readVisitorCookie(req as any, workspaceId)?.v || d.visitor_id || null;
+    // precedence as every other widget route. A client-supplied visitor_id
+    // is stored ONLY as a display/analytics column — never used for
+    // enforcement (frequency, dedup, billing all key on trustedSessionKey).
+    const visitorId = readVisitorCookie(req as any, workspaceId)?.v || null;
     const journey: AiJourneyContext = {
       current: { path: sanitizeNudgePath(d.current.path), title: d.current.title || undefined, ts: Date.now() },
       recentPages: d.recent_pages.map((p) => ({ path: sanitizeNudgePath(p.path), title: p.title || undefined, ts: p.ts })),
@@ -1176,6 +1191,7 @@ widgetRouter.post('/nudge/evaluate', widgetRateLimit('default'), async (req: Req
     };
     const result = await evaluateAiProactiveNudge(config, {
       workspaceId,
+      trustedSessionKey,
       visitorId,
       sessionId: d.session_id ?? null,
       locale: d.locale,
@@ -2112,7 +2128,9 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
     // AI Proactive Nudge attribution — best-effort, never blocks the message.
     if (nudgeIdForAttribution && convId) {
-      void supabase.from('widget_ai_nudges').update({ status: 'converted' }).eq('id', nudgeIdForAttribution).eq('workspace_id', workspaceId);
+      // Guarded transition only — a nudge that was never shown/clicked
+      // cannot silently become "converted" and corrupt attribution.
+      void transitionNudgeStatus(supabase, { nudgeId: nudgeIdForAttribution, workspaceId, to: 'converted' });
       void supabase.from('widget_smart_events').insert({
         workspace_id: workspaceId,
         source: 'ai_proactive',

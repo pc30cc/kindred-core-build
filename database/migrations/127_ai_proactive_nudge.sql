@@ -43,6 +43,10 @@ CREATE TABLE IF NOT EXISTS public.widget_ai_nudges (
     workspace_id uuid NOT NULL,
     visitor_id text,
     session_id text,
+    -- Trusted session lineage (sha256 of the widget token's stable nonce) —
+    -- the ONLY key frequency/cooldown/dedup/billing lookups use. session_id
+    -- above is client-supplied display/debug metadata only.
+    session_key text NOT NULL,
     topic text NOT NULL,
     message text NOT NULL,
     cta_label text,
@@ -51,21 +55,108 @@ CREATE TABLE IF NOT EXISTS public.widget_ai_nudges (
     page_path text,
     confidence numeric,
     ai_run_id uuid,
-    status text DEFAULT 'shown' NOT NULL,
+    -- Lifecycle: generated -> shown -> dismissed | clicked -> converted, or
+    -- generated -> expired. See server/services/widget/aiNudge/lifecycle.ts.
+    status text DEFAULT 'generated' NOT NULL,
+    shown_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     expires_at timestamp with time zone DEFAULT (now() + interval '2 hours') NOT NULL,
     CONSTRAINT widget_ai_nudges_topic_len CHECK (length(topic) <= 60),
     CONSTRAINT widget_ai_nudges_message_len CHECK (length(message) <= 400),
-    CONSTRAINT widget_ai_nudges_status_valid CHECK (status = ANY (ARRAY['shown'::text,'dismissed'::text,'clicked'::text,'converted'::text,'expired'::text]))
+    CONSTRAINT widget_ai_nudges_status_valid CHECK (status = ANY (ARRAY['generated'::text,'shown'::text,'dismissed'::text,'clicked'::text,'converted'::text,'expired'::text]))
 );
 
 DO $$ BEGIN IF to_regclass('public.widget_ai_nudges') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='widget_ai_nudges_pkey' AND conrelid='public.widget_ai_nudges'::regclass) THEN ALTER TABLE ONLY public.widget_ai_nudges ADD CONSTRAINT widget_ai_nudges_pkey PRIMARY KEY (id); END IF; END $$;
 DO $$ BEGIN IF to_regclass('public.widget_ai_nudges') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='widget_ai_nudges_workspace_id_fkey' AND conrelid='public.widget_ai_nudges'::regclass) THEN ALTER TABLE ONLY public.widget_ai_nudges ADD CONSTRAINT widget_ai_nudges_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id) ON DELETE CASCADE; END IF; END $$;
+DO $$ BEGIN IF to_regclass('public.widget_ai_nudges') IS NOT NULL AND to_regclass('public.ai_runs') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='widget_ai_nudges_ai_run_id_fkey' AND conrelid='public.widget_ai_nudges'::regclass) THEN ALTER TABLE ONLY public.widget_ai_nudges ADD CONSTRAINT widget_ai_nudges_ai_run_id_fkey FOREIGN KEY (ai_run_id) REFERENCES public.ai_runs(id) ON DELETE SET NULL; END IF; END $$;
 
 CREATE INDEX IF NOT EXISTS idx_widget_ai_nudges_ws_created ON public.widget_ai_nudges USING btree (workspace_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_widget_ai_nudges_session ON public.widget_ai_nudges USING btree (workspace_id, session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_widget_ai_nudges_session ON public.widget_ai_nudges USING btree (workspace_id, session_key, created_at DESC);
 
 ALTER TABLE public.widget_ai_nudges ENABLE ROW LEVEL SECURITY;
+
+-- ─── Per-session AI-evaluation ceiling (bounded aggregate, not a raw
+--    event stream — one row per workspace+trusted-session). ───
+CREATE TABLE IF NOT EXISTS public.widget_ai_nudge_session_state (
+    workspace_id uuid NOT NULL,
+    session_key text NOT NULL,
+    evaluation_count integer DEFAULT 0 NOT NULL,
+    shown_count integer DEFAULT 0 NOT NULL,
+    last_evaluated_at timestamp with time zone,
+    expires_at timestamp with time zone DEFAULT (now() + interval '24 hours') NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT widget_ai_nudge_session_state_counts_nonneg CHECK (evaluation_count >= 0 AND shown_count >= 0)
+);
+
+DO $$ BEGIN IF to_regclass('public.widget_ai_nudge_session_state') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='widget_ai_nudge_session_state_pkey' AND conrelid='public.widget_ai_nudge_session_state'::regclass) THEN ALTER TABLE ONLY public.widget_ai_nudge_session_state ADD CONSTRAINT widget_ai_nudge_session_state_pkey PRIMARY KEY (workspace_id, session_key); END IF; END $$;
+DO $$ BEGIN IF to_regclass('public.widget_ai_nudge_session_state') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='widget_ai_nudge_session_state_workspace_id_fkey' AND conrelid='public.widget_ai_nudge_session_state'::regclass) THEN ALTER TABLE ONLY public.widget_ai_nudge_session_state ADD CONSTRAINT widget_ai_nudge_session_state_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id) ON DELETE CASCADE; END IF; END $$;
+
+ALTER TABLE public.widget_ai_nudge_session_state ENABLE ROW LEVEL SECURITY;
+-- No policy on purpose: service_role only, same convention as ai_billing_recovery_lease.
+
+CREATE OR REPLACE FUNCTION public.ai_nudge_try_increment_session_counter(
+  _workspace_id uuid,
+  _session_key text,
+  _max_evaluations integer,
+  _ttl_seconds integer DEFAULT 86400
+)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  _count integer;
+BEGIN
+  IF _workspace_id IS NULL OR _session_key IS NULL OR length(_session_key) = 0 THEN
+    RAISE EXCEPTION 'ai_nudge_session_key_required';
+  END IF;
+  IF _max_evaluations IS NULL OR _max_evaluations < 0 THEN
+    RAISE EXCEPTION 'ai_nudge_max_evaluations_invalid';
+  END IF;
+
+  INSERT INTO public.widget_ai_nudge_session_state (
+    workspace_id, session_key, evaluation_count, shown_count, last_evaluated_at, expires_at
+  )
+  VALUES (_workspace_id, _session_key, 1, 0, now(), now() + make_interval(secs => _ttl_seconds))
+  ON CONFLICT (workspace_id, session_key) DO UPDATE SET
+    evaluation_count = CASE
+      WHEN widget_ai_nudge_session_state.expires_at < now() THEN 1
+      ELSE widget_ai_nudge_session_state.evaluation_count + 1
+    END,
+    shown_count = CASE
+      WHEN widget_ai_nudge_session_state.expires_at < now() THEN 0
+      ELSE widget_ai_nudge_session_state.shown_count
+    END,
+    last_evaluated_at = now(),
+    expires_at = CASE
+      WHEN widget_ai_nudge_session_state.expires_at < now() THEN now() + make_interval(secs => _ttl_seconds)
+      ELSE widget_ai_nudge_session_state.expires_at
+    END
+  WHERE widget_ai_nudge_session_state.expires_at < now()
+     OR widget_ai_nudge_session_state.evaluation_count < _max_evaluations
+  RETURNING evaluation_count INTO _count;
+
+  RETURN _count;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.ai_nudge_try_increment_session_counter(uuid, text, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.ai_nudge_try_increment_session_counter(uuid, text, integer, integer) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.ai_nudge_record_shown(_workspace_id uuid, _session_key text)
+RETURNS void
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  UPDATE public.widget_ai_nudge_session_state
+  SET shown_count = shown_count + 1
+  WHERE workspace_id = _workspace_id AND session_key = _session_key;
+$$;
+
+REVOKE ALL ON FUNCTION public.ai_nudge_record_shown(uuid, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.ai_nudge_record_shown(uuid, text) TO service_role;
 
 -- Extend widget_smart_events for AI-sourced lifecycle events.
 ALTER TABLE public.widget_smart_events ALTER COLUMN rule_id DROP NOT NULL;
@@ -93,7 +184,7 @@ DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='platform_a
 DO $$
 DECLARE t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['widget_ai_nudge_settings','widget_ai_nudges'] LOOP
+  FOREACH t IN ARRAY ARRAY['widget_ai_nudge_settings','widget_ai_nudges','widget_ai_nudge_session_state'] LOOP
     EXECUTE format('GRANT ALL ON public.%I TO service_role', t);
   END LOOP;
 END $$;

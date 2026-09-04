@@ -9,8 +9,11 @@
  *
  * Called from server/routes/widget.ts's POST /api/widget/nudge/evaluate,
  * AFTER the canonical widget-token + origin auth gate has already run.
- * Every input here is treated as untrusted except workspaceId (resolved by
- * the caller via resolveWorkspaceId against the verified token).
+ * Every input here is treated as untrusted EXCEPT `workspaceId` (resolved
+ * by the caller via resolveWorkspaceId against the verified token) and
+ * `trustedSessionKey` (derived by the caller from the verified token's
+ * nonce — see session.ts). `sessionId`/`visitorId` are client-supplied and
+ * used ONLY for display/analytics columns, never for enforcement.
  */
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
@@ -18,19 +21,26 @@ import { emitMetric } from '../../observability/metrics.js';
 import { getOrCreateSettings } from '../../ai-agent/settings.js';
 import { retrieveSources } from '../../ai-agent/retrieval.js';
 import { executeAICompletion } from '../../ai/index.js';
+import { beginAiRunGuarded, settleAiRun, failAiRun, type AiRunContext } from '../../ai-billing/runContext.js';
+import { isAllowanceExhausted } from '../../ai-billing/errors.js';
 import { resolveEffectiveAiNudgePolicy } from './policy.js';
 import { isDuplicateAiNudgeContext, recordAiNudgeEvaluation } from './dedup.js';
+import { tryIncrementAiNudgeEvaluationCounter } from './sessionState.js';
 import { parseAiNudgeDecision, type AiNudgeDecision } from './contract.js';
 import {
   evaluateAiProactiveEligibility,
   isSafeSmartUrl,
   type AiJourneyContext,
+  type AiJourneyPreviousNudge,
   type AiProactiveFrequencyState,
   type SmartEvalContext,
 } from '../../../../src/lib/widget/smartEngine.js';
 
 export interface NudgeEvaluateInput {
   workspaceId: string;
+  /** Trusted server-derived session lineage — see session.ts. Never client-controlled. */
+  trustedSessionKey: string;
+  /** Client-supplied, display/analytics only — never used for enforcement. */
   visitorId: string | null;
   sessionId: string | null;
   locale: string;
@@ -49,32 +59,57 @@ export interface NudgeEvaluateResult {
 
 const SUPPRESS: NudgeEvaluateResult = { decision: 'suppress' };
 
+interface ServerFrequencyState extends AiProactiveFrequencyState {
+  /** Derived from the visitor's own recent nudge history — NEVER the client's `previous_nudge` field. */
+  previousNudgeTrusted: AiJourneyPreviousNudge | null;
+}
+
+/**
+ * Loads the authoritative frequency/history state for this session from
+ * `widget_ai_nudges`. Only rows that actually reached the visitor
+ * (shown/dismissed/clicked/converted) count — a `generated` candidate that
+ * was never acknowledged as shown (stale navigation, dropped response, …)
+ * must never consume the display quota or contaminate history.
+ *
+ * FAILS CLOSED: returns null on any lookup error. The caller MUST suppress
+ * rather than silently fall back to a permissive empty state — inability
+ * to enforce frequency must never become permission to show more messages.
+ */
 async function loadServerFrequencyState(
   config: ServerConfig,
   workspaceId: string,
-  sessionId: string | null,
-): Promise<AiProactiveFrequencyState> {
-  if (!sessionId) return {};
+  trustedSessionKey: string,
+): Promise<ServerFrequencyState | null> {
   try {
     const sb = getServiceClient(config);
     const since = new Date(Date.now() - 24 * 3600_000).toISOString();
-    const { data: nudges } = await sb
+    const { data: nudges, error } = await sb
       .from('widget_ai_nudges' as any)
-      .select('id, topic, status, created_at')
+      .select('id, topic, status, created_at, shown_at')
       .eq('workspace_id', workspaceId)
-      .eq('session_id', sessionId)
+      .eq('session_key', trustedSessionKey)
+      .in('status', ['shown', 'dismissed', 'clicked', 'converted'])
       .gte('created_at', since)
       .order('created_at', { ascending: false })
       .limit(50);
-    const rows = (nudges || []) as Array<{ id: string; topic: string; status: string; created_at: string }>;
+    if (error) return null;
+    const rows = (nudges || []) as Array<{ id: string; topic: string; status: string; created_at: string; shown_at: string | null }>;
     const dismissedTopics = Array.from(new Set(rows.filter((r) => r.status === 'dismissed').map((r) => r.topic)));
+    const latest = rows[0] || null;
     return {
       shownInSession: rows.length,
-      lastShownAt: rows.length ? new Date(rows[0].created_at).getTime() : null,
+      lastShownAt: latest ? new Date(latest.shown_at || latest.created_at).getTime() : null,
       dismissedTopics,
+      previousNudgeTrusted: latest
+        ? {
+            topic: latest.topic,
+            dismissed: latest.status === 'dismissed',
+            engaged: latest.status === 'clicked' || latest.status === 'converted',
+          }
+        : null,
     };
   } catch {
-    return {};
+    return null;
   }
 }
 
@@ -148,7 +183,13 @@ export async function evaluateAiProactiveNudge(
   config: ServerConfig,
   input: NudgeEvaluateInput,
 ): Promise<NudgeEvaluateResult> {
-  const { workspaceId } = input;
+  const { workspaceId, trustedSessionKey } = input;
+  if (!trustedSessionKey) {
+    // Should never happen — the route always derives this from the
+    // verified widget token before calling in. Fail closed regardless.
+    emitMetric(config, { metric: 'ai_nudge.suppressed', workspaceId, source: 'widget', tags: { reason: 'missing_trusted_session' } });
+    return SUPPRESS;
+  }
 
   const policy = await resolveEffectiveAiNudgePolicy(config, workspaceId);
   if (!policy.available) {
@@ -156,7 +197,31 @@ export async function evaluateAiProactiveNudge(
     return SUPPRESS;
   }
 
-  const freqState = await loadServerFrequencyState(config, workspaceId, input.sessionId);
+  // ─── Privacy toggles — enforced SERVER-SIDE, independent of what the
+  // client sent. A visitor journey/returning-visitor value the client
+  // sends is a hint for the CHEAP client-side pre-filter only; it must
+  // never leak into the prompt or the deterministic score once the
+  // workspace has opted out. ─────────────────────────────────────────
+  const journey: AiJourneyContext = {
+    ...input.journey,
+    recentPages: policy.useJourney ? input.journey.recentPages : [],
+    returning: policy.useReturningVisitor ? input.journey.returning : false,
+  };
+  const ctx: SmartEvalContext = {
+    ...input.ctx,
+    visitor: { ...input.ctx.visitor, isReturning: policy.useReturningVisitor ? input.ctx.visitor.isReturning : false },
+  };
+
+  const freq = await loadServerFrequencyState(config, workspaceId, trustedSessionKey);
+  if (freq === null) {
+    // Fail closed — inability to enforce frequency must never become
+    // permission to show more messages.
+    emitMetric(config, { metric: 'ai_nudge.suppressed', workspaceId, source: 'widget', tags: { reason: 'frequency_state_unavailable' } });
+    return SUPPRESS;
+  }
+  // The visitor's own recent history is the ONLY trusted source of
+  // "previous nudge" context — never the client-supplied `previous_nudge`.
+  journey.previousNudge = freq.previousNudgeTrusted;
 
   const eligibility = evaluateAiProactiveEligibility(
     {
@@ -170,9 +235,9 @@ export async function evaluateAiProactiveNudge(
       stopAfterConversation: policy.stopAfterConversation,
       mobileEnabled: policy.mobileEnabled,
     },
-    input.ctx,
-    input.journey,
-    freqState,
+    ctx,
+    journey,
+    freq,
     new Date(),
   );
 
@@ -181,19 +246,38 @@ export async function evaluateAiProactiveNudge(
     return SUPPRESS;
   }
 
-  const sessionKey = input.sessionId || input.visitorId || 'anon';
-  if (isDuplicateAiNudgeContext(workspaceId, sessionKey, eligibility.fingerprint)) {
+  // In-process dedup — collapses near-simultaneous duplicate requests for
+  // the exact same context (double-tab, retry) before they ever reach the
+  // durable evaluation ceiling or a billable AI call. Keyed by the SAME
+  // trusted session lineage as everything else in this function — a
+  // rotated client session_id can never manufacture a fresh dedup slot.
+  if (isDuplicateAiNudgeContext(workspaceId, trustedSessionKey, eligibility.fingerprint)) {
     emitMetric(config, { metric: 'ai_nudge.suppressed', workspaceId, source: 'widget', tags: { reason: 'duplicate_context' } });
     return SUPPRESS;
   }
-  recordAiNudgeEvaluation(workspaceId, sessionKey, eligibility.fingerprint);
+  recordAiNudgeEvaluation(workspaceId, trustedSessionKey, eligibility.fingerprint);
+
+  // ─── Durable, atomic, cross-replica evaluation ceiling — BEFORE any
+  // billable AI execution. No client-supplied counter is ever authoritative
+  // here; a rotated session_id cannot buy extra allowance because the
+  // ceiling is keyed on the trusted session lineage. ───────────────────
+  const evalCount = await tryIncrementAiNudgeEvaluationCounter(
+    config,
+    workspaceId,
+    trustedSessionKey,
+    policy.maxEvaluationsPerSession,
+  );
+  if (evalCount === null) {
+    emitMetric(config, { metric: 'ai_nudge.suppressed', workspaceId, source: 'widget', tags: { reason: 'evaluation_ceiling_reached' } });
+    return SUPPRESS;
+  }
 
   emitMetric(config, { metric: 'ai_nudge.evaluated', workspaceId, source: 'widget', tags: { mode: policy.mode, topic: eligibility.topicBucket } });
 
   let sources: Awaited<ReturnType<typeof retrieveSources>> = [];
   if (policy.useKb) {
     try {
-      const query = `${input.journey.current.title || ''} ${input.journey.current.path}`.trim();
+      const query = `${journey.current.title || ''} ${journey.current.path}`.trim();
       sources = await retrieveSources(config, workspaceId, query, input.locale, 3);
     } catch {
       sources = [];
@@ -207,34 +291,75 @@ export async function evaluateAiProactiveNudge(
   } catch { /* keep default */ }
 
   const systemPrompt = buildNudgeSystemPrompt({ agentName, locale: input.locale, guidance: policy.guidance, hasSources: sources.length > 0 });
-  const userPrompt = buildNudgeUserPrompt(input.journey, sources);
+  const userPrompt = buildNudgeUserPrompt(journey, sources);
+
+  // ─── AI Run — one logical nudge evaluation = one AI Run, opened by THIS
+  // caller (same pattern as server/services/ai-agent/engine.ts's
+  // openTurnRun/closeTurnRun) so the resulting runId can be persisted on
+  // the generated nudge row for exact per-nudge cost attribution. The
+  // operation key is the trusted session lineage + context fingerprint —
+  // never the client-rotatable session_id — so a replay can only ever
+  // resume the SAME run, never mint a second billable one. ─────────────
+  const operationKey = `nudge:${workspaceId}:${trustedSessionKey}:${eligibility.fingerprint}`;
+  let runCtx: AiRunContext | null = null;
+  try {
+    runCtx = await beginAiRunGuarded(config, {
+      workspaceId,
+      operationKey,
+      payload: { workspaceId, topic: eligibility.topicBucket, page: journey.current.path },
+      entryPoint: 'proactive_nudge',
+      channel: 'widget',
+    });
+  } catch (err: any) {
+    if (isAllowanceExhausted(err)) {
+      emitMetric(config, { metric: 'ai_nudge.billing_denied', workspaceId, source: 'widget' });
+    } else {
+      emitMetric(config, { metric: 'ai_nudge.suppressed', workspaceId, source: 'widget', tags: { reason: 'billing_conflict' } });
+    }
+    return SUPPRESS;
+  }
 
   let raw: string;
   try {
-    const response = await executeAICompletion(config, {
-      workspaceId,
-      prompt: userPrompt,
-      systemPrompt,
-      jsonMode: true,
-      maxTokens: 300,
-      temperature: 0.4,
-      billing: {
-        entryPoint: 'proactive_nudge',
-        operationKey: `nudge:${workspaceId}:${sessionKey}:${eligibility.fingerprint}`,
-        channel: 'widget',
+    const response = await executeAICompletion(
+      config,
+      {
+        workspaceId,
+        prompt: userPrompt,
+        systemPrompt,
+        jsonMode: true,
+        maxTokens: 300,
+        temperature: 0.4,
+        billing: {
+          entryPoint: 'proactive_nudge',
+          operationKey,
+          channel: 'widget',
+        },
       },
-    });
+      runCtx ?? undefined,
+    );
     raw = response.text || '';
   } catch (err: any) {
     const msg = String(err?.message || '');
-    if (/allowance_exhausted|insufficient|budget/i.test(msg)) {
+    if (isAllowanceExhausted(err) || /allowance_exhausted|insufficient|budget/i.test(msg)) {
       emitMetric(config, { metric: 'ai_nudge.billing_denied', workspaceId, source: 'widget' });
     } else if (/runtime_not_configured|runtime_unreachable|no_provider_configured|provider_error/i.test(msg)) {
       emitMetric(config, { metric: 'ai_nudge.provider_unavailable', workspaceId, source: 'widget' });
     } else {
       emitMetric(config, { metric: 'ai_nudge.timeout', workspaceId, source: 'widget' });
     }
+    if (runCtx) await failAiRun(config, runCtx, msg || 'runtime_error').catch(() => undefined);
     return SUPPRESS;
+  }
+
+  // The run was opened by US (runCtx passed explicitly), so executeAICompletion
+  // does NOT settle it — we own that, exactly like engine.ts's closeTurnRun.
+  // Usage was already recorded for this attempt regardless of what the
+  // decision turns out to be (a "suppress" or malformed decision is still a
+  // real, billable completion — the model was called and tokens were spent).
+  if (runCtx) {
+    if (runCtx.stepSeq > 0) await settleAiRun(config, runCtx).catch(() => undefined);
+    else await failAiRun(config, runCtx, 'no_billable_usage').catch(() => undefined);
   }
 
   const decision: AiNudgeDecision | null = parseAiNudgeDecision(raw);
@@ -263,6 +388,13 @@ export async function evaluateAiProactiveNudge(
     cta = { label: '', action: 'open_chat' };
   }
 
+  // ─── Persist as GENERATED, not shown. The browser only earns a "shown"
+  // transition once it acknowledges the bubble actually attached to the
+  // page (see server/services/widget/aiNudge/lifecycle.ts + the
+  // /api/widget/smart/event 'shown' handler in smartEngagement.ts). No
+  // widget_smart_events 'shown' row is written here — that would count a
+  // display that may never actually happen (stale navigation, network
+  // drop, etc). ─────────────────────────────────────────────────────────
   let nudgeId: string | undefined;
   try {
     const sb = getServiceClient(config);
@@ -272,36 +404,26 @@ export async function evaluateAiProactiveNudge(
         workspace_id: workspaceId,
         visitor_id: input.visitorId,
         session_id: input.sessionId,
+        session_key: trustedSessionKey,
         topic: decision.topic.slice(0, 60),
         message,
         cta_label: cta?.label ? cta.label.slice(0, 60) : null,
         cta_action: cta?.action || null,
         cta_url: cta?.url || null,
-        page_path: input.journey.current.path,
+        page_path: journey.current.path,
         confidence: decision.confidence,
-        status: 'shown',
+        ai_run_id: runCtx?.runId || null,
+        status: 'generated',
       })
       .select('id')
       .single();
     nudgeId = (inserted as any)?.id;
-    if (nudgeId) {
-      await sb.from('widget_smart_events' as any).insert({
-        workspace_id: workspaceId,
-        source: 'ai_proactive',
-        ai_nudge_id: nudgeId,
-        event_type: 'shown',
-        visitor_id: input.visitorId,
-        session_id: input.sessionId,
-        page_path: input.journey.current.path,
-        idempotency_key: `shown_${nudgeId}`,
-      });
-    }
   } catch (err: any) {
     console.error('[ai-nudge] failed to persist generated nudge:', err?.message || err);
     return SUPPRESS;
   }
 
-  emitMetric(config, { metric: 'ai_nudge.shown', workspaceId, source: 'widget', tags: { topic: decision.topic.slice(0, 40) } });
+  emitMetric(config, { metric: 'ai_nudge.generated', workspaceId, source: 'widget', tags: { topic: decision.topic.slice(0, 40) } });
 
   return { decision: 'show', nudgeId, message, topic: decision.topic, cta: cta || undefined };
 }

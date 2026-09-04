@@ -145,6 +145,8 @@ export async function recordSmartEvent(
     aiNudgeId?: string | null;
     visitorId?: string | null;
     sessionId?: string | null;
+    /** Trusted session lineage (see aiNudge/session.ts) — required for the 'shown' ack. */
+    trustedSessionKey?: string | null;
     eventType: string;
     pagePath?: string | null;
     idempotencyKey: string;
@@ -172,6 +174,29 @@ export async function recordSmartEvent(
     if (!nudgeRow || nudgeRow.workspace_id !== payload.workspaceId) {
       return { ok: false, reason: 'nudge_workspace_mismatch' };
     }
+
+    // ─── Lifecycle: this is the ONLY place "generated" ever becomes
+    // "shown" — the browser's acknowledgement that the bubble actually
+    // attached to the page. A duplicate/replayed/stale ack is a safe
+    // no-op (guarded transition), never a double count. ─────────────────
+    const { transitionNudgeStatus } = await import('./aiNudge/lifecycle.js');
+    if (payload.eventType === 'shown') {
+      const transitioned = await transitionNudgeStatus(supabase, {
+        nudgeId: payload.aiNudgeId,
+        workspaceId: payload.workspaceId,
+        to: 'shown',
+        requireNotExpired: true,
+      });
+      if (transitioned && payload.trustedSessionKey) {
+        const { recordAiNudgeShownForSession } = await import('./aiNudge/sessionState.js');
+        void recordAiNudgeShownForSession(supabase, payload.workspaceId, payload.trustedSessionKey);
+      }
+    } else if (payload.eventType === 'dismissed') {
+      void transitionNudgeStatus(supabase, { nudgeId: payload.aiNudgeId, workspaceId: payload.workspaceId, to: 'dismissed' });
+    } else if (payload.eventType === 'cta_clicked') {
+      void transitionNudgeStatus(supabase, { nudgeId: payload.aiNudgeId, workspaceId: payload.workspaceId, to: 'clicked' });
+    }
+
     const { error } = await supabase.from('widget_smart_events').insert({
       workspace_id: payload.workspaceId,
       source: 'ai_proactive',
@@ -183,11 +208,6 @@ export async function recordSmartEvent(
       idempotency_key: String(payload.idempotencyKey).slice(0, 120),
     });
     if (error && (error as any).code !== '23505') return { ok: false, reason: error.message };
-    if (payload.eventType === 'dismissed') {
-      void supabase.from('widget_ai_nudges').update({ status: 'dismissed' }).eq('id', payload.aiNudgeId).eq('workspace_id', payload.workspaceId);
-    } else if (payload.eventType === 'cta_clicked') {
-      void supabase.from('widget_ai_nudges').update({ status: 'clicked' }).eq('id', payload.aiNudgeId).eq('workspace_id', payload.workspaceId);
-    }
     return { ok: true };
   }
 

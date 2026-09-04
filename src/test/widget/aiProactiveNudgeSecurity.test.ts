@@ -195,10 +195,16 @@ describe('AI Proactive Nudge — cross-workspace nudge_id isolation', () => {
 
   it('accepts a nudge_id that genuinely belongs to the resolved workspace', async () => {
     const { recordSmartEvent } = await import('../../../server/services/widget/smartEngagement.js');
+    const updateChain: any = {
+      eq: () => updateChain,
+      in: () => updateChain,
+      gt: () => updateChain,
+      select: async () => ({ data: [{ id: 'genuine-nudge' }], error: null }),
+    };
     const fakeSupabase = {
       from: (table: string) => {
         if (table === 'widget_ai_nudges') {
-          return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { workspace_id: 'ws-1' }, error: null }) }) }), update: () => ({ eq: () => ({ eq: async () => ({ error: null }) }) }) };
+          return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { workspace_id: 'ws-1' }, error: null }) }) }), update: () => updateChain };
         }
         return { insert: async () => ({ error: null }) };
       },
@@ -211,5 +217,67 @@ describe('AI Proactive Nudge — cross-workspace nudge_id isolation', () => {
       idempotencyKey: 'k3',
     });
     expect(result.ok).toBe(true);
+  });
+
+  it('a "shown" ack transitions generated -> shown and increments the trusted session shown counter', async () => {
+    const { recordSmartEvent } = await import('../../../server/services/widget/smartEngagement.js');
+    const updateChain: any = {
+      eq: () => updateChain,
+      in: () => updateChain,
+      gt: () => updateChain,
+      select: async () => ({ data: [{ id: 'genuine-nudge' }], error: null }),
+    };
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
+    const fakeSupabase = {
+      from: (table: string) => {
+        if (table === 'widget_ai_nudges') {
+          return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { workspace_id: 'ws-1' }, error: null }) }) }), update: () => updateChain };
+        }
+        return { insert: async () => ({ error: null }) };
+      },
+      rpc,
+    };
+    const result = await recordSmartEvent(fakeSupabase, {
+      workspaceId: 'ws-1',
+      source: 'ai_proactive',
+      aiNudgeId: 'genuine-nudge',
+      trustedSessionKey: 'trusted-key-xyz',
+      eventType: 'shown',
+      idempotencyKey: 'k4',
+    });
+    expect(result.ok).toBe(true);
+    expect(rpc).toHaveBeenCalledWith('ai_nudge_record_shown', expect.objectContaining({ _session_key: 'trusted-key-xyz' }));
+  });
+
+  it('a duplicate "shown" ack (already shown) does not increment the session counter again', async () => {
+    const { recordSmartEvent } = await import('../../../server/services/widget/smartEngagement.js');
+    // The guarded UPDATE matches zero rows because the nudge is no longer
+    // in status 'generated' (already transitioned) — a safe, silent no-op.
+    const updateChain: any = {
+      eq: () => updateChain,
+      in: () => updateChain,
+      gt: () => updateChain,
+      select: async () => ({ data: [], error: null }),
+    };
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
+    const fakeSupabase = {
+      from: (table: string) => {
+        if (table === 'widget_ai_nudges') {
+          return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { workspace_id: 'ws-1' }, error: null }) }) }), update: () => updateChain };
+        }
+        return { insert: async () => ({ error: null }) };
+      },
+      rpc,
+    };
+    const result = await recordSmartEvent(fakeSupabase, {
+      workspaceId: 'ws-1',
+      source: 'ai_proactive',
+      aiNudgeId: 'genuine-nudge',
+      trustedSessionKey: 'trusted-key-xyz',
+      eventType: 'shown',
+      idempotencyKey: 'k5',
+    });
+    expect(result.ok).toBe(true);
+    expect(rpc).not.toHaveBeenCalled();
   });
 });

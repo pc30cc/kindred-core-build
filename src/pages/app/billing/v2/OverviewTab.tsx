@@ -200,6 +200,7 @@ export default function OverviewTab({
 
 
             <div className="mt-auto space-y-2 pt-2">
+              <p className="text-xs text-muted-foreground">{t('billingV2.overview.walletBoxHint')}</p>
               {canManage && (
                 <Button
                   size="lg"
@@ -211,8 +212,8 @@ export default function OverviewTab({
                   {t('billingV2.wallet.deposit')}
                 </Button>
               )}
-              <p className="text-xs text-muted-foreground">{t('billingV2.overview.walletBoxHint')}</p>
             </div>
+
           </CardContent>
         </Card>
 

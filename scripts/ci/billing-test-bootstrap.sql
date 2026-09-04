@@ -52,3 +52,9 @@ CREATE TABLE IF NOT EXISTS public.conversations (
   status       text NOT NULL DEFAULT 'open',
   created_at   timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS public.visitor_sessions (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id uuid REFERENCES public.workspaces(id) ON DELETE CASCADE,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);

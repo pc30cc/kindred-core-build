@@ -167,23 +167,23 @@ interface SubscribeResponse {
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 /**
- * Fetch a fresh connection negotiation. Used both for the initial open and
- * for proactive token refresh / reconnect after expiry. Independent of the
- * provider's cached negotiation so a long-lived tab never gets stuck on a
- * stale token.
+ * Fetch a fresh connection negotiation. Callers pass the real lifecycle
+ * stage explicitly — 'refresh' for scheduleTokenRefresh's proactive
+ * re-negotiation on a still-healthy socket, 'reconnect' for
+ * scheduleReconnect's re-negotiation after the socket actually closed.
+ * Independent of the provider's cached negotiation so a long-lived tab
+ * never gets stuck on a stale token.
  */
-async function negotiateConnect(workspaceId: string): Promise<RealtimeNegotiation | null> {
+async function negotiateConnect(
+  workspaceId: string,
+  intent: 'refresh' | 'reconnect',
+): Promise<RealtimeNegotiation | null> {
   try {
     const res = await fetch(`${API_BASE}/api/realtime/operator-connect`, {
       credentials: 'include',
       method: 'POST',
       headers: JSON_HEADERS,
-      // intent:'socket_negotiate' — every call site here (initial open,
-      // scheduleReconnect's re-negotiation, scheduleTokenRefresh's proactive
-      // refresh) is a genuine socket negotiation; the server-side reconnect
-      // classifier tells genuine-vs-routine apart from the elapsed time
-      // since the last grant, not from this field.
-      body: JSON.stringify({ workspace_id: workspaceId, intent: 'socket_negotiate' }),
+      body: JSON.stringify({ workspace_id: workspaceId, intent }),
     });
     if (!res.ok) return null;
     return (await res.json()) as RealtimeNegotiation;
@@ -513,7 +513,7 @@ function scheduleReconnect(conn: SharedConnection): void {
         const { invalidateClientRealtimeCache } = await import('../resolveClientRealtimeProvider');
         invalidateClientRealtimeCache(conn.workspaceId);
       } catch { /* noop */ }
-      const fresh = await negotiateConnect(conn.workspaceId);
+      const fresh = await negotiateConnect(conn.workspaceId, 'reconnect');
       if (fresh?.token && fresh.ws_url) {
         conn.token = fresh.token;
         // expires_at is already epoch ms from the server — do not scale.
@@ -551,7 +551,7 @@ function scheduleTokenRefresh(conn: SharedConnection): void {
   conn.refreshTimer = setTimeout(async () => {
     conn.refreshTimer = null;
     if (conn.disposed || conn.closed) return;
-    const fresh = await negotiateConnect(conn.workspaceId);
+    const fresh = await negotiateConnect(conn.workspaceId, 'refresh');
     if (!fresh?.token) {
       rtWarn('centrifugo', 'proactive token refresh failed');
       // Re-arm so we try again before the existing token actually expires.

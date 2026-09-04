@@ -1,21 +1,37 @@
 /**
  * Reconnect-labeling fix — see server/routes/realtime.ts's `intent` field.
  *
- * A bounded (max RECONNECT_TTL_MAP_MAX entries, FIFO eviction) map from
- * `workspaceId:subjectId` to the last time a connection token was granted,
- * used to tell a genuine reconnect (something actually failed — network
- * drop, server restart, a tab waking from sleep with an already-invalid
- * token, or a true first connect) from a routine proactive token refresh
- * (src/realtime/providers/centrifugo.ts's scheduleTokenRefresh, which
- * re-negotiates ~2 minutes before expiry on a perfectly healthy socket).
+ * The client (widget runtime / src/realtime/providers/centrifugo.ts) is the
+ * source of truth for whether a given connect call is an `initial` connect,
+ * a proactive `refresh` (socket still healthy, re-negotiating ahead of
+ * token expiry), a genuine `reconnect` (the socket actually closed and the
+ * client is retrying), or a `policy_poll` heartbeat unrelated to the
+ * connection lifecycle. Only `intent: 'reconnect'` increments
+ * `realtime.reconnect_attempt` — this module no longer decides that.
  *
- * This is a heuristic (elapsed-time-vs-TTL threshold), not a hard protocol
- * signal — tunable, and worth validating against real traffic before being
- * trusted for alerting thresholds.
+ * What remains here is bounded bookkeeping in support of that decision:
+ *   • recordGrant() — tracks the last time a subject was actually granted a
+ *     token, purely for the `hadPriorGrant` sanity flag below.
+ *   • validateReconnect() — called only for an explicitly-declared
+ *     `intent: 'reconnect'`, to (a) deduplicate near-simultaneous reconnect
+ *     reports for the same subject (e.g. multiple tabs racing the same
+ *     disconnect, or a client retry racing itself) so the dashboard doesn't
+ *     double count a single real event, and (b) flag whether a prior grant
+ *     even exists, for diagnostics. Neither check gates or overrides the
+ *     client's declared intent — it is validation/dedup only, not
+ *     classification.
  */
 import { RECONNECT_TTL_MAP_MAX } from './constants.js';
 
-export type ReconnectClassification = 'genuine' | 'routine_refresh';
+/** Reconnect reports for the same (workspace, subject) within this window are deduped. */
+const DEDUP_WINDOW_MS = 2_000;
+
+export interface ReconnectValidation {
+  /** True if an earlier reconnect report for the same subject landed within DEDUP_WINDOW_MS. */
+  duplicate: boolean;
+  /** True if a token grant is on record for this subject (diagnostic only). */
+  hadPriorGrant: boolean;
+}
 
 interface GrantRecord {
   lastGrantAt: number;
@@ -24,28 +40,13 @@ interface GrantRecord {
 
 export class ReconnectClassifier {
   private readonly grants = new Map<string, GrantRecord>();
+  private readonly lastReconnectAt = new Map<string, number>();
 
   private key(workspaceId: string, subjectId: string): string {
     return `${workspaceId}:${subjectId}`;
   }
 
-  /** Call BEFORE minting a new token. */
-  classify(workspaceId: string, subjectId: string, tokenTtlMs: number): ReconnectClassification {
-    const k = this.key(workspaceId, subjectId);
-    const prev = this.grants.get(k);
-    if (!prev) return 'genuine'; // never seen (or evicted) — true first connect
-    const elapsed = Date.now() - prev.lastGrantAt;
-    if (elapsed > prev.tokenTtlMs * 3) {
-      this.grants.delete(k); // wildly stale — treat as fresh, don't let ancient state linger
-      return 'genuine';
-    }
-    // Re-negotiating in the back half of the token's lifetime is consistent
-    // with a proactive refresh cycle; sooner than that means something
-    // actually interrupted the connection.
-    return elapsed < prev.tokenTtlMs * 0.5 ? 'genuine' : 'routine_refresh';
-  }
-
-  /** Call AFTER a token is successfully issued. */
+  /** Call AFTER a token is successfully issued (any non-policy_poll intent). */
   recordGrant(workspaceId: string, subjectId: string, tokenTtlMs: number): void {
     const k = this.key(workspaceId, subjectId);
     if (!this.grants.has(k) && this.grants.size >= RECONNECT_TTL_MAP_MAX) {
@@ -54,6 +55,27 @@ export class ReconnectClassifier {
     }
     this.grants.delete(k); // re-insert to refresh insertion-order position (poor-man's LRU)
     this.grants.set(k, { lastGrantAt: Date.now(), tokenTtlMs });
+  }
+
+  /**
+   * Call only when intent === 'reconnect'. Does NOT decide whether this is
+   * "really" a reconnect — the client already declared that. Only dedupes
+   * near-simultaneous reports and flags whether any prior grant exists.
+   */
+  validateReconnect(workspaceId: string, subjectId: string): ReconnectValidation {
+    const k = this.key(workspaceId, subjectId);
+    const now = Date.now();
+    const lastAt = this.lastReconnectAt.get(k);
+    const duplicate = lastAt !== undefined && now - lastAt < DEDUP_WINDOW_MS;
+    if (!duplicate) {
+      if (!this.lastReconnectAt.has(k) && this.lastReconnectAt.size >= RECONNECT_TTL_MAP_MAX) {
+        const oldest = this.lastReconnectAt.keys().next().value;
+        if (oldest !== undefined) this.lastReconnectAt.delete(oldest);
+      }
+      this.lastReconnectAt.delete(k);
+      this.lastReconnectAt.set(k, now);
+    }
+    return { duplicate, hadPriorGrant: this.grants.has(k) };
   }
 
   size(): number {

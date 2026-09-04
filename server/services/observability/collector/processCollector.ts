@@ -3,9 +3,13 @@
  *
  * `snapshotNow()` is computed live from the Node runtime on every call — no
  * buffering needed for "current" values. A separate, low-frequency trend
- * sampler pushes one snapshot per tick into a fixed 120-slot circular array
- * purely to drive the admin dashboard's short sparkline / `/process?range=`
- * `samples` array — never PostgreSQL.
+ * sampler pushes one snapshot per tick into a fixed PROCESS_TREND_CAPACITY-slot
+ * (1440, i.e. 24h at 60s cadence) circular array purely to drive the admin
+ * dashboard's sparkline / `/process?range=` `samples` array — never
+ * PostgreSQL. This preserves the pre-migration perf_process_samples 24h
+ * query contract; it is still bounded (fixed slot count, not fixed duration
+ * — a longer sample interval would cover more wall-clock time, a shorter
+ * one less).
  */
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { PROCESS_TREND_CAPACITY } from './constants.js';
@@ -93,7 +97,7 @@ export class ProcessCollector {
 
   /**
    * The trend ring only ever covers PROCESS_TREND_CAPACITY * sample-interval
-   * (2h at the default 60s cadence) regardless of the requested range — a
+   * (24h at the default 60s cadence) regardless of the requested range — a
    * process that has been up less than the requested range will show
    * "since boot", not a full window of history. `latest` is always a fresh
    * live snapshot, never a stale trend entry.

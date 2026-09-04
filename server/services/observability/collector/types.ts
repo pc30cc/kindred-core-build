@@ -8,7 +8,7 @@
 import type { RealtimeMetricInput, RealtimeEventRow, RealtimeSummary } from './realtimeCollector.js';
 import type { RequestSampleInput, PerfSummary } from './perfCollector.js';
 import type { ProcessSnapshot, ProcessTrend, ProcessAverageMetric } from './processCollector.js';
-import type { ReconnectClassification } from './reconnectClassifier.js';
+import type { ReconnectValidation } from './reconnectClassifier.js';
 
 export type {
   RealtimeMetricInput,
@@ -19,7 +19,7 @@ export type {
   ProcessSnapshot,
   ProcessTrend,
   ProcessAverageMetric,
-  ReconnectClassification,
+  ReconnectValidation,
 };
 export type { PerfRouteRow } from './perfCollector.js';
 
@@ -44,7 +44,9 @@ export interface MonitoringCollector {
   queryProcessTrend(range: '1h' | '24h'): ProcessTrend;
   queryProcessAverage(metric: ProcessAverageMetric, windowSeconds: number, budgetBytes?: number): { value: number; sample: number };
 
-  // Reconnect-labeling fix
-  classifyReconnect(workspaceId: string, subjectId: string, tokenTtlMs: number): ReconnectClassification;
+  // Reconnect-labeling fix — the client declares intent; this is
+  // dedup/validation support only, not classification. See
+  // reconnectClassifier.ts.
+  validateReconnect(workspaceId: string, subjectId: string): ReconnectValidation;
   recordGrant(workspaceId: string, subjectId: string, tokenTtlMs: number): void;
 }

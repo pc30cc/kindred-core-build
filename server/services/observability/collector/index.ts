@@ -73,8 +73,8 @@ class InMemoryMonitoringCollector implements MonitoringCollector {
     return this.process.queryAverage(metric, windowSeconds, budgetBytes);
   }
 
-  classifyReconnect(workspaceId: string, subjectId: string, tokenTtlMs: number) {
-    return this.reconnect.classify(workspaceId, subjectId, tokenTtlMs);
+  validateReconnect(workspaceId: string, subjectId: string) {
+    return this.reconnect.validateReconnect(workspaceId, subjectId);
   }
   recordGrant(workspaceId: string, subjectId: string, tokenTtlMs: number): void {
     this.reconnect.recordGrant(workspaceId, subjectId, tokenTtlMs);

@@ -10,7 +10,7 @@ export const MINUTE_SLOTS = 60;
 export const HOURLY_SLOTS_REALTIME = 168; // 7 days
 export const HOURLY_SLOTS_PERF = 24; // 24h — no 7d perf UI exists today
 export const RECENT_EVENTS_CAPACITY = 1000;
-export const PROCESS_TREND_CAPACITY = 120; // 2h at 60s cadence
+export const PROCESS_TREND_CAPACITY = 1440; // 24h at 60s cadence — matches the pre-migration perf_process_samples 24h contract
 export const RECONNECT_TTL_MAP_MAX = 5000;
 
 // driver/source are open strings (e.g. call provider names), not a fixed

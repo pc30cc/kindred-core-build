@@ -92,10 +92,14 @@ async function enforceWorkspaceOrigin(
 const connectSchema = z.object({
   workspace_id: z.string().uuid(),
   conversation_ids: z.array(z.string().uuid()).optional(),
-  // See operatorConnectSchema's `intent` field. The widget runtime never
-  // sends 'policy_poll' (it has no equivalent polling pattern), so this is
-  // present for schema symmetry and future use, not a behavior change here.
-  intent: z.enum(['socket_negotiate', 'policy_poll']).optional().default('socket_negotiate'),
+  // Explicit client-declared lifecycle stage, mirroring operatorConnectSchema.
+  // The widget runtime only ever sends 'initial' (first negotiation) or
+  // 'reconnect' (its Centrifugo driver's scheduleReconnect, which only fires
+  // after a real socket close) — it has no proactive-refresh path today.
+  // 'policy_poll' is accepted for schema symmetry but never sent here.
+  // Defaults to 'initial' so an older/cached widget bundle that omits this
+  // field is never miscounted as a reconnect.
+  intent: z.enum(['initial', 'refresh', 'reconnect', 'policy_poll']).optional().default('initial'),
 });
 
 realtimeRouter.post('/connect', async (req, res) => {
@@ -105,16 +109,6 @@ realtimeRouter.post('/connect', async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid request' });
     }
-    // Phase 3 — every /connect is a (re)connect attempt from the server's POV.
-    // We can't distinguish the very first connect from a reconnect without
-    // adding state, so we tag the kind and let the dashboard split if needed.
-    emitMetric(config, {
-      metric: 'realtime.reconnect_attempt',
-      workspaceId: parsed.data.workspace_id,
-      driver: 'centrifugo',
-      source: 'widget',
-      tags: { endpoint: 'connect' },
-    });
 
     // Authorize the visitor — same security model as the rest of the widget API.
     const widgetToken = req.headers['x-widget-token'] as string | undefined;
@@ -130,6 +124,27 @@ realtimeRouter.post('/connect', async (req, res) => {
     // Visitor identity comes from HttpOnly cookie (cross-tab/device safe).
     const visitor = readVisitorCookie(req as any, parsed.data.workspace_id);
     const subjectId = visitor?.v || `vt_${tokRes.nonce || 'anon'}`;
+
+    // Reconnect-labeling fix: the client already declared its own lifecycle
+    // stage. Only 'reconnect' — a real socket close, per the driver's
+    // scheduleReconnect — increments realtime.reconnect_attempt. The TTL
+    // map is used only to dedupe near-simultaneous reconnect reports for
+    // the same visitor, never to override the client's declared intent.
+    if (parsed.data.intent === 'reconnect') {
+      const { duplicate, hadPriorGrant } = getMonitoringCollector().validateReconnect(
+        parsed.data.workspace_id,
+        subjectId,
+      );
+      if (!duplicate) {
+        emitMetric(config, {
+          metric: 'realtime.reconnect_attempt',
+          workspaceId: parsed.data.workspace_id,
+          driver: 'centrifugo',
+          source: 'widget',
+          tags: { endpoint: 'connect', had_prior_grant: String(hadPriorGrant) },
+        });
+      }
+    }
 
     const [resolved, effective_policy] = await Promise.all([
       resolveRealtimeProvider(config),
@@ -229,6 +244,11 @@ realtimeRouter.post('/connect', async (req, res) => {
       driver: 'centrifugo',
       tags: { kind: 'connect', ttl_s: platform.realtime.tokenTtlSeconds },
     });
+    getMonitoringCollector().recordGrant(
+      parsed.data.workspace_id,
+      subjectId,
+      platform.realtime.tokenTtlSeconds * 1000,
+    );
 
     return res.json({
       vendor: 'centrifugo',
@@ -362,13 +382,18 @@ realtimeRouter.post('/subscribe', perfHttpMiddleware('realtime.subscribe'), asyn
 // ─────────────────────────────────────────────────────────────────────
 const operatorConnectSchema = z.object({
   workspace_id: z.string().uuid(),
-  // Reconnect-labeling fix: distinguishes a real socket (re)negotiation from
-  // useEffectivePolicy's 30s policy-only heartbeat, which hits this same
-  // endpoint purely to read `effective_policy` and has nothing to do with
-  // the realtime connection lifecycle. Defaults to 'socket_negotiate' so
-  // older clients (and the vanilla-JS widget runtime, which never sends
-  // 'policy_poll') keep today's behavior.
-  intent: z.enum(['socket_negotiate', 'policy_poll']).optional().default('socket_negotiate'),
+  // Reconnect-labeling fix: the client explicitly identifies its own
+  // Centrifugo lifecycle stage rather than the server guessing from a TTL
+  // heuristic. 'initial' — first negotiation for this tab
+  // (resolveClientRealtimeProvider.ts). 'refresh' — proactive re-negotiation
+  // on a still-healthy socket, ~2min ahead of token expiry
+  // (centrifugo.ts's scheduleTokenRefresh). 'reconnect' — re-negotiation
+  // after the socket actually closed (centrifugo.ts's scheduleReconnect).
+  // 'policy_poll' — useEffectivePolicy's 30s heartbeat, unrelated to the
+  // connection lifecycle. Only 'reconnect' can increment
+  // realtime.reconnect_attempt. Defaults to 'initial' so an older client
+  // that omits this field is never miscounted as a reconnect.
+  intent: z.enum(['initial', 'refresh', 'reconnect', 'policy_poll']).optional().default('initial'),
 });
 const operatorSubscribeSchema = z.object({
   workspace_id: z.string().uuid(),
@@ -401,19 +426,27 @@ realtimeRouter.post('/operator-connect', perfHttpMiddleware('realtime.operator_c
         source: 'operator',
         tags: { endpoint: 'operator-connect' },
       });
-    } else {
-      // Reconnect-labeling fix: classify BEFORE minting a new token so the
-      // decision reflects the elapsed time since the last grant, not this
-      // one. See collector/reconnectClassifier.ts for the heuristic.
-      const reconnectKind = getMonitoringCollector().classifyReconnect(parsed.data.workspace_id, subjectId, tokenTtlMs);
-      emitMetric(config, {
-        metric: 'realtime.reconnect_attempt',
-        workspaceId: parsed.data.workspace_id,
-        driver: 'centrifugo',
-        source: 'operator',
-        tags: { endpoint: 'operator-connect', reconnect_kind: reconnectKind },
-      });
+    } else if (parsed.data.intent === 'reconnect') {
+      // Reconnect-labeling fix: the client already declared this is a real
+      // reconnect (its socket actually closed — see the schema comment
+      // above). The TTL map is used only to dedupe near-simultaneous
+      // reconnect reports for the same operator (e.g. multiple tabs racing
+      // the same disconnect), never to override the client's intent.
+      const { duplicate, hadPriorGrant } = getMonitoringCollector().validateReconnect(
+        parsed.data.workspace_id,
+        subjectId,
+      );
+      if (!duplicate) {
+        emitMetric(config, {
+          metric: 'realtime.reconnect_attempt',
+          workspaceId: parsed.data.workspace_id,
+          driver: 'centrifugo',
+          source: 'operator',
+          tags: { endpoint: 'operator-connect', had_prior_grant: String(hadPriorGrant) },
+        });
+      }
     }
+    // 'initial' and 'refresh' are not reconnects — no metric emitted.
 
     // Phase 6C — derive the public effective policy snapshot so the
     // operator client can honor failover/degradation decisions on every

@@ -899,7 +899,9 @@ adminPluginsRouter.get('/channels/integrations', async (req: any, res) => {
 adminPluginsRouter.get('/channels/health', async (req: any, res) => {
   try {
     const sb = getServiceClient(serverConfigOf(req));
-    const staleBefore = new Date(Date.now() - 60_000).toISOString();
+    // 150s window: worker heartbeat cadence is 45s, so a live worker always
+    // lands at least three beats inside it (no flapping on one missed tick).
+    const staleBefore = new Date(Date.now() - 150_000).toISOString();
 
     const [metrics, heartbeats, failures] = await Promise.all([
       queueMetrics(sb),

@@ -257,7 +257,7 @@
        BOTH the launcher and the panel are absolutely positioned children of
        it, anchored to the SAME corner (bottom + right, or bottom + left), so
        the panel grows out of exactly where the FAB sits instead of jumping. */
-    ".shell{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1F2937;",
+    ".shell{font-family:var(--gs-presentation-font,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif);color:#1F2937;",
     "position:fixed;z-index:2147483646;width:0;height:0;}",
     ".shell.pos-bottom-right{bottom:24px;right:24px;left:auto;top:auto;}",
     ".shell.pos-bottom-left{bottom:24px;left:24px;right:auto;top:auto;}",
@@ -329,39 +329,51 @@
     /* ── Smart Engagement: launcher nudge only (loader-owned surface). ── */
     /* Values mirror the .smart-nudge block in the active template stylesheet so
        bubble looks identical before/after the template stylesheet lands. */
-    ".smart-nudge{position:absolute;z-index:6;bottom:calc(var(--gs-fab-size,56px) + 22px);",
-    "width:max-content;max-width:290px;display:flex;flex-direction:column;gap:6px;",
-    "padding:14px 16px;border-radius:18px;color:#1c2024;",
-    "background:linear-gradient(180deg,#ffffff 0%,#fbfcfe 100%);",
-    "border:1px solid rgba(15,23,42,.07);",
-    "box-shadow:0 22px 48px -22px rgba(2,6,23,.45),0 3px 10px -5px rgba(2,6,23,.14);",
-    "font-size:13px;line-height:1.8;}",
+    ".smart-nudge{position:absolute;z-index:6;bottom:calc(var(--gs-fab-size,56px) + 12px);",
+    "width:max-content;max-width:288px;display:flex;flex-direction:column;gap:5px;",
+    "padding:13px 15px 14px;border-radius:16px;color:#1c2024;",
+    "background:linear-gradient(158deg,#ffffff 0%,#ffffff 55%,#f4f7fc 100%);",
+    "border:1px solid rgba(15,23,42,.06);",
+    "box-shadow:0 18px 38px -20px rgba(2,6,23,.42),0 2px 6px -3px rgba(2,6,23,.12),",
+    "inset 0 1px 0 rgba(255,255,255,.9);",
+    "font-size:13px;line-height:1.75;}",
+    /* Accent hairline welded to the top edge — ties the bubble to the FAB. */
+    ".smart-nudge::before{content:\'\';position:absolute;top:0;inset-inline:14px;height:2px;",
+    "border-radius:2px;opacity:.85;",
+    "background:linear-gradient(90deg,transparent,var(--gs-primary,#3b82f6),transparent);}",
     ".smart-nudge[hidden]{display:none !important;}",
     /* Tail: a rotated square welded to the bubble edge closest to the FAB. */
-    ".smart-nudge::after{content:'';position:absolute;bottom:-7px;width:14px;height:14px;",
-    "background:#fbfcfe;border-right:1px solid rgba(15,23,42,.07);",
-    "border-bottom:1px solid rgba(15,23,42,.07);border-bottom-right-radius:3px;",
+    ".smart-nudge::after{content:\'\';position:absolute;bottom:-6px;width:12px;height:12px;",
+    "background:#f6f9fd;border-right:1px solid rgba(15,23,42,.06);",
+    "border-bottom:1px solid rgba(15,23,42,.06);border-bottom-right-radius:3px;",
     "transform:rotate(45deg);}",
     ".smart-nudge .smart-title{font-weight:700;font-size:13.5px;line-height:1.6;}",
     ".smart-nudge .smart-body{color:#475569;white-space:pre-wrap;word-break:break-word;}",
     ".smart-nudge .smart-cta{align-self:flex-start;border:none;cursor:pointer;padding:8px 16px;",
-    "border-radius:999px;font:inherit;font-weight:700;font-size:12.5px;color:#fff;margin-top:2px;",
+    "border-radius:999px;font:inherit;font-weight:700;font-size:12.5px;color:#fff;margin-top:4px;",
     "background:var(--gs-primary,#3b82f6);box-shadow:0 6px 16px -8px var(--gs-primary,#3b82f6);",
     "transition:filter .15s ease,transform .15s ease;}",
     ".smart-nudge .smart-cta:hover{filter:brightness(1.06);transform:translateY(-1px);}",
     /* Close control always sits OUTSIDE the bubble, top-right, in every dir. */
-    ".smart-nudge .smart-dismiss{position:absolute;top:-10px;inset-inline:auto;right:-10px;left:auto;",
-    "width:24px;height:24px;border-radius:50%;border:1px solid rgba(15,23,42,.08);background:#fff;",
+    ".smart-nudge .smart-dismiss{position:absolute;top:-9px;inset-inline:auto;right:-9px;left:auto;",
+    "width:22px;height:22px;border-radius:50%;border:1px solid rgba(15,23,42,.08);background:#fff;",
     "color:#60646c;cursor:pointer;display:flex;align-items:center;justify-content:center;",
-    "font-size:14px;line-height:1;padding:0;box-shadow:0 4px 12px -5px rgba(2,6,23,.4);",
+    "font-size:13px;line-height:1;padding:0;box-shadow:0 4px 12px -5px rgba(2,6,23,.4);",
     "transition:background-color .15s ease,color .15s ease;}",
     ".smart-nudge .smart-dismiss:hover{background:#f0f0f3;color:#1c2024;}",
     ".smart-nudge.bottom-right{right:0;left:auto;}",
     ".smart-nudge.bottom-left{left:0;right:auto;}",
     ".smart-nudge.bottom-right::after{right:18px;}",
     ".smart-nudge.bottom-left::after{left:18px;}",
-    "@keyframes gs-smart-in{from{opacity:0;transform:translateY(10px) scale(.94);}to{opacity:1;transform:translateY(0) scale(1);}}",
-    ".anim-on .smart-nudge{animation:gs-smart-in .34s cubic-bezier(.22,1,.36,1) both;}",
+    /* Shared origin with the FAB: the bubble rises out from under the button,
+       fading in, and sinks back into it on close. */
+    "@keyframes gs-smart-in{from{opacity:0;transform:translateY(16px) scale(.82);}",
+    "60%{opacity:1;}to{opacity:1;transform:translateY(0) scale(1);}}",
+    "@keyframes gs-smart-out{from{opacity:1;transform:translateY(0) scale(1);}",
+    "to{opacity:0;transform:translateY(14px) scale(.84);}}",
+    ".anim-on .smart-nudge{animation:gs-smart-in .38s cubic-bezier(.22,1,.36,1) both;}",
+    ".anim-on .smart-nudge.leaving{animation:gs-smart-out .24s cubic-bezier(.4,0,1,1) both;}",
+    ".smart-nudge.leaving{pointer-events:none;}",
     ".smart-nudge.bottom-right{transform-origin:100% 100%;}",
     ".smart-nudge.bottom-left{transform-origin:0 100%;}",
     "@media(max-width:480px){.smart-nudge{max-width:calc(100vw - 48px);}}",
@@ -815,6 +827,7 @@
         configData._loaderVersion = LOADER_VERSION;
         if (config.debugMode) DEBUG = true;
 
+        injectPresentationFonts(config.presentationFontsUrl || "");
         applyConfigToShell(config);
         attachLauncherClick({ launcherOnly: false });
 
@@ -960,6 +973,24 @@
   // actually opens once ready and whether a load failure surfaces a visible
   // error — a silent preload must never pop an error at a visitor who
   // hasn't asked for anything yet.
+  // Presentation-owned font asset (opaque to the loader: no family, no
+  // template id). Injected at DOCUMENT level so `document.fonts` sees the
+  // faces, and injected EARLY — pre-runtime surfaces (the launcher nudge)
+  // must already paint in the template's own typeface. The stylesheet is
+  // also expected to publish a generic `--gs-presentation-font` custom
+  // property, which the shell consumes through a var() fallback.
+  function injectPresentationFonts(url) {
+    if (!url) return;
+    try {
+      if (document.getElementById("gs-presentation-fonts")) return;
+      var fontsLink = document.createElement("link");
+      fontsLink.id = "gs-presentation-fonts";
+      fontsLink.rel = "stylesheet";
+      fontsLink.href = url;
+      (document.head || document.documentElement).appendChild(fontsLink);
+    } catch (_) { /* noop */ }
+  }
+
   function loadRuntimeAssets() {
     if (runtimeLoaded || runtimeLoading) return;
     runtimeLoading = true;
@@ -1119,17 +1150,7 @@
     // It is injected at DOCUMENT level (not the shadow root) because
     // `document.fonts.load()` — used by the template's own prepare() gate —
     // only sees document-level faces.
-    if (presentationFontsCss) {
-      try {
-        if (!document.getElementById("gs-presentation-fonts")) {
-          var fontsLink = document.createElement("link");
-          fontsLink.id = "gs-presentation-fonts";
-          fontsLink.rel = "stylesheet";
-          fontsLink.href = presentationFontsCss;
-          (document.head || document.documentElement).appendChild(fontsLink);
-        }
-      } catch (_) { /* noop */ }
-    }
+    injectPresentationFonts(presentationFontsCss);
 
 
     // Template stylesheet — injected AFTER runtime.css so template rules
@@ -1659,10 +1680,24 @@
     // the runtime (inst.showSmart) so they render inside the real widget
     // chrome — the loader never paints a floating announcement itself.
     function clearSurface() {
-      if (activeSurface && activeSurface.el && activeSurface.el.parentNode) {
-        activeSurface.el.parentNode.removeChild(activeSurface.el);
-      }
+      var surface = activeSurface;
       activeSurface = null;
+      if (!surface || !surface.el || !surface.el.parentNode) return;
+      // Sink the bubble back into the launcher instead of yanking it out of
+      // the DOM. The removal is guarded by a timeout so a disabled/absent
+      // animation can never leave the surface stuck on screen.
+      var el = surface.el;
+      var removed = false;
+      var drop = function () {
+        if (removed) return;
+        removed = true;
+        if (el.parentNode) el.parentNode.removeChild(el);
+      };
+      try {
+        el.classList.add("leaving");
+        el.addEventListener("animationend", drop);
+        setTimeout(drop, 320);
+      } catch (_) { drop(); }
     }
 
     function surfaceHtml(content, dismissible) {

@@ -2331,14 +2331,16 @@
             if (!newTok) return;
             STOPPED = false;
             consecutiveFailures = 0;
-            if (!heartbeatTimer) heartbeatTimer = setInterval(ping, 30000);
+            if (!heartbeatTimer) heartbeatTimer = setInterval(ping, 60000);
             log('heartbeat resumed', reason);
             return doPing(newTok, false);
           });
         }
         // Background heartbeat — keeps presence "online" and refreshes
-        // last_seen_at so the operator UI stays accurate.
-        heartbeatTimer = setInterval(ping, 30000);
+        // last_seen_at so the operator UI stays accurate. The server
+        // coalesces these writes (only persists on navigation or once the
+        // liveness row ages out), so the cadence costs ~no DB writes.
+        heartbeatTimer = setInterval(ping, 60000);
         // Resume immediately when the tab becomes visible again.
         try {
           document.addEventListener('visibilitychange', function () {

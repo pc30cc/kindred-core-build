@@ -51,6 +51,8 @@ import {
 import { loadPublicSmartRules, recordSmartEvent } from '../services/widget/smartEngagement.js';
 import { evaluateAiProactiveNudge } from '../services/widget/aiNudge/evaluate.js';
 import { resolveEffectiveAiNudgePolicy } from '../services/widget/aiNudge/policy.js';
+import { touchVisitorLiveness } from '../services/widget/visitorLiveness.js';
+
 import { resolveTrustedNudgeSessionKey } from '../services/widget/aiNudge/session.js';
 import { transitionNudgeStatus } from '../services/widget/aiNudge/lifecycle.js';
 import { AI_JOURNEY_MAX_PAGES, type AiJourneyContext, type SmartEvalContext } from '../../src/lib/widget/smartEngine.js';

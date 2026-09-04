@@ -633,6 +633,247 @@ export function isSafeSmartUrl(url: string | null | undefined): boolean {
   }
 }
 
+/* ═══════════════════════ AI Proactive Nudge (additive) ═══════════════════════
+ *
+ * Extends the same deterministic evaluator with a cheap, dependency-free
+ * eligibility gate for the AI Proactive Nudge feature. This module decides
+ * ONLY whether the AI Runtime *may* be asked for a contextual message — it
+ * never generates text itself and never talks to a network. The actual LLM
+ * call (nondeterministic) lives entirely server-side, gated behind this
+ * deterministic check.
+ *
+ * Precedence contract (documented + tested):
+ *   A matched static Smart Engagement rule (`pickSmartRule`) ALWAYS outranks
+ *   an AI proactive candidate. Callers must run `pickSmartRule` first and
+ *   only consult `evaluateAiProactiveEligibility` when it returns null for
+ *   this tick. This guarantees at most one launcher surface is ever shown.
+ */
+
+export type AiProactiveMode = 'off' | 'conservative' | 'balanced' | 'active';
+
+/** One bounded journey entry — never raw telemetry, just path/title/timestamp. */
+export interface AiJourneyPage {
+  path: string;
+  title?: string;
+  ts: number;
+}
+
+export interface AiJourneyPreviousNudge {
+  topic: string;
+  dismissed: boolean;
+  engaged: boolean;
+}
+
+/** Bounded visitor journey context — see AI_JOURNEY_MAX_PAGES for the cap. */
+export interface AiJourneyContext {
+  current: AiJourneyPage;
+  recentPages: AiJourneyPage[];
+  sessionPageCount: number;
+  returning: boolean;
+  previousNudge?: AiJourneyPreviousNudge | null;
+}
+
+/** Bounded, deduplicated max length for `recentPages`. Enforced by the caller
+ *  that maintains journey state (widget loader) — exported so both sides
+ *  agree on the same cap. */
+export const AI_JOURNEY_MAX_PAGES = 12;
+
+export interface AiProactiveConfig {
+  mode: AiProactiveMode;
+  /** Path-glob allow-list; empty/undefined = all pages eligible. */
+  includePaths?: string[];
+  /** Path-glob deny-list; always wins over includePaths. */
+  excludePaths?: string[];
+  maxPerSession: number;
+  cooldownSeconds: number;
+  stopAfterDismiss?: boolean;
+  stopAfterWidgetOpen?: boolean;
+  stopAfterConversation?: boolean;
+  mobileEnabled?: boolean;
+  /** Optional override of the mode's default score threshold (platform/workspace clamped upstream). */
+  minScoreOverride?: number;
+}
+
+export interface AiProactiveFrequencyState {
+  shownInSession?: number;
+  lastShownAt?: number | null;
+  dismissedTopics?: string[];
+  /** Fingerprint of the last context that was actually evaluated by AI — used for dedup. */
+  lastEvalFingerprint?: string | null;
+  lastEvalAt?: number | null;
+}
+
+export type AiProactiveReasonCode =
+  | SmartReasonCode
+  | 'AI_MODE_OFF'
+  | 'AI_PATH_EXCLUDED'
+  | 'AI_PATH_NOT_INCLUDED'
+  | 'AI_LOW_INTENT'
+  | 'AI_MAX_PER_SESSION'
+  | 'AI_COOLDOWN'
+  | 'AI_TOPIC_DISMISSED'
+  | 'AI_DUPLICATE_CONTEXT'
+  | 'AI_ELIGIBLE';
+
+export interface AiProactiveEligibility {
+  eligible: boolean;
+  score: number;
+  threshold: number;
+  fingerprint: string;
+  topicBucket: string;
+  reasons: AiProactiveReasonCode[];
+}
+
+/** Default score threshold per mode. Tunable, not sacred — see PRODUCT notes. */
+const AI_MODE_THRESHOLDS: Record<AiProactiveMode, number> = {
+  off: Infinity,
+  conservative: 70,
+  balanced: 45,
+  active: 25,
+};
+
+/** Default per-mode safe ceilings — the server clamps these against Super Admin hard ceilings too. */
+export const AI_MODE_DEFAULTS: Record<Exclude<AiProactiveMode, 'off'>, { maxPerSession: number; cooldownSeconds: number }> = {
+  conservative: { maxPerSession: 1, cooldownSeconds: 180 },
+  balanced: { maxPerSession: 2, cooldownSeconds: 120 },
+  active: { maxPerSession: 3, cooldownSeconds: 90 },
+};
+
+function normalizePath(path: string): string {
+  const p = String(path || '/').split('?')[0].split('#')[0];
+  return p.length > 1 && p.endsWith('/') ? p.slice(0, -1) : p || '/';
+}
+
+/** Bucket a path into a short topic-like key for dismissal suppression (e.g. "/pricing/enterprise" -> "pricing"). */
+export function normalizeTopicFromPath(path: string): string {
+  const p = normalizePath(path);
+  const seg = p.split('/').filter(Boolean)[0] || 'home';
+  return seg.toLowerCase().slice(0, 40);
+}
+
+/** `*` suffix = prefix match, otherwise exact path match (leading slash normalized). */
+export function matchesPathPattern(path: string, pattern: string): boolean {
+  const p = normalizePath(path);
+  const raw = String(pattern || '').trim();
+  if (!raw) return false;
+  if (raw.endsWith('*')) {
+    const prefix = normalizePath(raw.slice(0, -1) || '/');
+    return p === prefix || p.startsWith(prefix === '/' ? '/' : prefix + '/') || p.startsWith(prefix);
+  }
+  return p === normalizePath(raw);
+}
+
+function isPathTargeted(path: string, config: AiProactiveConfig): boolean {
+  const excludes = config.excludePaths || [];
+  for (let i = 0; i < excludes.length; i++) {
+    if (matchesPathPattern(path, excludes[i])) return false;
+  }
+  const includes = config.includePaths || [];
+  if (!includes.length) return true;
+  for (let i = 0; i < includes.length; i++) {
+    if (matchesPathPattern(path, includes[i])) return true;
+  }
+  return false;
+}
+
+/**
+ * Deterministic cheap intent score. Every weight here is a documented,
+ * tunable constant — NOT the output of any model. This is the gate that
+ * runs on (almost) every meaningful navigation so the expensive AI call
+ * only fires when there is genuine signal.
+ */
+export function computeAiProactiveScore(ctx: SmartEvalContext, journey: AiJourneyContext): number {
+  let score = 0;
+  if (ctx.visitor.isReturning) score += 15;
+  if (ctx.signals.elapsedMs >= 45000) score += 15;
+  if (ctx.signals.scrollPercent >= 70) score += 10;
+  if ((ctx.visitor.sessionPageCount || 0) >= 3) score += 10;
+
+  const recent = journey.recentPages || [];
+  const currentNorm = normalizePath(journey.current.path);
+  const revisitedCurrent = recent.some((p) => normalizePath(p.path) === currentNorm && p.ts < journey.current.ts);
+  if (revisitedCurrent) score += 20;
+
+  const distinctPaths = new Set(recent.map((p) => normalizePath(p.path)));
+  distinctPaths.add(currentNorm);
+  if (distinctPaths.size >= 3) score += 20;
+
+  const topic = normalizeTopicFromPath(journey.current.path);
+  const prev = journey.previousNudge;
+  if (prev && prev.topic === topic && prev.dismissed) score -= 50;
+
+  return score;
+}
+
+/** Stable fingerprint for dedup — same visitor + same normalized journey shape should not re-trigger AI. */
+export function computeAiProactiveFingerprint(journey: AiJourneyContext): string {
+  const topic = normalizeTopicFromPath(journey.current.path);
+  const pageCount = journey.sessionPageCount || 0;
+  const distinct = Array.from(new Set((journey.recentPages || []).map((p) => normalizePath(p.path)))).sort().join(',');
+  return `${topic}|${pageCount}|${distinct}`;
+}
+
+/**
+ * The deterministic AI-may-run gate. Mirrors the hard-suppression order of
+ * `evaluateSmartRule` exactly (widget/call/typing/conversation/etc.) so the
+ * two surfaces never disagree about "is it currently safe to speak at all".
+ */
+export function evaluateAiProactiveEligibility(
+  config: AiProactiveConfig,
+  ctx: SmartEvalContext,
+  journey: AiJourneyContext,
+  freqState: AiProactiveFrequencyState | undefined,
+  now: Date = new Date(),
+): AiProactiveEligibility {
+  const fingerprint = computeAiProactiveFingerprint(journey);
+  const topicBucket = normalizeTopicFromPath(journey.current.path);
+  const fail = (reason: AiProactiveReasonCode, score = 0): AiProactiveEligibility => ({
+    eligible: false, score, threshold: AI_MODE_THRESHOLDS[config.mode] ?? Infinity, fingerprint, topicBucket,
+    reasons: [reason],
+  });
+
+  if (!ctx.masterEnabled) return fail('MASTER_DISABLED');
+  if (config.mode === 'off') return fail('AI_MODE_OFF');
+
+  const it = ctx.interaction || {};
+  if (it.widgetError) return fail('OTHER_RULE_SHOWING');
+  if (it.callActive) return fail('CALL_ACTIVE');
+  if (it.prechatOpen) return fail('PRECHAT_OPEN');
+  if (it.visitorTyping) return fail('VISITOR_TYPING');
+  if (it.anotherRuleShowing) return fail('OTHER_RULE_SHOWING');
+  if (it.conversationActive && config.stopAfterConversation !== false) return fail('CONVERSATION_ACTIVE');
+  if (it.visitorReplied) return fail('CONVERSATION_ACTIVE');
+  if (it.widgetOpen && config.stopAfterWidgetOpen !== false) return fail('WIDGET_OPEN');
+  if (ctx.signals.pageHidden) return fail('PAGE_HIDDEN');
+  if (ctx.device === 'mobile' && config.mobileEnabled === false) return fail('MOBILE_BLOCKED');
+
+  if (!isPathTargeted(journey.current.path, config)) {
+    const excludes = config.excludePaths || [];
+    const isExcluded = excludes.some((p) => matchesPathPattern(journey.current.path, p));
+    return fail(isExcluded ? 'AI_PATH_EXCLUDED' : 'AI_PATH_NOT_INCLUDED');
+  }
+
+  const fs = freqState || {};
+  const dismissedTopics = fs.dismissedTopics || [];
+  if (config.stopAfterDismiss !== false && dismissedTopics.indexOf(topicBucket) !== -1) {
+    return fail('AI_TOPIC_DISMISSED');
+  }
+  if ((fs.shownInSession || 0) >= Math.max(0, config.maxPerSession)) return fail('AI_MAX_PER_SESSION');
+  if (fs.lastShownAt) {
+    const elapsedS = (now.getTime() - fs.lastShownAt) / 1000;
+    if (elapsedS < Math.max(0, config.cooldownSeconds)) return fail('AI_COOLDOWN');
+  }
+  if (fs.lastEvalFingerprint === fingerprint && fs.lastEvalAt && now.getTime() - fs.lastEvalAt < 5 * 60000) {
+    return fail('AI_DUPLICATE_CONTEXT');
+  }
+
+  const score = computeAiProactiveScore(ctx, journey);
+  const threshold = config.minScoreOverride != null ? config.minScoreOverride : AI_MODE_THRESHOLDS[config.mode];
+  if (score < threshold) return { eligible: false, score, threshold, fingerprint, topicBucket, reasons: ['AI_LOW_INTENT'] };
+
+  return { eligible: true, score, threshold, fingerprint, topicBucket, reasons: ['AI_ELIGIBLE'] };
+}
+
 export const SmartEngine = {
   SMART_ENGINE_SCHEMA_VERSION,
   evaluateSmartRule,
@@ -645,6 +886,13 @@ export const SmartEngine = {
   renderSmartTemplate,
   isSafeSmartUrl,
   zonedParts,
+  AI_JOURNEY_MAX_PAGES,
+  AI_MODE_DEFAULTS,
+  normalizeTopicFromPath,
+  matchesPathPattern,
+  computeAiProactiveScore,
+  computeAiProactiveFingerprint,
+  evaluateAiProactiveEligibility,
 };
 
 export default SmartEngine;

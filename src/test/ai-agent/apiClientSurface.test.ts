@@ -7,7 +7,8 @@
  * this or any future domain-module reorganization. The expected key list
  * is the exact inventory of the pre-split src/lib/ai-agent-api.ts (138
  * methods), captured before the split, plus the 4 Support Intelligence
- * vNext human-guidance methods, plus the 2 "AI Reply Now" methods (144 total).
+ * vNext human-guidance methods, plus the 2 "AI Reply Now" methods, plus the
+ * 1 AI Proactive Nudge platform-stats method (145 total).
  */
 import { describe, it, expect } from 'vitest';
 import { aiAgentApi } from '@/lib/ai-agent-api';
@@ -58,10 +59,12 @@ const EXPECTED_METHOD_KEYS = [
   "revokeConversationGuidance", "dismissGuidanceRequest",
   // Human Guidance UX — operator-triggered AI turn from the composer.
   "getReplyNowEligibility", "aiReplyNow",
+  // AI Proactive Nudge — Super Admin platform-wide analytics.
+  "getAiProactiveStats",
 ].sort();
 
 describe('Phase 4 — aiAgentApi compatibility aggregate surface parity', () => {
-  it('has exactly the expected 144 method keys', () => {
+  it('has exactly the expected 145 method keys', () => {
     expect(Object.keys(aiAgentApi).sort()).toEqual(EXPECTED_METHOD_KEYS);
   });
 

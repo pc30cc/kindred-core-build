@@ -61,8 +61,8 @@ function isAdvanced(path: string): boolean {
 }
 
 describe('ADVANCED_PATH_PATTERNS extraction sanity', () => {
-  it('extracted exactly the 10 currently-declared patterns', () => {
-    expect(ADVANCED_PATH_PATTERNS).toHaveLength(10);
+  it('extracted exactly the 11 currently-declared patterns', () => {
+    expect(ADVANCED_PATH_PATTERNS).toHaveLength(11);
   });
 });
 

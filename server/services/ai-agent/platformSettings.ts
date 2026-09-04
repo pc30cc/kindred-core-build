@@ -35,6 +35,20 @@ export interface PlatformAiAgentSettings {
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+  /**
+   * AI Proactive Nudge (AI Smart Nudge) — hard platform ceilings. These
+   * ALWAYS dominate a workspace's own `widget_ai_nudge_settings` row; see
+   * server/services/widget/aiNudge/policy.ts's resolveEffectiveAiNudgePolicy
+   * for the clamp. Same singleton table as the rest of the AI Agent
+   * platform ceilings — no second settings hierarchy.
+   */
+  ai_proactive_nudge_enabled: boolean;
+  ai_proactive_default_mode: 'off' | 'conservative' | 'balanced' | 'active';
+  ai_proactive_max_per_session_ceiling: number;
+  ai_proactive_min_cooldown_seconds_ceiling: number;
+  ai_proactive_max_evaluations_per_session_ceiling: number;
+  ai_proactive_max_message_length: number;
+  ai_proactive_min_confidence_floor: number;
 }
 
 const DEFAULTS: Omit<PlatformAiAgentSettings, 'id' | 'created_at' | 'updated_at'> = {
@@ -54,6 +68,13 @@ const DEFAULTS: Omit<PlatformAiAgentSettings, 'id' | 'created_at' | 'updated_at'
   max_customer_visible_nav_items: 6,
   disabled_message: null,
   metadata: {},
+  ai_proactive_nudge_enabled: true,
+  ai_proactive_default_mode: 'balanced',
+  ai_proactive_max_per_session_ceiling: 3,
+  ai_proactive_min_cooldown_seconds_ceiling: 60,
+  ai_proactive_max_evaluations_per_session_ceiling: 20,
+  ai_proactive_max_message_length: 220,
+  ai_proactive_min_confidence_floor: 0.55,
 };
 
 /** Fields permitted in PATCH bodies. Any other key is ignored. */
@@ -73,6 +94,13 @@ const PATCHABLE_KEYS = new Set<keyof PlatformAiAgentSettings>([
   'kb_enabled',
   'max_customer_visible_nav_items',
   'disabled_message',
+  'ai_proactive_nudge_enabled',
+  'ai_proactive_default_mode',
+  'ai_proactive_max_per_session_ceiling',
+  'ai_proactive_min_cooldown_seconds_ceiling',
+  'ai_proactive_max_evaluations_per_session_ceiling',
+  'ai_proactive_max_message_length',
+  'ai_proactive_min_confidence_floor',
 ]);
 
 const CACHE_TTL_MS = 15_000;

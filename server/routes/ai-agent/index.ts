@@ -46,6 +46,7 @@ const ADVANCED_PATH_PATTERNS: RegExp[] = [
   /^\/regression(\/|$)/,
   /^\/test-summary$/,
   /^\/platform\/settings$/,
+  /^\/platform\/ai-proactive-stats$/,
 ];
 aiAgentRouter.use(async (req: Request, res: Response, next) => {
   if (!ADVANCED_PATH_PATTERNS.some((rx) => rx.test(req.path))) return next();

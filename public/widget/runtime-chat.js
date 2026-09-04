@@ -179,6 +179,18 @@
       } : null);
       dbg('[Widget Runtime] payload includes page_context', !!pageCtxOut);
 
+      // AI Proactive Nudge continuity — consumed exactly once, on the very
+      // next message send after a nudge's CTA opened the widget. The
+      // backend re-reads topic/message from widget_ai_nudges by this id;
+      // nothing here is trusted for content, only used as a lookup key.
+      var nudgeCtxOut;
+      try {
+        if (window.__gs_pending_nudge_context) {
+          nudgeCtxOut = window.__gs_pending_nudge_context;
+          window.__gs_pending_nudge_context = null;
+        }
+      } catch (_) {}
+
       fetchWith(apiBase + '/api/widget/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -193,6 +205,7 @@
           // Canonical key only. Backend still accepts the legacy `pageContext`
           // alias from older deployed runtimes for backward compatibility.
           page_context: pageCtxOut || undefined,
+          nudge_context: nudgeCtxOut || undefined,
         }),
       })
         .then(function (r) {

@@ -22,6 +22,15 @@ export interface MaybeRunInput {
     source?: string;
   } | null;
   /**
+   * AI Proactive Nudge continuity — set only when this visitor message
+   * originated from the visitor clicking an AI-generated launcher nudge's
+   * CTA. The topic/message here are re-read server-side from
+   * widget_ai_nudges by nudge_id (never trusted verbatim from the client)
+   * so the AI Agent continues the same subject instead of a generic
+   * greeting. See server/routes/widget.ts's nudge_context handling.
+   */
+  nudgeContext?: { topic: string; message: string } | null;
+  /**
    * Human Guidance UX — the turn was explicitly requested by an authenticated
    * operator pressing "AI Reply Now" instead of by an inbound visitor message.
    * The pipeline is IDENTICAL (same context, retrieval, grounding, freshness,

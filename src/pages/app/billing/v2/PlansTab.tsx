@@ -78,40 +78,31 @@ export default function PlansTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, reloadKey]);
 
-  function startChange(plan: PlanCard) {
-    setTarget(plan);
-    setMode(null);
-    setPreview(null);
-  }
-
-  async function loadPreview(selected: PlanChangeMode) {
-    if (!target) return;
-    setMode(selected);
-    setBusy(true);
-    setPreview(null);
+  /**
+   * One click = one invoice. Exactly like a wallet top-up: the server prices
+   * the change and issues the document, then the customer lands on the payment
+   * page. The preview call is still made — it is what produces the amount the
+   * apply call must match — but the customer never has to confirm it twice.
+   */
+  async function choosePlan(plan: PlanCard) {
+    setBusy(plan.id);
     try {
-      setPreview(await billingV2PreviewPlanChange(workspaceId, { planId: target.id, interval, mode: selected }));
-    } catch (e) {
-      toast.error(errorMessage(e, t));
-      setMode(null);
-    } finally {
-      setBusy(false);
-    }
-  }
+      let mode: PlanChangeMode = 'immediate';
+      let preview: PlanChangePreview;
+      try {
+        preview = await billingV2PreviewPlanChange(workspaceId, { planId: plan.id, interval, mode });
+      } catch {
+        // Server refuses an immediate change (typically a downgrade): schedule it.
+        mode = 'next_cycle';
+        preview = await billingV2PreviewPlanChange(workspaceId, { planId: plan.id, interval, mode });
+      }
 
-  async function confirm() {
-    if (!target || !mode || !preview) return;
-    setBusy(true);
-    try {
       const res = await billingV2ApplyPlanChange(workspaceId, {
-        planId: target.id,
+        planId: plan.id,
         interval,
         mode,
-        // Exactly what the customer just read — the server compares and refuses
-        // the change when it no longer matches.
         expectedAmountIrr: preview.amountIrr,
       });
-      setTarget(null);
       onChanged();
       if (res.invoiceId) {
         toast.success(t('billingV2.plans.invoiceCreated', { number: res.invoiceNumber || '' }));
@@ -122,9 +113,10 @@ export default function PlansTab({
     } catch (e) {
       toast.error(errorMessage(e, t));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
+
 
   if (loading) return <SkeletonStats count={3} />;
   if (error) return <ErrorState message={error} onRetry={load} retryLabel={t('billingV2.common.retry')} />;

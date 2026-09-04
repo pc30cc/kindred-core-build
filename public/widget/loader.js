@@ -177,11 +177,15 @@
     "@media(max-width:440px){.shell.pos-bottom-right{bottom:12px;right:12px;}",
     ".shell.pos-bottom-left{bottom:12px;left:12px;}}",
     ".launcher{position:absolute;bottom:0;z-index:2;display:flex;align-items:center;justify-content:center;",
+    "--gs-fab-exit:calc(var(--gs-fab-size,56px) + 56px);",
     "width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:50%;border:none;cursor:pointer;",
     "box-shadow:0 3px 12px -4px var(--gs-shadow,rgba(0,0,0,.16)),0 0 0 1px rgba(0,0,0,.03);",
     "transition:transform .38s cubic-bezier(.4,0,.2,1),box-shadow .2s ease,opacity .28s ease;",
     "background:var(--gs-primary,transparent);color:#fff;font-family:inherit;",
     "opacity:1;}",
+    /* First paint: the FAB starts fully outside the browser edge and slides
+       up into the corner with the shared open/close timing. */
+    ".launcher.enter,.launcher.enter:hover{transform:translateY(var(--gs-fab-exit,112px));opacity:0;animation:none!important;}",
     /* Hidden state — keeps the launcher invisible and non-interactive until
        /config resolves and we know the brand color. Eliminates blue flash. */
     ".launcher.pending{opacity:0;pointer-events:none;visibility:hidden;}",

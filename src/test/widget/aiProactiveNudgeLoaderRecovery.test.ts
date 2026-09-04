@@ -11,9 +11,11 @@
  * use an independent auth/session implementation, must retry the SAME
  * lifecycle event exactly once on a widget-token 401/403, and must never
  * throw or break the visitor widget":
- *   1. The canonical recovery sequence (refresh, fall back to bootstrap)
- *      already proven by the tracking heartbeat is promoted onto the SHARED
- *      window.__gs_token bus — not reimplemented a second time.
+ *   1. window.__gs_token.recover (the canonical widget session manager's
+ *      refresh-then-bootstrap sequence, installed once via
+ *      installSessionManager near the top of this file) is the ONLY
+ *      recovery implementation — reportAiEvent delegates to it rather than
+ *      reimplementing session refresh/bootstrap a second time.
  *   2. reportAiEvent always reads the CURRENT shared token before sending.
  *   3. reportAiEvent retries via window.__gs_token.recover() on 401/403,
  *      gated so it can fire at most once (no infinite retry loop).
@@ -45,18 +47,26 @@ function extractFunctionBody(src: string, signature: string): string {
 }
 
 describe('loader.js — AI nudge lifecycle reporting is session-recovery aware (blocker 3)', () => {
-  it('promotes the canonical refresh/bootstrap recovery sequence onto the shared token bus exactly once, inside startTracking', () => {
-    expect(loader).toContain('window.__gs_token.recover = recoverToken');
-    // Promoted from the SAME closures the heartbeat loop itself uses to
-    // recover — not a second, independently-implemented auth flow.
+  it('window.__gs_token.recover is the ONE canonical session manager, installed once, and startTracking only delegates to it', () => {
+    // installSessionManager (near the top of the file) is the single owner
+    // of session recovery: it defines bus.refresh/bus.bootstrap/bus.recover
+    // exactly once, guarded so a second call is a no-op.
+    expect(loader).toContain('function installSessionManager(bus)');
+    expect(loader).toContain('if (!bus || bus.__canonicalSession) return;');
+    expect(loader).toContain('bus.refresh = function ()');
+    expect(loader).toContain('bus.bootstrap = function ()');
+    expect(loader).toContain('bus.recover = function ()');
+    // recover() is "refresh, else bootstrap" — no separate widget-token-minting logic.
+    expect(loader).toContain('recovering = bus.refresh()');
+    expect(loader).toContain('return t || bus.bootstrap();');
+
+    // startTracking's own recoverToken() is a thin wrapper delegating to
+    // that SAME bus method — it does not reimplement refresh/bootstrap.
     const trackingBody = extractFunctionBody(loader, 'function startTracking(apiBase, workspaceId, token) {');
-    expect(trackingBody).toContain('function refreshToken()');
-    expect(trackingBody).toContain('function bootstrapSession()');
     expect(trackingBody).toContain('function recoverToken()');
-    expect(trackingBody).toContain('window.__gs_token.recover = recoverToken');
-    // recoverToken itself is just "refresh, else bootstrap" — no separate
-    // widget-token-minting logic invented for this assignment.
-    expect(trackingBody).toContain('return refreshToken().then(function (tok) {\n        return tok || bootstrapSession();');
+    expect(trackingBody).toContain('window.__gs_token && window.__gs_token.recover');
+    expect(trackingBody).not.toContain('function refreshToken()');
+    expect(trackingBody).not.toContain('function bootstrapSession()');
   });
 
   it('reportAiEvent always reads the CURRENT shared widget token before sending', () => {
@@ -85,12 +95,17 @@ describe('loader.js — AI nudge lifecycle reporting is session-recovery aware (
 
   it('does not invent a second, independent widget-session-refresh implementation for the AI nudge path', () => {
     // Exactly one call site actually fetches the session-refresh/bootstrap
-    // endpoints — reportAiEvent must reuse recover(), not fetch either
-    // endpoint itself a second, independent time.
-    const refreshFetchSites = loader.split('fetch(apiBase + "/api/widget/session/refresh"').length - 1;
+    // endpoints (inside the canonical installSessionManager) — reportAiEvent
+    // must reuse recover(), not fetch either endpoint itself a second,
+    // independent time.
+    const refreshFetchSites = loader.split("fetch(cfg.apiBase + '/api/widget/session/refresh'").length - 1;
     expect(refreshFetchSites).toBe(1);
-    const bootstrapFetchSites = loader.split('fetch(apiBase + "/api/widget/bootstrap"').length - 1;
+    const bootstrapFetchSites = loader.split("fetch(cfg.apiBase + '/api/widget/bootstrap'").length - 1;
     expect(bootstrapFetchSites).toBe(1);
+    // reportAiEvent itself never calls fetch against these two endpoints.
+    const reportAiEventBody = extractFunctionBody(loader, 'function reportAiEvent(nudgeId, type) {');
+    expect(reportAiEventBody).not.toContain('/api/widget/session/refresh');
+    expect(reportAiEventBody).not.toContain('/api/widget/bootstrap');
   });
 
   it('dismissed and cta_clicked nudge events are reported through the SAME session-recovery-aware reportAiEvent', () => {

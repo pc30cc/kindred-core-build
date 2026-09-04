@@ -88,6 +88,7 @@ BILLING_V2_MIGRATIONS=(
   122_billing_v2_dunning.sql
   123_billing_v2_dunning_hardening.sql
   124_billing_v2_default_new_workspaces.sql
+  125_billing_v2_bootstrap_cycle_nullable_subscription.sql
 )
 for n in "${BILLING_V2_MIGRATIONS[@]}"; do
   f="database/migrations/$n"

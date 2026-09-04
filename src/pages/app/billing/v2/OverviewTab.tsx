@@ -100,20 +100,21 @@ export default function OverviewTab({
               )}
             </div>
 
-            <div className="space-y-1.5 rounded-xl bg-muted/50 p-3 text-sm">
-              <Row
-                label={t('billingV2.overview.startedOn')}
-                value={billingDate(servicePeriod?.start, locale)}
-              />
-              <Row
-                label={t('billingV2.overview.renewsOn')}
-                value={
-                  servicePeriod?.end
-                    ? billingDate(servicePeriod.end, locale)
-                    : t('billingV2.overview.noNextInvoice')
-                }
-              />
-            </div>
+            {servicePeriod?.start && (
+              <div className="space-y-1.5 rounded-xl bg-muted/50 p-3 text-sm">
+                <Row
+                  label={t('billingV2.overview.startedOn')}
+                  value={billingDate(servicePeriod.start, locale)}
+                />
+                {servicePeriod.end && (
+                  <Row
+                    label={t('billingV2.overview.renewsOn')}
+                    value={billingDate(servicePeriod.end, locale)}
+                  />
+                )}
+              </div>
+            )}
+
 
             {canManage && (
               <Button size="lg" className="w-full text-base" onClick={() => onGoTo('plans')}>

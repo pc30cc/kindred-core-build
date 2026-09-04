@@ -5646,6 +5646,9 @@ const fa: TranslationKeys = {
       runningDescription: 'بسته به اندازه سایت، این فرآیند ممکن است چند دقیقه طول بکشد.',
       failedTitle: 'آخرین بررسی ناموفق بود',
       failedCta: 'تلاش دوباره',
+      cancelledTitle: 'آخرین بررسی لغو شد',
+      cancelledDescription: 'شما این بررسی را پیش از پایان لغو کردید. هر وقت آماده بودید یک بررسی جدید شروع کنید.',
+      cancelledCta: 'شروع بررسی جدید',
     },
     limits: {
       workspace_concurrency_limit: 'این فضای کاری به سقف بررسی‌های هم‌زمان خود رسیده است. تا پایان بررسی جاری صبر کنید.',

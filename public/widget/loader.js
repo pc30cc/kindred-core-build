@@ -1687,6 +1687,13 @@
       var posClass = configData.position === "bottom-left" ? "bottom-left" : "bottom-right";
       var el = document.createElement("div");
       el.className = "smart-nudge " + posClass;
+      // Text direction follows the widget locale so RTL copy (fa/ar/he/ur)
+      // reads right-aligned and the CTA flows to the correct edge.
+      var nudgeLocale = String(
+        (configData && configData.locale) || document.documentElement.lang || navigator.language || "en"
+      ).toLowerCase().split("-")[0];
+      el.setAttribute("dir", ["fa", "ar", "he", "ur"].indexOf(nudgeLocale) >= 0 ? "rtl" : "ltr");
+
       el.innerHTML = surfaceHtml(content, (rule.presentation_config || {}).dismissible);
       shellContentEl.appendChild(el);
       activeSurface = { ruleId: rule.id, el: el };

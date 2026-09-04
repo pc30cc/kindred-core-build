@@ -106,6 +106,11 @@ const settingsPatchSchema = z.object({
     height_px: z.number().int().min(240).max(2000).optional(),
     fill_viewport: z.boolean().optional(),
   }).partial().optional(),
+  presence: z.object({
+    heartbeat_interval_ms: z.number().int().min(5_000).max(3_600_000).optional(),
+    live_refresh_ms: z.number().int().min(2_000).max(3_600_000).optional(),
+    stale_after_ms: z.number().int().min(15_000).max(3_600_000).optional(),
+  }).partial().optional(),
 }).strict();
 
 mapGeoRouter.put('/settings', async (req, res) => {

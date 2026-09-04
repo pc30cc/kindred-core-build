@@ -23,8 +23,9 @@ export interface MapGeoSettings {
 }
 
 async function call<T>(method: string, path: string, body?: any): Promise<T> {
-  const res = await fetch(`${API_BASE}/api/admin/map-geo${path}`, {credentials: 'include', 
+  const res = await fetch(`${API_BASE}/api/admin/map-geo${path}`, {credentials: 'include',
     method,
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {

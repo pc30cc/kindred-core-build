@@ -21,7 +21,8 @@ SELECT status, count(*), COALESCE(sum(amount_due_irr), 0) AS due_irr
 
 \echo == wallet ==
 SELECT a.workspace_id IS NOT NULL AS wallet_account,
-       COALESCE(a.balance_irr, 0) AS balance_irr
+       COALESCE(a.available_balance_irr, 0) AS available_balance_irr,
+       a.frozen, a.auto_pay_enabled
   FROM public.billing_wallet_accounts a WHERE a.workspace_id = :'ws'::uuid;
 
 \echo == subscription period ==

@@ -2632,6 +2632,15 @@
     // first time the card appears — later re-renders (e.g. another store
     // update while it's still on screen) just show the full text.
     var handoffPrechatSubtitleAnimated = false;
+    // Pre-chat form draft. A re-render can be triggered by any unrelated
+    // store update (presence, transport, smart engagement) while the visitor
+    // is typing or while the submit request is in flight — without this the
+    // freshly painted form comes back with EMPTY inputs. The draft is the
+    // single source of truth for the field values until the visitor is
+    // identified.
+    var prechatDraft = { name: '', email: '', phone: '' };
+    var prechatSubmitting = false;
+
 
     // ─── Chat auto-scroll ───
     // The message list must follow new content (operator/AI replies, streamed
@@ -3270,8 +3279,12 @@
       ['name', 'email', 'phone'].forEach(function (k) {
         var input = getInput(k);
         if (!input) return;
+        // Repaint restores whatever the visitor typed (or is submitting).
+        if (!input.value && prechatDraft[k]) input.value = prechatDraft[k];
+        else prechatDraft[k] = input.value || '';
         liveValidate(k, input.value);
         input.addEventListener('input', function () {
+          prechatDraft[k] = input.value || '';
           clearError(k);
           liveValidate(k, input.value);
         });
@@ -3283,14 +3296,21 @@
           }
         });
       });
-      if (opts.autofocus !== false) {
+      if (opts.autofocus !== false && !prechatSubmitting) {
         var firstInput = body.querySelector('.prechat-input');
         if (firstInput) try { firstInput.focus({ preventScroll: true }); } catch (_) {}
       }
 
+
       var submitBtn = body.querySelector('[data-prechat-submit]');
       if (submitBtn) {
+        // A repaint mid-flight must not offer a second submit.
+        if (prechatSubmitting) {
+          submitBtn.disabled = true;
+          submitBtn.style.opacity = '0.6';
+        }
         submitBtn.addEventListener('click', function () {
+          if (prechatSubmitting) return;
           var payload = {
             name: getInput('name') ? getInput('name').value.trim() : '',
             email: getInput('email') ? getInput('email').value.trim() : '',
@@ -3306,21 +3326,31 @@
           } else if (identity.isRequired('phone') && !payload.phone) { showError('phone', t('required')); ok = false; }
           if (!ok) return;
 
+          prechatDraft = { name: payload.name, email: payload.email, phone: payload.phone };
+          prechatSubmitting = true;
           submitBtn.disabled = true;
           submitBtn.style.opacity = '0.6';
+          submitBtn.classList.add('is-loading');
           identity.submitPrechat(payload, function (success, resp) {
-            submitBtn.disabled = false;
-            submitBtn.style.opacity = '1';
+            prechatSubmitting = false;
+            // The button may belong to a DOM that was replaced mid-flight.
+            try {
+              submitBtn.disabled = false;
+              submitBtn.style.opacity = '1';
+              submitBtn.classList.remove('is-loading');
+            } catch (_) {}
             if (!success) {
               var f = resp && resp.field;
               if (f) showError(f, t('required'));
               return;
             }
+            prechatDraft = { name: '', email: '', phone: '' };
             if (typeof onSubmitted === 'function') onSubmitted();
           });
         });
       }
     }
+
 
     // "AI is thinking…" — rendered as a trailing row inside the message
     // list itself (like a normal AI bubble that hasn't arrived yet), not
@@ -3595,10 +3625,22 @@
       return t('handoffPrechatSubtitle') || t('prechatSubtitle');
     }
 
+    // Values painted into the form: the saved contact, overridden by
+    // anything the visitor typed in this session (draft) — so a repaint can
+    // never wipe the fields.
+    function prechatValues() {
+      var c = (identityStore.get().contact) || {};
+      return {
+        name: prechatDraft.name || c.name || '',
+        email: prechatDraft.email || c.email || '',
+        phone: prechatDraft.phone || c.phone || '',
+      };
+    }
+
     function renderHandoffPrechatCardHtml(identity, locale, subtitle, animateSubtitle) {
       return Presentation.handoffPrechatCardHtml(
         identity,
-        (identityStore.get().contact) || {},
+        prechatValues(),
         locale,
         subtitle,
         animateSubtitle,
@@ -3608,12 +3650,13 @@
     function renderPreChat(body, identity, locale, onSubmitted) {
       body.innerHTML = Presentation.prechatFormHtml(
         identity,
-        (identityStore.get().contact) || {},
+        prechatValues(),
         locale,
       );
 
       wirePrechatForm(body, identity, onSubmitted, { autofocus: true });
     }
+
 
     // "Start a brand new thread" latch. Canonical state lives in chatStore
     // (`freshIntent`) so the transport layer can enforce it too; this local

@@ -147,7 +147,7 @@
 
 /* While the panel is open the FAB slides down out of view; closing returns it. */
 .launcher.open,
-.launcher.open:hover { transform: translateY(90px); opacity: 0; pointer-events: none; }
+.launcher.open:hover { transform: translateY(var(--gs-fab-exit, 112px)); opacity: 0; pointer-events: none; }
 /* Icons scale with the launcher so chat and close are always the same box. */
 .launcher svg { width: calc(var(--gs-fab-size, 56px) * 0.46); height: calc(var(--gs-fab-size, 56px) * 0.46); }
 /* Icon swap (chat ⇄ close) is owned by the loader shell contract:

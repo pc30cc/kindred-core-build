@@ -25,7 +25,9 @@ describe("widget open/close lifecycle contract", () => {
   });
 
   it("launcher slides out of view while open and the panel owns a close control", () => {
-    expect(loader).toContain(".launcher.open,.launcher.open:hover{transform:translateY(90px);");
+    expect(loader).toContain(".launcher.open,.launcher.open:hover{transform:translateY(var(--gs-fab-exit,112px));");
+    // The FAB enters from outside the browser edge on first paint.
+    expect(loader).toContain(".launcher.enter,.launcher.enter:hover{transform:translateY(var(--gs-fab-exit,112px));");
     expect(loader).toContain(".launcher.open svg.chat-icon{display:none;}");
     expect(loader).toContain(".launcher:not(.open) svg.close-icon{display:none;}");
     const tpl = fs.readFileSync(path.join(root, "presentation-web-yar.js"), "utf8");

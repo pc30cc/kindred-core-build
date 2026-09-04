@@ -116,14 +116,26 @@ const HEARTBEAT_PERSIST_MS = 15 * 60 * 1000;
 let lastPersistedAt = 0;
 let lastPersistedSignature: string | null = null;
 
+/**
+ * The engine writes `last_health = health.providers` (a flat
+ * providerId -> { status, error_rate, p95_latency_ms, ... } map), so the
+ * statuses live at the TOP level here — an older version of this function
+ * looked for a nested `.providers` key and therefore never saw any status,
+ * which meant real healthy↔degraded↔unhealthy transitions were not material
+ * and did not persist. Accept both shapes.
+ */
 function healthStatusSignature(health: Record<string, unknown>): string {
-  const providers = (health as any)?.providers;
+  const nested = (health as any)?.providers;
+  const providers =
+    nested && typeof nested === 'object' && !Array.isArray(nested) ? nested : health;
   if (!providers || typeof providers !== 'object') return '';
   return Object.keys(providers)
     .sort()
+    .filter((k) => providers[k] && typeof providers[k] === 'object')
     .map((k) => `${k}=${(providers as any)[k]?.status ?? 'unknown'}`)
     .join(',');
 }
+
 
 function materialSignature(s: FailoverState): string {
   return [

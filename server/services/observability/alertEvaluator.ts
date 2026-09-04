@@ -48,7 +48,15 @@ interface AlertRuleRow {
 interface OpenAlertEventRow {
   id: string;
   severity: string;
+  metric_value?: number | null;
+  threshold_value?: number | null;
+  sample_size?: number | null;
+  details?: Record<string, unknown> | null;
 }
+
+/** Bounded audit trail: keep at most this many severity transitions per incident. */
+const MAX_TRANSITIONS = 20;
+
 
 interface RuleEvalResult {
   severity: 'critical' | 'warn' | null;
@@ -150,19 +158,25 @@ async function evaluateCombinedRule(
  * untouched for this tick — the next 60s tick retries from a clean slate.
  */
 /**
- * Flap control.
+ * Flap control + lifecycle-only persistence.
  *
- * A metric sitting right on its threshold used to open and resolve an
- * incident on alternating ticks, and every single tick wrote a row update
- * even when nothing moved. Three cheap, in-process guards fix that without
- * silencing anything:
+ * `alert_events` is an INCIDENT LIFECYCLE store, never a live-metric store.
+ * Exactly three things write a row:
  *
- *   1. OPEN_STREAK  — a rule must breach on N consecutive cycles before an
- *                     incident opens (a genuine breach persists, a blip does not).
- *   2. CLEAR_STREAK — an open incident resolves only after N consecutive
- *                     clear cycles.
- *   3. TOUCH_DELTA  — the "still breaching" update is skipped unless the
- *                     metric actually moved materially since the last write.
+ *   • INSERT   — an incident opens (after OPEN_STREAK consecutive breaches),
+ *                carrying the opening snapshot of metric/threshold/sample.
+ *   • UPDATE   — the severity of an open incident genuinely changes; the
+ *                transition is appended to details.transitions.
+ *   • UPDATE   — the incident resolves (after CLEAR_STREAK clear cycles),
+ *                recording the final metric value.
+ *
+ * While an incident stays open at the same severity NOTHING is written —
+ * no periodic metric_value / sample_size refresh. The live/current value for
+ * the Super Admin panel comes from the Live Monitoring collector read path,
+ * not from re-writing this table every cycle.
+ *
+ * Webhook delivery columns are written only by the dispatcher, and only when
+ * an attempt actually happened or the delivery status actually changed.
  *
  * State is a Map keyed by rule id, so it is bounded by the number of rules.
  * A restart simply re-earns the streaks; it never loses an incident, which
@@ -170,12 +184,10 @@ async function evaluateCombinedRule(
  */
 let OPEN_STREAK = 3;
 let CLEAR_STREAK = 3;
-let TOUCH_DELTA = 0.05; // 5% relative move
 
 interface FlapState {
   breach: number;
   clear: number;
-  lastWrittenValue: number | null;
 }
 
 const flapState = new Map<string, FlapState>();
@@ -183,7 +195,7 @@ const flapState = new Map<string, FlapState>();
 function stateFor(ruleId: string): FlapState {
   let s = flapState.get(ruleId);
   if (!s) {
-    s = { breach: 0, clear: 0, lastWrittenValue: null };
+    s = { breach: 0, clear: 0 };
     flapState.set(ruleId, s);
   }
   return s;
@@ -193,21 +205,16 @@ export function __resetAlertFlapStateForTests(): void {
   flapState.clear();
   OPEN_STREAK = 3;
   CLEAR_STREAK = 3;
-  TOUCH_DELTA = 0.05;
 }
 
 /** Lets the existing golden tests assert single-tick semantics unchanged. */
 export function __setAlertFlapTuningForTests(t: { open?: number; clear?: number; touchDelta?: number }): void {
   if (t.open !== undefined) OPEN_STREAK = t.open;
   if (t.clear !== undefined) CLEAR_STREAK = t.clear;
-  if (t.touchDelta !== undefined) TOUCH_DELTA = t.touchDelta;
+  // touchDelta is accepted for backwards compatibility only — same-severity
+  // "still breaching" writes no longer exist at all.
 }
 
-function movedMaterially(previous: number | null, next: number): boolean {
-  if (previous === null) return true;
-  const base = Math.abs(previous) || 1;
-  return Math.abs(next - previous) / base >= TOUCH_DELTA;
-}
 
 async function applyRuleResult(
   sb: ReturnType<typeof getServiceClient>,
@@ -217,7 +224,7 @@ async function applyRuleResult(
 ): Promise<boolean> {
   const { data: openRows, error: openReadError } = await sb
     .from('alert_events')
-    .select('id, severity')
+    .select('id, severity, metric_value, threshold_value, sample_size, details')
     .eq('rule_id', rule.id)
     .eq('state', 'open')
     .order('fired_at', { ascending: false })
@@ -252,17 +259,27 @@ async function applyRuleResult(
           route_group: rule.route_group,
           aggregation: rule.aggregation,
           subrules: rule.subrules,
+          // Opening snapshot — immutable evidence of why the incident opened.
+          opened: {
+            at: now.toISOString(),
+            severity: result.severity,
+            metric_value: result.value,
+            threshold_value: result.threshold,
+            sample_size: result.sample,
+          },
         },
         webhook_status: 'pending',
       });
       if (insertError) {
         throw new Error(`alertEvaluator: failed to open alert for rule "${rule.slug}": ${insertError.message}`);
       }
-      flap.lastWrittenValue = result.value;
       return true;
     }
     if (open.severity !== result.severity) {
-      // Severity escalation/de-escalation updates the SAME incident.
+      // Severity escalation/de-escalation updates the SAME incident and
+      // records a snapshot of the transition for the audit trail.
+      const baseDetails = (open.details && typeof open.details === 'object' ? open.details : {}) as Record<string, unknown>;
+      const priorTransitions = Array.isArray((baseDetails as any).transitions) ? ((baseDetails as any).transitions as unknown[]) : [];
       const { error: severityError } = await sb
         .from('alert_events')
         .update({
@@ -270,26 +287,31 @@ async function applyRuleResult(
           metric_value: result.value,
           threshold_value: result.threshold,
           sample_size: result.sample,
+          details: {
+            ...baseDetails,
+            transitions: [
+              ...priorTransitions.slice(-MAX_TRANSITIONS + 1),
+              {
+                at: now.toISOString(),
+                from_severity: open.severity,
+                to_severity: result.severity,
+                metric_value: result.value,
+                threshold_value: result.threshold,
+                sample_size: result.sample,
+              },
+            ],
+          },
           webhook_status: 'pending',
         })
         .eq('id', open.id);
       if (severityError) {
         throw new Error(`alertEvaluator: failed to change severity for rule "${rule.slug}" (alert ${open.id}): ${severityError.message}`);
       }
-      flap.lastWrittenValue = result.value;
       return true;
     }
-    // Still breaching at the same severity: only refresh the row when the
-    // number actually changed enough to be worth a write.
-    if (!movedMaterially(flap.lastWrittenValue, result.value)) return false;
-    const { error: touchError } = await sb
-      .from('alert_events')
-      .update({ metric_value: result.value, sample_size: result.sample })
-      .eq('id', open.id);
-    if (touchError) {
-      throw new Error(`alertEvaluator: failed to update open alert for rule "${rule.slug}" (alert ${open.id}): ${touchError.message}`);
-    }
-    flap.lastWrittenValue = result.value;
+    // Still breaching at the same severity: the incident is already recorded
+    // and nothing about its lifecycle changed. Deliberately NO write — the
+    // current metric value is served from the Live Monitoring collector.
     return false;
   }
 
@@ -299,6 +321,7 @@ async function applyRuleResult(
     flap.clear += 1;
     // Hysteresis: a single clear sample is not a recovery.
     if (flap.clear < CLEAR_STREAK) return false;
+    const baseDetails = (open.details && typeof open.details === 'object' ? open.details : {}) as Record<string, unknown>;
     const { error: resolveError } = await sb
       .from('alert_events')
       .update({
@@ -307,6 +330,14 @@ async function applyRuleResult(
         resolved_at: now.toISOString(),
         metric_value: result.value,
         sample_size: result.sample,
+        details: {
+          ...baseDetails,
+          resolved: {
+            at: now.toISOString(),
+            metric_value: result.value,
+            sample_size: result.sample,
+          },
+        },
         webhook_status: 'pending',
       })
       .eq('id', open.id);
@@ -314,11 +345,11 @@ async function applyRuleResult(
       throw new Error(`alertEvaluator: failed to resolve alert for rule "${rule.slug}" (alert ${open.id}): ${resolveError.message}`);
     }
     flap.clear = 0;
-    flap.lastWrittenValue = null;
     return true;
   }
   flap.clear = 0;
   return false;
+
 }
 
 

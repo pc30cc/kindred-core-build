@@ -332,7 +332,7 @@ describe('alertEvaluator — lifecycle edge cases', () => {
     expect(fakeState.updated[0]).toMatchObject({ id: 'evt-1', patch: { severity: 'critical' } });
   });
 
-  it('same severity persisting only updates metric_value, not counted as a state change', async () => {
+  it('same severity persisting writes NOTHING (alert_events is lifecycle-only, not a live metric store)', async () => {
     fakeState.openEventsByRule['r-count'] = [{ id: 'evt-1', severity: 'critical' }];
     const collector = getMonitoringCollector();
     for (let i = 0; i < 12; i++) collector.recordRealtimeMetric({ metric: 'realtime.subscribe_failed' });
@@ -340,10 +340,15 @@ describe('alertEvaluator — lifecycle edge cases', () => {
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
     const result = await evaluateAlertRulesInMemory({} as any);
+    // A second cycle with a wildly different metric value must still not write.
+    for (let i = 0; i < 40; i++) collector.recordRealtimeMetric({ metric: 'realtime.subscribe_failed' });
+    await evaluateAlertRulesInMemory({} as any);
 
     expect(result.state_changes).toBe(0);
-    expect(fakeState.updated).toHaveLength(1); // silent metric_value refresh
+    expect(fakeState.updated).toHaveLength(0);
+    expect(fakeState.inserted).toHaveLength(0);
   });
+
 
   it('disabled rules are never evaluated (excluded by the enabled=true filter)', async () => {
     fakeState.rules = []; // the fake sb.from('alert_rules') query already only returns what the "DB" would for eq('enabled', true)

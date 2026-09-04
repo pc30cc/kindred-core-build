@@ -458,21 +458,32 @@
         : '');
 
 
-    // Optional text chip beside the launcher.
+    // Optional text card beside the launcher (title + optional sub-line).
     var shellDiv2 = shadowRoot.querySelector(".shell");
     if (fabLabelEl && fabLabelEl.parentNode) fabLabelEl.parentNode.removeChild(fabLabelEl);
     fabLabelEl = null;
     var label = fab.label ? String(fab.label).trim() : "";
+    var subLabel = fab.subLabel ? String(fab.subLabel).trim() : "";
     if (label && shellDiv2) {
       fabLabelEl = document.createElement("div");
-      fabLabelEl.className = "gs-fab-label";
-      fabLabelEl.textContent = label;
-      fabLabelEl.style.bottom = Math.round(24 + size / 2 - 15) + "px";
-      if (posClass === "bottom-left") fabLabelEl.style.left = (size + 36) + "px";
-      else fabLabelEl.style.right = (size + 36) + "px";
-      if (fab.textColor) fabLabelEl.style.color = fab.textColor;
+      fabLabelEl.className = "gs-fab-label" + (isOpen ? " open" : "");
+      var titleEl = document.createElement("span");
+      titleEl.className = "label-title";
+      titleEl.textContent = label;
+      if (fab.textColor) titleEl.style.color = fab.textColor;
+      fabLabelEl.appendChild(titleEl);
+      if (subLabel) {
+        var subEl = document.createElement("span");
+        subEl.className = "label-sub";
+        subEl.textContent = subLabel;
+        fabLabelEl.appendChild(subEl);
+      }
+      // Same corner anchor as the launcher, offset by the FAB box + 10px gap.
+      if (posClass === "bottom-left") fabLabelEl.style.left = (size + 10) + "px";
+      else fabLabelEl.style.right = (size + 10) + "px";
       shellDiv2.appendChild(fabLabelEl);
     }
+
   }
 
   /** Launcher shadow is DERIVED from the brand colour — never configured. */

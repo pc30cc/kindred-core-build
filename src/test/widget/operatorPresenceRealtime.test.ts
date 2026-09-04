@@ -23,6 +23,10 @@ const state = vi.hoisted(() => ({
   supportsPresence: true,
   presenceEnabled: true,
   health: 'healthy' as string,
+  /** CONFIGURED primary (what the admin saved), independent of the resolved one. */
+  configuredVendor: null as string | null,
+  configuredEnabled: null as boolean | null,
+  configuredPresence: null as boolean | null,
   /** null ⇒ presence API unreadable. */
   members: new Set<string>() as Set<string> | null,
   /** Per-workspace override of the presence roster. */
@@ -82,6 +86,18 @@ vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeClie
 vi.mock('../../../server/supabase', () => ({ getServiceClient: () => fakeClient }));
 
 vi.mock('../../../server/services/realtime/index.js', () => ({
+  loadRealtimeConfig: async () => {
+    const vendor = state.configuredVendor ?? state.vendor;
+    return {
+      vendor,
+      enabled: state.configuredEnabled ?? vendor !== 'disabled',
+      fallback_policy: 'lenient',
+      fallback_vendor: 'polling_builtin',
+      centrifugo: {
+        presence_enabled: state.configuredPresence ?? state.presenceEnabled,
+      },
+    };
+  },
   resolveRealtimeProvider: async () => ({
     effective_vendor: state.vendor,
     capabilities: { supportsPresence: state.supportsPresence },
@@ -160,6 +176,9 @@ function reset() {
   state.membersByWs = new Map();
   state.driverDown = false;
   state.presenceCalls = 0;
+  state.configuredVendor = null;
+  state.configuredEnabled = null;
+  state.configuredPresence = null;
   db.workspace_members = [{ workspace_id: WS, user_id: USER }];
   db.profiles = [{ id: USER, full_name: 'Op', email: 'op@x.io', avatar_url: null }];
   db.user_availability_prefs = [];
@@ -492,5 +511,88 @@ describe('operator presence — realtime-first', () => {
     const row = db.operator_presence_fallback_state.find((r: any) => r.scope === WS);
     expect(row.roster_complete).toBe(false);
     expect(row.roster.length).toBe(0); // row stays small
+  });
+  it('O — LENIENT resolver fallback (Centrifugo configured, resolved to polling): treated as a realtime failure', async () => {
+    // Exactly what resolveRealtimeProvider() returns in production when the
+    // Centrifugo health probe fails under fallback_policy = 'lenient'.
+    state.configuredVendor = 'centrifugo';
+    state.configuredEnabled = true;
+    state.configuredPresence = true;
+    state.vendor = 'polling_builtin';
+    state.supportsPresence = false;
+    state.presenceEnabled = false;
+    state.health = 'degraded';
+    state.presenceCalls = 0;
+    resetPresenceSourceCache();
+
+    // Lease table starts completely empty (healthy realtime wrote nothing).
+    expect(db.operator_presence_live.length).toBe(0);
+
+    const [p] = await listWorkspacePresence(cfg, WS, at(1));
+    expect(state.presenceCalls).toBe(0);
+    expect(p.state).toBe('online');              // bounded handoff, no false-offline
+    const { anyOnline } = await anyOperatorOnline(cfg, WS, at(1));
+    expect(anyOnline).toBe(true);                // widget never says no_operators_online
+    // Shared breaker armed so every instance resumes lease writes.
+    expect(db.operator_presence_fallback_state.length).toBeGreaterThan(0);
+    expect(await shouldWriteFallbackPresence(cfg, at(1).getTime(), WS)).toBe(true);
+    await heartbeat(at(2));
+    expect(presenceWrites).toBe(1);
+    const [after] = await listWorkspacePresence(cfg, WS, at(2));
+    expect(after.state).toBe('online');
+  });
+
+  it('O2 — STRICT resolver failure (effective vendor disabled / failed_closed): same protection', async () => {
+    state.configuredVendor = 'centrifugo';
+    state.configuredEnabled = true;
+    state.configuredPresence = true;
+    state.vendor = 'disabled';
+    state.supportsPresence = false;
+    state.presenceEnabled = false;
+    state.health = 'down';
+    resetPresenceSourceCache();
+
+    const [p] = await listWorkspacePresence(cfg, WS, at(1));
+    expect(p.state).toBe('online');
+    expect(await shouldWriteFallbackPresence(cfg, at(1).getTime(), WS)).toBe(true);
+    await heartbeat(at(2));
+    expect(presenceWrites).toBe(1);
+  });
+
+  it('O3 — NATIVE polling (configured vendor really is polling): no fail-open transition', async () => {
+    state.configuredVendor = 'polling_builtin';
+    state.configuredEnabled = true;
+    state.vendor = 'polling_builtin';
+    state.supportsPresence = false;
+    state.presenceEnabled = false;
+    state.health = 'degraded';
+    resetPresenceSourceCache();
+
+    const [p] = await listWorkspacePresence(cfg, WS, at(1));
+    expect(p.state).toBe('offline');
+    expect(p.reason).toBe('not_connected');
+    expect(db.operator_presence_fallback_state.length).toBe(0);
+    // Plain DB lease semantics: a fresh beat brings the operator back online.
+    await recordOperatorPresenceBeat(cfg, WS, USER, at(1));
+    resetPresenceSourceCache();
+    const [back] = await listWorkspacePresence(cfg, WS, at(1.1));
+    expect(back.state).toBe('online');
+  });
+
+  it('O4 — Centrifugo configured but presence_enabled=false: never fails open, even when realtime breaks', async () => {
+    state.configuredVendor = 'centrifugo';
+    state.configuredEnabled = true;
+    state.configuredPresence = false;
+    state.vendor = 'polling_builtin';
+    state.supportsPresence = false;
+    state.presenceEnabled = false;
+    state.health = 'down';
+    resetPresenceSourceCache();
+
+    const [p] = await listWorkspacePresence(cfg, WS, at(1));
+    expect(p.state).toBe('offline');
+    expect(p.reason).toBe('not_connected');
+    expect(db.operator_presence_fallback_state.length).toBe(0);
+    expect(await shouldWriteFallbackPresence(cfg, at(1).getTime(), WS)).toBe(true);
   });
 });

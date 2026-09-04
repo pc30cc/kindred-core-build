@@ -99,3 +99,18 @@ CREATE OR REPLACE FUNCTION public.has_role(_user_id uuid, _role public.app_role)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = _user_id AND role = _role)
 $$;
+
+-- Hosted-baseline payment history table (the chain only ALTERs it).
+CREATE TABLE IF NOT EXISTS public.billing_payments (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id        uuid REFERENCES public.workspaces(id) ON DELETE CASCADE,
+  amount              integer NOT NULL DEFAULT 0,
+  refund_amount       integer NOT NULL DEFAULT 0,
+  currency            text NOT NULL DEFAULT 'IRR',
+  status              text NOT NULL DEFAULT 'pending',
+  provider_name       text,
+  provider_payment_id text,
+  metadata            jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now()
+);

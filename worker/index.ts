@@ -2,17 +2,20 @@
  * Multi-worker dispatcher.
  *
  * One Dockerfile.worker, many Coolify services. WORKER_KIND selects which
- * loop to run inside this container:
+ * loop(s) run inside this container. It accepts a single kind, a
+ * comma-separated list of kinds (any subset, grouped however you like
+ * across containers), or the literal "all":
  *
- *   intelligence  → AI KB Builder (public.ai_kb_jobs)
- *   source-sync   → Data Hub source sync (public.ai_source_sync_jobs)
- *   all           → both loops in the same process (dev/small deploys only)
+ *   intelligence            → AI KB Builder (public.ai_kb_jobs)
+ *   source-sync             → Data Hub source sync (public.ai_source_sync_jobs)
+ *   seo-crawler,channels    → e.g. these two kinds sharing one container
+ *   invitations             → a different kind in another container
+ *   all                     → every loop in the same process (dev/small deploys only)
  *
  * Default is "intelligence" so existing Coolify deployments built from the
  * old Dockerfile.worker keep working without env changes.
  */
 
-const RAW_KIND = (process.env.WORKER_KIND || 'intelligence').trim().toLowerCase();
 // 'file-ingest' is an alias for 'source-sync' — both kinds poll
 // public.ai_source_sync_jobs and dispatch by job_type. Operators run a
 // dedicated container with WORKER_KIND=file-ingest for production isolation,
@@ -32,34 +35,43 @@ const ALLOWED = new Set([
   'all',
 ]);
 
-if (!ALLOWED.has(RAW_KIND)) {
+const RAW_INPUT = (process.env.WORKER_KIND || 'intelligence').trim().toLowerCase();
+const REQUESTED = RAW_INPUT.split(',').map((s) => s.trim()).filter(Boolean);
+const invalid = REQUESTED.filter((k) => !ALLOWED.has(k));
+
+if (invalid.length > 0 || REQUESTED.length === 0) {
   console.error(
-    `[worker] invalid WORKER_KIND="${RAW_KIND}". Allowed: ${[...ALLOWED].join(' | ')}`,
+    `[worker] invalid WORKER_KIND="${RAW_INPUT}". Unknown: ${invalid.join(', ') || '(empty)'}. Allowed: ${[...ALLOWED].join(' | ')} (comma-separated list also accepted, e.g. "seo-crawler,channels")`,
   );
   process.exit(1);
 }
 
+const KINDS = new Set(REQUESTED);
+// 'all' can appear alongside other kinds in the list without harm — it just
+// turns every loop on regardless of what else was requested.
+const runsAll = KINDS.has('all');
+const runs = (kind: string) => runsAll || KINDS.has(kind);
 
-console.log('[worker] starting', { kind: RAW_KIND });
+console.log('[worker] starting', { kinds: [...KINDS] });
 
 async function main() {
-  if (RAW_KIND === 'intelligence' || RAW_KIND === 'all') {
+  if (runs('intelligence')) {
     const mod = await import('./intelligence/index.js');
     mod.startAiKbWorker?.();
   }
-  if (RAW_KIND === 'source-sync' || RAW_KIND === 'file-ingest' || RAW_KIND === 'all') {
+  if (runs('source-sync') || runs('file-ingest')) {
     const mod = await import('./source-sync/index.js');
     mod.startSourceSyncWorker?.();
   }
-  if (RAW_KIND === 'regression-runner' || RAW_KIND === 'all') {
+  if (runs('regression-runner')) {
     const mod = await import('./regression-runner/index.js');
     mod.startRegressionWorker?.();
   }
-  if (RAW_KIND === 'channels' || RAW_KIND === 'all') {
+  if (runs('channels')) {
     const mod = await import('./channels/index.js');
     mod.startChannelsWorker?.();
   }
-  if (RAW_KIND === 'invitations' || RAW_KIND === 'all') {
+  if (runs('invitations')) {
     const [{ loadConfig }, worker, bootstrap, secrets] = await Promise.all([
       import('../server/config.js'),
       import('../server/services/invitations/worker.js'),
@@ -74,13 +86,12 @@ async function main() {
     if (!entitlement.ok) throw new Error('invitation entitlement bootstrap failed');
     worker.startInvitationWorker(config);
   }
-  if (RAW_KIND === 'seo-crawler' || RAW_KIND === 'all') {
+  if (runs('seo-crawler')) {
     const mod = await import('./seo-crawler/index.js');
     mod.startSeoCrawlerWorker?.();
   }
 
-
-  if (RAW_KIND === 'all') {
+  if (runsAll) {
     console.warn('[worker] WORKER_KIND=all is allowed but not recommended for production isolation');
   }
 }

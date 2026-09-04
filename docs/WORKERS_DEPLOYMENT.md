@@ -16,6 +16,17 @@ Dockerfile.
 
 `all` logs a warning. Use only for local/small deploys.
 
+### Grouping kinds onto one container
+
+`WORKER_KIND` also accepts a comma-separated list, so any subset of kinds can
+share a single container instead of requiring one container per kind — e.g.
+`WORKER_KIND=seo-crawler,channels,invitations` runs exactly those three loops
+in one process, while another container runs the rest with
+`WORKER_KIND=intelligence,source-sync,regression-runner`. This is useful when
+you want fewer containers than kinds without going all the way to `all`
+(every kind, no isolation). Order and whitespace in the list don't matter;
+an unknown kind anywhere in the list fails startup with a clear error.
+
 ## Coolify setup
 
 Create two services from the same repo, same `Dockerfile.worker`:

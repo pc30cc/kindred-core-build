@@ -240,11 +240,36 @@ realtimeRouter.post('/connect', async (req, res) => {
       conversation_ids: parsed.data.conversation_ids,
       expires_in_seconds: platform.realtime.tokenTtlSeconds,
     });
+    // Topology-aware endpoint assignment. Mode 1 → the single ws_url,
+    // Mode 2 → the node the router picked, Mode 3 → the load balancer URL.
+    // The browser still opens the WebSocket DIRECTLY; no PostgreSQL write
+    // happens on this path.
+    const assignment = await assignRealtimeEndpoint(config);
+    if (!assignment.ws_url) {
+      emitMetric(config, {
+        metric: 'realtime.fallback_engaged',
+        workspaceId: parsed.data.workspace_id,
+        driver: 'polling_builtin',
+        tags: { source: `assignment:${assignment.reason}` },
+      });
+      return res.json({
+        vendor: 'polling_builtin',
+        capabilities: { supportsRealtime: false, supportsTyping: false, supportsPresence: false, supportsHistoryLoad: true, supportsReconnectSignals: true },
+        fallback_policy: resolved.fallback_policy,
+        source: 'fallback',
+        effective_policy,
+      });
+    }
     emitMetric(config, {
       metric: 'realtime.token_minted',
       workspaceId: parsed.data.workspace_id,
       driver: 'centrifugo',
-      tags: { kind: 'connect', ttl_s: platform.realtime.tokenTtlSeconds },
+      tags: {
+        kind: 'connect',
+        ttl_s: platform.realtime.tokenTtlSeconds,
+        mode: assignment.mode,
+        node: assignment.node_id ?? 'single',
+      },
     });
     getMonitoringCollector().recordGrant(
       parsed.data.workspace_id,
@@ -254,7 +279,9 @@ realtimeRouter.post('/connect', async (req, res) => {
 
     return res.json({
       vendor: 'centrifugo',
-      ws_url: tokenInfo.ws_url,
+      ws_url: assignment.ws_url,
+      node_id: assignment.node_id,
+      deployment_mode: assignment.mode,
       token: tokenInfo.token,
       expires_at: tokenInfo.expires_at,
       channels: tokenInfo.channels,

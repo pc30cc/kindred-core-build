@@ -1,4 +1,4 @@
-import type { BillingProviderHandler, BillingProviderConfig, CheckoutRequest } from '../types.js';
+import type { BillingProviderHandler, BillingProviderConfig } from '../types.js';
 import { zarinpalProvider } from './zarinpal.js';
 
 // ZarinPal sandbox — https://www.zarinpal.com/docs/paymentGateway/sandBox.html
@@ -6,6 +6,10 @@ import { zarinpalProvider } from './zarinpal.js';
 // sandbox.zarinpal.com and no real money moves. Per the docs, the sandbox
 // accepts ANY valid UUID v4 as merchant_id, and every authority it returns
 // starts with the letter "S".
+//
+// No local simulation: the sandbox is flaky by nature, and faking a successful
+// checkout would hide real gateway failures. When the sandbox is down the
+// customer sees the gateway's own error, exactly like production.
 const SANDBOX_SAMPLE_MERCHANT_ID = '00000000-0000-0000-0000-000000000000';
 
 function isUuid(value: unknown): value is string {
@@ -24,57 +28,15 @@ function sandboxConfig(config: BillingProviderConfig): BillingProviderConfig {
   };
 }
 
-// ZarinPal's public sandbox is frequently offline (empty / non-JSON answers).
-// A test gateway that cannot be reached would block every billing flow, so the
-// provider falls back to a self-contained simulation: the payer is bounced
-// straight back to the callback with an OK status and a simulated authority
-// that this provider (and only this provider) can verify locally.
-const SIMULATED_PREFIX = 'SIMULATED';
-
-function isSimulatedAuthority(value: string | undefined): boolean {
-  return typeof value === 'string' && value.startsWith(SIMULATED_PREFIX);
-}
-
-function simulatedCheckout(req: CheckoutRequest) {
-  const authority = `${SIMULATED_PREFIX}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`.toUpperCase();
-  const sep = req.callbackUrl.includes('?') ? '&' : '?';
-  return {
-    paymentUrl: `${req.callbackUrl}${sep}Authority=${encodeURIComponent(authority)}&Status=OK`,
-    authority,
-  };
-}
-
-/** The sandbox host can also hang, which would freeze the checkout request. */
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error('zarinpal sandbox timeout')), ms).unref?.(),
-    ),
-  ]);
-}
-
 export const zarinpalTestProvider: BillingProviderHandler = {
   name: 'zarinpal_test',
   capabilities: { ...zarinpalProvider.capabilities },
 
-  async createCheckoutSession(config: BillingProviderConfig, req: CheckoutRequest) {
-    try {
-      return await withTimeout(zarinpalProvider.createCheckoutSession(sandboxConfig(config), req), 8000);
-    } catch (error) {
-      console.warn('[billing] zarinpal sandbox unavailable, using simulated test checkout', {
-        error: (error as Error)?.message,
-      });
-      return simulatedCheckout(req);
-    }
+  createCheckoutSession(config, req) {
+    return zarinpalProvider.createCheckoutSession(sandboxConfig(config), req);
   },
 
-  async verifyPayment(config, params) {
-    const authority = params.Authority || params.authority;
-    if (isSimulatedAuthority(authority)) {
-      const amount = parseInt(params.amount || '0', 10) || 0;
-      return { verified: true, providerRef: authority as string, amount, status: 'success' };
-    }
+  verifyPayment(config, params) {
     return zarinpalProvider.verifyPayment!(sandboxConfig(config), params);
   },
 
@@ -82,13 +44,7 @@ export const zarinpalTestProvider: BillingProviderHandler = {
     return zarinpalProvider.verifyWebhook(sandboxConfig(config), headers, body);
   },
 
-  async testConnection(config) {
-    try {
-      const result = await zarinpalProvider.testConnection(sandboxConfig(config));
-      if (result.success) return result;
-    } catch {
-      // fall through to the simulated result below
-    }
-    return { success: true, latencyMs: 0 };
+  testConnection(config) {
+    return zarinpalProvider.testConnection(sandboxConfig(config));
   },
 };

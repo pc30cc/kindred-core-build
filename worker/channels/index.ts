@@ -53,7 +53,10 @@ const WORKER_ID = `channels-${process.pid}-${Math.random().toString(36).slice(2,
 const POLL_INTERVAL_MS = parseInt(process.env.CHANNELS_POLL_INTERVAL_MS || '1500', 10);
 const BATCH_SIZE = parseInt(process.env.CHANNELS_BATCH_SIZE || '10', 10);
 const LEASE_SECONDS = parseInt(process.env.CHANNELS_LEASE_SECONDS || '120', 10);
-const HEARTBEAT_INTERVAL_MS = parseInt(process.env.CHANNELS_HEARTBEAT_MS || '15000', 10);
+// 45s (was 15s): the heartbeat row is a single UPSERT per worker, so a 15s
+// cadence burned ~5.7k writes/day for liveness that is only read against a
+// 120s / 150s staleness window. 45s keeps three beats inside every window.
+const HEARTBEAT_INTERVAL_MS = parseInt(process.env.CHANNELS_HEARTBEAT_MS || '45000', 10);
 const CORE_AUTH_RECHECK_MS = parseInt(process.env.CHANNELS_CORE_AUTH_RECHECK_MS || '15000', 10);
 const CODE_VERSION = process.env.APP_VERSION || process.env.GIT_SHA || null;
 

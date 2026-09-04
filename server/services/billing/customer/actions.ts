@@ -122,8 +122,10 @@ export async function previewPlanChange(
 
   // A downgrade is next-cycle only (V1 policy, no refunds). An upgrade may be
   // taken immediately only when there is a paid window left to prorate into.
-  const allowedModes: PlanChangeMode[] =
-    direction === 'upgrade' && periodEnd && new Date(periodEnd).getTime() > now.getTime()
+  const isFirstPaidSubscription = !currentPlanId && targetPrice > 0;
+  const allowedModes: PlanChangeMode[] = isFirstPaidSubscription
+    ? ['immediate']
+    : direction === 'upgrade' && periodEnd && new Date(periodEnd).getTime() > now.getTime()
       ? ['immediate', 'next_cycle']
       : ['next_cycle'];
 
@@ -134,7 +136,7 @@ export async function previewPlanChange(
   let aiCycleDeltaIrr = 0;
   let effectiveAt = periodEnd ?? now.toISOString();
 
-  if (mode === 'immediate' && periodEnd) {
+  if (mode === 'immediate' && periodEnd && currentPlanId) {
     const proration = computeUpgradeProration({
       now,
       currentPeriodStart: new Date(periodStart ?? now.toISOString()),
@@ -161,6 +163,13 @@ export async function previewPlanChange(
       const delta = Math.max(0, monthlyAllowanceIrr(target) - currentMonthly);
       aiCycleDeltaIrr = Math.round((delta * left) / span);
     }
+  } else if (mode === 'immediate' && isFirstPaidSubscription) {
+    // A workspace without a subscription has no existing period to prorate.
+    // Its first paid plan is a new subscription and the full plan price is due
+    // now. Treating it as a next-cycle change used to create a zero-amount
+    // result and never established the subscription projection.
+    amountIrr = targetPrice;
+    effectiveAt = now.toISOString();
   }
 
   return {
@@ -217,21 +226,31 @@ export async function applyPlanChange(
       allowedModes: preview.allowedModes,
     });
   }
-  if (Math.round(num(input.expectedAmountIrr)) !== preview.amountIrr) {
+  // The prorated amount is a function of the clock: between the preview call
+  // and the confirmation click a few seconds of the paid window elapse, so an
+  // exact equality check rejects perfectly honest upgrades. What actually needs
+  // guarding is charging MORE than the customer agreed to, so we only reject
+  // when the recomputed amount exceeds the shown one beyond clock drift
+  // (0.5% of the shown amount, floor 10_000 IRR = 1_000 Toman).
+  const expected = Math.round(num(input.expectedAmountIrr));
+  const tolerance = Math.max(10_000, Math.round(expected * 0.005));
+  if (preview.amountIrr > expected + tolerance) {
     throw new BillingActionError('the amount changed, please review again', 409, 'STALE_PREVIEW', {
       amountIrr: preview.amountIrr,
     });
   }
 
+
   const { sub, period } = await loadContext(config, workspaceId);
 
   if (input.mode === 'immediate') {
+    const action = sub?.plan_id ? 'plan_upgrade' : 'plan_new';
     const invoice = await issueSubscriptionInvoice(config, {
       workspaceId,
       subscriptionId: sub?.id ?? null,
       targetPlanId: input.planId,
       interval: input.interval,
-      action: 'plan_upgrade',
+      action,
       currentPlanId: sub?.plan_id ?? null,
       currentPeriodStart: period?.period_start ?? sub?.current_period_start ?? null,
       currentPeriodEnd: period?.period_end ?? sub?.current_period_end ?? null,

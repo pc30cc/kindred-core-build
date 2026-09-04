@@ -9,6 +9,8 @@ const en = {
       confirm: 'Confirm', back: 'Back', amount: 'Amount', date: 'Date', status: 'Status', actions: 'Actions',
       view: 'View', total: 'Total', yes: 'Yes', no: 'No', notAvailable: '—',
       continue: 'Continue',
+      paymentSucceeded: 'Payment completed successfully.',
+      paymentFailed: 'The payment could not be verified.',
     },
     overview: {
       currentPlan: 'Current plan', free: 'Free', trial: 'Trial', trialEnds: 'Trial ends {{date}}',

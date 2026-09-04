@@ -21,11 +21,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { SkeletonStats, SkeletonCard } from '@/components/common/Skeletons';
-import { LayoutGrid, Receipt, Gauge, Wallet, Sparkles, ArrowLeftRight } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { LayoutGrid, Receipt, Gauge, Wallet, Sparkles, ArrowLeftRight, ArrowUpCircle, type LucideIcon } from 'lucide-react';
+
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
 import { billingV2Overview, billingV2CancelPlanChange, type BillingOverview } from '@/lib/billingV2Api';
-import { ErrorState, errorMessage } from './shared';
+import { billingVerifyCallback } from '@/lib/api';
+import { ErrorState, errorMessage, money, billingDate } from './shared';
+
 import OverviewTab from './OverviewTab';
 import InvoicesTab from './InvoicesTab';
 import PlansTab from './PlansTab';
@@ -44,7 +49,7 @@ const TABS = [
 ] as const;
 
 export default function BillingV2Page({ workspaceId }: { workspaceId: string }) {
-  const { t, dir } = useTranslation();
+  const { t, dir, locale } = useTranslation();
   const [overview, setOverview] = useState<BillingOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +78,36 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
     setReloadKey((k) => k + 1);
   }, [load]);
 
+  /**
+   * Gateway return. The redirect carries `intent` + `provider` (added by the
+   * server when the checkout session was created) plus the raw gateway params.
+   * Verification is server-side; the URL is cleaned afterwards so a refresh
+   * cannot replay it.
+   */
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const intentId = url.searchParams.get('intent');
+    const provider = url.searchParams.get('provider');
+    if (!intentId || !provider) return;
+
+    const params: Record<string, string> = {};
+    url.searchParams.forEach((value, key) => {
+      if (key !== 'intent' && key !== 'provider') params[key] = value;
+    });
+
+    ['intent', 'provider', ...Object.keys(params)].forEach((k) => url.searchParams.delete(k));
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+
+    billingVerifyCallback({ workspaceId, provider, params, intentId })
+      .then((res: any) => {
+        if (res?.verified) toast.success(t('billingV2.common.paymentSucceeded'));
+        else toast.error(t('billingV2.common.paymentFailed'));
+      })
+      .catch((e) => toast.error(errorMessage(e, t)))
+      .finally(() => refreshAll());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId]);
+
   async function cancelPendingChange() {
     setCanceling(true);
     try {
@@ -85,6 +120,7 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
       setCanceling(false);
     }
   }
+
 
   if (loading && !overview) {
     return (
@@ -107,39 +143,102 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
   const canManage = overview.permissions.manage;
 
   return (
-    <div className="animate-fade-in space-y-5 p-4 text-start md:p-6 lg:p-8" dir={dir}>
-      <div>
-        <h1 className="text-2xl font-bold">{t('billingV2.title')}</h1>
-        <p className="text-sm text-muted-foreground">{t('billingV2.subtitle')}</p>
+    <div className="animate-fade-in space-y-6 p-4 text-start md:p-6 lg:p-8" dir={dir}>
+      <div className="relative overflow-hidden rounded-2xl border bg-card p-5 shadow-sm md:p-6">
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-primary/10 to-transparent"
+          aria-hidden
+        />
+        <div className="relative flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight md:text-3xl">{t('billingV2.title')}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">{t('billingV2.subtitle')}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge
+              variant={overview.subscription.status === 'active' ? 'default' : 'secondary'}
+              className="rounded-full px-3 py-1 text-sm"
+            >
+              {overview.subscription.planName || t('billingV2.overview.free')}
+            </Badge>
+            {canManage && (
+              <Button size="sm" className="gap-2" onClick={() => setTab('plans')}>
+                <ArrowUpCircle className="h-4 w-4" />
+                {t('billingV2.plans.upgrade')}
+              </Button>
+            )}
+          </div>
+
+        </div>
+
+        {/* Four numbers a workspace owner actually asks for, above the fold. */}
+        <div className="relative mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <SummaryStat
+            icon={Wallet}
+            label={t('billingV2.overview.walletBalance')}
+            value={money(overview.wallet.balanceIrr, locale)}
+          />
+          <SummaryStat
+            icon={Sparkles}
+            label={t('billingV2.overview.remaining')}
+            value={money(
+              (overview.aiCycle?.remainingIrr ?? 0) + (overview.aiPurchasedRemainingIrr ?? 0),
+              locale,
+            )}
+          />
+          <SummaryStat
+            icon={Receipt}
+            label={t('billingV2.overview.upcomingInvoice')}
+            value={
+              overview.upcomingInvoice
+                ? money(overview.upcomingInvoice.amountDueIrr, locale)
+                : t('billingV2.overview.noNextInvoice')
+            }
+          />
+          <SummaryStat
+            icon={Gauge}
+            label={t('billingV2.overview.periodEnd')}
+            value={billingDate(overview.servicePeriod?.end, locale)}
+          />
+        </div>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
         {/* Mobile: a select keeps six sections reachable at 360px. */}
         <div className="md:hidden">
           <Select value={tab} onValueChange={setTab}>
-            <SelectTrigger>
+            <SelectTrigger className="h-12 rounded-xl border-2 text-base font-semibold">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               {TABS.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
-                  {t(`billingV2.tabs.${item.labelKey}` as any)}
+                  <span className="flex items-center gap-2">
+                    <item.icon className="h-4 w-4" />
+                    {t(`billingV2.tabs.${item.labelKey}` as any)}
+                  </span>
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
 
-        <TabsList className="hidden w-full justify-start overflow-x-auto md:flex">
+        <TabsList className="hidden h-auto w-full flex-wrap justify-start gap-2 rounded-2xl border bg-card p-2 shadow-sm md:flex">
           {TABS.map((item) => (
-            <TabsTrigger key={item.value} value={item.value} className="gap-1.5">
-              <item.icon className="h-4 w-4" />
-              {t(`billingV2.tabs.${item.labelKey}` as any)}
+            <TabsTrigger
+              key={item.value}
+              value={item.value}
+              className="group flex-1 gap-2 rounded-xl border border-transparent px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-all hover:bg-muted hover:text-foreground data-[state=active]:border-primary/30 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md"
+            >
+              <item.icon className="h-4 w-4 shrink-0 transition-transform group-data-[state=active]:scale-110" />
+              <span className="whitespace-nowrap">{t(`billingV2.tabs.${item.labelKey}` as any)}</span>
             </TabsTrigger>
           ))}
         </TabsList>
 
-        <TabsContent value="overview" className="mt-4">
+
+
+        <TabsContent value="overview" className="mt-5">
           <OverviewTab
             overview={overview}
             onPayInvoice={setInvoiceId}
@@ -148,11 +247,11 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
           />
         </TabsContent>
 
-        <TabsContent value="invoices" className="mt-4">
+        <TabsContent value="invoices" className="mt-5">
           <InvoicesTab workspaceId={workspaceId} reloadKey={reloadKey} onOpenInvoice={setInvoiceId} />
         </TabsContent>
 
-        <TabsContent value="plans" className="mt-4">
+        <TabsContent value="plans" className="mt-5">
           <PlansTab
             workspaceId={workspaceId}
             canManage={canManage}
@@ -162,7 +261,7 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
           />
         </TabsContent>
 
-        <TabsContent value="wallet" className="mt-4">
+        <TabsContent value="wallet" className="mt-5">
           <WalletTab
             workspaceId={workspaceId}
             canManage={canManage}
@@ -171,7 +270,7 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
           />
         </TabsContent>
 
-        <TabsContent value="ai" className="mt-4">
+        <TabsContent value="ai" className="mt-5">
           <AiCreditTab
             workspaceId={workspaceId}
             canManage={canManage}
@@ -181,7 +280,7 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
           />
         </TabsContent>
 
-        <TabsContent value="transactions" className="mt-4">
+        <TabsContent value="transactions" className="mt-5">
           <TransactionsTab workspaceId={workspaceId} reloadKey={reloadKey} />
         </TabsContent>
       </Tabs>
@@ -192,6 +291,29 @@ export default function BillingV2Page({ workspaceId }: { workspaceId: string }) 
         onClose={() => setInvoiceId(null)}
         onPaid={refreshAll}
       />
+    </div>
+  );
+}
+
+/** One headline number with an icon — presentation only, no math. */
+function SummaryStat({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border bg-background p-3.5 shadow-sm transition-shadow hover:shadow-md">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+        <Icon className="h-5 w-5" />
+      </span>
+      <div className="min-w-0">
+        <p className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+        <p className="truncate text-base font-bold tabular-nums">{value}</p>
+      </div>
     </div>
   );
 }

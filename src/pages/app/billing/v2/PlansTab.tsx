@@ -213,7 +213,9 @@ export default function PlansTab({
           {!mode && (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">{t('billingV2.plans.mode.title')}</p>
-              {(['immediate', 'next_cycle'] as const).map((m) => (
+              {(['immediate', 'next_cycle'] as const)
+                .filter((m) => data.currentPlanId || m === 'immediate')
+                .map((m) => (
                 <button
                   key={m}
                   disabled={busy}

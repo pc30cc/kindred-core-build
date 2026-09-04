@@ -441,13 +441,23 @@ export async function getWorkspacePlanInfo(
 }> {
   const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-  const { data: sub } = await supabase
+  const { data: sub, error: subError } = await supabase
     .from('workspace_subscriptions')
-    .select('*, billing_plans(*)')
+    .select('*')
     .eq('workspace_id', workspaceId)
     .maybeSingle();
+  if (subError) throw new Error(`workspace_subscription_read_failed:${subError.message}`);
 
-  let plan = sub?.billing_plans;
+  let plan: any = null;
+  if (sub?.plan_id) {
+    const { data: assignedPlan, error: planError } = await supabase
+      .from('billing_plans')
+      .select('*')
+      .eq('id', sub.plan_id)
+      .maybeSingle();
+    if (planError) throw new Error(`workspace_plan_read_failed:${planError.message}`);
+    plan = assignedPlan;
+  }
 
   if (!plan || !sub || !['active', 'trialing'].includes(sub.status)) {
     const { data: freePlan } = await supabase
@@ -461,7 +471,7 @@ export async function getWorkspacePlanInfo(
 
   return {
     plan: plan || null,
-    subscription: sub ? { ...sub, billing_plans: undefined } : null,
+    subscription: sub || null,
     entitlements: (plan?.entitlements as Record<string, boolean>) || {},
     limits: (plan?.limits as Record<string, number>) || {},
   };
@@ -488,7 +498,7 @@ export async function getWorkspacePlanInfoDetailed(
 
     const { data: sub, error: subError } = await supabase
       .from('workspace_subscriptions')
-      .select('*, billing_plans(*)')
+      .select('*')
       .eq('workspace_id', workspaceId)
       .maybeSingle();
     if (subError) {
@@ -496,7 +506,19 @@ export async function getWorkspacePlanInfoDetailed(
       return { ok: false, errorCode: 'plan_status_unavailable', retryable: true };
     }
 
-    let plan = (sub as any)?.billing_plans;
+    let plan: any = null;
+    if ((sub as any)?.plan_id) {
+      const { data: assignedPlan, error: planError } = await supabase
+        .from('billing_plans')
+        .select('*')
+        .eq('id', (sub as any).plan_id)
+        .maybeSingle();
+      if (planError) {
+        console.error('[FeatureGating] assigned plan read failed:', planError.message);
+        return { ok: false, errorCode: 'plan_status_unavailable', retryable: true };
+      }
+      plan = assignedPlan;
+    }
 
     if (!plan || !sub || !['active', 'trialing'].includes((sub as any).status)) {
       const { data: freePlan, error: freeError } = await supabase
@@ -529,7 +551,7 @@ export async function getWorkspacePlanInfoDetailed(
       ok: true,
       value: {
         plan,
-        subscription: sub ? { ...(sub as any), billing_plans: undefined } : null,
+        subscription: sub || null,
         entitlements: (plan?.entitlements as Record<string, boolean>) || {},
         limits: (plan?.limits as Record<string, number>) || {},
       },

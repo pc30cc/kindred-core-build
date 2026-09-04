@@ -281,7 +281,7 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/check
       return res.status(409).json({ error: 'INVOICE_NOT_PAYABLE' });
     }
 
-    const resolved = await resolveBillingConfig(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, workspaceId);
+    const resolved = await resolveCheckoutProvider(cfg, workspaceId, parsed.data.providerName);
     if (!resolved) return res.status(400).json({ error: 'NO_PROVIDER_CONFIGURED' });
     if (!IRAN_PROVIDERS.has(resolved.provider.name)) {
       return res.status(400).json({ error: 'PROVIDER_NOT_SUPPORTED' });
@@ -516,7 +516,11 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout',
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const parsed = z
-    .object({ depositId: z.string().uuid(), callbackUrl: z.string().url() })
+    .object({
+      depositId: z.string().uuid(),
+      callbackUrl: z.string().url(),
+      providerName: z.string().min(2).max(60).optional(),
+    })
     .safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   const cfg = serverConfigOf(req);
@@ -536,7 +540,7 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout',
     if (!deposit) return res.status(404).json({ error: 'NOT_FOUND' });
     if ((deposit as any).status !== 'pending') return res.status(409).json({ error: 'DEPOSIT_NOT_PENDING' });
 
-    const resolved = await resolveBillingConfig(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, workspaceId);
+    const resolved = await resolveCheckoutProvider(cfg, workspaceId, parsed.data.providerName);
     if (!resolved) return res.status(400).json({ error: 'NO_PROVIDER_CONFIGURED' });
     if (!IRAN_PROVIDERS.has(resolved.provider.name)) return res.status(400).json({ error: 'PROVIDER_NOT_SUPPORTED' });
 

@@ -76,15 +76,19 @@ BEGIN
   END IF;
 
   -- 3. No invalid / not-validated constraints on billing surfaces ----------
+  -- billing_payment_intents_invoice_number_format is intentionally NOT VALID
+  -- (migration 108) so legacy pre-existing intents stay untouched.
   SELECT string_agg(conrelid::regclass || '.' || conname, ', ')
     INTO v_bad
     FROM pg_constraint
    WHERE connamespace = 'public'::regnamespace
      AND NOT convalidated
-     AND conrelid::regclass::text LIKE 'billing%';
+     AND conrelid::regclass::text LIKE 'billing%'
+     AND conname <> 'billing_payment_intents_invoice_number_format';
   IF v_bad IS NOT NULL THEN
     RAISE EXCEPTION 'billing_v2_sanity_unvalidated_constraints: %', v_bad;
   END IF;
+
 
   -- 4. Authority-isolation triggers ---------------------------------------
   FOREACH t IN ARRAY ARRAY[

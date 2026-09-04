@@ -94,13 +94,30 @@ export interface PresenceSnapshot {
 
 interface ModeState {
   mode: PresenceMode;
+  /**
+   * True when Centrifugo IS the configured primary presence backend but is
+   * currently unusable (health down / degraded resolution). That is a
+   * realtime→database TRANSITION and needs the same breaker + bounded
+   * handoff as a failed presence read — even though the presence API was
+   * never called. False for native database mode (polling / disabled /
+   * Supabase without presence), where the lease has always been written.
+   */
+  realtimeFailure: boolean;
   checkedAt: number;
 }
 
 interface FallbackEntry {
   scope: string;
   reason: string | null;
+  /** Workspace-scoped roster ONLY. The global entry never carries one. */
   roster: string[];
+  /**
+   * False ⇒ the roster is not a trustworthy full list (global breaker, cold
+   * instance with no snapshot, or a workspace with more operators than the
+   * bounded cap). Handoff then fails OPEN instead of silently marking the
+   * missing operators offline.
+   */
+  rosterComplete: boolean;
   handoffUntil: number;
   expiresAt: number;
 }
@@ -138,7 +155,7 @@ async function loadFallbackState(
       const sb = getServiceClient(config);
       const { data } = await sb
         .from(FALLBACK_TABLE)
-        .select('scope, reason, roster, handoff_until, expires_at')
+        .select('scope, reason, roster, roster_complete, handoff_until, expires_at')
         .gte('expires_at', new Date(now).toISOString());
       const next = new Map<string, FallbackEntry>();
       for (const row of (data || []) as Array<Record<string, any>>) {
@@ -146,6 +163,7 @@ async function loadFallbackState(
           scope: String(row.scope),
           reason: row.reason ?? null,
           roster: Array.isArray(row.roster) ? row.roster.map(String) : [],
+          rosterComplete: row.roster_complete === true,
           handoffUntil: Date.parse(row.handoff_until) || 0,
           expiresAt: Date.parse(row.expires_at) || 0,
         });
@@ -181,7 +199,7 @@ async function activateFallback(
   config: ServerConfig,
   scope: string,
   reason: string,
-  roster: string[],
+  roster: string[] | null,
   now: number,
 ): Promise<FallbackEntry> {
   const state = await loadFallbackState(config, now);
@@ -191,10 +209,18 @@ async function activateFallback(
 
   if (existing && existing.expiresAt - now > FALLBACK_TTL_MS / 2) return existing;
 
+  // `roster === null` means "no trustworthy roster" (global breaker, cold
+  // instance, or an oversized workspace). Never truncate silently: a roster
+  // larger than the bounded cap is persisted as INCOMPLETE and fails open.
+  const keepExisting = !!existing && existing.handoffUntil > now;
+  const rosterComplete = keepExisting
+    ? existing!.rosterComplete
+    : roster !== null && roster.length <= ROSTER_MAX;
   const entry: FallbackEntry = {
     scope,
     reason,
-    roster: existing && existing.handoffUntil > now ? existing.roster : roster.slice(0, ROSTER_MAX),
+    roster: keepExisting ? existing!.roster : rosterComplete ? roster! : [],
+    rosterComplete,
     handoffUntil,
     expiresAt,
   };
@@ -206,6 +232,7 @@ async function activateFallback(
         scope,
         reason,
         roster: entry.roster,
+        roster_complete: entry.rosterComplete,
         handoff_until: new Date(entry.handoffUntil).toISOString(),
         expires_at: new Date(entry.expiresAt).toISOString(),
         updated_at: new Date(now).toISOString(),
@@ -236,27 +263,41 @@ async function clearFallback(config: ServerConfig, scope: string, now: number): 
  * few seconds so hot paths (routing, widget bootstrap, team presence poll)
  * don't each run a provider health probe.
  */
+async function resolvePresenceState(
+  config: ServerConfig,
+  now: number = Date.now(),
+): Promise<ModeState> {
+  if (modeState && now - modeState.checkedAt < MODE_CACHE_TTL_MS) return modeState;
+  let mode: PresenceMode = 'database';
+  let realtimeFailure = false;
+  try {
+    const resolved = await resolveRealtimeProvider(config);
+    const centrifugoPrimary =
+      resolved.effective_vendor === 'centrifugo' &&
+      resolved.capabilities.supportsPresence &&
+      resolved.public_config.presence_enabled === true;
+    if (centrifugoPrimary && resolved.health.status !== 'down') mode = 'realtime';
+    else if (centrifugoPrimary) realtimeFailure = true;
+  } catch {
+    // Resolver itself failed: we cannot prove realtime is primary, but we
+    // also cannot prove it is not. Treat it as a realtime failure so the
+    // transition handoff protects operators.
+    realtimeFailure = true;
+  }
+  modeState = { mode, realtimeFailure, checkedAt: now };
+  return modeState;
+}
+
+/**
+ * Resolve which presence backend is authoritative right now. Cached for a
+ * few seconds so hot paths (routing, widget bootstrap, team presence poll)
+ * don't each run a provider health probe.
+ */
 export async function resolvePresenceMode(
   config: ServerConfig,
   now: number = Date.now(),
 ): Promise<PresenceMode> {
-  if (modeState && now - modeState.checkedAt < MODE_CACHE_TTL_MS) return modeState.mode;
-  let mode: PresenceMode = 'database';
-  try {
-    const resolved = await resolveRealtimeProvider(config);
-    if (
-      resolved.effective_vendor === 'centrifugo' &&
-      resolved.capabilities.supportsPresence &&
-      resolved.public_config.presence_enabled === true &&
-      resolved.health.status !== 'down'
-    ) {
-      mode = 'realtime';
-    }
-  } catch {
-    mode = 'database';
-  }
-  modeState = { mode, checkedAt: now };
-  return mode;
+  return (await resolvePresenceState(config, now)).mode;
 }
 
 /** Test/ops hook — drop every process-local cache. */
@@ -360,27 +401,43 @@ async function readDatabasePresence(
 
 /**
  * Transition handoff. Inside the bounded handoff window:
- *   • with a known-good roster ⇒ exactly those operators stay connected;
- *   • with NO roster at all (cold instance, presence never read here) ⇒
- *     candidates are treated as connected rather than as offline. Presence
- *     is *unknown*, not negative, and dropping every candidate would break
- *     routing and flip the widget to `no_operators_online` for a few minutes.
- *     Personal availability (force_offline / schedule) still applies, and the
- *     window closes as soon as real heartbeats refresh the lease.
+ *   • with a COMPLETE workspace roster ⇒ exactly those operators stay
+ *     connected (precise, no false-online);
+ *   • otherwise (global breaker, cold instance with no snapshot, or a
+ *     workspace whose roster exceeds the bounded cap) presence is treated as
+ *     UNKNOWN and fails open: candidates stay connected rather than being
+ *     silently marked offline. Personal availability (force_offline /
+ *     schedule) still applies, and the window closes as soon as real
+ *     heartbeats refresh the lease.
+ * A roster is only ever applied to the workspace it was captured in — the
+ * global entry never carries one, so cross-workspace leakage is impossible.
  */
 function applyHandoff(
   connected: Set<string>,
   userIds: string[],
-  entry: FallbackEntry,
+  entry: FallbackEntry | null,
   ts: number,
 ): void {
-  if (ts >= entry.handoffUntil) return;
-  if (entry.roster.length > 0) {
+  if (!entry || ts >= entry.handoffUntil) return;
+  if (entry.rosterComplete && entry.scope !== GLOBAL_SCOPE) {
     const rosterSet = new Set(entry.roster);
     for (const id of userIds) if (rosterSet.has(id)) connected.add(id);
     return;
   }
   for (const id of userIds) connected.add(id);
+}
+
+/**
+ * Pick the entry that governs THIS workspace's handoff: its own entry when
+ * present (roster-bearing), otherwise the global breaker (roster-less ⇒
+ * fail-open). Never another workspace's roster.
+ */
+function handoffEntryFor(
+  state: Map<string, FallbackEntry>,
+  workspaceId: string,
+  now: number,
+): FallbackEntry | null {
+  return activeEntry(state, workspaceId, now) || activeEntry(state, GLOBAL_SCOPE, now);
 }
 
 /**
@@ -397,9 +454,9 @@ export async function getConnectedOperators(
     return { mode: 'database', connected: new Set(), lastSeen: new Map(), degraded: false };
   }
 
-  const mode = await resolvePresenceMode(config, ts);
+  const modeInfo = await resolvePresenceState(config, ts);
 
-  if (mode === 'realtime') {
+  if (modeInfo.mode === 'realtime') {
     const read = await readCentrifugoPresence(config, workspaceId, ts);
 
     if (read.failure === null) {
@@ -412,33 +469,62 @@ export async function getConnectedOperators(
       return { mode: 'realtime', connected, lastSeen: new Map(), degraded: false };
     }
 
-    // FAILURE. Trip the shared breaker immediately (scoped), carrying the
-    // last known-good roster so the handoff works even when the lease table
-    // has no row for these operators at all.
-    const scope = read.failure === 'global' ? GLOBAL_SCOPE : workspaceId;
-    const stale = realtimeCache.get(workspaceId);
-    const roster = stale ? [...stale.users] : [];
-    const entry = await activateFallback(config, scope, `presence_read_${read.failure}`, roster, ts);
-
-    const db = await readDatabasePresence(
-      config,
-      workspaceId,
-      userIds,
-      ts,
-      PRESENCE_LIVENESS_MS + HANDOFF_MS,
-    );
-    const connected = new Set(db.connected);
-    applyHandoff(connected, userIds, entry, ts);
-    return { mode: 'database', connected, lastSeen: db.lastSeen, degraded: true };
+    // FAILURE. Trip the breaker. A dead provider trips the GLOBAL scope
+    // (roster-less: it only states "Centrifugo presence is unavailable"),
+    // while the per-workspace entry carries this workspace's own roster.
+    const entry = await tripBreaker(config, workspaceId, ts, read.failure);
+    return databaseSnapshot(config, workspaceId, userIds, ts, entry, true);
   }
 
-  // Native database mode (polling/disabled/Supabase) — plus the widened
-  // window while a transition entry is still live.
-  const state = await loadFallbackState(config, ts);
-  const entry = activeEntry(state, workspaceId, ts) || activeEntry(state, GLOBAL_SCOPE, ts);
+  // Database mode. Two very different situations:
+  //   • realtimeFailure ⇒ Centrifugo IS the primary but is unhealthy, and the
+  //     presence API was never even called. The lease may be hours old or
+  //     missing, so this needs the same breaker + bounded handoff.
+  //   • native database mode (polling / disabled / Supabase) ⇒ the lease has
+  //     always been written; no handoff, plain liveness window.
+  let entry: FallbackEntry | null;
+  if (modeInfo.realtimeFailure) {
+    entry = await tripBreaker(config, workspaceId, ts, 'global', 'provider_health_down');
+  } else {
+    entry = handoffEntryFor(await loadFallbackState(config, ts), workspaceId, ts);
+  }
+  return databaseSnapshot(config, workspaceId, userIds, ts, entry, modeInfo.realtimeFailure);
+}
+
+/**
+ * Trip the shared breaker for a realtime→database transition and return the
+ * entry that governs THIS workspace's handoff.
+ */
+async function tripBreaker(
+  config: ServerConfig,
+  workspaceId: string,
+  ts: number,
+  failure: 'global' | 'workspace',
+  reason = `presence_read_${failure}`,
+): Promise<FallbackEntry | null> {
+  // Roster from this workspace's own last known-good read (never another's).
+  // `null` ⇒ unknown ⇒ the handoff fails open for this workspace only.
+  const stale = realtimeCache.get(workspaceId);
+  const roster = stale ? [...stale.users] : null;
+
+  if (failure === 'global') {
+    // Global entry = pure "provider unavailable" signal, no roster ever.
+    await activateFallback(config, GLOBAL_SCOPE, reason, null, ts);
+  }
+  return activateFallback(config, workspaceId, reason, roster, ts);
+}
+
+async function databaseSnapshot(
+  config: ServerConfig,
+  workspaceId: string,
+  userIds: string[],
+  ts: number,
+  entry: FallbackEntry | null,
+  degraded: boolean,
+): Promise<PresenceSnapshot> {
   const windowMs = entry ? PRESENCE_LIVENESS_MS + HANDOFF_MS : PRESENCE_LIVENESS_MS;
   const db = await readDatabasePresence(config, workspaceId, userIds, ts, windowMs);
   const connected = new Set(db.connected);
-  if (entry) applyHandoff(connected, userIds, entry, ts);
-  return { mode: 'database', connected, lastSeen: db.lastSeen, degraded: !!entry };
+  applyHandoff(connected, userIds, entry, ts);
+  return { mode: 'database', connected, lastSeen: db.lastSeen, degraded: degraded || !!entry };
 }

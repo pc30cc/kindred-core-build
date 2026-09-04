@@ -25,6 +25,10 @@ const state = vi.hoisted(() => ({
   health: 'healthy' as string,
   /** null ⇒ presence API unreadable. */
   members: new Set<string>() as Set<string> | null,
+  /** Per-workspace override of the presence roster. */
+  membersByWs: new Map<string, Set<string> | null>(),
+  /** Centrifugo itself unreachable (driver cannot be built). */
+  driverDown: false,
   presenceCalls: 0,
 }));
 
@@ -85,11 +89,17 @@ vi.mock('../../../server/services/realtime/index.js', () => ({
     health: { status: state.health },
   }),
   getCentrifugoDriver: async () =>
-    state.vendor === 'centrifugo'
+    state.vendor === 'centrifugo' && !state.driverDown
       ? {
-          presenceUsers: async (_channel: string) => {
+          presenceUsers: async (channel: string) => {
             state.presenceCalls++;
-            return state.members ? [...state.members].map((u) => `op_${u}`) : null;
+            const ws = /^ws:(.+):operators$/.exec(channel)?.[1] ?? '';
+            const members = state.membersByWs.has(ws)
+              ? state.membersByWs.get(ws)!
+              : ws === WS
+                ? state.members
+                : new Set<string>();
+            return members ? [...members].map((u) => `op_${u}`) : null;
           },
         }
       : null,
@@ -147,6 +157,8 @@ function reset() {
   state.presenceEnabled = true;
   state.health = 'healthy';
   state.members = new Set([USER]);
+  state.membersByWs = new Map();
+  state.driverDown = false;
   state.presenceCalls = 0;
   db.workspace_members = [{ workspace_id: WS, user_id: USER }];
   db.profiles = [{ id: USER, full_name: 'Op', email: 'op@x.io', avatar_url: null }];
@@ -365,5 +377,120 @@ describe('operator presence — realtime-first', () => {
     const buckets = new Set(db.operator_activity_samples.map((r) => r.bucket));
     expect(db.operator_activity_samples.length).toBe(buckets.size);
     expect(db.operator_activity_samples.length).toBeLessThanOrEqual(200);
+  });
+
+  it('L — global Centrifugo outage: two workspaces keep their OWN operators, no roster leakage', async () => {
+    const WS_B = 'ws-2';
+    const USER_B = 'user-2';
+    db.workspace_members.push({ workspace_id: WS_B, user_id: USER_B });
+    db.profiles.push({ id: USER_B, full_name: 'Op B', email: 'b@x.io', avatar_url: null });
+    state.membersByWs.set(WS, new Set([USER]));
+    state.membersByWs.set(WS_B, new Set([USER_B]));
+
+    // 30 healthy minutes on both workspaces ⇒ lease table stays empty.
+    for (let m = 0; m <= 30; m += 5) {
+      resetPresenceSourceCache();
+      expect((await listWorkspacePresence(cfg, WS, at(m)))[0].state).toBe('online');
+      expect((await listWorkspacePresence(cfg, WS_B, at(m)))[0].state).toBe('online');
+    }
+    expect(presenceWrites).toBe(0);
+    expect(db.operator_presence_live.length).toBe(0);
+
+    // Centrifugo goes globally down (warm instances: each still holds its
+    // OWN workspace's last known-good roster).
+    state.driverDown = true;
+
+    for (let s10 = 0; s10 <= 12; s10++) {
+      const t = at(31 + s10 / 6);
+      const a = await listWorkspacePresence(cfg, WS, t);
+      const b = await listWorkspacePresence(cfg, WS_B, t);
+      expect(a.map((p) => p.user_id)).toEqual([USER]);
+      expect(b.map((p) => p.user_id)).toEqual([USER_B]);
+      expect(a[0].state).toBe('online');
+      expect(b[0].state).toBe('online');
+      expect((await anyOperatorOnline(cfg, WS, t)).anyOnline).toBe(true);
+      expect((await anyOperatorOnline(cfg, WS_B, t)).anyOnline).toBe(true);
+    }
+
+    // The global row is a pure signal: no roster, so it can never be applied
+    // as another workspace's operator list.
+    const globalRow = db.operator_presence_fallback_state.find((r: any) => r.scope === 'global');
+    expect(globalRow).toBeTruthy();
+    expect(globalRow.roster).toEqual([]);
+    expect(globalRow.roster_complete).toBe(false);
+    // Each workspace has its OWN roster entry.
+    const rowA = db.operator_presence_fallback_state.find((r: any) => r.scope === WS);
+    const rowB = db.operator_presence_fallback_state.find((r: any) => r.scope === WS_B);
+    expect(rowA.roster).toEqual([USER]);
+    expect(rowA.roster_complete).toBe(true);
+    expect(rowB.roster).toEqual([USER_B]);
+    expect(rowB.roster_complete).toBe(true);
+  });
+
+  it('L2 — cold instance (empty read cache) honours the shared breaker without leaking rosters', async () => {
+    const WS_B = 'ws-2';
+    const USER_B = 'user-2';
+    db.workspace_members.push({ workspace_id: WS_B, user_id: USER_B });
+    db.profiles.push({ id: USER_B, full_name: 'Op B', email: 'b@x.io', avatar_url: null });
+    state.membersByWs.set(WS, new Set([USER]));
+    state.membersByWs.set(WS_B, new Set([USER_B]));
+
+    // Warm instance A trips the breaker on workspace A only.
+    await getConnectedOperators(cfg, WS, [USER], at(0));
+    state.driverDown = true;
+    resetPresenceSourceCache();
+    await getConnectedOperators(cfg, WS, [USER], at(1));
+
+    // Cold instance B: fresh module registry, empty realtimeCache.
+    vi.resetModules();
+    const cold = await import('../../../server/services/widget/operatorPresenceSource');
+    cold.resetPresenceSourceCache();
+    const snapB = await cold.getConnectedOperators(cfg, WS_B, [USER_B], at(1.5));
+    expect(snapB.connected.has(USER_B)).toBe(true); // fail-open, not offline
+    expect(snapB.connected.has(USER)).toBe(false);  // no cross-workspace roster
+    expect(await cold.shouldWriteFallbackPresence(cfg, at(1.5).getTime(), WS_B)).toBe(true);
+  });
+
+  it('M — provider health DOWN: handoff works even though the presence API is never called', async () => {
+    state.health = 'down';
+    resetPresenceSourceCache();
+    state.presenceCalls = 0;
+    const [p] = await listWorkspacePresence(cfg, WS, at(1));
+    expect(state.presenceCalls).toBe(0); // no presence read attempted
+    expect(p.state).toBe('online');      // bounded handoff, not false-offline
+    expect(await shouldWriteFallbackPresence(cfg, at(1).getTime(), WS)).toBe(true);
+    await heartbeat(at(2));
+    expect(presenceWrites).toBe(1);
+
+    // Native database mode (no Centrifugo primary) must NOT fail open.
+    reset();
+    state.vendor = 'polling_builtin';
+    state.supportsPresence = false;
+    resetPresenceSourceCache();
+    const [nat] = await listWorkspacePresence(cfg, WS, at(1));
+    expect(nat.state).toBe('offline');
+    expect(nat.reason).toBe('not_connected');
+  });
+
+  it('N — a workspace with more than 200 operators: nobody past the cap is dropped', async () => {
+    const many = Array.from({ length: 250 }, (_, i) => `u-${i}`);
+    db.workspace_members = many.map((id) => ({ workspace_id: WS, user_id: id }));
+    db.profiles = many.map((id) => ({ id, full_name: id, email: `${id}@x.io`, avatar_url: null }));
+    state.members = new Set(many);
+
+    let snap = await getConnectedOperators(cfg, WS, many, at(0));
+    expect(snap.connected.size).toBe(250);
+
+    // Presence read fails: roster exceeds the bounded cap ⇒ stored as
+    // incomplete ⇒ fail-open, never "first 200 online, rest offline".
+    state.members = null;
+    resetPresenceSourceCache();
+    snap = await getConnectedOperators(cfg, WS, many, at(1));
+    expect(snap.connected.has('u-0')).toBe(true);
+    expect(snap.connected.has('u-201')).toBe(true);
+    expect(snap.connected.has('u-249')).toBe(true);
+    const row = db.operator_presence_fallback_state.find((r: any) => r.scope === WS);
+    expect(row.roster_complete).toBe(false);
+    expect(row.roster.length).toBe(0); // row stays small
   });
 });

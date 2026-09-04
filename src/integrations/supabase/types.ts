@@ -3626,6 +3626,159 @@ export type Database = {
           },
         ]
       }
+      billing_coupon_redemptions: {
+        Row: {
+          amount_minor: number
+          coupon_id: string
+          created_at: string
+          currency: string
+          id: string
+          invoice_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          amount_minor?: number
+          coupon_id: string
+          created_at?: string
+          currency?: string
+          id?: string
+          invoice_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          amount_minor?: number
+          coupon_id?: string
+          created_at?: string
+          currency?: string
+          id?: string
+          invoice_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_coupon_redemptions_coupon_id_fkey"
+            columns: ["coupon_id"]
+            isOneToOne: false
+            referencedRelation: "billing_coupons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_coupon_redemptions_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "billing_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_coupon_redemptions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      billing_coupons: {
+        Row: {
+          amount_off_minor: number | null
+          applies_to_plans: string[]
+          code: string
+          created_at: string
+          currency: string | null
+          description: string | null
+          discount_type: string
+          expires_at: string | null
+          id: string
+          is_active: boolean
+          max_redemptions: number | null
+          once_per_workspace: boolean
+          percent_off: number | null
+          redeemed_count: number
+          starts_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount_off_minor?: number | null
+          applies_to_plans?: string[]
+          code: string
+          created_at?: string
+          currency?: string | null
+          description?: string | null
+          discount_type?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          max_redemptions?: number | null
+          once_per_workspace?: boolean
+          percent_off?: number | null
+          redeemed_count?: number
+          starts_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount_off_minor?: number | null
+          applies_to_plans?: string[]
+          code?: string
+          created_at?: string
+          currency?: string | null
+          description?: string | null
+          discount_type?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          max_redemptions?: number | null
+          once_per_workspace?: boolean
+          percent_off?: number | null
+          redeemed_count?: number
+          starts_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_coupons_currency_fkey"
+            columns: ["currency"]
+            isOneToOne: false
+            referencedRelation: "billing_currencies"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      billing_currencies: {
+        Row: {
+          code: string
+          created_at: string
+          display_name: Json
+          is_active: boolean
+          is_base: boolean
+          minor_units: number
+          sort_order: number
+          symbol: string
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          display_name?: Json
+          is_active?: boolean
+          is_base?: boolean
+          minor_units?: number
+          sort_order?: number
+          symbol?: string
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          display_name?: Json
+          is_active?: boolean
+          is_base?: boolean
+          minor_units?: number
+          sort_order?: number
+          symbol?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       billing_entitlement_cycles: {
         Row: {
           activated_at: string | null
@@ -3749,6 +3902,90 @@ export type Database = {
           provider_name?: string
           status?: string
           workspace_id?: string
+        }
+        Relationships: []
+      }
+      billing_exchange_rates: {
+        Row: {
+          base_code: string
+          created_at: string
+          effective_at: string
+          id: string
+          quote_code: string
+          rate: number
+        }
+        Insert: {
+          base_code: string
+          created_at?: string
+          effective_at?: string
+          id?: string
+          quote_code: string
+          rate: number
+        }
+        Update: {
+          base_code?: string
+          created_at?: string
+          effective_at?: string
+          id?: string
+          quote_code?: string
+          rate?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_exchange_rates_base_code_fkey"
+            columns: ["base_code"]
+            isOneToOne: false
+            referencedRelation: "billing_currencies"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "billing_exchange_rates_quote_code_fkey"
+            columns: ["quote_code"]
+            isOneToOne: false
+            referencedRelation: "billing_currencies"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      billing_gateways: {
+        Row: {
+          config: Json
+          countries: string[]
+          created_at: string
+          currencies: string[]
+          display_name: Json
+          id: string
+          is_active: boolean
+          is_test: boolean
+          provider_name: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          config?: Json
+          countries?: string[]
+          created_at?: string
+          currencies?: string[]
+          display_name?: Json
+          id?: string
+          is_active?: boolean
+          is_test?: boolean
+          provider_name: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          config?: Json
+          countries?: string[]
+          created_at?: string
+          currencies?: string[]
+          display_name?: Json
+          id?: string
+          is_active?: boolean
+          is_test?: boolean
+          provider_name?: string
+          sort_order?: number
+          updated_at?: string
         }
         Relationships: []
       }
@@ -3962,6 +4199,8 @@ export type Database = {
           amount_paid_irr: number
           billing_engine_version: string
           billing_interval: string | null
+          coupon_code: string | null
+          coupon_id: string | null
           created_at: string
           currency: string
           discount_irr: number
@@ -3983,6 +4222,7 @@ export type Database = {
           subscription_id: string | null
           subtotal_irr: number
           tax_irr: number
+          tax_rate_percent: number
           total_irr: number
           updated_at: string
           voided_at: string | null
@@ -3993,6 +4233,8 @@ export type Database = {
           amount_paid_irr?: number
           billing_engine_version?: string
           billing_interval?: string | null
+          coupon_code?: string | null
+          coupon_id?: string | null
           created_at?: string
           currency?: string
           discount_irr?: number
@@ -4014,6 +4256,7 @@ export type Database = {
           subscription_id?: string | null
           subtotal_irr?: number
           tax_irr?: number
+          tax_rate_percent?: number
           total_irr?: number
           updated_at?: string
           voided_at?: string | null
@@ -4024,6 +4267,8 @@ export type Database = {
           amount_paid_irr?: number
           billing_engine_version?: string
           billing_interval?: string | null
+          coupon_code?: string | null
+          coupon_id?: string | null
           created_at?: string
           currency?: string
           discount_irr?: number
@@ -4045,12 +4290,20 @@ export type Database = {
           subscription_id?: string | null
           subtotal_irr?: number
           tax_irr?: number
+          tax_rate_percent?: number
           total_irr?: number
           updated_at?: string
           voided_at?: string | null
           workspace_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "billing_invoices_coupon_id_fkey"
+            columns: ["coupon_id"]
+            isOneToOne: false
+            referencedRelation: "billing_coupons"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "billing_invoices_plan_id_fkey"
             columns: ["plan_id"]
@@ -4789,6 +5042,83 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      billing_tax_rates: {
+        Row: {
+          country_code: string | null
+          created_at: string
+          currency: string | null
+          id: string
+          is_active: boolean
+          is_inclusive: boolean
+          name: string
+          rate_percent: number
+          updated_at: string
+        }
+        Insert: {
+          country_code?: string | null
+          created_at?: string
+          currency?: string | null
+          id?: string
+          is_active?: boolean
+          is_inclusive?: boolean
+          name: string
+          rate_percent?: number
+          updated_at?: string
+        }
+        Update: {
+          country_code?: string | null
+          created_at?: string
+          currency?: string | null
+          id?: string
+          is_active?: boolean
+          is_inclusive?: boolean
+          name?: string
+          rate_percent?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_tax_rates_currency_fkey"
+            columns: ["currency"]
+            isOneToOne: false
+            referencedRelation: "billing_currencies"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      billing_usage_items: {
+        Row: {
+          created_at: string
+          display_name: Json
+          is_active: boolean
+          key: string
+          prices: Json
+          sort_order: number
+          unit: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: Json
+          is_active?: boolean
+          key: string
+          prices?: Json
+          sort_order?: number
+          unit?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: Json
+          is_active?: boolean
+          key?: string
+          prices?: Json
+          sort_order?: number
+          unit?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       billing_v2_audit: {
         Row: {

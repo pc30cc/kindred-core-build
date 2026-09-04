@@ -52,6 +52,12 @@ import {
 } from '../services/billing/paymentIntent.js';
 import { requiresReferenceBinding } from '../services/billing/providerBinding.js';
 import { isV2Active } from '../services/billing/rollout.js';
+import {
+  BillingConfigError,
+  evaluateCoupon,
+  listPayableGateways,
+} from '../services/billing/config/index.js';
+
 
 export const billingV2CustomerRouter = Router();
 
@@ -93,7 +99,66 @@ function isAllowedCallbackUrl(req: any, raw: string): boolean {
   }
 }
 
+// ─── Platform commercial configuration (read-only for the customer) ────────
+
+/** Payment methods the customer may actually use for a given currency. */
+billingV2CustomerRouter.get('/workspaces/:workspaceId/gateways', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  if (!auth) return;
+  try {
+    const currency = String(req.query.currency || 'IRR').toUpperCase();
+    const gateways = await listPayableGateways(serverConfigOf(req), currency);
+    res.json({
+      currency,
+      gateways: gateways.map((g) => ({
+        provider_name: g.provider_name,
+        display_name: g.display_name,
+        is_test: g.is_test,
+        currencies: g.currencies,
+      })),
+    });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
+/** Validates a coupon against a concrete amount. Never applies it by itself. */
+billingV2CustomerRouter.post('/workspaces/:workspaceId/coupons/validate', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
+  if (!auth) return;
+  if (!isManage(auth)) return res.status(403).json({ error: 'FORBIDDEN' });
+  try {
+    const body = z
+      .object({
+        code: z.string().min(2).max(40),
+        currency: z.string().length(3).default('IRR'),
+        subtotalMinor: z.number().int().nonnegative(),
+        planId: z.string().uuid().nullish(),
+      })
+      .parse(req.body);
+    const result = await evaluateCoupon(serverConfigOf(req), {
+      code: body.code,
+      workspaceId: req.params.workspaceId,
+      currency: body.currency.toUpperCase(),
+      subtotalMinor: body.subtotalMinor,
+      planId: body.planId ?? null,
+    });
+    res.json({
+      valid: true,
+      code: result.coupon.code,
+      discountMinor: result.discountMinor,
+      discountType: result.coupon.discount_type,
+    });
+  } catch (e) {
+    if (e instanceof BillingConfigError) {
+      return res.status(e.status).json({ valid: false, error: e.code });
+    }
+    fail(res, e);
+  }
+});
+
 // ─── Overview ──────────────────────────────────────────────────────────────
+
 
 billingV2CustomerRouter.get('/workspaces/:workspaceId/overview', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);

@@ -845,6 +845,54 @@ a.wy-powered:hover { color: var(--wy-text); }
 .smart-cta { align-self: flex-start; padding: 7px 16px; border-radius: 9999px; font-size: 13px; font-weight: 500; color: #fff; }
 .smart-dismiss { position: absolute; top: 8px; inset-inline-end: 8px; color: var(--wy-faint); font-size: 16px; line-height: 1; }
 
+/* ── Launcher nudge (floating bubble outside the panel) ──────────────
+   Mirrors the loader-inline copy in loader.js SHELL_CSS 1:1 so the bubble
+   is identical before and after this stylesheet lands. The tail points at
+   the launcher corner; the close control sits OUTSIDE the bubble top-right. */
+.smart-nudge {
+  position: absolute; z-index: 6; bottom: calc(var(--gs-fab-size, 56px) + 22px);
+  width: max-content; max-width: 290px;
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 14px 16px; border-radius: 18px; color: var(--wy-text);
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  box-shadow: 0 22px 48px -22px rgba(2, 6, 23, 0.45), 0 3px 10px -5px rgba(2, 6, 23, 0.14);
+  font-size: 13px; line-height: 1.8;
+}
+.smart-nudge[hidden] { display: none !important; }
+.smart-nudge::after {
+  content: ''; position: absolute; bottom: -7px; width: 14px; height: 14px;
+  background: #fbfcfe; border-right: 1px solid rgba(15, 23, 42, 0.07);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.07); border-bottom-right-radius: 3px;
+  transform: rotate(45deg);
+}
+.smart-nudge .smart-title { font-weight: 700; font-size: 13.5px; line-height: 1.6; }
+.smart-nudge .smart-body { color: var(--wy-muted); white-space: pre-wrap; word-break: break-word; }
+.smart-nudge .smart-cta {
+  align-self: flex-start; border: none; cursor: pointer; padding: 8px 16px;
+  border-radius: 9999px; font: inherit; font-weight: 700; font-size: 12.5px; color: #fff;
+  margin-top: 2px; background: var(--wy-accent);
+  transition: filter 0.15s ease, transform 0.15s ease;
+}
+.smart-nudge .smart-cta:hover { filter: brightness(1.06); transform: translateY(-1px); }
+.smart-nudge .smart-dismiss {
+  position: absolute; top: -10px; inset-inline: auto; right: -10px; left: auto;
+  width: 24px; height: 24px; border-radius: 50%; border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #fff; color: var(--wy-muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; line-height: 1; padding: 0;
+  box-shadow: 0 4px 12px -5px rgba(2, 6, 23, 0.4);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.smart-nudge .smart-dismiss:hover { background: var(--wy-hover-2); color: var(--wy-text); }
+.smart-nudge.bottom-right { right: 0; left: auto; transform-origin: 100% 100%; }
+.smart-nudge.bottom-left { left: 0; right: auto; transform-origin: 0 100%; }
+.smart-nudge.bottom-right::after { right: 18px; }
+.smart-nudge.bottom-left::after { left: 18px; }
+@media (max-width: 480px) { .smart-nudge { max-width: calc(100vw - 48px); } }
+
+
+
 /* Call invitation cards + in-call surface */
 .ci-card {
   background: var(--wy-card); border: 1px solid var(--wy-border); border-radius: var(--wy-radius-lg);

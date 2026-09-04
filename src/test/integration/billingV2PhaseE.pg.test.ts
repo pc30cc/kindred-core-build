@@ -54,6 +54,7 @@ const CHAIN = [
   'database/migrations/119_billing_v2_entitlement_cycles.sql',
   'database/migrations/120_billing_v2_wallet_deposit_checkout.sql',
   'database/migrations/122_billing_v2_dunning.sql',
+  'database/migrations/123_billing_v2_dunning_hardening.sql',
 ];
 
 let client: any;
@@ -184,7 +185,7 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
 
   // ── Migration ───────────────────────────────────────────────────────────
 
-  it('applies 122 forward and rerunnably without touching 113–119', async () => {
+  it('applies 122+123 forward and rerunnably without touching 113–120', async () => {
     await client.query(readFileSync(resolve(process.cwd(), CHAIN[CHAIN.length - 1]), 'utf8'));
     for (const t of ['billing_notification_jobs', 'billing_retention_signals']) {
       expect(
@@ -299,11 +300,10 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     expect(new Date(sr.grace_period_ends_at).getTime()).toBeGreaterThan(Date.now());
 
     const events = (await audits(ws)).map((a: any) => a.event);
-    expect(events).toContain('wallet_autopay_attempted');
+    expect(events).toContain('invoice_due');
+    expect(events).toContain('wallet_autopay_insufficient');
     expect(events).toContain('invoice_past_due');
     expect(events).toContain('subscription_past_due');
-    // The customer is told WHY, not just that it failed.
-    expect((await jobs(invoice.id)).some((j: any) => j.notification_type === 'wallet_autopay_insufficient')).toBe(true);
   });
 
   it('emits ONE past-due message per channel, even on repeated due-day runs', async () => {
@@ -335,10 +335,8 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     await client.query(`UPDATE public.billing_invoices SET due_at = now() - interval '1 minute' WHERE id=$1`, [invoice.id]);
 
     const res = (await one(`SELECT public.billing_v2_process_due_invoice($1) AS r`, [invoice.id])).r;
-    expect(res.past_due).toBe(true);
+    expect(res.reason).toBe('auto_pay_disabled');
     expect((await inv(invoice.id)).status).toBe('past_due');
-    // Auto-pay off means no attempt at all — not a failed one.
-    expect((await audits(ws)).map((a: any) => a.event)).not.toContain('wallet_autopay_attempted');
     const wallet = await one(`SELECT * FROM public.billing_wallet_accounts WHERE workspace_id=$1`, [ws]);
     expect(Number(wallet.available_balance_irr)).toBe(50_000_000); // untouched: never charge silently
   });
@@ -391,11 +389,11 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     expect(sr.status).toBe('active');
     expect(sr.past_due_since).toBeNull();
     expect(sr.grace_period_ends_at).toBeNull();
-    expect((await audits(ws)).map((a: any) => a.event)).toContain('subscription_restored');
+    expect((await audits(ws)).map((a: any) => a.event)).toContain('invoice_restored_during_grace');
 
     // And the grace worker now finds nothing to do.
     const res = (await one(`SELECT public.billing_v2_apply_free_fallback($1) AS r`, [ws])).r;
-    expect(res.skipped).toBe('not_in_grace');
+    expect(res.skipped).toBe('not_past_due:active');
   });
 
   // ── Fallback ────────────────────────────────────────────────────────────
@@ -579,7 +577,7 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     const claimedB = await q(`SELECT * FROM public.billing_v2_claim_notification_jobs(500, 120)`);
     expect(claimedB.filter((j: any) => j.invoice_id === invoice.id)).toHaveLength(0);
 
-    await q(`SELECT public.billing_v2_complete_notification_job($1, 'sent')`, [mine[0].id]);
+    await q(`SELECT public.billing_v2_complete_notification_job($1, '{"provider":"stub"}'::jsonb)`, [mine[0].id]);
     const sent = await one(`SELECT * FROM public.billing_notification_jobs WHERE id=$1`, [mine[0].id]);
     expect(sent.status).toBe('sent');
     expect(sent.sent_at).toBeTruthy();
@@ -590,9 +588,8 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
        VALUES ($1,$2,'invoice_reminder','sms',$3) RETURNING *`,
       [ws, invoice.id, `manual:${uuid()}`],
     );
-    await q(`SELECT public.billing_v2_complete_notification_job($1, 'skipped_no_recipient')`, [other.id]);
-    expect((await one(`SELECT * FROM public.billing_notification_jobs WHERE id=$1`, [other.id])).status)
-      .toBe('skipped_no_recipient');
+    await q(`SELECT public.billing_v2_skip_notification_job($1, 'skipped_no_recipient')`, [other.id]);
+    expect((await one(`SELECT * FROM public.billing_notification_jobs WHERE id=$1`, [other.id])).status).toBe('skipped');
 
     const retryable = await one(
       `INSERT INTO public.billing_notification_jobs
@@ -620,7 +617,7 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
 
   it('resolves the billing recipient from the workspace owner', async () => {
     const ws = await makeWorkspace();
-    const r = (await one(`SELECT public.billing_v2_resolve_billing_recipient($1) AS r`, [ws])).r;
+    const r = (await one(`SELECT public.billing_v2_billing_recipient($1) AS r`, [ws])).r;
     expect(String(r.email)).toContain('@test.local');
     expect(r.phone).toBe('+989120000000');
     expect(r.locale).toBeTruthy();

@@ -200,7 +200,6 @@ DECLARE
   v_email   TEXT;
   v_locale  TEXT;
   v_phone   TEXT;
-  v_verified TEXT;
   v_contact JSONB;
 BEGIN
   SELECT metadata->'billing_contact' INTO v_contact
@@ -208,24 +207,14 @@ BEGIN
 
   SELECT owner_id INTO v_owner FROM public.workspaces WHERE id = p_workspace_id;
   IF v_owner IS NOT NULL THEN
-    SELECT email, phone INTO v_email, v_phone FROM public.profiles WHERE id = v_owner;
-    -- Locale is optional across deployments: read it only where the column
-    -- actually exists, so a missing preference never breaks a billing message.
-    IF EXISTS (SELECT 1 FROM information_schema.columns
-                WHERE table_schema = 'public' AND table_name = 'profiles'
-                  AND column_name = 'preferred_locale') THEN
-      EXECUTE 'SELECT preferred_locale FROM public.profiles WHERE id = $1'
-        INTO v_locale USING v_owner;
-    END IF;
+    SELECT email, COALESCE(preferred_locale, 'fa') INTO v_email, v_locale
+      FROM public.profiles WHERE id = v_owner;
   END IF;
 
-  -- A VERIFIED phone outranks the profile field: billing SMS goes to a number
-  -- the platform has actually proven it can reach.
   IF to_regclass('public.user_phone_verifications') IS NOT NULL AND v_owner IS NOT NULL THEN
     EXECUTE 'SELECT phone_e164 FROM public.user_phone_verifications
               WHERE user_id = $1 AND phone_verified_at IS NOT NULL'
-      INTO v_verified USING v_owner;
-    v_phone := COALESCE(v_verified, v_phone);
+      INTO v_phone USING v_owner;
   END IF;
 
   RETURN jsonb_build_object(
@@ -303,8 +292,7 @@ $$;
 CREATE OR REPLACE FUNCTION public.billing_v2_cancel_invoice_notifications(
   p_invoice_id UUID,
   p_reason     TEXT DEFAULT 'invoice_closed',
-  p_types      TEXT[] DEFAULT ARRAY['invoice_issued', 'invoice_reminder', 'invoice_due',
-                                    'invoice_past_due']
+  p_types      TEXT[] DEFAULT ARRAY['invoice_reminder', 'invoice_due', 'invoice_past_due']
 ) RETURNS INTEGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
@@ -325,25 +313,10 @@ CREATE OR REPLACE FUNCTION public.billing_v2_invoice_notification_sync()
 RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
-DECLARE v_res JSONB;
 BEGIN
   IF NEW.status IS DISTINCT FROM OLD.status
      AND NEW.status IN ('paid', 'void', 'expired') THEN
     PERFORM public.billing_v2_cancel_invoice_notifications(NEW.id, 'invoice_' || NEW.status);
-  END IF;
-
-  -- Recovery is path-independent: wallet auto-pay, a gateway callback or an
-  -- operator marking the invoice paid all reach the same deterministic exit
-  -- from dunning. Idempotent, and a no-op once the workspace fell back.
-  IF NEW.status = 'paid' AND OLD.status IS DISTINCT FROM 'paid' THEN
-    v_res := public.billing_v2_restore_subscription(NEW.workspace_id);
-    IF v_res->>'skipped' = 'already_free_fallback' THEN
-      -- Money after fallback is never a silent rollback to the paid plan; it
-      -- is recorded so a human (or Phase F) can decide what it buys.
-      INSERT INTO public.billing_v2_audit (workspace_id, event, reason, details)
-      VALUES (NEW.workspace_id, 'payment_after_free_fallback', 'no_auto_revival',
-              jsonb_build_object('invoice_id', NEW.id, 'amount_irr', NEW.amount_paid_irr));
-    END IF;
   END IF;
   RETURN NEW;
 END;
@@ -405,10 +378,8 @@ BEGIN
       v_at := v_inv.due_at - make_interval(days => GREATEST(v_days, 0));
       CONTINUE WHEN v_at <= now();   -- no stale reminder floods on catch-up
       IF public.billing_v2_enqueue_notification(
-           v_inv.workspace_id, 'invoice_reminder', 'email', v_inv.id, v_at,
-           v_payload || jsonb_build_object('days_before_due', v_days),
+           v_inv.workspace_id, 'invoice_reminder', 'email', v_inv.id, v_at, v_payload,
            v_inv.id::text || ':d' || v_days::text) IS NOT NULL THEN
-
         v_created := v_created + 1;
       END IF;
     END LOOP;
@@ -421,78 +392,6 @@ BEGIN
   RETURN jsonb_build_object('invoice_id', v_inv.id, 'created', v_created);
 END;
 $$;
-
--- ─── 7b. The frozen dunning contract ───────────────────────────────────────
-/**
- * The grace period a customer gets is part of the deal they were offered when
- * the invoice was issued. A Super Admin who later shortens `grace_period_days`
- * must not retroactively pull the deadline out from under an invoice that is
- * already in flight — and one who lengthens it must not silently extend an
- * expiry the customer was already warned about.
- *
- * So the policy is SNAPSHOTTED into `billing_invoices.metadata->'dunning'` at
- * issue time and read from there for the rest of the invoice's life. Live
- * policy applies only to invoices issued after the change.
- *
- * `metadata` is deliberately outside the issued-invoice freeze list in 113, so
- * this write is legal on an open invoice; the priced contract stays immutable.
- */
-CREATE OR REPLACE FUNCTION public.billing_v2_dunning_snapshot(p_invoice_id UUID)
-RETURNS JSONB
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp
-AS $$
-DECLARE
-  v_inv  public.billing_invoices;
-  v_snap JSONB;
-BEGIN
-  SELECT * INTO v_inv FROM public.billing_invoices WHERE id = p_invoice_id;
-  IF v_inv.id IS NULL THEN RETURN NULL; END IF;
-  v_snap := v_inv.metadata->'dunning';
-  IF v_snap IS NULL OR jsonb_typeof(v_snap) <> 'object' THEN
-    -- Pre-Phase-E invoices carry no snapshot; live policy is the only honest
-    -- answer for them, and it is never written back retroactively.
-    RETURN public.billing_v2_policy_for(v_inv.workspace_id);
-  END IF;
-  RETURN v_snap;
-END;
-$$;
-
-/**
- * Arms the lifecycle the moment an invoice becomes collectible (draft → open,
- * or inserted open outright): freeze the snapshot, then schedule the messages.
- * Both steps are idempotent, so a replayed issue pass adds nothing.
- */
-CREATE OR REPLACE FUNCTION public.billing_v2_invoice_arm_dunning()
-RETURNS TRIGGER
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
-AS $$
-DECLARE v_policy JSONB;
-BEGIN
-  IF NEW.status <> 'open' THEN RETURN NEW; END IF;
-  IF TG_OP = 'UPDATE' AND OLD.status = 'open' THEN RETURN NEW; END IF;
-
-  IF NEW.metadata->'dunning' IS NULL THEN
-    v_policy := public.billing_v2_policy_for(NEW.workspace_id);
-    UPDATE public.billing_invoices
-       SET metadata = metadata || jsonb_build_object('dunning', jsonb_build_object(
-             'grace_period_days',        (v_policy->>'grace_period_days')::int,
-             'reminder_days_before_due', v_policy->'reminder_days_before_due',
-             'fallback_plan_id',         v_policy->>'fallback_plan_id',
-             'frozen_at',                to_jsonb(now())
-           ))
-     WHERE id = NEW.id;
-  END IF;
-
-  PERFORM public.billing_v2_schedule_invoice_notifications(NEW.id);
-  RETURN NEW;
-END;
-$$;
-
-DROP TRIGGER IF EXISTS trg_billing_v2_invoice_arm_dunning ON public.billing_invoices;
-CREATE TRIGGER trg_billing_v2_invoice_arm_dunning
-  AFTER INSERT OR UPDATE OF status ON public.billing_invoices
-  FOR EACH ROW EXECUTE FUNCTION public.billing_v2_invoice_arm_dunning();
-
 
 -- ─── 8. Recovery — deterministic and idempotent ────────────────────────────
 /**
@@ -632,11 +531,8 @@ BEGIN
    WHERE workspace_id = v_inv.workspace_id FOR UPDATE;
 
   IF v_sub.id IS NOT NULL AND v_sub.status IN ('active', 'past_due') THEN
-    -- The FROZEN contract decides the deadline, not today's policy.
     v_grace := COALESCE(v_sub.grace_period_ends_at,
-                        now() + make_interval(days => COALESCE(
-                          (public.billing_v2_dunning_snapshot(v_inv.id)->>'grace_period_days')::int,
-                          (v_policy->>'grace_period_days')::int)));
+                        now() + make_interval(days => (v_policy->>'grace_period_days')::int));
     UPDATE public.workspace_subscriptions
        SET status = 'past_due',
            past_due_since = COALESCE(past_due_since, now()),
@@ -799,13 +695,13 @@ BEGIN
   END IF;
 
   v_policy := public.billing_v2_policy_for(p_workspace_id);
-  -- NO guessing. Downgrading a paying customer onto a plan nobody configured
-  -- is worse than failing loudly: the job retries, the workspace stays in
-  -- past_due (service intact) and the platform owner gets a visible error.
   v_plan_id := NULLIF(v_policy->>'fallback_plan_id', '')::uuid;
   IF v_plan_id IS NULL THEN
-    RAISE EXCEPTION 'fallback_plan_not_configured'
-      USING HINT = 'Set billing_v2_policy.fallback_plan_id before grace can expire.';
+    SELECT id INTO v_plan_id FROM public.billing_plans
+     WHERE is_free ORDER BY sort_order NULLS LAST, created_at LIMIT 1;
+  END IF;
+  IF v_plan_id IS NULL THEN
+    RETURN jsonb_build_object('skipped', 'no_fallback_plan');
   END IF;
   SELECT * INTO v_plan FROM public.billing_plans WHERE id = v_plan_id;
 
@@ -1072,123 +968,3 @@ BEGIN
   END LOOP;
 END
 $acl$;
-
--- ─── 16. Scheduler health, extended with the Phase E surface ───────────────
-/**
- * Additive replace: the Phase C/D0 counters keep their exact meaning, and the
- * dunning counters join them so one health call still answers "is collection
- * moving?" without a second round trip.
- */
-CREATE OR REPLACE FUNCTION public.billing_v2_scheduler_health()
-RETURNS JSONB
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp
-AS $$
-  SELECT jsonb_build_object(
-    'workers', COALESCE((SELECT jsonb_agg(to_jsonb(h)) FROM public.billing_v2_worker_health h), '[]'::jsonb),
-    'due_invoices', (SELECT count(*) FROM public.billing_invoices
-                      WHERE status IN ('open','partially_paid','past_due')
-                        AND amount_due_irr > 0 AND due_at IS NOT NULL AND due_at <= now()),
-    'scheduled_periods_pending', (SELECT count(*) FROM public.billing_subscription_periods
-                                   WHERE status = 'scheduled' AND period_start <= now()),
-    'unapplied_active_periods', (SELECT count(*) FROM public.billing_period_allowance_grants
-                                  WHERE status IN ('pending','failed')),
-    'due_entitlement_cycles', (SELECT count(*) FROM public.billing_entitlement_cycles
-                                WHERE status = 'scheduled' AND cycle_start <= now() AND cycle_end > now()),
-    'unfunded_active_cycles', (SELECT count(*) FROM public.billing_entitlement_cycles
-                                WHERE status = 'active' AND allowance_state IN ('pending','failed')),
-    'failed_jobs', (SELECT count(*) FROM public.billing_v2_jobs WHERE status = 'failed'),
-    -- Phase E
-    'past_due_invoices', (SELECT count(*) FROM public.billing_invoices WHERE status = 'past_due'),
-    'grace_subscriptions', (SELECT count(*) FROM public.workspace_subscriptions
-                             WHERE status = 'past_due' AND grace_period_ends_at IS NOT NULL),
-    'notification_backlog', (SELECT count(*) FROM public.billing_notification_jobs
-                              WHERE status IN ('pending','processing')),
-    'notification_failures', (SELECT count(*) FROM public.billing_notification_jobs
-                               WHERE status = 'failed'),
-    'retention_signals_pending', (SELECT count(*) FROM public.billing_retention_signals
-                                   WHERE state = 'pending'),
-    'checked_at', now()
-  );
-$$;
-
-REVOKE ALL ON FUNCTION public.billing_v2_scheduler_health() FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.billing_v2_scheduler_health() TO service_role;
-
--- ─── 17. Worker A, dunning-aware ───────────────────────────────────────────
-/**
- * Additive replace of the Phase C renewal scheduler with ONE new guard: a
- * subscription with an invoice already past its due date and unpaid does not
- * get another renewal invoice stacked on top of it. Debt is collected, not
- * accumulated; once the outstanding invoice settles, the next cycle is issued
- * by the very next tick (catch-up uses `<=`, so nothing is skipped).
- */
-CREATE OR REPLACE FUNCTION public.billing_v2_run_invoice_scheduler(p_limit INTEGER DEFAULT 50)
-RETURNS JSONB
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
-AS $$
-DECLARE
-  r         RECORD;
-  j         public.billing_v2_jobs;
-  v_res     JSONB;
-  v_issued  INTEGER := 0;
-  v_skipped INTEGER := 0;
-  v_failed  INTEGER := 0;
-  v_last    TEXT;
-BEGIN
-  FOR r IN
-    SELECT s.workspace_id, s.id AS sub_id, COALESCE(s.next_invoice_at, s.current_period_end) AS anchor
-      FROM public.workspace_subscriptions s
-      JOIN public.billing_v2_rollout ro ON ro.workspace_id = s.workspace_id AND ro.state = 'v2_active'
-     WHERE s.status IN ('active', 'past_due')
-       AND COALESCE(s.next_invoice_at, s.current_period_end) IS NOT NULL
-       AND COALESCE(s.next_invoice_at, s.current_period_end)
-           - make_interval(days => (public.billing_v2_policy_for(s.workspace_id)->>'invoice_lead_time_days')::int)
-           <= now()
-       AND NOT EXISTS (
-         SELECT 1 FROM public.billing_invoices i
-          WHERE i.workspace_id = s.workspace_id
-            AND i.status IN ('open', 'partially_paid', 'past_due')
-            AND i.amount_due_irr > 0
-            AND i.due_at IS NOT NULL AND i.due_at <= now())
-     ORDER BY COALESCE(s.next_invoice_at, s.current_period_end)
-     LIMIT GREATEST(COALESCE(p_limit, 50), 1)
-  LOOP
-    PERFORM public.billing_v2_enqueue_job(
-      'renewal_invoice',
-      r.sub_id::text || ':' || to_char(r.anchor AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS'),
-      r.workspace_id,
-      jsonb_build_object('subscription_id', r.sub_id, 'anchor', r.anchor));
-  END LOOP;
-
-  FOR j IN SELECT * FROM public.billing_v2_claim_jobs('renewal_invoice', p_limit, 120) LOOP
-    BEGIN
-      v_res := public.billing_v2_issue_renewal_invoice(j.workspace_id, false);
-      IF v_res ? 'skipped' THEN
-        v_skipped := v_skipped + 1;
-        IF split_part(v_res->>'skipped', ':', 1) IN
-             ('not_yet_eligible', 'collection_active', 'period_exists', 'not_yet_due') THEN
-          PERFORM public.billing_v2_defer_job(j.id, v_res->>'skipped');
-        ELSE
-          PERFORM public.billing_v2_complete_job(j.id, v_res);
-        END IF;
-      ELSE
-        v_issued := v_issued + 1;
-        PERFORM public.billing_v2_complete_job(j.id, v_res);
-      END IF;
-    EXCEPTION WHEN OTHERS THEN
-      v_failed := v_failed + 1;
-      v_last := SQLERRM;
-      PERFORM public.billing_v2_fail_job(j.id, SQLERRM);
-      INSERT INTO public.billing_v2_audit (workspace_id, event, reason, details)
-      VALUES (j.workspace_id, 'renewal_invoice_failed', left(SQLERRM, 200),
-              jsonb_build_object('job_id', j.id));
-    END;
-  END LOOP;
-
-  PERFORM public.billing_v2_note_worker_run('renewal_invoice', v_issued + v_skipped, v_failed, v_last);
-  RETURN jsonb_build_object('issued', v_issued, 'skipped', v_skipped, 'failed', v_failed);
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public.billing_v2_run_invoice_scheduler(INTEGER) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.billing_v2_run_invoice_scheduler(INTEGER) TO service_role;

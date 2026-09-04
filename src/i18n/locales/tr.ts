@@ -5659,10 +5659,10 @@ const tr: TranslationKeys = {
       maxPages: 'Mevcut planınızda denetim başına en fazla {{count}} sayfa taranır.',
     },
     errors: {
+      siteNotFound: 'Bu web sitesi bulunamadı. Çalışma alanından kaldırılmış olabilir.',
       startFailed: 'Denetim başlatılamadı. Lütfen kısa süre sonra tekrar deneyin veya sorun devam ederse destek ile iletişime geçin.',
       createFailed: 'Denetim başlatılamadı. Lütfen tekrar deneyin.',
       loadFailed: 'SEO verileri yüklenemedi.',
-      siteNotFound: 'Bu web sitesi çalışma alanınızda bulunamadı.',
     },
     overview: {
       scoreTrend: 'Puan trendi',

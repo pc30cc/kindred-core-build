@@ -43,65 +43,7 @@ export interface V2ReadModel {
   wallet: { availableBalanceIrr: number; frozen: boolean };
   ai: { allowanceIrr: number; periodBound: boolean };
   openInvoices: Array<{ id: string; invoiceNumber: string; status: string; amountDueIrr: number }>;
-  /**
-   * Phase E lifecycle state. Server-decided in every field: the UI renders
-   * `state` and `graceEndsAt`, and must never infer "past due" from a date
-   * comparison of its own.
-   */
-  dunning: {
-    state: 'current' | 'past_due' | 'grace' | 'fallback';
-    pastDueAt: string | null;
-    graceEndsAt: string | null;
-    graceDaysRemaining: number | null;
-    fellBackAt: string | null;
-    /** True while a fallback is pending Phase F retention work. */
-    retentionSignalPending: boolean;
-  };
 }
-
-/**
- * Projects the persisted lifecycle onto the customer-facing view. The
- * subscription row is the authority — this function classifies it, it never
- * decides it. The only computed value is the remaining-days countdown, and it
- * is clamped at zero: a grace window that has already run out reads as "0 days
- * left" until the worker performs the fallback, never as a negative number the
- * UI has to interpret.
- */
-function buildDunningView(
-  sub: {
-    status?: string | null;
-    past_due_since?: string | null;
-    grace_period_ends_at?: string | null;
-    free_fallback_at?: string | null;
-  } | null,
-  retentionSignal: { state?: string | null } | null,
-): V2ReadModel['dunning'] {
-  const graceEndsAt = sub?.grace_period_ends_at ?? null;
-  const fellBackAt = sub?.free_fallback_at ?? null;
-
-  let state: V2ReadModel['dunning']['state'] = 'current';
-  if (fellBackAt) state = 'fallback';
-  else if (sub?.status === 'past_due') state = graceEndsAt ? 'grace' : 'past_due';
-
-  let graceDaysRemaining: number | null = null;
-  if (graceEndsAt && state === 'grace') {
-    const ms = new Date(graceEndsAt).getTime() - Date.now();
-    graceDaysRemaining = Number.isFinite(ms) ? Math.max(0, Math.ceil(ms / 86_400_000)) : null;
-  }
-
-  return {
-    state,
-    pastDueAt: sub?.past_due_since ?? null,
-    graceEndsAt,
-    graceDaysRemaining,
-    fellBackAt,
-    retentionSignalPending: (retentionSignal?.state ?? 'none') === 'pending',
-  };
-}
-
-
-
-
 
 export async function buildWorkspaceBillingReadModel(
   config: ServerConfig,
@@ -113,7 +55,7 @@ export async function buildWorkspaceBillingReadModel(
   const { data: sub } = await sb
     .from('workspace_subscriptions')
     .select(
-      'status, plan_id, billing_interval, current_period_id, current_period_end, next_invoice_at, next_plan_id, pending_change_type, billing_engine_version, v2_allowance_effective_period_id, past_due_since, grace_period_ends_at, free_fallback_at',
+      'status, plan_id, billing_interval, current_period_id, current_period_end, next_invoice_at, next_plan_id, pending_change_type, billing_engine_version, v2_allowance_effective_period_id',
     )
     .eq('workspace_id', workspaceId)
     .maybeSingle();
@@ -138,14 +80,6 @@ export async function buildWorkspaceBillingReadModel(
     .in('status', ['open', 'partially_paid', 'past_due'])
     .order('created_at', { ascending: false })
     .limit(20);
-
-  const { data: retentionSignal } = await sb
-    .from('billing_retention_signals')
-    .select('state')
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
-
-
 
   const periodEnd = (period?.period_end as string | undefined) || (sub?.current_period_end as string | undefined) || null;
   const nextInvoiceAt = (sub?.next_invoice_at as string | undefined) || periodEnd;
@@ -195,6 +129,5 @@ export async function buildWorkspaceBillingReadModel(
       status: i.status,
       amountDueIrr: Number(i.amount_due_irr ?? 0),
     })),
-    dunning: buildDunningView(sub as any, retentionSignal as any),
   };
 }

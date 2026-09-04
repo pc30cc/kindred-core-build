@@ -303,7 +303,8 @@ $$;
 CREATE OR REPLACE FUNCTION public.billing_v2_cancel_invoice_notifications(
   p_invoice_id UUID,
   p_reason     TEXT DEFAULT 'invoice_closed',
-  p_types      TEXT[] DEFAULT ARRAY['invoice_reminder', 'invoice_due', 'invoice_past_due']
+  p_types      TEXT[] DEFAULT ARRAY['invoice_issued', 'invoice_reminder', 'invoice_due',
+                                    'invoice_past_due']
 ) RETURNS INTEGER
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
@@ -798,13 +799,13 @@ BEGIN
   END IF;
 
   v_policy := public.billing_v2_policy_for(p_workspace_id);
+  -- NO guessing. Downgrading a paying customer onto a plan nobody configured
+  -- is worse than failing loudly: the job retries, the workspace stays in
+  -- past_due (service intact) and the platform owner gets a visible error.
   v_plan_id := NULLIF(v_policy->>'fallback_plan_id', '')::uuid;
   IF v_plan_id IS NULL THEN
-    SELECT id INTO v_plan_id FROM public.billing_plans
-     WHERE is_free ORDER BY sort_order NULLS LAST, created_at LIMIT 1;
-  END IF;
-  IF v_plan_id IS NULL THEN
-    RETURN jsonb_build_object('skipped', 'no_fallback_plan');
+    RAISE EXCEPTION 'fallback_plan_not_configured'
+      USING HINT = 'Set billing_v2_policy.fallback_plan_id before grace can expire.';
   END IF;
   SELECT * INTO v_plan FROM public.billing_plans WHERE id = v_plan_id;
 
@@ -1112,3 +1113,82 @@ $$;
 
 REVOKE ALL ON FUNCTION public.billing_v2_scheduler_health() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.billing_v2_scheduler_health() TO service_role;
+
+-- ─── 17. Worker A, dunning-aware ───────────────────────────────────────────
+/**
+ * Additive replace of the Phase C renewal scheduler with ONE new guard: a
+ * subscription with an invoice already past its due date and unpaid does not
+ * get another renewal invoice stacked on top of it. Debt is collected, not
+ * accumulated; once the outstanding invoice settles, the next cycle is issued
+ * by the very next tick (catch-up uses `<=`, so nothing is skipped).
+ */
+CREATE OR REPLACE FUNCTION public.billing_v2_run_invoice_scheduler(p_limit INTEGER DEFAULT 50)
+RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  r         RECORD;
+  j         public.billing_v2_jobs;
+  v_res     JSONB;
+  v_issued  INTEGER := 0;
+  v_skipped INTEGER := 0;
+  v_failed  INTEGER := 0;
+  v_last    TEXT;
+BEGIN
+  FOR r IN
+    SELECT s.workspace_id, s.id AS sub_id, COALESCE(s.next_invoice_at, s.current_period_end) AS anchor
+      FROM public.workspace_subscriptions s
+      JOIN public.billing_v2_rollout ro ON ro.workspace_id = s.workspace_id AND ro.state = 'v2_active'
+     WHERE s.status IN ('active', 'past_due')
+       AND COALESCE(s.next_invoice_at, s.current_period_end) IS NOT NULL
+       AND COALESCE(s.next_invoice_at, s.current_period_end)
+           - make_interval(days => (public.billing_v2_policy_for(s.workspace_id)->>'invoice_lead_time_days')::int)
+           <= now()
+       AND NOT EXISTS (
+         SELECT 1 FROM public.billing_invoices i
+          WHERE i.workspace_id = s.workspace_id
+            AND i.status IN ('open', 'partially_paid', 'past_due')
+            AND i.amount_due_irr > 0
+            AND i.due_at IS NOT NULL AND i.due_at <= now())
+     ORDER BY COALESCE(s.next_invoice_at, s.current_period_end)
+     LIMIT GREATEST(COALESCE(p_limit, 50), 1)
+  LOOP
+    PERFORM public.billing_v2_enqueue_job(
+      'renewal_invoice',
+      r.sub_id::text || ':' || to_char(r.anchor AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS'),
+      r.workspace_id,
+      jsonb_build_object('subscription_id', r.sub_id, 'anchor', r.anchor));
+  END LOOP;
+
+  FOR j IN SELECT * FROM public.billing_v2_claim_jobs('renewal_invoice', p_limit, 120) LOOP
+    BEGIN
+      v_res := public.billing_v2_issue_renewal_invoice(j.workspace_id, false);
+      IF v_res ? 'skipped' THEN
+        v_skipped := v_skipped + 1;
+        IF split_part(v_res->>'skipped', ':', 1) IN
+             ('not_yet_eligible', 'collection_active', 'period_exists', 'not_yet_due') THEN
+          PERFORM public.billing_v2_defer_job(j.id, v_res->>'skipped');
+        ELSE
+          PERFORM public.billing_v2_complete_job(j.id, v_res);
+        END IF;
+      ELSE
+        v_issued := v_issued + 1;
+        PERFORM public.billing_v2_complete_job(j.id, v_res);
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      v_failed := v_failed + 1;
+      v_last := SQLERRM;
+      PERFORM public.billing_v2_fail_job(j.id, SQLERRM);
+      INSERT INTO public.billing_v2_audit (workspace_id, event, reason, details)
+      VALUES (j.workspace_id, 'renewal_invoice_failed', left(SQLERRM, 200),
+              jsonb_build_object('job_id', j.id));
+    END;
+  END LOOP;
+
+  PERFORM public.billing_v2_note_worker_run('renewal_invoice', v_issued + v_skipped, v_failed, v_last);
+  RETURN jsonb_build_object('issued', v_issued, 'skipped', v_skipped, 'failed', v_failed);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.billing_v2_run_invoice_scheduler(INTEGER) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.billing_v2_run_invoice_scheduler(INTEGER) TO service_role;

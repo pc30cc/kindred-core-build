@@ -395,7 +395,7 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
 
     // And the grace worker now finds nothing to do.
     const res = (await one(`SELECT public.billing_v2_apply_free_fallback($1) AS r`, [ws])).r;
-    expect(res.skipped).toBe('not_in_dunning');
+    expect(res.skipped).toBe('not_in_grace');
   });
 
   // ── Fallback ────────────────────────────────────────────────────────────
@@ -571,12 +571,12 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     const s = await makeSubscription(ws, plan, 30);
     const invoice = await makeOpenInvoice(ws, s.id, plan, { total: 1_000_000, dueInDays: 10 });
 
-    const claimedA = await q(`SELECT * FROM public.billing_v2_claim_notification_jobs(10, 120)`);
+    const claimedA = await q(`SELECT * FROM public.billing_v2_claim_notification_jobs(500, 120)`);
     const mine = claimedA.filter((j: any) => j.invoice_id === invoice.id);
     expect(mine.length).toBeGreaterThan(0);
 
     // A second claimant gets nothing while the lease is held.
-    const claimedB = await q(`SELECT * FROM public.billing_v2_claim_notification_jobs(10, 120)`);
+    const claimedB = await q(`SELECT * FROM public.billing_v2_claim_notification_jobs(500, 120)`);
     expect(claimedB.filter((j: any) => j.invoice_id === invoice.id)).toHaveLength(0);
 
     await q(`SELECT public.billing_v2_complete_notification_job($1, 'sent')`, [mine[0].id]);

@@ -200,6 +200,7 @@ DECLARE
   v_email   TEXT;
   v_locale  TEXT;
   v_phone   TEXT;
+  v_verified TEXT;
   v_contact JSONB;
 BEGIN
   SELECT metadata->'billing_contact' INTO v_contact
@@ -207,14 +208,24 @@ BEGIN
 
   SELECT owner_id INTO v_owner FROM public.workspaces WHERE id = p_workspace_id;
   IF v_owner IS NOT NULL THEN
-    SELECT email, COALESCE(preferred_locale, 'fa') INTO v_email, v_locale
-      FROM public.profiles WHERE id = v_owner;
+    SELECT email, phone INTO v_email, v_phone FROM public.profiles WHERE id = v_owner;
+    -- Locale is optional across deployments: read it only where the column
+    -- actually exists, so a missing preference never breaks a billing message.
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'profiles'
+                  AND column_name = 'preferred_locale') THEN
+      EXECUTE 'SELECT preferred_locale FROM public.profiles WHERE id = $1'
+        INTO v_locale USING v_owner;
+    END IF;
   END IF;
 
+  -- A VERIFIED phone outranks the profile field: billing SMS goes to a number
+  -- the platform has actually proven it can reach.
   IF to_regclass('public.user_phone_verifications') IS NOT NULL AND v_owner IS NOT NULL THEN
     EXECUTE 'SELECT phone_e164 FROM public.user_phone_verifications
               WHERE user_id = $1 AND phone_verified_at IS NOT NULL'
-      INTO v_phone USING v_owner;
+      INTO v_verified USING v_owner;
+    v_phone := COALESCE(v_verified, v_phone);
   END IF;
 
   RETURN jsonb_build_object(
@@ -1060,3 +1071,44 @@ BEGIN
   END LOOP;
 END
 $acl$;
+
+-- ─── 16. Scheduler health, extended with the Phase E surface ───────────────
+/**
+ * Additive replace: the Phase C/D0 counters keep their exact meaning, and the
+ * dunning counters join them so one health call still answers "is collection
+ * moving?" without a second round trip.
+ */
+CREATE OR REPLACE FUNCTION public.billing_v2_scheduler_health()
+RETURNS JSONB
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+  SELECT jsonb_build_object(
+    'workers', COALESCE((SELECT jsonb_agg(to_jsonb(h)) FROM public.billing_v2_worker_health h), '[]'::jsonb),
+    'due_invoices', (SELECT count(*) FROM public.billing_invoices
+                      WHERE status IN ('open','partially_paid','past_due')
+                        AND amount_due_irr > 0 AND due_at IS NOT NULL AND due_at <= now()),
+    'scheduled_periods_pending', (SELECT count(*) FROM public.billing_subscription_periods
+                                   WHERE status = 'scheduled' AND period_start <= now()),
+    'unapplied_active_periods', (SELECT count(*) FROM public.billing_period_allowance_grants
+                                  WHERE status IN ('pending','failed')),
+    'due_entitlement_cycles', (SELECT count(*) FROM public.billing_entitlement_cycles
+                                WHERE status = 'scheduled' AND cycle_start <= now() AND cycle_end > now()),
+    'unfunded_active_cycles', (SELECT count(*) FROM public.billing_entitlement_cycles
+                                WHERE status = 'active' AND allowance_state IN ('pending','failed')),
+    'failed_jobs', (SELECT count(*) FROM public.billing_v2_jobs WHERE status = 'failed'),
+    -- Phase E
+    'past_due_invoices', (SELECT count(*) FROM public.billing_invoices WHERE status = 'past_due'),
+    'grace_subscriptions', (SELECT count(*) FROM public.workspace_subscriptions
+                             WHERE status = 'past_due' AND grace_period_ends_at IS NOT NULL),
+    'notification_backlog', (SELECT count(*) FROM public.billing_notification_jobs
+                              WHERE status IN ('pending','processing')),
+    'notification_failures', (SELECT count(*) FROM public.billing_notification_jobs
+                               WHERE status = 'failed'),
+    'retention_signals_pending', (SELECT count(*) FROM public.billing_retention_signals
+                                   WHERE state = 'pending'),
+    'checked_at', now()
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.billing_v2_scheduler_health() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.billing_v2_scheduler_health() TO service_role;

@@ -567,7 +567,12 @@ function scheduleReconnect(conn: SharedConnection): void {
     //      certainly a token issue at the server, even if we think the
     //      token is still valid.
     const localExpired = Date.now() >= conn.tokenExpiresAt - TOKEN_REFRESH_LEAD_MS;
-    const mustRefreshDueToFailure = conn.reconnectAttempt > 1;
+    // Multi-node topology: after ANY transport failure the client must ask
+    // the backend for a FRESH assignment instead of retrying the same
+    // endpoint — that is how a drained or lost Centrifugo node hands its
+    // clients over without a forced disconnect. In single-node mode this
+    // simply returns the same ws_url, so the behaviour is unchanged there.
+    const mustRefreshDueToFailure = conn.reconnectAttempt >= 1;
     // Consume the self-inflicted-close flag exactly once, before either
     // branch below runs — it must never leak into a later, genuine close.
     const wasIntentionalRefreshRotation = conn.expectingCloseForRefresh;

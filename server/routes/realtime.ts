@@ -22,6 +22,18 @@ import {
   getCentrifugoDriver,
   CentrifugoDriver,
   invalidateRealtimeCache,
+  assignRealtimeEndpoint,
+  listNodes,
+  addNode,
+  updateNode,
+  removeNode,
+  setNodeDraining,
+  getClusterHealth,
+  invalidateNodeHealth,
+  effectiveNodeStatus,
+  selectNode,
+  resolveDeploymentMode,
+  normalizeNodes,
   type RealtimeProviderConfig,
 } from '../services/realtime/index.js';
 import { verifySessionToken } from '../services/widget/security.js';
@@ -240,11 +252,36 @@ realtimeRouter.post('/connect', async (req, res) => {
       conversation_ids: parsed.data.conversation_ids,
       expires_in_seconds: platform.realtime.tokenTtlSeconds,
     });
+    // Topology-aware endpoint assignment. Mode 1 → the single ws_url,
+    // Mode 2 → the node the router picked, Mode 3 → the load balancer URL.
+    // The browser still opens the WebSocket DIRECTLY; no PostgreSQL write
+    // happens on this path.
+    const assignment = await assignRealtimeEndpoint(config);
+    if (!assignment.ws_url) {
+      emitMetric(config, {
+        metric: 'realtime.fallback_engaged',
+        workspaceId: parsed.data.workspace_id,
+        driver: 'polling_builtin',
+        tags: { source: `assignment:${assignment.reason}` },
+      });
+      return res.json({
+        vendor: 'polling_builtin',
+        capabilities: { supportsRealtime: false, supportsTyping: false, supportsPresence: false, supportsHistoryLoad: true, supportsReconnectSignals: true },
+        fallback_policy: resolved.fallback_policy,
+        source: 'fallback',
+        effective_policy,
+      });
+    }
     emitMetric(config, {
       metric: 'realtime.token_minted',
       workspaceId: parsed.data.workspace_id,
       driver: 'centrifugo',
-      tags: { kind: 'connect', ttl_s: platform.realtime.tokenTtlSeconds },
+      tags: {
+        kind: 'connect',
+        ttl_s: platform.realtime.tokenTtlSeconds,
+        mode: assignment.mode,
+        node: assignment.node_id ?? 'single',
+      },
     });
     getMonitoringCollector().recordGrant(
       parsed.data.workspace_id,
@@ -254,7 +291,9 @@ realtimeRouter.post('/connect', async (req, res) => {
 
     return res.json({
       vendor: 'centrifugo',
-      ws_url: tokenInfo.ws_url,
+      ws_url: assignment.ws_url,
+      node_id: assignment.node_id,
+      deployment_mode: assignment.mode,
       token: tokenInfo.token,
       expires_at: tokenInfo.expires_at,
       channels: tokenInfo.channels,
@@ -536,12 +575,23 @@ realtimeRouter.post('/operator-connect', perfHttpMiddleware('realtime.operator_c
       workspace_id: parsed.data.workspace_id,
       expires_in_seconds: platform.realtime.tokenTtlSeconds,
     });
+    // Topology-aware endpoint assignment (same contract in all three modes).
+    const assignment = await assignRealtimeEndpoint(config);
+    if (!assignment.ws_url) {
+      return res.json({
+        vendor: 'polling_builtin',
+        capabilities: { supportsRealtime: false, supportsTyping: false, supportsPresence: false, supportsHistoryLoad: true, supportsReconnectSignals: true },
+        effective_policy,
+      });
+    }
     if (parsed.data.intent !== 'policy_poll') {
       getMonitoringCollector().recordGrant(parsed.data.workspace_id, subjectId, tokenTtlMs);
     }
     return res.json({
       vendor: 'centrifugo',
-      ws_url: tk.ws_url,
+      ws_url: assignment.ws_url,
+      node_id: assignment.node_id,
+      deployment_mode: assignment.mode,
       token: tk.token,
       expires_at: tk.expires_at,
       capabilities: resolved.capabilities,
@@ -835,6 +885,10 @@ const adminUpdateSchema = z.object({
     presence_enabled: z.boolean().optional(),
     typing_enabled: z.boolean().optional(),
     token_ttl_seconds: z.number().int().min(60).max(3600).optional(),
+    // Topology (additive — omitting these keeps the stored value, and a
+    // config that never had them behaves exactly as before: single_memory).
+    deployment_mode: z.enum(['single_memory', 'app_routed_redis', 'load_balanced_redis']).optional(),
+    load_balancer_ws_url: z.string().url().optional().or(z.literal('')),
   }).optional(),
 });
 
@@ -861,7 +915,32 @@ realtimeRouter.put('/admin/config', requireAdmin, async (req, res) => {
       centrifugo: mergedCentrifugo,
     };
 
+    // ── Safe activation (§52/§53) ────────────────────────────────────
+    // A topology change is only accepted when it can actually serve
+    // traffic. On failure the PREVIOUS config stays active — nothing is
+    // written. `force: true` allows an explicitly audited override.
+    if (next.vendor === 'centrifugo') {
+      const nextMode = resolveDeploymentMode(next.centrifugo);
+      const prevMode = resolveDeploymentMode(prev.centrifugo);
+      const force = req.body?.force === true;
+      if (nextMode !== prevMode || nextMode !== 'single_memory') {
+        const check = await preflightTopology(next);
+        if (!check.ok && !force) {
+          await getServiceClient(config).from('realtime_provider_audit').insert({
+            changed_by: adminUser.id,
+            action: 'preflight_failed',
+            vendor: next.vendor,
+            prev_vendor: prev.vendor,
+            result: 'failed',
+            error_message: check.errors.join('; ').slice(0, 500),
+          });
+          return res.status(400).json({ error: 'Preflight failed', preflight: check });
+        }
+      }
+    }
+
     await saveRealtimeConfig(config, next);
+
 
     // Audit (masked diff only)
     await getServiceClient(config).from('realtime_provider_audit').insert({
@@ -943,10 +1022,278 @@ realtimeRouter.get('/admin/audit', requireAdmin, async (req, res) => {
 
 realtimeRouter.post('/admin/refresh', requireAdmin, (_req, res) => {
   invalidateRealtimeCache();
+  invalidateNodeHealth();
   res.json({ ok: true });
 });
 
+// ─────────────────────────────────────────────────────────────────────
+//  ADMIN: Centrifugo node registry (app_routed_redis / load_balanced_redis)
+//  Super-admin only (requireAdmin = requirePlatformAdmin). Cluster secrets
+//  are never returned here — a node record holds public URLs only.
+// ─────────────────────────────────────────────────────────────────────
+const nodeInputSchema = z.object({
+  id: z.string().min(1).max(64).regex(/^[a-zA-Z0-9_-]+$/).optional(),
+  name: z.string().min(1).max(80).optional(),
+  ws_url: z.string().url(),
+  api_url: z.string().url(),
+  enabled: z.boolean().optional(),
+  accepting_new_connections: z.boolean().optional(),
+  draining: z.boolean().optional(),
+  weight: z.number().min(0).max(1000).optional(),
+  region: z.string().max(64).optional(),
+});
+const nodePatchSchema = nodeInputSchema.partial().omit({ id: true });
+
+async function auditNodeAction(
+  req: any,
+  action: string,
+  detail: Record<string, unknown>,
+  result: 'success' | 'failed' = 'success',
+  errorMessage?: string,
+) {
+  const config: ServerConfig = req.serverConfig;
+  try {
+    await getServiceClient(config).from('realtime_provider_audit').insert({
+      changed_by: req.adminUser?.id ?? null,
+      action,
+      vendor: 'centrifugo',
+      // Node records carry no secrets, so the diff is safe to store as-is.
+      config_diff: detail,
+      result,
+      error_message: errorMessage ?? null,
+      ip_address: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket?.remoteAddress,
+    });
+  } catch (err) {
+    console.warn('[realtime/admin/nodes] audit insert failed:', err);
+  }
+}
+
+/** Node list + live health (cached; forced refresh with ?refresh=1). */
+realtimeRouter.get('/admin/nodes', requireAdmin, async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const cfg = await loadRealtimeConfig(config, true);
+    const nodes = await listNodes(config);
+    const health = nodes.length
+      ? await getClusterHealth(nodes, cfg.centrifugo?.api_key || '', { force: req.query.refresh === '1' })
+      : {};
+    res.json({
+      deployment_mode: resolveDeploymentMode(cfg.centrifugo),
+      load_balancer_ws_url: cfg.centrifugo?.load_balancer_ws_url ?? null,
+      nodes: nodes.map((n) => ({
+        ...n,
+        health: health[n.id] ?? null,
+        effective_status: effectiveNodeStatus(n, health[n.id]),
+      })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Internal error' });
+  }
+});
+
+realtimeRouter.post('/admin/nodes', requireAdmin, async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const parsed = nodeInputSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid node', details: parsed.error.flatten() });
+    const nodes = await addNode(config, parsed.data as Parameters<typeof addNode>[1]);
+    await auditNodeAction(req, 'node_add', { id: parsed.data.id ?? null, ws_url: parsed.data.ws_url });
+    res.json({ ok: true, nodes });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Internal error' });
+  }
+});
+
+realtimeRouter.put('/admin/nodes/:id', requireAdmin, async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const parsed = nodePatchSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid patch', details: parsed.error.flatten() });
+    const nodes = await updateNode(config, req.params.id, parsed.data);
+    await auditNodeAction(req, 'node_update', { id: req.params.id, patch: parsed.data });
+    res.json({ ok: true, nodes });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Internal error' });
+  }
+});
+
+realtimeRouter.delete('/admin/nodes/:id', requireAdmin, async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const nodes = await removeNode(config, req.params.id);
+    await auditNodeAction(req, 'node_remove', { id: req.params.id });
+    res.json({ ok: true, nodes });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Internal error' });
+  }
+});
+
+/**
+ * Drain / resume. Draining stops NEW assignments to the node; existing
+ * WebSocket connections are deliberately left alone and migrate on their
+ * own natural reconnect (no forced disconnect, no reconnect storm).
+ */
+realtimeRouter.post('/admin/nodes/:id/drain', requireAdmin, async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const draining = req.body?.draining !== false;
+    const nodes = await setNodeDraining(config, req.params.id, draining);
+    await auditNodeAction(req, draining ? 'node_drain' : 'node_resume', { id: req.params.id });
+    res.json({ ok: true, nodes });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Internal error' });
+  }
+});
+
+/** Probe a single node (forced, bypasses the health cache). */
+realtimeRouter.post('/admin/nodes/:id/test', requireAdmin, async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const cfg = await loadRealtimeConfig(config, true);
+    const nodes = await listNodes(config);
+    const node = nodes.find((n) => n.id === req.params.id);
+    if (!node) return res.status(404).json({ error: 'Node not found' });
+    const health = await getClusterHealth([node], cfg.centrifugo?.api_key || '', { force: true });
+    res.json({ node_id: node.id, health: health[node.id] ?? null });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Internal error' });
+  }
+});
+
+/** Probe every node at once. */
+realtimeRouter.post('/admin/nodes/test-all', requireAdmin, async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const cfg = await loadRealtimeConfig(config, true);
+    const nodes = await listNodes(config);
+    const health = await getClusterHealth(nodes, cfg.centrifugo?.api_key || '', { force: true });
+    res.json({ health });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Internal error' });
+  }
+});
+
+/** Preflight the CURRENT stored config without changing anything. */
+realtimeRouter.post('/admin/preflight', requireAdmin, async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const cfg = await loadRealtimeConfig(config, true);
+    res.json(await preflightTopology(cfg));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Internal error' });
+  }
+});
+
+
+
 // ─── helpers ────────────────────────────────────────────────────────
+
+export interface TopologyPreflight {
+  ok: boolean;
+  mode: string;
+  errors: string[];
+  warnings: string[];
+  checks: Record<string, { ok: boolean; detail?: string }>;
+}
+
+/**
+ * Preflight for a topology before it is activated (§53).
+ *
+ *  single_memory       — the classic single-node requirements.
+ *  app_routed_redis    — ≥1 healthy node, the SHARED cluster API key must be
+ *                        accepted by every node, and with ≥2 nodes the nodes
+ *                        must actually see each other through the Redis
+ *                        engine (each node's `info` reports the whole
+ *                        cluster) plus a real cross-node publish.
+ *  load_balanced_redis — a valid public LB WebSocket URL.
+ */
+export async function preflightTopology(cfg: RealtimeProviderConfig): Promise<TopologyPreflight> {
+  const c = cfg.centrifugo || {};
+  const mode = resolveDeploymentMode(c);
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const checks: TopologyPreflight['checks'] = {};
+
+  if (!c.token_hmac_secret) errors.push('Cluster HMAC token secret is missing');
+  if (!c.api_key) errors.push('Cluster API key is missing');
+  checks.cluster_secrets = { ok: !!c.token_hmac_secret && !!c.api_key };
+
+  if (mode === 'single_memory') {
+    const ok = !!(c.ws_url && c.api_url);
+    if (!ok) errors.push('WebSocket URL and API URL are required');
+    checks.single_node_urls = { ok };
+    if (ok && c.api_key) {
+      const h = await new CentrifugoDriver(c as any).info();
+      checks.node_health = { ok: h.status === 'healthy', detail: h.message };
+      if (h.status !== 'healthy') errors.push(`Centrifugo unreachable: ${h.message}`);
+    }
+    return { ok: errors.length === 0, mode, errors, warnings, checks };
+  }
+
+  if (mode === 'load_balanced_redis') {
+    const lb = c.load_balancer_ws_url?.trim();
+    checks.load_balancer_url = { ok: !!lb, detail: lb };
+    if (!lb) errors.push('Load balancer WebSocket URL is required');
+  }
+
+  const nodes = normalizeNodes(c.nodes);
+  const enabled = nodes.filter((n) => n.enabled);
+  checks.nodes_registered = { ok: nodes.length > 0, detail: `${nodes.length} node(s)` };
+  if (mode === 'app_routed_redis' && !enabled.length) {
+    errors.push('At least one enabled node is required for app-routed mode');
+  }
+  if (mode === 'load_balanced_redis' && !nodes.length) {
+    warnings.push('No nodes registered — health of the pool behind the load balancer cannot be verified');
+  }
+
+  if (enabled.length && c.api_key) {
+    const health = await getClusterHealth(enabled, c.api_key, { force: true });
+    const healthy = enabled.filter((n) => health[n.id]?.status === 'healthy');
+    checks.healthy_nodes = { ok: healthy.length > 0, detail: `${healthy.length}/${enabled.length} healthy` };
+    if (!healthy.length) errors.push('No healthy node could be reached with the shared cluster API key');
+
+    for (const n of enabled) {
+      const h = health[n.id];
+      if (h && h.status !== 'healthy') warnings.push(`Node ${n.id}: ${h.status} — ${h.message ?? 'no detail'}`);
+    }
+
+    if (healthy.length >= 2) {
+      // Redis coordination proof: with a shared Redis engine every node
+      // reports the whole cluster in `info`, so num_nodes > 1 on a node can
+      // only happen when the engine is genuinely shared.
+      const driverA = new CentrifugoDriver({ ...(c as any), api_url: healthy[0].api_url });
+      const infoA = await driverA.info();
+      const coordinated = (infoA.num_nodes ?? 1) >= 2;
+      checks.redis_coordination = {
+        ok: coordinated,
+        detail: `node ${healthy[0].id} sees ${infoA.num_nodes ?? 1} cluster node(s)`,
+      };
+      if (!coordinated) errors.push('Nodes do not see each other — shared Redis engine could not be proven');
+
+      // Cross-node publish: publishing through node A must be accepted; with
+      // a shared engine the message reaches subscribers attached to node B.
+      const pub = await driverA.publish(`ws:preflight:conv:${Date.now()}`, { kind: 'preflight' });
+      checks.cross_node_publish = { ok: pub.ok, detail: pub.error };
+      if (!pub.ok) errors.push(`Cross-node publish failed: ${pub.error}`);
+
+      checks.presence_enabled = { ok: c.presence_enabled !== false };
+      if (c.presence_enabled === false) warnings.push('Presence is disabled — operator live presence will use the database fallback');
+    } else if (mode === 'app_routed_redis') {
+      warnings.push('Only one healthy node — cross-node publish/presence was not verified');
+    }
+
+    // Router sanity: the selection layer must be able to return a node.
+    const picked = selectNode(nodes, health);
+    checks.router_can_select = { ok: !!picked.node, detail: picked.node?.id ?? picked.reason };
+    if (mode === 'app_routed_redis' && !picked.node) {
+      errors.push(`Node router cannot select any node (${picked.reason})`);
+    }
+  }
+
+  return { ok: errors.length === 0, mode, errors, warnings, checks };
+}
+
+
 function mergeCentrifugo(prev: any, next: any): any {
   const result: any = { ...(prev || {}) };
   if (!next) return result;

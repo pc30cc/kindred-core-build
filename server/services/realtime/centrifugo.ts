@@ -161,6 +161,55 @@ export class CentrifugoDriver {
   }
 
   /**
+   * Richer variant of `health()` used by the node router: same `info` call,
+   * but also returns the live client count Centrifugo reports for the node
+   * (summed across the nodes it knows about). Live connection counts are
+   * READ from Centrifugo, never stored in PostgreSQL.
+   */
+  async info(): Promise<{
+    status: 'healthy' | 'degraded' | 'down';
+    message: string;
+    num_clients?: number;
+    num_nodes?: number;
+  }> {
+    if (!this.cfg.api_url || !this.cfg.api_key) {
+      return { status: 'down', message: 'API URL or API key not configured' };
+    }
+    try {
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 5000);
+      const res = await fetch(this.cfg.api_url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': this.cfg.api_key },
+        body: JSON.stringify({ method: 'info', params: {} }),
+        signal: ctrl.signal,
+      });
+      clearTimeout(timeout);
+      if (!res.ok) return { status: 'down', message: `HTTP ${res.status}` };
+      const data: unknown = await res.json().catch(() => null);
+      if (!isCentrifugoApiResponse(data) || data.error) {
+        return { status: 'degraded', message: 'Unexpected response shape' };
+      }
+      const result = data.result as { nodes?: Array<{ num_clients?: number }> } | undefined;
+      const nodes = Array.isArray(result?.nodes) ? result!.nodes! : [];
+      const num_clients = nodes.reduce(
+        (sum, n) => sum + (typeof n?.num_clients === 'number' ? n.num_clients : 0),
+        0
+      );
+      return {
+        status: 'healthy',
+        message: 'Centrifugo info OK',
+        num_clients: nodes.length ? num_clients : undefined,
+        num_nodes: nodes.length || undefined,
+      };
+    } catch (err: any) {
+      return { status: 'down', message: err?.message || 'Connection failed' };
+    }
+  }
+
+
+
+  /**
    * Server-side presence read for a channel.
    *
    * Returns the distinct `user` (JWT `sub`) values currently subscribed to

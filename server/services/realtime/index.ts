@@ -20,6 +20,25 @@ import {
 export * from './types.js';
 export { CentrifugoDriver } from './centrifugo.js';
 export { loadRealtimeConfig, saveRealtimeConfig, invalidateRealtimeCache, maskedConfig } from './store.js';
+export {
+  getNodeHealth,
+  getClusterHealth,
+  peekNodeHealth,
+  invalidateNodeHealth,
+  effectiveNodeStatus,
+  type NodeHealthSnapshot,
+} from './nodeHealth.js';
+export { selectNode, eligibleNodes, type NodeSelectionResult } from './nodeRouter.js';
+export {
+  listNodes,
+  addNode,
+  updateNode,
+  removeNode,
+  setNodeDraining,
+  getDeploymentMode,
+  type NodeInput,
+} from './nodeRegistry.js';
+export { assignRealtimeEndpoint, type RealtimeAssignment } from './assignment.js';
 
 /**
  * Resolve the effective realtime provider.

@@ -27,7 +27,9 @@ import {
   Radio, Settings, TestTube, RefreshCw, ShieldAlert, History, CheckCircle, AlertTriangle, XCircle, Zap,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { useTranslation } from '@/i18n';
 import { realtimeAdminApi, type RealtimeAdminConfig } from '@/lib/realtime-admin-api';
+import { RealtimeTopologyTab } from './RealtimeTopologyTab';
 
 const SECRET_PLACEHOLDER = '••••••••';
 
@@ -186,6 +188,7 @@ function RealtimeConfigDialog({
   config?: RealtimeAdminConfig;
   onSaved: () => void;
 }) {
+  const { t } = useTranslation();
   const [vendor, setVendor] = useState<'centrifugo' | 'polling_builtin' | 'disabled'>('polling_builtin');
   const [enabled, setEnabled] = useState(true);
   const [fallbackPolicy, setFallbackPolicy] = useState<'lenient' | 'strict'>('lenient');
@@ -252,8 +255,21 @@ function RealtimeConfigDialog({
           <TabsList className="bg-muted">
             <TabsTrigger value="vendor">Vendor</TabsTrigger>
             <TabsTrigger value="centrifugo" disabled={vendor !== 'centrifugo'}>Centrifugo</TabsTrigger>
+            <TabsTrigger value="topology" disabled={vendor !== 'centrifugo'}>
+              {t('admin.realtimeTopology.tab')}
+            </TabsTrigger>
             <TabsTrigger value="policy">Fallback Policy</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="topology" className="space-y-3">
+            <RealtimeTopologyTab
+              mode={centrifugo.deployment_mode ?? 'single_memory'}
+              loadBalancerUrl={centrifugo.load_balancer_ws_url ?? ''}
+              onModeChange={(m) => updateC('deployment_mode', m)}
+              onLoadBalancerUrlChange={(v) => updateC('load_balancer_ws_url', v)}
+            />
+          </TabsContent>
+
 
           <TabsContent value="vendor" className="space-y-3">
             <div className="space-y-1.5">

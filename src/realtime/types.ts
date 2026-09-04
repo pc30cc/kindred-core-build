@@ -88,4 +88,15 @@ export interface RealtimeNegotiation {
   token?: string;
   expires_at?: number;
   capabilities?: Record<string, boolean>;
+  /**
+   * Multi-node topology (Centrifugo only, informational for the client).
+   * `node_id` is the node the backend assigned in `app_routed_redis` mode;
+   * absent in single-node and load-balanced modes. The client must NOT
+   * pin to it — every reconnect asks the backend for a fresh assignment,
+   * which is how draining a node moves clients away without a forced
+   * disconnect.
+   */
+  node_id?: string;
+  deployment_mode?: 'single_memory' | 'app_routed_redis' | 'load_balanced_redis';
 }
+

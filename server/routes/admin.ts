@@ -12,6 +12,7 @@ import { issueRecoveryEmail } from '../services/auth-email.js';
 import { deleteFile } from '../services/storage/index.js';
 import { adminWidgetRouter } from './adminWidget.js';
 import { adminMetricsRouter } from './adminMetrics.js';
+import { adminMonitoringRouter } from './adminMonitoring.js';
 import { adminAlertsRouter } from './adminAlerts.js';
 import { adminPerfRouter } from './adminPerf.js';
 import { adminAutoActionsRouter } from './adminAutoActions.js';
@@ -92,6 +93,7 @@ adminRouter.use('/database', adminDatabaseRouter);
 
 // Phase 3 — observability (super admin only)
 adminRouter.use('/metrics', adminMetricsRouter);
+adminRouter.use('/monitoring', adminMonitoringRouter);
 
 // Phase 4 — alerting & anomaly detection (super admin only)
 adminRouter.use('/alerts', adminAlertsRouter);

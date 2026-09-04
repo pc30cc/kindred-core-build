@@ -180,7 +180,7 @@
     "--gs-fab-exit:calc(var(--gs-fab-size,56px) + 56px);",
     "width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:50%;border:none;cursor:pointer;",
     "box-shadow:0 3px 12px -4px var(--gs-shadow,rgba(0,0,0,.16)),0 0 0 1px rgba(0,0,0,.03);",
-    "transition:transform .38s cubic-bezier(.4,0,.2,1),box-shadow .2s ease;",
+    "transition:transform .62s cubic-bezier(.33,1,.68,1),box-shadow .2s ease;",
     "background:var(--gs-primary,transparent);color:#fff;font-family:inherit;",
     "opacity:1;}",
     /* First paint: the FAB starts fully outside the browser edge and slides
@@ -220,7 +220,7 @@
     "--gs-fab-exit:calc(var(--gs-fab-size,56px) + 56px);",
     "height:calc(var(--gs-fab-size,56px) - 4px);padding:0 16px;border-radius:.9rem;background:#fff;",
     "box-shadow:0 8px 20px rgba(0,0,0,.12);white-space:nowrap;font-family:inherit;pointer-events:none;",
-    "transition:transform .38s cubic-bezier(.4,0,.2,1);transform:translateY(0);}",
+    "transition:transform .62s cubic-bezier(.33,1,.68,1);transform:translateY(0);}",
     ".gs-fab-label .label-title{font-size:13px;font-weight:600;color:#1c2024;line-height:1.3;}",
     ".gs-fab-label .label-sub{font-size:11px;color:#60646c;line-height:1.3;}",
     ".gs-fab-label.enter{transform:translateY(var(--gs-fab-exit,112px));}",

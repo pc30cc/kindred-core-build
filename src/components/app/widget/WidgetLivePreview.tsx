@@ -517,7 +517,7 @@ export function WidgetLivePreview({
     --gs-fab-exit:calc(var(--gs-fab-size,56px) + 56px);
     width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:${fabRadius};border:none;cursor:pointer;
     box-shadow:0 3px 12px -4px var(--gs-shadow,rgba(0,0,0,.16)),0 0 0 1px rgba(0,0,0,.03);
-    transition:transform .38s cubic-bezier(.4,0,.2,1),box-shadow .2s ease;
+    transition:transform .62s cubic-bezier(.33,1,.68,1),box-shadow .2s ease;
      background:${esc(primary)};color:${esc(fabIconColor)};}
   .launcher.bottom-right{right:0;left:auto;}
   .launcher.bottom-left{left:0;right:auto;}
@@ -538,7 +538,7 @@ export function WidgetLivePreview({
     height:calc(var(--gs-fab-size,56px) - 4px);padding:0 16px;border-radius:.9rem;background:#fff;white-space:nowrap;
     box-shadow:0 8px 20px rgba(0,0,0,.12);pointer-events:none;
     ${pos === 'bottom-left' ? `left:${fabSize + 10}px` : `right:${fabSize + 10}px`};
-    transition:transform .38s cubic-bezier(.4,0,.2,1);transform:translateY(0);}
+    transition:transform .62s cubic-bezier(.33,1,.68,1);transform:translateY(0);}
   .fab-label .label-title{font-size:13px;font-weight:600;line-height:1.3;color:${esc(s.fab_text_color && s.fab_text_color !== '#fff' && s.fab_text_color !== '#ffffff' ? s.fab_text_color : '#1c2024')};}
   .fab-label .label-sub{font-size:11px;line-height:1.3;color:#60646c;}
   .fab-label.enter{transform:translateY(var(--gs-fab-exit,112px));}
@@ -744,14 +744,14 @@ export function WidgetLivePreview({
     // starts closed and only opens when the rule says a visitor would see it.
     setOpen(!GS_SMART.enabled);
     // Entry parity: when the FAB is the first thing shown it slides up from
-    // outside the browser edge with the same 0.38s curve production uses.
+    // outside the browser edge with the same 0.62s curve production uses.
     if (!isOpen()) {
       [launcher, label].forEach(function (element) {
         if (!element) return;
         if (typeof element.animate === 'function') {
           element.animate(
             [{ transform: 'translateY(var(--gs-fab-exit,112px))' }, { transform: 'translateY(0)' }],
-            { duration: 520, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'none' }
+            { duration: 620, easing: 'cubic-bezier(.33,1,.68,1)', fill: 'none' }
           );
           return;
         }

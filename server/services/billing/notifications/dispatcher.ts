@@ -84,17 +84,24 @@ export async function dispatchBillingNotifications(
   // The branded templates render a CTA button and must never emit an empty
   // href — and it must point at THE billed workspace, not whichever workspace
   // happens to be first for the recipient. Resolved once per workspace/batch.
-  const billingUrlByWorkspace = new Map<string, string>();
-  async function billingUrlFor(workspaceId: string): Promise<string> {
-    const cached = billingUrlByWorkspace.get(workspaceId);
+  //
+  // When the job is about a specific invoice the CTA must open THAT invoice's
+  // payable document (`/:slug/billing/pay/invoice/:id`), not the billing hub —
+  // a customer who clicks "pay invoice 1404-000123" must land on it directly.
+  // Jobs with no invoice (free fallback, restored subscription) keep the hub.
+  const billingUrlByKey = new Map<string, string>();
+  async function billingUrlFor(workspaceId: string, invoiceId: string | null): Promise<string> {
+    const path = invoiceId ? `/billing/pay/invoice/${encodeURIComponent(invoiceId)}` : '/billing';
+    const key = `${workspaceId}::${path}`;
+    const cached = billingUrlByKey.get(key);
     if (cached !== undefined) return cached;
     let url = '';
     try {
-      url = await resolveWorkspaceAppUrl(config, workspaceId, '/billing');
+      url = await resolveWorkspaceAppUrl(config, workspaceId, path);
     } catch {
       url = '';
     }
-    billingUrlByWorkspace.set(workspaceId, url);
+    billingUrlByKey.set(key, url);
     return url;
   }
 
@@ -129,7 +136,10 @@ export async function dispatchBillingNotifications(
               // The rendered fallback below is used verbatim when an admin has
               // not authored a template for this slug/locale yet.
               templateSlug: job.notification_type,
-              templateData: buildBillingTemplateData(locale, { action_url: await billingUrlFor(job.workspace_id), ...(job.payload || {}) }),
+              templateData: buildBillingTemplateData(locale, {
+                ...(job.payload || {}),
+                action_url: await billingUrlFor(job.workspace_id, job.invoice_id),
+              }),
               subject: msg.subject,
               text: msg.text,
               html: `<p>${escapeHtml(msg.text).replace(/\n/g, '<br />')}</p>`,

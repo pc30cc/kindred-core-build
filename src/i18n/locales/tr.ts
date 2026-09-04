@@ -2,6 +2,20 @@ import type { TranslationKeys } from './en';
 
 const tr: TranslationKeys = {
     billingV2: {
+    checkout: {
+      back: 'Faturalandırmaya dön',
+      print: 'Yazdır',
+      invoiceTitle: 'Fatura',
+      depositTitle: 'Cüzdan yükleme faturası',
+      depositLine: 'Cüzdan yükleme',
+      payable: 'Ödenecek tutar',
+      chooseGateway: 'Bir ödeme yöntemi seçin',
+      chooseGatewayHint: 'Aktif ödeme sağlayıcılarından birini seçin ve ödemeye devam edin.',
+      testGateway: 'Test sağlayıcısı',
+      noGateway: 'Şu anda aktif bir ödeme sağlayıcısı yok. Lütfen destek ile iletişime geçin.',
+      payNow: '{{amount}} öde',
+      alreadyPaid: 'Bu belge zaten ödendi.',
+    },
     title: 'Plan ve Ödeme',
     subtitle: 'Çalışma alanınızın planını, faturalarını, cüzdanını ve yapay zekâ kredisini yönetin.',
     tabs: { overview: 'Genel bakış', invoices: 'Faturalar', plans: 'Planlar', wallet: 'Cüzdan', aiCredit: 'YZ Kredisi', transactions: 'İşlemler' },
@@ -67,6 +81,8 @@ const tr: TranslationKeys = {
       invoiceCreated: '{{number}} numaralı fatura oluşturuldu.', scheduled: 'Plan değişikliği planlandı.',
     },
     wallet: {
+      customLabel: 'Tutar (Toman)',
+      issueDepositInvoice: 'Bakiye yükleme faturası oluştur',
       title: 'Cüzdan', balance: 'Cüzdan bakiyesi', deposit: 'Bakiye yükle', depositTitle: 'Cüzdana bakiye yükle',
       presets: 'Önerilen tutarlar', custom: 'Özel tutar', range: '{{min}} ile {{max}} arasında',
       autoPay: 'Otomatik ödeme', autoPayDesc: 'Fatura düzenlenmesi cüzdandan tahsilat yapmaz; ödeme vade tarihinde gerçekleşir.',
@@ -77,6 +93,7 @@ const tr: TranslationKeys = {
       entryTypes: { deposit: 'Cüzdan yüklemesi', invoice_payment: 'Fatura ödemesi', refund: 'İade', credit: 'Alacak', debit: 'Borç', admin_adjustment: 'Destek düzeltmesi', chargeback: 'Ters ibraz' },
     },
     ai: {
+      issueCreditInvoice: 'Kredi faturası oluştur',
       title: 'YZ Kredisi', cycleAllowance: 'Bu döngüdeki plan kredisi', used: 'Kullanılan', remaining: 'Kalan',
       cycleRange: 'Döngü: {{start}} — {{end}}', annualBadge: 'Yıllık planda aylık yükleme',
       purchased: 'Satın alınan kredi', buy: 'Kredi satın al', buyTitle: 'Yapay zekâ kredisi satın al', amount: 'Tutar',

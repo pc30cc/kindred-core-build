@@ -2,6 +2,20 @@ import type { TranslationKeys } from './en';
 
 const fa: TranslationKeys = {
     billingV2: {
+    checkout: {
+      back: 'بازگشت به پلن و پرداخت',
+      print: 'چاپ',
+      invoiceTitle: 'فاکتور',
+      depositTitle: 'فاکتور افزایش موجودی کیف پول',
+      depositLine: 'افزایش موجودی کیف پول',
+      payable: 'مبلغ قابل پرداخت',
+      chooseGateway: 'روش پرداخت را انتخاب کنید',
+      chooseGatewayHint: 'یکی از درگاه‌های فعال را انتخاب کنید و سپس روی دکمه پرداخت بزنید.',
+      testGateway: 'درگاه آزمایشی',
+      noGateway: 'در حال حاضر هیچ درگاه پرداخت فعالی وجود ندارد. با پشتیبانی تماس بگیرید.',
+      payNow: 'پرداخت {{amount}}',
+      alreadyPaid: 'این فاکتور پرداخت شده است.',
+    },
     title: 'پلن و پرداخت',
     subtitle: 'پلن، فاکتورها، کیف پول و اعتبار هوش مصنوعی فضای کاری خود را مدیریت کنید.',
     tabs: { overview: 'نمای کلی', invoices: 'فاکتورها', plans: 'پلن‌ها', wallet: 'کیف پول', aiCredit: 'اعتبار هوش مصنوعی', transactions: 'تراکنش‌ها' },
@@ -67,6 +81,8 @@ const fa: TranslationKeys = {
       invoiceCreated: 'فاکتور {{number}} صادر شد.', scheduled: 'تغییر پلن ثبت شد.',
     },
     wallet: {
+      customLabel: 'مبلغ مورد نظر (تومان)',
+      issueDepositInvoice: 'صدور فاکتور افزایش موجودی',
       title: 'کیف پول', balance: 'موجودی کیف پول', deposit: 'افزایش موجودی', depositTitle: 'افزایش موجودی کیف پول',
       presets: 'مبالغ پیشنهادی', custom: 'مبلغ دلخواه', range: 'بین {{min}} تا {{max}}',
       autoPay: 'پرداخت خودکار', autoPayDesc: 'صدور فاکتور باعث کسر خودکار نمی‌شود؛ پرداخت در تاریخ سررسید انجام می‌شود.',
@@ -77,6 +93,7 @@ const fa: TranslationKeys = {
       entryTypes: { deposit: 'شارژ کیف پول', invoice_payment: 'پرداخت فاکتور', refund: 'بازپرداخت', credit: 'افزایش موجودی', debit: 'کاهش موجودی', admin_adjustment: 'اصلاح توسط پشتیبانی', chargeback: 'برگشت وجه' },
     },
     ai: {
+      issueCreditInvoice: 'صدور فاکتور خرید اعتبار',
       title: 'اعتبار هوش مصنوعی', cycleAllowance: 'اعتبار پلن در چرخه فعلی', used: 'مصرف‌شده', remaining: 'باقی‌مانده',
       cycleRange: 'چرخه: {{start}} تا {{end}}', annualBadge: 'شارژ ماهانه در پلن سالانه',
       purchased: 'اعتبار خریداری‌شده', buy: 'خرید اعتبار', buyTitle: 'خرید اعتبار هوش مصنوعی', amount: 'مبلغ',

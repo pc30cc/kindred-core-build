@@ -9,7 +9,12 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Wallet, Receipt, TrendingUp, Users } from 'lucide-react';
+import { Wallet, Receipt, TrendingUp, Users, Trash2 } from 'lucide-react';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { useTranslation } from '@/i18n';
 import { adminBillingApi, type AdminFinanceOverview } from '@/lib/adminBillingApi';
@@ -22,6 +27,12 @@ const DICT = {
     number: 'شماره', workspace: 'ورک‌اسپیس', amount: 'مبلغ', status: 'وضعیت', date: 'تاریخ',
     method: 'روش', search: 'جستجو…', prev: 'قبلی', next: 'بعدی', empty: 'موردی یافت نشد',
     plan: 'پلن', balance: 'کیف پول', failed: 'دریافت اطلاعات ناموفق بود',
+    dangerTitle: 'پاک‌سازی داده‌های مالی',
+    dangerDesc: 'حذف کامل فاکتورها، پرداخت‌ها، کیف پول‌ها، دوره‌های اشتراک و مصرف هوش مصنوعی. پلن‌ها، ارزها، درگاه‌ها، مالیات و کوپن‌ها دست‌نخورده می‌مانند.',
+    dangerBtn: 'پاک‌سازی همه داده‌های مالی',
+    dangerConfirm: 'این کار برگشت‌ناپذیر است. همه فاکتورها، پرداخت‌ها، موجودی کیف پول‌ها و اشتراک‌های فعال حذف می‌شوند و همه ورک‌اسپیس‌ها به حالت بدون اشتراک برمی‌گردند. ادامه می‌دهید؟',
+    cancel: 'انصراف', confirm: 'بله، پاک کن',
+    dangerDone: 'داده‌های مالی پاک شد', dangerFail: 'پاک‌سازی ناموفق بود',
   },
   en: {
     revenue: 'Revenue (30d)', outstanding: 'Outstanding', wallets: 'Wallet balances',
@@ -29,6 +40,12 @@ const DICT = {
     number: 'Number', workspace: 'Workspace', amount: 'Amount', status: 'Status', date: 'Date',
     method: 'Method', search: 'Search…', prev: 'Previous', next: 'Next', empty: 'Nothing found',
     plan: 'Plan', balance: 'Wallet', failed: 'Could not load data',
+    dangerTitle: 'Reset financial data',
+    dangerDesc: 'Deletes all invoices, payments, wallets, subscription periods and AI usage. Plans, currencies, gateways, tax and coupons are kept.',
+    dangerBtn: 'Delete all financial data',
+    dangerConfirm: 'This cannot be undone. All invoices, payments, wallet balances and active subscriptions are removed and every workspace returns to no subscription. Continue?',
+    cancel: 'Cancel', confirm: 'Yes, delete',
+    dangerDone: 'Financial data cleared', dangerFail: 'Reset failed',
   },
   tr: {
     revenue: 'Gelir (30g)', outstanding: 'Ödenmemiş', wallets: 'Cüzdan bakiyeleri',
@@ -36,6 +53,12 @@ const DICT = {
     number: 'Numara', workspace: 'Çalışma alanı', amount: 'Tutar', status: 'Durum', date: 'Tarih',
     method: 'Yöntem', search: 'Ara…', prev: 'Önceki', next: 'Sonraki', empty: 'Kayıt yok',
     plan: 'Plan', balance: 'Cüzdan', failed: 'Veri alınamadı',
+    dangerTitle: 'Finansal verileri sıfırla',
+    dangerDesc: 'Tüm faturalar, ödemeler, cüzdanlar, abonelik dönemleri ve yapay zeka kullanımı silinir. Planlar, para birimleri, sağlayıcılar, vergi ve kuponlar korunur.',
+    dangerBtn: 'Tüm finansal verileri sil',
+    dangerConfirm: 'Bu işlem geri alınamaz. Tüm faturalar, ödemeler, cüzdan bakiyeleri ve aktif abonelikler silinir. Devam edilsin mi?',
+    cancel: 'Vazgeç', confirm: 'Evet, sil',
+    dangerDone: 'Finansal veriler temizlendi', dangerFail: 'Sıfırlama başarısız',
   },
 } as const;
 
@@ -68,25 +91,78 @@ export function FinanceOverviewTab() {
   ];
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      {cards.map((c) => (
-        <Card key={c.label} className="border-border/70">
-          <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-2 text-xs">
-              <c.icon className="w-4 h-4 text-primary" />
-              {c.label}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {data ? (
-              <div className="text-xl font-bold tabular-nums">{c.value}</div>
-            ) : (
-              <Skeleton className="h-7 w-32" />
-            )}
-          </CardContent>
-        </Card>
-      ))}
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {cards.map((c) => (
+          <Card key={c.label} className="border-border/70">
+            <CardHeader className="pb-2">
+              <CardDescription className="flex items-center gap-2 text-xs">
+                <c.icon className="w-4 h-4 text-primary" />
+                {c.label}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {data ? (
+                <div className="text-xl font-bold tabular-nums">{c.value}</div>
+              ) : (
+                <Skeleton className="h-7 w-32" />
+              )}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <FinanceDangerZone onDone={() => adminBillingApi.overview().then(setData).catch(() => undefined)} />
     </div>
+  );
+}
+
+/**
+ * Full financial reset. Configuration (plans, currencies, gateways, tax,
+ * coupons) survives; every transactional record does not.
+ */
+function FinanceDangerZone({ onDone }: { onDone: () => void }) {
+  const { d } = useDict();
+  const [busy, setBusy] = useState(false);
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      await adminBillingApi.resetBillingData();
+      toast.success(d.dangerDone);
+      onDone();
+    } catch {
+      toast.error(d.dangerFail);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="border-destructive/40">
+      <CardHeader>
+        <CardTitle className="text-destructive flex items-center gap-2">
+          <Trash2 className="w-4 h-4" /> {d.dangerTitle}
+        </CardTitle>
+        <CardDescription>{d.dangerDesc}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="destructive" disabled={busy}>{d.dangerBtn}</Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{d.dangerTitle}</AlertDialogTitle>
+              <AlertDialogDescription>{d.dangerConfirm}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{d.cancel}</AlertDialogCancel>
+              <AlertDialogAction onClick={run}>{d.confirm}</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </CardContent>
+    </Card>
   );
 }
 

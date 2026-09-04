@@ -22,7 +22,7 @@ import { getServiceClient } from '../../../supabase.js';
 import { bumpMetric } from '../rollout.js';
 import { sendEmail } from '../../email/index.js';
 import { sendSms } from '../../sms/index.js';
-import { resolveAppBaseUrl } from '../../auth-email.js';
+import { resolveWorkspaceAppUrl } from '../../auth-email.js';
 import { renderBillingNotification, buildBillingTemplateData, type BillingNotificationType } from './messages.js';
 
 export interface NotificationBatchResult {
@@ -129,7 +129,7 @@ export async function dispatchBillingNotifications(
               // The rendered fallback below is used verbatim when an admin has
               // not authored a template for this slug/locale yet.
               templateSlug: job.notification_type,
-              templateData: buildBillingTemplateData(locale, { action_url: billingUrl, ...(job.payload || {}) }),
+              templateData: buildBillingTemplateData(locale, { action_url: await billingUrlFor(job.workspace_id), ...(job.payload || {}) }),
               subject: msg.subject,
               text: msg.text,
               html: `<p>${escapeHtml(msg.text).replace(/\n/g, '<br />')}</p>`,

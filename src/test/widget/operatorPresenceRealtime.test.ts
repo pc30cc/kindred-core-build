@@ -396,9 +396,9 @@ describe('operator presence — realtime-first', () => {
     expect(presenceWrites).toBe(0);
     expect(db.operator_presence_live.length).toBe(0);
 
-    // Centrifugo goes globally down.
+    // Centrifugo goes globally down (warm instances: each still holds its
+    // OWN workspace's last known-good roster).
     state.driverDown = true;
-    resetPresenceSourceCache();
 
     for (let s10 = 0; s10 <= 12; s10++) {
       const t = at(31 + s10 / 6);
@@ -422,7 +422,9 @@ describe('operator presence — realtime-first', () => {
     const rowA = db.operator_presence_fallback_state.find((r: any) => r.scope === WS);
     const rowB = db.operator_presence_fallback_state.find((r: any) => r.scope === WS_B);
     expect(rowA.roster).toEqual([USER]);
+    expect(rowA.roster_complete).toBe(true);
     expect(rowB.roster).toEqual([USER_B]);
+    expect(rowB.roster_complete).toBe(true);
   });
 
   it('L2 — cold instance (empty read cache) honours the shared breaker without leaking rosters', async () => {

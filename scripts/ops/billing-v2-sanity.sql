@@ -17,10 +17,10 @@ BEGIN
     'billing_invoices', 'billing_invoice_lines', 'billing_invoice_applications',
     'billing_invoice_collections', 'billing_subscription_periods',
     'billing_period_allowance_grants', 'billing_wallet_accounts',
-    'billing_wallet_entries', 'billing_wallet_deposits',
+    'billing_wallet_ledger', 'billing_wallet_deposits',
     'billing_v2_rollout', 'billing_v2_audit', 'billing_v2_policy',
     'billing_v2_workspace_policy', 'billing_v2_jobs', 'billing_v2_worker_health',
-    'billing_entitlement_cycles', 'billing_v2_notification_jobs'
+    'billing_entitlement_cycles', 'billing_notification_jobs'
   ] LOOP
     IF to_regclass('public.' || t) IS NULL THEN
       v_missing := v_missing || t;

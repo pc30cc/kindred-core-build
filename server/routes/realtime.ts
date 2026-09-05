@@ -50,7 +50,15 @@ import {
   isVisitorsChannel,
   isOperatorPresenceChannel,
   buildOperatorPresenceChannelName,
+  buildVisitorPresenceChannelName,
+  buildVisitorPresenceSubject,
+  isVisitorPresenceChannel,
+  visitorPresenceShard,
 } from '../services/realtime/types.js';
+import {
+  resolveVisitorPresenceMode,
+  getVisitorPresenceMetrics,
+} from '../services/visitors/presenceSource.js';
 import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';
 import { emitMetric } from '../services/observability/metrics.js';
 import { getMonitoringCollector } from '../services/observability/collector/index.js';
@@ -362,6 +370,123 @@ realtimeRouter.post('/reconnect-signal', async (req, res) => {
     return res.json({ ok: true });
   } catch (err: any) {
     console.error('[realtime/reconnect-signal] error:', err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────
+//  PUBLIC: /api/realtime/visitor-presence
+//
+//  Visitor LIVE PRESENCE negotiation. The widget loader holds a subscription
+//  to its sharded presence channel for as long as the page is open; that
+//  membership IS the presence signal, so the backend no longer needs a
+//  database heartbeat to know the visitor is here.
+//
+//  Security:
+//    • the session id is verified to belong to this workspace AND to this
+//      visitor's HttpOnly cookie identity — a client-supplied id is never
+//      trusted;
+//    • the channel name is derived server-side from the verified session id
+//      (no client-chosen channel, no cross-workspace shard);
+//    • the `vp` namespace must have allow_presence_for_client=false, so a
+//      visitor can never enumerate the other visitors sharing its shard.
+// ─────────────────────────────────────────────────────────────────────
+const visitorPresenceSchema = z.object({
+  workspace_id: z.string().uuid(),
+  session_id: z.string().uuid(),
+});
+
+realtimeRouter.post('/visitor-presence', async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  try {
+    const parsed = visitorPresenceSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+    const { workspace_id: workspaceId, session_id: sessionId } = parsed.data;
+
+    const widgetToken = req.headers['x-widget-token'] as string | undefined;
+    if (!widgetToken) return res.status(401).json({ error: 'Missing widget token' });
+    const tokRes = verifySessionToken(widgetToken);
+    if (!tokRes.valid || tokRes.workspaceId !== workspaceId) {
+      return res.status(401).json({ error: 'Invalid widget session' });
+    }
+    if (!(await enforceWorkspaceOrigin(req, res, config, workspaceId))) return;
+
+    // Realtime presence must actually be the authoritative source; otherwise
+    // the widget keeps its database heartbeat and we mint nothing.
+    if ((await resolveVisitorPresenceMode(config, workspaceId)) !== 'realtime') {
+      return res.json({ vendor: 'database', presence: false });
+    }
+
+    // Server-authorized identity: the session row must belong to this
+    // workspace and (when the visitor cookie is present) to this visitor.
+    const sb = getServiceClient(config);
+    const { data: session } = await sb
+      .from('visitor_sessions')
+      .select('id, workspace_id, visitor_id')
+      .eq('id', sessionId)
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+    if (!session) {
+      emitMetric(config, {
+        metric: 'realtime.channel_ownership_reject',
+        workspaceId,
+        driver: 'centrifugo',
+        tags: { reason: 'session_not_in_workspace', endpoint: 'visitor-presence' },
+      });
+      return res.status(403).json({ error: 'Session not accessible' });
+    }
+    const visitor = readVisitorCookie(req as any, workspaceId);
+    if (visitor?.v && session.visitor_id && visitor.v !== session.visitor_id) {
+      emitMetric(config, {
+        metric: 'realtime.channel_ownership_reject',
+        workspaceId,
+        driver: 'centrifugo',
+        tags: { reason: 'session_visitor_mismatch', endpoint: 'visitor-presence' },
+      });
+      return res.status(403).json({ error: 'Session not accessible' });
+    }
+
+    const driver = await getCentrifugoDriver(config);
+    if (!driver) return res.json({ vendor: 'database', presence: false });
+
+    const assignment = await assignRealtimeEndpoint(config);
+    if (!assignment.ws_url) {
+      return res.json({ vendor: 'database', presence: false, reason: assignment.reason });
+    }
+
+    const shard = visitorPresenceShard(sessionId);
+    const channel = buildVisitorPresenceChannelName(workspaceId, shard);
+    if (!isVisitorPresenceChannel(channel, workspaceId)) {
+      return res.status(500).json({ error: 'Channel derivation failed' });
+    }
+    const sub = buildVisitorPresenceSubject(sessionId);
+    const platform = await loadWidgetPlatformRuntimeSettings(config);
+    const ttl = platform.realtime.tokenTtlSeconds;
+
+    const conn = driver.issueConnectionToken({
+      sub,
+      workspace_id: workspaceId,
+      expires_in_seconds: ttl,
+    });
+    const subTok = driver.issueSubscriptionToken({
+      sub,
+      channel,
+      workspaceId,
+      expiresInSeconds: ttl,
+    });
+
+    return res.json({
+      vendor: 'centrifugo',
+      presence: true,
+      ws_url: assignment.ws_url,
+      node_id: assignment.node_id ?? null,
+      token: conn.token,
+      channel,
+      sub_token: subTok.token,
+      expires_at: conn.expires_at,
+    });
+  } catch (err: any) {
+    console.error('[realtime/visitor-presence] error:', err);
     return res.status(500).json({ error: 'Internal error' });
   }
 });

@@ -1127,6 +1127,7 @@ export default function InboxPage() {
 
   const toolbarTabsNode = (
           <div
+            ref={tabsRowRef}
             role="tablist"
             aria-label={t('inbox.title') || 'Inbox'}
             className="flex h-full items-end gap-1"

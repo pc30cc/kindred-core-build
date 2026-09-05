@@ -24,6 +24,7 @@ import { workspaceInvitationsRouter } from './routes/workspaceInvitations.js';
 import { widgetSettingsRouter } from './routes/widgetSettings.js';
 import { workspaceIntegrationsRouter } from './routes/workspaceIntegrations.js';
 import { notificationsRouter } from './routes/notifications.js';
+import { pushRouter } from './routes/push.js';
 import { workspaceAlertsRouter } from './routes/workspaceAlerts.js';
 import { availabilityRouter } from './routes/availability.js';
 import { operatorActivityRouter } from './routes/operatorActivity.js';
@@ -376,6 +377,9 @@ app.use('/api/workspace-integrations', workspaceIntegrationsRouter);
 
 // Self-service notification preferences
 app.use('/api/notifications', notificationsRouter);
+
+// Native mobile push device registry (FCM → APNs/iOS + Android)
+app.use('/api/push', pushRouter);
 
 // Workspace operational alerts (derived, read-only)
 app.use('/api/workspace-alerts', workspaceAlertsRouter);

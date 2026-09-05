@@ -94,7 +94,11 @@ openssl rand -hex 24   # REALTIME_REDIS_PASSWORD
    - `CENTRIFUGO_NODE_NAME=rt-node-01` (unique per host)
    - `REALTIME_REDIS_HOST=<private address of the Redis host>`
    - the three shared secrets
-   - `CENTRIFUGO_PORT` for the local port the proxy maps to
+   No host port is published: the compose file only `expose`s port 8000 on the
+   internal network and Coolify/Traefik routes the public domain to it. The
+   node's `CENTRIFUGO_NODE_NAME` **must** equal the "Node name" of its row in
+   Super Admin, otherwise per-node connection counts stay unknown and the
+   preflight refuses activation.
 3. Give every node a public HTTPS hostname with WebSocket upgrade allowed.
 4. Register each node in Super Admin.
 
@@ -119,9 +123,23 @@ carries cross-node publish, presence and history.
 
 Saving a topology runs a **preflight**. Activation is refused when it
 cannot serve traffic — no healthy node, a cluster API key a node rejects,
-nodes that cannot see each other over Redis, a failing cross-node publish,
-or a missing load balancer URL. On failure the previous configuration
-stays active and the attempt is written to the realtime audit log.
+duplicate node names, a node name absent from Centrifugo's cluster
+discovery, nodes that cannot see each other over Redis, a rejected publish,
+or a missing load balancer URL. On failure the previous configuration stays
+active and the attempt is written to the realtime audit log.
+
+What the preflight does **not** claim: a synchronous admin request has no
+subscriber on another node, so it verifies publish *acceptance*, not
+end-to-end cross-node *delivery*. That is proven separately by the real
+two-node integration test:
+
+```bash
+npm run test:realtime:cross-node   # needs a centrifugo + redis-server binary
+```
+
+Latest run of that suite (real Centrifugo v5.4.5 + Redis, two nodes):
+cross-node publish, cross-node presence, per-node connection counts, drain,
+node failure, Redis outage and Redis recovery — 10/10 checks passed.
 
 ---
 
@@ -170,9 +188,40 @@ Both actions are audited.
 
 Realtime coordination state is ephemeral by design: presence rebuilds from
 live connections and history has a 300s TTL. Redis therefore runs with RDB
-and AOF **off**, `maxmemory` bounded (512 MB default) and
-`allkeys-lru` eviction. No business data lives in Redis; PostgreSQL remains
-the source of truth. Losing Redis loses at most in-flight coordination.
+and AOF **off** and `maxmemory` bounded (512 MB default).
+
+Eviction policy is **`noeviction`**, not `allkeys-lru`. Under memory pressure
+LRU eviction would silently drop presence hashes and history streams, and the
+visible symptom would be *wrong presence in the operator UI* and failed
+history recovery — a correctness bug that looks like an application defect.
+`noeviction` instead makes Centrifugo's own writes fail loudly, which surfaces
+in node health and in the realtime alerts. Monitor `maxmemory` usage
+(Centrifugo exposes Prometheus metrics); raise `REALTIME_REDIS_MAXMEMORY`
+rather than switching the policy. `REALTIME_REDIS_MAXMEMORY_POLICY` exists as
+an escape hatch and should only be changed with a load test that proves
+presence/history correctness under eviction.
+
+No business data lives in Redis; PostgreSQL remains the source of truth.
+Losing Redis loses at most in-flight coordination.
+
+### Per-node connection counts are eventually consistent
+
+Verified against real Centrifugo v5.4.5: per-node client counts in the `info`
+reply are gossiped over the engine roughly every 3 seconds, so the numbers in
+the node table (and the least-connections router) lag reality by up to one
+gossip window. They are a balancing hint, never admission control — drain,
+disable and health status are the authoritative signals.
+
+### No Docker healthcheck on Centrifugo
+
+The `centrifugo/centrifugo:v5.4.5` image is built `FROM scratch`: no shell, no
+`wget`/`curl`, and no `centrifugo healthcheck` subcommand. Any container-level
+healthcheck therefore fails and marks a healthy node unhealthy. Health is
+observed from outside the container instead: the Coolify/Traefik probe on the
+public domain, the app's own node health service (Centrifugo HTTP `info`, cached
+with a short TTL and refreshed by a background ticker), and **Test node / Test
+all** in Super Admin. Redis keeps its healthcheck — that image ships
+`redis-cli`.
 
 ---
 

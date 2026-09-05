@@ -305,10 +305,11 @@ export async function validateSessionToken(config: ServerConfig, token: string |
   if (res.error || !data) return null;
 
   const now = Date.now();
-  if (new Date(data.expires_at).getTime() < now) return null;
+  if (new Date(data.expires_at as string).getTime() < now) return null;
 
   const absoluteExpiresAt = data.absolute_expires_at ? new Date(data.absolute_expires_at as string) : null;
   if (absoluteExpiresAt && absoluteExpiresAt.getTime() < now) return null;
+
 
   return {
     sessionId: data.id as string,

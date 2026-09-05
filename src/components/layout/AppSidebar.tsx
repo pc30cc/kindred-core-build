@@ -42,6 +42,8 @@ import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
+import { pluginsApi } from '@/lib/plugins-api';
+import { channelLabel, type ChannelKey } from '@/components/inbox/ChannelBadge';
 
 /** Colorful icon chip shared by every sidebar entry. */
 function NavChip({
@@ -123,8 +125,8 @@ export function AppSidebar() {
     enabled: !!workspace?.id && isWorkspaceAdmin(wsRole),
     staleTime: 60_000,
     queryFn: async () => {
-      const { plugins } = await pluginsApi.catalog(workspace!.id);
-      return (plugins || [])
+      const { items } = await pluginsApi.catalog(workspace!.id);
+      return (items || [])
         .filter((p) => p.installed && p.supportsInbox)
         .map((p) => ({ key: (p.slug || p.id).toLowerCase(), label: p.slug || p.id }));
     },

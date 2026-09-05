@@ -2249,9 +2249,14 @@
       if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
     }
 
-    // Tokens and the lease are short-lived. Re-negotiate ~60s before the
-    // earliest expiry so a backgrounded tab (whose timers are throttled to
-    // ~1Hz) still renews in time instead of silently dropping out of presence.
+    // Tokens and the lease are short-lived. Renew ~60s before the earliest
+    // expiry so a backgrounded tab (whose timers are throttled to ~1Hz) still
+    // renews in time instead of silently dropping out of presence.
+    //
+    // The renewal happens IN PLACE, over the live socket (Centrifugo
+    // `refresh` + `sub_refresh`). A healthy visitor therefore never drops its
+    // connection: closing the socket every TTL would produce a cluster-wide
+    // reconnect wave and a presence gap for every visitor on the page.
     function scheduleRefresh(cfg) {
       clearRefresh();
       var soonest = Math.min(
@@ -2262,13 +2267,9 @@
       var delay = Math.max(15000, soonest - Date.now() - 60000);
       refreshTimer = setTimeout(function () {
         refreshTimer = null;
-        if (closed) return;
-        // Full re-negotiation: tokens may have rotated and, in app-routed
-        // mode, another node may now be the right endpoint.
-        if (ws) { try { ws.close(); } catch (_) {} }
+        refreshNow();
       }, delay);
     }
-
 
     function scheduleRetry(reason) {
       if (closed) return;
@@ -2289,12 +2290,25 @@
       try { ws.send(JSON.stringify(obj)); } catch (_) {}
     }
 
+    /** Send a command and route its reply to `cb(frame)`. */
+    function call(payload, cb) {
+      var id = cmdId++;
+      pending[id] = cb;
+      payload.id = id;
+      send(payload);
+    }
+
+    function dropSocket() {
+      if (ws) { try { ws.close(); } catch (_) {} }
+    }
+
     function open(cfg) {
       try {
         ws = new WebSocket(cfg.ws_url);
       } catch (_) {
         return scheduleRetry('ws_ctor_failed');
       }
+      currentWsUrl = cfg.ws_url;
       ws.onopen = function () {
         send({ id: cmdId++, connect: { token: cfg.token, name: 'widget-presence' } });
         send({ id: cmdId++, subscribe: { channel: cfg.channel, token: cfg.sub_token } });
@@ -2308,6 +2322,12 @@
           // Server ping — an empty object. The reply keeps the connection
           // (and therefore the presence entry) alive.
           if (frame && Object.keys(frame).length === 0) { send({}); continue; }
+          if (frame && typeof frame.id === 'number' && pending[frame.id]) {
+            var cb = pending[frame.id];
+            delete pending[frame.id];
+            try { cb(frame); } catch (_) {}
+            continue;
+          }
           if (frame && frame.subscribe) {
             attempt = 0;
             // The lease only becomes usable once the subscription is actually
@@ -2326,6 +2346,7 @@
       };
       ws.onclose = function () {
         ws = null;
+        pending = {};
         clearRefresh();
         setOwns(false);
         // Re-negotiate rather than reusing the old tokens: they may have
@@ -2336,21 +2357,85 @@
       ws.onerror = function () { setOwns(false); };
     }
 
-
-    function negotiate() {
-      if (closed || negotiating || ws) return;
-      negotiating = true;
-      fetch(apiBase + '/api/realtime/visitor-presence', {
+    /** Fetch a fresh presence config (tokens + lease). Resolves null on failure. */
+    function fetchConfig() {
+      return fetch(apiBase + '/api/realtime/visitor-presence', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json', 'X-Widget-Token': tokenNow() },
         body: JSON.stringify({ workspace_id: workspaceId, session_id: sessionId }),
       })
         .then(function (r) { return r.ok ? r.json() : null; })
+        .catch(function () { return null; });
+    }
+
+    function usable(cfg) {
+      return !!(cfg && cfg.vendor === 'centrifugo' && cfg.presence && cfg.ws_url && cfg.token);
+    }
+
+    /**
+     * In-place renewal over the live socket. Only falls back to a reconnect
+     * when the cluster hands us a different node, or when Centrifugo rejects
+     * the renewal.
+     */
+    function refreshNow() {
+      if (closed || refreshing) return;
+      if (!ws || ws.readyState !== 1) return;
+      refreshing = true;
+      fetchConfig().then(function (cfg) {
+        refreshing = false;
+        if (closed || !ws || ws.readyState !== 1) return;
+        if (!usable(cfg)) {
+          // Realtime is no longer authoritative for this workspace: hand
+          // liveness back to the database heartbeat.
+          setOwns(false);
+          dropSocket();
+          return;
+        }
+        if (cfg.ws_url !== currentWsUrl) {
+          // Assignment moved us to another node — a reconnect is the point.
+          dropSocket();
+          return;
+        }
+        var connOk = false;
+        var subOk = false;
+        var settled = false;
+        function done() {
+          if (settled) return;
+          if (!connOk || !subOk) return;
+          settled = true;
+          lease = cfg.presence_lease || null;
+          leaseExpiresAt = cfg.lease_expires_at || 0;
+          setOwns(true);
+          scheduleRefresh(cfg);
+          log('presence refreshed in place');
+        }
+        function fail() {
+          if (settled) return;
+          settled = true;
+          dropSocket();
+        }
+        call({ refresh: { token: cfg.token } }, function (frame) {
+          if (frame && frame.error) return fail();
+          connOk = true;
+          done();
+        });
+        call({ sub_refresh: { channel: cfg.channel, token: cfg.sub_token } }, function (frame) {
+          if (frame && frame.error) return fail();
+          subOk = true;
+          done();
+        });
+      });
+    }
+
+    function negotiate() {
+      if (closed || negotiating || ws) return;
+      negotiating = true;
+      fetchConfig()
         .then(function (cfg) {
           negotiating = false;
           if (closed) return;
-          if (!cfg || cfg.vendor !== 'centrifugo' || !cfg.presence || !cfg.ws_url || !cfg.token) {
+          if (!usable(cfg)) {
             // Database mode (or realtime unavailable): the heartbeat stays in
             // charge and we do NOT keep probing.
             setOwns(false);
@@ -2366,18 +2451,21 @@
     }
 
     // A throttled background tab can miss its refresh window entirely. On
-    // becoming visible again, verify the lease is still valid and reconnect
-    // immediately rather than waiting out the backoff.
+    // becoming visible again, renew in place when the socket is still alive
+    // and only reconnect when there is nothing left to renew.
     function onVisible() {
       if (closed || document.visibilityState !== 'visible') return;
       var leaseStale = !lease || leaseExpiresAt - Date.now() < 15000;
-      if (!ws || leaseStale) {
-        if (ws) { try { ws.close(); } catch (_) {} return; }
-        if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
-        attempt = 0;
-        negotiate();
+      if (ws && ws.readyState === 1) {
+        if (leaseStale) refreshNow();
+        return;
       }
+      if (ws) { dropSocket(); return; }
+      if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+      attempt = 0;
+      negotiate();
     }
+
     try { document.addEventListener('visibilitychange', onVisible); } catch (_) {}
 
     negotiate();

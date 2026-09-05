@@ -2326,6 +2326,7 @@
       };
       ws.onclose = function () {
         ws = null;
+        clearRefresh();
         setOwns(false);
         // Re-negotiate rather than reusing the old tokens: they may have
         // expired, and in app-routed mode another node may now be the right
@@ -2334,6 +2335,7 @@
       };
       ws.onerror = function () { setOwns(false); };
     }
+
 
     function negotiate() {
       if (closed || negotiating || ws) return;

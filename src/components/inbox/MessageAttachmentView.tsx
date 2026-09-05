@@ -184,14 +184,14 @@ function AudioAttachmentPlayer({
         </div>
       </div>
 
-      <a
-        href={attachmentUrl(att.id, 'attachment')}
-        download={att.file_name}
+      <button
+        type="button"
+        onClick={() => void openAuthedAttachment(attachmentUrl(att.id, 'attachment'), att.file_name)}
         className="shrink-0 opacity-60 hover:opacity-100 transition-opacity"
         aria-label="Download"
       >
         <Download className="w-3.5 h-3.5" />
-      </a>
+      </button>
     </div>
   );
 }
@@ -200,11 +200,13 @@ function AudioAttachmentPlayer({
  * Image attachment — undistorted thumbnail (intrinsic ratio preserved inside a
  * max box) that opens a JS lightbox instead of navigating to a new tab.
  */
-function ImageAttachment({ att, url }: { att: { id: string; file_name: string }; url: string }) {
+function ImageAttachment({ att }: { att: { id: string; file_name: string } }) {
   const { t } = useTranslation();
+  const { src: url, failed: authFailed } = useAuthedMediaSrc(attachmentUrl(att.id));
   const [open, setOpen] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [imgFailed, setImgFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const failed = imgFailed || authFailed;
 
 
 
@@ -236,12 +238,12 @@ function ImageAttachment({ att, url }: { att: { id: string; file_name: string };
               </span>
             )}
             <img
-              src={url}
+              src={url ?? undefined}
               alt={att.file_name}
               loading="lazy"
               decoding="async"
               onLoad={() => setLoaded(true)}
-              onError={() => { setLoaded(true); setFailed(true); }}
+              onError={() => { setLoaded(true); setImgFailed(true); }}
               className={cn(
                 'block w-auto h-auto max-w-[180px] max-h-[200px] object-contain',
                 // Do not use display:none here. Combined with loading="lazy"
@@ -265,21 +267,20 @@ function ImageAttachment({ att, url }: { att: { id: string; file_name: string };
             aria-label={att.file_name}
           >
             <img
-              src={url}
+              src={url ?? undefined}
               alt={att.file_name}
               onClick={(e) => e.stopPropagation()}
               className="max-w-full max-h-full object-contain rounded-lg shadow-2xl animate-in zoom-in-95 duration-150"
             />
             <div className="absolute top-4 end-4 flex items-center gap-2">
-              <a
-                href={attachmentUrl(att.id, 'attachment')}
-                download={att.file_name}
-                onClick={(e) => e.stopPropagation()}
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); void openAuthedAttachment(attachmentUrl(att.id, 'attachment'), att.file_name); }}
                 className="w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition-colors"
                 aria-label="Download"
               >
                 <Download className="w-4 h-4" />
-              </a>
+              </button>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
@@ -293,6 +294,30 @@ function ImageAttachment({ att, url }: { att: { id: string; file_name: string };
           document.body,
         )}
     </>
+  );
+}
+
+/** Video attachment — authenticated stream (blob inside the native shell). */
+function VideoAttachment({ att }: { att: { id: string; file_name: string } }) {
+  const { src, failed } = useAuthedMediaSrc(attachmentUrl(att.id));
+  if (failed) {
+    return (
+      <span className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-[12px] text-muted-foreground">
+        <FileText className="w-4 h-4" /> {att.file_name}
+      </span>
+    );
+  }
+  if (!src) {
+    return <div className="h-[150px] w-[240px] animate-pulse rounded-lg bg-muted/60" />;
+  }
+  return (
+    <video
+      src={src}
+      controls
+      playsInline
+      preload="metadata"
+      className="block max-w-[300px] rounded-lg border border-border"
+    />
   );
 }
 
@@ -318,24 +343,20 @@ export function MessageAttachmentView({
   const isVideo = att.kind === 'video' || /^video\//.test(mime);
 
   if (isImage) {
-    return <ImageAttachment att={att} url={url} />;
+    return <ImageAttachment att={att} />;
   }
   if (isAudio) {
     return <AudioAttachmentPlayer att={att} isAgent={isAgent} />;
   }
   if (isVideo) {
-    return (
-      <video src={url} controls preload="metadata" className="block max-w-[300px] rounded-lg border border-border" />
-    );
+    return <VideoAttachment att={att} />;
   }
 
   return (
-    <a
-      href={attachmentUrl(att.id, 'attachment')}
-      target="_blank"
-      rel="noopener noreferrer"
-      download={att.file_name}
-      className="flex items-center gap-2.5 rounded-lg border border-border bg-background/60 px-2.5 py-2 max-w-[280px] hover:bg-background transition-colors"
+    <button
+      type="button"
+      onClick={() => void openAuthedAttachment(attachmentUrl(att.id, 'attachment'), att.file_name)}
+      className="w-full text-start flex items-center gap-2.5 rounded-lg border border-border bg-background/60 px-2.5 py-2 max-w-[280px] hover:bg-background transition-colors"
     >
       <div className="w-8 h-8 rounded-md bg-secondary flex items-center justify-center shrink-0 text-muted-foreground">
         <FileText className="w-4 h-4" />
@@ -345,7 +366,7 @@ export function MessageAttachmentView({
         <div className="text-[10px] text-muted-foreground">{humanSize(att.size_bytes)}</div>
       </div>
       <Download className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-    </a>
+    </button>
   );
 }
 

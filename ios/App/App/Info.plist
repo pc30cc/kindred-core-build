@@ -24,6 +24,13 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Webyar needs microphone access so you can record and send voice messages to your customers.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Webyar needs camera access so you can capture and send photos or videos in a conversation.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Webyar needs photo library access so you can send images and videos in a conversation.</string>
+
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

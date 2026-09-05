@@ -1400,6 +1400,27 @@ export default function InboxPage() {
               )}
             </div>
             <div className="flex items-center gap-1">
+              <label
+                title={t('inbox.all') || 'All'}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] font-medium cursor-pointer transition-colors',
+                  filter === 'all'
+                    ? 'border-primary/40 bg-primary/10 text-primary'
+                    : 'border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground',
+                )}
+              >
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 accent-primary cursor-pointer"
+                  checked={filter === 'all'}
+                  onChange={(e) => {
+                    setExtraChip(null);
+                    setQueueTab(null);
+                    setFilter(e.target.checked ? 'all' : 'open');
+                  }}
+                />
+                {t('inbox.all') || 'All'}
+              </label>
               <button
                 aria-label={t('inbox.refresh') || 'Refresh'}
                 title={t('inbox.refresh') || 'Refresh'}
@@ -1408,6 +1429,7 @@ export default function InboxPage() {
               >
                 <RefreshCw className="w-4 h-4" />
               </button>
+
               <button
                 aria-label={soundOn ? (t('inbox.muteSound') || 'Mute message sound') : (t('inbox.unmuteSound') || 'Unmute message sound')}
                 title={soundOn ? (t('inbox.muteSound') || 'Mute message sound') : (t('inbox.unmuteSound') || 'Unmute message sound')}

@@ -153,25 +153,34 @@ async function loadActiveLoad(
  * "Messenger online" therefore never implies "assign a live chat to this
  * operator right now".
  */
+export interface RoutingTiers {
+  /** Tier 1 — always exhausted before tier 2 is considered. */
+  active: string[];
+  /** Tier 2 — only reached when no active operator could claim. */
+  away: string[];
+}
+
 async function onlineEligibleCandidates(
   config: ServerConfig,
   workspaceId: string,
   departmentId: string | null,
-): Promise<string[]> {
+): Promise<RoutingTiers> {
   const { user_ids } = await resolveRoutingCandidates(config, workspaceId, 'chat', departmentId);
-  if (!user_ids.length) return [];
+  if (!user_ids.length) return { active: [], away: [] };
   const presence = await listWorkspacePresence(config, workspaceId);
   const stateById = new Map(presence.map((p) => [p.user_id, p]));
-  const eligible = user_ids.filter((id) => {
-    const p = stateById.get(id);
-    return p?.presence_state === 'active' || p?.presence_state === 'away';
-  });
-  // Active operators first; ordering inside each tier is preserved so the
-  // round-robin cursor and least-loaded ranking keep working unchanged.
-  const active = eligible.filter((id) => stateById.get(id)!.presence_state === 'active');
-  const away = eligible.filter((id) => stateById.get(id)!.presence_state === 'away');
-  return [...active, ...away];
+  const active: string[] = [];
+  const away: string[] = [];
+  for (const id of user_ids) {
+    const s = stateById.get(id)?.presence_state;
+    if (s === 'active') active.push(id);
+    else if (s === 'away') away.push(id);
+  }
+  // Two REAL tiers: never merged, so downstream load-ranking or round-robin
+  // rotation can no longer reorder an away operator ahead of an active one.
+  return { active, away };
 }
+
 
 
 

@@ -17,6 +17,8 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 import crypto from 'node:crypto';
 
 const sessionRows: Array<Record<string, any>> = [];
+/** Counts UPDATEs that actually matched a row — proves renewal write dedupe. */
+export const updateStats = { writes: 0 };
 
 vi.mock('../../../server/supabase.js', () => ({
   getServiceClient: () => ({
@@ -27,6 +29,10 @@ vi.mock('../../../server/supabase.js', () => ({
         select: () => builder,
         update(patch: Record<string, any>) { updatePatch = patch; return builder; },
         eq(col: string, val: any) { filters.push((r) => r[col] === val); return builder; },
+        lt(col: string, val: any) {
+          filters.push((r) => r[col] != null && String(r[col]) < String(val));
+          return builder;
+        },
         is(col: string, val: any) {
           filters.push((r) => (val === null ? r[col] == null : r[col] === val));
           return builder;
@@ -39,7 +45,9 @@ vi.mock('../../../server/supabase.js', () => ({
         then(resolve: any) {
           // Awaiting the builder directly performs the pending update.
           if (updatePatch) {
-            for (const row of sessionRows.filter((r) => filters.every((f) => f(r)))) {
+            const matched = sessionRows.filter((r) => filters.every((f) => f(r)));
+            updateStats.writes += matched.length;
+            for (const row of matched) {
               Object.assign(row, updatePatch);
             }
           }
@@ -127,6 +135,7 @@ function makeReqRes(opts: {
 
 beforeEach(() => {
   sessionRows.length = 0;
+  updateStats.writes = 0;
 });
 
 describe('getRequestSessionToken — transport selection', () => {
@@ -287,5 +296,84 @@ describe('mobile sliding renewal', () => {
     const session = await validateSessionToken(config, 't4');
     await renewMobileSessionIfDue(config, session!);
     expect(row.expires_at).toBe(before);
+  });
+});
+
+
+describe('mobile renewal concurrency — at most one write per 24h', () => {
+  it('a burst of simultaneous authenticated requests produces ONE renewal write', async () => {
+    const row = seedSession({
+      token: 'burst',
+      clientType: 'mobile',
+      expiresInMs: 10 * 24 * 60 * 60 * 1000,
+      absoluteInMs: MOBILE_SESSION_ABSOLUTE_MS,
+      lastRenewedAgoMs: MOBILE_SESSION_RENEW_THROTTLE_MS + 60_000,
+    });
+    const sessions = await Promise.all(
+      Array.from({ length: 25 }, () => validateSessionToken(config, 'burst')),
+    );
+    await Promise.all(sessions.map((s) => renewMobileSessionIfDue(config, s!)));
+    expect(updateStats.writes).toBe(1);
+    expect(new Date(row.expires_at).getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('a second (sequential) request inside the throttle window writes nothing more', async () => {
+    seedSession({
+      token: 'seq',
+      clientType: 'mobile',
+      expiresInMs: 10 * 24 * 60 * 60 * 1000,
+      absoluteInMs: MOBILE_SESSION_ABSOLUTE_MS,
+      lastRenewedAgoMs: MOBILE_SESSION_RENEW_THROTTLE_MS + 60_000,
+    });
+    const first = await validateSessionToken(config, 'seq');
+    await renewMobileSessionIfDue(config, first!);
+    const second = await validateSessionToken(config, 'seq');
+    await renewMobileSessionIfDue(config, second!);
+    expect(updateStats.writes).toBe(1);
+  });
+
+  it('a stale in-flight read racing a node that already renewed writes zero rows (compare-and-set)', async () => {
+    const row = seedSession({
+      token: 'cas',
+      clientType: 'mobile',
+      expiresInMs: 10 * 24 * 60 * 60 * 1000,
+      absoluteInMs: MOBILE_SESSION_ABSOLUTE_MS,
+      lastRenewedAgoMs: MOBILE_SESSION_RENEW_THROTTLE_MS + 60_000,
+    });
+    const stale = await validateSessionToken(config, 'cas');
+    // Another node renews first.
+    row.last_renewed_at = new Date().toISOString();
+    updateStats.writes = 0;
+    await renewMobileSessionIfDue(config, stale!);
+    expect(updateStats.writes).toBe(0);
+  });
+});
+
+describe('trust boundary — raw token issuance', () => {
+  it('never issues a body token to a normal web origin, even with client: mobile', async () => {
+    const { allowsMobileTokenIssuance } = await import('../../../server/services/platformOrigins.js');
+    expect(allowsMobileTokenIssuance('https://app.example.com')).toBe(false);
+    expect(allowsMobileTokenIssuance('http://localhost:5173')).toBe(false);
+    expect(allowsMobileTokenIssuance('null')).toBe(false);
+    expect(allowsMobileTokenIssuance('*')).toBe(false);
+    expect(allowsMobileTokenIssuance('capacitor://evil.example.com')).toBe(false);
+    expect(allowsMobileTokenIssuance('ionic://localhost')).toBe(false);
+  });
+
+  it('issues to the native shell origin and to non-browser clients only', async () => {
+    const { allowsMobileTokenIssuance } = await import('../../../server/services/platformOrigins.js');
+    expect(allowsMobileTokenIssuance('capacitor://localhost')).toBe(true);
+    expect(allowsMobileTokenIssuance(undefined)).toBe(true);
+    expect(allowsMobileTokenIssuance('')).toBe(true);
+  });
+
+  it('CORS native allow-list is exact-match and rejects null/wildcard/other schemes', async () => {
+    const { isNativeAppOrigin } = await import('../../../server/services/platformOrigins.js');
+    expect(isNativeAppOrigin('capacitor://localhost')).toBe(true);
+    expect(isNativeAppOrigin('ionic://localhost')).toBe(false);
+    expect(isNativeAppOrigin('null')).toBe(false);
+    expect(isNativeAppOrigin('*')).toBe(false);
+    expect(isNativeAppOrigin('capacitor://localhost.evil.com')).toBe(false);
+    expect(isNativeAppOrigin('CAPACITOR://LOCALHOST')).toBe(false);
   });
 });

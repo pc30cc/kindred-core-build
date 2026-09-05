@@ -235,8 +235,14 @@ export async function unregisterNativePush(): Promise<void> {
     /* best effort */
   }
   try {
+    const Badge = await badgePlugin();
+    await Badge?.clear?.();
+  } catch {
+    /* best effort */
+  }
+  try {
     const FirebaseMessaging = await messaging();
-    await FirebaseMessaging?.setBadge?.({ count: 0 });
+    await FirebaseMessaging?.removeAllDeliveredNotifications?.();
     await FirebaseMessaging?.deleteToken?.();
   } catch {
     /* best effort */

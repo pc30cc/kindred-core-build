@@ -105,6 +105,44 @@ export function recordOperatorActivity(
  * ACTIVITY_WRITE_COALESCE_MS too early. The timer is one-shot per operator —
  * not a heartbeat, and never a PostgreSQL write.
  */
+/**
+ * Monotonic score write: an older timestamp can NEVER overwrite a newer one.
+ *
+ * A trailing-flush timer armed before a `lastRedisWriteAt` eviction can fire
+ * after a newer immediate write, so an unconditional ZADD could move the score
+ * backwards. `ZADD GT` gives us the guarantee natively (Redis/Valkey >= 6.2);
+ * older servers reject the flag, so we fall back to an atomic Lua CAS.
+ */
+let zaddGtSupported: boolean | null = null;
+
+const MONOTONIC_ZADD_LUA =
+  "local cur = redis.call('ZSCORE', KEYS[1], ARGV[2]) " +
+  "if (not cur) or (tonumber(cur) < tonumber(ARGV[1])) then " +
+  "redis.call('ZADD', KEYS[1], ARGV[1], ARGV[2]) return 1 end return 0";
+
+async function monotonicZAdd(
+  client: { command: (...args: Array<string | number>) => Promise<unknown> },
+  indexKey: string,
+  score: number,
+  member: string,
+): Promise<void> {
+  if (zaddGtSupported !== false) {
+    try {
+      await client.command('ZADD', indexKey, 'GT', 'CH', score, member);
+      zaddGtSupported = true;
+      return;
+    } catch (err) {
+      const msg = String((err as Error)?.message || err).toUpperCase();
+      // Only treat "unknown flag / wrong args" as unsupported — real
+      // connection failures must still propagate to the caller.
+      const unsupported = msg.includes('SYNTAX') || msg.includes('ERR ');
+      if (!unsupported) throw err;
+      zaddGtSupported = false;
+    }
+  }
+  await client.command('EVAL', MONOTONIC_ZADD_LUA, 1, indexKey, score, member);
+}
+
 export async function publishOperatorActivity(
   workspaceId: string,
   userId: string,
@@ -140,7 +178,7 @@ export async function publishOperatorActivity(
   try {
     const client = getRedisClient(url);
     const indexKey = operatorActivityKey(workspaceId);
-    await client.command('ZADD', indexKey, Math.floor(at), userId);
+    await monotonicZAdd(client, indexKey, Math.floor(at), userId);
     metrics.writes += 1;
     const prunedAt = lastPruneAt.get(workspaceId) || 0;
     if (at - prunedAt >= PRUNE_INTERVAL_MS) {
@@ -176,8 +214,14 @@ export async function flushOperatorActivityWrites(): Promise<void> {
   }
 }
 
+/** Test hook: emulate the MAX_ENTRIES eviction of the coalescing map. */
+export function __evictActivityCoalesceState(): void {
+  lastRedisWriteAt.clear();
+}
+
 /** Test/ops hook. */
 export function resetOperatorActivity(): void {
+  zaddGtSupported = null;
   local.clear();
   lastRedisWriteAt.clear();
   lastPruneAt.clear();

@@ -2232,6 +2232,19 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         convId!,
         buildMessageEnvelope(insertedMsg as any),
       ).catch(() => {});
+
+      // NATIVE PUSH — same central dispatcher as every other channel.
+      // Fire-and-forget after commit: a push failure never fails the widget
+      // message, and the dispatcher itself dedupes per messageId.
+      void notifyInboundMessage(config, {
+        workspaceId,
+        conversationId: convId!,
+        messageId: insertedMsg.id,
+        text: messageBody,
+        senderName: pushSenderName,
+        channel: 'widget',
+        attachmentCount: data.attachment_id ? 1 : 0,
+      });
     }
 
     // ─────────────────────────────────────────────────────────────────────

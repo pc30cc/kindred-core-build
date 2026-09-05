@@ -13,9 +13,12 @@ import {
   CENTRIFUGO_CAPABILITIES,
   DISABLED_CAPABILITIES,
   POLLING_CAPABILITIES,
+  normalizeNodes,
   type ResolvedRealtimeProvider,
   type RealtimeProviderConfig,
 } from './types.js';
+import { snapshotClusterHealth } from './nodeHealth.js';
+
 
 export * from './types.js';
 export { CentrifugoDriver } from './centrifugo.js';
@@ -85,14 +88,36 @@ export async function resolveRealtimeProvider(
     let healthStatus: 'healthy' | 'degraded' | 'down' | 'unknown' = 'unknown';
     let healthMessage: string | undefined;
     if (!options.skipHealth) {
-      const driver = new CentrifugoDriver(c as Required<typeof c>);
-      const h = await driver.health();
-      healthStatus = h.status;
-      healthMessage = h.message;
-      if (h.status === 'down') {
-        return fallbackOrFail(cfg, `Centrifugo unreachable: ${h.message}`);
+      // Topology-aware health. In Mode 2/3 the cluster-level `api_url` points
+      // at ONE node (or the LB), so probing it alone would declare the whole
+      // provider down whenever that single node blinks — even though the rest
+      // of the cluster is serving traffic. The registry is authoritative when
+      // it has nodes: the provider is usable if ≥1 enabled node is not down.
+      const nodes = normalizeNodes(c!.nodes).filter(n => n.enabled);
+      if (nodes.length > 0) {
+        const snap = snapshotClusterHealth(nodes);
+        const statuses = nodes.map(n => snap[n.id]?.status ?? 'unknown');
+        const up = statuses.filter(s => s === 'healthy').length;
+        const usable = statuses.filter(s => s !== 'down').length;
+        if (usable === 0) {
+          return fallbackOrFail(
+            cfg,
+            `No usable Centrifugo node (${nodes.length} registered, all down)`,
+          );
+        }
+        healthStatus = up > 0 ? (up === nodes.length ? 'healthy' : 'degraded') : 'unknown';
+        healthMessage = `${up}/${nodes.length} node(s) healthy, ${usable} usable`;
+      } else {
+        const driver = new CentrifugoDriver(c as Required<typeof c>);
+        const h = await driver.health();
+        healthStatus = h.status;
+        healthMessage = h.message;
+        if (h.status === 'down') {
+          return fallbackOrFail(cfg, `Centrifugo unreachable: ${h.message}`);
+        }
       }
     }
+
 
     return {
       effective_vendor: 'centrifugo',

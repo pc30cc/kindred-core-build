@@ -121,3 +121,41 @@ changed. Redis remains realtime infrastructure, never an application database.
 * A workspace with more than `VISITOR_PRESENCE_MAX_CANDIDATES` durable
   candidates in the window truncates the candidate list; those beyond the cap
   fall back to their stored status.
+
+## Token/lease renewal without reconnect
+
+The widget renews its Centrifugo connection token, subscription token and
+presence lease **in place** over the live socket (`refresh` + `sub_refresh`),
+scheduled ~60s before the earliest expiry. The socket is dropped only when the
+cluster hands out a different node (`ws_url` changed), when Centrifugo rejects
+the renewal, or when realtime stops being authoritative for the workspace. A
+healthy visitor therefore keeps one connection for the whole visit instead of
+reconnecting once per token TTL.
+
+## Candidacy refresh (why an idle visitor does not vanish)
+
+The operator list is built from `visitor_presence` rows touched inside the
+candidate window (6h) and the status of those candidates is then resolved with
+batched `presence_stats`. A connected-but-idle visitor writes nothing, so
+candidacy is refreshed from the presence negotiation itself:
+`touchVisitorPresenceCandidacy()` performs at most one tiny `updated_at`
+UPDATE per session per `CANDIDACY_TOUCH_INTERVAL_MS` (10 min), driven by the
+token-TTL renewal — not by a liveness heartbeat. The candidate window therefore
+bounds how long a session survives *without any realtime presence*, not how
+long a live visitor stays visible.
+
+## Provider health is topology-aware
+
+`resolveRealtimeProvider()` no longer decides Centrifugo's health from the
+single cluster-level `api_url`. When the node registry has nodes (Mode 2/3),
+the provider is usable if **at least one enabled node is not `down`** in the
+node-health registry; `healthy` requires all of them. Only a registry-less
+(Mode 1) deployment falls back to probing `api_url` directly.
+
+## Cross-node proof
+
+`scripts/realtime/cross-node-integration.ts` covers `vp:v2` end to end against
+two real Centrifugo nodes on a shared Redis engine: a visitor subscribed on
+node 2 is counted by a batched `presence_stats` read issued on node 1, the
+visitor cannot read presence itself (namespace forbids it), and the count
+returns to 0 on disconnect.

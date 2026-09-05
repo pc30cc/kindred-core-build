@@ -33,8 +33,19 @@ import {
  * Durable candidate horizon used in realtime mode: sessions that produced a
  * durable write (creation, navigation, message) within this window are the
  * pool whose live status realtime is asked about.
+ *
+ * SEMANTICS (explicit, not accidental): this list is "recent candidates,
+ * status-resolved by realtime" — never "every socket currently open". A
+ * connected-but-idle visitor stays inside the window because the widget's
+ * presence re-negotiation refreshes candidacy once per token TTL
+ * (`touchVisitorPresenceCandidacy`), so the window bounds how long a session
+ * survives *without any realtime presence at all*, not how long a live visitor
+ * remains visible. Enumerating the online set from Centrifugo is deliberately
+ * impossible in scheme v2 (one channel per session), and the liveness
+ * heartbeat is not coming back.
  */
 const CANDIDATE_WINDOW_MS = 6 * 60 * 60_000;
+
 
 
 import { type GeoResult } from '../geo/index.js';

@@ -493,8 +493,30 @@ export async function getConnectedOperators(
       if (activeEntry(state, workspaceId, ts)) await clearFallback(config, workspaceId, ts);
       if (activeEntry(state, GLOBAL_SCOPE, ts)) await clearFallback(config, GLOBAL_SCOPE, ts);
       const connected = new Set(userIds.filter((id) => read.users.has(id)));
-      return { mode: 'realtime', connected, lastSeen: new Map(), degraded: false };
+
+      // SAFETY NET — a *successful but empty* presence read is ambiguous: it
+      // means either "nobody is around" or "this operator's presence
+      // subscription silently failed" (browser blocked the socket, the shared
+      // connection was torn down by a racing unsubscribe, an extension killed
+      // the WS…). Without a second signal that operator stays offline for
+      // their whole session even though the panel is open in front of them.
+      //
+      // The operator heartbeat keeps a bounded lease (one row per operator,
+      // refreshed at most every 2 minutes — operators are dozens, not the
+      // millions of visitors that motivated removing DB liveness writes), so
+      // unioning it here costs one tiny indexed SELECT per presence read and
+      // removes the false-offline class entirely. Realtime stays the fast
+      // path; the lease only ever ADDS an operator, never removes one.
+      const missing = userIds.filter((id) => !connected.has(id));
+      let lastSeen = new Map<string, string>();
+      if (missing.length) {
+        const db = await readDatabasePresence(config, workspaceId, missing, ts, PRESENCE_LIVENESS_MS);
+        for (const id of db.connected) connected.add(id);
+        lastSeen = db.lastSeen;
+      }
+      return { mode: 'realtime', connected, lastSeen, degraded: false };
     }
+
 
     // FAILURE. Trip the breaker. A dead provider trips the GLOBAL scope
     // (roster-less: it only states "Centrifugo presence is unavailable"),

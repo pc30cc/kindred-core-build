@@ -70,6 +70,9 @@ const I18nContext = createContext<I18nContextValue>(i18nFallbackContext);
  */
 export function getSiteDefaultLocale(): Locale {
   if (typeof window === 'undefined') return DEFAULT_LOCALE;
+  // Native (iOS) app ships with English as its base language; the user can
+  // still pick Türkçe / فارسی on the login screen or in Settings.
+  if (isNativePlatform()) return 'en';
   const configured = (window as any).__APP_RUNTIME_CONFIG__?.defaultLocale;
   if (configured === 'en' || configured === 'fa' || configured === 'tr') return configured as Locale;
   return DEFAULT_LOCALE;

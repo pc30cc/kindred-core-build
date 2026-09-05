@@ -82,7 +82,7 @@ export default function MobileContactDetailPage() {
               <MobileRow icon={Phone} label={t('contacts.phone')} value={<span dir="ltr">{(contact as any).phone}</span>} />
             )}
             {company && <MobileRow icon={Building2} label={t('contacts.company')} value={company} />}
-            {location && <MobileRow icon={MapPin} label={t('contacts.location')} value={`${location.flag ?? ''} ${location.label ?? ''}`.trim()} />}
+            {location?.label && <MobileRow icon={MapPin} label={t('contacts.location')} value={`${location.flag ?? ''} ${location.label ?? ''}`.trim()} />}
             <MobileRow
               icon={Calendar}
               label={t('contacts.createdAt')}

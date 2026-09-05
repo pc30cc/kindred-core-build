@@ -1077,6 +1077,50 @@ export default function InboxPage() {
       : 'bg-secondary text-muted-foreground',
   );
 
+  /* Remaining status filters stay in the list header as pills. */
+  const filterTabsNode = (
+    <div
+      role="tablist"
+      aria-label={t('inbox.title') || 'Inbox'}
+      className="flex w-full items-center gap-1 overflow-x-auto scrollbar-hide pb-0.5"
+      dir={dir}
+    >
+      {(['pending', 'resolved'] as FilterStatus[]).map((s) => {
+        const count = stableCounts[s] || 0;
+        const isActive = !isQueueMode && !extraChip && filter === s;
+        const dotColor = s === 'pending' ? 'bg-warning' : 'bg-info';
+        return (
+          <button
+            key={s}
+            role="tab"
+            aria-selected={isActive}
+            onClick={() => setFilter(s)}
+            className={cn(
+              pillBase,
+              isActive
+                ? 'bg-primary/10 text-primary border-primary/30'
+                : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground',
+            )}
+          >
+            <span className="relative flex w-2 h-2 items-center justify-center">
+              {liveTabs[s] && (
+                <span className="absolute inline-flex w-full h-full rounded-full bg-success opacity-75 animate-ping" />
+              )}
+              <span className={cn(
+                'relative inline-flex w-2 h-2 rounded-full',
+                liveTabs[s] ? 'bg-success animate-pulse' : isActive ? dotColor : 'bg-muted-foreground/30',
+              )} />
+            </span>
+            {statusLabels[s]}
+            <span
+              aria-hidden={count === 0}
+              className={cn(pillCount(isActive), count === 0 && 'opacity-0')}
+            >{count}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 
 
   /* Secondary views sit on the bottom edge of the top bar as folder tabs
@@ -1132,11 +1176,11 @@ export default function InboxPage() {
               <span className={headTabAccent(allActive)} />
               <span className={headTabSeam(allActive)} />
             </button>
-            {/* Status tabs (open / pending / resolved) — same folder-tab look. */}
-            {(['open', 'pending', 'resolved'] as FilterStatus[]).map((s) => {
+            {/* Only the active-conversation tab lives in the top row. */}
+            {(['open'] as FilterStatus[]).map((s) => {
               const count = stableCounts[s] || 0;
               const isActive = !isQueueMode && !extraChip && filter === s;
-              const dotColor = s === 'open' ? 'bg-success' : s === 'pending' ? 'bg-warning' : 'bg-info';
+              const dotColor = 'bg-success';
               return (
                 <button
                   key={s}
@@ -1298,6 +1342,7 @@ export default function InboxPage() {
     return (
       <div className="flex h-full flex-col" dir={dir}>
         {topBarSummary}
+        <div className="px-3 py-2 border-b border-border bg-card">{filterTabsNode}</div>
         <div className="flex-1 min-h-0 flex"><TeamChatPanel /></div>
       </div>
     );
@@ -1410,6 +1455,8 @@ export default function InboxPage() {
 
           {/* Filter tabs (status + AI + extra chips) — live inside the list */}
 
+
+          {filterTabsNode}
 
           {/* Queue context line (Automated / Spam) */}
           {isQueueMode && (

@@ -25,7 +25,7 @@
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { anyOperatorOnline } from './operatorPresence.js';
+import { anyCustomerAvailableOperator } from './customerAvailability.js';
 
 export type AvailabilityState = 'online' | 'offline';
 export type OfflineMode = 'hide_widget' | 'show_offline_message' | 'capture_message';
@@ -293,12 +293,16 @@ export async function resolveAvailability(
     // Failing-open (treat as online) when the workspace literally has
     // zero members keeps brand-new workspaces usable.
     try {
-      const { anyOnline, memberCount } = await anyOperatorOnline(
+      // CUSTOMER-FACING ONLY: manual status + personal schedule. Connection
+      // state (tab, socket, Centrifugo) is deliberately NOT an input, so a
+      // minimized browser or a realtime outage can never flip the messenger
+      // offline.
+      const { anyAvailable, memberCount } = await anyCustomerAvailableOperator(
         config,
         workspaceId,
         now,
       );
-      if (memberCount > 0 && !anyOnline) {
+      if (memberCount > 0 && !anyAvailable) {
         return {
           state: 'offline',
           reason: 'no_operators_online',

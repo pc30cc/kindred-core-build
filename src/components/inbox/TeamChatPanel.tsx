@@ -23,6 +23,7 @@ import { useTranslation } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
+import { PRESENCE_DOT_CLASS, presenceHintKey, presenceStateOf } from '@/lib/presenceState';
 import {
   useColleagues,
   useTeamThread,
@@ -202,7 +203,13 @@ export default function TeamChatPanel() {
     send.mutate({ recipient_id: peerId, body, attachment_id: attachmentId });
   };
 
-  const isOnline = (id: string) => (pMap.get(id) as any)?.state === 'online';
+  // Internal presence: active / away / disconnected / offline. `isOnline`
+  // stays for spots that only need a boolean.
+  const stateOf = (id: string) => presenceStateOf(pMap.get(id) as any);
+  const isOnline = (id: string) => {
+    const s = stateOf(id);
+    return s === 'active' || s === 'away';
+  };
 
 
   return (
@@ -256,7 +263,7 @@ export default function TeamChatPanel() {
           ) : (
             filtered.map(c => {
               const active = c.user_id === peerId;
-              const online = isOnline(c.user_id);
+              const pState = stateOf(c.user_id);
               return (
                 <button
                   key={c.user_id}
@@ -273,7 +280,7 @@ export default function TeamChatPanel() {
                     </Avatar>
                     <span className={cn(
                       'absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card',
-                      online ? 'bg-success' : 'bg-muted-foreground/40',
+                      PRESENCE_DOT_CLASS[pState],
                     )} />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -342,13 +349,13 @@ export default function TeamChatPanel() {
                 </Avatar>
                 <span className={cn(
                   'absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card',
-                  isOnline(peer.user_id) ? 'bg-success' : 'bg-muted-foreground/40',
-                )} />
+                  PRESENCE_DOT_CLASS[stateOf(peer.user_id)],
+                )} title={t(presenceHintKey(stateOf(peer.user_id)) as any) || undefined} />
               </div>
               <div className="min-w-0">
                 <p className="text-[13.5px] font-semibold text-foreground truncate">{peer.full_name || peer.email}</p>
                 <p className="text-[11px] text-muted-foreground truncate">
-                  {isOnline(peer.user_id) ? (t('inbox.online') || 'Online') : (t('inbox.offline') || 'Offline')}
+                  {t(`presenceState.${stateOf(peer.user_id)}` as any) || (isOnline(peer.user_id) ? 'Online' : 'Offline')}
                 </p>
               </div>
               <span className="ms-auto text-[10.5px] px-2 py-1 rounded-full bg-secondary text-muted-foreground font-medium">

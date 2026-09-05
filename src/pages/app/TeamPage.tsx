@@ -13,6 +13,7 @@ import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
+import { PRESENCE_DOT_CLASS, presenceHintKey, presenceStateOf } from '@/lib/presenceState';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
@@ -59,7 +60,7 @@ export default function TeamPage() {
           ) : (
             <ul className="divide-y divide-border/60">
               {members.map(m => {
-                const online = (pMap.get(m.user_id) as any)?.state === 'online';
+                const pState = presenceStateOf(pMap.get(m.user_id) as any);
                 return (
                   <li key={m.user_id} className="flex items-center gap-3 px-5 py-3">
                     <div className="relative">
@@ -72,8 +73,9 @@ export default function TeamPage() {
                       <span
                         className={cn(
                           'absolute -bottom-0.5 -end-0.5 h-2.5 w-2.5 rounded-full border-2 border-background',
-                          online ? 'bg-emerald-500' : 'bg-muted-foreground/40',
+                          PRESENCE_DOT_CLASS[pState],
                         )}
+                        title={t(presenceHintKey(pState) as any) || undefined}
                       />
                     </div>
                     <div className="min-w-0 flex-1">

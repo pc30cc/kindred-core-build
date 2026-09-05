@@ -1578,6 +1578,16 @@ const en = {
     save: 'Save',
     cancel: 'Cancel',
   },
+  presenceState: {
+    active: 'Active',
+    away: 'Away',
+    disconnected: 'Not in the panel',
+    offline: 'Offline',
+    activeHint: 'In the panel and interacting right now.',
+    awayHint: 'Panel is open but no activity for a few minutes.',
+    disconnectedHint: 'Available to visitors, but the panel is not open.',
+    offlineHint: 'Manually offline or outside their schedule.',
+  },
   availabilityPage: {
     title: 'Availability',
     subtitle: 'Set your operator presence schedule. Visitors see you as available during the time windows you define below.',

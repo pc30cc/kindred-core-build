@@ -776,9 +776,11 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       // so the widget can render a green status dot on each avatar.
       let presenceByUser = new Map<string, 'online' | 'offline'>();
       try {
-        const { listWorkspacePresence } = await import('../services/widget/operatorPresence.js');
-        const presence = await listWorkspacePresence(config, workspaceId);
-        for (const p of presence) presenceByUser.set(p.user_id, p.state);
+        // Visitor-facing dots follow CUSTOMER availability (manual status +
+        // schedule), never connection state.
+        const { listCustomerAvailableOperators } = await import('../services/widget/customerAvailability.js');
+        const { available } = await listCustomerAvailableOperators(config, workspaceId);
+        for (const op of available) presenceByUser.set(op.user_id, 'online');
       } catch (_) {}
       if (profiles) {
         teamMembers = profiles.map((p: any) => ({

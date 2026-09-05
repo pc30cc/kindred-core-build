@@ -46,11 +46,16 @@ export async function fetchOperatorActivity(workspaceId: string, days: number): 
   return body as OperatorActivityStats;
 }
 
-export async function sendOperatorHeartbeat(workspaceId: string): Promise<void> {
+/**
+ * `interacted` reports whether the operator actually did something since the
+ * previous beat (key/click/focus — never mousemove streams). It only drives
+ * the internal active/away split; it can never affect what visitors see.
+ */
+export async function sendOperatorHeartbeat(workspaceId: string, interacted = true): Promise<void> {
   await fetch(`${API_BASE}/api/operator-activity/heartbeat`, {
     credentials: 'include',
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ workspace_id: workspaceId }),
+    body: JSON.stringify({ workspace_id: workspaceId, interacted }),
   }).catch(() => undefined);
 }

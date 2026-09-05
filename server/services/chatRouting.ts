@@ -139,6 +139,20 @@ async function loadActiveLoad(
   return load;
 }
 
+/**
+ * ROUTING ELIGIBILITY — deliberately NOT the same thing as customer-facing
+ * availability:
+ *
+ *   active (connected, interacted <5m)   → eligible, highest priority
+ *   away   (connected, idle ≥5m)         → eligible, reduced priority
+ *   disconnected (customer-available but
+ *     no live connection)                → NOT auto-assigned
+ *   offline (manual off/invisible or
+ *     schedule closed)                   → ineligible
+ *
+ * "Messenger online" therefore never implies "assign a live chat to this
+ * operator right now".
+ */
 async function onlineEligibleCandidates(
   config: ServerConfig,
   workspaceId: string,
@@ -147,9 +161,19 @@ async function onlineEligibleCandidates(
   const { user_ids } = await resolveRoutingCandidates(config, workspaceId, 'chat', departmentId);
   if (!user_ids.length) return [];
   const presence = await listWorkspacePresence(config, workspaceId);
-  const online = new Set(presence.filter((p) => p.state === 'online').map((p) => p.user_id));
-  return user_ids.filter((id) => online.has(id));
+  const stateById = new Map(presence.map((p) => [p.user_id, p]));
+  const eligible = user_ids.filter((id) => {
+    const p = stateById.get(id);
+    return p?.presence_state === 'active' || p?.presence_state === 'away';
+  });
+  // Active operators first; ordering inside each tier is preserved so the
+  // round-robin cursor and least-loaded ranking keep working unchanged.
+  const active = eligible.filter((id) => stateById.get(id)!.presence_state === 'active');
+  const away = eligible.filter((id) => stateById.get(id)!.presence_state === 'away');
+  return [...active, ...away];
 }
+
+
 
 async function tryClaim(
   config: ServerConfig,

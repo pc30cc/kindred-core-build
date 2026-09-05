@@ -4,7 +4,7 @@ import { getInstallation } from '../../plugins/state.js';
 import { hasPluginSecret } from '../../plugins/secrets.js';
 import { botProvider, isBotProvider } from '../../../../shared/channels/botProviders.js';
 import { resolveAvailability } from '../../widget/availability.js';
-import { anyOperatorOnline } from '../../widget/operatorPresence.js';
+import { anyCustomerAvailableOperator } from '../../widget/customerAvailability.js';
 import { enqueueProviderActions } from '../providerActions.js';
 import { getIntegrationForInstallation } from '../integrations.js';
 import { buildOfflineScreen } from './menu.js';
@@ -21,10 +21,10 @@ export async function isWorkspaceUnreachable(
 ): Promise<boolean> {
   const [availability, presence] = await Promise.all([
     resolveAvailability(config, { workspaceId, locale }).catch(() => null),
-    anyOperatorOnline(config, workspaceId).catch(() => null),
+    anyCustomerAvailableOperator(config, workspaceId).catch(() => null),
   ]);
   if (availability?.state === 'offline') return true;
-  if (presence && presence.memberCount > 0 && !presence.anyOnline) return true;
+  if (presence && presence.memberCount > 0 && !presence.anyAvailable) return true;
   return false;
 }
 

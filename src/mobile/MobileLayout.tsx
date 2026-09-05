@@ -2,13 +2,15 @@
  * Native (iOS) app shell — fixed tab bar, no page-level scrolling.
  * Only mounted inside the Capacitor shell; the web dashboard keeps AppLayout.
  */
-import { NavLink, Outlet, useParams } from 'react-router-dom';
+import { useEffect } from 'react';
+import { NavLink, Outlet, useParams, useNavigate } from 'react-router-dom';
 import { MessageCircle, Users, Radar, Settings as SettingsIcon } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { useActiveWorkspace, useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useConversations } from '@/hooks/useConversations';
 import { WorkspaceNotFound } from '@/features/workspace/WorkspaceNotFound';
 import { cn } from '@/lib/utils';
+import { initNativePush, setPushNavigationHandler, syncBadge } from '@/lib/push/nativePush';
 
 export function MobileLayout() {
   const { t, dir } = useTranslation();
@@ -16,6 +18,27 @@ export function MobileLayout() {
   const { notFound } = useActiveWorkspace();
   const workspace = useCurrentWorkspace();
   const { data: openConversations } = useConversations(workspace?.id, 'open', 'main');
+  const navigate = useNavigate();
+
+  // Native push: permission + token registration once a workspace is known,
+  // and notification taps routed to the EXACT conversation inside the mobile
+  // routes (never the desktop dashboard). The payload IDs are routing hints
+  // only — the conversation screen loads through the normal authorized API.
+  useEffect(() => {
+    if (!workspace?.id) return;
+    void initNativePush(workspace.id);
+    setPushNavigationHandler((target) => {
+      if (target.workspaceId !== workspace.id) return;
+      navigate(`/${slug}/inbox/${target.conversationId}`);
+    });
+    return () => setPushNavigationHandler(null);
+  }, [workspace?.id, slug, navigate]);
+
+  // Badge reconciles from the server whenever the inbox changes (read,
+  // resolve, another device) instead of drifting from local increments.
+  useEffect(() => {
+    if (workspace?.id) void syncBadge(workspace.id);
+  }, [workspace?.id, openConversations]);
 
   if (notFound) return <WorkspaceNotFound />;
 

@@ -116,6 +116,20 @@ export function AppSidebar() {
     aiSurfaceEntitled &&
     (aiAgentCaps!.auto_answer_enabled === true || (inboxCounts?.automated ?? 0) > 0);
 
+  // Channel inboxes — one entry per inbox-capable plugin the workspace has
+  // installed (Telegram, Bale, ...). Catalog is an admin surface.
+  const { data: pluginChannels } = useQuery({
+    queryKey: ['sidebar-plugin-channels', workspace?.id],
+    enabled: !!workspace?.id && isWorkspaceAdmin(wsRole),
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { plugins } = await pluginsApi.catalog(workspace!.id);
+      return (plugins || [])
+        .filter((p) => p.installed && p.supportsInbox)
+        .map((p) => ({ key: (p.slug || p.id).toLowerCase(), label: p.slug || p.id }));
+    },
+  });
+
 
   // Primary domain for the active workspace (display under the workspace name).
   // Backed by GET /api/workspaces/:workspaceId/primary-domain — direct

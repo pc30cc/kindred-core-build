@@ -151,9 +151,18 @@ describe('admin security dashboard — authorization', () => {
     expect((await call('GET', '/api/admin/security/blocked-ips')).status).toBe(401);
   });
 
-  it('rejects a bare Bearer token with no gs_session cookie — old Supabase JWT cannot authenticate', async () => {
-    const res = await call('GET', '/api/admin/security/stats', { bearerOnly: ADMIN_TOKEN });
-    expect(res.status).toBe(401);
+  it('rejects a Supabase-JWT-shaped Bearer token — only an opaque first-party session token authenticates', async () => {
+    // Bearer is now a supported transport for the SAME opaque session token
+    // the cookie carries (Capacitor cannot use cookies). It is NOT a return
+    // of JWT auth: anything that is not a live row in auth_sessions fails.
+    const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbi1pZCJ9.sig';
+    expect((await call('GET', '/api/admin/security/stats', { bearerOnly: jwt })).status).toBe(401);
+  });
+
+  it('accepts a valid opaque session token over Bearer (native app) with unchanged authorization', async () => {
+    expect((await call('GET', '/api/admin/security/stats', { bearerOnly: ADMIN_TOKEN })).status).toBe(200);
+    // Bearer grants no extra privilege: a non-admin is still refused.
+    expect((await call('GET', '/api/admin/security/stats', { bearerOnly: USER_TOKEN })).status).toBe(403);
   });
 
   it('rejects an ordinary signed-in user (not a workspace anything, not platform admin)', async () => {

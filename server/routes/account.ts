@@ -24,6 +24,7 @@ import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
 import { findIdentityById } from '../services/auth/identity.js';
 import { hashPassword, verifyPassword, InvalidPasswordError } from '../services/auth/password.js';
 import { SESSION_COOKIE_NAME, validateSessionToken, revokeSession, revokeAllSessions, listActiveSessions } from '../services/auth/sessions.js';
+import { readSessionToken } from '../lib/sessionTransport.js';
 
 export const accountRouter = Router();
 
@@ -53,7 +54,7 @@ async function requireUser(req: any, res: any, next: any) {
   // widening requireSessionUser's return type for its ~15 other callers.
   // Never re-derived from a JWT payload — this is the same server-side
   // validateSessionToken() every other authenticated route already trusts.
-  const session = await validateSessionToken(config, req.cookies?.[SESSION_COOKIE_NAME]);
+  const session = await validateSessionToken(config, readSessionToken(req).token);
   req.currentSessionId = session?.sessionId ?? null;
   next();
 }

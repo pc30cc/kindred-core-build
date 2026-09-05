@@ -27,6 +27,7 @@
 import crypto from 'crypto';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { readSessionToken } from '../../lib/sessionTransport.js';
 
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 export const SESSION_COOKIE_NAME = 'gs_session';
@@ -128,24 +129,60 @@ function generateSessionToken(): string {
   return crypto.randomBytes(32).toString('base64url');
 }
 
+/**
+ * Which client family a session was minted for.
+ *
+ *  - `web`    — the classic HttpOnly `gs_session` cookie session. Fixed
+ *               30-day absolute lifetime, unchanged by this feature.
+ *  - `mobile` — Capacitor/native session. The SAME opaque 256-bit token
+ *               and the SAME `auth_sessions` row shape (hash-only storage,
+ *               same revocation semantics); only the lifetime policy and
+ *               the transport differ: it travels as
+ *               `Authorization: Bearer <token>` and is stored in the iOS
+ *               Keychain, never in a cookie and never in web storage.
+ */
+export type SessionClientType = 'web' | 'mobile';
+
+/**
+ * Mobile session lifetime policy (deliberately NOT the web 30-day fixed
+ * lifetime — a native app that logs you out monthly is a broken UX):
+ *  - idle lifetime: the session stays valid for 60 days after the last
+ *    renewal; genuine use keeps pushing that window forward.
+ *  - absolute lifetime: no mobile session outlives 365 days from creation,
+ *    regardless of activity. Re-authentication is then required.
+ *  - renewal throttle: the sliding window is only written back to the
+ *    database at most once per 24h per session, so the hot path of every
+ *    authenticated API call stays a pure read (no per-request write, no
+ *    row contention).
+ */
+export const MOBILE_SESSION_IDLE_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
+export const MOBILE_SESSION_ABSOLUTE_MS = 365 * 24 * 60 * 60 * 1000; // 365 days
+export const MOBILE_SESSION_RENEW_THROTTLE_MS = 24 * 60 * 60 * 1000; // 1 day
+
 export interface CreateSessionInput {
   userId: string;
   email: string;
   ipAddress?: string | null;
   userAgent?: string | null;
+  clientType?: SessionClientType;
 }
 
 export interface CreatedSession {
   token: string;
   sessionId: string;
   expiresAt: Date;
+  clientType: SessionClientType;
 }
 
 export async function createSession(config: ServerConfig, input: CreateSessionInput): Promise<CreatedSession> {
   const sb = getServiceClient(config);
   const token = generateSessionToken();
   const tokenHash = hashToken(token);
-  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+  const clientType: SessionClientType = input.clientType === 'mobile' ? 'mobile' : 'web';
+  const now = Date.now();
+  const expiresAt = new Date(now + (clientType === 'mobile' ? MOBILE_SESSION_IDLE_MS : SESSION_TTL_MS));
+  const absoluteExpiresAt =
+    clientType === 'mobile' ? new Date(now + MOBILE_SESSION_ABSOLUTE_MS) : null;
 
   const { data, error } = await sb
     .from('auth_sessions')
@@ -156,6 +193,9 @@ export async function createSession(config: ServerConfig, input: CreateSessionIn
       ip_address: input.ipAddress ?? null,
       user_agent: input.userAgent ?? null,
       expires_at: expiresAt.toISOString(),
+      client_type: clientType,
+      absolute_expires_at: absoluteExpiresAt ? absoluteExpiresAt.toISOString() : null,
+      last_renewed_at: new Date(now).toISOString(),
     })
     .select('id')
     .single();
@@ -164,19 +204,28 @@ export async function createSession(config: ServerConfig, input: CreateSessionIn
     throw new Error(`Failed to create session: ${error?.message ?? 'unknown error'}`);
   }
 
-  return { token, sessionId: data.id as string, expiresAt };
+  return { token, sessionId: data.id as string, expiresAt, clientType };
 }
 
 export interface ValidatedSession {
   sessionId: string;
   userId: string;
   email: string;
+  clientType: SessionClientType;
+  expiresAt: Date;
+  absoluteExpiresAt: Date | null;
+  lastRenewedAt: Date | null;
 }
 
 /**
  * Pure read: looks up the session by token hash, returns null for
  * anything other than "exists, not revoked, not expired". Never throws for
  * a missing/invalid token — callers treat null as "not authenticated".
+ *
+ * Mobile sessions are additionally bounded by `absolute_expires_at`: even
+ * a session whose sliding idle window is still open dies at its absolute
+ * cap. Renewal of the sliding window is deliberately NOT done here (this
+ * stays side-effect free); see `renewMobileSessionIfDue`.
  */
 export async function validateSessionToken(config: ServerConfig, token: string | null | undefined): Promise<ValidatedSession | null> {
   if (!token || typeof token !== 'string') return null;
@@ -185,16 +234,119 @@ export async function validateSessionToken(config: ServerConfig, token: string |
 
   const { data, error } = await sb
     .from('auth_sessions')
-    .select('id, user_id, email, expires_at, revoked_at')
+    .select('id, user_id, email, expires_at, revoked_at, client_type, absolute_expires_at, last_renewed_at')
     .eq('token_hash', tokenHash)
     .is('revoked_at', null)
     .maybeSingle();
 
   if (error || !data) return null;
-  if (new Date(data.expires_at).getTime() < Date.now()) return null;
+  const now = Date.now();
+  if (new Date(data.expires_at).getTime() < now) return null;
 
-  return { sessionId: data.id as string, userId: data.user_id as string, email: data.email as string };
+  const absoluteExpiresAt = data.absolute_expires_at ? new Date(data.absolute_expires_at as string) : null;
+  if (absoluteExpiresAt && absoluteExpiresAt.getTime() < now) return null;
+
+  return {
+    sessionId: data.id as string,
+    userId: data.user_id as string,
+    email: data.email as string,
+    clientType: (data.client_type as SessionClientType | undefined) === 'mobile' ? 'mobile' : 'web',
+    expiresAt: new Date(data.expires_at),
+    absoluteExpiresAt,
+    lastRenewedAt: data.last_renewed_at ? new Date(data.last_renewed_at as string) : null,
+  };
 }
+
+/**
+ * Server-controlled sliding renewal for MOBILE sessions only.
+ *
+ * Called after a successful validation on an authenticated request. It
+ * writes at most once per `MOBILE_SESSION_RENEW_THROTTLE_MS` per session
+ * (so normal app usage costs no extra database write), never extends past
+ * the absolute cap, never rotates the token (rotation would race with the
+ * app's concurrent in-flight requests and could strand a legitimate
+ * client), and never resurrects a revoked session — the update is scoped
+ * to `revoked_at IS NULL`.
+ *
+ * Failures here are non-fatal: a renewal that could not be written just
+ * means the window gets pushed on the next request. A transient database
+ * or network error must never be turned into a logout.
+ */
+export async function renewMobileSessionIfDue(
+  config: ServerConfig,
+  session: ValidatedSession,
+): Promise<void> {
+  if (session.clientType !== 'mobile') return;
+  const now = Date.now();
+  const lastRenewed = session.lastRenewedAt?.getTime() ?? 0;
+  if (now - lastRenewed < MOBILE_SESSION_RENEW_THROTTLE_MS) return;
+
+  const cap = session.absoluteExpiresAt?.getTime() ?? now + MOBILE_SESSION_ABSOLUTE_MS;
+  const nextExpiry = Math.min(now + MOBILE_SESSION_IDLE_MS, cap);
+  if (nextExpiry <= session.expiresAt.getTime()) return;
+
+  try {
+    const sb = getServiceClient(config);
+    await sb
+      .from('auth_sessions')
+      .update({
+        expires_at: new Date(nextExpiry).toISOString(),
+        last_renewed_at: new Date(now).toISOString(),
+      })
+      .eq('id', session.sessionId)
+      .is('revoked_at', null);
+  } catch (err) {
+    console.warn('[auth] Mobile session renewal failed (non-fatal):', err);
+  }
+}
+
+/**
+ * Extracts the session token from a request, supporting BOTH transports:
+ *  - `cookie` — the browser's HttpOnly `gs_session` cookie (web, unchanged)
+ *  - `bearer` — `Authorization: Bearer <opaque session token>` (Capacitor
+ *    native, which has no usable cookie jar against a cross-origin API)
+ *
+ * The token itself is identical in both cases — the same opaque 256-bit
+ * value validated by `validateSessionToken`, subject to the same
+ * revocation and expiry rules. Only the transport differs, and the
+ * transport is reported so callers can apply browser-only CSRF reasoning
+ * to cookie requests only (a Bearer credential is never attached
+ * automatically by a browser, so cross-site request forgery does not
+ * apply to it).
+ */
+export type SessionTransport = 'cookie' | 'bearer';
+
+export function getRequestSessionToken(req: {
+  headers?: Record<string, unknown>;
+  cookies?: Record<string, unknown>;
+}): { token: string | null; transport: SessionTransport } {
+  // Single implementation, shared with the central resolver
+  // (server/lib/workspaceAuth.ts) and every route that reads the token
+  // directly, so cookie/Bearer handling can never drift between them.
+  return readSessionToken(req);
+}
+
+export interface ResolvedRequestSession extends ValidatedSession {
+  transport: SessionTransport;
+}
+
+/**
+ * Single entry point used by the central authentication resolver: pick the
+ * token off whichever transport the caller used, validate it through the
+ * one existing `validateSessionToken`, and (for mobile) let the server
+ * slide the idle window forward.
+ */
+export async function resolveRequestSession(
+  config: ServerConfig,
+  req: { headers?: Record<string, unknown>; cookies?: Record<string, unknown> },
+): Promise<ResolvedRequestSession | null> {
+  const { token, transport } = getRequestSessionToken(req);
+  const session = await validateSessionToken(config, token);
+  if (!session) return null;
+  await renewMobileSessionIfDue(config, session);
+  return { ...session, transport };
+}
+
 
 /**
  * Revoke exactly one session (e.g. logout from this device). Idempotent —

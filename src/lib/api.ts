@@ -7,12 +7,15 @@
 // Same-origin (`''`) when VITE_API_BASE_URL is not configured at build time —
 // the frontend nginx `/api/` proxy (BACKEND_URL) then handles the request.
 import { API_BASE } from './apiBase';
+// Single shared authenticated transport: cookie on the web, Keychain-backed
+// `Authorization: Bearer <opaque session token>` inside the native shell.
+import { authFetch } from './authFetch';
 
 
 
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {credentials: 'include', 
+  const res = await authFetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',

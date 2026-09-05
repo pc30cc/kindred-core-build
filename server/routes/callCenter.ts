@@ -48,6 +48,7 @@ import {
 import crypto from 'crypto';
 import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { validateSessionToken, SESSION_COOKIE_NAME } from '../services/auth/sessions.js';
+import { readSessionToken } from '../lib/sessionTransport.js';
 import {
   callWidgetFormSchema,
   callWidgetOfflineBehaviorSchema,
@@ -85,7 +86,7 @@ interface AuthLookup {
   user: { id: string } | null;
 }
 async function lookupUser(req: any, config: ServerConfig): Promise<AuthLookup> {
-  const token = (req as any).cookies?.[SESSION_COOKIE_NAME];
+  const token = readSessionToken(req as any).token;
   const session = await validateSessionToken(config, token);
   return { user: session ? { id: session.userId } : null };
 }

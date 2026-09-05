@@ -36,6 +36,7 @@ import {
   revokeAllSessions,
   SESSION_COOKIE_NAME,
 } from '../services/auth/sessions.js';
+import { readSessionToken } from '../lib/sessionTransport.js';
 
 export const authSecurityRouter = Router();
 
@@ -43,6 +44,12 @@ const loginSchema = z.object({
   email: z.string().email().max(255),
   password: z.string().min(1).max(255),
   captchaToken: z.string().optional(),
+  // Native (Capacitor) clients ask for a Bearer-transport session instead of
+  // a cookie. Everything else about this endpoint — brute force, captcha,
+  // Argon2id verification, rehash, disabled-account checks, auditing — is
+  // the SAME code path; only the session's transport and lifetime policy
+  // differ. There is no separate mobile login handler.
+  client: z.enum(['web', 'mobile']).optional(),
 });
 
 const signupSchema = z.object({
@@ -214,15 +221,32 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
       .update({ last_login_at: new Date().toISOString(), failed_login_count: 0 })
       .eq('user_id', identity.id);
 
+    // Native shells cannot rely on cookies (the app runs from
+    // `capacitor://localhost` against a different API origin), so they get
+    // the SAME opaque session token handed back in the response body and
+    // store it in the iOS Keychain. Web behaviour is byte-for-byte
+    // unchanged: cookie set, no token in the body, ever.
+    const isMobileClient =
+      parsed.data.client === 'mobile' ||
+      String(req.headers['x-client-platform'] || '').toLowerCase() === 'ios' ||
+      String(req.headers['x-client-platform'] || '').toLowerCase() === 'android';
+
     const session = await createSession(config, {
       userId: identity.id,
       email: identity.email,
       ipAddress: req.ip || null,
       userAgent: (req.headers['user-agent'] as string | undefined) || null,
+      clientType: isMobileClient ? 'mobile' : 'web',
     });
-    setSessionCookie(res, session.token, session.expiresAt);
+    if (!isMobileClient) {
+      setSessionCookie(res, session.token, session.expiresAt);
+    }
 
-    await logSecurityEvent(req, 'login_success', 'info', { email: normalizedEmail, userId: identity.id });
+    await logSecurityEvent(req, 'login_success', 'info', {
+      email: normalizedEmail,
+      userId: identity.id,
+      client: isMobileClient ? 'mobile' : 'web',
+    });
 
     return res.json({
       user: {
@@ -231,6 +255,9 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
         emailVerified: !!identity.emailVerifiedAt,
         fullName: identity.fullName,
       },
+      ...(isMobileClient
+        ? { sessionToken: session.token, expiresAt: session.expiresAt.toISOString() }
+        : {}),
     });
   } catch (err) {
     console.error('[auth] Login error:', err);
@@ -373,7 +400,7 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
 authSecurityRouter.get('/session', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
-    const token = req.cookies?.[SESSION_COOKIE_NAME];
+    const { token } = readSessionToken(req);
     const session = await validateSessionToken(config, token);
     if (!session) return res.json({ user: null });
 
@@ -401,10 +428,12 @@ authSecurityRouter.get('/session', async (req, res) => {
 authSecurityRouter.post('/logout', authRateLimiter, async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
-    if (!verifyOriginForMutation(req, config.corsOrigins)) {
+    const { token, transport } = readSessionToken(req);
+    // CSRF only applies to the browser-cookie transport (see
+    // workspaceAuth.requireUser): a Bearer token is never auto-attached.
+    if (transport === 'cookie' && !verifyOriginForMutation(req, config.corsOrigins)) {
       return res.status(403).json({ error: 'Origin not allowed' });
     }
-    const token = req.cookies?.[SESSION_COOKIE_NAME];
     const session = await validateSessionToken(config, token);
     if (!session) {
       // Nothing valid to revoke server-side — this IS "already logged
@@ -443,10 +472,10 @@ authSecurityRouter.post('/logout', authRateLimiter, async (req, res) => {
 authSecurityRouter.post('/logout-all', authRateLimiter, async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
-    if (!verifyOriginForMutation(req, config.corsOrigins)) {
+    const { token, transport } = readSessionToken(req);
+    if (transport === 'cookie' && !verifyOriginForMutation(req, config.corsOrigins)) {
       return res.status(403).json({ error: 'Origin not allowed' });
     }
-    const token = req.cookies?.[SESSION_COOKIE_NAME];
     const session = await validateSessionToken(config, token);
     if (!session) {
       clearSessionCookie(res);

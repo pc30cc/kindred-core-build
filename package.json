@@ -29,9 +29,10 @@
     "test:e2e": "playwright test",
     "test:e2e:invitations": "playwright test e2e/invitations.spec.ts",
     "test:realtime:cross-node": "bun run scripts/realtime/cross-node-integration.ts",
-    "ios:sync": "npx cap sync ios",
+    "ios:runtime-config": "node scripts/ios/write-runtime-config.mjs",
+    "ios:sync": "npm run ios:runtime-config && npx cap sync ios",
     "ios:open": "npx cap open ios",
-    "ios:prepare": "npm run build && npx cap sync ios"
+    "ios:prepare": "npm run build && npm run ios:sync"
   },
   "dependencies": {
     "@capacitor/core": "^8.5.1",

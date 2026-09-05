@@ -47,14 +47,49 @@ function runtimeApiBase(): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined;
 }
 
-// During local/Lovable preview, route API requests through Vite's same-origin
-// proxy. Preview hosts are intentionally not added to production CORS because
-// they are temporary and unpredictable. Production builds resolve the API
-// origin at runtime first, then from the build-time env.
-export const API_BASE = viteEnv?.DEV
-  ? ''
-  : resolveApiBase(
-      runtimeApiBase() ??
-        (typeof viteEnv?.VITE_API_BASE_URL === 'string' ? viteEnv.VITE_API_BASE_URL : undefined),
-    );
+/**
+ * NATIVE (Capacitor) API base.
+ *
+ * The bundled iOS app serves its own assets from `capacitor://localhost`,
+ * so "same origin" is the app itself and an empty `apiBaseUrl` would make
+ * every API call fail. `mobileApiBaseUrl` is written deterministically into
+ * `runtime-config.js` at build/sync time (scripts/ios/write-runtime-config.mjs
+ * + config/mobile-runtime.json), so `npx cap sync ios` can never reset the
+ * iOS API base to empty and nobody has to hand-edit the copy under
+ * `ios/App/App/public/`.
+ */
+function runtimeMobileApiBase(): string | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const cfg = (window as unknown as {
+    __APP_RUNTIME_CONFIG__?: { mobileApiBaseUrl?: unknown };
+  }).__APP_RUNTIME_CONFIG__;
+  const value = cfg?.mobileApiBaseUrl;
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function isNativeRuntime(): boolean {
+  try {
+    const cap = (window as any)?.Capacitor;
+    return Boolean(cap?.isNativePlatform?.() ?? cap?.isNative);
+  } catch {
+    return false;
+  }
+}
+
+function resolveInitialApiBase(): string {
+  const buildTime =
+    typeof viteEnv?.VITE_API_BASE_URL === 'string' ? viteEnv.VITE_API_BASE_URL : undefined;
+  if (isNativeRuntime()) {
+    // Native must resolve to an ABSOLUTE origin — never same-origin.
+    return resolveApiBase(runtimeMobileApiBase() ?? runtimeApiBase() ?? buildTime);
+  }
+  // During local/Lovable preview, route API requests through Vite's
+  // same-origin proxy. Production web builds resolve the API origin at
+  // runtime first, then from the build-time env.
+  if (viteEnv?.DEV) return '';
+  return resolveApiBase(runtimeApiBase() ?? buildTime);
+}
+
+export const API_BASE = resolveInitialApiBase();
+
 

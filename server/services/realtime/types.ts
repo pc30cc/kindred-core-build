@@ -286,3 +286,62 @@ export function buildOperatorPresenceChannelName(workspaceId: string): string {
 export function isOperatorPresenceChannel(channel: string, workspaceId: string): boolean {
   return channel === `ws:${workspaceId}:operators`;
 }
+
+/* ─────────────────── visitor live-presence channels (sharded) ─────────────── */
+
+/**
+ * Number of visitor-presence shards per workspace.
+ *
+ * Visitor presence is a MEMBERSHIP fact: the widget holds a subscription to
+ * its shard while the page is open, and Centrifugo's presence API over that
+ * shard is the source of truth for "who is browsing right now". Sharding is
+ * what keeps the read bounded: resolving N visitors costs at most
+ * VISITOR_PRESENCE_SHARDS presence calls, never one call per visitor (a
+ * per-visitor channel would explode into millions of channels).
+ *
+ * Changing this value re-maps existing sessions to other shards, so treat it
+ * as deployment-wide config, not a per-request knob.
+ */
+export const VISITOR_PRESENCE_SHARDS = 16;
+
+/** Stable, dependency-free shard for a visitor session id (FNV-1a 32-bit). */
+export function visitorPresenceShard(
+  sessionId: string,
+  shards: number = VISITOR_PRESENCE_SHARDS,
+): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < sessionId.length; i += 1) {
+    h ^= sessionId.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h % Math.max(1, shards);
+}
+
+/**
+ * Visitor-presence channel: `vp:{workspace_id}:{shard}`.
+ *
+ * Deliberately OUTSIDE the `ws` namespace: the `ws` namespace allows clients
+ * to call the presence API for channels they are subscribed to, which on a
+ * shared visitor channel would let one visitor enumerate other visitors of
+ * the same workspace. The `vp` namespace must be declared with
+ * `allow_presence_for_client: false` and `join_leave: false` — only the
+ * backend (API key) may read it.
+ */
+export function buildVisitorPresenceChannelName(workspaceId: string, shard: number): string {
+  return `vp:${workspaceId}:${shard}`;
+}
+
+/** Presence subject for a visitor session (server-minted, never client-supplied). */
+export function buildVisitorPresenceSubject(sessionId: string): string {
+  return `vs_${sessionId}`;
+}
+
+/** Returns true iff `channel` is a visitor-presence shard of this workspace. */
+export function isVisitorPresenceChannel(channel: string, workspaceId: string): boolean {
+  if (!channel || !workspaceId) return false;
+  const prefix = `vp:${workspaceId}:`;
+  if (!channel.startsWith(prefix)) return false;
+  const shard = channel.slice(prefix.length);
+  if (!/^[0-9]{1,4}$/.test(shard)) return false;
+  return Number(shard) < VISITOR_PRESENCE_SHARDS;
+}

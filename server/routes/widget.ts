@@ -51,7 +51,14 @@ import {
 import { loadPublicSmartRules, recordSmartEvent } from '../services/widget/smartEngagement.js';
 import { evaluateAiProactiveNudge } from '../services/widget/aiNudge/evaluate.js';
 import { resolveEffectiveAiNudgePolicy } from '../services/widget/aiNudge/policy.js';
-import { touchVisitorLiveness } from '../services/widget/visitorLiveness.js';
+import {
+  touchVisitorLiveness,
+  VISITOR_LIVENESS_NAVIGATION_ONLY_MS,
+} from '../services/widget/visitorLiveness.js';
+import {
+  resolveVisitorPresenceMode,
+  recordVisitorLivenessWrite,
+} from '../services/visitors/presenceSource.js';
 
 import { resolveTrustedNudgeSessionKey } from '../services/widget/aiNudge/session.js';
 import { transitionNudgeStatus } from '../services/widget/aiNudge/lifecycle.js';
@@ -2510,6 +2517,13 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
     if (action === 'heartbeat' && workspaceId) {
       const now = new Date().toISOString();
 
+      // Realtime-first presence: while Centrifugo presence is authoritative,
+      // liveness is proven by the widget's live subscription, so the heartbeat
+      // performs NO pure-liveness write. Only durable business facts (a real
+      // navigation, page-view history) still reach PostgreSQL.
+      const presenceMode = await resolveVisitorPresenceMode(config, workspaceId);
+      const realtimePresence = presenceMode === 'realtime';
+
       if (conversation_id) {
         const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, visitor_id, session_id, req);
         if (!ownership.valid) {
@@ -2522,8 +2536,14 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
           );
           return res.status(403).json({ error: 'Access denied', code: 'CONVERSATION_ACCESS_DENIED' });
         }
-        await supabase.from('conversations').update({ updated_at: now }).eq('id', conversation_id);
-        return res.json({ ok: true });
+        // `conversations.updated_at` is business recency, not liveness: in
+        // realtime mode the open subscription already proves the visitor is
+        // here, so touching the row on every tick would be exactly the write
+        // amplification this architecture removes.
+        if (!realtimePresence) {
+          await supabase.from('conversations').update({ updated_at: now }).eq('id', conversation_id);
+        }
+        return res.json({ ok: true, presence_mode: presenceMode });
       }
 
       if (session_id) {
@@ -2531,12 +2551,21 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
         // visitor navigated or the row aged past the refresh interval, so a
         // 60 s heartbeat no longer costs a write per tick. Page-view history
         // (business data) is still appended on every real URL change.
+        // In realtime mode the minimum interval is effectively infinite: the
+        // RPC then writes ONLY when `current_page` actually changed
+        // (navigation = durable business fact) and coalesces everything else
+        // away. In database mode the historical refresh interval applies.
         const touch = await touchVisitorLiveness(supabase, {
           workspaceId,
           sessionId: session_id,
           visitorId: visitor_id || null,
           currentPage: current_page || null,
+          minIntervalMs: realtimePresence ? VISITOR_LIVENESS_NAVIGATION_ONLY_MS : undefined,
         });
+        recordVisitorLivenessWrite(
+          touch.wrote && !touch.pageChanged ? 'wrote' : 'coalesced',
+          presenceMode,
+        );
 
         if (!touch.matched) {
           return res.json({ ok: true, matched: false });
@@ -2555,7 +2584,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
           }
         }
 
-        return res.json({ ok: true });
+        return res.json({ ok: true, presence_mode: presenceMode });
       }
 
 

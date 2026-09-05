@@ -1,6 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { getServiceClient } from '../supabase.js';
+import {
+  resolveVisitorPresence,
+  applyVisitorPresence,
+  resolveVisitorPresenceMode,
+  recordVisitorLivenessWrite,
+} from '../services/visitors/presenceSource.js';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import {
   resolveIpVisibilityPolicy,
@@ -302,22 +308,36 @@ visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
       .eq('id', session_id)
       .maybeSingle();
 
-    await supabase
-      .from('visitor_sessions')
-      .update({
-        current_page,
-        last_seen_at: new Date().toISOString(),
-      })
-      .eq('id', session_id);
+    // WRITE DISCIPLINE: when Centrifugo shard membership is the authority for
+    // liveness, this legacy heartbeat must not keep touching two rows every
+    // minute per visitor. Navigation (a page change) is durable business data
+    // and is still persisted; a pure "still here" tick is dropped.
+    const wsIdForMode = workspace_id ?? prevSession?.workspace_id ?? null;
+    const presenceMode = wsIdForMode
+      ? await resolveVisitorPresenceMode(config, wsIdForMode)
+      : 'database';
+    const pageChanged = !!current_page && current_page !== (prevSession?.current_page ?? null);
+    const writeLiveness = presenceMode === 'database' || pageChanged;
 
-    await supabase
-      .from('visitor_presence')
-      .update({
-        status,
-        current_page,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('visitor_session_id', session_id);
+    if (writeLiveness) {
+      await supabase
+        .from('visitor_sessions')
+        .update({
+          current_page,
+          last_seen_at: new Date().toISOString(),
+        })
+        .eq('id', session_id);
+
+      await supabase
+        .from('visitor_presence')
+        .update({
+          status,
+          current_page,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('visitor_session_id', session_id);
+    }
+    recordVisitorLivenessWrite(writeLiveness ? 'wrote' : 'coalesced', presenceMode);
 
     // Append a page-view only if the URL changed (avoids spam from heartbeats).
     if (
@@ -655,13 +675,23 @@ visitorsAdminRouter.get('/presence-by-conversation', async (req: Request, res: R
       .eq('visitor_session_id', sessionId)
       .maybeSingle();
     if (pErr) throw pErr;
+    // Route the status through the CENTRAL resolver so this surface agrees
+    // with the Visitors list: realtime membership first, stored row as
+    // fallback, `unknown` (never a false offline) during the handoff window.
+    const resolution = await resolveVisitorPresence(config, workspaceId, [sessionId]);
     if (!presence) {
-      return res.json({ status: 'unknown', current_page: null, updated_at: null });
+      return res.json({
+        status: resolution.online.has(sessionId) ? 'online' : 'unknown',
+        current_page: null,
+        updated_at: null,
+      });
     }
+    const stored = (presence as any).status as 'online' | 'idle' | 'offline' | 'unknown';
+    const updatedAt = (presence as any).updated_at ?? null;
     return res.json({
-      status: (presence as any).status,
+      status: applyVisitorPresence(resolution, sessionId, stored, updatedAt),
       current_page: (presence as any).current_page ?? null,
-      updated_at: (presence as any).updated_at ?? null,
+      updated_at: updatedAt,
     });
   } catch (err) {
     console.error('[visitors.presence-by-conversation] failed:', err);

@@ -40,9 +40,15 @@ export async function assignRealtimeEndpoint(config: ServerConfig): Promise<Real
   }
 
   if (mode === 'load_balanced_redis') {
-    const lb = c?.load_balancer_ws_url?.trim() || c?.ws_url?.trim() || null;
+    // Fail closed. The legacy single `ws_url` is NOT an acceptable substitute
+    // for the load-balancer URL: it usually addresses ONE node directly, so
+    // silently using it would bypass the LB, pin every client to that node and
+    // hide a misconfiguration behind seemingly-working traffic. When the LB URL
+    // is missing we return null and let provider-level degradation take over.
+    const lb = c?.load_balancer_ws_url?.trim() || null;
     return { mode, ws_url: lb, reason: lb ? 'load_balancer' : 'load_balancer_not_configured' };
   }
+
 
   // app_routed_redis — ONLY nodes registered in the Node Registry (i.e. proven
   // members of the same Redis-backed cluster) may be assigned.

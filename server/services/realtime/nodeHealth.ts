@@ -35,6 +35,18 @@ export interface NodeHealthSnapshot {
   /** False when `node_name` was not present in the cluster info reply. */
   node_name_matched?: boolean;
   checked_at?: number;
+  /**
+   * True when this snapshot is `unknown` ONLY because previously collected
+   * evidence aged past NODE_HEALTH_HARD_STALE_MS (`stale_unknown`).
+   *
+   * A stale-unknown node MUST NOT be handed new connections: it was probed
+   * before, so a broken health refresher (rather than a cold start) is the
+   * reason we have no fresh evidence, and re-admitting it would silently put
+   * a down node back into rotation. Absence of any cache entry — the genuine
+   * cold-start case (`never_probed_unknown`) — is still selectable as a last
+   * resort.
+   */
+  stale?: boolean;
 }
 
 /** Health cache TTL — short enough to react, long enough to avoid fan-out. */
@@ -66,6 +78,7 @@ function staleToUnknown(hit: NodeHealthSnapshot): NodeHealthSnapshot {
       node_id: hit.node_id,
       status: 'unknown',
       message: 'health evidence stale',
+      stale: true,
       checked_at: hit.checked_at,
     };
   }

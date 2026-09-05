@@ -95,7 +95,18 @@ export function selectNode(
   // a cold process must still be able to serve traffic, but a node that is
   // proven down is never chosen while a provably-usable one exists.
   const proven = accepting.filter((n) => isSelectableHealth(health[n.id]));
-  const unknownOnly = accepting.filter((n) => (health[n.id]?.status ?? 'unknown') === 'unknown');
+  // Two kinds of `unknown` exist and they are NOT interchangeable:
+  //   never_probed_unknown — no cache entry at all (cold process start).
+  //                          Selectable as a last resort, otherwise a fresh
+  //                          process could serve nothing.
+  //   stale_unknown        — probed before, evidence aged out (`stale: true`).
+  //                          NEVER selectable: a stalled health refresher must
+  //                          not put a node that may be down back in rotation.
+  const unknownOnly = accepting.filter((n) => {
+    const h = health[n.id];
+    if (h && h.status === 'unknown' && h.stale) return false;
+    return (h?.status ?? 'unknown') === 'unknown';
+  });
   const pool = proven.length ? proven : unknownOnly;
   if (!pool.length) return { node: null, reason: 'no_healthy_nodes', eligible_count: accepting.length };
 

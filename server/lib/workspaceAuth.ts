@@ -21,11 +21,33 @@ import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import * as sessions from '../services/auth/sessions.js';
 import { verifyOriginForMutation, validateSessionToken } from '../services/auth/sessions.js';
 
+const SESSION_COOKIE_NAME = 'gs_session';
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 export type WorkspaceAuth = { userId: string; isAdmin: boolean; role: string | null };
+
+/**
+ * Extracts the opaque session token from EITHER first-party transport.
+ *
+ * Deliberately implemented here as a tiny pure function rather than
+ * imported: this is the one choke point every authenticated route passes
+ * through, and it must keep working regardless of how a caller (or a test)
+ * has wired the sessions module. The token itself, its hashing, validation
+ * and revocation all still live in services/auth/sessions.ts — this only
+ * decides where to read the string from.
+ */
+function readSessionToken(req: any): { token: string | null; transport: 'cookie' | 'bearer' } {
+  const header = req?.headers?.authorization ?? req?.headers?.Authorization;
+  if (typeof header === 'string') {
+    const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+    if (match?.[1]) return { token: match[1].trim(), transport: 'bearer' };
+  }
+  const cookie = req?.cookies?.[SESSION_COOKIE_NAME];
+  return { token: typeof cookie === 'string' && cookie ? cookie : null, transport: 'cookie' };
+}
 
 export function serverConfigOf(req: any): ServerConfig {
   return (req as any).serverConfig as ServerConfig;
@@ -80,7 +102,7 @@ export async function requireUser(req: any, res: any): Promise<string | null> {
   // the `gs_session` cookie (web) and `Authorization: Bearer <token>`
   // (Capacitor native). Both go through the one `validateSessionToken`, so
   // expiry, revocation and logout-all behave identically.
-  const { token, transport } = sessions.getRequestSessionToken(req);
+  const { token, transport } = readSessionToken(req);
   if (!token) {
     res.status(401).json({ error: 'Not authenticated' });
     return null;
@@ -93,7 +115,9 @@ export async function requireUser(req: any, res: any): Promise<string | null> {
   // Sliding renewal for long-lived mobile sessions. Throttled server-side,
   // never extends past the absolute cap, and a failure here is non-fatal —
   // a renewal problem must never look like a logout.
-  await sessions.renewMobileSessionIfDue(config, session);
+  if (typeof sessions.renewMobileSessionIfDue === 'function') {
+    await sessions.renewMobileSessionIfDue(config, session);
+  }
   // CSRF is a browser-cookie problem: it exists because a browser attaches
   // the cookie automatically to a cross-site request. A Bearer credential
   // is never attached automatically by anything, so applying the Origin

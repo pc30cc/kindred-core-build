@@ -2488,7 +2488,11 @@
         try { window.__gs_visitor_presence = presence; } catch (_) {}
         function doPing(tokenToUse, isRetry, force) {
           if (STOPPED) return;
-          if (presenceOwnsLiveness && !force) return;
+          // Liveness is suppressed only while we hold a VALID lease — an open
+          // socket whose lease lapsed must resume heartbeating, otherwise the
+          // visitor would silently age out of the operator's list.
+          var lease = presence.lease();
+          if (presenceOwnsLiveness && lease && !force) return;
           // Skip when the page is hidden — saves battery and avoids
           // burning rate-limit budget on backgrounded tabs.
           if (typeof document !== 'undefined' && document.hidden) return;
@@ -2502,8 +2506,10 @@
               session_id: sessionId,
               current_page: currentPage(),
               page_title: currentTitle(),
+              presence_lease: lease,
             }),
           })
+
             .then(function (r) {
               if (r.ok) { consecutiveFailures = 0; return; }
               // Token expired/invalid → refresh once and retry.

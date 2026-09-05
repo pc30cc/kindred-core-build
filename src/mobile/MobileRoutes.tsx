@@ -21,7 +21,7 @@ import MobileInboxPage from './MobileInboxPage';
 import MobileConversationPage from './MobileConversationPage';
 import MobileContactsPage from './MobileContactsPage';
 import MobileVisitorsPage from './MobileVisitorsPage';
-import ContactDetailPage from '@/pages/app/ContactDetailPage';
+import MobileContactDetailPage from './MobileContactDetailPage';
 
 export function MobileRoutes() {
   return (
@@ -57,7 +57,7 @@ export function MobileRoutes() {
             </PlanLockedOverlay>
           }
         />
-        <Route path="contacts/:id" element={<ContactDetailPage />} />
+        <Route path="contacts/:id" element={<MobileContactDetailPage />} />
         <Route
           path="visitors"
           element={

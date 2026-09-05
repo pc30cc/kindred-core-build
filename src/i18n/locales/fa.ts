@@ -793,6 +793,7 @@ const fa: TranslationKeys = {
     defaultInboxes: 'صندوق‌های پیش‌فرض',
     aiInboxes: 'صندوق‌های هوش مصنوعی',
     otherInboxes: 'سایر صندوق‌ها',
+    internalInbox: 'صندوق داخلی',
     enterToSend: 'برای ارسال',
     hintNewLine: 'خط جدید',
     hintShortcuts: 'میان‌برها',

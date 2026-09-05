@@ -797,6 +797,7 @@ const tr: TranslationKeys = {
     defaultInboxes: 'Varsayılan gelen kutuları',
     aiInboxes: 'Yapay zekâ kutuları',
     otherInboxes: 'Diğer kutular',
+    internalInbox: 'Dahili kutu',
     enterToSend: 'göndermek için',
     hintNewLine: 'yeni satır',
     hintShortcuts: 'kısayollar',

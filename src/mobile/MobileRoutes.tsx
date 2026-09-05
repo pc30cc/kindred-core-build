@@ -17,7 +17,8 @@ import { MobileLayout } from './MobileLayout';
 
 import ForgotPasswordPage from '@/pages/auth/ForgotPasswordPage';
 import ResetPasswordPage from '@/pages/auth/ResetPasswordPage';
-import InboxPage from '@/pages/app/InboxPage';
+import MobileInboxPage from './MobileInboxPage';
+import MobileConversationPage from './MobileConversationPage';
 import ContactsPage from '@/pages/app/ContactsPage';
 import ContactDetailPage from '@/pages/app/ContactDetailPage';
 import VisitorsPage from '@/pages/app/VisitorsPage';
@@ -46,7 +47,8 @@ export function MobileRoutes() {
         }
       >
         <Route index element={<Navigate to="inbox" replace />} />
-        <Route path="inbox" element={<InboxPage />} />
+        <Route path="inbox" element={<MobileInboxPage />} />
+        <Route path="inbox/:conversationId" element={<MobileConversationPage />} />
         <Route
           path="contacts"
           element={

@@ -2231,6 +2231,11 @@
     var refreshTimer = null;
     var cmdId = 1;
     var negotiating = false;
+    var refreshing = false;
+    var currentWsUrl = null;
+    /** Command id → reply handler (refresh / sub_refresh). */
+    var pending = {};
+
     // Per-session lease presented on every heartbeat. While it is valid AND
     // the subscription is open, the server performs no liveness write. It is
     // dropped the moment ownership is lost, so a dead socket immediately hands

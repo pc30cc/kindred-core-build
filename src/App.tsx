@@ -17,6 +17,12 @@ import { RequireWorkspaceAdmin } from "@/features/auth/RequireWorkspaceAdmin";
 import { BrandingGate } from "@/features/branding/BrandingGate";
 import { PlatformBrandingGate } from "@/features/branding/PlatformBrandingGate";
 import { WorkspaceRedirect } from "@/features/workspace/WorkspaceRedirect";
+import { MobileRoutes } from "@/mobile/MobileRoutes";
+import { isNativePlatform } from "@/lib/native";
+
+// The SAME bundle powers web and the Capacitor iOS shell; only the native
+// shell gets the reduced mobile route table.
+const isNativeApp = isNativePlatform();
 
 import { AuthLayout } from "@/components/layout/AuthLayout";
 import { AppLayout } from "@/components/layout/AppLayout";

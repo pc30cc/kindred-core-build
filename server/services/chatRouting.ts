@@ -370,15 +370,19 @@ export async function routeConversationToOperator(
     const departmentId = await resolveConversationDepartment(
       config, args.workspaceId, args.conversationId, metadata,
     );
-    let candidates = await onlineEligibleCandidates(config, args.workspaceId, departmentId);
+    const tiers = await onlineEligibleCandidates(config, args.workspaceId, departmentId);
 
     let picked: string | null = null;
     let outcome: RoutingOutcome = 'no_eligible_agent';
 
-    if (candidates.length) {
+    // TIER 1 = active, TIER 2 = away. Tier 2 is only entered when no active
+    // operator could be claimed — an idle operator can never win over a busy
+    // but genuinely present one.
+    for (const tier of [tiers.active, tiers.away]) {
+      if (picked || !tier.length) continue;
       if (mode === 'round_robin') {
-        // Rotate starting right after the stored cursor for fairness.
-        const ordered = rotateFromCursor(candidates, cursor);
+        // Rotate starting right after the stored cursor, WITHIN the tier.
+        const ordered = rotateFromCursor(tier, cursor);
         for (const candidate of ordered) {
           if (await tryClaim(config, args.workspaceId, args.conversationId, candidate)) {
             picked = candidate;
@@ -392,9 +396,9 @@ export async function routeConversationToOperator(
             .eq('workspace_id', args.workspaceId);
         }
       } else {
-        // auto — least-loaded eligible online operator, stable tie-break.
-        const load = await loadActiveLoad(config, args.workspaceId, candidates);
-        const ranked = rankAutoCandidates(candidates, load);
+        // auto — least-loaded operator WITHIN the tier, stable tie-break.
+        const load = await loadActiveLoad(config, args.workspaceId, tier);
+        const ranked = rankAutoCandidates(tier, load);
         for (const candidate of ranked) {
           if (await tryClaim(config, args.workspaceId, args.conversationId, candidate)) {
             picked = candidate;
@@ -404,6 +408,7 @@ export async function routeConversationToOperator(
         }
       }
     }
+
 
     // No eligible online agent (department empty, general pool empty, or
     // everyone offline) — try the owner-fallback safety net before giving up.

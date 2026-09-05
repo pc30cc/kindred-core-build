@@ -1077,51 +1077,8 @@ export default function InboxPage() {
       : 'bg-secondary text-muted-foreground',
   );
 
-  const filterTabsNode = (
-          <div
-            role="tablist"
-            aria-label={t('inbox.title') || 'Inbox'}
-            className="flex w-full items-center gap-1 overflow-x-auto scrollbar-hide pb-0.5"
-            dir={dir}
-          >
-            {(['open', 'pending', 'resolved'] as FilterStatus[]).map(s => {
-              const count = stableCounts[s] || 0;
-              const isActive = !isQueueMode && !extraChip && filter === s;
-              const dotColor = s === 'open' ? 'bg-success' : s === 'pending' ? 'bg-warning' : s === 'resolved' ? 'bg-info' : s === 'closed' ? 'bg-muted-foreground' : 'bg-primary';
-              return (
-                <button
-                  key={s}
-                  role="tab"
-                  aria-selected={isActive}
-                  onClick={() => setFilter(s)}
-                  className={cn(
-                    pillBase,
-                    isActive
-                      ? 'bg-primary/10 text-primary border-primary/30'
-                      : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground',
-                  )}
-                >
-                  {s !== 'all' && (
-                    <span className="relative flex w-2 h-2 items-center justify-center">
-                      {liveTabs[s] && (
-                        <span className="absolute inline-flex w-full h-full rounded-full bg-success opacity-75 animate-ping" />
-                      )}
-                      <span className={cn(
-                        'relative inline-flex w-2 h-2 rounded-full',
-                        liveTabs[s] ? 'bg-success animate-pulse' : isActive ? dotColor : 'bg-muted-foreground/30',
-                      )} />
-                    </span>
-                  )}
-                  {s === 'all' ? (t('inbox.all') || 'All') : statusLabels[s]}
-                  {s !== 'all' && <span
-                    aria-hidden={count === 0}
-                    className={cn(pillCount(isActive), count === 0 && 'opacity-0')}
-                  >{count}</span>}
-                </button>
-              );
-            })}
-          </div>
-  );
+  const filterTabsNode = null;
+
 
   /* Secondary views sit on the bottom edge of the top bar as folder tabs
      that visually connect to the inbox surface below. */

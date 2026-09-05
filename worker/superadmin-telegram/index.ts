@@ -2,7 +2,6 @@ import { loadConfig } from '../../server/config.js';
 import {
   callTelegram,
   deleteWebhook,
-  getMe,
   sendChatAction,
   sendMessage,
   setMyCommands,
@@ -106,10 +105,6 @@ export async function startSuperadminTelegramWorker(): Promise<void> {
     { command: 'privacy', description: 'قرارداد عدم ذخیره لاگ' },
     { command: 'help', description: 'راهنما' },
   ]).catch(() => undefined);
-
-  const identity = await getMe(credential);
-  // Startup metadata only. Never log user ids, questions, answers, tokens or snapshots.
-  console.log(`[superadmin-telegram] started bot @${identity.username || 'unknown'} in read-only/no-db-log mode`);
 
   let offset = 0;
   for (;;) {

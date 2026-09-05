@@ -16,11 +16,10 @@ export function MobileSegmented<T extends string>({
   return (
     <div className="relative flex h-9 items-stretch rounded-full bg-muted/80 p-[3px]">
       <span
-        className="absolute inset-y-[3px] rounded-full bg-primary shadow-sm transition-transform duration-300 ease-out rtl:-scale-x-100"
+        className="absolute inset-y-[3px] rounded-full bg-primary shadow-sm transition-[inset-inline-start] duration-300 ease-out"
         style={{
-          width: `calc(${width}% - 4px)`,
-          insetInlineStart: 3,
-          transform: `translateX(calc(${index * 100}% + ${index * 4}px))`,
+          width: `calc(${width}% - 6px)`,
+          insetInlineStart: `calc(${index * width}% + 3px)`,
         }}
       />
       {options.map((o) => (

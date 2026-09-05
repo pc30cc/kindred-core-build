@@ -1015,10 +1015,15 @@ export default function InboxPage() {
   const filteredConvos = useMemo(() => {
     if (!conversations) return [];
     const filtered = conversations.filter(c => {
+      if (channelParam) {
+        const ch = resolveChannelKey((c as any)?.metadata, (c as any)?.contacts?.metadata);
+        if (ch !== channelParam) return false;
+      }
       if (!search) return true;
       const name = conversationTitle(c, t, locale);
       return name.toLowerCase().includes(search.toLowerCase());
     });
+
     // Actionable first: threads where the customer is waiting for US
     // (needs_reply, derived server-side from the message stream) outrank
     // merely-unread ones; within each group the server's updated_at DESC

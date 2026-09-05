@@ -150,6 +150,10 @@ export async function resolveRecipients(
     const isMentioned = mentioned.has(userId);
     const isAssignee = ctx.assignedTo === userId;
 
+    // Quiet hours: silenced unless the operator was personally mentioned.
+    if (!isMentioned && isWithinQuietHours(p, now)) continue;
+
+
     if (ctx.eventType === 'mention' && !isMentioned) continue;
     if (ctx.eventType === 'internal_note') {
       if (!p.push_internal_notes && !isMentioned) continue;

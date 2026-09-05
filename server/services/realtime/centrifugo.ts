@@ -207,7 +207,40 @@ export class CentrifugoDriver {
    *
    * Live connection counts are READ from Centrifugo, never stored in PostgreSQL.
    */
+  /**
+   * List currently ACTIVE channels matching a pattern.
+   *
+   * SCALE WARNING (from Centrifugo's own docs): this returns every matching
+   * active channel with no pagination, so it is only acceptable for small,
+   * single-node deployments. Multi-node deployments must use the Redis
+   * candidate index instead — see services/visitors/candidateIndex.ts.
+   */
+  async channels(pattern: string, limit = 1_000): Promise<string[] | null> {
+    if (!this.cfg.api_url || !this.cfg.api_key) return null;
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 4000);
+    try {
+      const res = await fetch(this.cfg.api_url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': this.cfg.api_key },
+        body: JSON.stringify({ method: 'channels', params: { pattern } }),
+        signal: ctrl.signal,
+      });
+      if (!res.ok) return null;
+      const json: unknown = await res.json().catch(() => null);
+      if (!isCentrifugoApiResponse(json) || json.error) return null;
+      const channels = (json.result as { channels?: Record<string, unknown> } | undefined)?.channels;
+      if (!channels || typeof channels !== 'object') return null;
+      return Object.keys(channels).slice(0, limit);
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   async info(options: { nodeName?: string } = {}): Promise<{
+
     status: 'healthy' | 'degraded' | 'down';
     message: string;
     nodes: CentrifugoNodeInfo[];

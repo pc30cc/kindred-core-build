@@ -44,7 +44,7 @@ export default function MobileSettingsPage() {
 
       <div className="space-y-2">
         <p className="px-1 text-[13px] font-medium uppercase tracking-wide text-muted-foreground">
-          {t('settings.language')}
+          {t('interface.language')}
         </p>
         <div className="rounded-2xl border border-border bg-card divide-y divide-border overflow-hidden">
           {LANGUAGES.map((lang) => (

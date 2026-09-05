@@ -115,8 +115,11 @@ export async function requireUser(req: any, res: any): Promise<string | null> {
   // Sliding renewal for long-lived mobile sessions. Throttled server-side,
   // never extends past the absolute cap, and a failure here is non-fatal —
   // a renewal problem must never look like a logout.
-  if (typeof sessions.renewMobileSessionIfDue === 'function') {
+  try {
     await sessions.renewMobileSessionIfDue(config, session);
+  } catch {
+    // Renewal is best-effort by design: a database hiccup (or a narrower
+    // sessions module in a unit test) must never be turned into a 401.
   }
   // CSRF is a browser-cookie problem: it exists because a browser attaches
   // the cookie automatically to a cross-site request. A Bearer credential

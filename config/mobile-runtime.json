@@ -1,5 +1,5 @@
 {
   "_comment": "Deterministic runtime configuration for the NATIVE (Capacitor/iOS) build. Written into dist/runtime-config.js by scripts/ios/write-runtime-config.mjs before `npx cap sync ios`, so the value shipped inside the app bundle is reproducible and `cap sync` can never reset the iOS API base to empty. Override at build time with MOBILE_API_BASE_URL=... npm run ios:prepare",
   "apiBaseUrl": "https://api.destekly.tr",
-  "defaultLocale": "fa"
+  "defaultLocale": "en"
 }

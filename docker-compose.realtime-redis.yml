@@ -10,7 +10,11 @@
 #  Required environment (Coolify → Environment Variables, secret):
 #    REALTIME_REDIS_PASSWORD   strong random password
 #  Optional:
-#    REALTIME_REDIS_PORT       host port to expose (default: not published)
+#    REALTIME_REDIS_MAXMEMORY        memory ceiling (default 512mb)
+#    REALTIME_REDIS_MAXMEMORY_POLICY default noeviction — see the note below
+#
+#  This Redis is NEVER published on the host or on a public domain: the
+#  Centrifugo nodes reach it over the internal `realtime` network only.
 # ─────────────────────────────────────────────────────────────────────
 services:
   realtime-redis:
@@ -29,12 +33,25 @@ services:
       - ""
       - --appendonly
       - "no"
-      # Bounded memory. Centrifugo re-publishes on reconnect, so evicting
-      # the least recently used coordination keys is safe.
+      # Memory policy — noeviction, deliberately.
+      #
+      # This Redis holds Centrifugo's OPERATIONAL state: pub/sub fan-out,
+      # presence hashes and channel history for recovery. Under memory
+      # pressure `allkeys-lru` would silently evict those keys, and the
+      # visible symptom would be WRONG presence in the operator UI and
+      # missed history recovery — a correctness failure that looks like an
+      # application bug. `noeviction` instead makes Centrifugo's own writes
+      # fail loudly, which surfaces as node health/degradation and is
+      # observable. maxmemory therefore MUST be monitored/alerted
+      # (Centrifugo Prometheus + the platform's realtime alerts).
+      #
+      # allkeys-lru would only be defensible with a documented load test
+      # proving presence/history correctness under eviction for the pinned
+      # Centrifugo version. No such test exists, so it is not the default.
       - --maxmemory
       - ${REALTIME_REDIS_MAXMEMORY:-512mb}
       - --maxmemory-policy
-      - allkeys-lru
+      - ${REALTIME_REDIS_MAXMEMORY_POLICY:-noeviction}
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 10s

@@ -9,14 +9,33 @@
 #
 #  Fully env-driven — no bind-mounted config.json.
 #
+#  Why no Docker healthcheck?
+#    centrifugo/centrifugo:v5.4.5 is built FROM scratch: no shell, no wget,
+#    no curl, and no `centrifugo healthcheck` subcommand (runtime-verified).
+#    Any container-level healthcheck would fail and mark a perfectly healthy
+#    node unhealthy. Health is therefore observed from OUTSIDE the container:
+#      • Coolify/Traefik probe on the public domain
+#      • Centrifugo HTTP API `info` (used by the app's node health service)
+#      • Super Admin → Providers → Realtime → Test node / Test all
+#    Redis keeps its own healthcheck — the redis image ships redis-cli.
+#
+#  Ports: this file is the PRODUCTION node. It only `expose`s 8000 on the
+#  internal network; Coolify/Traefik terminates TLS on the public domain and
+#  routes to port 8000. Nothing is published on the host. For a local
+#  same-host two-node test with host port mappings use
+#  docker-compose.realtime-cluster.yml instead.
+#
 #  Required environment (Coolify → Environment Variables, secret):
 #    CENTRIFUGO_TOKEN_HMAC_SECRET_KEY   shared cluster HMAC secret
 #    CENTRIFUGO_API_KEY                 shared cluster API key
 #    REALTIME_REDIS_PASSWORD            password of the realtime Redis
 #  Recommended:
-#    CENTRIFUGO_NODE_NAME               stable node name (e.g. rt-node-01)
+#    CENTRIFUGO_NODE_NAME               stable node name (e.g. rt-node-01).
+#                                       MUST equal the "Node name" of the
+#                                       matching row in Super Admin → Realtime
+#                                       → Deployment Architecture, otherwise
+#                                       per-node connection counts stay unknown.
 #    REALTIME_REDIS_HOST                default: realtime-redis
-#    CENTRIFUGO_PORT                    host port for this node
 # ─────────────────────────────────────────────────────────────────────
 services:
   centrifugo:
@@ -28,8 +47,9 @@ services:
       nofile:
         soft: 65535
         hard: 65535
-    ports:
-      - "${CENTRIFUGO_PORT:-8000}:8000"
+    # Internal only — Coolify/Traefik routes the public domain here.
+    expose:
+      - "8000"
     environment:
       CENTRIFUGO_NAME: ${CENTRIFUGO_NODE_NAME:-rt-node}
       CENTRIFUGO_ADDRESS: 0.0.0.0
@@ -69,13 +89,6 @@ services:
       CENTRIFUGO_PROMETHEUS: ${CENTRIFUGO_PROMETHEUS:-true}
       CENTRIFUGO_LOG_LEVEL: ${CENTRIFUGO_LOG_LEVEL:-info}
       CENTRIFUGO_ADMIN: "false"
-    healthcheck:
-      # Centrifugo's own /health endpoint — not a synthetic check.
-      test: ["CMD", "sh", "-c", "wget -q -O - http://127.0.0.1:8000/health || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
     networks:
       - realtime
 

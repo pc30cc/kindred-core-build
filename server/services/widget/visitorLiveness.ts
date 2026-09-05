@@ -97,22 +97,29 @@ export async function touchVisitorLiveness(
 }
 
 /**
- * True only for "function does not exist" / PostgREST schema-cache misses.
- * PostgREST reports an undefined routine as PGRST202 (schema cache) and
- * Postgres as SQLSTATE 42883.
+ * True only for "function does not exist" / PostgREST schema-cache misses for
+ * THIS function. PostgREST reports an undefined routine as PGRST202 (schema
+ * cache) and Postgres as SQLSTATE 42883.
+ *
+ * A bare HTTP 404 is deliberately NOT accepted: it can equally mean a wrong
+ * base URL, a proxy error or a routing problem, and silently degrading to the
+ * legacy write pair would hide a real outage while multiplying write volume.
  */
 export function isMissingRpcError(error: any): boolean {
   if (!error) return false;
   const code = String(error.code ?? '');
   if (code === '42883' || code === 'PGRST202') return true;
-  if (code === '404') return true;
   const msg = `${error.message ?? ''} ${error.details ?? ''} ${error.hint ?? ''}`.toLowerCase();
-  return (
-    /could not find the function/.test(msg) ||
-    /function .*visitor_touch_liveness.* does not exist/.test(msg) ||
-    /schema cache/.test(msg)
-  );
+  if (/visitor_touch_liveness/.test(msg)) {
+    return (
+      /could not find the function/.test(msg) ||
+      /does not exist/.test(msg) ||
+      /schema cache/.test(msg)
+    );
+  }
+  return false;
 }
+
 
 
 async function touchVisitorLivenessFallback(

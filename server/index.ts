@@ -83,6 +83,8 @@ import { startPerfCollectors } from './services/observability/perf.js';
 import { startAutoActionsTicker } from './services/observability/autoActionsTicker.js';
 import { startAutoActionsCache } from './services/observability/autoActionsCache.js';
 import { startFailoverTicker } from './services/realtime/failoverTicker.js';
+import { startNodeHealthRefresher } from './services/realtime/healthRefresher.js';
+
 import { startReliabilityRollup } from './services/observability/reliabilityRollupTicker.js';
 import { startEnforcementTicker } from './services/observability/enforcementTicker.js';
 import { startMaxmindUpdateTicker } from './services/geo/maxmindUpdater.js';
@@ -593,6 +595,11 @@ app.listen(config.port, () => {
 
   // Phase 6B — start realtime failover engine ticker (every 30s). Best-effort.
   startFailoverTicker(config);
+
+  // Multi-node topology — keep the Centrifugo node-health cache warm in the
+  // background so the /connect assignment path never issues an HTTP probe.
+  startNodeHealthRefresher(config);
+
 
   // Phase 7 — start reliability/business/health rollup (every 10 min). Best-effort.
   startReliabilityRollup(config);

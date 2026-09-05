@@ -13,6 +13,7 @@ const node = (over: Partial<CentrifugoNode> & { id: string }): CentrifugoNode =>
   ])[0];
 
 const healthy = (connections?: number): NodeHealthMap[string] => ({
+  node_id: 'n',
   status: 'healthy',
   checked_at: Date.now(),
   connections,
@@ -37,7 +38,7 @@ describe('selectNode', () => {
     expect(selectNode([node({ id: 'a', enabled: false })]).reason).toBe('no_enabled_nodes');
     expect(selectNode([node({ id: 'a', draining: true })]).reason).toBe('no_accepting_nodes');
     expect(
-      selectNode([node({ id: 'a' })], { a: { status: 'down', checked_at: Date.now() } }).reason,
+      selectNode([node({ id: 'a' })], { a: { node_id: 'a', status: 'down', checked_at: Date.now() } }).reason,
     ).toBe('no_healthy_nodes');
   });
 

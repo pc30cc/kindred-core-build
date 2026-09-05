@@ -24,10 +24,20 @@ export {
   getNodeHealth,
   getClusterHealth,
   peekNodeHealth,
+  snapshotClusterHealth,
   invalidateNodeHealth,
   effectiveNodeStatus,
+  getHealthProbeCount,
+  resetHealthProbeCount,
   type NodeHealthSnapshot,
 } from './nodeHealth.js';
+export {
+  startNodeHealthRefresher,
+  stopNodeHealthRefresher,
+  refreshNodeHealthOnce,
+  nextRefreshDelay,
+} from './healthRefresher.js';
+
 export { selectNode, eligibleNodes, type NodeSelectionResult } from './nodeRouter.js';
 export {
   listNodes,

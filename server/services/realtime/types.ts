@@ -58,8 +58,16 @@ export type CentrifugoNodeHealthStatus =
  * never stored here — Redis is Centrifugo's own infrastructure dependency.
  */
 export interface CentrifugoNode {
-  id: string;                  // stable node id, e.g. "rt-node-01"
+  id: string;                  // stable registry id, e.g. "rt-node-01"
   name: string;                // display name
+  /**
+   * Runtime Centrifugo node name (CENTRIFUGO_NAME in the compose file).
+   * Used to pick THIS node's row out of the cluster-wide `info` reply, so a
+   * per-node connection count is never confused with the cluster total.
+   * Defaults to the registry id, which is the documented convention
+   * (registry id === CENTRIFUGO_NAME, e.g. rt-node-01).
+   */
+  node_name: string;
   ws_url: string;              // public websocket url handed to browsers
   api_url: string;             // server-to-server HTTP API url
   enabled: boolean;            // admin master switch for this node
@@ -70,6 +78,7 @@ export interface CentrifugoNode {
   created_at?: string;
   updated_at?: string;
 }
+
 
 export interface CentrifugoConfig {
   ws_url: string;            // public websocket url given to clients (wss://...)
@@ -115,11 +124,14 @@ export function normalizeNode(raw: unknown, index = 0): CentrifugoNode | null {
   const api_url = typeof r.api_url === 'string' ? r.api_url.trim() : '';
   if (!ws_url || !api_url) return null;
   const rawWeight = Number(r.weight);
+  const id = typeof r.id === 'string' && r.id.trim() ? r.id.trim() : `rt-node-${String(index + 1).padStart(2, '0')}`;
   return {
-    id: typeof r.id === 'string' && r.id.trim() ? r.id.trim() : `rt-node-${String(index + 1).padStart(2, '0')}`,
+    id,
     name: typeof r.name === 'string' && r.name.trim() ? r.name.trim() : `Node ${index + 1}`,
+    node_name: typeof r.node_name === 'string' && r.node_name.trim() ? r.node_name.trim() : id,
     ws_url,
     api_url,
+
     enabled: r.enabled !== false,
     accepting_new_connections: r.accepting_new_connections !== false,
     draining: r.draining === true,

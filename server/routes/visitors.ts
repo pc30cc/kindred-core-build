@@ -345,7 +345,11 @@ visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
         })
         .eq('visitor_session_id', session_id);
     }
-    recordVisitorLivenessWrite(writeLiveness ? 'wrote' : 'coalesced', presenceMode);
+    recordVisitorLivenessWrite(
+      writeLiveness ? 'wrote' : realtimeOwns ? 'skipped_lease' : 'coalesced',
+      presenceMode,
+    );
+
 
     // Append a page-view only if the URL changed (avoids spam from heartbeats).
     if (

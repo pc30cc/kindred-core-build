@@ -299,7 +299,7 @@ export default function InboxPage() {
   // Resizable conversation list width (desktop only)
   const [listWidth, setListWidth] = useState<number>(() => {
     const saved = Number(localStorage.getItem('inbox.listWidth'));
-    return saved >= 260 && saved <= 640 ? saved : 340;
+    return saved >= 260 && saved <= 640 ? saved : 410;
   });
   const [isResizing, setIsResizing] = useState(false);
   useEffect(() => {

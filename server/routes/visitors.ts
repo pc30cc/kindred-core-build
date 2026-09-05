@@ -311,16 +311,21 @@ visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
       .eq('id', session_id)
       .maybeSingle();
 
-    // WRITE DISCIPLINE: when Centrifugo shard membership is the authority for
-    // liveness, this legacy heartbeat must not keep touching two rows every
-    // minute per visitor. Navigation (a page change) is durable business data
-    // and is still persisted; a pure "still here" tick is dropped.
+    // WRITE DISCIPLINE: liveness is suppressed only when THIS session proves
+    // (with a signed presence lease) that its realtime subscription is open.
+    // Workspace mode alone is not enough — a visitor whose WebSocket is
+    // blocked must keep its database liveness, or operators lose it entirely.
+    // Navigation (a page change) is durable business data and always persists.
     const wsIdForMode = workspace_id ?? prevSession?.workspace_id ?? null;
     const presenceMode = wsIdForMode
       ? await resolveVisitorPresenceMode(config, wsIdForMode)
       : 'database';
+    const hasLease =
+      !!wsIdForMode && verifyVisitorPresenceLease(presence_lease, wsIdForMode, session_id);
     const pageChanged = !!current_page && current_page !== (prevSession?.current_page ?? null);
-    const writeLiveness = presenceMode === 'database' || pageChanged;
+    const realtimeOwns = presenceMode === 'realtime' && hasLease;
+    const writeLiveness = !realtimeOwns || pageChanged;
+
 
     if (writeLiveness) {
       await supabase

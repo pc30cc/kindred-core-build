@@ -72,9 +72,9 @@ export default function MobileConversationPage() {
   const isResolved = conversation?.status === 'resolved' || conversation?.status === 'closed';
 
   return (
-    <div className="flex h-full flex-col bg-background">
+    <div className="fixed inset-0 z-30 flex flex-col bg-background">
       {/* Thread header */}
-      <header className="shrink-0 flex items-center gap-2 border-b border-border bg-card/95 px-2 pt-[calc(env(safe-area-inset-top)+8px)] pb-2 backdrop-blur-xl">
+      <header className="shrink-0 flex items-center gap-2 border-b border-border bg-card/95 px-2 pt-[calc(env(safe-area-inset-top)+6px)] pb-2 backdrop-blur-xl">
         <button
           type="button"
           onClick={() => navigate(`/${slug}/inbox`)}
@@ -166,7 +166,7 @@ export default function MobileConversationPage() {
       </div>
 
       {/* Composer */}
-      <div className="shrink-0 border-t border-border bg-card/95 px-3 py-2 backdrop-blur-xl">
+      <div className="shrink-0 border-t border-border bg-card/95 px-3 pt-2 pb-[calc(env(safe-area-inset-bottom)+8px)] backdrop-blur-xl">
         <div className="flex items-end gap-2">
           <textarea
             value={draft}

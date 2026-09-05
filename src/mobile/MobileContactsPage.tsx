@@ -3,7 +3,7 @@
  */
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Search, X, Users, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Users, ChevronLeft, ChevronRight } from 'lucide-react';
 
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
@@ -37,7 +37,7 @@ export default function MobileContactsPage() {
     <MobileScreen
       title={t('nav.contacts')}
       subtitle={contacts ? `${contacts.length}` : undefined}
-      toolbar={<MobileSearchField value={query} onChange={setQuery} placeholder={t('common.search')} />}
+      toolbar={<MobileSearchField value={query} onChange={setQuery} placeholder={t('contacts.searchPlaceholder')} />}
       bodyClassName="pb-6"
     >
       {isLoading ? (
@@ -53,7 +53,7 @@ export default function MobileContactsPage() {
           ))}
         </div>
       ) : rows.length === 0 ? (
-        <EmptyState icon={Users} label={t('contacts.empty', { defaultValue: '—' } as any)} />
+        <EmptyState icon={Users} label={t('contacts.emptyTitle')} />
       ) : (
         <ul className="mt-3 overflow-hidden border-y border-border bg-card divide-y divide-border">
           {rows.map((c: any) => (
@@ -103,5 +103,3 @@ export function EmptyState({
     </div>
   );
 }
-
-export { X, Search };

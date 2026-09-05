@@ -506,50 +506,56 @@ export function AppSidebar() {
         </Link>
         </NavTip>
 
-        {isActive('/inbox') && !collapsed && (
+        {isActive('/inbox') && !collapsed && (() => {
+          const sp = new URLSearchParams(location.search);
+          const q = sp.get('queue');
+          const f = sp.get('filter');
+          const st = sp.get('status');
+          const itemCls = (on: boolean) => cn(
+            'flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] transition-colors',
+            on
+              ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+              : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
+          );
+          return (
           <div className="ms-5 mt-0.5 space-y-0.5 border-s border-sidebar-border ps-3">
-            <Link
-              to={wsPath('/inbox')}
-              className={cn(
-                'flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] transition-colors',
-                location.pathname === wsPath('/inbox') && !location.search.includes('queue=')
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-                  : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
-              )}
-            >
+            <Link to={wsPath('/inbox')} className={itemCls(!q && !f && (!st || st === 'open'))}>
               <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-              <span>{t('inbox.mainInbox') || 'Main inbox'}</span>
+              <span>{t('inbox.open') || 'Open'}</span>
+            </Link>
+
+            {automatedInboxVisible && (
+              <Link to={wsPath('/inbox?queue=automated')} className={itemCls(q === 'automated')}>
+                <Bot className="h-3.5 w-3.5 shrink-0" />
+                <span>{t('inbox.aiTab') || 'AI'}</span>
+                {(inboxCounts?.automated ?? 0) > 0 && (
+                  <span className="ms-auto bg-secondary text-foreground/70 text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center">
+                    {inboxCounts!.automated}
+                  </span>
+                )}
+              </Link>
+            )}
+
+            <Link to={wsPath('/inbox?filter=needs_human')} className={itemCls(f === 'needs_human')}>
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              <span>{t('inbox.needsHuman') || 'Needs human'}</span>
               {(inboxCounts?.needs_human ?? 0) > 0 && (
-                <span
-                  className="ms-auto bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center"
-                  title={t('inbox.needsHuman') || 'Needs human'}
-                >
+                <span className="ms-auto bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center">
                   {inboxCounts!.needs_human}
                 </span>
               )}
             </Link>
 
-            {automatedInboxVisible && (
-              <>
-                <Link
-                  to={wsPath('/inbox?queue=automated')}
-                  className={cn(
-                    'flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] transition-colors',
-                    location.pathname === wsPath('/inbox') && location.search.includes('queue=automated')
-                      ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-                      : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
-                  )}
-                >
-                  <Bot className="h-3.5 w-3.5 shrink-0" />
-                  <span>{t('inbox.automatedInbox') || 'Automated'}</span>
-                  {(inboxCounts?.automated ?? 0) > 0 && (
-                    <span className="ms-auto bg-secondary text-foreground/70 text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center">
-                      {inboxCounts!.automated}
-                    </span>
-                  )}
-                </Link>
-              </>
-            )}
+            <Link to={wsPath('/inbox?status=pending')} className={itemCls(!q && !f && st === 'pending')}>
+              <Clock className="h-3.5 w-3.5 shrink-0" />
+              <span>{t('inbox.pending') || 'Pending'}</span>
+            </Link>
+
+            <Link to={wsPath('/inbox?status=resolved')} className={itemCls(!q && !f && st === 'resolved')}>
+              <Check className="h-3.5 w-3.5 shrink-0" />
+              <span>{t('inbox.resolved') || 'Resolved'}</span>
+            </Link>
+
 
             <Link
               to={wsPath('/inbox?queue=spam')}

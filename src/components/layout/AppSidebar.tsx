@@ -495,7 +495,7 @@ export function AppSidebar() {
             'flex items-center rounded-lg px-3 py-2 text-sm font-semibold transition-all',
             isActive('')
               ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm'
-              : 'bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent/70',
+              : 'text-sidebar-foreground hover:bg-sidebar-accent/50',
             collapsed && 'justify-center px-0'
           )}
         >

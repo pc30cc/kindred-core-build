@@ -2228,14 +2228,47 @@
     var owns = false;
     var attempt = 0;
     var retryTimer = null;
+    var refreshTimer = null;
     var cmdId = 1;
     var negotiating = false;
+    // Per-session lease presented on every heartbeat. While it is valid AND
+    // the subscription is open, the server performs no liveness write. It is
+    // dropped the moment ownership is lost, so a dead socket immediately hands
+    // liveness back to the database path.
+    var lease = null;
+    var leaseExpiresAt = 0;
 
     function setOwns(v) {
+      if (!v) { lease = null; leaseExpiresAt = 0; }
       if (owns === v) return;
       owns = v;
       try { onOwnershipChange(v); } catch (_) {}
     }
+
+    function clearRefresh() {
+      if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
+    }
+
+    // Tokens and the lease are short-lived. Re-negotiate ~60s before the
+    // earliest expiry so a backgrounded tab (whose timers are throttled to
+    // ~1Hz) still renews in time instead of silently dropping out of presence.
+    function scheduleRefresh(cfg) {
+      clearRefresh();
+      var soonest = Math.min(
+        cfg.expires_at || Infinity,
+        cfg.lease_expires_at || Infinity
+      );
+      if (!isFinite(soonest)) return;
+      var delay = Math.max(15000, soonest - Date.now() - 60000);
+      refreshTimer = setTimeout(function () {
+        refreshTimer = null;
+        if (closed) return;
+        // Full re-negotiation: tokens may have rotated and, in app-routed
+        // mode, another node may now be the right endpoint.
+        if (ws) { try { ws.close(); } catch (_) {} }
+      }, delay);
+    }
+
 
     function scheduleRetry(reason) {
       if (closed) return;

@@ -1161,21 +1161,6 @@ export default function InboxPage() {
             className="flex h-full items-end gap-1"
             dir={dir}
           >
-            <button
-              role="tab"
-              aria-selected={allActive}
-              onClick={() => { setExtraChip(null); setQueueTab(null); setFilter('all'); }}
-              className={cn(headTabBase, headTabState(allActive))}
-            >
-              <Inbox className="w-4 h-4" />
-              {t('inbox.all') || 'All'}
-              <span
-                aria-hidden={(stableCounts.all || 0) === 0}
-                className={cn(pillCount(allActive), (stableCounts.all || 0) === 0 && 'hidden')}
-              >{stableCounts.all || 0}</span>
-              <span className={headTabAccent(allActive)} />
-              <span className={headTabSeam(allActive)} />
-            </button>
             {/* Only the active-conversation tab lives in the top row. */}
             {(['open'] as FilterStatus[]).map((s) => {
               const count = stableCounts[s] || 0;

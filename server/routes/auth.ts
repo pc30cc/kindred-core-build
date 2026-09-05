@@ -31,12 +31,12 @@ import {
   setSessionCookie,
   clearSessionCookie,
   validateSessionToken,
-  getRequestSessionToken,
   verifyOriginForMutation,
   revokeSession,
   revokeAllSessions,
   SESSION_COOKIE_NAME,
 } from '../services/auth/sessions.js';
+import { readSessionToken } from '../lib/sessionTransport.js';
 
 export const authSecurityRouter = Router();
 
@@ -400,7 +400,7 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
 authSecurityRouter.get('/session', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
-    const { token } = getRequestSessionToken(req);
+    const { token } = readSessionToken(req);
     const session = await validateSessionToken(config, token);
     if (!session) return res.json({ user: null });
 
@@ -428,7 +428,7 @@ authSecurityRouter.get('/session', async (req, res) => {
 authSecurityRouter.post('/logout', authRateLimiter, async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
-    const { token, transport } = getRequestSessionToken(req);
+    const { token, transport } = readSessionToken(req);
     // CSRF only applies to the browser-cookie transport (see
     // workspaceAuth.requireUser): a Bearer token is never auto-attached.
     if (transport === 'cookie' && !verifyOriginForMutation(req, config.corsOrigins)) {
@@ -472,7 +472,7 @@ authSecurityRouter.post('/logout', authRateLimiter, async (req, res) => {
 authSecurityRouter.post('/logout-all', authRateLimiter, async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
-    const { token, transport } = getRequestSessionToken(req);
+    const { token, transport } = readSessionToken(req);
     if (transport === 'cookie' && !verifyOriginForMutation(req, config.corsOrigins)) {
       return res.status(403).json({ error: 'Origin not allowed' });
     }

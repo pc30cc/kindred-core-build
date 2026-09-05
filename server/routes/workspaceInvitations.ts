@@ -24,8 +24,8 @@ import {
   validateSessionToken,
   verifyOriginForMutation,
   SESSION_COOKIE_NAME,
-  getRequestSessionToken,
 } from '../services/auth/sessions.js';
+import { readSessionToken } from '../lib/sessionTransport.js';
 import { hashPassword } from '../services/auth/password.js';
 import { allowedOrigins } from '../services/platformOrigins.js';
 import { getClientIp, hashIp } from '../utils/clientIp.js';
@@ -1075,7 +1075,7 @@ workspaceInvitationsRouter.post('/accept-existing', requireOrigin, rejectTokenIn
   const body = parsed.data;
   const config = cfg(req);
 
-  const session = await validateSessionToken(config, getRequestSessionToken(req).token);
+  const session = await validateSessionToken(config, readSessionToken(req).token);
   if (!session) return res.status(401).json({ error: 'SESSION_REQUIRED' });
 
   const handle = req.cookies?.[CONTEXT_COOKIE_NAME];

@@ -7,7 +7,8 @@
  */
 import type { Request, Response } from 'express';
 import type { ServerConfig } from '../../config.js';
-import { validateSessionToken, SESSION_COOKIE_NAME, getRequestSessionToken } from '../../services/auth/sessions.js';
+import { validateSessionToken, SESSION_COOKIE_NAME } from '../../services/auth/sessions.js';
+import { readSessionToken } from '../../lib/sessionTransport.js';
 import { authorizeWorkspaceAccess } from '../../lib/workspaceAuth.js';
 
 // ─── Shared auth resolution ───
@@ -19,7 +20,7 @@ export async function resolveCurrentUserId(
   req: Request,
   config: ServerConfig,
 ): Promise<{ userId: string | null; reason?: 'missing' | 'invalid' }> {
-  const token = getRequestSessionToken(req as any).token;
+  const token = readSessionToken(req as any).token;
   if (!token) return { userId: null, reason: 'missing' };
   try {
     const session = await validateSessionToken(config, token);

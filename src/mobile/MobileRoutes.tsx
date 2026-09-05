@@ -22,6 +22,7 @@ import MobileConversationPage from './MobileConversationPage';
 import MobileContactsPage from './MobileContactsPage';
 import MobileVisitorsPage from './MobileVisitorsPage';
 import MobileContactDetailPage from './MobileContactDetailPage';
+import MobileSettingsSubRoute from './MobileSettingsSubRoute';
 
 export function MobileRoutes() {
   return (
@@ -67,6 +68,7 @@ export function MobileRoutes() {
           }
         />
         <Route path="settings" element={<MobileSettingsPage />} />
+        <Route path="settings/:section" element={<MobileSettingsSubRoute />} />
         <Route path="*" element={<Navigate to="inbox" replace />} />
       </Route>
 

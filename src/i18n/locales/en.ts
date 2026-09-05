@@ -1477,6 +1477,11 @@ const en = {
       conversations: 'Resolved / assigned',
     },
   },
+  mobileSettings: {
+    rateApp: 'Rate the app',
+    help: 'Need help?',
+    helpHint: 'Contact our support team',
+  },
   settings: {
     title: 'Settings',
     general: 'General',

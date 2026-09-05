@@ -88,9 +88,14 @@ export default function MobileConversationPage() {
   const [draft, setDraft] = useState('');
   const [emojiOpen, setEmojiOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  /** Keep pinning to the newest message unless the operator scrolled up. */
+  const stickToBottom = useRef(true);
   const fileRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const recorder = useVoiceRecorder();
+
 
   /**
    * A single pending attachment (file pick OR voice note). It is uploaded
@@ -158,9 +163,48 @@ export default function MobileConversationPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
+  /**
+   * Jump to the newest message. Uses the scroller directly (not
+   * scrollIntoView) so late-loading media can re-pin the thread reliably.
+   */
+  const scrollToEnd = (smooth = false) => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+  };
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: 'end' });
-  }, [messages?.length, pending, emojiOpen]);
+    stickToBottom.current = true;
+  }, [conversationId]);
+
+  useEffect(() => {
+    scrollToEnd();
+    // A second pass after layout settles (fonts, bubbles, safe areas).
+    const id = window.setTimeout(() => scrollToEnd(), 60);
+    return () => window.clearTimeout(id);
+  }, [messages?.length, pending, emojiOpen, conversationId]);
+
+  /**
+   * Images/videos have no height until they decode, so a thread ending with
+   * media used to stop short of the last message. Observing the content box
+   * re-pins the view every time it grows while the operator is at the bottom.
+   */
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (stickToBottom.current) scrollToEnd();
+    });
+    ro.observe(content);
+    return () => ro.disconnect();
+  }, []);
+
+  const handleScroll = () => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
+  };
+
 
   const name = conversation
     ? contactDisplayName(conversation.contacts, conversation.id, t as any, conversation.visitor_country_name, locale)
@@ -214,6 +258,10 @@ export default function MobileConversationPage() {
               name={conversation?.contacts?.name}
               email={conversation?.contacts?.email}
               avatarUrl={conversation?.contacts?.avatar_url}
+              os={conversation?.visitor_os ?? conversation?.contacts?.metadata?.os}
+              device={conversation?.visitor_device ?? conversation?.contacts?.metadata?.device}
+              countryCode={conversation?.visitor_country_code}
+              countryName={conversation?.visitor_country_name}
               size="sm"
             />
             {isOnline && (
@@ -225,14 +273,17 @@ export default function MobileConversationPage() {
               {name || '…'}
             </span>
             {conversation?.contacts?.email && (
+              // `plaintext` keeps the address itself LTR while the line stays
+              // aligned to the reading direction (right, under the name, in fa).
               <span
-                className="block truncate text-[10.5px] leading-tight text-muted-foreground"
-                dir="ltr"
+                className="block truncate text-start text-[10.5px] leading-tight text-muted-foreground"
+                style={{ unicodeBidi: 'plaintext' }}
               >
                 {conversation.contacts.email}
               </span>
             )}
           </span>
+
         </button>
 
         <DropdownMenu>
@@ -279,7 +330,13 @@ export default function MobileConversationPage() {
       </header>
 
       {/* Messages */}
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 py-4 space-y-1.5">
+      <div
+        ref={scrollerRef}
+        onScroll={handleScroll}
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+      >
+        <div ref={contentRef} className="px-3 py-4 space-y-1.5">
+
         {isLoading ? (
           <div className="space-y-3">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -314,13 +371,15 @@ export default function MobileConversationPage() {
                     </span>
                   </div>
                 )}
-                <div className={cn('flex', isOutbound ? 'justify-end' : 'justify-start')}>
+                {/* Operator bubbles sit on the reading-direction START side
+                    (right in Persian), visitor bubbles on the END side. */}
+                <div className={cn('flex', isOutbound ? 'justify-start' : 'justify-end')}>
                   <div
                     className={cn(
                       'max-w-[82%] px-3.5 py-2 shadow-[0_1px_2px_hsl(220_40%_20%/0.08)]',
                       isOutbound
-                        ? 'rounded-[20px] rounded-ee-[6px] bg-primary/15 text-foreground'
-                        : 'rounded-[20px] rounded-es-[6px] bg-card text-foreground',
+                        ? 'rounded-[20px] rounded-es-[6px] bg-primary/15 text-foreground'
+                        : 'rounded-[20px] rounded-ee-[6px] bg-card text-foreground',
                     )}
                   >
                     {m.sender_type === 'ai' && (
@@ -359,8 +418,8 @@ export default function MobileConversationPage() {
         {/* Pending attachment: previewed as an outgoing bubble, uploading in
             place, with its own send button. */}
         {pending && (
-          <div className="flex justify-end pt-1">
-            <div className="relative max-w-[70%] overflow-hidden rounded-[20px] rounded-ee-[6px] bg-primary/15 p-1.5 shadow-[0_1px_2px_hsl(220_40%_20%/0.08)]">
+          <div className="flex justify-start pt-1">
+            <div className="relative max-w-[70%] overflow-hidden rounded-[20px] rounded-es-[6px] bg-primary/15 p-1.5 shadow-[0_1px_2px_hsl(220_40%_20%/0.08)]">
               {pending.isImage && pending.previewUrl ? (
                 <img
                   src={pending.previewUrl}
@@ -408,7 +467,8 @@ export default function MobileConversationPage() {
           </div>
         )}
 
-        <div ref={bottomRef} />
+          <div ref={bottomRef} />
+        </div>
       </div>
 
       {/* Composer + emoji panel — flush on the keyboard */}

@@ -19,6 +19,7 @@ import { recordConversationEvent } from '../conversationEvents.js';
 import { applyInboundConversationLifecycle } from '../conversationLifecycle.js';
 
 import { publishConversationEvent, buildMessageEnvelope } from '../realtime/publish.js';
+import { notifyInboundMessage } from '../push/index.js';
 import { maybeRunAiAssistantAfterVisitorMessage } from '../ai-agent/engine.js';
 import { handleTelegramInboundFlow } from './telegram/runtime.js';
 import { insertContactWithVisitorCode } from '../widget/visitorCode.js';
@@ -417,6 +418,20 @@ export async function processInboundMessage(
         conversation.id,
         buildMessageEnvelope(insertedMsg as any),
       ).catch(() => {});
+
+      // NATIVE PUSH — canonical, channel-agnostic trigger. Runs only after
+      // the message row is committed, is fire-and-forget, never throws, and
+      // is idempotent per messageId, so a provider re-delivery of the same
+      // event cannot produce a second notification.
+      void notifyInboundMessage(config, {
+        workspaceId: input.workspaceId,
+        conversationId: conversation.id,
+        messageId: (insertedMsg as any).id,
+        text: input.text,
+        senderName: input.senderName || input.senderUsername || null,
+        channel: input.provider,
+        attachmentCount: input.attachments?.length ?? 0,
+      });
     }
 
 

@@ -1,3 +1,4 @@
+import { installKeyboardInset } from '@/lib/keyboardInset';
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
@@ -81,3 +82,5 @@ async function bootstrap() {
 }
 
 void bootstrap();
+
+void installKeyboardInset();

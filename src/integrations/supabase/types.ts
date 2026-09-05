@@ -8261,6 +8261,57 @@ export type Database = {
         }
         Relationships: []
       }
+      mobile_push_devices: {
+        Row: {
+          app_version: string | null
+          created_at: string
+          device_id: string
+          device_name: string | null
+          disabled_reason: string | null
+          enabled: boolean
+          id: string
+          last_seen_at: string
+          permission_status: string | null
+          platform: string
+          push_token: string
+          updated_at: string
+          user_id: string
+          workspace_id: string | null
+        }
+        Insert: {
+          app_version?: string | null
+          created_at?: string
+          device_id: string
+          device_name?: string | null
+          disabled_reason?: string | null
+          enabled?: boolean
+          id?: string
+          last_seen_at?: string
+          permission_status?: string | null
+          platform: string
+          push_token: string
+          updated_at?: string
+          user_id: string
+          workspace_id?: string | null
+        }
+        Update: {
+          app_version?: string | null
+          created_at?: string
+          device_id?: string
+          device_name?: string | null
+          disabled_reason?: string | null
+          enabled?: boolean
+          id?: string
+          last_seen_at?: string
+          permission_status?: string | null
+          platform?: string
+          push_token?: string
+          updated_at?: string
+          user_id?: string
+          workspace_id?: string | null
+        }
+        Relationships: []
+      }
       observability_ticker_lease: {
         Row: {
           acquired_at: string | null
@@ -9276,6 +9327,54 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      push_dispatch_log: {
+        Row: {
+          accepted_count: number
+          conversation_id: string | null
+          created_at: string
+          dedupe_key: string
+          device_count: number
+          error: string | null
+          failed_count: number
+          id: string
+          message_id: string | null
+          notification_type: string
+          status: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          accepted_count?: number
+          conversation_id?: string | null
+          created_at?: string
+          dedupe_key: string
+          device_count?: number
+          error?: string | null
+          failed_count?: number
+          id?: string
+          message_id?: string | null
+          notification_type: string
+          status?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          accepted_count?: number
+          conversation_id?: string | null
+          created_at?: string
+          dedupe_key?: string
+          device_count?: number
+          error?: string | null
+          failed_count?: number
+          id?: string
+          message_id?: string | null
+          notification_type?: string
+          status?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: []
       }
       realtime_failover_state: {
         Row: {
@@ -10486,6 +10585,9 @@ export type Database = {
           email_weekly_summary: boolean
           id: string
           play_sound: boolean
+          push_internal_notes: boolean
+          push_preview: boolean
+          push_scope: string
           push_visitor_browsing: boolean
           push_when_offline: boolean
           push_when_online: boolean
@@ -10508,6 +10610,9 @@ export type Database = {
           email_weekly_summary?: boolean
           id?: string
           play_sound?: boolean
+          push_internal_notes?: boolean
+          push_preview?: boolean
+          push_scope?: string
           push_visitor_browsing?: boolean
           push_when_offline?: boolean
           push_when_online?: boolean
@@ -10530,6 +10635,9 @@ export type Database = {
           email_weekly_summary?: boolean
           id?: string
           play_sound?: boolean
+          push_internal_notes?: boolean
+          push_preview?: boolean
+          push_scope?: string
           push_visitor_browsing?: boolean
           push_when_offline?: boolean
           push_when_online?: boolean

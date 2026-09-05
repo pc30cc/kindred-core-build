@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import type { AuthProvider, AuthSession, AuthUser } from '@/types/providers';
 import { selfHostedAuthProvider } from '@/providers/selfHosted/auth';
+import { unregisterNativePush } from '@/lib/push/nativePush';
 import { toast } from '@/lib/toast';
 
 interface AuthContextValue {
@@ -42,6 +43,10 @@ export function AuthContextProvider({
   }, [provider]);
 
   const handleSignOut = useCallback(async () => {
+    // Native only: retire THIS device's push token first, while the session
+    // is still valid, so a signed-out phone stops receiving notifications.
+    await unregisterNativePush();
+
     // Only clear local session state when the provider actually confirms
     // the server-side session is gone — otherwise a real gs_session cookie
     // could remain valid while the UI falsely shows the user as signed

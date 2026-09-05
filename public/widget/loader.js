@@ -2208,6 +2208,134 @@
 
 
 
+
+  // ─── Visitor live presence (realtime-first) ──────────────────────────
+  //
+  // While Centrifugo presence is authoritative, "this visitor is here right
+  // now" is proven by an open SUBSCRIPTION to a sharded presence channel —
+  // not by a database heartbeat. The backend derives the channel and both
+  // tokens from the verified session id (`/api/realtime/visitor-presence`);
+  // this side only holds the socket open.
+  //
+  // While the subscription is live, the liveness heartbeat is suppressed and
+  // only real navigation still calls the API. If the socket cannot be
+  // established (or drops for good), presence hands liveness back to the
+  // heartbeat, so a visitor is never shown as offline just because realtime
+  // failed.
+  function startVisitorPresence(apiBase, workspaceId, sessionId, tokenNow, onOwnershipChange) {
+    var ws = null;
+    var closed = false;
+    var owns = false;
+    var attempt = 0;
+    var retryTimer = null;
+    var cmdId = 1;
+    var negotiating = false;
+
+    function setOwns(v) {
+      if (owns === v) return;
+      owns = v;
+      try { onOwnershipChange(v); } catch (_) {}
+    }
+
+    function scheduleRetry(reason) {
+      if (closed) return;
+      if (retryTimer) return;
+      // Bounded, jittered backoff — a broken realtime deployment must not turn
+      // into a reconnect storm across every embedded page.
+      attempt = Math.min(attempt + 1, 6);
+      var base = Math.min(30000, 1000 * Math.pow(2, attempt));
+      var delay = base / 2 + Math.random() * (base / 2);
+      log('presence retry in', Math.round(delay), reason || '');
+      retryTimer = setTimeout(function () {
+        retryTimer = null;
+        negotiate();
+      }, delay);
+    }
+
+    function send(obj) {
+      try { ws.send(JSON.stringify(obj)); } catch (_) {}
+    }
+
+    function open(cfg) {
+      try {
+        ws = new WebSocket(cfg.ws_url);
+      } catch (_) {
+        return scheduleRetry('ws_ctor_failed');
+      }
+      ws.onopen = function () {
+        send({ id: cmdId++, connect: { token: cfg.token, name: 'widget-presence' } });
+        send({ id: cmdId++, subscribe: { channel: cfg.channel, token: cfg.sub_token } });
+      };
+      ws.onmessage = function (ev) {
+        var lines = String(ev.data || '').split('\n');
+        for (var i = 0; i < lines.length; i++) {
+          if (!lines[i]) continue;
+          var frame = null;
+          try { frame = JSON.parse(lines[i]); } catch (_) { continue; }
+          // Server ping — an empty object. The reply keeps the connection
+          // (and therefore the presence entry) alive.
+          if (frame && Object.keys(frame).length === 0) { send({}); continue; }
+          if (frame && frame.subscribe) {
+            attempt = 0;
+            setOwns(true);
+            log('presence subscribed', cfg.channel);
+          }
+          if (frame && frame.error) {
+            setOwns(false);
+          }
+        }
+      };
+      ws.onclose = function () {
+        ws = null;
+        setOwns(false);
+        // Re-negotiate rather than reusing the old tokens: they may have
+        // expired, and in app-routed mode another node may now be the right
+        // endpoint.
+        scheduleRetry('closed');
+      };
+      ws.onerror = function () { setOwns(false); };
+    }
+
+    function negotiate() {
+      if (closed || negotiating || ws) return;
+      negotiating = true;
+      fetch(apiBase + '/api/realtime/visitor-presence', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-Widget-Token': tokenNow() },
+        body: JSON.stringify({ workspace_id: workspaceId, session_id: sessionId }),
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (cfg) {
+          negotiating = false;
+          if (closed) return;
+          if (!cfg || cfg.vendor !== 'centrifugo' || !cfg.presence || !cfg.ws_url || !cfg.token) {
+            // Database mode (or realtime unavailable): the heartbeat stays in
+            // charge and we do NOT keep probing.
+            setOwns(false);
+            return;
+          }
+          open(cfg);
+        })
+        .catch(function () {
+          negotiating = false;
+          scheduleRetry('negotiate_failed');
+        });
+    }
+
+    negotiate();
+
+    return {
+      owns: function () { return owns; },
+      stop: function () {
+        closed = true;
+        setOwns(false);
+        if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+        if (ws) { try { ws.close(); } catch (_) {} ws = null; }
+      },
+    };
+  }
+
   // ─── Visitor tracking (background, identity owned by HttpOnly cookie) ───
   function startTracking(apiBase, workspaceId, token) {
     if (!apiBase || !workspaceId) return;
@@ -2284,8 +2412,18 @@
         if (!sessionId) return;
         try { window.__gs_session_id = sessionId; } catch (_) {}
         var lastPage = currentPage();
-        function doPing(tokenToUse, isRetry) {
+        // Realtime presence owns liveness while its subscription is live; the
+        // periodic heartbeat is then suppressed entirely (navigation still
+        // reports, because that is durable business data, not liveness).
+        var presenceOwnsLiveness = false;
+        var presence = startVisitorPresence(apiBase, workspaceId, sessionId, tokenNow, function (owns) {
+          presenceOwnsLiveness = owns;
+          log('presence owns liveness:', owns);
+        });
+        try { window.__gs_visitor_presence = presence; } catch (_) {}
+        function doPing(tokenToUse, isRetry, force) {
           if (STOPPED) return;
+          if (presenceOwnsLiveness && !force) return;
           // Skip when the page is hidden — saves battery and avoids
           // burning rate-limit budget on backgrounded tabs.
           if (typeof document !== 'undefined' && document.hidden) return;
@@ -2325,7 +2463,7 @@
               }
             });
         }
-        function ping() { doPing(tokenNow(), false); }
+        function ping(force) { doPing(tokenNow(), false, force); }
         function resumeHeartbeat(reason) {
           return recoverToken().then(function (newTok) {
             if (!newTok) return;
@@ -2365,9 +2503,9 @@
           var now = currentPage();
           if (now === lastPage) return;
           lastPage = now;
-          // Fire an immediate ping so the new URL is logged without waiting
-          // up to 30 seconds for the next heartbeat tick.
-          ping();
+          // Navigation is a durable business fact, so it is reported even
+          // when realtime presence owns liveness.
+          ping(true);
         }
         onHistoryChange(onUrlChange);
         window.addEventListener("popstate", onUrlChange);

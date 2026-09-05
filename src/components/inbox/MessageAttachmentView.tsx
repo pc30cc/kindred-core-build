@@ -48,6 +48,7 @@ function AudioAttachmentPlayer({
   att: { id: string; file_name: string; size_bytes: number };
   isAgent: boolean;
 }) {
+  const { src: mediaSrc } = useAuthedMediaSrc(attachmentUrl(att.id));
   const ref = useRef<HTMLAudioElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [playing, setPlaying] = useState(false);

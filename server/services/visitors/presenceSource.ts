@@ -126,7 +126,6 @@ export function resetVisitorPresenceCache(): void {
   modeState = null;
   sessionCache.clear();
   fallbackUntil.clear();
-  candidacyTouchedAt.clear();
   fallbackLoadedAt = 0;
   fallbackInflight = null;
   for (const k of Object.keys(metrics) as (keyof typeof metrics)[]) metrics[k] = 0;

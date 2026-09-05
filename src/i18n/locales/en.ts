@@ -791,6 +791,7 @@ const en = {
     defaultInboxes: 'Default inboxes',
     aiInboxes: 'AI inboxes',
     otherInboxes: 'Other inboxes',
+    internalInbox: 'Internal inbox',
     enterToSend: 'to send',
     hintNewLine: 'new line',
     hintShortcuts: 'shortcuts',

@@ -316,7 +316,7 @@ export async function validateSessionToken(config: ServerConfig, token: string |
     userId: data.user_id as string,
     email: data.email as string,
     clientType: (data.client_type as SessionClientType | undefined) === 'mobile' ? 'mobile' : 'web',
-    expiresAt: new Date(data.expires_at),
+    expiresAt: new Date(data.expires_at as string),
     absoluteExpiresAt,
     lastRenewedAt: data.last_renewed_at ? new Date(data.last_renewed_at as string) : null,
   };

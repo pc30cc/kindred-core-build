@@ -13,6 +13,7 @@ import {
   Send,
   Paperclip,
   Mic,
+  Smile,
   Square,
   X,
   CheckCircle2,
@@ -41,6 +42,7 @@ import { cn } from '@/lib/utils';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { conversationsApi } from '@/lib/conversations-api';
 import { toast } from '@/lib/toast';
+import { MobileEmojiPicker } from './MobileEmojiPicker';
 
 export default function MobileConversationPage() {
   const { t, locale, dir } = useTranslation();
@@ -60,6 +62,7 @@ export default function MobileConversationPage() {
   const markSeen = useMarkConversationSeen();
 
   const [draft, setDraft] = useState('');
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const recorder = useVoiceRecorder();
@@ -282,6 +285,13 @@ export default function MobileConversationPage() {
             'calc(6px + max(0px, env(safe-area-inset-bottom) - var(--kb-inset, 0px)))',
         }}
       >
+        {emojiOpen && !recorder.recording && (
+          <MobileEmojiPicker
+            onPick={(emoji) => setDraft((d) => d + emoji)}
+            onClose={() => setEmojiOpen(false)}
+          />
+        )}
+
         {pending && (
           <div className="mb-2 flex items-center gap-2 rounded-2xl bg-muted/70 px-3 py-2 text-[13px]">
             {pending.uploading ? (
@@ -347,8 +357,20 @@ export default function MobileConversationPage() {
             >
               <Paperclip className="h-[22px] w-[22px]" />
             </button>
+            <button
+              type="button"
+              onClick={() => setEmojiOpen((v) => !v)}
+              className={cn(
+                'flex h-11 w-10 shrink-0 items-center justify-center rounded-full transition-colors active:scale-90',
+                emojiOpen ? 'text-primary' : 'text-muted-foreground',
+              )}
+              aria-label="Emoji"
+            >
+              <Smile className="h-[22px] w-[22px]" />
+            </button>
             <textarea
               value={draft}
+              onFocus={() => setEmojiOpen(false)}
               onChange={(e) => setDraft(e.target.value)}
               rows={1}
               placeholder={t('inbox.typeMessage')}

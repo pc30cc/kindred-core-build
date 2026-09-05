@@ -5,7 +5,8 @@ import { useI18n, useTranslation } from '@/i18n';
 import type { Locale } from '@/i18n/config';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
-import { LogOut, Check } from 'lucide-react';
+import { LogOut, Check, Sun, Moon, SunMoon } from 'lucide-react';
+import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
 import { MobileScreen, MobileGroup } from './MobileScreen';
 
@@ -15,10 +16,17 @@ const LANGUAGES: { code: Locale; label: string }[] = [
   { code: 'fa', label: 'فارسی' },
 ];
 
+const THEMES = [
+  { value: 'light', label: 'Light', icon: Sun },
+  { value: 'dark', label: 'Dark', icon: Moon },
+  { value: 'system', label: 'System', icon: SunMoon },
+] as const;
+
 export default function MobileSettingsPage() {
   const { t } = useTranslation();
   const { locale, setLocale } = useI18n();
   const { user, signOut } = useAuth();
+  const { theme, setTheme } = useTheme();
   const { workspace } = useActiveWorkspace();
 
   const initial = (user?.email || '?').charAt(0).toUpperCase();
@@ -40,6 +48,26 @@ export default function MobileSettingsPage() {
           </div>
         </div>
       </div>
+
+      <MobileGroup title={t('interface.appearance') || 'Appearance'}>
+        {THEMES.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => setTheme(option.value)}
+            className="flex w-full items-center gap-3 px-4 py-3.5 text-start active:bg-muted"
+          >
+            <option.icon className="h-5 w-5 text-muted-foreground" />
+            <span className="flex-1 text-[16px] text-foreground">{option.label}</span>
+            <Check
+              className={cn(
+                'h-5 w-5 text-primary transition-opacity',
+                (theme ?? 'system') === option.value ? 'opacity-100' : 'opacity-0',
+              )}
+            />
+          </button>
+        ))}
+      </MobileGroup>
 
       <MobileGroup title={t('interface.language')}>
         {LANGUAGES.map((lang) => (

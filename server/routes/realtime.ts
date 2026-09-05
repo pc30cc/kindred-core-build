@@ -495,6 +495,14 @@ realtimeRouter.post('/visitor-presence', async (req, res) => {
     // subscription is open, which is what authorizes skipping the DB write.
     const lease = issueVisitorPresenceLease(workspaceId, sessionId);
 
+    // Candidacy refresh. This endpoint is hit once per token TTL (connect and
+    // in-place renewal), which is the only write a purely idle-but-connected
+    // visitor produces — it keeps the session inside the discovery window
+    // without reinstating a liveness heartbeat. Throttled and fire-and-forget.
+    void touchVisitorPresenceCandidacy(config, workspaceId, sessionId);
+
+
+
     return res.json({
       vendor: 'centrifugo',
       presence: true,

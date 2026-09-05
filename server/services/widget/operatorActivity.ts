@@ -49,6 +49,10 @@ const MAX_ENTRIES = 20_000;
 const local = new Map<string, number>();
 const lastRedisWriteAt = new Map<string, number>();
 const lastPruneAt = new Map<string, number>();
+/** Latest interaction seen inside an open coalescing window (trailing edge). */
+const pending = new Map<string, number>();
+const flushTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
 
 const metrics = { writes: 0, writes_coalesced: 0, write_failures: 0, reads: 0, read_failures: 0 };
 

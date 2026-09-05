@@ -557,15 +557,7 @@ export function AppSidebar() {
             </Link>
 
 
-            <Link
-              to={wsPath('/inbox?queue=spam')}
-              className={cn(
-                'flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] transition-colors',
-                location.pathname === wsPath('/inbox') && location.search.includes('queue=spam')
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
-                  : 'text-sidebar-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
-              )}
-            >
+            <Link to={wsPath('/inbox?queue=spam')} className={itemCls(q === 'spam')}>
               <Ban className="h-3.5 w-3.5 shrink-0" />
               <span>{t('inbox.spamInbox') || 'Spam'}</span>
               {(inboxCounts?.spam ?? 0) > 0 && (
@@ -575,7 +567,9 @@ export function AppSidebar() {
               )}
             </Link>
           </div>
-        )}
+          );
+        })()}
+
       </div>
 
       {/* Main navigation */}

@@ -153,25 +153,58 @@ async function loadActiveLoad(
  * "Messenger online" therefore never implies "assign a live chat to this
  * operator right now".
  */
+export interface RoutingTiers {
+  /** Tier 1 — always exhausted before tier 2 is considered. */
+  active: string[];
+  /** Tier 2 — only reached when no active operator could claim. */
+  away: string[];
+}
+
+/**
+ * Pure tier split — exported so the "active always before away" guarantee is
+ * unit-testable without a database.
+ */
+export function splitPresenceTiers(
+  userIds: string[],
+  stateById: Map<string, string | undefined>,
+): RoutingTiers {
+  const active: string[] = [];
+  const away: string[] = [];
+  for (const id of userIds) {
+    const s = stateById.get(id);
+    if (s === 'active') active.push(id);
+    else if (s === 'away') away.push(id);
+  }
+  return { active, away };
+}
+
+/** Pure per-tier ordering. Ranking/rotation NEVER crosses tier boundaries. */
+export function orderTierCandidates(
+  tier: string[],
+  mode: AssignmentMode,
+  cursor: string | null,
+  load: Map<string, number>,
+): string[] {
+  return mode === 'round_robin' ? rotateFromCursor(tier, cursor) : rankAutoCandidates(tier, load);
+}
+
 async function onlineEligibleCandidates(
   config: ServerConfig,
   workspaceId: string,
   departmentId: string | null,
-): Promise<string[]> {
+): Promise<RoutingTiers> {
   const { user_ids } = await resolveRoutingCandidates(config, workspaceId, 'chat', departmentId);
-  if (!user_ids.length) return [];
+  if (!user_ids.length) return { active: [], away: [] };
   const presence = await listWorkspacePresence(config, workspaceId);
-  const stateById = new Map(presence.map((p) => [p.user_id, p]));
-  const eligible = user_ids.filter((id) => {
-    const p = stateById.get(id);
-    return p?.presence_state === 'active' || p?.presence_state === 'away';
-  });
-  // Active operators first; ordering inside each tier is preserved so the
-  // round-robin cursor and least-loaded ranking keep working unchanged.
-  const active = eligible.filter((id) => stateById.get(id)!.presence_state === 'active');
-  const away = eligible.filter((id) => stateById.get(id)!.presence_state === 'away');
-  return [...active, ...away];
+  const stateById = new Map<string, string | undefined>(
+    presence.map((p) => [p.user_id, p.presence_state as string | undefined]),
+  );
+  // Two REAL tiers: never merged, so downstream load-ranking or round-robin
+  // rotation can no longer reorder an away operator ahead of an active one.
+  return splitPresenceTiers(user_ids, stateById);
 }
+
+
 
 
 
@@ -361,40 +394,35 @@ export async function routeConversationToOperator(
     const departmentId = await resolveConversationDepartment(
       config, args.workspaceId, args.conversationId, metadata,
     );
-    let candidates = await onlineEligibleCandidates(config, args.workspaceId, departmentId);
+    const tiers = await onlineEligibleCandidates(config, args.workspaceId, departmentId);
 
     let picked: string | null = null;
     let outcome: RoutingOutcome = 'no_eligible_agent';
 
-    if (candidates.length) {
-      if (mode === 'round_robin') {
-        // Rotate starting right after the stored cursor for fairness.
-        const ordered = rotateFromCursor(candidates, cursor);
-        for (const candidate of ordered) {
-          if (await tryClaim(config, args.workspaceId, args.conversationId, candidate)) {
-            picked = candidate;
-            outcome = 'assigned_round_robin';
-            break;
-          }
-        }
-        if (picked) {
-          await sb.from('widget_settings')
-            .update({ round_robin_cursor_user_id: picked })
-            .eq('workspace_id', args.workspaceId);
-        }
-      } else {
-        // auto — least-loaded eligible online operator, stable tie-break.
-        const load = await loadActiveLoad(config, args.workspaceId, candidates);
-        const ranked = rankAutoCandidates(candidates, load);
-        for (const candidate of ranked) {
-          if (await tryClaim(config, args.workspaceId, args.conversationId, candidate)) {
-            picked = candidate;
-            outcome = 'assigned_auto';
-            break;
-          }
+    // TIER 1 = active, TIER 2 = away. Tier 2 is only entered when no active
+    // operator could be claimed — an idle operator can never win over a busy
+    // but genuinely present one.
+    for (const tier of [tiers.active, tiers.away]) {
+      if (picked || !tier.length) continue;
+      const load = mode === 'round_robin'
+        ? new Map<string, number>()
+        : await loadActiveLoad(config, args.workspaceId, tier);
+      const ordered = orderTierCandidates(tier, mode, cursor, load);
+      for (const candidate of ordered) {
+        if (await tryClaim(config, args.workspaceId, args.conversationId, candidate)) {
+          picked = candidate;
+          outcome = mode === 'round_robin' ? 'assigned_round_robin' : 'assigned_auto';
+          break;
         }
       }
+      if (picked && mode === 'round_robin') {
+        await sb.from('widget_settings')
+          .update({ round_robin_cursor_user_id: picked })
+          .eq('workspace_id', args.workspaceId);
+      }
     }
+
+
 
     // No eligible online agent (department empty, general pool empty, or
     // everyone offline) — try the owner-fallback safety net before giving up.

@@ -13,10 +13,11 @@
  *   - offline_message (legacy fallback)
  *
  * LOCKED RULES (do not regress):
- *  1. business_hours.enabled === false  =>  state forced to 'online' AND
- *     offline_mode is ignored. There is no "disabled hours but still offline"
- *     state. The only way to be offline is enabled hours that resolve to
- *     outside_hours, or every day being empty (always_offline).
+ *  1. business_hours.enabled === false  =>  the WORKSPACE imposes no time
+ *     restriction. It does NOT force 'online': operator manual status
+ *     (offline/invisible) and personal schedules still decide reachability.
+ *     Workspaces with zero members fail open.
+
  *  2. The client never decides availability. Bootstrap and message endpoints
  *     re-resolve here.
  *  3. Localized offline message comes from offline_message_localized first,
@@ -196,6 +197,27 @@ export interface ResolveAvailabilityInput {
 }
 
 /**
+ * CUSTOMER-FACING ONLY: manual status + personal schedule. Connection state
+ * (tab, socket, Centrifugo) is deliberately NOT an input, so a minimized
+ * browser or a realtime outage can never flip the messenger offline.
+ * Fails open (never offline) on lookup errors and for member-less workspaces.
+ */
+async function customerFacingState(
+  config: ServerConfig,
+  workspaceId: string,
+  now: Date,
+): Promise<{ offline: boolean }> {
+  try {
+    const { anyAvailable, memberCount } = await anyCustomerAvailableOperator(config, workspaceId, now);
+    return { offline: memberCount > 0 && !anyAvailable };
+  } catch (err: any) {
+    console.warn('[availability] operator availability lookup failed:', err?.message);
+    return { offline: false };
+  }
+}
+
+
+/**
  * Single source of truth. All callers must go through here.
  */
 export async function resolveAvailability(
@@ -232,14 +254,16 @@ export async function resolveAvailability(
   const tz = (typeof bh?.timezone === 'string' && bh.timezone) || 'UTC';
   const liveChatEnabled = (row as any)?.live_chat_enabled !== false;
 
-  // LOCKED RULE 1: business_hours.enabled === false  =>  state forced to
-  // 'online' AND offline_mode is ignored. live_chat_enabled is intentionally
-  // NOT consulted here so admins can never produce a "hours off but widget
-  // still offline" state via the hours toggle.
+  // LOCKED RULE 1 (clarified): business_hours.enabled === false means the
+  // WORKSPACE imposes no time restriction — it does NOT mean "force the
+  // messenger online". Operator-level manual offline/invisible and personal
+  // schedules still decide reachability. Workspaces with zero members keep
+  // failing open so a brand-new workspace stays usable.
   if (!enabled) {
+    const state = await customerFacingState(config, workspaceId, now);
     return {
-      state: 'online',
-      reason: 'disabled',
+      state: state.offline ? 'offline' : 'online',
+      reason: state.offline ? 'no_operators_online' : 'disabled',
       next_open_at: null,
       timezone: tz,
       offline_mode: offlineMode,
@@ -247,6 +271,7 @@ export async function resolveAvailability(
       offline_message: offlineMessage,
     };
   }
+
 
   // Hours are enabled. If live_chat_enabled is explicitly false, treat as
   // an always-offline workspace (operators chose to be unreachable). This
@@ -287,37 +312,21 @@ export async function resolveAvailability(
   const within = isWithin(intervals, parts.h, parts.min);
 
   if (within) {
-    // Within business hours — but if every operator is force-offline or
-    // outside their own personal schedule, flip the widget to offline so
-    // visitors aren't promised "we're online" when nobody can reply.
-    // Failing-open (treat as online) when the workspace literally has
-    // zero members keeps brand-new workspaces usable.
-    try {
-      // CUSTOMER-FACING ONLY: manual status + personal schedule. Connection
-      // state (tab, socket, Centrifugo) is deliberately NOT an input, so a
-      // minimized browser or a realtime outage can never flip the messenger
-      // offline.
-      const { anyAvailable, memberCount } = await anyCustomerAvailableOperator(
-        config,
-        workspaceId,
-        now,
-      );
-      if (memberCount > 0 && !anyAvailable) {
-        return {
-          state: 'offline',
-          reason: 'no_operators_online',
-          next_open_at: null,
-          timezone: tz,
-          offline_mode: offlineMode,
-          labels,
-          offline_message: offlineMessage,
-        };
-      }
-    } catch (err: any) {
-      // Never block the bootstrap on presence lookup failure — fall
-      // through to the within_hours online state.
-      console.warn('[availability] operator presence lookup failed:', err?.message);
+    // Within business hours — but if every operator is force-offline,
+    // invisible or outside their own personal schedule, flip the widget to
+    // offline so visitors aren't promised "we're online".
+    if ((await customerFacingState(config, workspaceId, now)).offline) {
+      return {
+        state: 'offline',
+        reason: 'no_operators_online',
+        next_open_at: null,
+        timezone: tz,
+        offline_mode: offlineMode,
+        labels,
+        offline_message: offlineMessage,
+      };
     }
+
 
     return {
       state: 'online',

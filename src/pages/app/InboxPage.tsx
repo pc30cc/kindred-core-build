@@ -1176,11 +1176,11 @@ export default function InboxPage() {
               <span className={headTabAccent(allActive)} />
               <span className={headTabSeam(allActive)} />
             </button>
-            {/* Status tabs (open / pending / resolved) — same folder-tab look. */}
-            {(['open', 'pending', 'resolved'] as FilterStatus[]).map((s) => {
+            {/* Only the active-conversation tab lives in the top row. */}
+            {(['open'] as FilterStatus[]).map((s) => {
               const count = stableCounts[s] || 0;
               const isActive = !isQueueMode && !extraChip && filter === s;
-              const dotColor = s === 'open' ? 'bg-success' : s === 'pending' ? 'bg-warning' : 'bg-info';
+              const dotColor = 'bg-success';
               return (
                 <button
                   key={s}
@@ -1342,6 +1342,7 @@ export default function InboxPage() {
     return (
       <div className="flex h-full flex-col" dir={dir}>
         {topBarSummary}
+        <div className="px-3 py-2 border-b border-border bg-card">{filterTabsNode}</div>
         <div className="flex-1 min-h-0 flex"><TeamChatPanel /></div>
       </div>
     );
@@ -1454,6 +1455,8 @@ export default function InboxPage() {
 
           {/* Filter tabs (status + AI + extra chips) — live inside the list */}
 
+
+          {filterTabsNode}
 
           {/* Queue context line (Automated / Spam) */}
           {isQueueMode && (

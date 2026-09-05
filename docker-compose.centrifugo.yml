@@ -110,8 +110,15 @@ services:
       # --- Channel namespaces -------------------------------------------
       # Declared inline as JSON so the container needs no config file.
       # Matches buildChannelName() in server/services/realtime/types.ts.
+      # `vp` = VISITOR PRESENCE shards (vp:{workspace_id}:{shard}).
+      # Membership of a shard IS the visitor's live-presence signal, so the
+      # backend reads it with the admin API key instead of writing a database
+      # heartbeat. `allow_presence_for_client` MUST stay false here: visitors
+      # share a shard, and a client-side presence call would let one visitor
+      # enumerate the others. History and join/leave are off — the channel
+      # carries no payload, only membership.
       CENTRIFUGO_NAMESPACES: >-
-        [{"name":"ws","presence":true,"join_leave":true,"force_push_join_leave":false,"history_size":50,"history_ttl":"300s","force_recovery":true,"allow_subscribe_for_client":false,"allow_publish_for_client":false,"allow_presence_for_client":true,"allow_history_for_client":true,"subscribe_for_anonymous":false}]
+        [{"name":"ws","presence":true,"join_leave":true,"force_push_join_leave":false,"history_size":50,"history_ttl":"300s","force_recovery":true,"allow_subscribe_for_client":false,"allow_publish_for_client":false,"allow_presence_for_client":true,"allow_history_for_client":true,"subscribe_for_anonymous":false},{"name":"vp","presence":true,"join_leave":false,"history_size":0,"allow_subscribe_for_client":false,"allow_publish_for_client":false,"allow_presence_for_client":false,"allow_history_for_client":false,"subscribe_for_anonymous":false}]
 
       # --- Client behaviour ---------------------------------------------
       CENTRIFUGO_CLIENT_ANONYMOUS: "false"

@@ -139,15 +139,15 @@ export default function MobileConversationPage() {
 
   return (
     <div className="fixed inset-0 z-30 flex flex-col bg-muted/40">
-      {/* Nav bar */}
-      <header className="shrink-0 flex items-center gap-2 bg-card/90 px-1.5 pt-[env(safe-area-inset-top)] pb-2 shadow-[0_1px_0_0_hsl(var(--border)/0.7)] backdrop-blur-2xl">
+      {/* Nav bar — compact avatar, centred identity, overflow actions */}
+      <header className="shrink-0 flex items-center gap-1 bg-card/90 px-1.5 pt-[env(safe-area-inset-top)] pb-1.5 shadow-[0_1px_0_0_hsl(var(--border)/0.7)] backdrop-blur-2xl">
         <button
           type="button"
           onClick={() => navigate(`/${slug}/inbox`)}
-          className="rounded-full p-1.5 text-primary transition-transform active:scale-90"
+          className="shrink-0 rounded-full p-1 text-primary transition-transform active:scale-90"
           aria-label="Back"
         >
-          <BackIcon className="h-7 w-7" />
+          <BackIcon className="h-[26px] w-[26px]" />
         </button>
 
         <button
@@ -155,44 +155,75 @@ export default function MobileConversationPage() {
           onClick={() =>
             conversation?.contacts?.id && navigate(`/${slug}/contacts/${conversation.contacts.id}`)
           }
-          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-1 py-1 text-start active:bg-muted/70"
+          className="flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-0.5 active:opacity-70"
         >
-          <ContactAvatar
-            name={conversation?.contacts?.name}
-            email={conversation?.contacts?.email}
-            avatarUrl={conversation?.contacts?.avatar_url}
-            os={conversation?.visitor_os}
-            device={conversation?.visitor_device}
-            countryCode={conversation?.visitor_country_code}
-            size="md"
-          />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[16px] font-semibold text-foreground">{name || '…'}</p>
-            <p
-              className={cn(
-                'truncate text-[12px]',
-                isOnline ? 'text-emerald-600' : 'text-muted-foreground',
-              )}
-              dir={isOnline ? undefined : 'ltr'}
+          <span className="relative">
+            <ContactAvatar
+              name={conversation?.contacts?.name}
+              email={conversation?.contacts?.email}
+              avatarUrl={conversation?.contacts?.avatar_url}
+              size="sm"
+            />
+            {isOnline && (
+              <span className="absolute -bottom-0.5 -end-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-card" />
+            )}
+          </span>
+          <span className="max-w-full truncate text-[13px] font-semibold leading-tight text-foreground">
+            {name || '…'}
+          </span>
+          {conversation?.contacts?.email && (
+            <span
+              className="max-w-full truncate text-[10.5px] leading-tight text-muted-foreground"
+              dir="ltr"
             >
-              {isOnline ? t('visitors.online') : conversation?.contacts?.email || ''}
-            </p>
-          </div>
+              {conversation.contacts.email}
+            </span>
+          )}
         </button>
 
-        {conversationId && !isResolved && (
-          <button
-            type="button"
-            onClick={() =>
-              updateConversation.mutate({ id: conversationId, workspace_id: workspace!.id, status: 'resolved' })
-            }
-            className="rounded-full p-2 text-primary transition-transform active:scale-90"
-            aria-label={t('inbox.resolve')}
-          >
-            <CheckCircle2 className="h-[22px] w-[22px]" />
-          </button>
-        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-primary transition-transform active:scale-90 active:bg-muted"
+              aria-label="Actions"
+            >
+              <MoreHorizontal className="h-[22px] w-[22px]" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56 rounded-2xl">
+            {conversation?.contacts?.id && (
+              <DropdownMenuItem
+                onClick={() => navigate(`/${slug}/contacts/${conversation.contacts.id}`)}
+              >
+                <User className="me-2 h-4 w-4" /> {t('nav.profile')}
+              </DropdownMenuItem>
+            )}
+            {conversationId && (
+              <DropdownMenuItem
+                onClick={() =>
+                  updateConversation.mutate({
+                    id: conversationId,
+                    workspace_id: workspace!.id,
+                    status: isResolved ? 'open' : 'resolved',
+                  })
+                }
+              >
+                {isResolved ? (
+                  <>
+                    <RotateCcw className="me-2 h-4 w-4" /> {t('inbox.reopen')}
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="me-2 h-4 w-4" /> {t('inbox.resolve')}
+                  </>
+                )}
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </header>
+
 
       {/* Messages */}
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 py-4 space-y-1.5">

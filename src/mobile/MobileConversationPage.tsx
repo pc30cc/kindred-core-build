@@ -79,7 +79,7 @@ export default function MobileConversationPage() {
           type="button"
           onClick={() => navigate(`/${slug}/inbox`)}
           className="rounded-full p-2 text-primary active:bg-muted"
-          aria-label={t('common.back')}
+          aria-label="Back"
         >
           <BackIcon className="h-6 w-6" />
         </button>
@@ -102,7 +102,7 @@ export default function MobileConversationPage() {
           <button
             type="button"
             onClick={() =>
-              updateConversation.mutate({ id: conversationId, updates: { status: 'resolved' } })
+              updateConversation.mutate({ id: conversationId, workspace_id: workspace!.id, status: 'resolved' })
             }
             className="rounded-full p-2 text-muted-foreground active:bg-muted"
             aria-label={t('inbox.resolve')}

@@ -1570,6 +1570,16 @@ const tr: TranslationKeys = {
     save: 'Kaydet',
     cancel: 'İptal',
   },
+  presenceState: {
+    active: 'Aktif',
+    away: 'Uzakta',
+    disconnected: 'Panelde değil',
+    offline: 'Çevrimdışı',
+    activeHint: 'Şu anda panelde ve etkileşimde.',
+    awayHint: 'Panel açık ancak birkaç dakikadır hareket yok.',
+    disconnectedHint: 'Ziyaretçiler için müsait ama panel açık değil.',
+    offlineHint: 'Elle çevrimdışı ya da program dışında.',
+  },
   availabilityPage: {
     title: 'Uygunluk durumu',
     subtitle: 'Operatör olarak çalışma programınızı belirleyin. Ziyaretçiler sizi belirlediğiniz zaman aralıklarında müsait görür.',

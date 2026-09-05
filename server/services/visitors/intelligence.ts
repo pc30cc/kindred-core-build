@@ -28,21 +28,20 @@ import {
   resolveVisitorPresenceMode,
   applyVisitorPresence,
 } from './presenceSource.js';
+import { listVisitorCandidates } from './candidateIndex.js';
 
 /**
  * Durable candidate horizon used in realtime mode: sessions that produced a
  * durable write (creation, navigation, message) within this window are the
  * pool whose live status realtime is asked about.
  *
- * SEMANTICS (explicit, not accidental): this list is "recent candidates,
- * status-resolved by realtime" — never "every socket currently open". A
- * connected-but-idle visitor stays inside the window because the widget's
- * presence re-negotiation refreshes candidacy once per token TTL
- * (`touchVisitorPresenceCandidacy`), so the window bounds how long a session
- * survives *without any realtime presence at all*, not how long a live visitor
- * remains visible. Enumerating the online set from Centrifugo is deliberately
- * impossible in scheme v2 (one channel per session), and the liveness
- * heartbeat is not coming back.
+ * SEMANTICS: this is a DEGRADED-MODE horizon only. Silent-but-connected
+ * visitors are normally discovered through the ephemeral candidate index
+ * (`./candidateIndex.ts`), which costs PostgreSQL nothing. This wide window is
+ * used solely when no index could answer (no Redis configured in Mode 2/3, or
+ * the index is momentarily unreadable), so degraded discovery never silently
+ * loses visitors. Neither the liveness heartbeat nor a PostgreSQL "candidacy
+ * touch" is coming back.
  */
 const CANDIDATE_WINDOW_MS = 6 * 60 * 60_000;
 

@@ -436,13 +436,22 @@ realtimeRouter.post('/visitor-presence', async (req, res) => {
       });
       return res.status(403).json({ error: 'Session not accessible' });
     }
+    // FAIL-CLOSED identity. A widget session token proves only "our server
+    // issued a token for this workspace"; it is not a visitor identity. The
+    // HttpOnly visitor cookie is, so presence requires it and requires it to
+    // match the session row. Without this, a caller holding a bootstrap token
+    // could enumerate session ids and mint presence for someone else.
     const visitor = readVisitorCookie(req as any, workspaceId);
-    if (visitor?.v && session.visitor_id && visitor.v !== session.visitor_id) {
+    const identityOk = !!visitor?.v && !!session.visitor_id && visitor.v === session.visitor_id;
+    if (!identityOk) {
       emitMetric(config, {
         metric: 'realtime.channel_ownership_reject',
         workspaceId,
         driver: 'centrifugo',
-        tags: { reason: 'session_visitor_mismatch', endpoint: 'visitor-presence' },
+        tags: {
+          reason: visitor?.v ? 'session_visitor_mismatch' : 'missing_visitor_cookie',
+          endpoint: 'visitor-presence',
+        },
       });
       return res.status(403).json({ error: 'Session not accessible' });
     }
@@ -455,8 +464,10 @@ realtimeRouter.post('/visitor-presence', async (req, res) => {
       return res.json({ vendor: 'database', presence: false, reason: assignment.reason });
     }
 
-    const shard = visitorPresenceShard(sessionId);
-    const channel = buildVisitorPresenceChannelName(workspaceId, shard);
+    // One channel per session (scheme v2): the visitor can only ever be a
+    // member of its own channel, so shard-mates cannot be observed and the
+    // operator-side read stays proportional to the page size.
+    const channel = buildVisitorPresenceChannelName(workspaceId, sessionId);
     if (!isVisitorPresenceChannel(channel, workspaceId)) {
       return res.status(500).json({ error: 'Channel derivation failed' });
     }
@@ -475,6 +486,9 @@ realtimeRouter.post('/visitor-presence', async (req, res) => {
       workspaceId,
       expiresInSeconds: ttl,
     });
+    // Per-session lease: the widget presents it on every heartbeat while its
+    // subscription is open, which is what authorizes skipping the DB write.
+    const lease = issueVisitorPresenceLease(workspaceId, sessionId);
 
     return res.json({
       vendor: 'centrifugo',
@@ -485,7 +499,10 @@ realtimeRouter.post('/visitor-presence', async (req, res) => {
       channel,
       sub_token: subTok.token,
       expires_at: conn.expires_at,
+      presence_lease: lease.lease,
+      lease_expires_at: lease.expires_at,
     });
+
   } catch (err: any) {
     console.error('[realtime/visitor-presence] error:', err);
     return res.status(500).json({ error: 'Internal error' });

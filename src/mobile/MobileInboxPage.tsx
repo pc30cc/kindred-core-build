@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Search, Inbox as InboxIcon, Bot, CheckCircle2, MessageCircle, X } from 'lucide-react';
+import { Inbox as InboxIcon, Bot, CheckCircle2, MessageCircle } from 'lucide-react';
 
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
@@ -19,6 +19,8 @@ import { contactDisplayName } from '@/lib/contact-display';
 import { formatRelative } from '@/lib/date';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { MobileScreen } from './MobileScreen';
+import { MobileSearchField } from './MobileSearchField';
 
 type MobileFilter = 'open' | 'ai' | 'resolved';
 
@@ -71,62 +73,39 @@ export default function MobileInboxPage() {
   };
 
   return (
-    <div className="flex h-full flex-col bg-background">
-      {/* Header */}
-      <header className="shrink-0 px-4 pt-[calc(env(safe-area-inset-top)+12px)] pb-3 bg-gradient-to-b from-primary/10 to-transparent">
-        <p className="text-[13px] font-medium text-primary/80">Welcome Back To</p>
-        <h1 className="text-[26px] font-bold tracking-tight text-foreground leading-tight">
-          WebYar Ai
-        </h1>
-        <p className="mt-1 text-[13px] text-muted-foreground">
-          {unreadTotal > 0
-            ? `${unreadTotal} ${t('inbox.unread')}`
-            : workspace?.name || ''}
-        </p>
-
-        {/* Search */}
-        <div className="relative mt-3">
-          <Search className="pointer-events-none absolute start-3 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('inbox.search')}
-            className="h-11 w-full rounded-2xl border border-border bg-card ps-10 pe-10 text-[15px] text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/50"
-          />
-          {query && (
-            <button
-              type="button"
-              onClick={() => setQuery('')}
-              className="absolute end-2 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-muted-foreground active:bg-muted"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
+    <MobileScreen
+      title="WebYar Ai"
+      subtitle={
+        unreadTotal > 0
+          ? `${unreadTotal} ${t('inbox.unread')}`
+          : workspace?.name || ''
+      }
+      toolbar={
+        <div className="space-y-2.5">
+          <MobileSearchField value={query} onChange={setQuery} placeholder={t('inbox.search')} />
+          <div className="flex gap-2 overflow-x-auto no-scrollbar">
+            {FILTERS.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                onClick={() => setFilter(f.key)}
+                className={cn(
+                  'flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-colors',
+                  filter === f.key
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'border border-border bg-card text-muted-foreground',
+                )}
+              >
+                <f.icon className="h-4 w-4" />
+                {FILTER_LABEL[f.key]}
+              </button>
+            ))}
+          </div>
         </div>
-
-        {/* Filter chips */}
-        <div className="mt-3 flex gap-2 overflow-x-auto no-scrollbar">
-          {FILTERS.map((f) => (
-            <button
-              key={f.key}
-              type="button"
-              onClick={() => setFilter(f.key)}
-              className={cn(
-                'flex shrink-0 items-center gap-1.5 rounded-full px-3.5 h-9 text-[14px] font-medium transition-colors',
-                filter === f.key
-                  ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'bg-card border border-border text-muted-foreground',
-              )}
-            >
-              <f.icon className="h-4 w-4" />
-              {FILTER_LABEL[f.key]}
-            </button>
-          ))}
-        </div>
-      </header>
-
+      }
+      bodyClassName="px-3 pb-4"
+    >
       {/* List */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-4">
         {isLoading ? (
           <div className="space-y-2 pt-2">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -213,7 +192,6 @@ export default function MobileInboxPage() {
             })}
           </ul>
         )}
-      </div>
-    </div>
+    </MobileScreen>
   );
 }

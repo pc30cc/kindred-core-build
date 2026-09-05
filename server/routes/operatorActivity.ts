@@ -91,7 +91,9 @@ async function pruneOldSamples(sb: ReturnType<typeof getServiceClient>): Promise
 // ── POST /heartbeat ───────────────────────────────────────────────
 operatorActivityRouter.post('/heartbeat', async (req, res) => {
   try {
-    const parsed = z.object({ workspace_id: z.string().uuid() }).safeParse(req.body || {});
+    const parsed = z
+      .object({ workspace_id: z.string().uuid(), interacted: z.boolean().optional() })
+      .safeParse(req.body || {});
     if (!parsed.success) return res.status(400).json({ error: 'workspace_id required' });
     const workspaceId = parsed.data.workspace_id;
 
@@ -105,7 +107,11 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
     // INTERNAL activity stamp (ephemeral, in-memory, zero writes). The client
     // only beats when the operator actually interacted, so this drives the
     // 5-minute active/away threshold.
-    recordOperatorActivity(workspaceId, auth.userId, now.getTime());
+    // Only real interaction refreshes the stamp; idle beats keep the
+    // connection alive but let internal presence decay to "away".
+    if (parsed.data.interacted !== false) {
+      recordOperatorActivity(workspaceId, auth.userId, now.getTime());
+    }
     const bucket = floorToBucket(now);
     const memoKey = `${workspaceId}:${auth.userId}`;
 

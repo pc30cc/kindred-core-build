@@ -162,7 +162,6 @@ export async function sendFcmMessage(msg: FcmMessage): Promise<FcmSendOutcome> {
         notification: {
           channel_id: msg.androidChannelId ?? 'webyar_messages',
           sound: msg.sound === false ? undefined : 'default',
-festival: undefined,
         },
       },
       apns: {

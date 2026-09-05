@@ -37,6 +37,8 @@ import {
   SESSION_COOKIE_NAME,
 } from '../services/auth/sessions.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
+import { isNativeAppOrigin } from '../services/platformOrigins.js';
+
 
 export const authSecurityRouter = Router();
 

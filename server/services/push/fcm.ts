@@ -24,9 +24,13 @@ export interface FcmCredentials {
   privateKey: string;
 }
 
-export type FcmSendOutcome =
-  | { ok: true }
-  | { ok: false; unregistered: boolean; status: number; error: string };
+export interface FcmSendOutcome {
+  ok: boolean;
+  /** Dead address: disable the device instead of retrying. */
+  unregistered?: boolean;
+  status?: number;
+  error?: string;
+}
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';

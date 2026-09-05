@@ -3,7 +3,7 @@
  * Only mounted inside the Capacitor shell; the web dashboard keeps AppLayout.
  */
 import { useEffect } from 'react';
-import { NavLink, Outlet, useParams, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { MessageCircle, Users, Radar, Settings as SettingsIcon } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { useActiveWorkspace, useCurrentWorkspace } from '@/hooks/useWorkspace';
@@ -19,6 +19,7 @@ export function MobileLayout() {
   const workspace = useCurrentWorkspace();
   const { data: openConversations } = useConversations(workspace?.id, 'open', 'main');
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Native push: permission + token registration once a workspace is known,
   // and notification taps routed to the EXACT conversation inside the mobile

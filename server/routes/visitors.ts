@@ -692,7 +692,7 @@ visitorsAdminRouter.get('/presence-by-conversation', async (req: Request, res: R
     // Route the status through the CENTRAL resolver so this surface agrees
     // with the Visitors list: realtime membership first, stored row as
     // fallback, `unknown` (never a false offline) during the handoff window.
-    const resolution = await resolveVisitorPresence(config, workspaceId, [sessionId]);
+    const resolution = await resolveVisitorPresenceForSessions(config, workspaceId, [sessionId]);
     if (!presence) {
       return res.json({
         status: resolution.online.has(sessionId) ? 'online' : 'unknown',

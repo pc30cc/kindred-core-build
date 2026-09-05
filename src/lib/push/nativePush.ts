@@ -169,6 +169,22 @@ export async function initNativePush(workspaceId?: string | null): Promise<void>
   }
 }
 
+/**
+ * App icon badge. @capacitor-firebase/messaging has NO setBadge — the badge is
+ * owned by a dedicated plugin (@capawesome/capacitor-badge), so reconciliation
+ * (read on another device, resolved thread) really clears the icon instead of
+ * silently doing nothing.
+ */
+async function badgePlugin(): Promise<any | null> {
+  if (!isNativePlatform()) return null;
+  try {
+    const mod = await import('@capawesome/capacitor-badge');
+    return (mod as any).Badge ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Server-authoritative badge — never a blind local increment. */
 export async function syncBadge(workspaceId?: string | null): Promise<void> {
   if (!isNativePlatform()) return;
@@ -178,12 +194,28 @@ export async function syncBadge(workspaceId?: string | null): Promise<void> {
     const res = await authFetch(url.toString(), { credentials: 'include' });
     if (!res.ok) return;
     const body = (await res.json()) as { badge?: number };
-    const count = Number(body?.badge ?? 0);
-    const FirebaseMessaging = await messaging();
-    if (!FirebaseMessaging) return;
-    if (count > 0) await FirebaseMessaging.setBadge?.({ count });
-    else await FirebaseMessaging.removeAllDeliveredNotifications?.().catch?.(() => {});
-    await FirebaseMessaging.setBadge?.({ count });
+    const count = Math.max(0, Number(body?.badge ?? 0) || 0);
+
+    const Badge = await badgePlugin();
+    if (Badge) {
+      try {
+        const perm = await Badge.checkPermissions?.();
+        if (perm && perm.display !== 'granted') await Badge.requestPermissions?.();
+      } catch {
+        /* Android-only permission surface */
+      }
+      if (count > 0) await Badge.set({ count });
+      else await Badge.clear();
+    }
+
+    if (count === 0) {
+      const FirebaseMessaging = await messaging();
+      try {
+        await FirebaseMessaging?.removeAllDeliveredNotifications?.();
+      } catch {
+        /* nothing delivered */
+      }
+    }
   } catch {
     /* badge drift is corrected on the next sync */
   }

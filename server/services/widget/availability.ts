@@ -232,14 +232,16 @@ export async function resolveAvailability(
   const tz = (typeof bh?.timezone === 'string' && bh.timezone) || 'UTC';
   const liveChatEnabled = (row as any)?.live_chat_enabled !== false;
 
-  // LOCKED RULE 1: business_hours.enabled === false  =>  state forced to
-  // 'online' AND offline_mode is ignored. live_chat_enabled is intentionally
-  // NOT consulted here so admins can never produce a "hours off but widget
-  // still offline" state via the hours toggle.
+  // LOCKED RULE 1 (clarified): business_hours.enabled === false means the
+  // WORKSPACE imposes no time restriction — it does NOT mean "force the
+  // messenger online". Operator-level manual offline/invisible and personal
+  // schedules still decide reachability. Workspaces with zero members keep
+  // failing open so a brand-new workspace stays usable.
   if (!enabled) {
+    const state = await customerFacingState(config, workspaceId, now);
     return {
-      state: 'online',
-      reason: 'disabled',
+      state: state.offline ? 'offline' : 'online',
+      reason: state.offline ? 'no_operators_online' : 'disabled',
       next_open_at: null,
       timezone: tz,
       offline_mode: offlineMode,
@@ -247,6 +249,7 @@ export async function resolveAvailability(
       offline_message: offlineMessage,
     };
   }
+
 
   // Hours are enabled. If live_chat_enabled is explicitly false, treat as
   // an always-offline workspace (operators chose to be unreachable). This

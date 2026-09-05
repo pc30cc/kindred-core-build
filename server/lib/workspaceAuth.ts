@@ -18,7 +18,12 @@
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
-import { verifyOriginForMutation, resolveRequestSession } from '../services/auth/sessions.js';
+import {
+  verifyOriginForMutation,
+  validateSessionToken,
+  renewMobileSessionIfDue,
+  getRequestSessionToken,
+} from '../services/auth/sessions.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -79,11 +84,20 @@ export async function requireUser(req: any, res: any): Promise<string | null> {
   // the `gs_session` cookie (web) and `Authorization: Bearer <token>`
   // (Capacitor native). Both go through the one `validateSessionToken`, so
   // expiry, revocation and logout-all behave identically.
-  const session = await resolveRequestSession(config, req);
+  const { token, transport } = getRequestSessionToken(req);
+  if (!token) {
+    res.status(401).json({ error: 'Not authenticated' });
+    return null;
+  }
+  const session = await validateSessionToken(config, token);
   if (!session) {
     res.status(401).json({ error: 'Not authenticated' });
     return null;
   }
+  // Sliding renewal for long-lived mobile sessions. Throttled server-side,
+  // never extends past the absolute cap, and a failure here is non-fatal —
+  // a renewal problem must never look like a logout.
+  await renewMobileSessionIfDue(config, session);
   // CSRF is a browser-cookie problem: it exists because a browser attaches
   // the cookie automatically to a cross-site request. A Bearer credential
   // is never attached automatically by anything, so applying the Origin
@@ -91,7 +105,7 @@ export async function requireUser(req: any, res: any): Promise<string | null> {
   // sends `Origin: capacitor://localhost`) while protecting nothing. The
   // cookie path keeps the exact same check it had before.
   if (
-    session.transport === 'cookie' &&
+    transport === 'cookie' &&
     MUTATING_METHODS.has(req.method) &&
     !verifyOriginForMutation(req, config.corsOrigins)
   ) {

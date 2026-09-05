@@ -151,8 +151,20 @@ export async function listVisitorIntelligence(
       staleMs = Math.max(15_000, (s as any).presence.stale_after_ms);
     }
   } catch { /* keep default */ }
-  const since = new Date(Date.now() - staleMs).toISOString();
   const policy = await resolveIpVisibilityPolicy(config, workspaceId, opts.viewerRole ?? null);
+
+  // ── Candidate window ────────────────────────────────────────────────────
+  //
+  // Discovery is PostgreSQL's job. In realtime mode nothing refreshes
+  // `updated_at` while a visitor merely browses, so the short stale window
+  // would drop connected visitors — the window is therefore widened to the
+  // durable session horizon and realtime is used only to decide the STATUS of
+  // those candidates. Centrifugo is never asked "who is online?": that read
+  // would scale with the workspace's online population instead of the page.
+  const presenceMode = await resolveVisitorPresenceMode(config, workspaceId);
+  const candidateWindowMs =
+    presenceMode === 'realtime' ? Math.max(staleMs, CANDIDATE_WINDOW_MS) : staleMs;
+  const since = new Date(Date.now() - candidateWindowMs).toISOString();
 
   const PRESENCE_SELECT = `
       id, status, current_page, updated_at, visitor_session_id, workspace_id,
@@ -175,29 +187,12 @@ export async function listVisitorIntelligence(
     return [];
   }
 
-  // ── Candidate window = DB recency ∪ realtime membership ─────────────────
-  //
-  // In realtime mode nothing refreshes `updated_at` while a visitor merely
-  // browses, so the `since` window alone would silently drop visitors who are
-  // demonstrably connected. The union with the sharded presence read is what
-  // keeps the list complete without reintroducing liveness writes.
-  const presence = await resolveVisitorPresence(config, workspaceId);
   const allRows: any[] = [...(rows ?? [])];
-  if (presence.mode === 'realtime' && presence.online.size) {
-    const known = new Set(allRows.map((r) => (r.visitor_sessions as any)?.id).filter(Boolean));
-    const missing = [...presence.online].filter((id) => !known.has(id)).slice(0, limit);
-    if (missing.length) {
-      const { data: extra } = await sb
-        .from('visitor_presence')
-        .select(PRESENCE_SELECT)
-        .eq('workspace_id', workspaceId)
-        .in('visitor_session_id', missing)
-        .limit(limit);
-      for (const r of extra ?? []) allRows.push(r);
-    }
-  }
-
   const sessionIds = allRows.map(r => (r.visitor_sessions as any).id).filter(Boolean);
+  // Bounded realtime overlay: one batched presence_stats read over exactly
+  // these candidates.
+  const presence = await resolveVisitorPresenceForSessions(config, workspaceId, sessionIds);
+
   const convsBySession = new Map<string, { id: string; status: string | null; subject: string | null; contact_id: string | null }>();
   const contactsById = new Map<string, VisitorIntelligenceItem['contact']>() as Map<string, NonNullable<VisitorIntelligenceItem['contact']>>;
 

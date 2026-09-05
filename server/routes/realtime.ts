@@ -60,8 +60,13 @@ import {
 import {
   resolveVisitorPresenceMode,
   getVisitorPresenceMetrics,
-  touchVisitorPresenceCandidacy,
 } from '../services/visitors/presenceSource.js';
+
+import {
+  touchVisitorCandidate,
+  getCandidateIndexMetrics,
+} from '../services/visitors/candidateIndex.js';
+
 
 import { issueVisitorPresenceLease } from '../services/visitors/presenceLease.js';
 
@@ -495,11 +500,13 @@ realtimeRouter.post('/visitor-presence', async (req, res) => {
     // subscription is open, which is what authorizes skipping the DB write.
     const lease = issueVisitorPresenceLease(workspaceId, sessionId);
 
-    // Candidacy refresh. This endpoint is hit once per token TTL (connect and
-    // in-place renewal), which is the only write a purely idle-but-connected
-    // visitor produces — it keeps the session inside the discovery window
-    // without reinstating a liveness heartbeat. Throttled and fire-and-forget.
-    void touchVisitorPresenceCandidacy(config, workspaceId, sessionId);
+    // Candidacy refresh — EPHEMERAL index only (Redis sorted set in Mode 2/3,
+    // Centrifugo active channels in Mode 1). PostgreSQL is never written here:
+    // a periodic per-session UPDATE is the very write load this architecture
+    // removed, and it would also corrupt `visitor_presence.updated_at`, which
+    // the UI reads as genuine activity recency.
+    void touchVisitorCandidate(config, workspaceId, sessionId, lease.expires_at);
+
 
 
 
@@ -1039,7 +1046,9 @@ realtimeRouter.get('/admin/visitor-presence', requireAdmin, async (req, res) => 
       batch_max: VISITOR_PRESENCE_BATCH_MAX,
 
       metrics: getVisitorPresenceMetrics(),
+      candidate_index: getCandidateIndexMetrics(),
     });
+
   } catch (err: any) {
     console.error('[realtime/admin/visitor-presence] error:', err);
     res.status(500).json({ error: 'Internal error' });

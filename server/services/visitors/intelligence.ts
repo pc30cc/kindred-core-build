@@ -28,21 +28,20 @@ import {
   resolveVisitorPresenceMode,
   applyVisitorPresence,
 } from './presenceSource.js';
+import { listVisitorCandidates } from './candidateIndex.js';
 
 /**
  * Durable candidate horizon used in realtime mode: sessions that produced a
  * durable write (creation, navigation, message) within this window are the
  * pool whose live status realtime is asked about.
  *
- * SEMANTICS (explicit, not accidental): this list is "recent candidates,
- * status-resolved by realtime" — never "every socket currently open". A
- * connected-but-idle visitor stays inside the window because the widget's
- * presence re-negotiation refreshes candidacy once per token TTL
- * (`touchVisitorPresenceCandidacy`), so the window bounds how long a session
- * survives *without any realtime presence at all*, not how long a live visitor
- * remains visible. Enumerating the online set from Centrifugo is deliberately
- * impossible in scheme v2 (one channel per session), and the liveness
- * heartbeat is not coming back.
+ * SEMANTICS: this is a DEGRADED-MODE horizon only. Silent-but-connected
+ * visitors are normally discovered through the ephemeral candidate index
+ * (`./candidateIndex.ts`), which costs PostgreSQL nothing. This wide window is
+ * used solely when no index could answer (no Redis configured in Mode 2/3, or
+ * the index is momentarily unreadable), so degraded discovery never silently
+ * loses visitors. Neither the liveness heartbeat nor a PostgreSQL "candidacy
+ * touch" is coming back.
  */
 const CANDIDATE_WINDOW_MS = 6 * 60 * 60_000;
 
@@ -173,17 +172,34 @@ export async function listVisitorIntelligence(
   } catch { /* keep default */ }
   const policy = await resolveIpVisibilityPolicy(config, workspaceId, opts.viewerRole ?? null);
 
-  // ── Candidate window ────────────────────────────────────────────────────
+  // ── Candidate discovery ─────────────────────────────────────────────────
   //
-  // Discovery is PostgreSQL's job. In realtime mode nothing refreshes
-  // `updated_at` while a visitor merely browses, so the short stale window
-  // would drop connected visitors — the window is therefore widened to the
-  // durable session horizon and realtime is used only to decide the STATUS of
-  // those candidates. Centrifugo is never asked "who is online?": that read
-  // would scale with the workspace's online population instead of the page.
+  // Two disjoint sources, deliberately:
+  //
+  //   1. PostgreSQL, short `staleMs` window — sessions with RECENT DURABLE
+  //      activity (creation, navigation, message). Business data, already
+  //      written for business reasons.
+  //   2. The EPHEMERAL candidate index (Redis in Mode 2/3, Centrifugo active
+  //      channels in Mode 1) — sessions holding a live presence lease but
+  //      silent for hours. Nothing periodic is written to PostgreSQL to keep
+  //      them discoverable.
+  //
+  // Realtime then decides the STATUS of that union with one batched
+  // presence_stats read. Centrifugo is never asked "who is online?" in a
+  // multi-node deployment.
   const presenceMode = await resolveVisitorPresenceMode(config, workspaceId);
-  const candidateWindowMs =
-    presenceMode === 'realtime' ? Math.max(staleMs, CANDIDATE_WINDOW_MS) : staleMs;
+  const index =
+    presenceMode === 'realtime'
+      ? await listVisitorCandidates(config, workspaceId, limit)
+      : { backend: 'none' as const, session_ids: [] as string[], authoritative: false };
+
+  // Only when no ephemeral index answered do we widen the durable window, so a
+  // deployment without Redis (or with Redis briefly down) degrades to the old
+  // behaviour instead of losing silent visitors.
+  const needsDurableFallback = presenceMode === 'realtime' && !index.authoritative;
+  const candidateWindowMs = needsDurableFallback
+    ? Math.max(staleMs, CANDIDATE_WINDOW_MS)
+    : staleMs;
   const since = new Date(Date.now() - candidateWindowMs).toISOString();
 
   const PRESENCE_SELECT = `
@@ -208,6 +224,23 @@ export async function listVisitorIntelligence(
   }
 
   const allRows: any[] = [...(rows ?? [])];
+
+  // Pull the durable rows for indexed sessions the recency window missed. This
+  // read is bounded by the index page (≤ limit ids), never by the workspace.
+  const known = new Set(allRows.map((r) => String(r.visitor_session_id)));
+  const missing = index.session_ids.filter((id) => id && !known.has(id)).slice(0, limit);
+  if (missing.length) {
+    const { data: extra } = await sb
+      .from('visitor_presence')
+      .select(PRESENCE_SELECT)
+      .eq('workspace_id', workspaceId)
+      .in('visitor_session_id', missing);
+    for (const row of extra ?? []) {
+      if (allRows.length >= limit) break;
+      allRows.push(row);
+    }
+  }
+
   const sessionIds = allRows.map(r => (r.visitor_sessions as any).id).filter(Boolean);
   // Bounded realtime overlay: one batched presence_stats read over exactly
   // these candidates.

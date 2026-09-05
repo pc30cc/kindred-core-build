@@ -106,9 +106,8 @@ const metrics = {
   candidates_resolved: 0,
   candidates_truncated: 0,
   full_scan_rejected: 0,
-  candidacy_touches: 0,
-  candidacy_touches_throttled: 0,
 };
+
 
 export type VisitorPresenceMetrics = typeof metrics;
 
@@ -127,62 +126,24 @@ export function resetVisitorPresenceCache(): void {
   modeState = null;
   sessionCache.clear();
   fallbackUntil.clear();
-  candidacyTouchedAt.clear();
   fallbackLoadedAt = 0;
   fallbackInflight = null;
   for (const k of Object.keys(metrics) as (keyof typeof metrics)[]) metrics[k] = 0;
 }
 
 /**
- * CANDIDACY TOUCH — keeps a long-lived realtime visitor discoverable.
+ * DISCOVERY IS NOT PERSISTED HERE.
  *
- * Discovery is PostgreSQL's job: `visitor_intelligence` only asks Centrifugo
- * about sessions whose `visitor_presence` row was touched inside the candidate
- * window. A visitor who keeps one tab open for hours without navigating never
- * writes anything, so it would eventually fall out of that window and vanish
- * from the operator's list even though its socket is alive.
+ * A "candidacy touch" that writes `visitor_presence.updated_at` on a timer is
+ * a heartbeat under another name: at 1M connected visitors even a 10-minute
+ * cadence is ~1.6k UPDATEs/second that carry no business fact, and it makes an
+ * idle visitor look freshly active to Visitor Intelligence.
  *
- * The fix is NOT to bring back the heartbeat. The widget already re-negotiates
- * presence once per token TTL (minutes, not seconds) to renew its tokens and
- * lease — that natural, low-frequency event is the only moment candidacy is
- * refreshed, and it is throttled again server-side. Cost per visitor is
- * therefore at most one tiny UPDATE per CANDIDACY_TOUCH_INTERVAL_MS,
- * independent of tab count, mouse movement or page activity.
+ * Candidate discovery therefore lives in an EPHEMERAL index —
+ * `./candidateIndex.ts` (Redis sorted set in Mode 2/3, Centrifugo active
+ * channels in Mode 1). PostgreSQL keeps only durable business data.
  */
-export const CANDIDACY_TOUCH_INTERVAL_MS = 10 * 60_000;
-const CANDIDACY_MAP_MAX = 50_000;
-const candidacyTouchedAt = new Map<string, number>();
 
-export async function touchVisitorPresenceCandidacy(
-  config: ServerConfig,
-  workspaceId: string,
-  sessionId: string,
-  now: number = Date.now(),
-): Promise<void> {
-  const key = `${workspaceId}:${sessionId}`;
-  const last = candidacyTouchedAt.get(key);
-  if (last && now - last < CANDIDACY_TOUCH_INTERVAL_MS) {
-    metrics.candidacy_touches_throttled += 1;
-    return;
-  }
-  // Bounded memory: the map is a throttle, never a source of truth, so the
-  // cheapest eviction (drop everything) is also the safest — the worst case is
-  // one extra UPDATE per session.
-  if (candidacyTouchedAt.size >= CANDIDACY_MAP_MAX) candidacyTouchedAt.clear();
-  candidacyTouchedAt.set(key, now);
-  try {
-    const sb = getServiceClient(config);
-    await sb
-      .from('visitor_presence')
-      .update({ updated_at: new Date(now).toISOString() })
-      .eq('workspace_id', workspaceId)
-      .eq('visitor_session_id', sessionId);
-    metrics.candidacy_touches += 1;
-  } catch {
-    // Never fail the negotiation because of a candidacy refresh.
-    candidacyTouchedAt.delete(key);
-  }
-}
 
 
 /**

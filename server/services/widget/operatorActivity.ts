@@ -214,8 +214,14 @@ export async function flushOperatorActivityWrites(): Promise<void> {
   }
 }
 
+/** Test hook: emulate the MAX_ENTRIES eviction of the coalescing map. */
+export function __evictActivityCoalesceState(): void {
+  lastRedisWriteAt.clear();
+}
+
 /** Test/ops hook. */
 export function resetOperatorActivity(): void {
+  zaddGtSupported = null;
   local.clear();
   lastRedisWriteAt.clear();
   lastPruneAt.clear();

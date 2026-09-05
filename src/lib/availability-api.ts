@@ -67,11 +67,22 @@ export function updateAvailability(updates: Partial<AvailabilityPrefs>) {
 
 // ── Team presence ───────────────────────────────────────────────
 
+/** LEGACY: "connected AND customer-available". Kept for old consumers. */
 export type OperatorState = 'online' | 'offline';
+
+/** Internal, teammate-facing presence. Never shown to visitors. */
+export type OperatorPresenceState = 'active' | 'away' | 'disconnected' | 'offline';
+
+/** What visitors see — manual status + personal schedule only. */
+export type CustomerAvailability = 'available' | 'unavailable';
 
 export interface OperatorPresence {
   user_id: string;
   state: OperatorState;
+  presence_state?: OperatorPresenceState;
+  customer_availability?: CustomerAvailability;
+  manual?: 'online' | 'offline' | 'invisible';
+  connected?: boolean;
   reason: string;
   full_name?: string | null;
   email?: string | null;

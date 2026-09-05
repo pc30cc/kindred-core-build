@@ -16,7 +16,7 @@ import { conversationsApi, newClientMessageId } from '@/lib/conversations-api';
 import { useQueryClient } from '@tanstack/react-query';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useTeamPresence } from '@/hooks/useTeamPresence';
-import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
+import { useWorkspaceRole } from '@/hooks/useWorkspaceRole';
 import { isTypingSuppressed } from '@/realtime/policySnapshot';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -277,7 +277,7 @@ export default function InboxPage() {
   const { data: teamPresence } = useTeamPresence(workspace?.id);
   const responsiveOperators = useMemo(
     () =>
-      (teamPresence ?? []).filter(
+      (teamPresence?.presence ?? []).filter(
         (p) =>
           p.user_id !== user?.id &&
           (p.state === 'online' || p.presence_state === 'active' || p.presence_state === 'away'),

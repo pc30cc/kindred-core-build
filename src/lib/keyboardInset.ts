@@ -27,9 +27,14 @@ export async function installKeyboardInset(): Promise<void> {
     const { Keyboard, KeyboardResize } = await import('@capacitor/keyboard');
     await Keyboard.setResizeMode({ mode: KeyboardResize.None }).catch(() => {});
     await Keyboard.setScroll({ isDisabled: true }).catch(() => {});
+    // `willShow` starts the lift in sync with the system animation; `didShow`
+    // corrects it with the final height (accessory bars, predictive strip).
     Keyboard.addListener('keyboardWillShow', (info: any) => setInset(info?.keyboardHeight ?? 0));
+    Keyboard.addListener('keyboardDidShow', (info: any) => setInset(info?.keyboardHeight ?? 0));
     Keyboard.addListener('keyboardWillHide', () => setInset(0));
+    Keyboard.addListener('keyboardDidHide', () => setInset(0));
   } catch {
     // Plugin unavailable — the app simply keeps the default (0) inset.
   }
 }
+

@@ -1119,6 +1119,28 @@ export default function InboxPage() {
           </button>
         );
       })}
+      {/* All conversations sits right next to "resolved". */}
+      <button
+        role="tab"
+        aria-selected={!isQueueMode && !extraChip && filter === 'all'}
+        onClick={() => { setExtraChip(null); setQueueTab(null); setFilter('all'); }}
+        className={cn(
+          pillBase,
+          !isQueueMode && !extraChip && filter === 'all'
+            ? 'bg-primary/10 text-primary border-primary/30'
+            : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground',
+        )}
+      >
+        <Inbox className="w-3.5 h-3.5" />
+        {t('inbox.all') || 'All'}
+        <span
+          aria-hidden={(stableCounts.all || 0) === 0}
+          className={cn(
+            pillCount(!isQueueMode && !extraChip && filter === 'all'),
+            (stableCounts.all || 0) === 0 && 'opacity-0',
+          )}
+        >{stableCounts.all || 0}</span>
+      </button>
     </div>
   );
 
@@ -1152,7 +1174,6 @@ export default function InboxPage() {
   );
 
 
-  const allActive = !isQueueMode && !extraChip && filter === 'all';
 
   const toolbarTabsNode = (
           <div
@@ -1161,21 +1182,6 @@ export default function InboxPage() {
             className="flex h-full items-end gap-1"
             dir={dir}
           >
-            <button
-              role="tab"
-              aria-selected={allActive}
-              onClick={() => { setExtraChip(null); setQueueTab(null); setFilter('all'); }}
-              className={cn(headTabBase, headTabState(allActive))}
-            >
-              <Inbox className="w-4 h-4" />
-              {t('inbox.all') || 'All'}
-              <span
-                aria-hidden={(stableCounts.all || 0) === 0}
-                className={cn(pillCount(allActive), (stableCounts.all || 0) === 0 && 'hidden')}
-              >{stableCounts.all || 0}</span>
-              <span className={headTabAccent(allActive)} />
-              <span className={headTabSeam(allActive)} />
-            </button>
             {/* Only the active-conversation tab lives in the top row. */}
             {(['open'] as FilterStatus[]).map((s) => {
               const count = stableCounts[s] || 0;

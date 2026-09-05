@@ -197,10 +197,18 @@ export async function listVisitorIntelligence(
   // deployment without Redis (or with Redis briefly down) degrades to the old
   // behaviour instead of losing silent visitors.
   const needsDurableFallback = presenceMode === 'realtime' && !index.authoritative;
+  //
+  // FLOOR: durable liveness rows are only refreshed every
+  // VISITOR_LIVENESS_REFRESH_MS (coalesced writes), so a discovery window
+  // shorter than the offline threshold would drop a visitor whose tab is still
+  // open simply because their last write is older than the window. The status
+  // itself is still decided by mergeStatus/realtime, never by this window.
+  const durableFloorMs = VISITOR_LIVENESS_OFFLINE_MS + 60_000;
   const candidateWindowMs = needsDurableFallback
     ? Math.max(staleMs, CANDIDATE_WINDOW_MS)
-    : staleMs;
+    : Math.max(staleMs, durableFloorMs);
   const since = new Date(Date.now() - candidateWindowMs).toISOString();
+
 
   const PRESENCE_SELECT = `
       id, status, current_page, updated_at, visitor_session_id, workspace_id,

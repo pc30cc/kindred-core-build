@@ -2510,7 +2510,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
   const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
   if (res.headersSent) return;
 
-  const { action, conversation_id, visitor_id, session_id, visitor_name, visitor_email, visitor_phone, current_page, page_title } = req.body;
+  const { action, conversation_id, visitor_id, session_id, visitor_name, visitor_email, visitor_phone, current_page, page_title, presence_lease } = req.body;
   const supabase = getServiceClient(config);
 
   try {

@@ -1465,6 +1465,11 @@ const fa: TranslationKeys = {
       conversations: 'حل‌شده / ارجاع‌شده',
     },
   },
+  mobileSettings: {
+    rateApp: 'امتیاز به اپلیکیشن',
+    help: 'نیاز به کمک دارید؟',
+    helpHint: 'با تیم پشتیبانی ما در تماس باشید',
+  },
   settings: {
     title: 'تنظیمات',
     general: 'عمومی',

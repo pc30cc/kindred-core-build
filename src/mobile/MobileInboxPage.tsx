@@ -6,6 +6,7 @@
  * list. Opening a row pushes the thread screen (MobileConversationPage).
  */
 import { useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Inbox as InboxIcon, MoreHorizontal, Bot } from 'lucide-react';
 
@@ -41,6 +42,7 @@ export default function MobileInboxPage() {
   const [query, setQuery] = useState('');
 
   const active = QUEUES[filter];
+  const queryClient = useQueryClient();
   const { data: conversations, isLoading } = useConversations(
     workspace?.id,
     active.status,
@@ -80,6 +82,9 @@ export default function MobileInboxPage() {
             ]}
           />
         </div>
+      }
+      onRefresh={() =>
+        queryClient.refetchQueries({ queryKey: ['conversations'], type: 'active' })
       }
       bodyClassName="pb-[104px]"
     >

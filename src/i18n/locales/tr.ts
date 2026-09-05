@@ -1469,6 +1469,11 @@ const tr: TranslationKeys = {
       conversations: 'Çözülen / atanan',
     },
   },
+  mobileSettings: {
+    rateApp: 'Uygulamayı değerlendir',
+    help: 'Yardıma mı ihtiyacınız var?',
+    helpHint: 'Destek ekibimizle iletişime geçin',
+  },
   settings: {
     title: 'Ayarlar',
     general: 'Genel',

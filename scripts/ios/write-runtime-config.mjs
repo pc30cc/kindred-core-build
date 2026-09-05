@@ -52,6 +52,10 @@ if (!/^https:\/\/[^/]+$/i.test(apiBaseUrl)) {
 }
 
 const defaultLocale = (cfg.defaultLocale || 'fa').trim();
+// Optional external links surfaced in the native Settings screen. Empty =
+// the corresponding row is hidden in the app.
+const appStoreUrl = (cfg.appStoreUrl || '').trim();
+const supportUrl = (cfg.supportUrl || '').trim();
 
 // Preserve whatever the WEB deployment configured (usually "" = same origin).
 const webConfigPath = resolve(root, 'public/runtime-config.js');
@@ -71,6 +75,8 @@ window.__APP_RUNTIME_CONFIG__ = {
   apiBaseUrl: ${JSON.stringify(webApiBaseUrl)},
   mobileApiBaseUrl: ${JSON.stringify(apiBaseUrl)},
   defaultLocale: ${JSON.stringify(defaultLocale)},
+  appStoreUrl: ${JSON.stringify(appStoreUrl)},
+  supportUrl: ${JSON.stringify(supportUrl)},
 };
 `;
 

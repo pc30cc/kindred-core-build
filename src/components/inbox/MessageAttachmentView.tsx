@@ -103,7 +103,7 @@ function AudioAttachmentPlayer({
     >
       <audio
         ref={ref}
-        src={attachmentUrl(att.id)}
+        src={mediaSrc ?? undefined}
         preload="metadata"
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}

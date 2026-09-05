@@ -93,11 +93,26 @@ export function allowedOrigins(config: ServerConfig): string[] {
  *    the `gs_session` cookie, so allowing these origins grants no
  *    cookie-riding capability to anyone.
  */
-const NATIVE_APP_ORIGINS = new Set(['capacitor://localhost', 'ionic://localhost']);
+/**
+ * EXACT-MATCH allow-list, deliberately a single entry: the iOS shell built
+ * by this repo runs from `capacitor://localhost` (see capacitor.config.ts —
+ * no `server.url`, no `iosScheme` override). `ionic://localhost` is NOT
+ * allowed because nothing in this project ever serves from it; add an
+ * origin here only when a shipped build actually uses it.
+ *
+ * Never allow `"null"` (opaque origins: sandboxed iframes, `file://`,
+ * redirected requests), never a wildcard, never a scheme prefix match.
+ */
+const NATIVE_APP_ORIGINS = new Set(['capacitor://localhost']);
 
 export function isNativeAppOrigin(origin: unknown): boolean {
-  return typeof origin === 'string' && NATIVE_APP_ORIGINS.has(origin.trim().toLowerCase());
+  if (typeof origin !== 'string') return false;
+  const value = origin.trim();
+  // Exact match only — no lowercasing tricks, no `null`, no wildcards.
+  if (!value || value === 'null' || value === '*') return false;
+  return NATIVE_APP_ORIGINS.has(value);
 }
+
 
 export function isAllowedOrigin(config: ServerConfig, origin: string): boolean {
   if (isNativeAppOrigin(origin)) return true;

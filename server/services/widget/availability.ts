@@ -196,6 +196,27 @@ export interface ResolveAvailabilityInput {
 }
 
 /**
+ * CUSTOMER-FACING ONLY: manual status + personal schedule. Connection state
+ * (tab, socket, Centrifugo) is deliberately NOT an input, so a minimized
+ * browser or a realtime outage can never flip the messenger offline.
+ * Fails open (never offline) on lookup errors and for member-less workspaces.
+ */
+async function customerFacingState(
+  config: ServerConfig,
+  workspaceId: string,
+  now: Date,
+): Promise<{ offline: boolean }> {
+  try {
+    const { anyAvailable, memberCount } = await anyCustomerAvailableOperator(config, workspaceId, now);
+    return { offline: memberCount > 0 && !anyAvailable };
+  } catch (err: any) {
+    console.warn('[availability] operator availability lookup failed:', err?.message);
+    return { offline: false };
+  }
+}
+
+
+/**
  * Single source of truth. All callers must go through here.
  */
 export async function resolveAvailability(

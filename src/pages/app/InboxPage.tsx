@@ -1133,6 +1133,38 @@ export default function InboxPage() {
               <span className={headTabAccent(allActive)} />
               <span className={headTabSeam(allActive)} />
             </button>
+            {/* Status tabs (open / pending / resolved) — same folder-tab look. */}
+            {(['open', 'pending', 'resolved'] as FilterStatus[]).map((s) => {
+              const count = stableCounts[s] || 0;
+              const isActive = !isQueueMode && !extraChip && filter === s;
+              const dotColor = s === 'open' ? 'bg-success' : s === 'pending' ? 'bg-warning' : 'bg-info';
+              return (
+                <button
+                  key={s}
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => { setExtraChip(null); setQueueTab(null); setFilter(s); }}
+                  className={cn(headTabBase, headTabState(isActive))}
+                >
+                  <span className="relative flex w-2 h-2 items-center justify-center">
+                    {liveTabs[s] && (
+                      <span className="absolute inline-flex w-full h-full rounded-full bg-success opacity-75 animate-ping" />
+                    )}
+                    <span className={cn(
+                      'relative inline-flex w-2 h-2 rounded-full',
+                      liveTabs[s] ? 'bg-success animate-pulse' : isActive ? dotColor : 'bg-muted-foreground/40',
+                    )} />
+                  </span>
+                  {statusLabels[s]}
+                  <span
+                    aria-hidden={count === 0}
+                    className={cn(pillCount(isActive), count === 0 && 'hidden')}
+                  >{count}</span>
+                  <span className={headTabAccent(isActive)} />
+                  <span className={headTabSeam(isActive)} />
+                </button>
+              );
+            })}
             {/* Plan snapshot still loading — placeholders instead of guessing. */}
             {!entsReady ? (
               <>

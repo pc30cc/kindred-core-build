@@ -1155,7 +1155,7 @@ export default function InboxPage() {
                       liveTabs[s] ? 'bg-success animate-pulse' : isActive ? dotColor : 'bg-muted-foreground/40',
                     )} />
                   </span>
-                  {!compactTabs && statusLabels[s]}
+                  {compactTabs ? <Inbox className="w-4 h-4" /> : statusLabels[s]}
                   <span
                     aria-hidden={count === 0}
                     className={cn(pillCount(isActive), count === 0 && 'hidden')}

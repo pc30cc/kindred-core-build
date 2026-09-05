@@ -144,7 +144,7 @@ export default function MobileInboxPage() {
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
               <InboxIcon className="h-8 w-8 text-primary" />
             </div>
-            <p className="text-[15px] text-muted-foreground">{t('inbox.noConversations')}</p>
+            <p className="text-[15px] text-muted-foreground">{t('inbox.emptyNoConversations')}</p>
           </div>
         ) : (
           <ul className="space-y-2 pt-2">

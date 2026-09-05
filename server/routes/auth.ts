@@ -37,7 +37,7 @@ import {
   SESSION_COOKIE_NAME,
 } from '../services/auth/sessions.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
-import { isNativeAppOrigin } from '../services/platformOrigins.js';
+import { allowsMobileTokenIssuance } from '../services/platformOrigins.js';
 
 
 export const authSecurityRouter = Router();
@@ -241,11 +241,7 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
     //     reach this branch.
     // Anything else falls back to the normal web flow: HttpOnly cookie set,
     // no token in the body, byte-for-byte the pre-existing behaviour.
-    const requestOrigin = req.headers.origin;
-    const originAllowsMobile =
-      typeof requestOrigin !== 'string' || requestOrigin === ''
-        ? true
-        : isNativeAppOrigin(requestOrigin);
+    const originAllowsMobile = allowsMobileTokenIssuance(req.headers.origin);
     const mobileRequested =
       parsed.data.client === 'mobile' ||
       String(req.headers['x-client-platform'] || '').toLowerCase() === 'ios' ||

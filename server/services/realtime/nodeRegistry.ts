@@ -27,6 +27,8 @@ import {
 export interface NodeInput {
   id?: string;
   name?: string;
+  /** Runtime Centrifugo node name (CENTRIFUGO_NAME). Defaults to the id. */
+  node_name?: string;
   ws_url: string;
   api_url: string;
   enabled?: boolean;
@@ -73,6 +75,7 @@ export async function addNode(config: ServerConfig, input: NodeInput): Promise<C
   const node: CentrifugoNode = {
     id,
     name: input.name?.trim() || id,
+    node_name: input.node_name?.trim() || id,
     ws_url: input.ws_url.trim(),
     api_url: input.api_url.trim(),
     enabled: input.enabled !== false,
@@ -98,6 +101,7 @@ export async function updateNode(
   const next: CentrifugoNode = {
     ...prev,
     name: patch.name?.trim() || prev.name,
+    node_name: patch.node_name?.trim() || prev.node_name || prev.id,
     ws_url: patch.ws_url?.trim() || prev.ws_url,
     api_url: patch.api_url?.trim() || prev.api_url,
     enabled: patch.enabled === undefined ? prev.enabled : patch.enabled,

@@ -1037,6 +1037,7 @@ const nodeInputSchema = z.object({
   ws_url: z.string().url(),
   api_url: z.string().url(),
   enabled: z.boolean().optional(),
+  node_name: z.string().min(1).max(120).optional(),
   accepting_new_connections: z.boolean().optional(),
   draining: z.boolean().optional(),
   weight: z.number().min(0).max(1000).optional(),
@@ -1246,35 +1247,76 @@ export async function preflightTopology(cfg: RealtimeProviderConfig): Promise<To
     warnings.push('No nodes registered — health of the pool behind the load balancer cannot be verified');
   }
 
+  // Node names must be unique — two nodes reporting the same Centrifugo
+  // runtime name make per-node load attribution ambiguous.
+  const nameCounts = new Map<string, number>();
+  nodes.forEach((n) => nameCounts.set(n.node_name, (nameCounts.get(n.node_name) ?? 0) + 1));
+  const dupes = [...nameCounts.entries()].filter(([, c]) => c > 1).map(([n]) => n);
+  checks.node_names_unique = { ok: dupes.length === 0, detail: dupes.join(', ') || undefined };
+  if (dupes.length) errors.push(`Duplicate Centrifugo node names: ${dupes.join(', ')}`);
+
   if (enabled.length && c.api_key) {
     const health = await getClusterHealth(enabled, c.api_key, { force: true });
     const healthy = enabled.filter((n) => health[n.id]?.status === 'healthy');
+    // Every healthy node answered with the SHARED cluster API key — an
+    // unauthorized key yields a non-healthy probe, so this is real evidence.
+    checks.shared_api_key_accepted = {
+      ok: healthy.length === enabled.length,
+      detail: `${healthy.length}/${enabled.length} accepted the shared API key`,
+    };
     checks.healthy_nodes = { ok: healthy.length > 0, detail: `${healthy.length}/${enabled.length} healthy` };
     if (!healthy.length) errors.push('No healthy node could be reached with the shared cluster API key');
+    if (healthy.length < enabled.length && healthy.length) {
+      warnings.push('Some nodes rejected the shared API key or were unreachable');
+    }
 
     for (const n of enabled) {
       const h = health[n.id];
       if (h && h.status !== 'healthy') warnings.push(`Node ${n.id}: ${h.status} — ${h.message ?? 'no detail'}`);
     }
 
+    // Every registered node's configured runtime name must actually appear in
+    // the cluster discovery reply of the node that answered.
+    const unmatched = healthy.filter((n) => health[n.id]?.node_name_matched === false).map((n) => n.node_name);
+    checks.node_names_discovered = {
+      ok: unmatched.length === 0,
+      detail: unmatched.length ? `not seen in cluster info: ${unmatched.join(', ')}` : undefined,
+    };
+    if (unmatched.length) {
+      errors.push(
+        `Node name(s) not found in Centrifugo cluster discovery: ${unmatched.join(', ')} — ` +
+          'set CENTRIFUGO_NAME to the same value as the registry node name',
+      );
+    }
+
     if (healthy.length >= 2) {
       // Redis coordination proof: with a shared Redis engine every node
       // reports the whole cluster in `info`, so num_nodes > 1 on a node can
-      // only happen when the engine is genuinely shared.
-      const driverA = new CentrifugoDriver({ ...(c as any), api_url: healthy[0].api_url });
-      const infoA = await driverA.info();
-      const coordinated = (infoA.num_nodes ?? 1) >= 2;
+      // only happen when the engine is genuinely shared. We assert this on
+      // EVERY healthy node, not just the first one.
+      const seen = healthy.map((n) => ({ id: n.id, nodes: health[n.id]?.cluster_nodes ?? 1 }));
+      const coordinated = seen.every((s) => s.nodes >= healthy.length);
       checks.redis_coordination = {
         ok: coordinated,
-        detail: `node ${healthy[0].id} sees ${infoA.num_nodes ?? 1} cluster node(s)`,
+        detail: seen.map((s) => `${s.id}→${s.nodes}`).join(', '),
       };
-      if (!coordinated) errors.push('Nodes do not see each other — shared Redis engine could not be proven');
+      if (!coordinated) {
+        errors.push('Nodes do not all see the full cluster — a shared Redis engine could not be proven');
+      }
 
-      // Cross-node publish: publishing through node A must be accepted; with
-      // a shared engine the message reaches subscribers attached to node B.
+      // Publish ACCEPTANCE only. A synchronous admin request has no subscriber
+      // attached to another node, so end-to-end cross-node DELIVERY is NOT
+      // proven here — that is covered by the integration test suite
+      // (scripts/realtime/cross-node-integration.mjs). We do not claim more
+      // than we measured.
+      const driverA = new CentrifugoDriver({ ...(c as any), api_url: healthy[0].api_url });
       const pub = await driverA.publish(`ws:preflight:conv:${Date.now()}`, { kind: 'preflight' });
-      checks.cross_node_publish = { ok: pub.ok, detail: pub.error };
-      if (!pub.ok) errors.push(`Cross-node publish failed: ${pub.error}`);
+      checks.publish_accepted = { ok: pub.ok, detail: pub.error };
+      if (!pub.ok) errors.push(`Publish through ${healthy[0].id} failed: ${pub.error}`);
+      checks.cross_node_delivery_verified = {
+        ok: false,
+        detail: 'not verifiable from a synchronous admin preflight — run the cross-node integration test',
+      };
 
       checks.presence_enabled = { ok: c.presence_enabled !== false };
       if (c.presence_enabled === false) warnings.push('Presence is disabled — operator live presence will use the database fallback');
@@ -1289,6 +1331,7 @@ export async function preflightTopology(cfg: RealtimeProviderConfig): Promise<To
       errors.push(`Node router cannot select any node (${picked.reason})`);
     }
   }
+
 
   return { ok: errors.length === 0, mode, errors, warnings, checks };
 }

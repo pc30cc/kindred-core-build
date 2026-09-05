@@ -27,7 +27,8 @@
     "lint:baseline": "node scripts/lint-baseline.mjs",
     "lint:baseline:update": "node scripts/lint-baseline.mjs --update",
     "test:e2e": "playwright test",
-    "test:e2e:invitations": "playwright test e2e/invitations.spec.ts"
+    "test:e2e:invitations": "playwright test e2e/invitations.spec.ts",
+    "test:realtime:cross-node": "bun run scripts/realtime/cross-node-integration.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

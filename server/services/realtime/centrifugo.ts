@@ -41,6 +41,34 @@ export function isCentrifugoApiResponse(value: unknown): value is CentrifugoApiR
   return typeof value === 'object' && value !== null;
 }
 
+/** One node as described by Centrifugo's `info` reply. */
+export interface CentrifugoNodeInfo {
+  /** Stable node name (CENTRIFUGO_NAME / CENTRIFUGO_NODE_NAME). */
+  name?: string;
+  uid?: string;
+  num_clients?: number;
+  num_users?: number;
+  num_channels?: number;
+  version?: string;
+}
+
+/** Normalize `info().result.nodes[]` without inventing values. */
+export function normalizeCentrifugoNodeInfo(raw: unknown): CentrifugoNodeInfo[] {
+  if (!Array.isArray(raw)) return [];
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+  return raw
+    .filter((n): n is Record<string, unknown> => !!n && typeof n === 'object')
+    .map((n) => ({
+      name: typeof n.name === 'string' && n.name.trim() ? n.name.trim() : undefined,
+      uid: typeof n.uid === 'string' ? n.uid : undefined,
+      num_clients: num(n.num_clients),
+      num_users: num(n.num_users),
+      num_channels: num(n.num_channels),
+      version: typeof n.version === 'string' ? n.version : undefined,
+    }));
+}
+
+
 /**
  * Phase 2 — fixed JWT identity claims. Centrifugo accepts any HS256 token
  * signed with its shared secret, so the only real defense against a
@@ -161,19 +189,35 @@ export class CentrifugoDriver {
   }
 
   /**
-   * Richer variant of `health()` used by the node router: same `info` call,
-   * but also returns the live client count Centrifugo reports for the node
-   * (summed across the nodes it knows about). Live connection counts are
-   * READ from Centrifugo, never stored in PostgreSQL.
+   * Richer variant of `health()` used by the node router.
+   *
+   * Centrifugo's `info` reply describes EVERY node of the cluster, not just
+   * the node that answered the HTTP call. Summing `num_clients` across
+   * `result.nodes[]` therefore yields the CLUSTER total, which must never be
+   * attributed to a single node. So:
+   *
+   *   • `nodes`              — normalized per-node records as reported.
+   *   • `cluster_num_clients`— the cluster-wide total (explicitly labelled).
+   *   • `num_clients`        — the count of THIS node only, resolved by exact
+   *                            Centrifugo node name (`options.nodeName`).
+   *                            Left `undefined` when the name is unknown or
+   *                            not present in the reply — an unknown load is
+   *                            reported as unknown, never faked with the
+   *                            cluster number.
+   *
+   * Live connection counts are READ from Centrifugo, never stored in PostgreSQL.
    */
-  async info(): Promise<{
+  async info(options: { nodeName?: string } = {}): Promise<{
     status: 'healthy' | 'degraded' | 'down';
     message: string;
+    nodes: CentrifugoNodeInfo[];
     num_clients?: number;
+    cluster_num_clients?: number;
     num_nodes?: number;
+    node_name_matched?: boolean;
   }> {
     if (!this.cfg.api_url || !this.cfg.api_key) {
-      return { status: 'down', message: 'API URL or API key not configured' };
+      return { status: 'down', message: 'API URL or API key not configured', nodes: [] };
     }
     try {
       const ctrl = new AbortController();
@@ -185,27 +229,33 @@ export class CentrifugoDriver {
         signal: ctrl.signal,
       });
       clearTimeout(timeout);
-      if (!res.ok) return { status: 'down', message: `HTTP ${res.status}` };
+      if (!res.ok) return { status: 'down', message: `HTTP ${res.status}`, nodes: [] };
       const data: unknown = await res.json().catch(() => null);
       if (!isCentrifugoApiResponse(data) || data.error) {
-        return { status: 'degraded', message: 'Unexpected response shape' };
+        return { status: 'degraded', message: 'Unexpected response shape', nodes: [] };
       }
-      const result = data.result as { nodes?: Array<{ num_clients?: number }> } | undefined;
-      const nodes = Array.isArray(result?.nodes) ? result!.nodes! : [];
-      const num_clients = nodes.reduce(
-        (sum, n) => sum + (typeof n?.num_clients === 'number' ? n.num_clients : 0),
+      const result = data.result as { nodes?: unknown[] } | undefined;
+      const nodes = normalizeCentrifugoNodeInfo(result?.nodes);
+      const clusterTotal = nodes.reduce(
+        (sum, n) => sum + (typeof n.num_clients === 'number' ? n.num_clients : 0),
         0
       );
+      const wanted = options.nodeName?.trim();
+      const self = wanted ? nodes.find((n) => n.name === wanted) : undefined;
       return {
         status: 'healthy',
         message: 'Centrifugo info OK',
-        num_clients: nodes.length ? num_clients : undefined,
+        nodes,
+        num_clients: typeof self?.num_clients === 'number' ? self.num_clients : undefined,
+        cluster_num_clients: nodes.length ? clusterTotal : undefined,
         num_nodes: nodes.length || undefined,
+        node_name_matched: wanted ? !!self : undefined,
       };
     } catch (err: any) {
-      return { status: 'down', message: err?.message || 'Connection failed' };
+      return { status: 'down', message: err?.message || 'Connection failed', nodes: [] };
     }
   }
+
 
 
 

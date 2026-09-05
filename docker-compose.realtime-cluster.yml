@@ -1,7 +1,18 @@
 # ─────────────────────────────────────────────────────────────────────
 #  Realtime cluster — Redis + TWO Centrifugo nodes on one host.
 #
-#  Purpose: staging / single-server production where you want real
+#  Purpose: LOCAL / STAGING verification on one host. Host port mappings
+#  (8001/8002) exist ON PURPOSE here so an integration test can reach each
+#  node directly. Do NOT use this file for production — the production node
+#  file (docker-compose.centrifugo-redis.yml) only exposes port 8000 on the
+#  internal network and publishes nothing, and the production Redis is never
+#  reachable from the host either.
+#
+#  No Centrifugo Docker healthcheck: the v5.4.5 image is FROM scratch (no
+#  shell/wget/curl, no `healthcheck` subcommand). Health is read from the
+#  Centrifugo HTTP API `info` by the application's node health service.
+#
+#  Purpose: staging / single-server verification where you want real
 #  cross-node behaviour (Mode 2 or Mode 3) without two machines. Bring the
 #  whole thing up with one command:
 #
@@ -30,12 +41,6 @@ x-centrifugo-node: &centrifugo-node
     nofile:
       soft: 65535
       hard: 65535
-  healthcheck:
-    test: ["CMD", "sh", "-c", "wget -q -O - http://127.0.0.1:8000/health || exit 1"]
-    interval: 15s
-    timeout: 5s
-    retries: 5
-    start_period: 15s
   networks:
     - realtime
 
@@ -78,7 +83,7 @@ services:
       - --maxmemory
       - ${REALTIME_REDIS_MAXMEMORY:-512mb}
       - --maxmemory-policy
-      - allkeys-lru
+      - ${REALTIME_REDIS_MAXMEMORY_POLICY:-noeviction}
     environment:
       REDIS_PASSWORD: ${REALTIME_REDIS_PASSWORD}
     healthcheck:

@@ -12,6 +12,8 @@ export type CentrifugoDeploymentMode = 'single_memory' | 'app_routed_redis' | 'l
 export interface CentrifugoNodeRecord {
   id: string;
   name: string;
+  /** Runtime Centrifugo node name (CENTRIFUGO_NAME) — must match the process. */
+  node_name?: string;
   ws_url: string;
   api_url: string;
   enabled: boolean;
@@ -25,8 +27,14 @@ export interface CentrifugoNodeHealth {
   status: 'healthy' | 'degraded' | 'down' | 'unknown';
   checked_at?: number;
   message?: string;
+  /** This node's OWN client count (gossiped, eventually consistent). */
   connections?: number;
+  /** Cluster-wide client total, kept separate from the per-node count. */
+  cluster_connections?: number;
   nodes?: number;
+  /** False when the configured node_name is absent from cluster discovery. */
+  node_name_matched?: boolean;
+
 }
 
 export interface CentrifugoNodeRow extends CentrifugoNodeRecord {
@@ -50,6 +58,7 @@ export interface RealtimeAdminConfig {
   centrifugo?: {
     ws_url?: string;
     api_url?: string;
+    node_name?: string;
     api_key?: string; // masked from server
     token_hmac_secret?: string; // masked from server
     allowed_origins?: string[];

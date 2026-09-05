@@ -15,7 +15,7 @@
 
 import type { ServerConfig } from '../../config.js';
 import { loadRealtimeConfig } from './store.js';
-import { getClusterHealth } from './nodeHealth.js';
+import { snapshotClusterHealth } from './nodeHealth.js';
 import { selectNode } from './nodeRouter.js';
 import {
   normalizeNodes,
@@ -44,19 +44,24 @@ export async function assignRealtimeEndpoint(config: ServerConfig): Promise<Real
     return { mode, ws_url: lb, reason: lb ? 'load_balancer' : 'load_balancer_not_configured' };
   }
 
-  // app_routed_redis
+  // app_routed_redis — ONLY nodes registered in the Node Registry (i.e. proven
+  // members of the same Redis-backed cluster) may be assigned.
+  //
+  // The legacy single `ws_url` is NEVER used as a fallback here: it typically
+  // points at a Mode 1 memory-engine Centrifugo, and sending a client there
+  // would split-brain presence, publish and cross-node coordination. When no
+  // registered node is usable we return `ws_url: null` and let the existing
+  // provider-level degradation (Centrifugo → polling/database fallback) decide.
+  // A legacy endpoint can only ever be handed out once it is explicitly
+  // registered as a node of this cluster.
+  //
+  // Health is read from the cache snapshot only — no HTTP fan-out on this path.
   const nodes = normalizeNodes(c?.nodes);
-  const health = await getClusterHealth(nodes, c?.api_key || '');
+  const health = snapshotClusterHealth(nodes);
   const picked = selectNode(nodes, health);
   if (picked.node) {
     return { mode, ws_url: picked.node.ws_url, node_id: picked.node.id, reason: 'node_router' };
   }
-  // No usable node — fall back to the legacy single ws_url when one is still
-  // configured (typical during a Mode 1 → Mode 2 migration), else signal
-  // "no endpoint" so the caller degrades to polling instead of handing out a
-  // dead socket URL.
-  if (c?.ws_url) {
-    return { mode, ws_url: c.ws_url, reason: `${picked.reason}:legacy_ws_url` };
-  }
   return { mode, ws_url: null, reason: picked.reason };
 }
+

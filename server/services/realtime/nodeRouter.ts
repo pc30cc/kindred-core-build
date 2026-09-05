@@ -16,6 +16,17 @@
  * connection onto whichever node last looked idle.
  */
 
+/**
+ * Least-connections is APPROXIMATE by design.
+ *
+ * Verified against real Centrifugo v5.4.5 + Redis (see
+ * scripts/realtime/cross-node-integration.ts): per-node client counts in the
+ * `info` reply are gossiped over the engine on an interval (~3s), so they lag
+ * reality by up to one gossip window. The router therefore uses them as a
+ * balancing HINT only — never as an admission-control authority. Correctness
+ * (drain / disable / health exclusion) comes from administrative node state
+ * and the health status, both of which are authoritative.
+ */
 import type { CentrifugoNode } from './types.js';
 import type { NodeHealthSnapshot } from './nodeHealth.js';
 

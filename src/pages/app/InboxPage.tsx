@@ -1067,9 +1067,6 @@ export default function InboxPage() {
     closed: t('inbox.closed') || 'Closed',
   };
 
-  const pillBase =
-    'relative flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-[12px] font-semibold whitespace-nowrap ' +
-    'border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
   const pillCount = (active: boolean, tone: 'primary' | 'destructive' = 'primary') => cn(
     'text-[10.5px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1.5 font-bold tabular-nums transition-opacity duration-150',
     active
@@ -1077,72 +1074,7 @@ export default function InboxPage() {
       : 'bg-secondary text-muted-foreground',
   );
 
-  /* Remaining status filters stay in the list header as pills. */
-  const filterTabsNode = (
-    <div
-      role="tablist"
-      aria-label={t('inbox.title') || 'Inbox'}
-      className="flex w-full items-center gap-1 overflow-x-auto scrollbar-hide pb-0.5"
-      dir={dir}
-    >
-      {(['pending', 'resolved'] as FilterStatus[]).map((s) => {
-        const count = stableCounts[s] || 0;
-        const isActive = !isQueueMode && !extraChip && filter === s;
-        const dotColor = s === 'pending' ? 'bg-warning' : 'bg-info';
-        return (
-          <button
-            key={s}
-            role="tab"
-            aria-selected={isActive}
-            onClick={() => setFilter(s)}
-            className={cn(
-              pillBase,
-              isActive
-                ? 'bg-primary/10 text-primary border-primary/30'
-                : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground',
-            )}
-          >
-            <span className="relative flex w-2 h-2 items-center justify-center">
-              {liveTabs[s] && (
-                <span className="absolute inline-flex w-full h-full rounded-full bg-success opacity-75 animate-ping" />
-              )}
-              <span className={cn(
-                'relative inline-flex w-2 h-2 rounded-full',
-                liveTabs[s] ? 'bg-success animate-pulse' : isActive ? dotColor : 'bg-muted-foreground/30',
-              )} />
-            </span>
-            {statusLabels[s]}
-            <span
-              aria-hidden={count === 0}
-              className={cn(pillCount(isActive), count === 0 && 'opacity-0')}
-            >{count}</span>
-          </button>
-        );
-      })}
-      {/* All conversations sits right next to "resolved". */}
-      <button
-        role="tab"
-        aria-selected={!isQueueMode && !extraChip && filter === 'all'}
-        onClick={() => { setExtraChip(null); setQueueTab(null); setFilter('all'); }}
-        className={cn(
-          pillBase,
-          !isQueueMode && !extraChip && filter === 'all'
-            ? 'bg-primary/10 text-primary border-primary/30'
-            : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground',
-        )}
-      >
-        <Inbox className="w-3.5 h-3.5" />
-        {t('inbox.all') || 'All'}
-        <span
-          aria-hidden={(stableCounts.all || 0) === 0}
-          className={cn(
-            pillCount(!isQueueMode && !extraChip && filter === 'all'),
-            (stableCounts.all || 0) === 0 && 'opacity-0',
-          )}
-        >{stableCounts.all || 0}</span>
-      </button>
-    </div>
-  );
+
 
 
   /* Secondary views sit on the bottom edge of the top bar as folder tabs
@@ -1348,7 +1280,6 @@ export default function InboxPage() {
     return (
       <div className="flex h-full flex-col" dir={dir}>
         {topBarSummary}
-        <div className="px-3 py-2 border-b border-border bg-card">{filterTabsNode}</div>
         <div className="flex-1 min-h-0 flex"><TeamChatPanel /></div>
       </div>
     );
@@ -1400,6 +1331,27 @@ export default function InboxPage() {
               )}
             </div>
             <div className="flex items-center gap-1">
+              <label
+                title={t('inbox.all') || 'All'}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11.5px] font-medium cursor-pointer transition-colors',
+                  filter === 'all'
+                    ? 'border-primary/40 bg-primary/10 text-primary'
+                    : 'border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground',
+                )}
+              >
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 accent-primary cursor-pointer"
+                  checked={filter === 'all'}
+                  onChange={(e) => {
+                    setExtraChip(null);
+                    setQueueTab(null);
+                    setFilter(e.target.checked ? 'all' : 'open');
+                  }}
+                />
+                {t('inbox.all') || 'All'}
+              </label>
               <button
                 aria-label={t('inbox.refresh') || 'Refresh'}
                 title={t('inbox.refresh') || 'Refresh'}
@@ -1408,6 +1360,7 @@ export default function InboxPage() {
               >
                 <RefreshCw className="w-4 h-4" />
               </button>
+
               <button
                 aria-label={soundOn ? (t('inbox.muteSound') || 'Mute message sound') : (t('inbox.unmuteSound') || 'Unmute message sound')}
                 title={soundOn ? (t('inbox.muteSound') || 'Mute message sound') : (t('inbox.unmuteSound') || 'Unmute message sound')}
@@ -1462,7 +1415,6 @@ export default function InboxPage() {
           {/* Filter tabs (status + AI + extra chips) — live inside the list */}
 
 
-          {filterTabsNode}
 
           {/* Queue context line (Automated / Spam) */}
           {isQueueMode && (

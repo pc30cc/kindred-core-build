@@ -70,7 +70,7 @@ export default function MobileInboxPage() {
       toolbar={
         <div className="space-y-2.5">
           <MobileSearchField value={query} onChange={setQuery} placeholder={t('inbox.search')} />
-          <MobileSegmented
+          <MobileSegmented<MobileFilter>
             value={filter}
             onChange={setFilter}
             options={[

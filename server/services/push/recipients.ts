@@ -42,6 +42,10 @@ interface PrefsRow {
   push_scope: string | null;
   push_preview: boolean | null;
   push_internal_notes: boolean | null;
+  quiet_hours_enabled: boolean | null;
+  quiet_hours_start: string | null;
+  quiet_hours_end: string | null;
+  quiet_hours_timezone: string | null;
 }
 
 const DEFAULT_PREFS = {
@@ -50,7 +54,58 @@ const DEFAULT_PREFS = {
   push_scope: 'all',
   push_preview: true,
   push_internal_notes: true,
+  quiet_hours_enabled: false,
+  quiet_hours_start: null as string | null,
+  quiet_hours_end: null as string | null,
+  quiet_hours_timezone: null as string | null,
 };
+
+/** Minutes since midnight for "HH:MM"; null when unusable. */
+function parseHhMm(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+/** Local wall-clock minutes for an IANA timezone, at `now`. */
+function localMinutes(timezone: string | null, now: Date): number | null {
+  try {
+    const fmt = new Intl.DateTimeFormat('en-GB', {
+      timeZone: timezone || 'UTC',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    return parseHhMm(fmt.format(now));
+  } catch {
+    return null; // invalid timezone → treat as "cannot evaluate", never mute
+  }
+}
+
+/**
+ * Quiet hours are enforced HERE (server-side), not in the client. Windows may
+ * wrap past midnight (22:00 → 07:00). A direct @mention still gets through —
+ * being personally addressed is the one case operators expect to break quiet
+ * hours. If the window or timezone is unusable, we do NOT mute.
+ */
+export function isWithinQuietHours(
+  prefs: { quiet_hours_enabled?: boolean | null; quiet_hours_start?: string | null; quiet_hours_end?: string | null; quiet_hours_timezone?: string | null },
+  now: Date = new Date(),
+): boolean {
+  if (!prefs.quiet_hours_enabled) return false;
+  const start = parseHhMm(prefs.quiet_hours_start ?? null);
+  const end = parseHhMm(prefs.quiet_hours_end ?? null);
+  if (start == null || end == null || start === end) return false;
+  const current = localMinutes(prefs.quiet_hours_timezone ?? null, now);
+  if (current == null) return false;
+  return start < end
+    ? current >= start && current < end
+    : current >= start || current < end; // wraps past midnight
+}
 
 export async function resolveRecipients(
   config: ServerConfig,

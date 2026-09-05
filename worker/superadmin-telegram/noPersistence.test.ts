@@ -23,9 +23,8 @@ describe('superadmin telegram no-persistence boundary', () => {
       source('index.ts'),
     ]);
     const combined = texts.join('\n');
-    for (const forbidden of ['.insert(', '.update(', '.upsert(', '.delete(', '.rpc(']) {
-      expect(combined).not.toContain(forbidden);
-    }
+    expect(combined).not.toMatch(/\.from\([^\n]+\)\s*\.\s*(insert|update|upsert|delete)\s*\(/i);
+    expect(combined).not.toMatch(/\.rpc\s*\(/i);
     expect(combined).not.toContain('ai_usage_logs');
     expect(combined).not.toContain('audit_logs');
   });

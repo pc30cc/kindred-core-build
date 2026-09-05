@@ -21,7 +21,17 @@ import {
   Loader2,
   Check,
   CheckCheck,
+  MoreHorizontal,
+  User,
+  RotateCcw,
 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+
 
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';

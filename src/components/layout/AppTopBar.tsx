@@ -30,7 +30,11 @@ export function AppTopBar() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <header className="sticky top-0 z-30 flex h-[60px] shrink-0 items-center gap-4 border-b border-border/60 bg-background/70 px-5 backdrop-blur-xl supports-[backdrop-filter]:bg-background/55">
+      <header
+        className={`sticky top-0 z-30 flex h-[60px] shrink-0 items-center gap-4 border-b border-border/60 bg-background/70 pe-5 backdrop-blur-xl supports-[backdrop-filter]:bg-background/55 ${
+          isInbox ? 'ps-0' : 'ps-5'
+        }`}
+      >
         {/* Accent hairline */}
         <span className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
 

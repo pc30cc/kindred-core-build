@@ -1021,8 +1021,10 @@ realtimeRouter.get('/admin/visitor-presence', requireAdmin, async (req, res) => 
     const mode = await resolveVisitorPresenceMode(config, workspaceId);
     res.json({
       mode,
-      shards: VISITOR_PRESENCE_SHARDS,
-      channel_pattern: 'vp:{workspace_id}:{shard}',
+      channel_scheme: VISITOR_PRESENCE_CHANNEL_VERSION,
+      channel_pattern: 'vp:v2:{workspace_id}:{session_id}',
+      batch_max: VISITOR_PRESENCE_BATCH_MAX,
+
       metrics: getVisitorPresenceMetrics(),
     });
   } catch (err: any) {

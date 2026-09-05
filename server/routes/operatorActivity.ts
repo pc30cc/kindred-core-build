@@ -105,15 +105,18 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
     const bucket = floorToBucket(now);
     const memoKey = `${workspaceId}:${auth.userId}`;
 
-    // LIVE PRESENCE — realtime-first. When Centrifugo presence is the active
-    // source (healthy + presence_enabled), channel membership already carries
-    // liveness and this beat performs ZERO PostgreSQL writes. Only in
-    // database-fallback mode (polling/disabled/Supabase, or Centrifugo
-    // presence unreadable) do we refresh the `operator_presence_live` lease.
+    // LIVE PRESENCE — the lease is now refreshed on EVERY beat, not only in
+    // database-fallback mode. Rationale: a *successful but empty* Centrifugo
+    // presence read is indistinguishable from "this operator's subscription
+    // silently died", which used to pin a working, open panel to "offline"
+    // for its whole session. The lease is one upsert per operator per
+    // heartbeat interval (2 min) on a bounded, single-row-per-operator table
+    // — operators are dozens, unlike visitors — so it is a cheap, durable
+    // second signal. Presence reads UNION realtime with this lease; realtime
+    // remains the fast path and the lease can only ever add an operator.
     const fallbackPresence = await shouldWriteFallbackPresence(config, now.getTime(), workspaceId);
-    if (fallbackPresence) {
-      await recordOperatorPresenceBeat(config, workspaceId, auth.userId, now);
-    }
+    await recordOperatorPresenceBeat(config, workspaceId, auth.userId, now);
+
 
     // ANALYTICS — already recorded this bucket in this process, so no sample
     // write at all. Safe: live presence was just refreshed above, so skipping

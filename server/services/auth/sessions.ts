@@ -301,7 +301,7 @@ export async function validateSessionToken(config: ServerConfig, token: string |
     res = await read(BASE);
   }
 
-  const data = res.data as Record<string, unknown> | null;
+  const data = res.data as unknown as Record<string, unknown> | null;
   if (res.error || !data) return null;
 
   const now = Date.now();

@@ -74,7 +74,7 @@ export default function MobileContactsPage() {
                 </div>
                 {c.last_seen_at && (
                   <span className="shrink-0 text-[11px] text-muted-foreground">
-                    {timeAgo(c.last_seen_at, t as any)}
+                    {timeAgo(c.last_seen_at)}
                   </span>
                 )}
                 <Chevron className="h-4 w-4 shrink-0 text-muted-foreground/60" />

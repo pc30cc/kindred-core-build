@@ -38,7 +38,7 @@ export default function MobileVisitorsPage() {
     const q = query.trim().toLowerCase();
     if (!q) return visitors;
     return visitors.filter((v) =>
-      [v.current_page, v.geo?.country_name, v.geo?.city, v.browser, v.contact?.name, v.contact?.email]
+      [v.current_page, v.geo?.country, v.geo?.city, v.browser, v.contact?.name, v.contact?.email]
         .some((s) => (s || '').toString().toLowerCase().includes(q)),
     );
   }, [visitors, query]);
@@ -94,7 +94,7 @@ export default function MobileVisitorsPage() {
                 </p>
                 <p className="mt-0.5 flex items-center gap-1 truncate text-[12px] text-muted-foreground">
                   <Globe className="h-3.5 w-3.5 shrink-0" />
-                  {[v.geo?.city, v.geo?.country_name].filter(Boolean).join(', ') ||
+                  {[v.geo?.city, v.geo?.country].filter(Boolean).join(', ') ||
                     t('visitors.unknownLocation')}
                   {v.browser ? ` · ${v.browser}` : ''}
                 </p>

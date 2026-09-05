@@ -38,7 +38,7 @@ export default function MobileContactsPage() {
       title={t('nav.contacts')}
       subtitle={contacts ? `${contacts.length}` : undefined}
       toolbar={<MobileSearchField value={query} onChange={setQuery} placeholder={t('contacts.searchPlaceholder')} />}
-      bodyClassName="pb-6"
+      bodyClassName="pb-[104px]"
     >
       {isLoading ? (
         <div className="space-y-2 px-4 pt-3">

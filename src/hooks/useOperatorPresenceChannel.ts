@@ -24,8 +24,31 @@ export function useOperatorPresenceChannel(workspaceId: string | undefined) {
     let disposed = false;
     let sub: RealtimeSubscription | null = null;
     let joining = false;
+    let attempt = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
     const channel = `ws:${workspaceId}:operators`;
+
+    const clearRetry = () => {
+      if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+    };
+
+    /**
+     * Presence membership is the operator's ONLY realtime liveness signal, so
+     * a silently failed subscribe used to pin an open panel to "offline" for
+     * its whole session (a racing unsubscribe can tear down the shared socket
+     * while this subscribe is in flight). Retry with backoff and re-join
+     * whenever the transport reports it dropped.
+     */
+    const scheduleRetry = () => {
+      if (disposed || retryTimer || document.visibilityState !== 'visible') return;
+      const delay = Math.min(30_000, 2_000 * 2 ** Math.min(attempt, 4));
+      attempt += 1;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        void join();
+      }, delay);
+    };
 
     const join = async () => {
       if (disposed || sub || joining) return;
@@ -34,20 +57,32 @@ export function useOperatorPresenceChannel(workspaceId: string | undefined) {
         const provider = await resolveClientRealtimeProvider(workspaceId);
         if (provider.vendor !== 'centrifugo') return; // DB fallback handles it
         if (disposed || document.visibilityState !== 'visible') return;
-        const s = await provider.subscribe(channel, {});
+        const s = await provider.subscribe(channel, {
+          onStatus: (status: string) => {
+            if (disposed) return;
+            if (status === 'open') { attempt = 0; return; }
+            if (status === 'error' || status === 'closed') {
+              // Drop the handle so the next join() re-subscribes cleanly.
+              try { sub?.unsubscribe(); } catch { /* ignore */ }
+              sub = null;
+              scheduleRetry();
+            }
+          },
+        } as any);
         if (disposed || document.visibilityState !== 'visible') {
           s.unsubscribe();
           return;
         }
         sub = s;
       } catch {
-        /* presence is best-effort; the DB fallback covers failures */
+        scheduleRetry();
       } finally {
         joining = false;
       }
     };
 
     const leave = () => {
+      clearRetry();
       try {
         sub?.unsubscribe();
       } catch {
@@ -57,7 +92,7 @@ export function useOperatorPresenceChannel(workspaceId: string | undefined) {
     };
 
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void join();
+      if (document.visibilityState === 'visible') { attempt = 0; void join(); }
       else leave();
     };
 
@@ -72,3 +107,4 @@ export function useOperatorPresenceChannel(workspaceId: string | undefined) {
     };
   }, [workspaceId]);
 }
+

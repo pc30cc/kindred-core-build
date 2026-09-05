@@ -59,6 +59,8 @@ import {
   resolveVisitorPresenceMode,
   recordVisitorLivenessWrite,
 } from '../services/visitors/presenceSource.js';
+import { verifyVisitorPresenceLease } from '../services/visitors/presenceLease.js';
+
 
 import { resolveTrustedNudgeSessionKey } from '../services/widget/aiNudge/session.js';
 import { transitionNudgeStatus } from '../services/widget/aiNudge/lifecycle.js';

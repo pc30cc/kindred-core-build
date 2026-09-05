@@ -1176,36 +1176,9 @@ export default function InboxPage() {
             ) : null}
 
 
-            {/* Needs human — plan-gated */}
-            {needsHumanTabAllowed ? (
-            <button
+            {/* Needs human tab removed from the top bar (still reachable from
+                the sidebar sub-menu). */}
 
-              role="tab"
-              aria-selected={extraChip === 'needs_human'}
-              onClick={() => setExtraChip(extraChip === 'needs_human' ? null : 'needs_human')}
-              className={cn(headTabBase, headTabState(extraChip === 'needs_human', 'destructive'))}
-              title={t('inbox.needsHuman') || 'Needs human'}
-            >
-              {liveTabs.needs_human ? (
-                <span className="relative flex w-2 h-2 items-center justify-center">
-                  <span className="absolute inline-flex w-full h-full rounded-full bg-success opacity-75 animate-ping" />
-                  <span className="relative inline-flex w-2 h-2 rounded-full bg-success animate-pulse" />
-                </span>
-              ) : (
-                <AlertCircle className="w-4 h-4" />
-              )}
-              {t('inbox.needsHuman') || 'Needs human'}
-              <span
-                aria-hidden={(stableCounts.needs_human || 0) === 0}
-                className={cn(
-                  pillCount(extraChip === 'needs_human', 'destructive'),
-                  (stableCounts.needs_human || 0) === 0 && 'hidden',
-                )}
-              >{stableCounts.needs_human || 0}</span>
-              <span className={headTabAccent(extraChip === 'needs_human', 'destructive')} />
-              <span className={headTabSeam(extraChip === 'needs_human')} />
-            </button>
-            ) : null}
             {/* Colleagues — internal operator-to-operator chat. Plan-gated. */}
             {colleaguesTabAllowed ? (
             <button

@@ -96,3 +96,42 @@ describe('exact cross-node operator activity', () => {
     expect(bucketReads).toBe(1);
   });
 });
+
+/**
+ * TRAILING-EDGE FLUSH — coalescing must never lose the LAST real interaction
+ * of a window, otherwise another node flips the operator to `away` up to
+ * ACTIVITY_WRITE_COALESCE_MS too early.
+ */
+describe('trailing-edge flush of coalesced activity', () => {
+  beforeEach(() => {
+    zset.clear();
+    bucketReads = 0;
+    resetOperatorActivity();
+    process.env.OPERATOR_ACTIVITY_REDIS_URL = 'redis://127.0.0.1:6379';
+  });
+  afterEach(() => { delete process.env.OPERATOR_ACTIVITY_REDIS_URL; });
+
+  it('writes the last interaction of the window, not the first', async () => {
+    await publishOperatorActivity('ws', 'u1', T0);
+    await publishOperatorActivity('ws', 'u1', T0 + 19_000); // coalesced
+    expect(zset.get('op:activity:ws')!.get('u1')).toBe(T0);
+
+    await mod.flushOperatorActivityWrites();
+    expect(zset.get('op:activity:ws')!.get('u1')).toBe(T0 + 19_000);
+  });
+
+  it('keeps the 5-minute threshold anchored on the real last interaction', async () => {
+    await publishOperatorActivity('ws', 'u1', T0);
+    await publishOperatorActivity('ws', 'u1', T0 + 19_000);
+    await mod.flushOperatorActivityWrites();
+
+    const activeAt = async (ms: number) => {
+      const now = new Date(T0 + ms);
+      const m = await getOperatorLastActivity({} as any, 'ws', ['u1'], now);
+      return now.getTime() - (m.get('u1') || 0) < OPERATOR_ACTIVITY_ACTIVE_MS;
+    };
+    expect(await activeAt(OPERATOR_ACTIVITY_ACTIVE_MS)).toBe(true);
+    expect(await activeAt(OPERATOR_ACTIVITY_ACTIVE_MS + 18_999)).toBe(true);
+    expect(await activeAt(OPERATOR_ACTIVITY_ACTIVE_MS + 19_000)).toBe(false);
+  });
+});

@@ -2356,6 +2356,7 @@
             setOwns(false);
             return;
           }
+          scheduleRefresh(cfg);
           open(cfg);
         })
         .catch(function () {
@@ -2364,18 +2365,41 @@
         });
     }
 
+    // A throttled background tab can miss its refresh window entirely. On
+    // becoming visible again, verify the lease is still valid and reconnect
+    // immediately rather than waiting out the backoff.
+    function onVisible() {
+      if (closed || document.visibilityState !== 'visible') return;
+      var leaseStale = !lease || leaseExpiresAt - Date.now() < 15000;
+      if (!ws || leaseStale) {
+        if (ws) { try { ws.close(); } catch (_) {} return; }
+        if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+        attempt = 0;
+        negotiate();
+      }
+    }
+    try { document.addEventListener('visibilitychange', onVisible); } catch (_) {}
+
     negotiate();
 
     return {
       owns: function () { return owns; },
+      /** Valid only while connected; null makes the server write liveness. */
+      lease: function () {
+        if (!owns || !lease || Date.now() >= leaseExpiresAt) return null;
+        return lease;
+      },
       stop: function () {
         closed = true;
         setOwns(false);
+        clearRefresh();
+        try { document.removeEventListener('visibilitychange', onVisible); } catch (_) {}
         if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
         if (ws) { try { ws.close(); } catch (_) {} ws = null; }
       },
     };
   }
+
 
   // ─── Visitor tracking (background, identity owned by HttpOnly cookie) ───
   function startTracking(apiBase, workspaceId, token) {

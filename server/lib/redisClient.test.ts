@@ -161,7 +161,11 @@ describe('MiniRedisClient handshake', () => {
   }, 15_000);
 
   it('times out instead of hanging when the server never replies', async () => {
-    const silent = net.createServer(() => { /* accept, never answer */ });
+    const open = new Set<net.Socket>();
+    const silent = net.createServer((sock) => {
+      open.add(sock);
+      sock.on('error', () => { /* teardown */ });
+    });
     await new Promise<void>((r) => silent.listen(0, '127.0.0.1', r));
     const port = (silent.address() as net.AddressInfo).port;
     const client = new MiniRedisClient(`redis://127.0.0.1:${port}`);
@@ -169,6 +173,7 @@ describe('MiniRedisClient handshake', () => {
       await expect(client.command('PING')).rejects.toThrow(/timeout/i);
     } finally {
       client.close();
+      for (const s of open) s.destroy();
       await new Promise<void>((r) => silent.close(() => r()));
     }
   }, 10_000);

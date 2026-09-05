@@ -317,15 +317,16 @@ export default function MobileConversationPage() {
 
       {/* Composer — sits on the safe-area edge and rides the keyboard */}
       <div
-        className="shrink-0 bg-card/95 px-2 pt-2 shadow-[0_-1px_0_0_hsl(var(--border)/0.7)] backdrop-blur-2xl"
+        className="shrink-0 bg-card/95 px-2 pt-1.5 shadow-[0_-1px_0_0_hsl(var(--border)/0.7)] backdrop-blur-2xl"
         style={{
           marginBottom: 'var(--kb-inset, 0px)',
           // When the keyboard is up the home-indicator inset is covered by the
           // keyboard itself, so it collapses and the bar hugs the keys.
           paddingBottom:
-            'calc(6px + max(0px, env(safe-area-inset-bottom) - var(--kb-inset, 0px)))',
+            'calc(2px + max(0px, env(safe-area-inset-bottom) - var(--kb-inset, 0px)))',
         }}
       >
+
         {emojiOpen && !recorder.recording && (
           <MobileEmojiPicker
             onPick={(emoji) => setDraft((d) => d + emoji)}

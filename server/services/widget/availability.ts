@@ -13,10 +13,11 @@
  *   - offline_message (legacy fallback)
  *
  * LOCKED RULES (do not regress):
- *  1. business_hours.enabled === false  =>  state forced to 'online' AND
- *     offline_mode is ignored. There is no "disabled hours but still offline"
- *     state. The only way to be offline is enabled hours that resolve to
- *     outside_hours, or every day being empty (always_offline).
+ *  1. business_hours.enabled === false  =>  the WORKSPACE imposes no time
+ *     restriction. It does NOT force 'online': operator manual status
+ *     (offline/invisible) and personal schedules still decide reachability.
+ *     Workspaces with zero members fail open.
+
  *  2. The client never decides availability. Bootstrap and message endpoints
  *     re-resolve here.
  *  3. Localized offline message comes from offline_message_localized first,

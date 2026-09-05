@@ -2,11 +2,13 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { getServiceClient } from '../supabase.js';
 import {
-  resolveVisitorPresence,
+  resolveVisitorPresenceForSessions,
   applyVisitorPresence,
   resolveVisitorPresenceMode,
   recordVisitorLivenessWrite,
 } from '../services/visitors/presenceSource.js';
+import { verifyVisitorPresenceLease } from '../services/visitors/presenceLease.js';
+
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import {
   resolveIpVisibilityPolicy,

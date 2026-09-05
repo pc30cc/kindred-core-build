@@ -276,6 +276,8 @@ const heartbeatSchema = z.object({
   session_id: z.string().uuid(),
   current_page: z.string().max(2048).optional(),
   status: z.enum(['online', 'idle']).optional().default('online'),
+  /** Per-session proof that a realtime presence subscription is open. */
+  presence_lease: z.string().max(512).optional(),
 });
 
 visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
@@ -286,8 +288,9 @@ visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Invalid data' });
   }
 
-  const { session_id, current_page, status, workspace_id } = parsed.data;
+  const { session_id, current_page, status, workspace_id, presence_lease } = parsed.data;
   const supabase = getServiceClient(config);
+
 
   try {
     if (workspace_id) {

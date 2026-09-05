@@ -73,8 +73,8 @@ export default function MobileLoginPage() {
     'flex-1 min-w-0 h-14 bg-transparent border-0 outline-none text-[17px] text-foreground placeholder:text-muted-foreground/60 px-1';
 
   return (
-    <div dir={dir} className="min-h-[100dvh] bg-background flex flex-col">
-      <div className="flex-1 overflow-y-auto px-6 pb-8 pt-[max(3rem,env(safe-area-inset-top))]">
+    <div dir={dir} className="h-[100dvh] bg-background flex flex-col">
+      <div className="flex-1 overflow-y-auto px-6 pb-8 pt-[calc(env(safe-area-inset-top)+2rem)] pb-[calc(env(safe-area-inset-bottom)+2rem)]">
         <div className="mx-auto w-full max-w-[420px]">
           <div className="flex flex-col items-center gap-4 pt-6 pb-10">
             <div className="h-16 w-16 rounded-[1.25rem] bg-primary flex items-center justify-center shadow-elegant">

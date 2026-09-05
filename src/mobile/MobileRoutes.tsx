@@ -19,9 +19,9 @@ import ForgotPasswordPage from '@/pages/auth/ForgotPasswordPage';
 import ResetPasswordPage from '@/pages/auth/ResetPasswordPage';
 import MobileInboxPage from './MobileInboxPage';
 import MobileConversationPage from './MobileConversationPage';
-import ContactsPage from '@/pages/app/ContactsPage';
+import MobileContactsPage from './MobileContactsPage';
+import MobileVisitorsPage from './MobileVisitorsPage';
 import ContactDetailPage from '@/pages/app/ContactDetailPage';
-import VisitorsPage from '@/pages/app/VisitorsPage';
 
 export function MobileRoutes() {
   return (
@@ -53,7 +53,7 @@ export function MobileRoutes() {
           path="contacts"
           element={
             <PlanLockedOverlay moduleKey="contacts">
-              <ContactsPage />
+              <MobileContactsPage />
             </PlanLockedOverlay>
           }
         />
@@ -62,7 +62,7 @@ export function MobileRoutes() {
           path="visitors"
           element={
             <PlanLockedOverlay moduleKey="visitor_tracking">
-              <VisitorsPage />
+              <MobileVisitorsPage />
             </PlanLockedOverlay>
           }
         />

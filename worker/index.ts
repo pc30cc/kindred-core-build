@@ -97,7 +97,12 @@ async function main() {
       console.warn('[worker] superadmin-telegram skipped under WORKER_KIND=all because its dedicated env is not configured');
     } else {
       const mod = await import('./superadmin-telegram/index.js');
-      void mod.startSuperadminTelegramWorker();
+      void mod.startSuperadminTelegramWorker().catch(() => {
+        // Deliberately omit the underlying message: startup/provider errors may
+        // carry deployment context and this bot never logs secrets or chat data.
+        console.error('[worker] superadmin-telegram failed to start');
+        process.exit(1);
+      });
     }
   }
 

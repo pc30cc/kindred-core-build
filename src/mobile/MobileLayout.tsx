@@ -82,12 +82,13 @@ export function MobileLayout() {
 
             {/* The animated bubble slides between tabs. */}
             <span
-              className="absolute inset-y-1.5 rounded-[20px] bg-primary/12 transition-[inset-inline-start] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+              className="absolute inset-y-1 rounded-[20px] bg-primary/12 transition-[inset-inline-start] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
               style={{
-                width: `calc(${100 / tabs.length}% - 12px)`,
-                insetInlineStart: `calc(${(activeIndex * 100) / tabs.length}% + 6px)`,
+                width: `calc(${100 / tabs.length}% - 8px)`,
+                insetInlineStart: `calc(${(activeIndex * 100) / tabs.length}% + 4px)`,
               }}
             />
+
             {tabs.map((tab) => (
               <NavLink
                 key={tab.to}

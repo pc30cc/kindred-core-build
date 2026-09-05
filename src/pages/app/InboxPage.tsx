@@ -1067,9 +1067,6 @@ export default function InboxPage() {
     closed: t('inbox.closed') || 'Closed',
   };
 
-  const pillBase =
-    'relative flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-[12px] font-semibold whitespace-nowrap ' +
-    'border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
   const pillCount = (active: boolean, tone: 'primary' | 'destructive' = 'primary') => cn(
     'text-[10.5px] min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1.5 font-bold tabular-nums transition-opacity duration-150',
     active
@@ -1077,9 +1074,6 @@ export default function InboxPage() {
       : 'bg-secondary text-muted-foreground',
   );
 
-  /* The remaining status pills were removed from the list header; "All" is now
-     a small checkbox next to the refresh button. */
-  const filterTabsNode = null;
 
 
 
@@ -1286,7 +1280,6 @@ export default function InboxPage() {
     return (
       <div className="flex h-full flex-col" dir={dir}>
         {topBarSummary}
-        <div className="px-3 py-2 border-b border-border bg-card">{filterTabsNode}</div>
         <div className="flex-1 min-h-0 flex"><TeamChatPanel /></div>
       </div>
     );
@@ -1422,7 +1415,6 @@ export default function InboxPage() {
           {/* Filter tabs (status + AI + extra chips) — live inside the list */}
 
 
-          {filterTabsNode}
 
           {/* Queue context line (Automated / Spam) */}
           {isQueueMode && (

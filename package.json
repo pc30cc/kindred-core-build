@@ -31,6 +31,8 @@
     "test:realtime:cross-node": "bun run scripts/realtime/cross-node-integration.ts"
   },
   "dependencies": {
+    "@capacitor/core": "^8.5.1",
+    "@capacitor/ios": "^8.5.1",
     "@hookform/resolvers": "^3.10.0",
     "@node-rs/argon2": "^2.0.0",
     "@radix-ui/react-accordion": "^1.2.11",
@@ -107,6 +109,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.1",
     "@eslint/js": "^9.32.0",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/typography": "^0.5.16",

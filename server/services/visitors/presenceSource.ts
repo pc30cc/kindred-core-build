@@ -106,9 +106,8 @@ const metrics = {
   candidates_resolved: 0,
   candidates_truncated: 0,
   full_scan_rejected: 0,
-  candidacy_touches: 0,
-  candidacy_touches_throttled: 0,
 };
+
 
 export type VisitorPresenceMetrics = typeof metrics;
 

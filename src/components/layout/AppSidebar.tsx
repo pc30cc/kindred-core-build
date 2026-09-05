@@ -527,6 +527,7 @@ export function AppSidebar() {
           const q = sp.get('queue');
           const f = sp.get('filter');
           const st = sp.get('status');
+          const ch = sp.get('channel');
           const itemCls = (on: boolean) => cn(
             'flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] transition-colors',
             on
@@ -535,7 +536,7 @@ export function AppSidebar() {
           );
           return (
           <div className="ms-5 mt-0.5 space-y-0.5 border-s border-sidebar-border ps-3">
-            <Link to={wsPath('/inbox')} className={itemCls(!q && !f && (!st || st === 'open'))}>
+            <Link to={wsPath('/inbox')} className={itemCls(!q && !f && !ch && (!st || st === 'open'))}>
               <MessageSquare className="h-3.5 w-3.5 shrink-0" />
               <span>{t('inbox.open') || 'Open'}</span>
             </Link>

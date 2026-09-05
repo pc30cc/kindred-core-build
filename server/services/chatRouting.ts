@@ -160,6 +160,34 @@ export interface RoutingTiers {
   away: string[];
 }
 
+/**
+ * Pure tier split — exported so the "active always before away" guarantee is
+ * unit-testable without a database.
+ */
+export function splitPresenceTiers(
+  userIds: string[],
+  stateById: Map<string, string | undefined>,
+): RoutingTiers {
+  const active: string[] = [];
+  const away: string[] = [];
+  for (const id of userIds) {
+    const s = stateById.get(id);
+    if (s === 'active') active.push(id);
+    else if (s === 'away') away.push(id);
+  }
+  return { active, away };
+}
+
+/** Pure per-tier ordering. Ranking/rotation NEVER crosses tier boundaries. */
+export function orderTierCandidates(
+  tier: string[],
+  mode: AssignmentMode,
+  cursor: string | null,
+  load: Map<string, number>,
+): string[] {
+  return mode === 'round_robin' ? rotateFromCursor(tier, cursor) : rankAutoCandidates(tier, load);
+}
+
 async function onlineEligibleCandidates(
   config: ServerConfig,
   workspaceId: string,
@@ -168,18 +196,14 @@ async function onlineEligibleCandidates(
   const { user_ids } = await resolveRoutingCandidates(config, workspaceId, 'chat', departmentId);
   if (!user_ids.length) return { active: [], away: [] };
   const presence = await listWorkspacePresence(config, workspaceId);
-  const stateById = new Map(presence.map((p) => [p.user_id, p]));
-  const active: string[] = [];
-  const away: string[] = [];
-  for (const id of user_ids) {
-    const s = stateById.get(id)?.presence_state;
-    if (s === 'active') active.push(id);
-    else if (s === 'away') away.push(id);
-  }
+  const stateById = new Map<string, string | undefined>(
+    presence.map((p) => [p.user_id, p.presence_state as string | undefined]),
+  );
   // Two REAL tiers: never merged, so downstream load-ranking or round-robin
   // rotation can no longer reorder an away operator ahead of an active one.
-  return { active, away };
+  return splitPresenceTiers(user_ids, stateById);
 }
+
 
 
 

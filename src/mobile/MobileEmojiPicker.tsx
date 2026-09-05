@@ -1,9 +1,12 @@
 /**
- * Native (iOS) emoji sheet for the conversation composer.
+ * Native (iOS) emoji panel for the conversation composer.
+ *
+ * Rendered INLINE below the composer — it takes the place of the system
+ * keyboard (a panel that rises from the page itself) instead of floating as a
+ * detached card. Picking an emoji inserts it into the draft and closes.
  *
  * Deliberately dependency-free: a curated, categorised set rendered as a
- * scrollable grid inside a rounded sheet that follows the app theme tokens
- * (so it looks right in both light and dark mode).
+ * scrollable grid that follows the app theme tokens (light and dark mode).
  */
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -39,19 +42,13 @@ const CATEGORIES: { id: string; icon: string; emojis: string[] }[] = [
   },
 ];
 
-export function MobileEmojiPicker({
-  onPick,
-  onClose,
-}: {
-  onPick: (emoji: string) => void;
-  onClose: () => void;
-}) {
+export function MobileEmojiPicker({ onPick }: { onPick: (emoji: string) => void }) {
   const [active, setActive] = useState(CATEGORIES[0].id);
   const category = CATEGORIES.find((c) => c.id === active) ?? CATEGORIES[0];
 
   return (
-    <div className="mb-2 overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
-      <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
+    <div className="flex h-[292px] flex-col bg-card">
+      <div className="flex shrink-0 items-center gap-1 px-3 py-1.5">
         {CATEGORIES.map((c) => (
           <button
             key={c.id}
@@ -66,22 +63,15 @@ export function MobileEmojiPicker({
             {c.icon}
           </button>
         ))}
-        <button
-          type="button"
-          onClick={onClose}
-          className="ms-auto px-3 py-1.5 text-[14px] font-medium text-primary active:opacity-60"
-        >
-          ✕
-        </button>
       </div>
 
-      <div className="grid max-h-[210px] grid-cols-8 gap-1 overflow-y-auto overscroll-contain p-2">
+      <div className="grid flex-1 grid-cols-8 gap-1 overflow-y-auto overscroll-contain px-2 pb-2">
         {category.emojis.map((e) => (
           <button
             key={e}
             type="button"
             onClick={() => onPick(e)}
-            className="flex h-9 items-center justify-center rounded-xl text-[22px] transition-transform active:scale-90 active:bg-muted"
+            className="flex h-10 items-center justify-center rounded-xl text-[24px] transition-transform active:scale-90 active:bg-muted"
           >
             {e}
           </button>

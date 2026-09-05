@@ -22,8 +22,12 @@ const config: CapacitorConfig = {
     FirebaseMessaging: { presentationOptions: ['badge', 'sound', 'alert'] },
   },
   ios: {
-    contentInset: 'always',
+    // `never`: WKWebView must NOT add its own keyboard/safe-area content
+    // insets. With `always` the web view was shifted by the keyboard AND the
+    // composer lifted by --kb-inset, which left a keyboard-sized gap.
+    contentInset: 'never',
     limitsNavigationsToAppBoundDomains: false,
+
   },
 };
 

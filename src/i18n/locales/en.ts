@@ -740,6 +740,8 @@ const en = {
     offline: 'Offline',
     emptyNoConversations: 'No conversations',
     typeMessage: 'Type a message...',
+    voiceUnsupported: 'Voice recording is not available on this device.',
+    micDenied: 'Microphone access is blocked. Enable it in Settings > Webyar > Microphone.',
     send: 'Send',
     assign: 'Assign',
     resolve: 'Resolve',

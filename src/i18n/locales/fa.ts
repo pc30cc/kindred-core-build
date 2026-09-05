@@ -742,6 +742,8 @@ const fa: TranslationKeys = {
     offline: 'آفلاین',
     emptyNoConversations: 'گفتگویی وجود ندارد',
     typeMessage: 'پیام بنویسید...',
+    voiceUnsupported: 'ضبط صدا روی این دستگاه در دسترس نیست.',
+    micDenied: 'دسترسی به میکروفون مسدود است. از تنظیمات > وب‌یار > میکروفون آن را فعال کنید.',
     send: 'ارسال',
     assign: 'اختصاص',
     resolve: 'حل شده',

@@ -69,7 +69,7 @@ export default function LoginPage() {
     setLoading(true);
     setSetupRequired(false);
     try {
-      const { error } = await signIn({ email, password });
+      const { error } = await signIn({ email: normalizeEmail(email), password: stripInvisible(password) });
       if (error) {
         // Migrated account with no first-party password yet — the backend
         // answers 403 { passwordSetupRequired: true }. Surface the real
@@ -189,6 +189,9 @@ export default function LoginPage() {
                       className={cn(inputBase, 'text-left')}
                       autoComplete="email"
                       inputMode="email"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                     />
                   ),
                 })}
@@ -234,6 +237,9 @@ export default function LoginPage() {
                       dir="ltr"
                       className={cn(inputBase, 'text-left')}
                       autoComplete="current-password"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                     />
                   ),
                 })}

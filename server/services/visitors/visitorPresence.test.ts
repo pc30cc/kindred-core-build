@@ -1,29 +1,36 @@
 /**
- * Visitor Presence Phase 2 — unit tests.
+ * Visitor Presence — unit tests (channel scheme v2, candidate-driven).
  *
  * Proves the architecture invariants at code level:
  *   • presence mode resolution (realtime only when Centrifugo presence is
  *     genuinely primary AND usable)
- *   • sharded reads are bounded and never one-channel-per-visitor
+ *   • reads are BOUNDED by the candidate set, batched, and never enumerate the
+ *     online population
  *   • no false offline: read failure → database fallback, absent-but-fresh →
  *     'unknown' during the handoff window
  *   • multi-tab: one tab closing cannot take the session offline while another
- *     tab is still a member
+ *     tab is still connected
+ *   • per-session lease decides write suppression, not the workspace flag
  *   • DB-liveness write discipline counters
  *
  * Real cross-node behaviour (Redis + two Centrifugo nodes) stays covered by
- * scripts/realtime/cross-node-integration.ts.
+ * scripts/realtime/visitor-presence-integration.ts.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import {
-  VISITOR_PRESENCE_SHARDS,
-  visitorPresenceShard,
   buildVisitorPresenceChannelName,
   buildVisitorPresenceSubject,
   isVisitorPresenceChannel,
+  parseVisitorPresenceChannel,
   channelBelongsToWorkspace,
+  VISITOR_PRESENCE_BATCH_MAX,
+  VISITOR_PRESENCE_MAX_CANDIDATES,
 } from '../realtime/types.js';
+import {
+  issueVisitorPresenceLease,
+  verifyVisitorPresenceLease,
+} from './presenceLease.js';
 
 let realtimeConfig: any = null;
 let resolvedProvider: any = null;
@@ -32,25 +39,45 @@ vi.mock('../realtime/index.js', () => ({
   loadRealtimeConfig: async () => realtimeConfig,
   resolveRealtimeProvider: async () => resolvedProvider,
 }));
+vi.mock('../realtime/store.js', () => ({
+  loadRealtimeConfig: async () => realtimeConfig,
+}));
+vi.mock('../../supabase.js', () => ({
+  getServiceClient: () => ({
+    from: () => ({
+      select: () => ({ like: () => ({ gte: async () => ({ data: [] }) }) }),
+      upsert: async () => ({ error: null }),
+      delete: () => ({ eq: async () => ({ error: null }) }),
+    }),
+  }),
+}));
 
-/** Channels the fake Centrifugo reports presence for. */
-let presenceByChannel: Record<string, string[] | null> = {};
-let presenceCalls: string[] = [];
+/** Channels the fake Centrifugo reports client counts for. */
+let clientsByChannel: Record<string, number | null> = {};
+/** Endpoints (api_url) whose whole batch call fails. */
+let deadEndpoints = new Set<string>();
+let batchCalls: Array<{ api_url: string; channels: string[] }> = [];
 
 vi.mock('../realtime/centrifugo.js', () => ({
   CentrifugoDriver: class {
-    constructor(_cfg: any) {}
-    async presenceUsers(channel: string) {
-      presenceCalls.push(channel);
-      const v = presenceByChannel[channel];
-      return v === undefined ? [] : v;
+    constructor(private cfg: any) {}
+    async presenceStatsBatch(channels: string[]) {
+      batchCalls.push({ api_url: this.cfg.api_url, channels });
+      if (deadEndpoints.has(this.cfg.api_url)) return null;
+      const out = new Map<string, number>();
+      for (const ch of channels) {
+        const v = clientsByChannel[ch];
+        if (v === null) continue; // per-channel error → no evidence
+        out.set(ch, v ?? 0);
+      }
+      return out;
     }
   },
 }));
 
 const {
   resolveVisitorPresenceMode,
-  resolveVisitorPresence,
+  resolveVisitorPresenceForSessions,
   applyVisitorPresence,
   shouldWriteVisitorLiveness,
   recordVisitorLivenessWrite,
@@ -60,8 +87,11 @@ const {
 } = await import('./presenceSource.js');
 
 const config = {} as any;
+const WS = '11111111-1111-1111-1111-111111111111';
+const uuid = (n: number) =>
+  `22222222-2222-4222-8222-${String(n).padStart(12, '0')}`;
 
-function realtimeHealthy() {
+function realtimeHealthy(nodes: any[] = []) {
   realtimeConfig = {
     enabled: true,
     vendor: 'centrifugo',
@@ -71,6 +101,7 @@ function realtimeHealthy() {
       api_key: 'k',
       token_hmac_secret: 's',
       presence_enabled: true,
+      nodes,
     },
   };
   resolvedProvider = {
@@ -81,44 +112,32 @@ function realtimeHealthy() {
   };
 }
 
+const online = (sessionId: string, clients = 1) => {
+  clientsByChannel[buildVisitorPresenceChannelName(WS, sessionId)] = clients;
+};
+
 beforeEach(() => {
   resetVisitorPresenceCache();
-  presenceByChannel = {};
-  presenceCalls = [];
+  clientsByChannel = {};
+  deadEndpoints = new Set();
+  batchCalls = [];
   realtimeHealthy();
 });
 
-const WS = '11111111-1111-1111-1111-111111111111';
-
-describe('visitor presence channels', () => {
-  it('shards deterministically and stays inside the shard range', () => {
-    for (const id of ['a', 'session-1', 'b6b1a0e0-0000-4000-8000-000000000000']) {
-      const s = visitorPresenceShard(id);
-      expect(s).toBe(visitorPresenceShard(id));
-      expect(s).toBeGreaterThanOrEqual(0);
-      expect(s).toBeLessThan(VISITOR_PRESENCE_SHARDS);
-    }
-  });
-
-  it('spreads sessions over more than one shard', () => {
-    const seen = new Set<number>();
-    for (let i = 0; i < 200; i += 1) seen.add(visitorPresenceShard(`session-${i}`));
-    expect(seen.size).toBeGreaterThan(4);
-  });
-
-  it('accepts only this workspace\'s presence shards', () => {
-    const ch = buildVisitorPresenceChannelName(WS, 3);
-    expect(ch).toBe(`vp:${WS}:3`);
+describe('visitor presence channels (v2)', () => {
+  it('is one channel per session and parses back', () => {
+    const sid = uuid(1);
+    const ch = buildVisitorPresenceChannelName(WS, sid);
+    expect(ch).toBe(`vp:v2:${WS}:${sid}`);
+    expect(parseVisitorPresenceChannel(ch)).toEqual({ workspaceId: WS, sessionId: sid });
     expect(isVisitorPresenceChannel(ch, WS)).toBe(true);
-    expect(isVisitorPresenceChannel(ch, 'other')).toBe(false);
-    expect(isVisitorPresenceChannel(`vp:${WS}:9999`, WS)).toBe(false);
-    expect(isVisitorPresenceChannel(`vp:${WS}:x`, WS)).toBe(false);
+    expect(isVisitorPresenceChannel(ch, uuid(9))).toBe(false);
+    expect(isVisitorPresenceChannel(`vp:v2:${WS}:not-a-uuid`, WS)).toBe(false);
+    expect(isVisitorPresenceChannel(`vp:${WS}:3`, WS)).toBe(false); // v1 is gone
   });
 
   it('is NOT reachable through the conversation-channel validator', () => {
-    // The widget subscribe endpoint must never be able to mint a presence
-    // shard token through the generic channel path.
-    expect(channelBelongsToWorkspace(buildVisitorPresenceChannelName(WS, 1), WS)).toBe(false);
+    expect(channelBelongsToWorkspace(buildVisitorPresenceChannelName(WS, uuid(1)), WS)).toBe(false);
   });
 
   it('mints a server-side subject from the session id', () => {
@@ -144,58 +163,118 @@ describe('presence mode', () => {
     resolvedProvider = { ...resolvedProvider, effective_vendor: 'polling_builtin' };
     expect(await resolveVisitorPresenceMode(config, WS)).toBe('database');
   });
+});
 
-  it('suppresses DB liveness writes in realtime mode and restores them in database mode', async () => {
-    expect(await shouldWriteVisitorLiveness(config, WS)).toBe(false);
+describe('per-session write discipline', () => {
+  it('suppresses liveness ONLY for a session holding a valid lease', async () => {
+    const sid = uuid(2);
+    const { lease } = issueVisitorPresenceLease(WS, sid);
+    expect(verifyVisitorPresenceLease(lease, WS, sid)).toBe(true);
+    expect(await shouldWriteVisitorLiveness(config, WS, true)).toBe(false);
+    // A visitor whose socket never opened has no lease → keeps writing.
+    expect(await shouldWriteVisitorLiveness(config, WS, false)).toBe(true);
+  });
+
+  it('rejects a lease bound to another session, workspace, or already expired', () => {
+    const sid = uuid(3);
+    const { lease } = issueVisitorPresenceLease(WS, sid);
+    expect(verifyVisitorPresenceLease(lease, WS, uuid(4))).toBe(false);
+    expect(verifyVisitorPresenceLease(lease, uuid(5), sid)).toBe(false);
+    expect(verifyVisitorPresenceLease(lease + 'x', WS, sid)).toBe(false);
+    const expired = issueVisitorPresenceLease(WS, sid, 30, Date.now() - 600_000);
+    expect(verifyVisitorPresenceLease(expired.lease, WS, sid)).toBe(false);
+  });
+
+  it('restores database liveness when realtime stops being authoritative', async () => {
     resetVisitorPresenceCache();
     realtimeConfig = { enabled: false, vendor: 'polling_builtin' };
-    expect(await shouldWriteVisitorLiveness(config, WS)).toBe(true);
+    expect(await shouldWriteVisitorLiveness(config, WS, true)).toBe(true);
   });
 });
 
-describe('resolveVisitorPresence', () => {
-  it('reads only the shards of the requested sessions', async () => {
-    const sessions = ['s1', 's2', 's3'];
-    const expected = new Set(sessions.map((s) => visitorPresenceShard(s)));
-    await resolveVisitorPresence(config, WS, sessions);
-    expect(presenceCalls.length).toBe(expected.size);
-    expect(presenceCalls.length).toBeLessThanOrEqual(VISITOR_PRESENCE_SHARDS);
-  });
-
-  it('scans every shard when discovering the full online set', async () => {
-    const shard = visitorPresenceShard('live-session');
-    presenceByChannel[buildVisitorPresenceChannelName(WS, shard)] = ['vs_live-session'];
-    const res = await resolveVisitorPresence(config, WS);
-    expect(presenceCalls.length).toBe(VISITOR_PRESENCE_SHARDS);
-    expect(res.online.has('live-session')).toBe(true);
+describe('resolveVisitorPresenceForSessions', () => {
+  it('resolves K candidates in ONE batched call', async () => {
+    const ids = Array.from({ length: 50 }, (_, i) => uuid(100 + i));
+    online(ids[0]);
+    const res = await resolveVisitorPresenceForSessions(config, WS, ids);
+    expect(batchCalls.length).toBe(1);
+    expect(batchCalls[0].channels.length).toBe(50);
+    expect(res.online.has(ids[0])).toBe(true);
     expect(res.authoritative).toBe(true);
+    expect(getVisitorPresenceMetrics().candidates_resolved).toBe(50);
   });
 
-  it('caches shard reads so operator polling does not fan out', async () => {
-    await resolveVisitorPresence(config, WS, ['s1']);
-    const first = presenceCalls.length;
-    await resolveVisitorPresence(config, WS, ['s1']);
-    expect(presenceCalls.length).toBe(first);
+  it('chunks large candidate sets and caps them', async () => {
+    const ids = Array.from({ length: 250 }, (_, i) => uuid(1000 + i));
+    await resolveVisitorPresenceForSessions(config, WS, ids);
+    expect(batchCalls.length).toBe(Math.ceil(250 / VISITOR_PRESENCE_BATCH_MAX));
+    expect(VISITOR_PRESENCE_MAX_CANDIDATES).toBeGreaterThanOrEqual(250);
+  });
+
+  it('refuses to enumerate the online set (no full scan)', async () => {
+    const res = await resolveVisitorPresenceForSessions(config, WS, []);
+    expect(batchCalls.length).toBe(0);
+    expect(res.online.size).toBe(0);
+    expect(res.authoritative).toBe(false);
+    expect(getVisitorPresenceMetrics().full_scan_rejected).toBe(1);
+  });
+
+  it('caches per-session results so operator polling does not fan out', async () => {
+    const sid = uuid(6);
+    await resolveVisitorPresenceForSessions(config, WS, [sid]);
+    const first = batchCalls.length;
+    await resolveVisitorPresenceForSessions(config, WS, [sid]);
+    expect(batchCalls.length).toBe(first);
     expect(getVisitorPresenceMetrics().cache_hits).toBeGreaterThan(0);
   });
 
-  it('falls back to the database when a shard cannot be read (never false offline)', async () => {
-    const shard = visitorPresenceShard('s1');
-    presenceByChannel[buildVisitorPresenceChannelName(WS, shard)] = null;
-    const res = await resolveVisitorPresence(config, WS, ['s1']);
+  it('retries exactly one alternate endpoint, then falls back to the database', async () => {
+    realtimeHealthy([
+      {
+        id: 'rt-node-02',
+        name: 'n2',
+        node_name: 'rt-node-02',
+        ws_url: 'wss://n2/connection/websocket',
+        api_url: 'http://n2:8000/api',
+        enabled: true,
+        accepting_new_connections: true,
+        draining: false,
+        weight: 1,
+      },
+    ]);
+    deadEndpoints.add('http://rt:8000/api');
+    const sid = uuid(7);
+    online(sid);
+    const res = await resolveVisitorPresenceForSessions(config, WS, [sid]);
+    expect(res.mode).toBe('realtime');
+    expect(res.online.has(sid)).toBe(true);
+    expect(batchCalls.map((c) => c.api_url)).toEqual([
+      'http://rt:8000/api',
+      'http://n2:8000/api',
+    ]);
+    expect(getVisitorPresenceMetrics().realtime_endpoint_retries).toBe(1);
+  });
+
+  it('falls back to the database when no endpoint answers (never false offline)', async () => {
+    deadEndpoints.add('http://rt:8000/api');
+    const sid = uuid(8);
+    const res = await resolveVisitorPresenceForSessions(config, WS, [sid]);
     expect(res.mode).toBe('database');
     const m = getVisitorPresenceMetrics();
     expect(m.realtime_read_failures).toBe(1);
     expect(m.fallback_activations).toBe(1);
-    // The workspace stays in fallback (jittered TTL) so liveness writes resume.
-    expect(await shouldWriteVisitorLiveness(config, WS)).toBe(true);
+    // The workspace stays in fallback (jittered TTL) so liveness writes resume
+    // even for sessions that still hold a lease.
+    expect(await shouldWriteVisitorLiveness(config, WS, true)).toBe(true);
   });
 
-  it('ignores presence subjects that are not visitor sessions', async () => {
-    const shard = visitorPresenceShard('s1');
-    presenceByChannel[buildVisitorPresenceChannelName(WS, shard)] = ['op_admin', 'vs_s1'];
-    const res = await resolveVisitorPresence(config, WS, ['s1']);
-    expect([...res.online]).toEqual(['s1']);
+  it('treats a per-channel error as no evidence, not as offline', async () => {
+    const sid = uuid(9);
+    clientsByChannel[buildVisitorPresenceChannelName(WS, sid)] = null;
+    const res = await resolveVisitorPresenceForSessions(config, WS, [sid]);
+    expect(res.mode).toBe('realtime');
+    expect(res.authoritative).toBe(false);
+    expect(applyVisitorPresence(res, sid, 'online', null)).toBe('online');
   });
 });
 
@@ -231,15 +310,18 @@ describe('applyVisitorPresence', () => {
     expect(applyVisitorPresence(db, 'present', 'idle', null)).toBe('idle');
   });
 
-  it('multi-tab: the session stays online while ANY tab is a member', async () => {
-    // Two tabs of one session are two Centrifugo clients with the SAME user
-    // subject, so presence reports the subject once. Closing one tab leaves
-    // the subject present.
-    const shard = visitorPresenceShard('multi');
-    const ch = buildVisitorPresenceChannelName(WS, shard);
-    presenceByChannel[ch] = ['vs_multi', 'vs_multi'];
-    const res = await resolveVisitorPresence(config, WS, ['multi']);
-    expect(applyVisitorPresence(res, 'multi', 'offline', null)).toBe('online');
+  it('multi-tab: the session stays online while ANY tab is connected', async () => {
+    const sid = uuid(10);
+    online(sid, 2); // two tabs = two clients on the session channel
+    const res = await resolveVisitorPresenceForSessions(config, WS, [sid]);
+    expect(applyVisitorPresence(res, sid, 'offline', null)).toBe('online');
+
+    // One tab closes → still one client left.
+    resetVisitorPresenceCache();
+    realtimeHealthy();
+    online(sid, 1);
+    const res2 = await resolveVisitorPresenceForSessions(config, WS, [sid]);
+    expect(applyVisitorPresence(res2, sid, 'offline', null)).toBe('online');
   });
 });
 
@@ -247,8 +329,10 @@ describe('write discipline counters', () => {
   it('flags a liveness write that happens while realtime presence is healthy', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     recordVisitorLivenessWrite('coalesced', 'realtime');
+    recordVisitorLivenessWrite('skipped_lease', 'realtime');
     recordVisitorLivenessWrite('wrote', 'database');
     expect(getVisitorPresenceMetrics().db_liveness_writes_while_realtime_healthy).toBe(0);
+    expect(getVisitorPresenceMetrics().heartbeats_skipped_by_lease).toBe(1);
     recordVisitorLivenessWrite('wrote', 'realtime');
     expect(getVisitorPresenceMetrics().db_liveness_writes_while_realtime_healthy).toBe(1);
     expect(warn).toHaveBeenCalled();

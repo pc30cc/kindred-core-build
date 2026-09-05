@@ -590,22 +590,36 @@ export function AppSidebar() {
 
             {/* Internal inbox — operator-to-operator threads. */}
             <div className="pt-1.5">
-              <div className="px-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-sidebar-muted-foreground/70">
-                {t('inbox.internalInbox') || 'Internal inbox'}
-              </div>
-              <Link to={wsPath('/inbox?filter=colleagues')} className={itemCls(f === 'colleagues')}>
-                <Users className="h-3.5 w-3.5 shrink-0" />
-                <span>{t('inbox.colleagues') || 'Colleagues'}</span>
-              </Link>
+              <button
+                type="button"
+                onClick={() => setInternalInboxOpen((v) => !v)}
+                aria-expanded={internalInboxOpen}
+                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-sidebar-muted-foreground/70 transition-colors hover:text-sidebar-foreground"
+              >
+                {internalInboxOpen ? <Minus className="h-3 w-3 shrink-0" /> : <Plus className="h-3 w-3 shrink-0" />}
+                <span className="truncate">{t('inbox.internalInbox') || 'Internal inbox'}</span>
+              </button>
+              {internalInboxOpen && (
+                <Link to={wsPath('/inbox?filter=colleagues')} className={itemCls(f === 'colleagues')}>
+                  <Users className="h-3.5 w-3.5 shrink-0" />
+                  <span>{t('inbox.colleagues') || 'Colleagues'}</span>
+                </Link>
+              )}
             </div>
 
             {/* Other inboxes — one per installed inbox-capable channel plugin. */}
             {(pluginChannels?.length ?? 0) > 0 && (
               <div className="pt-1.5">
-                <div className="px-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-sidebar-muted-foreground/70">
-                  {t('inbox.otherInboxes') || 'Other inboxes'}
-                </div>
-                {pluginChannels!.map((c) => (
+                <button
+                  type="button"
+                  onClick={() => setOtherInboxesOpen((v) => !v)}
+                  aria-expanded={otherInboxesOpen}
+                  className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-sidebar-muted-foreground/70 transition-colors hover:text-sidebar-foreground"
+                >
+                  {otherInboxesOpen ? <Minus className="h-3 w-3 shrink-0" /> : <Plus className="h-3 w-3 shrink-0" />}
+                  <span className="truncate">{t('inbox.otherInboxes') || 'Other inboxes'}</span>
+                </button>
+                {otherInboxesOpen && pluginChannels!.map((c) => (
                   <Link
                     key={c.key}
                     to={wsPath(`/inbox?channel=${encodeURIComponent(c.key)}`)}

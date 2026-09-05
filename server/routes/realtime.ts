@@ -53,13 +53,13 @@ import {
   buildVisitorPresenceChannelName,
   buildVisitorPresenceSubject,
   isVisitorPresenceChannel,
-  visitorPresenceShard,
-  VISITOR_PRESENCE_SHARDS,
 } from '../services/realtime/types.js';
 import {
   resolveVisitorPresenceMode,
   getVisitorPresenceMetrics,
 } from '../services/visitors/presenceSource.js';
+import { issueVisitorPresenceLease } from '../services/visitors/presenceLease.js';
+
 import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';
 import { emitMetric } from '../services/observability/metrics.js';
 import { getMonitoringCollector } from '../services/observability/collector/index.js';

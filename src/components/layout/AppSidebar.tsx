@@ -508,7 +508,6 @@ export function AppSidebar() {
 
         {isActive('/inbox') && !collapsed && (
           <div className="ms-5 mt-0.5 space-y-0.5 border-s border-sidebar-border ps-3">
-            <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-1.5 pb-1">{t('inbox.defaultInboxes') || 'Default inboxes'}</p>
             <Link
               to={wsPath('/inbox')}
               className={cn(
@@ -532,7 +531,6 @@ export function AppSidebar() {
 
             {automatedInboxVisible && (
               <>
-                <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-2 pb-1">{t('inbox.aiInboxes') || 'AI inboxes'}</p>
                 <Link
                   to={wsPath('/inbox?queue=automated')}
                   className={cn(
@@ -553,7 +551,6 @@ export function AppSidebar() {
               </>
             )}
 
-            <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-2 pb-1">{t('inbox.otherInboxes') || 'Other inboxes'}</p>
             <Link
               to={wsPath('/inbox?queue=spam')}
               className={cn(

@@ -141,6 +141,7 @@ export async function resolveRecipients(
   const prefsByUser = new Map<string, PrefsRow>();
   for (const row of (prefRows ?? []) as PrefsRow[]) prefsByUser.set(row.user_id, row);
 
+  const now = new Date();
   const out: Recipient[] = [];
   for (const userId of eligible) {
     const p = { ...DEFAULT_PREFS, ...cleanPrefs(prefsByUser.get(userId)) };
@@ -181,6 +182,10 @@ function cleanPrefs(row: PrefsRow | undefined): Partial<typeof DEFAULT_PREFS> {
   if (row.push_scope != null) out.push_scope = row.push_scope;
   if (row.push_preview != null) out.push_preview = row.push_preview;
   if (row.push_internal_notes != null) out.push_internal_notes = row.push_internal_notes;
+  if (row.quiet_hours_enabled != null) out.quiet_hours_enabled = row.quiet_hours_enabled;
+  if (row.quiet_hours_start != null) out.quiet_hours_start = row.quiet_hours_start;
+  if (row.quiet_hours_end != null) out.quiet_hours_end = row.quiet_hours_end;
+  if (row.quiet_hours_timezone != null) out.quiet_hours_timezone = row.quiet_hours_timezone;
   return out as Partial<typeof DEFAULT_PREFS>;
 }
 

@@ -76,6 +76,15 @@ Push does **not** work in the iOS Simulator; use a real device.
   conversation loads through the normal authorized API, which re-checks access.
 - `push_scope` (`all | assigned | mentions | none`), `push_preview` and quiet
   hours are enforced **server-side** in the recipient resolver, so a device can
-  never opt itself into notifications it should not see.
+  never opt itself into notifications it should not see. Quiet hours use
+  `quiet_hours_enabled/start/end/timezone` on `user_notification_prefs`, support
+  windows that wrap past midnight, and are bypassed only by a direct @mention;
+  an unparsable window or timezone never mutes.
+- The app icon badge is owned by `@capawesome/capacitor-badge`
+  (`Badge.set` / `Badge.clear`) — `@capacitor-firebase/messaging` has no
+  `setBadge`. `aps.badge` in the payload sets it on arrival, and
+  `GET /api/push/badge` reconciles it after a read on any device.
+- The Capacitor plugin config key for this plugin is `FirebaseMessaging`
+  (not `PushNotifications`).
 - `UNREGISTERED` / invalid-token responses disable the device row instead of
   retrying, keeping the token table clean.

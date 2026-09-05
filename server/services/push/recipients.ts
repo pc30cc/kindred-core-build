@@ -42,6 +42,10 @@ interface PrefsRow {
   push_scope: string | null;
   push_preview: boolean | null;
   push_internal_notes: boolean | null;
+  quiet_hours_enabled: boolean | null;
+  quiet_hours_start: string | null;
+  quiet_hours_end: string | null;
+  quiet_hours_timezone: string | null;
 }
 
 const DEFAULT_PREFS = {
@@ -50,7 +54,58 @@ const DEFAULT_PREFS = {
   push_scope: 'all',
   push_preview: true,
   push_internal_notes: true,
+  quiet_hours_enabled: false,
+  quiet_hours_start: null as string | null,
+  quiet_hours_end: null as string | null,
+  quiet_hours_timezone: null as string | null,
 };
+
+/** Minutes since midnight for "HH:MM"; null when unusable. */
+function parseHhMm(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+/** Local wall-clock minutes for an IANA timezone, at `now`. */
+function localMinutes(timezone: string | null, now: Date): number | null {
+  try {
+    const fmt = new Intl.DateTimeFormat('en-GB', {
+      timeZone: timezone || 'UTC',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    return parseHhMm(fmt.format(now));
+  } catch {
+    return null; // invalid timezone → treat as "cannot evaluate", never mute
+  }
+}
+
+/**
+ * Quiet hours are enforced HERE (server-side), not in the client. Windows may
+ * wrap past midnight (22:00 → 07:00). A direct @mention still gets through —
+ * being personally addressed is the one case operators expect to break quiet
+ * hours. If the window or timezone is unusable, we do NOT mute.
+ */
+export function isWithinQuietHours(
+  prefs: { quiet_hours_enabled?: boolean | null; quiet_hours_start?: string | null; quiet_hours_end?: string | null; quiet_hours_timezone?: string | null },
+  now: Date = new Date(),
+): boolean {
+  if (!prefs.quiet_hours_enabled) return false;
+  const start = parseHhMm(prefs.quiet_hours_start ?? null);
+  const end = parseHhMm(prefs.quiet_hours_end ?? null);
+  if (start == null || end == null || start === end) return false;
+  const current = localMinutes(prefs.quiet_hours_timezone ?? null, now);
+  if (current == null) return false;
+  return start < end
+    ? current >= start && current < end
+    : current >= start || current < end; // wraps past midnight
+}
 
 export async function resolveRecipients(
   config: ServerConfig,
@@ -77,13 +132,16 @@ export async function resolveRecipients(
 
   const { data: prefRows } = await sb
     .from('user_notification_prefs')
-    .select('user_id, disable_all, play_sound, push_scope, push_preview, push_internal_notes')
+    .select(
+      'user_id, disable_all, play_sound, push_scope, push_preview, push_internal_notes, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone',
+    )
     .in('user_id', eligible)
     .is('workspace_id', null);
 
   const prefsByUser = new Map<string, PrefsRow>();
   for (const row of (prefRows ?? []) as PrefsRow[]) prefsByUser.set(row.user_id, row);
 
+  const now = new Date();
   const out: Recipient[] = [];
   for (const userId of eligible) {
     const p = { ...DEFAULT_PREFS, ...cleanPrefs(prefsByUser.get(userId)) };
@@ -92,6 +150,10 @@ export async function resolveRecipients(
 
     const isMentioned = mentioned.has(userId);
     const isAssignee = ctx.assignedTo === userId;
+
+    // Quiet hours: silenced unless the operator was personally mentioned.
+    if (!isMentioned && isWithinQuietHours(p, now)) continue;
+
 
     if (ctx.eventType === 'mention' && !isMentioned) continue;
     if (ctx.eventType === 'internal_note') {
@@ -120,6 +182,10 @@ function cleanPrefs(row: PrefsRow | undefined): Partial<typeof DEFAULT_PREFS> {
   if (row.push_scope != null) out.push_scope = row.push_scope;
   if (row.push_preview != null) out.push_preview = row.push_preview;
   if (row.push_internal_notes != null) out.push_internal_notes = row.push_internal_notes;
+  if (row.quiet_hours_enabled != null) out.quiet_hours_enabled = row.quiet_hours_enabled;
+  if (row.quiet_hours_start != null) out.quiet_hours_start = row.quiet_hours_start;
+  if (row.quiet_hours_end != null) out.quiet_hours_end = row.quiet_hours_end;
+  if (row.quiet_hours_timezone != null) out.quiet_hours_timezone = row.quiet_hours_timezone;
   return out as Partial<typeof DEFAULT_PREFS>;
 }
 

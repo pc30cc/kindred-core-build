@@ -180,6 +180,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
           <Toaster />
           <Sonner />
           <BrowserRouter>
+            {isNativeApp ? <MobileRoutes /> : (
             <Routes>
               {/* Root redirects to app */}
               <Route path="/" element={<Navigate to="/app" replace />} />

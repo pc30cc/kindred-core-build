@@ -1,13 +1,15 @@
 /**
- * LIVE PRESENCE (primary path) — subscribes the operator panel to the
- * operator-only presence channel `ws:{workspaceId}:operators` while the tab
- * is VISIBLE, and unsubscribes as soon as it is hidden or unmounted.
+ * INTERNAL LIVE PRESENCE — subscribes the operator panel to the operator-only
+ * presence channel `ws:{workspaceId}:operators` for as long as the panel is
+ * MOUNTED. Tab visibility is explicitly NOT a factor: switching tabs or
+ * minimizing the browser keeps the subscription (and therefore the operator's
+ * internal presence) alive. Only unmount/pagehide leaves the channel.
  *
- * Channel membership IS the presence signal: the backend reads it through
- * the Centrifugo presence API, so no periodic PostgreSQL write is needed to
- * keep an operator "online". Hiding the tab drops membership within seconds
- * — much faster and truer than the old 5-minute database lease timeout —
- * while the inbox realtime connection itself stays up.
+ * Channel membership IS the internal connection signal: the backend reads it
+ * through the Centrifugo presence API, so no periodic PostgreSQL write is
+ * needed. It feeds `active`/`away`/`disconnected` for teammates ONLY —
+ * customer-facing availability is computed from manual status + personal
+ * schedule and never from this subscription.
  *
  * When the resolved provider is not Centrifugo (polling / disabled /
  * Supabase, which does not advertise presence), this hook is a no-op and the
@@ -41,7 +43,7 @@ export function useOperatorPresenceChannel(workspaceId: string | undefined) {
      * whenever the transport reports it dropped.
      */
     const scheduleRetry = () => {
-      if (disposed || retryTimer || document.visibilityState !== 'visible') return;
+      if (disposed || retryTimer) return;
       const delay = Math.min(30_000, 2_000 * 2 ** Math.min(attempt, 4));
       attempt += 1;
       retryTimer = setTimeout(() => {
@@ -56,7 +58,7 @@ export function useOperatorPresenceChannel(workspaceId: string | undefined) {
       try {
         const provider = await resolveClientRealtimeProvider(workspaceId);
         if (provider.vendor !== 'centrifugo') return; // DB fallback handles it
-        if (disposed || document.visibilityState !== 'visible') return;
+        if (disposed) return;
         const s = await provider.subscribe(channel, {
           onStatus: (status: string) => {
             if (disposed) return;
@@ -69,7 +71,7 @@ export function useOperatorPresenceChannel(workspaceId: string | undefined) {
             }
           },
         } as any);
-        if (disposed || document.visibilityState !== 'visible') {
+        if (disposed) {
           s.unsubscribe();
           return;
         }
@@ -91,9 +93,10 @@ export function useOperatorPresenceChannel(workspaceId: string | undefined) {
       sub = null;
     };
 
+    // Visibility is used ONLY to re-heal a dropped subscription when the
+    // operator comes back — never to unsubscribe.
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') { attempt = 0; void join(); }
-      else leave();
+      if (document.visibilityState === 'visible' && !sub) { attempt = 0; void join(); }
     };
 
     void join();

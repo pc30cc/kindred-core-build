@@ -404,34 +404,24 @@ export async function routeConversationToOperator(
     // but genuinely present one.
     for (const tier of [tiers.active, tiers.away]) {
       if (picked || !tier.length) continue;
-      if (mode === 'round_robin') {
-        // Rotate starting right after the stored cursor, WITHIN the tier.
-        const ordered = rotateFromCursor(tier, cursor);
-        for (const candidate of ordered) {
-          if (await tryClaim(config, args.workspaceId, args.conversationId, candidate)) {
-            picked = candidate;
-            outcome = 'assigned_round_robin';
-            break;
-          }
-        }
-        if (picked) {
-          await sb.from('widget_settings')
-            .update({ round_robin_cursor_user_id: picked })
-            .eq('workspace_id', args.workspaceId);
-        }
-      } else {
-        // auto — least-loaded operator WITHIN the tier, stable tie-break.
-        const load = await loadActiveLoad(config, args.workspaceId, tier);
-        const ranked = rankAutoCandidates(tier, load);
-        for (const candidate of ranked) {
-          if (await tryClaim(config, args.workspaceId, args.conversationId, candidate)) {
-            picked = candidate;
-            outcome = 'assigned_auto';
-            break;
-          }
+      const load = mode === 'round_robin'
+        ? new Map<string, number>()
+        : await loadActiveLoad(config, args.workspaceId, tier);
+      const ordered = orderTierCandidates(tier, mode, cursor, load);
+      for (const candidate of ordered) {
+        if (await tryClaim(config, args.workspaceId, args.conversationId, candidate)) {
+          picked = candidate;
+          outcome = mode === 'round_robin' ? 'assigned_round_robin' : 'assigned_auto';
+          break;
         }
       }
+      if (picked && mode === 'round_robin') {
+        await sb.from('widget_settings')
+          .update({ round_robin_cursor_user_id: picked })
+          .eq('workspace_id', args.workspaceId);
+      }
     }
+
 
 
     // No eligible online agent (department empty, general pool empty, or

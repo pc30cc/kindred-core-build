@@ -24,7 +24,7 @@ export default function MobileSettingsPage() {
   const initial = (user?.email || '?').charAt(0).toUpperCase();
 
   return (
-    <MobileScreen title={t('nav.settings')} bodyClassName="pb-8">
+    <MobileScreen title={t('nav.settings')} bodyClassName="pb-[104px]">
       <div className="px-4 pt-4">
         <div className="flex items-center gap-4 rounded-2xl border border-border bg-card p-4">
           <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">

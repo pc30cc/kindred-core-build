@@ -81,7 +81,7 @@ export default function MobileInboxPage() {
           />
         </div>
       }
-      bodyClassName="pb-4"
+      bodyClassName="pb-[104px]"
     >
       {isLoading ? (
         <div className="divide-y divide-border/70 bg-card">

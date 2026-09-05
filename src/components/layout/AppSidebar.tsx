@@ -221,6 +221,10 @@ export function AppSidebar() {
     return () => document.removeEventListener('mousedown', handler);
   }, [wsMenuOpen, userMenuOpen]);
 
+  // Collapsible inbox sub-groups
+  const [internalInboxOpen, setInternalInboxOpen] = useState(true);
+  const [otherInboxesOpen, setOtherInboxesOpen] = useState(true);
+
   const isActive = (subPath: string) => {
     const fullPath = wsPath(subPath);
     if (subPath === '') return location.pathname === fullPath;

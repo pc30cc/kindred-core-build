@@ -27,8 +27,14 @@ export interface CentrifugoNodeHealth {
   status: 'healthy' | 'degraded' | 'down' | 'unknown';
   checked_at?: number;
   message?: string;
+  /** This node's OWN client count (gossiped, eventually consistent). */
   connections?: number;
+  /** Cluster-wide client total, kept separate from the per-node count. */
+  cluster_connections?: number;
   nodes?: number;
+  /** False when the configured node_name is absent from cluster discovery. */
+  node_name_matched?: boolean;
+
 }
 
 export interface CentrifugoNodeRow extends CentrifugoNodeRecord {

@@ -2310,9 +2310,15 @@
           if (frame && Object.keys(frame).length === 0) { send({}); continue; }
           if (frame && frame.subscribe) {
             attempt = 0;
+            // The lease only becomes usable once the subscription is actually
+            // open: it certifies "this session is connected", not "this
+            // session asked to connect".
+            lease = cfg.presence_lease || null;
+            leaseExpiresAt = cfg.lease_expires_at || 0;
             setOwns(true);
             log('presence subscribed', cfg.channel);
           }
+
           if (frame && frame.error) {
             setOwns(false);
           }

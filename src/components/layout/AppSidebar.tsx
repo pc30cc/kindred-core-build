@@ -582,7 +582,38 @@ export function AppSidebar() {
                 </span>
               )}
             </Link>
+
+            {/* Internal inbox — operator-to-operator threads. */}
+            <div className="pt-1.5">
+              <div className="px-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-sidebar-muted-foreground/70">
+                {t('inbox.internalInbox') || 'Internal inbox'}
+              </div>
+              <Link to={wsPath('/inbox?filter=colleagues')} className={itemCls(f === 'colleagues')}>
+                <Users className="h-3.5 w-3.5 shrink-0" />
+                <span>{t('inbox.colleagues') || 'Colleagues'}</span>
+              </Link>
+            </div>
+
+            {/* Other inboxes — one per installed inbox-capable channel plugin. */}
+            {(pluginChannels?.length ?? 0) > 0 && (
+              <div className="pt-1.5">
+                <div className="px-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-sidebar-muted-foreground/70">
+                  {t('inbox.otherInboxes') || 'Other inboxes'}
+                </div>
+                {pluginChannels!.map((c) => (
+                  <Link
+                    key={c.key}
+                    to={wsPath(`/inbox?channel=${encodeURIComponent(c.key)}`)}
+                    className={itemCls(ch === c.key)}
+                  >
+                    <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{channelLabel(c.key as ChannelKey) || c.label}</span>
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
+
           );
         })()}
 

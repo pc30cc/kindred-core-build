@@ -54,6 +54,7 @@ import {
   buildVisitorPresenceSubject,
   isVisitorPresenceChannel,
   visitorPresenceShard,
+  VISITOR_PRESENCE_SHARDS,
 } from '../services/realtime/types.js';
 import {
   resolveVisitorPresenceMode,
@@ -988,6 +989,30 @@ async function requireAdmin(req: any, res: any, next: any) {
   (req as any).adminUser = { id: userId };
   next();
 }
+
+/**
+ * Visitor-presence diagnostics (Super Admin → Providers → Realtime).
+ *
+ * Exposes the presence MODE plus the write-discipline counters, so an operator
+ * can prove the architecture invariant at a glance:
+ * `db_liveness_writes_while_realtime_healthy` MUST stay 0.
+ */
+realtimeRouter.get('/admin/visitor-presence', requireAdmin, async (req, res) => {
+  const config: ServerConfig = (req as any).serverConfig;
+  try {
+    const workspaceId = typeof req.query.workspace_id === 'string' ? req.query.workspace_id : undefined;
+    const mode = await resolveVisitorPresenceMode(config, workspaceId);
+    res.json({
+      mode,
+      shards: VISITOR_PRESENCE_SHARDS,
+      channel_pattern: 'vp:{workspace_id}:{shard}',
+      metrics: getVisitorPresenceMetrics(),
+    });
+  } catch (err: any) {
+    console.error('[realtime/admin/visitor-presence] error:', err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
 
 realtimeRouter.get('/admin/config', requireAdmin, async (req, res) => {
   const config: ServerConfig = (req as any).serverConfig;

@@ -67,7 +67,7 @@ export default function MobileSettingsPage() {
           className="flex w-full items-center justify-center gap-2 rounded-2xl border border-destructive/30 bg-destructive/5 py-3.5 text-[16px] font-semibold text-destructive active:bg-destructive/10"
         >
           <LogOut className="h-5 w-5" />
-          {t('nav.signOut')}
+          {t('auth.logout')}
         </button>
       </div>
     </MobileScreen>

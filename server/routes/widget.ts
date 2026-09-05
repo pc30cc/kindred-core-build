@@ -2569,9 +2569,14 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
           minIntervalMs: realtimePresence ? VISITOR_LIVENESS_NAVIGATION_ONLY_MS : undefined,
         });
         recordVisitorLivenessWrite(
-          touch.wrote && !touch.pageChanged ? 'wrote' : 'coalesced',
+          touch.wrote && !touch.pageChanged
+            ? 'wrote'
+            : sessionOwnedByRealtime
+              ? 'skipped_lease'
+              : 'coalesced',
           presenceMode,
         );
+
 
         if (!touch.matched) {
           return res.json({ ok: true, matched: false });

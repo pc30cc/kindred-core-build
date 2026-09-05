@@ -12,6 +12,8 @@ export type CentrifugoDeploymentMode = 'single_memory' | 'app_routed_redis' | 'l
 export interface CentrifugoNodeRecord {
   id: string;
   name: string;
+  /** Runtime Centrifugo node name (CENTRIFUGO_NAME) — must match the process. */
+  node_name?: string;
   ws_url: string;
   api_url: string;
   enabled: boolean;
@@ -50,6 +52,7 @@ export interface RealtimeAdminConfig {
   centrifugo?: {
     ws_url?: string;
     api_url?: string;
+    node_name?: string;
     api_key?: string; // masked from server
     token_hmac_secret?: string; // masked from server
     allowed_origins?: string[];

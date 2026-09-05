@@ -37,6 +37,8 @@ import {
   SESSION_COOKIE_NAME,
 } from '../services/auth/sessions.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
+import { allowsMobileTokenIssuance } from '../services/platformOrigins.js';
+
 
 export const authSecurityRouter = Router();
 
@@ -221,15 +223,31 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
       .update({ last_login_at: new Date().toISOString(), failed_login_count: 0 })
       .eq('user_id', identity.id);
 
-    // Native shells cannot rely on cookies (the app runs from
-    // `capacitor://localhost` against a different API origin), so they get
-    // the SAME opaque session token handed back in the response body and
-    // store it in the iOS Keychain. Web behaviour is byte-for-byte
-    // unchanged: cookie set, no token in the body, ever.
-    const isMobileClient =
+    // TRUST BOUNDARY — where a raw session token may leave the server.
+    //
+    // The token is returned in the response BODY only for the native shell.
+    // A browser must never be able to opt into that by simply sending
+    // `client: 'mobile'` / `X-Client-Platform: ios`, because a body-borne
+    // token is JS-readable and would defeat the HttpOnly cookie entirely
+    // (an XSS or a rogue same-site page could mint and exfiltrate a
+    // long-lived 60-day credential).
+    //
+    // So the client hint is only HONOURED when the request cannot be a
+    // browser page on a normal web origin:
+    //   * `Origin: capacitor://localhost` — the bundled iOS shell, or
+    //   * no `Origin` header at all — a non-browser client (the native
+    //     WebView on older iOS, curl, tests). Browsers always send Origin
+    //     on POST, including same-origin POSTs, so a web page can never
+    //     reach this branch.
+    // Anything else falls back to the normal web flow: HttpOnly cookie set,
+    // no token in the body, byte-for-byte the pre-existing behaviour.
+    const originAllowsMobile = allowsMobileTokenIssuance(req.headers.origin);
+    const mobileRequested =
       parsed.data.client === 'mobile' ||
       String(req.headers['x-client-platform'] || '').toLowerCase() === 'ios' ||
       String(req.headers['x-client-platform'] || '').toLowerCase() === 'android';
+    const isMobileClient = mobileRequested && originAllowsMobile;
+
 
     const session = await createSession(config, {
       userId: identity.id,

@@ -272,6 +272,8 @@ export async function validateSessionToken(config: ServerConfig, token: string |
  * means the window gets pushed on the next request. A transient database
  * or network error must never be turned into a logout.
  */
+const renewalsInFlight = new Set<string>();
+
 export async function renewMobileSessionIfDue(
   config: ServerConfig,
   session: ValidatedSession,
@@ -285,8 +287,22 @@ export async function renewMobileSessionIfDue(
   const nextExpiry = Math.min(now + MOBILE_SESSION_IDLE_MS, cap);
   if (nextExpiry <= session.expiresAt.getTime()) return;
 
+  // Concurrency guard #1 (per process): a burst of simultaneous requests all
+  // read the same stale `last_renewed_at`, so without this every one of them
+  // would issue its own UPDATE. Only the first request per session gets to
+  // write; the rest return immediately (their renewal is redundant by
+  // definition — it would write the same window).
+  if (renewalsInFlight.has(session.sessionId)) return;
+  renewalsInFlight.add(session.sessionId);
+
   try {
     const sb = getServiceClient(config);
+    // Concurrency guard #2 (across processes/nodes): compare-and-set. The
+    // UPDATE only matches while `last_renewed_at` is still older than the
+    // throttle window, so a second node racing on the same session writes
+    // zero rows instead of a duplicate touch. Combined with the guard above
+    // this preserves "at most one renewal write per session per 24h".
+    const staleBefore = new Date(now - MOBILE_SESSION_RENEW_THROTTLE_MS).toISOString();
     await sb
       .from('auth_sessions')
       .update({
@@ -294,11 +310,15 @@ export async function renewMobileSessionIfDue(
         last_renewed_at: new Date(now).toISOString(),
       })
       .eq('id', session.sessionId)
-      .is('revoked_at', null);
+      .is('revoked_at', null)
+      .lt('last_renewed_at', staleBefore);
   } catch (err) {
     console.warn('[auth] Mobile session renewal failed (non-fatal):', err);
+  } finally {
+    renewalsInFlight.delete(session.sessionId);
   }
 }
+
 
 /**
  * Extracts the session token from a request, supporting BOTH transports:

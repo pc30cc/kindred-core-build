@@ -3363,11 +3363,14 @@ export type Database = {
       }
       auth_sessions: {
         Row: {
+          absolute_expires_at: string | null
+          client_type: string
           created_at: string
           email: string
           expires_at: string
           id: string
           ip_address: string | null
+          last_renewed_at: string | null
           revoke_reason: string | null
           revoked_at: string | null
           token_hash: string
@@ -3375,11 +3378,14 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          absolute_expires_at?: string | null
+          client_type?: string
           created_at?: string
           email: string
           expires_at: string
           id?: string
           ip_address?: string | null
+          last_renewed_at?: string | null
           revoke_reason?: string | null
           revoked_at?: string | null
           token_hash: string
@@ -3387,11 +3393,14 @@ export type Database = {
           user_id: string
         }
         Update: {
+          absolute_expires_at?: string | null
+          client_type?: string
           created_at?: string
           email?: string
           expires_at?: string
           id?: string
           ip_address?: string | null
+          last_renewed_at?: string | null
           revoke_reason?: string | null
           revoked_at?: string | null
           token_hash?: string

@@ -118,8 +118,8 @@ changed. Redis remains realtime infrastructure, never an application database.
   still write `visitor_presence` directly. These are lifecycle/business writes
   rather than periodic liveness ticks, so they do not scale with connection
   time, but they are not routed through the lease gate (`/heartbeat` is).
-* A workspace with more than `VISITOR_PRESENCE_MAX_CANDIDATES` durable
-  candidates in the window truncates the candidate list; those beyond the cap
+* A workspace with more than `VISITOR_PRESENCE_MAX_CANDIDATES` candidates
+  truncates the candidate list; those beyond the cap
   fall back to their stored status.
 
 ## Token/lease renewal without reconnect
@@ -132,17 +132,60 @@ the renewal, or when realtime stops being authoritative for the workspace. A
 healthy visitor therefore keeps one connection for the whole visit instead of
 reconnecting once per token TTL.
 
-## Candidacy refresh (why an idle visitor does not vanish)
+## Candidate discovery (why an idle visitor does not vanish)
 
-The operator list is built from `visitor_presence` rows touched inside the
-candidate window (6h) and the status of those candidates is then resolved with
-batched `presence_stats`. A connected-but-idle visitor writes nothing, so
-candidacy is refreshed from the presence negotiation itself:
-`touchVisitorPresenceCandidacy()` performs at most one tiny `updated_at`
-UPDATE per session per `CANDIDACY_TOUCH_INTERVAL_MS` (10 min), driven by the
-token-TTL renewal — not by a liveness heartbeat. The candidate window therefore
-bounds how long a session survives *without any realtime presence*, not how
-long a live visitor stays visible.
+The operator list is the union of two disjoint candidate sources, resolved by
+one batched `presence_stats` read:
+
+1. **PostgreSQL, short recency window** — sessions with a recent *durable*
+   write (creation, navigation, message). These writes exist for business
+   reasons and are not periodic.
+2. **Ephemeral candidate index** — sessions holding a live presence lease but
+   silent for hours.
+
+The index is never PostgreSQL. A per-session periodic `UPDATE`, whatever it is
+called, is a heartbeat: at 1M connected visitors even a 10-minute cadence is
+~1.6k writes/second carrying no business fact, and it makes an idle visitor
+look freshly active because `visitor_presence.updated_at` is what the UI reads
+as recency.
+
+```
+MODE 2 / MODE 3 (app_routed_redis, load_balanced_redis)
+  Centrifugo            → presence truth
+  Redis/Valkey          → ZSET  vp:index:{workspace_id}
+                            member = session_id
+                            score  = lease_expires_at (epoch ms)
+  PostgreSQL            → durable/business data ONLY
+
+MODE 1 (single_memory, small deployments)
+  Centrifugo            → presence truth + `channels` scan for discovery
+```
+
+Writes happen only on presence negotiation and in-place lease renewal
+(`ZADD`), never on a timer. Stale members expire by score, so no reliable
+disconnect event is required, and a member whose socket actually died is
+corrected by `presence_stats = 0` — Redis is a discovery index, not truth.
+
+The `channels` scan is restricted to Mode 1 on purpose: Centrifugo returns
+every matching active channel with no pagination, which is unacceptable for
+large deployments.
+
+Configuration: `VISITOR_CANDIDATE_INDEX_REDIS_URL` (falls back to
+`REALTIME_REDIS_URL` / `REDIS_URL`). When no index can answer — Mode 2/3
+without a Redis URL, or Redis momentarily unreachable — discovery degrades to
+the wide durable window (`CANDIDATE_WINDOW_MS`, 6h) so no visitor is lost;
+it never degrades into periodic writes.
+
+Invariant while realtime is healthy:
+
+```
+Periodic PostgreSQL liveness writes  = 0
+Periodic PostgreSQL candidacy writes = 0
+```
+
+The client is `server/lib/redisClient.ts`, a ~200-line RESP2 client with a
+per-command timeout and a failure cooldown — no new runtime dependency, and
+every failure mode degrades to "no index" rather than to wrong data.
 
 ## Provider health is topology-aware
 

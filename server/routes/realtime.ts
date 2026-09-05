@@ -60,7 +60,9 @@ import {
 import {
   resolveVisitorPresenceMode,
   getVisitorPresenceMetrics,
+  touchVisitorPresenceCandidacy,
 } from '../services/visitors/presenceSource.js';
+
 import { issueVisitorPresenceLease } from '../services/visitors/presenceLease.js';
 
 import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';

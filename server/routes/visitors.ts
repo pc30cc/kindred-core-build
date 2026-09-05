@@ -4,6 +4,8 @@ import { getServiceClient } from '../supabase.js';
 import {
   resolveVisitorPresence,
   applyVisitorPresence,
+  resolveVisitorPresenceMode,
+  recordVisitorLivenessWrite,
 } from '../services/visitors/presenceSource.js';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import {
@@ -306,22 +308,36 @@ visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
       .eq('id', session_id)
       .maybeSingle();
 
-    await supabase
-      .from('visitor_sessions')
-      .update({
-        current_page,
-        last_seen_at: new Date().toISOString(),
-      })
-      .eq('id', session_id);
+    // WRITE DISCIPLINE: when Centrifugo shard membership is the authority for
+    // liveness, this legacy heartbeat must not keep touching two rows every
+    // minute per visitor. Navigation (a page change) is durable business data
+    // and is still persisted; a pure "still here" tick is dropped.
+    const wsIdForMode = workspace_id ?? prevSession?.workspace_id ?? null;
+    const presenceMode = wsIdForMode
+      ? await resolveVisitorPresenceMode(config, wsIdForMode)
+      : 'database';
+    const pageChanged = !!current_page && current_page !== (prevSession?.current_page ?? null);
+    const writeLiveness = presenceMode === 'database' || pageChanged;
 
-    await supabase
-      .from('visitor_presence')
-      .update({
-        status,
-        current_page,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('visitor_session_id', session_id);
+    if (writeLiveness) {
+      await supabase
+        .from('visitor_sessions')
+        .update({
+          current_page,
+          last_seen_at: new Date().toISOString(),
+        })
+        .eq('id', session_id);
+
+      await supabase
+        .from('visitor_presence')
+        .update({
+          status,
+          current_page,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('visitor_session_id', session_id);
+    }
+    recordVisitorLivenessWrite(writeLiveness ? 'wrote' : 'coalesced', presenceMode);
 
     // Append a page-view only if the URL changed (avoids spam from heartbeats).
     if (

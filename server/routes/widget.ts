@@ -27,6 +27,7 @@ import {
   publishConversationEvent,
   buildMessageEnvelope,
 } from '../services/realtime/publish.js';
+import { notifyInboundMessage } from '../services/push/index.js';
 import {
   getLoaderAssetBase,
   getRequestBaseUrl,
@@ -2241,7 +2242,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         conversationId: convId!,
         messageId: insertedMsg.id,
         text: messageBody,
-        senderName: pushSenderName,
+        senderName: (body as any)?.visitor_name || null,
         channel: 'widget',
         attachmentCount: data.attachment_id ? 1 : 0,
       });

@@ -1174,7 +1174,6 @@ export default function InboxPage() {
   );
 
 
-  const allActive = !isQueueMode && !extraChip && filter === 'all';
 
   const toolbarTabsNode = (
           <div

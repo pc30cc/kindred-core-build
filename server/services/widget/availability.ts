@@ -311,37 +311,21 @@ export async function resolveAvailability(
   const within = isWithin(intervals, parts.h, parts.min);
 
   if (within) {
-    // Within business hours — but if every operator is force-offline or
-    // outside their own personal schedule, flip the widget to offline so
-    // visitors aren't promised "we're online" when nobody can reply.
-    // Failing-open (treat as online) when the workspace literally has
-    // zero members keeps brand-new workspaces usable.
-    try {
-      // CUSTOMER-FACING ONLY: manual status + personal schedule. Connection
-      // state (tab, socket, Centrifugo) is deliberately NOT an input, so a
-      // minimized browser or a realtime outage can never flip the messenger
-      // offline.
-      const { anyAvailable, memberCount } = await anyCustomerAvailableOperator(
-        config,
-        workspaceId,
-        now,
-      );
-      if (memberCount > 0 && !anyAvailable) {
-        return {
-          state: 'offline',
-          reason: 'no_operators_online',
-          next_open_at: null,
-          timezone: tz,
-          offline_mode: offlineMode,
-          labels,
-          offline_message: offlineMessage,
-        };
-      }
-    } catch (err: any) {
-      // Never block the bootstrap on presence lookup failure — fall
-      // through to the within_hours online state.
-      console.warn('[availability] operator presence lookup failed:', err?.message);
+    // Within business hours — but if every operator is force-offline,
+    // invisible or outside their own personal schedule, flip the widget to
+    // offline so visitors aren't promised "we're online".
+    if ((await customerFacingState(config, workspaceId, now)).offline) {
+      return {
+        state: 'offline',
+        reason: 'no_operators_online',
+        next_open_at: null,
+        timezone: tz,
+        offline_mode: offlineMode,
+        labels,
+        offline_message: offlineMessage,
+      };
     }
+
 
     return {
       state: 'online',

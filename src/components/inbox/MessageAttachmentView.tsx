@@ -10,6 +10,7 @@ import { FileText, Download, X, Play, Pause, Mic } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
+import { useAuthedMediaSrc, openAuthedAttachment } from '@/lib/mediaObjectUrl';
 
 const API_BASE = RESOLVED_API_BASE || '';
 

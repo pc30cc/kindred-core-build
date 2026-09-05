@@ -53,6 +53,7 @@ import {
   recordOperatorPresenceBeat,
 } from '../services/widget/operatorPresence.js';
 import { shouldWriteFallbackPresence } from '../services/widget/operatorPresenceSource.js';
+import { recordOperatorActivity } from '../services/widget/operatorActivity.js';
 
 export const operatorActivityRouter = Router();
 

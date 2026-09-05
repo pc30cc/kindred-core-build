@@ -75,7 +75,7 @@ export default function TeamPage() {
                           'absolute -bottom-0.5 -end-0.5 h-2.5 w-2.5 rounded-full border-2 border-background',
                           PRESENCE_DOT_CLASS[pState],
                         )}
-                        title={t(presenceHintKey(pState)) || undefined}
+                        title={t(presenceHintKey(pState) as any) || undefined}
                       />
                     </div>
                     <div className="min-w-0 flex-1">

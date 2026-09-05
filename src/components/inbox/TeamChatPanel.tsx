@@ -350,12 +350,12 @@ export default function TeamChatPanel() {
                 <span className={cn(
                   'absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card',
                   PRESENCE_DOT_CLASS[stateOf(peer.user_id)],
-                )} title={t(presenceHintKey(stateOf(peer.user_id))) || undefined} />
+                )} title={t(presenceHintKey(stateOf(peer.user_id)) as any) || undefined} />
               </div>
               <div className="min-w-0">
                 <p className="text-[13.5px] font-semibold text-foreground truncate">{peer.full_name || peer.email}</p>
                 <p className="text-[11px] text-muted-foreground truncate">
-                  {t(`presenceState.${stateOf(peer.user_id)}`) || (isOnline(peer.user_id) ? 'Online' : 'Offline')}
+                  {t(`presenceState.${stateOf(peer.user_id)}` as any) || (isOnline(peer.user_id) ? 'Online' : 'Offline')}
                 </p>
               </div>
               <span className="ms-auto text-[10.5px] px-2 py-1 rounded-full bg-secondary text-muted-foreground font-medium">

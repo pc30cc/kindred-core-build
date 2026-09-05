@@ -13,6 +13,26 @@ import loginIllustration from '@/assets/login-illustration.jpg';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// iOS/Persian keyboards silently insert invisible bidi/zero-width marks and
+// non-breaking spaces. They are never part of a real credential, but they do
+// make an otherwise correct email/password mismatch on the server, which is
+// why the native app could report "invalid email or password" for
+// credentials that work in a desktop browser.
+const INVISIBLE_RE = /[\u200B-\u200F\u061C\u202A-\u202E\u2066-\u2069\uFEFF]/g;
+const PERSIAN_DIGITS = /[\u06F0-\u06F9\u0660-\u0669]/g;
+
+function stripInvisible(value: string): string {
+  return value.replace(INVISIBLE_RE, '').replace(/\u00A0/g, ' ');
+}
+
+function normalizeEmail(value: string): string {
+  return stripInvisible(value)
+    .replace(PERSIAN_DIGITS, (d) => String(((d.codePointAt(0) as number) & 0xf)))
+    .trim()
+    .toLowerCase();
+}
+
+
 export default function LoginPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
@@ -49,7 +69,7 @@ export default function LoginPage() {
     setLoading(true);
     setSetupRequired(false);
     try {
-      const { error } = await signIn({ email, password });
+      const { error } = await signIn({ email: normalizeEmail(email), password: stripInvisible(password) });
       if (error) {
         // Migrated account with no first-party password yet — the backend
         // answers 403 { passwordSetupRequired: true }. Surface the real
@@ -169,6 +189,9 @@ export default function LoginPage() {
                       className={cn(inputBase, 'text-left')}
                       autoComplete="email"
                       inputMode="email"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                     />
                   ),
                 })}
@@ -214,6 +237,9 @@ export default function LoginPage() {
                       dir="ltr"
                       className={cn(inputBase, 'text-left')}
                       autoComplete="current-password"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                     />
                   ),
                 })}

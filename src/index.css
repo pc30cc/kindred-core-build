@@ -819,3 +819,16 @@ html[data-ui-chroma="mono"].dark {
   --sidebar-accent: 220 10% 20%;
   --sidebar-accent-foreground: 220 8% 86%;
 }
+
+/* ── iOS native shell safe areas (notch, Dynamic Island, home indicator) ──
+   Applied ONLY when running inside the Capacitor shell (`html.native-app`),
+   so the web build is byte-for-byte unaffected. */
+html.native-app body {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  box-sizing: border-box;
+  min-height: 100dvh;
+  overscroll-behavior-y: none;
+}

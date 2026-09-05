@@ -174,6 +174,31 @@ export interface CreatedSession {
   clientType: SessionClientType;
 }
 
+/**
+ * Deployment tolerance: migration 135 (client_type / absolute_expires_at /
+ * last_renewed_at on auth_sessions) may not have been applied yet on a
+ * running installation. Without this guard, EVERY login would fail with a
+ * 500 ("Could not find the 'client_type' column") and every existing
+ * session would stop validating. So both the insert and the read fall back
+ * to the pre-135 column set once, and remember the outcome for the process.
+ * Mobile sessions still require the columns (their policy is stored there),
+ * so only web sessions degrade — mobile login reports the missing migration.
+ */
+let mobileColumnsAvailable: boolean | null = null;
+
+function isMissingColumnError(error: { message?: string; code?: string } | null): boolean {
+  if (!error) return false;
+  const msg = String(error.message ?? '').toLowerCase();
+  return (
+    error.code === 'PGRST204' ||
+    error.code === '42703' ||
+    (msg.includes('column') &&
+      (msg.includes('client_type') ||
+        msg.includes('absolute_expires_at') ||
+        msg.includes('last_renewed_at')))
+  );
+}
+
 export async function createSession(config: ServerConfig, input: CreateSessionInput): Promise<CreatedSession> {
   const sb = getServiceClient(config);
   const token = generateSessionToken();
@@ -184,21 +209,45 @@ export async function createSession(config: ServerConfig, input: CreateSessionIn
   const absoluteExpiresAt =
     clientType === 'mobile' ? new Date(now + MOBILE_SESSION_ABSOLUTE_MS) : null;
 
-  const { data, error } = await sb
-    .from('auth_sessions')
-    .insert({
-      user_id: input.userId,
-      email: input.email,
-      token_hash: tokenHash,
-      ip_address: input.ipAddress ?? null,
-      user_agent: input.userAgent ?? null,
-      expires_at: expiresAt.toISOString(),
-      client_type: clientType,
-      absolute_expires_at: absoluteExpiresAt ? absoluteExpiresAt.toISOString() : null,
-      last_renewed_at: new Date(now).toISOString(),
-    })
-    .select('id')
-    .single();
+  const baseRow = {
+    user_id: input.userId,
+    email: input.email,
+    token_hash: tokenHash,
+    ip_address: input.ipAddress ?? null,
+    user_agent: input.userAgent ?? null,
+    expires_at: expiresAt.toISOString(),
+  };
+  const extendedRow = {
+    ...baseRow,
+    client_type: clientType,
+    absolute_expires_at: absoluteExpiresAt ? absoluteExpiresAt.toISOString() : null,
+    last_renewed_at: new Date(now).toISOString(),
+  };
+
+  let data: { id: string } | null = null;
+  let error: { message?: string; code?: string } | null = null;
+
+  if (mobileColumnsAvailable !== false) {
+    const res = await sb.from('auth_sessions').insert(extendedRow).select('id').single();
+    data = (res.data as { id: string } | null) ?? null;
+    error = (res.error as { message?: string; code?: string } | null) ?? null;
+    if (!error && data) mobileColumnsAvailable = true;
+  }
+
+  if (!data && (mobileColumnsAvailable === false || isMissingColumnError(error))) {
+    mobileColumnsAvailable = false;
+    if (clientType === 'mobile') {
+      throw new Error(
+        'Mobile sessions require migration 135_auth_sessions_mobile_client.sql to be applied.',
+      );
+    }
+    console.warn(
+      '[auth] auth_sessions is missing the migration 135 columns — creating a legacy web session.',
+    );
+    const res = await sb.from('auth_sessions').insert(baseRow).select('id').single();
+    data = (res.data as { id: string } | null) ?? null;
+    error = (res.error as { message?: string; code?: string } | null) ?? null;
+  }
 
   if (error || !data) {
     throw new Error(`Failed to create session: ${error?.message ?? 'unknown error'}`);
@@ -206,6 +255,7 @@ export async function createSession(config: ServerConfig, input: CreateSessionIn
 
   return { token, sessionId: data.id as string, expiresAt, clientType };
 }
+
 
 export interface ValidatedSession {
   sessionId: string;
@@ -232,26 +282,41 @@ export async function validateSessionToken(config: ServerConfig, token: string |
   const sb = getServiceClient(config);
   const tokenHash = hashToken(token);
 
-  const { data, error } = await sb
-    .from('auth_sessions')
-    .select('id, user_id, email, expires_at, revoked_at, client_type, absolute_expires_at, last_renewed_at')
-    .eq('token_hash', tokenHash)
-    .is('revoked_at', null)
-    .maybeSingle();
+  const EXTENDED = 'id, user_id, email, expires_at, revoked_at, client_type, absolute_expires_at, last_renewed_at';
+  const BASE = 'id, user_id, email, expires_at, revoked_at';
 
-  if (error || !data) return null;
+  const read = async (columns: string) =>
+    sb
+      .from('auth_sessions')
+      .select(columns)
+      .eq('token_hash', tokenHash)
+      .is('revoked_at', null)
+      .maybeSingle();
+
+  let res = mobileColumnsAvailable === false ? await read(BASE) : await read(EXTENDED);
+  if (res.error && isMissingColumnError(res.error as { message?: string; code?: string })) {
+    // Pre-migration-135 database — validate against the columns it has,
+    // rather than logging every existing user out.
+    mobileColumnsAvailable = false;
+    res = await read(BASE);
+  }
+
+  const data = res.data as unknown as Record<string, unknown> | null;
+  if (res.error || !data) return null;
+
   const now = Date.now();
-  if (new Date(data.expires_at).getTime() < now) return null;
+  if (new Date(data.expires_at as string).getTime() < now) return null;
 
   const absoluteExpiresAt = data.absolute_expires_at ? new Date(data.absolute_expires_at as string) : null;
   if (absoluteExpiresAt && absoluteExpiresAt.getTime() < now) return null;
+
 
   return {
     sessionId: data.id as string,
     userId: data.user_id as string,
     email: data.email as string,
     clientType: (data.client_type as SessionClientType | undefined) === 'mobile' ? 'mobile' : 'web',
-    expiresAt: new Date(data.expires_at),
+    expiresAt: new Date(data.expires_at as string),
     absoluteExpiresAt,
     lastRenewedAt: data.last_renewed_at ? new Date(data.last_renewed_at as string) : null,
   };

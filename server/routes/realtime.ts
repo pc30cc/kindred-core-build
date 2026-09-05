@@ -53,7 +53,10 @@ import {
   buildVisitorPresenceChannelName,
   buildVisitorPresenceSubject,
   isVisitorPresenceChannel,
+  VISITOR_PRESENCE_CHANNEL_VERSION,
+  VISITOR_PRESENCE_BATCH_MAX,
 } from '../services/realtime/types.js';
+
 import {
   resolveVisitorPresenceMode,
   getVisitorPresenceMetrics,

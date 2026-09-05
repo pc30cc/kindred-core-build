@@ -1121,6 +1121,10 @@ export default function InboxPage() {
 
 
 
+  /* The top tab strip mirrors the conversation-list column: same width, and
+     it collapses to icon-only tabs when the column is dragged narrow. */
+  const compactTabs = isDesktop && listWidth < 330;
+
   const toolbarTabsNode = (
           <div
             role="tablist"
@@ -1139,7 +1143,8 @@ export default function InboxPage() {
                   role="tab"
                   aria-selected={isActive}
                   onClick={() => { setExtraChip(null); setQueueTab(null); setFilter(s); }}
-                  className={cn(headTabBase, headTabState(isActive))}
+                  className={cn(headTabBase, headTabState(isActive), compactTabs && 'px-2.5')}
+                  title={statusLabels[s]}
                 >
                   <span className="relative flex w-2 h-2 items-center justify-center">
                     {liveTabs[s] && (
@@ -1150,7 +1155,7 @@ export default function InboxPage() {
                       liveTabs[s] ? 'bg-success animate-pulse' : isActive ? dotColor : 'bg-muted-foreground/40',
                     )} />
                   </span>
-                  {statusLabels[s]}
+                  {!compactTabs && statusLabels[s]}
                   <span
                     aria-hidden={count === 0}
                     className={cn(pillCount(isActive), count === 0 && 'hidden')}
@@ -1176,10 +1181,10 @@ export default function InboxPage() {
               aria-selected={queue === 'automated'}
               onClick={() => setQueueTab(queue === 'automated' ? null : 'automated')}
               title={t('inbox.automatedInbox') || 'AI'}
-              className={cn(headTabBase, headTabState(queue === 'automated'))}
+              className={cn(headTabBase, headTabState(queue === 'automated'), compactTabs && 'px-2.5')}
             >
               <Bot className="w-4 h-4" />
-              {t('inbox.aiTab') || t('inbox.automatedInbox') || 'AI'}
+              {!compactTabs && (t('inbox.aiTab') || t('inbox.automatedInbox') || 'AI')}
               <span
                 aria-hidden={(stableCounts.automated || 0) === 0}
                 className={cn(pillCount(queue === 'automated'), (stableCounts.automated || 0) === 0 && 'hidden')}
@@ -1200,7 +1205,7 @@ export default function InboxPage() {
               role="tab"
               aria-selected={extraChip === 'colleagues'}
               onClick={() => setExtraChip(extraChip === 'colleagues' ? null : 'colleagues')}
-              className={cn(headTabBase, headTabState(extraChip === 'colleagues'))}
+              className={cn(headTabBase, headTabState(extraChip === 'colleagues'), compactTabs && 'px-2.5')}
               title={t('inbox.colleagues') || 'Colleagues'}
             >
               {colleagueUnread > 0 && extraChip !== 'colleagues' ? (
@@ -1211,7 +1216,7 @@ export default function InboxPage() {
               ) : (
                 <Users className="w-4 h-4" />
               )}
-              {t('inbox.colleagues') || 'Colleagues'}
+              {!compactTabs && (t('inbox.colleagues') || 'Colleagues')}
               <span
                 aria-hidden={colleagueUnread === 0}
                 className={cn(
@@ -1234,7 +1239,11 @@ export default function InboxPage() {
      views stay here as tabs, next to a compact unread indicator. */
   const topBarSummary = (
     <ToolbarPortal>
-      <div className="flex h-full items-end gap-2 ps-0 pe-1 pb-0" dir={dir}>
+      <div
+        className="flex h-full shrink-0 items-end gap-2 overflow-hidden ps-0 pe-1 pb-0"
+        style={isDesktop ? { width: listWidth } : undefined}
+        dir={dir}
+      >
         {toolbarTabsNode}
       </div>
 

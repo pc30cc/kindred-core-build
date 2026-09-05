@@ -336,7 +336,6 @@ export function MessageAttachmentView({
   t: (key: any) => string;
   isAgent?: boolean;
 }) {
-  const url = attachmentUrl(att.id);
   const mime = att.mime_type || '';
   const isImage = att.kind === 'image' || /^image\//.test(mime);
   const isAudio = att.kind === 'audio' || /^audio\//.test(mime);

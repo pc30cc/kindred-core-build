@@ -24,9 +24,18 @@ import {
 } from '../widget/visitorLiveness.js';
 
 import {
-  resolveVisitorPresence,
+  resolveVisitorPresenceForSessions,
+  resolveVisitorPresenceMode,
   applyVisitorPresence,
 } from './presenceSource.js';
+
+/**
+ * Durable candidate horizon used in realtime mode: sessions that produced a
+ * durable write (creation, navigation, message) within this window are the
+ * pool whose live status realtime is asked about.
+ */
+const CANDIDATE_WINDOW_MS = 6 * 60 * 60_000;
+
 
 import { type GeoResult } from '../geo/index.js';
 import {

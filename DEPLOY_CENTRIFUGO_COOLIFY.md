@@ -4,6 +4,9 @@ This guide covers deploying the **Centrifugo realtime provider** for this projec
 
 > Centrifugo runs as a **standalone Coolify service**, separate from the backend and frontend. The backend talks to it over the **public domain** (HTTPS), because the three services do not share a Docker network in this deployment model.
 
+> **Deployment Mode 1 (`single_memory`).** This is the default and stays fully supported. For multi-node deployments with a shared Redis engine — Mode 2 (`app_routed_redis`) and Mode 3 (`load_balanced_redis`) — see [`DEPLOY_REALTIME_MULTI_NODE_COOLIFY.md`](./DEPLOY_REALTIME_MULTI_NODE_COOLIFY.md). Upgrading from Mode 1 needs no migration: a configuration without a deployment mode is treated as `single_memory`.
+
+
 ---
 
 ## 1. Files in this repository

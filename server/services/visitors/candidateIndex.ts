@@ -67,11 +67,24 @@ const LIST_CACHE_TTL_MS = 3_000;
 /** Local de-dupe of identical ZADDs from repeated negotiations. */
 const TOUCH_DEDUPE_MS = 30_000;
 const TOUCH_MAP_MAX = 50_000;
+/**
+ * Opportunistic garbage collection interval, per workspace.
+ *
+ * Expiry-by-score alone is not enough: in a busy workspace whose operators do
+ * not open the Visitors page for days, nothing would ever run
+ * ZREMRANGEBYSCORE while ZADD keeps pushing the key's TTL forward — the set
+ * would grow without bound and the first operator read would pay one huge
+ * prune. GC therefore rides on the WRITE path (bounded: at most one prune per
+ * workspace per interval, regardless of visitor count), never on a timer.
+ */
+const PRUNE_INTERVAL_MS = 45_000;
+const PRUNE_MAP_MAX = 10_000;
 
 const metrics = {
   touches: 0,
   touches_deduped: 0,
   touch_failures: 0,
+  prunes: 0,
   lists: 0,
   list_cache_hits: 0,
   list_failures: 0,
@@ -82,6 +95,7 @@ export type CandidateIndexMetrics = typeof metrics & { backend: CandidateIndexBa
 
 let backendState: { backend: CandidateIndexBackend; url: string | null; at: number } | null = null;
 const touchedAt = new Map<string, number>();
+const prunedAt = new Map<string, number>();
 const listCache = new Map<string, { at: number; result: CandidateListResult }>();
 
 export const candidateIndexKey = (workspaceId: string) => `vp:index:${workspaceId}`;
@@ -93,15 +107,22 @@ export function getCandidateIndexMetrics(): CandidateIndexMetrics {
 export function resetCandidateIndex(): void {
   backendState = null;
   touchedAt.clear();
+  prunedAt.clear();
   listCache.clear();
   for (const k of Object.keys(metrics) as (keyof typeof metrics)[]) metrics[k] = 0;
 }
 
+/**
+ * Explicit opt-in only. A generic `REDIS_URL` is deliberately NOT accepted:
+ * that variable tends to grow into "the app's cache/job Redis" later, and
+ * presence discovery must never silently start writing into an unrelated
+ * instance. Only the dedicated variable, or the realtime engine's own Redis
+ * (which this index is designed to share), count.
+ */
 function redisUrl(): string | null {
   const raw =
     process.env.VISITOR_CANDIDATE_INDEX_REDIS_URL ||
     process.env.REALTIME_REDIS_URL ||
-    process.env.REDIS_URL ||
     '';
   const url = raw.trim();
   return url ? url : null;
@@ -162,12 +183,27 @@ export async function touchVisitorCandidate(
     const client = getRedisClient(url);
     const indexKey = candidateIndexKey(workspaceId);
     await client.command('ZADD', indexKey, Math.floor(leaseExpiresAtMs), sessionId);
-    await client.command('EXPIRE', indexKey, INDEX_KEY_TTL_SECONDS);
     metrics.touches += 1;
+    // Steady state costs exactly one command per renewal. The prune + TTL
+    // refresh piggyback at most once per PRUNE_INTERVAL_MS per workspace.
+    if (shouldPrune(workspaceId, now)) {
+      await client.command('ZREMRANGEBYSCORE', indexKey, '-inf', `(${now}`);
+      await client.command('EXPIRE', indexKey, INDEX_KEY_TTL_SECONDS);
+      metrics.prunes += 1;
+    }
   } catch {
     metrics.touch_failures += 1;
     touchedAt.delete(key);
   }
+}
+
+/** At most one prune per workspace per interval, decided locally (cheap). */
+function shouldPrune(workspaceId: string, now: number): boolean {
+  const last = prunedAt.get(workspaceId);
+  if (last && now - last < PRUNE_INTERVAL_MS) return false;
+  if (prunedAt.size >= PRUNE_MAP_MAX) prunedAt.clear();
+  prunedAt.set(workspaceId, now);
+  return true;
 }
 
 /** Drop a session from the index (explicit widget teardown). Best effort. */
@@ -213,8 +249,12 @@ export async function listVisitorCandidates(
     try {
       const client = getRedisClient(url);
       const key = candidateIndexKey(workspaceId);
-      // Prune expired leases first, then read the live window.
-      await client.command('ZREMRANGEBYSCORE', key, '-inf', `(${now}`);
+      // Reads still prune (bounded by the write-path GC above, so this is
+      // never the huge one-off sweep it used to be).
+      if (shouldPrune(workspaceId, now)) {
+        await client.command('ZREMRANGEBYSCORE', key, '-inf', `(${now}`);
+        metrics.prunes += 1;
+      }
       const raw = await client.command(
         'ZRANGEBYSCORE', key, String(now), '+inf', 'LIMIT', 0, cap,
       );

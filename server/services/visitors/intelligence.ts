@@ -223,25 +223,49 @@ export async function listVisitorIntelligence(
     return [];
   }
 
-  const allRows: any[] = [...(rows ?? [])];
+  const durableRows: any[] = [...(rows ?? [])];
 
   // Pull the durable rows for indexed sessions the recency window missed. This
   // read is bounded by the index page (≤ limit ids), never by the workspace.
-  const known = new Set(allRows.map((r) => String(r.visitor_session_id)));
-  const missing = index.session_ids.filter((id) => id && !known.has(id)).slice(0, limit);
+  const durableById = new Map<string, any>();
+  for (const r of durableRows) durableById.set(String(r.visitor_session_id), r);
+  const missing = index.session_ids.filter((id) => id && !durableById.has(id)).slice(0, limit);
   if (missing.length) {
     const { data: extra } = await sb
       .from('visitor_presence')
       .select(PRESENCE_SELECT)
       .eq('workspace_id', workspaceId)
       .in('visitor_session_id', missing);
-    for (const row of extra ?? []) {
-      if (allRows.length >= limit) break;
-      allRows.push(row);
-    }
+    for (const row of extra ?? []) durableById.set(String(row.visitor_session_id), row);
+  }
+
+  // TRUE UNION, then one final limit.
+  //
+  // The two sets are merged BEFORE truncation and live candidates win the
+  // available slots: a visitor holding a presence lease for 8 hours is exactly
+  // the row this page exists to show, and must not be pushed out by `limit`
+  // rows of merely-recent durable activity. Recent durable rows then fill
+  // whatever capacity is left, ordered by recency (the query already sorted
+  // them).
+  const allRows: any[] = [];
+  const taken = new Set<string>();
+  for (const id of index.session_ids) {
+    if (allRows.length >= limit) break;
+    const row = durableById.get(id);
+    if (!row || taken.has(id)) continue;
+    taken.add(id);
+    allRows.push(row);
+  }
+  for (const row of durableRows) {
+    if (allRows.length >= limit) break;
+    const id = String(row.visitor_session_id);
+    if (taken.has(id)) continue;
+    taken.add(id);
+    allRows.push(row);
   }
 
   const sessionIds = allRows.map(r => (r.visitor_sessions as any).id).filter(Boolean);
+
   // Bounded realtime overlay: one batched presence_stats read over exactly
   // these candidates.
   const presence = await resolveVisitorPresenceForSessions(config, workspaceId, sessionIds);

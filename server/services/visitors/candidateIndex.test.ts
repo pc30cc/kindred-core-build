@@ -188,7 +188,30 @@ describe('candidate index — Redis backend (Mode 2/3)', () => {
     expect(result.backend).toBe('redis');
     expect(result.authoritative).toBe(true);
     expect(result.session_ids).toEqual([S1]);
+  });
+
+  it('garbage-collects on the WRITE path, so an unread index cannot grow forever', async () => {
+    const now = Date.now();
+    await touchVisitorCandidate(config, WS, S1, now + 120_000, now);
+    await touchVisitorCandidate(config, WS, S2, now - 60_000, now);
+    // Still there: prune is throttled per workspace, not skipped.
+    expect(redis.zset.get(candidateIndexKey(WS))?.has(S2)).toBe(true);
+
+    // A renewal after the prune interval sweeps expired members with no
+    // operator read involved at all.
+    const later = now + 60_000;
+    await touchVisitorCandidate(config, WS, S1, later + 120_000, later);
     expect(redis.zset.get(candidateIndexKey(WS))?.has(S2)).toBe(false);
+    expect(getCandidateIndexMetrics().prunes).toBeGreaterThanOrEqual(1);
+    expect(supabaseCalls).toEqual([]);
+  });
+
+  it('costs one Redis command per steady-state renewal', async () => {
+    const now = Date.now();
+    await touchVisitorCandidate(config, WS, S1, now + 120_000, now); // first: ZADD+GC
+    redis.commands.length = 0;
+    await touchVisitorCandidate(config, WS, S2, now + 120_000, now + 1_000);
+    expect(redis.commands.map((c) => c[0].toUpperCase())).toEqual(['ZADD']);
   });
 
   it('de-dupes repeated negotiations instead of re-writing', async () => {

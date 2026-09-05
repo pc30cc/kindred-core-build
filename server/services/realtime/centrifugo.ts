@@ -296,7 +296,90 @@ export class CentrifugoDriver {
     }
   }
 
+  /**
+   * Bounded presence read for MANY channels in ONE request.
+   *
+   * Uses Centrifugo's `batch` API with `presence_stats`, which returns only
+   * `num_clients` / `num_users` per channel — no member payload. That is the
+   * property that makes visitor presence scale: the response size is
+   * proportional to the number of channels ASKED FOR, never to how many
+   * visitors the workspace has online.
+   *
+   * Returns a map channel → client count. Channels the reply could not answer
+   * are simply absent (a per-channel error is not an outage). `null` means the
+   * whole request failed and the caller must fall back to the database —
+   * "unreadable" is never "nobody is online".
+   */
+  async presenceStatsBatch(channels: string[]): Promise<Map<string, number> | null> {
+    if (!this.cfg.api_url || !this.cfg.api_key) return null;
+    const list = [...new Set(channels)].filter(Boolean);
+    if (!list.length) return new Map();
+
+    const commands = list.map((channel) => ({ presence_stats: { channel } }));
+    const headers = { 'Content-Type': 'application/json', 'X-API-Key': this.cfg.api_key };
+    const base = this.cfg.api_url.replace(/\/+$/, '');
+
+    const parseReplies = (json: unknown): Map<string, number> | null => {
+      if (!isCentrifugoApiResponse(json)) return null;
+      const replies = (json as { replies?: unknown[] }).replies
+        ?? ((json.result as { replies?: unknown[] } | undefined)?.replies);
+      if (!Array.isArray(replies) || replies.length !== list.length) return null;
+      const out = new Map<string, number>();
+      replies.forEach((reply, i) => {
+        if (!reply || typeof reply !== 'object') return;
+        const r = reply as Record<string, any>;
+        if (r.error) return; // per-channel error → unknown, not offline
+        const stats = r.presence_stats ?? r.result?.presence_stats ?? r.result;
+        const n = stats && typeof stats.num_clients === 'number' ? stats.num_clients : undefined;
+        if (typeof n === 'number') out.set(list[i], n);
+      });
+      return out;
+    };
+
+    const post = async (url: string, body: unknown): Promise<unknown | null> => {
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 4000);
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal: ctrl.signal,
+        });
+        if (!res.ok) return null;
+        return await res.json().catch(() => null);
+      } catch {
+        return null;
+      } finally {
+        clearTimeout(timeout);
+      }
+    };
+
+    // 1) Native batch endpoint (Centrifugo v5+): POST {api_base}/batch
+    const native = parseReplies(await post(`${base}/batch`, { commands, parallel: true }));
+    if (native) return native;
+
+    // 2) Legacy single-endpoint form ({method, params}) for older deployments.
+    const legacy = parseReplies(
+      await post(base, { method: 'batch', params: { commands, parallel: true } }),
+    );
+    if (legacy) return legacy;
+
+    // 3) Last resort: sequential per-channel stats, bounded so a broken batch
+    //    endpoint can never turn one page read into hundreds of round trips.
+    if (list.length > 8) return null;
+    const out = new Map<string, number>();
+    for (const channel of list) {
+      const json = await post(base, { method: 'presence_stats', params: { channel } });
+      if (!isCentrifugoApiResponse(json) || json.error) continue;
+      const stats = json.result as { num_clients?: number } | undefined;
+      if (typeof stats?.num_clients === 'number') out.set(channel, stats.num_clients);
+    }
+    return out;
+  }
+
   /** Server-to-server publish (used by backend to broadcast new messages, optional). */
+
 
   async publish(channel: string, data: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
     if (!this.cfg.api_url || !this.cfg.api_key) {

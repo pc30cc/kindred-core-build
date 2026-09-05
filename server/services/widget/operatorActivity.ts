@@ -140,7 +140,7 @@ export async function publishOperatorActivity(
   try {
     const client = getRedisClient(url);
     const indexKey = operatorActivityKey(workspaceId);
-    await client.command('ZADD', indexKey, Math.floor(at), userId);
+    await monotonicZAdd(client, indexKey, Math.floor(at), userId);
     metrics.writes += 1;
     const prunedAt = lastPruneAt.get(workspaceId) || 0;
     if (at - prunedAt >= PRUNE_INTERVAL_MS) {

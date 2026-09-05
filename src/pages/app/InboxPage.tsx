@@ -1077,7 +1077,6 @@ export default function InboxPage() {
       : 'bg-secondary text-muted-foreground',
   );
 
-  const filterTabsNode = null;
 
 
   /* Secondary views sit on the bottom edge of the top bar as folder tabs
@@ -1299,7 +1298,6 @@ export default function InboxPage() {
     return (
       <div className="flex h-full flex-col" dir={dir}>
         {topBarSummary}
-        <div className="px-3 py-2 border-b border-border bg-card">{filterTabsNode}</div>
         <div className="flex-1 min-h-0 flex"><TeamChatPanel /></div>
       </div>
     );
@@ -1411,7 +1409,6 @@ export default function InboxPage() {
           </div>
 
           {/* Filter tabs (status + AI + extra chips) — live inside the list */}
-          {filterTabsNode}
 
 
           {/* Queue context line (Automated / Spam) */}

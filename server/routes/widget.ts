@@ -2517,12 +2517,18 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
     if (action === 'heartbeat' && workspaceId) {
       const now = new Date().toISOString();
 
-      // Realtime-first presence: while Centrifugo presence is authoritative,
-      // liveness is proven by the widget's live subscription, so the heartbeat
-      // performs NO pure-liveness write. Only durable business facts (a real
-      // navigation, page-view history) still reach PostgreSQL.
+      // Realtime-first presence: liveness is proven by the widget's own live
+      // subscription, evidenced per session by a signed presence lease. Only
+      // then does the heartbeat skip its write — a workspace-wide flag would
+      // silently drop visitors whose socket never opened. Durable business
+      // facts (a real navigation, page-view history) always reach PostgreSQL.
       const presenceMode = await resolveVisitorPresenceMode(config, workspaceId);
-      const realtimePresence = presenceMode === 'realtime';
+      const sessionOwnedByRealtime =
+        presenceMode === 'realtime' &&
+        !!session_id &&
+        verifyVisitorPresenceLease(presence_lease, workspaceId, session_id);
+      const realtimePresence = sessionOwnedByRealtime;
+
 
       if (conversation_id) {
         const ownership = await verifyConversationOwnership(config, conversation_id, workspaceId, visitor_id, session_id, req);

@@ -132,7 +132,9 @@ export async function resolveRecipients(
 
   const { data: prefRows } = await sb
     .from('user_notification_prefs')
-    .select('user_id, disable_all, play_sound, push_scope, push_preview, push_internal_notes')
+    .select(
+      'user_id, disable_all, play_sound, push_scope, push_preview, push_internal_notes, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone',
+    )
     .in('user_id', eligible)
     .is('workspace_id', null);
 

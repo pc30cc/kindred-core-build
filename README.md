@@ -9,7 +9,7 @@
 
 ---
 
-## What this is
+## What this is it
 
 Kindred Core is a self-hosted, provider-driven customer engagement platform.
 It bundles, in a single codebase:
@@ -32,14 +32,14 @@ all server-side logic runs in the project's own Express server.
 
 ## Core product surfaces
 
-| Surface | Route prefix | Purpose |
-|---|---|---|
-| Public help center | `/help/:locale/...` | Knowledge-base articles, search |
-| Auth | `/auth/...` | Login, signup, invite, password reset, email verification |
-| Workspace app | `/app/w/:slug/...` | Operator inbox, contacts, visitors, KB, widget config, call center (the `:slug` param resolves to a workspace) |
-| Platform admin | `/admin/...` | Super-admin dashboard: users, workspaces, providers, billing, plans, observability, branding, domains, audit logs, security, voice/video, AI agent control, widget settings, feature flags |
-| Embeddable chat widget | `/widget/loader.js` + hashed runtime | Customer-site visitor widget |
-| Embeddable call widget | `/call-widget/l.js` + runtime | Standalone voice/video widget |
+| Surface                | Route prefix                         | Purpose                                                                                                                                                                                    |
+| ---------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Public help center     | `/help/:locale/...`                  | Knowledge-base articles, search                                                                                                                                                            |
+| Auth                   | `/auth/...`                          | Login, signup, invite, password reset, email verification                                                                                                                                  |
+| Workspace app          | `/app/w/:slug/...`                   | Operator inbox, contacts, visitors, KB, widget config, call center (the `:slug` param resolves to a workspace)                                                                             |
+| Platform admin         | `/admin/...`                         | Super-admin dashboard: users, workspaces, providers, billing, plans, observability, branding, domains, audit logs, security, voice/video, AI agent control, widget settings, feature flags |
+| Embeddable chat widget | `/widget/loader.js` + hashed runtime | Customer-site visitor widget                                                                                                                                                               |
+| Embeddable call widget | `/call-widget/l.js` + runtime        | Standalone voice/video widget                                                                                                                                                              |
 
 The full route table lives in `src/App.tsx`.
 
@@ -104,14 +104,14 @@ upstream hops.
 Workers ship as **one** image (`Dockerfile.worker`) with multiple kinds
 selected via `WORKER_KIND`:
 
-| `WORKER_KIND` | Source | Purpose |
-|---|---|---|
-| `intelligence` (default) | `worker/intelligence/` | AI knowledge-base builder (`public.ai_kb_jobs`) |
-| `source-sync` | `worker/source-sync/` | Data Hub source sync (`public.ai_source_sync_jobs`) |
-| `file-ingest` | `worker/source-sync/` | Alias of `source-sync` (production isolation) |
-| `regression-runner` | `worker/regression-runner/` | AI agent regression batches/schedules |
-| `seo-crawler` | `worker/seo-crawler/` | SEO / Website Audit crawler (`public.background_jobs`, `job_type='seo_crawl'`) — see `docs/SEO_AUDIT.md` |
-| `all` | all of the above | Dev / small deploys only |
+| `WORKER_KIND`            | Source                      | Purpose                                                                                                  |
+| ------------------------ | --------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `intelligence` (default) | `worker/intelligence/`      | AI knowledge-base builder (`public.ai_kb_jobs`)                                                          |
+| `source-sync`            | `worker/source-sync/`       | Data Hub source sync (`public.ai_source_sync_jobs`)                                                      |
+| `file-ingest`            | `worker/source-sync/`       | Alias of `source-sync` (production isolation)                                                            |
+| `regression-runner`      | `worker/regression-runner/` | AI agent regression batches/schedules                                                                    |
+| `seo-crawler`            | `worker/seo-crawler/`       | SEO / Website Audit crawler (`public.background_jobs`, `job_type='seo_crawl'`) — see `docs/SEO_AUDIT.md` |
+| `all`                    | all of the above            | Dev / small deploys only                                                                                 |
 
 Operators run one Coolify service per kind for isolation. The legacy
 entry `worker/intelligence/index.ts` is preserved and exposed as
@@ -140,13 +140,13 @@ See `docs/WORKERS_DEPLOYMENT.md` and `docs/AI_KB_WORKER_DEPLOYMENT.md`.
 
 ### Frontend (`.env` at repo root, see `.env.example`)
 
-| Variable | Required | Notes |
-|---|---|---|
-| `VITE_SUPABASE_URL` | yes | Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | yes | Supabase anon (publishable) key |
-| `VITE_API_BASE_URL` | yes | URL of the Express backend |
-| `VITE_WIDGET_LOADER_BASE_URL` | no | Used **only** for the in-panel preview snippet shown on the login page when widget assets are served from a different origin |
-| `VITE_WIDGET_ASSET_BASE_URL` | no | Same as above for hashed runtime URLs |
+| Variable                      | Required | Notes                                                                                                                        |
+| ----------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `VITE_SUPABASE_URL`           | yes      | Supabase project URL                                                                                                         |
+| `VITE_SUPABASE_ANON_KEY`      | yes      | Supabase anon (publishable) key                                                                                              |
+| `VITE_API_BASE_URL`           | yes      | URL of the Express backend                                                                                                   |
+| `VITE_WIDGET_LOADER_BASE_URL` | no       | Used **only** for the in-panel preview snippet shown on the login page when widget assets are served from a different origin |
+| `VITE_WIDGET_ASSET_BASE_URL`  | no       | Same as above for hashed runtime URLs                                                                                        |
 
 Vite env vars are **build-time** — the frontend image must be rebuilt
 after changing them.
@@ -172,7 +172,7 @@ Optional / common:
 
 Realtime (Centrifugo) connection details (`ws_url`, `api_url`,
 `api_key`, `token_hmac_secret`) are **not** in `.env` — they are
-configured at runtime via *Super Admin → Providers → Realtime* and
+configured at runtime via _Super Admin → Providers → Realtime_ and
 stored in the database. Do not duplicate them in env files.
 
 Worker-only env: `WORKER_KIND` (see Worker section).
@@ -321,7 +321,7 @@ and runtime bundle. They do not share runtime code at the bundle level.
    expected hash and the runtime present on the CDN produces silent
    "old style sometimes appears" bugs. The build script and the
    manifest reader fail loudly on purpose; deploys must rebuild
-   *both* frontend and (if dependent on a remote manifest) the backend
+   _both_ frontend and (if dependent on a remote manifest) the backend
    manifest cache.
 2. **Service-role key isolation.** `SUPABASE_SERVICE_ROLE_KEY` must
    never reach the browser. The frontend uses the publishable / anon

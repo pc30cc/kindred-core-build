@@ -73,12 +73,13 @@ export function MobileLayout() {
 
       {!isDetail && (
         <nav
-          className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-3"
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-2.5"
           style={{
-            paddingBottom: 'calc(max(6px, env(safe-area-inset-bottom) - 10px) + var(--kb-inset, 0px))',
+            paddingBottom: 'calc(max(2px, env(safe-area-inset-bottom) - 18px) + var(--kb-inset, 0px))',
           }}
         >
-          <div className="pointer-events-auto relative mx-auto flex max-w-md items-stretch rounded-[26px] border border-border/60 bg-card/85 p-1.5 shadow-[0_10px_30px_-12px_hsl(220_40%_20%/0.45)] backdrop-blur-2xl">
+          <div className="pointer-events-auto relative mx-auto flex max-w-md items-stretch rounded-[24px] border border-border/60 bg-card/85 p-1 shadow-[0_10px_30px_-12px_hsl(220_40%_20%/0.45)] backdrop-blur-2xl">
+
             {/* The animated bubble slides between tabs. */}
             <span
               className="absolute inset-y-1.5 rounded-[20px] bg-primary/12 transition-[inset-inline-start] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"

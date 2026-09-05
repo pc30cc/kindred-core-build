@@ -60,8 +60,13 @@ import {
 import {
   resolveVisitorPresenceMode,
   getVisitorPresenceMetrics,
-  touchVisitorPresenceCandidacy,
 } from '../services/visitors/presenceSource.js';
+
+import {
+  touchVisitorCandidate,
+  getCandidateIndexMetrics,
+} from '../services/visitors/candidateIndex.js';
+
 
 import { issueVisitorPresenceLease } from '../services/visitors/presenceLease.js';
 

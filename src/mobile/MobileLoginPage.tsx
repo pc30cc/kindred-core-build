@@ -70,13 +70,13 @@ export default function MobileLoginPage() {
   };
 
   const field =
-    'flex-1 min-w-0 h-14 bg-transparent border-0 outline-none text-[17px] text-foreground placeholder:text-muted-foreground/60 px-1';
+    'flex-1 min-w-0 h-[52px] bg-transparent border-0 outline-none text-[17px] text-foreground placeholder:text-muted-foreground/60 px-1';
 
   return (
-    <div dir={dir} className="h-[100dvh] bg-background flex flex-col">
-      <div className="flex-1 overflow-y-auto px-6 pb-8 pt-[calc(env(safe-area-inset-top)+2rem)] pb-[calc(env(safe-area-inset-bottom)+2rem)]">
+    <div dir={dir} className="h-[100dvh] bg-white flex flex-col overflow-hidden">
+      <div className="flex-1 overflow-y-auto px-6 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-4">
         <div className="mx-auto w-full max-w-[420px]">
-          <div className="flex flex-col items-center gap-4 pt-6 pb-10">
+          <div className="flex flex-col items-center gap-3 pt-2 pb-6">
             <div className="h-16 w-16 rounded-[1.25rem] bg-primary flex items-center justify-center shadow-elegant">
               <span className="text-2xl font-black text-primary-foreground">
                 {brandName.charAt(0)}
@@ -91,7 +91,7 @@ export default function MobileLoginPage() {
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
-            <div className="rounded-2xl border border-border bg-card overflow-hidden divide-y divide-border">
+            <div className="rounded-2xl border border-border bg-white overflow-hidden divide-y divide-border">
               <div className="flex items-center px-4" dir="ltr">
                 <Mail className="h-[18px] w-[18px] text-muted-foreground shrink-0" />
                 <input
@@ -159,7 +159,7 @@ export default function MobileLoginPage() {
         </div>
       </div>
 
-      <div className="px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-2">
+      <div className="px-6 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-0">
         <div className="mx-auto w-full max-w-[420px] flex items-center justify-center gap-2">
           {LANGUAGES.map((lang) => (
             <button

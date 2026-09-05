@@ -418,32 +418,37 @@ export default function MobileConversationPage() {
               placeholder={t('inbox.typeMessage')}
               className="max-h-32 min-h-[44px] flex-1 resize-none rounded-[22px] bg-muted/70 px-4 py-2.5 text-[16px] text-foreground outline-none placeholder:text-muted-foreground focus:bg-muted"
             />
-            {draft.trim() || pending ? (
-              <button
-                type="button"
-                onClick={handleSend}
-                disabled={sendMessage.isPending || !!pending?.uploading}
-                aria-label={t('inbox.send')}
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md transition-transform active:scale-90 disabled:opacity-40"
-              >
-                {sendMessage.isPending ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <Send className="h-5 w-5 rtl:-scale-x-100" />
-                )}
-              </button>
-            ) : (
-              recorder.supported && (
-                <button
-                  type="button"
-                  onClick={toggleRecording}
-                  className="flex h-11 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground active:scale-90"
-                  aria-label="Record voice message"
-                >
-                  <Mic className="h-[22px] w-[22px]" />
-                </button>
-              )
-            )}
+            <button
+              type="button"
+              onClick={toggleRecording}
+              className="flex h-11 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-transform active:scale-90"
+              aria-label="Record voice message"
+            >
+              <Mic className="h-[22px] w-[22px]" />
+            </button>
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={
+                sendMessage.isPending ||
+                !!pending?.uploading ||
+                (!draft.trim() && !pending)
+              }
+              aria-label={t('inbox.send')}
+              className={cn(
+                'flex h-11 w-11 shrink-0 items-center justify-center rounded-full shadow-md transition-all active:scale-90',
+                draft.trim() || pending
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground shadow-none',
+              )}
+            >
+              {sendMessage.isPending ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <Send className="h-5 w-5 rtl:-scale-x-100" />
+              )}
+            </button>
+
           </div>
         )}
       </div>

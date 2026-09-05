@@ -124,9 +124,9 @@ Redis remains realtime infrastructure, never an application database.
 
 * The cross-node integration test has not been executed in this environment
   (no `redis-server`/`centrifugo` binaries available).
-* `server/routes/visitors.ts` `/track`, `/heartbeat`, `/disconnect` and
-  `/network/batch` still write `visitor_presence` directly; they are correct in
-  database mode and harmless in realtime mode, but they have not yet been put
-  behind the write-discipline gate.
+* `server/routes/visitors.ts` `/track`, `/disconnect` and `/network/batch` still
+  write `visitor_presence` directly. These are lifecycle/business writes rather
+  than periodic liveness ticks, so they do not scale with connection time, but
+  they are not yet routed through the write-discipline gate (`/heartbeat` is).
 * Presence-shard reads are cached per workspace; a very large workspace with
   many operator viewers will still issue up to 16 admin calls per cache window.

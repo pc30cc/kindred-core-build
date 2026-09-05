@@ -66,7 +66,7 @@ export default function MobileInboxPage() {
 
   const FILTER_LABEL: Record<MobileFilter, string> = {
     open: t('inbox.open'),
-    ai: t('inbox.tabs.ai'),
+    ai: t('inbox.aiManaged'),
     resolved: t('inbox.resolved'),
   };
 
@@ -81,7 +81,7 @@ export default function MobileInboxPage() {
         <p className="mt-1 text-[13px] text-muted-foreground">
           {unreadTotal > 0
             ? `${unreadTotal} ${t('inbox.unread')}`
-            : t('inbox.allCaughtUp')}
+            : workspace?.name || ''}
         </p>
 
         {/* Search */}
@@ -90,7 +90,7 @@ export default function MobileInboxPage() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('common.search')}
+            placeholder={t('inbox.search')}
             className="h-11 w-full rounded-2xl border border-border bg-card ps-10 pe-10 text-[15px] text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/50"
           />
           {query && (

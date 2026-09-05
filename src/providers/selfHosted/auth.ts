@@ -17,6 +17,13 @@
  */
 import type { AuthProvider, AuthUser, AuthSession, SignUpParams, SignInParams } from '@/types/providers';
 import { authSignUp, API_BASE } from '@/lib/api';
+import { authFetch } from '@/lib/authFetch';
+import { isNativePlatform } from '@/lib/native';
+import {
+  clearMobileSessionToken,
+  hydrateMobileSession,
+  setMobileSessionToken,
+} from '@/lib/mobileSession';
 
 interface BackendUser {
   id: string;
@@ -51,9 +58,8 @@ function notify(session: AuthSession | null) {
 }
 
 async function postJson(path: string, body: unknown): Promise<{ ok: boolean; status: number; json: any }> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await authFetch(`${API_BASE}${path}`, {
     method: 'POST',
-    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
@@ -80,12 +86,23 @@ export const selfHostedAuthProvider: AuthProvider = {
 
   async signIn({ email, password }: SignInParams) {
     try {
-      const { ok, json } = await postJson('/api/auth/login', { email, password });
+      // Native clients ask the SAME login endpoint for a Bearer-transport
+      // session; the server runs the identical security flow and returns the
+      // opaque token in the body instead of a cookie.
+      const native = isNativePlatform();
+      const { ok, json } = await postJson('/api/auth/login', {
+        email,
+        password,
+        ...(native ? { client: 'mobile' as const } : {}),
+      });
       if (!ok) {
         const message = json?.error || 'Login failed';
         const err = new Error(message) as Error & { passwordSetupRequired?: boolean };
         if (json?.passwordSetupRequired) err.passwordSetupRequired = true;
         return { session: null, error: err };
+      }
+      if (native && typeof json?.sessionToken === 'string') {
+        await setMobileSessionToken(json.sessionToken);
       }
       const session = mapSession(json.user);
       notify(session);
@@ -111,7 +128,7 @@ export const selfHostedAuthProvider: AuthProvider = {
     let status: number;
     let json: any;
     try {
-      const res = await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', credentials: 'include' });
+      const res = await authFetch(`${API_BASE}/api/auth/logout`, { method: 'POST' });
       ok = res.ok;
       status = res.status;
       json = await res.json().catch(() => ({}));
@@ -125,16 +142,21 @@ export const selfHostedAuthProvider: AuthProvider = {
       return { error: new Error(message) };
     }
 
+    // Only a CONFIRMED server-side revocation clears the Keychain token —
+    // never a network error or timeout.
+    await clearMobileSessionToken();
     notify(null);
     return { error: null };
   },
 
   async getSession() {
     try {
-      const res = await fetch(`${API_BASE}/api/auth/session`, {
-        credentials: 'include',
-        cache: 'no-store',
-      });
+      // Native: make sure the Keychain token is loaded before the first
+      // authenticated request of the launch.
+      await hydrateMobileSession();
+      const res = await authFetch(`${API_BASE}/api/auth/session`, { cache: 'no-store' });
+      // A transport/HTTP failure is NOT a logout: the stored token stays put
+      // and the next attempt (or a later app launch) can succeed.
       if (!res.ok) return null;
       const body = await res.json();
       return mapSession(body?.user);

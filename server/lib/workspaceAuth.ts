@@ -18,7 +18,7 @@
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
-import { validateSessionToken, verifyOriginForMutation, SESSION_COOKIE_NAME } from '../services/auth/sessions.js';
+import { verifyOriginForMutation, resolveRequestSession } from '../services/auth/sessions.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -75,18 +75,32 @@ export function serverConfigOf(req: any): ServerConfig {
  */
 export async function requireUser(req: any, res: any): Promise<string | null> {
   const config = serverConfigOf(req);
-  const token = req.cookies?.[SESSION_COOKIE_NAME];
-  const session = await validateSessionToken(config, token);
+  // Accepts BOTH first-party transports for the SAME opaque session token:
+  // the `gs_session` cookie (web) and `Authorization: Bearer <token>`
+  // (Capacitor native). Both go through the one `validateSessionToken`, so
+  // expiry, revocation and logout-all behave identically.
+  const session = await resolveRequestSession(config, req);
   if (!session) {
     res.status(401).json({ error: 'Not authenticated' });
     return null;
   }
-  if (MUTATING_METHODS.has(req.method) && !verifyOriginForMutation(req, config.corsOrigins)) {
+  // CSRF is a browser-cookie problem: it exists because a browser attaches
+  // the cookie automatically to a cross-site request. A Bearer credential
+  // is never attached automatically by anything, so applying the Origin
+  // check to native requests would reject legitimate app traffic (which
+  // sends `Origin: capacitor://localhost`) while protecting nothing. The
+  // cookie path keeps the exact same check it had before.
+  if (
+    session.transport === 'cookie' &&
+    MUTATING_METHODS.has(req.method) &&
+    !verifyOriginForMutation(req, config.corsOrigins)
+  ) {
     res.status(403).json({ error: 'Origin not allowed' });
     return null;
   }
   return session.userId;
 }
+
 
 /**
  * Authenticates the caller and verifies they may act on `workspaceId`.

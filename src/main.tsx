@@ -6,6 +6,8 @@ import { getStoredLocale, loadLocaleMessages } from "./i18n";
 import { installLocalizedDateDefaults, setAppDateLocale } from "./lib/date";
 import { CALL_VIDEO_ORIENTATION_CORRECTION_MODE } from "./features/calls/videoOrientation";
 import { applyNativeShellClasses } from "./lib/native";
+import { hydrateMobileSession } from "./lib/mobileSession";
+import { installAuthTransport } from "./lib/authFetch";
 import { applyUiPreferences, loadPlatformUiDefaults, loadUiPreferences, resolveUiPreferences } from "./lib/ui-preferences";
 
 // Native shell (iOS) gets safe-area padding; no-op on the web.
@@ -62,6 +64,11 @@ document.documentElement.lang = storedLocale;
 document.documentElement.dir = ['fa', 'ar'].includes(storedLocale) ? 'rtl' : 'ltr';
 
 async function bootstrap() {
+  // Native only: load the Keychain session token and install the shared
+  // Bearer transport BEFORE the first authenticated request. No-op on web.
+  await hydrateMobileSession();
+  installAuthTransport();
+
   const initialTranslations = await loadLocaleMessages(storedLocale);
 
   const root = document.getElementById("root")!;

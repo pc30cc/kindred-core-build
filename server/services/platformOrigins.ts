@@ -80,11 +80,32 @@ export function allowedOrigins(config: ServerConfig): string[] {
   return Array.from(new Set([...staticOrigins(config), ...cache]));
 }
 
+/**
+ * Origins of the first-party NATIVE shells (Capacitor iOS/Android). The
+ * bundled app serves its own assets from `capacitor://localhost`, so every
+ * API call it makes is cross-origin and needs CORS headers.
+ *
+ * This is CORS only, and deliberately narrow:
+ *  - it is NOT added to `config.corsOrigins`, so `verifyOriginForMutation`
+ *    (the cookie-CSRF check) is completely unaffected — a browser page can
+ *    never present one of these origins anyway;
+ *  - native sessions authenticate with `Authorization: Bearer`, not with
+ *    the `gs_session` cookie, so allowing these origins grants no
+ *    cookie-riding capability to anyone.
+ */
+const NATIVE_APP_ORIGINS = new Set(['capacitor://localhost', 'ionic://localhost']);
+
+export function isNativeAppOrigin(origin: unknown): boolean {
+  return typeof origin === 'string' && NATIVE_APP_ORIGINS.has(origin.trim().toLowerCase());
+}
+
 export function isAllowedOrigin(config: ServerConfig, origin: string): boolean {
+  if (isNativeAppOrigin(origin)) return true;
   const normalized = toOrigin(origin);
   if (!normalized) return false;
   return allowedOrigins(config).includes(normalized);
 }
+
 
 /** Warm the cache at boot so the first cross-origin request already matches. */
 export function primePlatformOrigins(config: ServerConfig): void {

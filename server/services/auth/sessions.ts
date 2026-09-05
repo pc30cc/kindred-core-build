@@ -27,6 +27,7 @@
 import crypto from 'crypto';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { readSessionToken } from '../../lib/sessionTransport.js';
 
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 export const SESSION_COOKIE_NAME = 'gs_session';
@@ -319,17 +320,10 @@ export function getRequestSessionToken(req: {
   headers?: Record<string, unknown>;
   cookies?: Record<string, unknown>;
 }): { token: string | null; transport: SessionTransport } {
-  const rawAuth = req.headers?.authorization ?? (req.headers as any)?.Authorization;
-  if (typeof rawAuth === 'string') {
-    const match = /^Bearer\s+(.+)$/i.exec(rawAuth.trim());
-    const bearer = match?.[1]?.trim();
-    if (bearer) return { token: bearer, transport: 'bearer' };
-  }
-  const cookieToken = req.cookies?.[SESSION_COOKIE_NAME];
-  return {
-    token: typeof cookieToken === 'string' && cookieToken ? cookieToken : null,
-    transport: 'cookie',
-  };
+  // Single implementation, shared with the central resolver
+  // (server/lib/workspaceAuth.ts) and every route that reads the token
+  // directly, so cookie/Bearer handling can never drift between them.
+  return readSessionToken(req);
 }
 
 export interface ResolvedRequestSession extends ValidatedSession {

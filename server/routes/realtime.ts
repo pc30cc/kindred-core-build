@@ -1046,7 +1046,9 @@ realtimeRouter.get('/admin/visitor-presence', requireAdmin, async (req, res) => 
       batch_max: VISITOR_PRESENCE_BATCH_MAX,
 
       metrics: getVisitorPresenceMetrics(),
+      candidate_index: getCandidateIndexMetrics(),
     });
+
   } catch (err: any) {
     console.error('[realtime/admin/visitor-presence] error:', err);
     res.status(500).json({ error: 'Internal error' });

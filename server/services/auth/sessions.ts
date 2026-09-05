@@ -282,14 +282,28 @@ export async function validateSessionToken(config: ServerConfig, token: string |
   const sb = getServiceClient(config);
   const tokenHash = hashToken(token);
 
-  const { data, error } = await sb
-    .from('auth_sessions')
-    .select('id, user_id, email, expires_at, revoked_at, client_type, absolute_expires_at, last_renewed_at')
-    .eq('token_hash', tokenHash)
-    .is('revoked_at', null)
-    .maybeSingle();
+  const EXTENDED = 'id, user_id, email, expires_at, revoked_at, client_type, absolute_expires_at, last_renewed_at';
+  const BASE = 'id, user_id, email, expires_at, revoked_at';
 
-  if (error || !data) return null;
+  const read = async (columns: string) =>
+    sb
+      .from('auth_sessions')
+      .select(columns)
+      .eq('token_hash', tokenHash)
+      .is('revoked_at', null)
+      .maybeSingle();
+
+  let res = mobileColumnsAvailable === false ? await read(BASE) : await read(EXTENDED);
+  if (res.error && isMissingColumnError(res.error as { message?: string; code?: string })) {
+    // Pre-migration-135 database — validate against the columns it has,
+    // rather than logging every existing user out.
+    mobileColumnsAvailable = false;
+    res = await read(BASE);
+  }
+
+  const data = res.data as Record<string, unknown> | null;
+  if (res.error || !data) return null;
+
   const now = Date.now();
   if (new Date(data.expires_at).getTime() < now) return null;
 

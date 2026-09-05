@@ -88,6 +88,9 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),
+        // Push is native-only; keep the optional Firebase web SDK out of the
+        // web bundle (the Capacitor plugin's web fallback imports it statically).
+        "firebase/messaging": path.resolve(__dirname, "./src/lib/push/firebaseMessagingWebStub.ts"),
       },
       dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "@tanstack/react-query", "@tanstack/query-core"],
     },

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { DirectionProvider } from '@radix-ui/react-direction';
+import { isNativePlatform } from '@/lib/native';
 
 import type { Locale, Direction } from './config';
 import { DEFAULT_LOCALE, LOCALE_CONFIG, DEFAULT_FALLBACK_CHAINS } from './config';

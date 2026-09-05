@@ -2228,14 +2228,47 @@
     var owns = false;
     var attempt = 0;
     var retryTimer = null;
+    var refreshTimer = null;
     var cmdId = 1;
     var negotiating = false;
+    // Per-session lease presented on every heartbeat. While it is valid AND
+    // the subscription is open, the server performs no liveness write. It is
+    // dropped the moment ownership is lost, so a dead socket immediately hands
+    // liveness back to the database path.
+    var lease = null;
+    var leaseExpiresAt = 0;
 
     function setOwns(v) {
+      if (!v) { lease = null; leaseExpiresAt = 0; }
       if (owns === v) return;
       owns = v;
       try { onOwnershipChange(v); } catch (_) {}
     }
+
+    function clearRefresh() {
+      if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
+    }
+
+    // Tokens and the lease are short-lived. Re-negotiate ~60s before the
+    // earliest expiry so a backgrounded tab (whose timers are throttled to
+    // ~1Hz) still renews in time instead of silently dropping out of presence.
+    function scheduleRefresh(cfg) {
+      clearRefresh();
+      var soonest = Math.min(
+        cfg.expires_at || Infinity,
+        cfg.lease_expires_at || Infinity
+      );
+      if (!isFinite(soonest)) return;
+      var delay = Math.max(15000, soonest - Date.now() - 60000);
+      refreshTimer = setTimeout(function () {
+        refreshTimer = null;
+        if (closed) return;
+        // Full re-negotiation: tokens may have rotated and, in app-routed
+        // mode, another node may now be the right endpoint.
+        if (ws) { try { ws.close(); } catch (_) {} }
+      }, delay);
+    }
+
 
     function scheduleRetry(reason) {
       if (closed) return;
@@ -2277,9 +2310,15 @@
           if (frame && Object.keys(frame).length === 0) { send({}); continue; }
           if (frame && frame.subscribe) {
             attempt = 0;
+            // The lease only becomes usable once the subscription is actually
+            // open: it certifies "this session is connected", not "this
+            // session asked to connect".
+            lease = cfg.presence_lease || null;
+            leaseExpiresAt = cfg.lease_expires_at || 0;
             setOwns(true);
             log('presence subscribed', cfg.channel);
           }
+
           if (frame && frame.error) {
             setOwns(false);
           }
@@ -2287,6 +2326,7 @@
       };
       ws.onclose = function () {
         ws = null;
+        clearRefresh();
         setOwns(false);
         // Re-negotiate rather than reusing the old tokens: they may have
         // expired, and in app-routed mode another node may now be the right
@@ -2295,6 +2335,7 @@
       };
       ws.onerror = function () { setOwns(false); };
     }
+
 
     function negotiate() {
       if (closed || negotiating || ws) return;
@@ -2315,6 +2356,7 @@
             setOwns(false);
             return;
           }
+          scheduleRefresh(cfg);
           open(cfg);
         })
         .catch(function () {
@@ -2323,18 +2365,41 @@
         });
     }
 
+    // A throttled background tab can miss its refresh window entirely. On
+    // becoming visible again, verify the lease is still valid and reconnect
+    // immediately rather than waiting out the backoff.
+    function onVisible() {
+      if (closed || document.visibilityState !== 'visible') return;
+      var leaseStale = !lease || leaseExpiresAt - Date.now() < 15000;
+      if (!ws || leaseStale) {
+        if (ws) { try { ws.close(); } catch (_) {} return; }
+        if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+        attempt = 0;
+        negotiate();
+      }
+    }
+    try { document.addEventListener('visibilitychange', onVisible); } catch (_) {}
+
     negotiate();
 
     return {
       owns: function () { return owns; },
+      /** Valid only while connected; null makes the server write liveness. */
+      lease: function () {
+        if (!owns || !lease || Date.now() >= leaseExpiresAt) return null;
+        return lease;
+      },
       stop: function () {
         closed = true;
         setOwns(false);
+        clearRefresh();
+        try { document.removeEventListener('visibilitychange', onVisible); } catch (_) {}
         if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
         if (ws) { try { ws.close(); } catch (_) {} ws = null; }
       },
     };
   }
+
 
   // ─── Visitor tracking (background, identity owned by HttpOnly cookie) ───
   function startTracking(apiBase, workspaceId, token) {
@@ -2423,7 +2488,11 @@
         try { window.__gs_visitor_presence = presence; } catch (_) {}
         function doPing(tokenToUse, isRetry, force) {
           if (STOPPED) return;
-          if (presenceOwnsLiveness && !force) return;
+          // Liveness is suppressed only while we hold a VALID lease — an open
+          // socket whose lease lapsed must resume heartbeating, otherwise the
+          // visitor would silently age out of the operator's list.
+          var lease = presence.lease();
+          if (presenceOwnsLiveness && lease && !force) return;
           // Skip when the page is hidden — saves battery and avoids
           // burning rate-limit budget on backgrounded tabs.
           if (typeof document !== 'undefined' && document.hidden) return;
@@ -2437,8 +2506,10 @@
               session_id: sessionId,
               current_page: currentPage(),
               page_title: currentTitle(),
+              presence_lease: lease,
             }),
           })
+
             .then(function (r) {
               if (r.ok) { consecutiveFailures = 0; return; }
               // Token expired/invalid → refresh once and retry.

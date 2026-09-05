@@ -2,11 +2,13 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { getServiceClient } from '../supabase.js';
 import {
-  resolveVisitorPresence,
+  resolveVisitorPresenceForSessions,
   applyVisitorPresence,
   resolveVisitorPresenceMode,
   recordVisitorLivenessWrite,
 } from '../services/visitors/presenceSource.js';
+import { verifyVisitorPresenceLease } from '../services/visitors/presenceLease.js';
+
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import {
   resolveIpVisibilityPolicy,
@@ -276,6 +278,8 @@ const heartbeatSchema = z.object({
   session_id: z.string().uuid(),
   current_page: z.string().max(2048).optional(),
   status: z.enum(['online', 'idle']).optional().default('online'),
+  /** Per-session proof that a realtime presence subscription is open. */
+  presence_lease: z.string().max(512).optional(),
 });
 
 visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
@@ -286,8 +290,9 @@ visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Invalid data' });
   }
 
-  const { session_id, current_page, status, workspace_id } = parsed.data;
+  const { session_id, current_page, status, workspace_id, presence_lease } = parsed.data;
   const supabase = getServiceClient(config);
+
 
   try {
     if (workspace_id) {
@@ -308,16 +313,21 @@ visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
       .eq('id', session_id)
       .maybeSingle();
 
-    // WRITE DISCIPLINE: when Centrifugo shard membership is the authority for
-    // liveness, this legacy heartbeat must not keep touching two rows every
-    // minute per visitor. Navigation (a page change) is durable business data
-    // and is still persisted; a pure "still here" tick is dropped.
+    // WRITE DISCIPLINE: liveness is suppressed only when THIS session proves
+    // (with a signed presence lease) that its realtime subscription is open.
+    // Workspace mode alone is not enough — a visitor whose WebSocket is
+    // blocked must keep its database liveness, or operators lose it entirely.
+    // Navigation (a page change) is durable business data and always persists.
     const wsIdForMode = workspace_id ?? prevSession?.workspace_id ?? null;
     const presenceMode = wsIdForMode
       ? await resolveVisitorPresenceMode(config, wsIdForMode)
       : 'database';
+    const hasLease =
+      !!wsIdForMode && verifyVisitorPresenceLease(presence_lease, wsIdForMode, session_id);
     const pageChanged = !!current_page && current_page !== (prevSession?.current_page ?? null);
-    const writeLiveness = presenceMode === 'database' || pageChanged;
+    const realtimeOwns = presenceMode === 'realtime' && hasLease;
+    const writeLiveness = !realtimeOwns || pageChanged;
+
 
     if (writeLiveness) {
       await supabase
@@ -337,7 +347,11 @@ visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
         })
         .eq('visitor_session_id', session_id);
     }
-    recordVisitorLivenessWrite(writeLiveness ? 'wrote' : 'coalesced', presenceMode);
+    recordVisitorLivenessWrite(
+      writeLiveness ? 'wrote' : realtimeOwns ? 'skipped_lease' : 'coalesced',
+      presenceMode,
+    );
+
 
     // Append a page-view only if the URL changed (avoids spam from heartbeats).
     if (
@@ -678,7 +692,7 @@ visitorsAdminRouter.get('/presence-by-conversation', async (req: Request, res: R
     // Route the status through the CENTRAL resolver so this surface agrees
     // with the Visitors list: realtime membership first, stored row as
     // fallback, `unknown` (never a false offline) during the handoff window.
-    const resolution = await resolveVisitorPresence(config, workspaceId, [sessionId]);
+    const resolution = await resolveVisitorPresenceForSessions(config, workspaceId, [sessionId]);
     if (!presence) {
       return res.json({
         status: resolution.online.has(sessionId) ? 'online' : 'unknown',

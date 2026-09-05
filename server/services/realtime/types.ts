@@ -287,48 +287,48 @@ export function isOperatorPresenceChannel(channel: string, workspaceId: string):
   return channel === `ws:${workspaceId}:operators`;
 }
 
-/* ─────────────────── visitor live-presence channels (sharded) ─────────────── */
+/* ────────────── visitor live-presence channels (per session, v2) ────────── */
 
 /**
- * Number of visitor-presence shards per workspace.
+ * Channel scheme version. Baked into the channel name so a future change of
+ * the presence topology can roll out without two deployments disagreeing
+ * about what `vp:{workspace}:...` means.
  *
- * Visitor presence is a MEMBERSHIP fact: the widget holds a subscription to
- * its shard while the page is open, and Centrifugo's presence API over that
- * shard is the source of truth for "who is browsing right now". Sharding is
- * what keeps the read bounded: resolving N visitors costs at most
- * VISITOR_PRESENCE_SHARDS presence calls, never one call per visitor (a
- * per-visitor channel would explode into millions of channels).
+ *   v1 (removed) — `vp:{workspace}:{shard}`, 16 fixed shards. A shard read
+ *     returned EVERY member of the bucket, so resolving 50 visitors in a
+ *     workspace with 100k online visitors transferred ~100k presence records.
+ *     The cost scaled with total online visitors, not with the page size.
+ *   v2 (current) — `vp:v2:{workspace}:{session_id}`, one channel per visitor
+ *     session. Presence is read with Centrifugo's `batch` API using
+ *     `presence_stats` (counts only, no member payload), so resolving K
+ *     candidates costs ceil(K / VISITOR_PRESENCE_BATCH_MAX) HTTP requests and
+ *     a payload of K small integers — independent of how many visitors the
+ *     workspace has online.
  *
- * Changing this value re-maps existing sessions to other shards, so treat it
- * as deployment-wide config, not a per-request knob.
+ * Consequence, deliberately accepted: there is no way to ENUMERATE the online
+ * set from Centrifugo. Discovery is PostgreSQL's job (candidate window);
+ * realtime only answers "is this specific session connected right now?".
  */
-export const VISITOR_PRESENCE_SHARDS = 16;
+export const VISITOR_PRESENCE_CHANNEL_VERSION = 'v2';
 
-/** Stable, dependency-free shard for a visitor session id (FNV-1a 32-bit). */
-export function visitorPresenceShard(
-  sessionId: string,
-  shards: number = VISITOR_PRESENCE_SHARDS,
-): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < sessionId.length; i += 1) {
-    h ^= sessionId.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h % Math.max(1, shards);
-}
+/** Max presence commands per Centrifugo `batch` request. */
+export const VISITOR_PRESENCE_BATCH_MAX = 100;
+
+/** Hard cap on candidates resolved through realtime in a single read. */
+export const VISITOR_PRESENCE_MAX_CANDIDATES = 500;
 
 /**
- * Visitor-presence channel: `vp:{workspace_id}:{shard}`.
+ * Visitor-presence channel: `vp:v2:{workspace_id}:{session_id}`.
  *
- * Deliberately OUTSIDE the `ws` namespace: the `ws` namespace allows clients
- * to call the presence API for channels they are subscribed to, which on a
- * shared visitor channel would let one visitor enumerate other visitors of
- * the same workspace. The `vp` namespace must be declared with
- * `allow_presence_for_client: false` and `join_leave: false` — only the
- * backend (API key) may read it.
+ * Deliberately OUTSIDE the `ws` namespace: `ws` allows clients to call the
+ * presence API for channels they are subscribed to. The `vp` namespace must be
+ * declared with `allow_presence_for_client: false`, `join_leave: false` and
+ * `history_size: 0` — only the backend (API key) may read it. Combined with
+ * one channel per session, a visitor cannot observe any other visitor even if
+ * the namespace flags were misconfigured.
  */
-export function buildVisitorPresenceChannelName(workspaceId: string, shard: number): string {
-  return `vp:${workspaceId}:${shard}`;
+export function buildVisitorPresenceChannelName(workspaceId: string, sessionId: string): string {
+  return `vp:${VISITOR_PRESENCE_CHANNEL_VERSION}:${workspaceId}:${sessionId}`;
 }
 
 /** Presence subject for a visitor session (server-minted, never client-supplied). */
@@ -336,12 +336,27 @@ export function buildVisitorPresenceSubject(sessionId: string): string {
   return `vs_${sessionId}`;
 }
 
-/** Returns true iff `channel` is a visitor-presence shard of this workspace. */
-export function isVisitorPresenceChannel(channel: string, workspaceId: string): boolean {
-  if (!channel || !workspaceId) return false;
-  const prefix = `vp:${workspaceId}:`;
-  if (!channel.startsWith(prefix)) return false;
-  const shard = channel.slice(prefix.length);
-  if (!/^[0-9]{1,4}$/.test(shard)) return false;
-  return Number(shard) < VISITOR_PRESENCE_SHARDS;
+/** Parse a visitor-presence channel back into its parts (null when invalid). */
+export function parseVisitorPresenceChannel(
+  channel: string,
+): { workspaceId: string; sessionId: string } | null {
+  if (!channel || typeof channel !== 'string') return null;
+  const prefix = `vp:${VISITOR_PRESENCE_CHANNEL_VERSION}:`;
+  if (!channel.startsWith(prefix)) return null;
+  const rest = channel.slice(prefix.length);
+  const sep = rest.indexOf(':');
+  if (sep <= 0) return null;
+  const workspaceId = rest.slice(0, sep);
+  const sessionId = rest.slice(sep + 1);
+  if (!UUID_RE.test(workspaceId) || !UUID_RE.test(sessionId)) return null;
+  return { workspaceId, sessionId };
 }
+
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/** Returns true iff `channel` is a visitor-presence channel of this workspace. */
+export function isVisitorPresenceChannel(channel: string, workspaceId: string): boolean {
+  const parsed = parseVisitorPresenceChannel(channel);
+  return !!parsed && parsed.workspaceId === workspaceId;
+}
+

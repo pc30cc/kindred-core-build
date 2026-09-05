@@ -2,8 +2,13 @@
  * Native (iOS) conversation thread.
  *
  * Full-screen reader + composer for a single conversation: pinned nav bar,
- * day separators, chat bubbles with delivery ticks, attachments and a sticky
- * send bar that rides above the keyboard.
+ * day separators, chat bubbles with delivery ticks, attachments and a composer
+ * that sits flush on the keyboard (driven by `--kb-inset`).
+ *
+ * Composer anatomy (mirrors iMessage/Telegram):
+ *   [ attach ] [ ( mic | text field | emoji | send ) ]
+ * The mic sits at the START of the field (before the placeholder) and the send
+ * button at its END — so in RTL the send button lands in the left corner.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -24,6 +29,7 @@ import {
   MoreHorizontal,
   User,
   RotateCcw,
+  FileText,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -31,7 +37,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-
 
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
@@ -54,6 +59,15 @@ import { conversationsApi } from '@/lib/conversations-api';
 import { toast } from '@/lib/toast';
 import { MobileEmojiPicker } from './MobileEmojiPicker';
 
+interface PendingAttachment {
+  name: string;
+  id: string | null;
+  uploading: boolean;
+  /** Local object URL for image previews (revoked on clear). */
+  previewUrl: string | null;
+  isImage: boolean;
+}
+
 export default function MobileConversationPage() {
   const { t, locale, dir } = useTranslation();
   const navigate = useNavigate();
@@ -75,20 +89,29 @@ export default function MobileConversationPage() {
   const [emojiOpen, setEmojiOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const textRef = useRef<HTMLTextAreaElement>(null);
   const recorder = useVoiceRecorder();
 
   /**
    * A single pending attachment (file pick OR voice note). It is uploaded
    * through the SAME authenticated operator attachment endpoints the web
-   * inbox uses — no mobile-only upload path.
+   * inbox uses — no mobile-only upload path. The preview (with its own send
+   * button) lives at the bottom of the thread, inside the chat area.
    */
-  const [pending, setPending] = useState<
-    { name: string; id: string | null; uploading: boolean } | null
-  >(null);
+  const [pending, setPending] = useState<PendingAttachment | null>(null);
+
+  const clearPending = () => {
+    setPending((p) => {
+      if (p?.previewUrl) URL.revokeObjectURL(p.previewUrl);
+      return null;
+    });
+  };
 
   const uploadFile = async (file: File) => {
     if (!workspace?.id) return;
-    setPending({ name: file.name, id: null, uploading: true });
+    const isImage = file.type.startsWith('image/');
+    const previewUrl = isImage ? URL.createObjectURL(file) : null;
+    setPending({ name: file.name, id: null, uploading: true, previewUrl, isImage });
     try {
       const init = await conversationsApi.initAttachment({
         workspace_id: workspace.id,
@@ -100,21 +123,32 @@ export default function MobileConversationPage() {
         attachment_id: init.attachment_id,
         file,
       });
-      setPending({ name: file.name, id: init.attachment_id, uploading: false });
+      setPending((p) => (p ? { ...p, id: init.attachment_id, uploading: false } : p));
     } catch (err: any) {
-      setPending(null);
+      clearPending();
       toast.error(err?.message || 'Upload failed');
     }
   };
 
+  // Voice notes: surface permission/support failures instead of a dead button.
   const toggleRecording = async () => {
     if (recorder.recording) {
       const file = await recorder.stop();
       if (file) await uploadFile(file);
       return;
     }
+    if (!recorder.supported) {
+      toast.error(t('inbox.voiceUnsupported'));
+      return;
+    }
+    setEmojiOpen(false);
     await recorder.start();
   };
+
+  useEffect(() => {
+    if (recorder.error) toast.error(t('inbox.micDenied'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recorder.error]);
 
   useInboxRealtime({ workspaceId: workspace?.id, conversationId });
 
@@ -126,7 +160,7 @@ export default function MobileConversationPage() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: 'end' });
-  }, [messages?.length]);
+  }, [messages?.length, pending, emojiOpen]);
 
   const name = conversation
     ? contactDisplayName(conversation.contacts, conversation.id, t as any, conversation.visitor_country_name, locale)
@@ -137,19 +171,27 @@ export default function MobileConversationPage() {
     const attachmentId = pending?.id ?? null;
     if ((!body && !attachmentId) || sendMessage.isPending || pending?.uploading) return;
     setDraft('');
-    setPending(null);
+    clearPending();
     sendMessage.mutate({ body, attachmentId });
+  };
+
+  const insertEmoji = (emoji: string) => {
+    setDraft((d) => d + emoji);
+    setEmojiOpen(false);
+    // Bring the keyboard straight back so typing continues naturally.
+    window.setTimeout(() => textRef.current?.focus(), 0);
   };
 
   const BackIcon = dir === 'rtl' ? ChevronRight : ChevronLeft;
   const isResolved = conversation?.status === 'resolved' || conversation?.status === 'closed';
   const isOnline = conversation?.visitor_status === 'online' || conversation?.contacts?.is_online;
+  const canSend = !!(draft.trim() || pending?.id) && !pending?.uploading;
 
   const list = messages ?? [];
 
   return (
     <div className="fixed inset-0 z-30 flex flex-col bg-muted/40">
-      {/* Nav bar — compact avatar, centred identity, overflow actions */}
+      {/* Nav bar — back button, then the visitor profile right beside it */}
       <header className="shrink-0 flex items-center gap-1 bg-card/90 px-1.5 pt-[env(safe-area-inset-top)] pb-1.5 shadow-[0_1px_0_0_hsl(var(--border)/0.7)] backdrop-blur-2xl">
         <button
           type="button"
@@ -165,9 +207,9 @@ export default function MobileConversationPage() {
           onClick={() =>
             conversation?.contacts?.id && navigate(`/${slug}/contacts/${conversation.contacts.id}`)
           }
-          className="flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-0.5 active:opacity-70"
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-0.5 py-0.5 text-start active:opacity-70"
         >
-          <span className="relative">
+          <span className="relative shrink-0">
             <ContactAvatar
               name={conversation?.contacts?.name}
               email={conversation?.contacts?.email}
@@ -178,17 +220,19 @@ export default function MobileConversationPage() {
               <span className="absolute -bottom-0.5 -end-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-card" />
             )}
           </span>
-          <span className="max-w-full truncate text-[13px] font-semibold leading-tight text-foreground">
-            {name || '…'}
-          </span>
-          {conversation?.contacts?.email && (
-            <span
-              className="max-w-full truncate text-[10.5px] leading-tight text-muted-foreground"
-              dir="ltr"
-            >
-              {conversation.contacts.email}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[14px] font-semibold leading-tight text-foreground">
+              {name || '…'}
             </span>
-          )}
+            {conversation?.contacts?.email && (
+              <span
+                className="block truncate text-[10.5px] leading-tight text-muted-foreground"
+                dir="ltr"
+              >
+                {conversation.contacts.email}
+              </span>
+            )}
+          </span>
         </button>
 
         <DropdownMenu>
@@ -233,7 +277,6 @@ export default function MobileConversationPage() {
           </DropdownMenuContent>
         </DropdownMenu>
       </header>
-
 
       {/* Messages */}
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 py-4 space-y-1.5">
@@ -312,49 +355,76 @@ export default function MobileConversationPage() {
             );
           })
         )}
-        <div ref={bottomRef} />
-      </div>
 
-      {/* Composer — sits on the safe-area edge and rides the keyboard */}
-      <div
-        className="shrink-0 bg-card/95 px-2 pt-1.5 shadow-[0_-1px_0_0_hsl(var(--border)/0.7)] backdrop-blur-2xl"
-        style={{
-          marginBottom: 'var(--kb-inset, 0px)',
-          // When the keyboard is up the home-indicator inset is covered by the
-          // keyboard itself, so it collapses and the bar hugs the keys.
-          paddingBottom:
-            'calc(2px + max(0px, env(safe-area-inset-bottom) - var(--kb-inset, 0px)))',
-        }}
-      >
-
-        {emojiOpen && !recorder.recording && (
-          <MobileEmojiPicker
-            onPick={(emoji) => setDraft((d) => d + emoji)}
-            onClose={() => setEmojiOpen(false)}
-          />
-        )}
-
+        {/* Pending attachment: previewed as an outgoing bubble, uploading in
+            place, with its own send button. */}
         {pending && (
-          <div className="mb-2 flex items-center gap-2 rounded-2xl bg-muted/70 px-3 py-2 text-[13px]">
-            {pending.uploading ? (
-              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
-            ) : (
-              <Paperclip className="h-4 w-4 shrink-0 text-primary" />
-            )}
-            <span className="min-w-0 flex-1 truncate">{pending.name}</span>
-            <button
-              type="button"
-              onClick={() => setPending(null)}
-              className="rounded-full p-1 text-muted-foreground active:scale-90"
-              aria-label="Remove attachment"
-            >
-              <X className="h-4 w-4" />
-            </button>
+          <div className="flex justify-end pt-1">
+            <div className="relative max-w-[70%] overflow-hidden rounded-[20px] rounded-ee-[6px] bg-primary/15 p-1.5 shadow-[0_1px_2px_hsl(220_40%_20%/0.08)]">
+              {pending.isImage && pending.previewUrl ? (
+                <img
+                  src={pending.previewUrl}
+                  alt={pending.name}
+                  className="max-h-56 w-full rounded-[15px] object-cover"
+                />
+              ) : (
+                <div className="flex items-center gap-2 px-2 py-2 text-[13px]">
+                  <FileText className="h-5 w-5 shrink-0 text-primary" />
+                  <span className="min-w-0 flex-1 truncate">{pending.name}</span>
+                </div>
+              )}
+
+              {pending.uploading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-background/55 backdrop-blur-[2px]">
+                  <Loader2 className="h-7 w-7 animate-spin text-primary" />
+                </div>
+              )}
+
+              <div className="mt-1.5 flex items-center justify-between gap-2 px-1">
+                <button
+                  type="button"
+                  onClick={clearPending}
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground active:scale-90"
+                  aria-label="Remove attachment"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSend}
+                  disabled={!pending.id || sendMessage.isPending}
+                  className={cn(
+                    'flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold transition-all active:scale-95',
+                    pending.id
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-muted-foreground',
+                  )}
+                >
+                  <Send className="h-3.5 w-3.5 rtl:-scale-x-100" />
+                  {t('inbox.send')}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Composer + emoji panel — flush on the keyboard */}
+      <div
+        className="shrink-0 bg-card/95 shadow-[0_-1px_0_0_hsl(var(--border)/0.7)] backdrop-blur-2xl"
+        style={{
+          // The keyboard height lifts the whole bar; when the emoji panel is
+          // open the keyboard is dismissed and the panel takes its place.
+          marginBottom: 'var(--kb-inset, 0px)',
+          paddingBottom: emojiOpen
+            ? 'env(safe-area-inset-bottom)'
+            : 'calc(2px + max(0px, env(safe-area-inset-bottom) - var(--kb-inset, 0px)))',
+        }}
+      >
         {recorder.recording ? (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 px-2 pt-1.5">
             <button
               type="button"
               onClick={() => recorder.cancel()}
@@ -380,7 +450,7 @@ export default function MobileConversationPage() {
             </button>
           </div>
         ) : (
-          <div className="flex items-end gap-1.5">
+          <div className="flex items-end gap-1 px-2 pt-1.5">
             <input
               ref={fileRef}
               type="file"
@@ -394,63 +464,71 @@ export default function MobileConversationPage() {
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
-              className="flex h-11 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground active:scale-90"
+              className="flex h-11 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground active:scale-90"
               aria-label="Attach file"
             >
               <Paperclip className="h-[22px] w-[22px]" />
             </button>
-            <button
-              type="button"
-              onClick={() => setEmojiOpen((v) => !v)}
-              className={cn(
-                'flex h-11 w-10 shrink-0 items-center justify-center rounded-full transition-colors active:scale-90',
-                emojiOpen ? 'text-primary' : 'text-muted-foreground',
-              )}
-              aria-label="Emoji"
-            >
-              <Smile className="h-[22px] w-[22px]" />
-            </button>
-            <textarea
-              value={draft}
-              onFocus={() => setEmojiOpen(false)}
-              onChange={(e) => setDraft(e.target.value)}
-              rows={1}
-              placeholder={t('inbox.typeMessage')}
-              className="max-h-32 min-h-[44px] flex-1 resize-none rounded-[22px] bg-muted/70 px-4 py-2.5 text-[16px] text-foreground outline-none placeholder:text-muted-foreground focus:bg-muted"
-            />
-            <button
-              type="button"
-              onClick={toggleRecording}
-              className="flex h-11 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-transform active:scale-90"
-              aria-label="Record voice message"
-            >
-              <Mic className="h-[22px] w-[22px]" />
-            </button>
-            <button
-              type="button"
-              onClick={handleSend}
-              disabled={
-                sendMessage.isPending ||
-                !!pending?.uploading ||
-                (!draft.trim() && !pending)
-              }
-              aria-label={t('inbox.send')}
-              className={cn(
-                'flex h-11 w-11 shrink-0 items-center justify-center rounded-full shadow-md transition-all active:scale-90',
-                draft.trim() || pending
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground shadow-none',
-              )}
-            >
-              {sendMessage.isPending ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <Send className="h-5 w-5 rtl:-scale-x-100" />
-              )}
-            </button>
 
+            {/* Everything else lives INSIDE the message field. */}
+            <div className="flex min-h-[44px] flex-1 items-end gap-0.5 rounded-[22px] bg-muted/70 px-1.5 py-1 focus-within:bg-muted">
+              <button
+                type="button"
+                onClick={toggleRecording}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-transform active:scale-90"
+                aria-label="Record voice message"
+              >
+                <Mic className="h-[21px] w-[21px]" />
+              </button>
+
+              <textarea
+                ref={textRef}
+                value={draft}
+                onFocus={() => setEmojiOpen(false)}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={1}
+                placeholder={t('inbox.typeMessage')}
+                className="max-h-32 min-h-[36px] flex-1 resize-none bg-transparent px-1 py-2 text-[16px] leading-tight text-foreground outline-none placeholder:text-muted-foreground"
+              />
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (!emojiOpen) textRef.current?.blur();
+                  setEmojiOpen((v) => !v);
+                }}
+                className={cn(
+                  'flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors active:scale-90',
+                  emojiOpen ? 'text-primary' : 'text-muted-foreground',
+                )}
+                aria-label="Emoji"
+              >
+                <Smile className="h-[21px] w-[21px]" />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSend}
+                disabled={!canSend || sendMessage.isPending}
+                aria-label={t('inbox.send')}
+                className={cn(
+                  'flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all active:scale-90',
+                  canSend
+                    ? 'bg-primary text-primary-foreground shadow-md'
+                    : 'bg-transparent text-muted-foreground',
+                )}
+              >
+                {sendMessage.isPending ? (
+                  <Loader2 className="h-[18px] w-[18px] animate-spin" />
+                ) : (
+                  <Send className="h-[18px] w-[18px] rtl:-scale-x-100" />
+                )}
+              </button>
+            </div>
           </div>
         )}
+
+        {emojiOpen && !recorder.recording && <MobileEmojiPicker onPick={insertEmoji} />}
       </div>
     </div>
   );

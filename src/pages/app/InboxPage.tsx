@@ -174,6 +174,10 @@ export default function InboxPage() {
   const queueParam = searchParams.get('queue');
   const filterParam = searchParams.get('filter');
   const statusParam = searchParams.get('status');
+  // Channel inbox (plugin channels): presentation-only narrowing of the
+  // main list to conversations that arrived through one channel.
+  const channelParam = searchParams.get('channel');
+
 
   // queue param is constrained to the real queues. Any other value (incl.
   // the legacy `needs_human`) collapses to Main Inbox; the legacy URL is

@@ -102,6 +102,10 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
     const sb = getServiceClient(config);
 
     const now = new Date();
+    // INTERNAL activity stamp (ephemeral, in-memory, zero writes). The client
+    // only beats when the operator actually interacted, so this drives the
+    // 5-minute active/away threshold.
+    recordOperatorActivity(workspaceId, auth.userId, now.getTime());
     const bucket = floorToBucket(now);
     const memoKey = `${workspaceId}:${auth.userId}`;
 

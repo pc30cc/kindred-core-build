@@ -11,7 +11,7 @@ import {
   LogOut, Shield, ChevronDown, UserPlus, Plus,
   Zap, ShieldAlert, ExternalLink, Bell, EyeOff,
   Clock, UserCog, Building2, HelpCircle, Sparkles,
-  AlertCircle, Check, Ban, Lock,
+  AlertCircle, Check, Ban, Lock, Minus,
   PhoneCall, Radar,
   PanelLeftClose, PanelLeftOpen,
   Plug,

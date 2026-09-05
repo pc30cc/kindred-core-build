@@ -49,6 +49,10 @@ const MAX_ENTRIES = 20_000;
 const local = new Map<string, number>();
 const lastRedisWriteAt = new Map<string, number>();
 const lastPruneAt = new Map<string, number>();
+/** Latest interaction seen inside an open coalescing window (trailing edge). */
+const pending = new Map<string, number>();
+const flushTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
 
 const metrics = { writes: 0, writes_coalesced: 0, write_failures: 0, reads: 0, read_failures: 0 };
 
@@ -89,7 +93,18 @@ export function recordOperatorActivity(
   void publishOperatorActivity(workspaceId, userId, at);
 }
 
-/** Coalesced ZADD of the exact timestamp. Fire-and-forget, never throws. */
+/**
+ * Coalesced ZADD of the exact timestamp, with a TRAILING-EDGE FLUSH.
+ *
+ * Leading edge  → immediate ZADD.
+ * Inside window → remember the LATEST real interaction timestamp only.
+ * Window end    → one-shot timer writes that latest timestamp.
+ *
+ * Without the trailing flush the index would keep the first timestamp of the
+ * window, so another node could flip an operator to `away` up to
+ * ACTIVITY_WRITE_COALESCE_MS too early. The timer is one-shot per operator —
+ * not a heartbeat, and never a PostgreSQL write.
+ */
 export async function publishOperatorActivity(
   workspaceId: string,
   userId: string,
@@ -101,6 +116,23 @@ export async function publishOperatorActivity(
   const last = lastRedisWriteAt.get(k);
   if (last && at - last < ACTIVITY_WRITE_COALESCE_MS) {
     metrics.writes_coalesced += 1;
+    // Keep only the newest pending interaction and make sure exactly one
+    // flush timer is armed for this operator's window.
+    const prev = pending.get(k);
+    if (!prev || at > prev) pending.set(k, at);
+    if (!flushTimers.has(k)) {
+      const delay = Math.max(0, last + ACTIVITY_WRITE_COALESCE_MS - at);
+      const timer = setTimeout(() => {
+        flushTimers.delete(k);
+        const ts = pending.get(k);
+        pending.delete(k);
+        if (ts === undefined) return;
+        lastRedisWriteAt.delete(k); // force the flush past the coalescing gate
+        void publishOperatorActivity(workspaceId, userId, ts);
+      }, delay);
+      (timer as any).unref?.();
+      flushTimers.set(k, timer);
+    }
     return;
   }
   if (lastRedisWriteAt.size >= MAX_ENTRIES) lastRedisWriteAt.clear();
@@ -127,13 +159,34 @@ export async function publishOperatorActivity(
   }
 }
 
+/** Test/ops hook: run every armed trailing flush immediately. */
+export async function flushOperatorActivityWrites(): Promise<void> {
+  const entries = [...flushTimers.entries()];
+  for (const [k, timer] of entries) {
+    clearTimeout(timer);
+    flushTimers.delete(k);
+    const ts = pending.get(k);
+    pending.delete(k);
+    if (ts === undefined) continue;
+    const idx = k.indexOf(':');
+    const workspaceId = k.slice(0, idx);
+    const userId = k.slice(idx + 1);
+    lastRedisWriteAt.delete(k);
+    await publishOperatorActivity(workspaceId, userId, ts);
+  }
+}
+
 /** Test/ops hook. */
 export function resetOperatorActivity(): void {
   local.clear();
   lastRedisWriteAt.clear();
   lastPruneAt.clear();
+  for (const t of flushTimers.values()) clearTimeout(t);
+  flushTimers.clear();
+  pending.clear();
   for (const m of Object.keys(metrics) as (keyof typeof metrics)[]) metrics[m] = 0;
 }
+
 
 /** Exact cross-node timestamps for the operators we don't know locally. */
 async function readExactActivity(

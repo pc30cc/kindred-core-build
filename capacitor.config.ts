@@ -17,7 +17,9 @@ const config: CapacitorConfig = {
     // nav bar and tab bar stay pinned and only the composer lifts, driven by
     // the `--kb-inset` CSS variable (src/lib/keyboardInset.ts).
     Keyboard: { resize: 'none' as any, resizeOnFullScreen: false },
-    PushNotifications: { presentationOptions: ['badge', 'sound', 'alert'] },
+    // The installed plugin is @capacitor-firebase/messaging, whose config key
+    // is `FirebaseMessaging` (NOT the core `PushNotifications` plugin).
+    FirebaseMessaging: { presentationOptions: ['badge', 'sound', 'alert'] },
   },
   ios: {
     contentInset: 'always',

@@ -31,6 +31,16 @@ export const VISITOR_LIVENESS_REFRESH_MS = 120_000;
 export const VISITOR_LIVENESS_ONLINE_MS =
   VISITOR_LIVENESS_REFRESH_MS + 2 * VISITOR_HEARTBEAT_MS; // 240s
 
+/**
+ * "Navigation-only" interval, used when Centrifugo presence is authoritative:
+ * the RPC then persists a row ONLY when `current_page` actually changed and
+ * coalesces every pure-liveness tick away.
+ *
+ * Value note: `p_min_interval_ms` is a Postgres `integer`, so this must stay
+ * below 2^31-1 (Number.MAX_SAFE_INTEGER would overflow the parameter).
+ */
+export const VISITOR_LIVENESS_NAVIGATION_ONLY_MS = 2_000_000_000;
+
 /** Beyond this age the visitor is considered gone (no active close signal exists). */
 export const VISITOR_LIVENESS_OFFLINE_MS = 8 * 60_000;
 

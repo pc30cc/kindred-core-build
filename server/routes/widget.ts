@@ -51,7 +51,10 @@ import {
 import { loadPublicSmartRules, recordSmartEvent } from '../services/widget/smartEngagement.js';
 import { evaluateAiProactiveNudge } from '../services/widget/aiNudge/evaluate.js';
 import { resolveEffectiveAiNudgePolicy } from '../services/widget/aiNudge/policy.js';
-import { touchVisitorLiveness } from '../services/widget/visitorLiveness.js';
+import {
+  touchVisitorLiveness,
+  VISITOR_LIVENESS_NAVIGATION_ONLY_MS,
+} from '../services/widget/visitorLiveness.js';
 import {
   resolveVisitorPresenceMode,
   recordVisitorLivenessWrite,
@@ -2557,7 +2560,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
           sessionId: session_id,
           visitorId: visitor_id || null,
           currentPage: current_page || null,
-          minIntervalMs: realtimePresence ? Number.MAX_SAFE_INTEGER : undefined,
+          minIntervalMs: realtimePresence ? VISITOR_LIVENESS_NAVIGATION_ONLY_MS : undefined,
         });
         recordVisitorLivenessWrite(
           touch.wrote && !touch.pageChanged ? 'wrote' : 'coalesced',

@@ -28,10 +28,12 @@ interface Props {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  online: 'hsl(142, 71%, 45%)',
+  // Deliberately NOT green: map tiles are full of green landmass, so an
+  // online visitor needs a hue that never occurs on the basemap.
+  online: 'hsl(340, 85%, 52%)',
   idle: 'hsl(38, 92%, 50%)',
-  offline: 'hsl(215, 20%, 65%)',
-  unknown: 'hsl(215, 20%, 65%)',
+  offline: 'hsl(215, 20%, 55%)',
+  unknown: 'hsl(215, 20%, 55%)',
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -42,48 +44,46 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 /**
- * Build a richer Leaflet divIcon for a visitor marker.
+ * Build a Leaflet divIcon for a visitor marker.
  *
- * Why divIcon over circleMarker:
- *  - Lets us layer a CSS pulse halo for "online" without canvas tricks.
- *  - Keeps the inner dot crisp and gives us a real DOM node we can style
- *    with semantic tokens (selected ring, status colors).
- *
- * The HTML is intentionally tiny so the cluster plugin stays cheap even
- * with hundreds of markers — no images, no SVG, just two divs + box-shadow.
+ * Shape (not just color) carries the signal: a teardrop pin with a white
+ * outline and a dark drop shadow stays readable over any tile palette,
+ * including the green landmass that made the old flat dot disappear.
+ * Online pins keep a pulsing ground ring at the tip.
  */
 function buildVisitorIcon(status: MapMarker['status'], selected: boolean): L.DivIcon {
   const color = STATUS_COLORS[status] ?? STATUS_COLORS.unknown;
-  const size = selected ? 18 : 14;
-  const ring = selected
-    ? `0 0 0 3px hsl(var(--primary) / 0.55), 0 0 12px ${color}`
-    : `0 0 0 2px #fff, 0 0 8px ${color}aa`;
-  // Two staggered rings + a soft glow give the "live signal" feel without
-  // overwhelming the map. Idle uses a gentler single ring; offline is static.
-  const rings = status === 'online'
-    ? `<span class="vm-ring vm-ring-1" style="background:${color}"></span>
-       <span class="vm-ring vm-ring-2" style="background:${color}"></span>
-       <span class="vm-glow" style="background:radial-gradient(circle, ${color}66 0%, transparent 70%)"></span>`
+  const w = selected ? 32 : 26;
+  const h = Math.round(w * 1.32);
+  const pin = `
+    <svg class="vm-pin-svg" width="${w}" height="${h}" viewBox="0 0 26 34" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M13 33.2C13 33.2 24.6 20.9 24.6 13.1C24.6 6.5 19.4 1.2 13 1.2C6.6 1.2 1.4 6.5 1.4 13.1C1.4 20.9 13 33.2 13 33.2Z"
+        fill="${color}" stroke="#ffffff" stroke-width="2.2" stroke-linejoin="round"/>
+      <circle cx="13" cy="12.8" r="4.4" fill="#ffffff" fill-opacity="0.95"/>
+    </svg>`;
+  const pulse = status === 'online'
+    ? `<span class="vm-ground vm-ground-1" style="border-color:${color}"></span>
+       <span class="vm-ground vm-ground-2" style="border-color:${color}"></span>`
     : status === 'idle'
-      ? `<span class="vm-ring vm-ring-slow" style="background:${color}"></span>`
+      ? `<span class="vm-ground vm-ground-slow" style="border-color:${color}"></span>`
       : '';
-  const core = status === 'online'
-    ? `<span class="vm-core-online" style="background:${color}; box-shadow:${ring}"></span>`
-    : `<span class="visitor-dot" style="background:${color}; box-shadow:${ring}; width:${size}px; height:${size}px"></span>`;
   const html = `
-    <span class="visitor-marker-wrap" style="width:${size}px;height:${size}px">
-      ${rings}
-      ${core}
+    <span class="visitor-pin${selected ? ' is-selected' : ''}${status === 'online' ? ' is-online' : ''}"
+      style="width:${w}px;height:${h}px">
+      <span class="vm-shadow"></span>
+      ${pulse}
+      ${pin}
     </span>
   `;
   return L.divIcon({
     className: 'visitor-marker',
     html,
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
-    tooltipAnchor: [0, -size / 2 - 4],
+    iconSize: [w, h],
+    iconAnchor: [w / 2, h],
+    tooltipAnchor: [0, -h + 2],
   });
 }
+
 
 /** Trim a URL/path for the tooltip — host + first path segment is enough. */
 function shortPage(p: string | null | undefined): string {

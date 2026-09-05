@@ -23,6 +23,7 @@ import { useTranslation } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useTeamPresence, presenceMap } from '@/hooks/useTeamPresence';
+import { PRESENCE_DOT_CLASS, presenceHintKey, presenceStateOf } from '@/lib/presenceState';
 import {
   useColleagues,
   useTeamThread,
@@ -202,7 +203,13 @@ export default function TeamChatPanel() {
     send.mutate({ recipient_id: peerId, body, attachment_id: attachmentId });
   };
 
-  const isOnline = (id: string) => (pMap.get(id) as any)?.state === 'online';
+  // Internal presence: active / away / disconnected / offline. `isOnline`
+  // stays for spots that only need a boolean.
+  const stateOf = (id: string) => presenceStateOf(pMap.get(id) as any);
+  const isOnline = (id: string) => {
+    const s = stateOf(id);
+    return s === 'active' || s === 'away';
+  };
 
 
   return (

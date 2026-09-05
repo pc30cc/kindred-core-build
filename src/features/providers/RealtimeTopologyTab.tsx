@@ -57,7 +57,7 @@ export function RealtimeTopologyTab({
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
-  const [draft, setDraft] = useState({ name: '', ws_url: '', api_url: '', weight: 100 });
+  const [draft, setDraft] = useState({ name: '', node_name: '', ws_url: '', api_url: '', weight: 100 });
 
   const showNodes = mode !== 'single_memory';
 
@@ -185,8 +185,18 @@ export function RealtimeTopologyTab({
                   <div className="text-[10px] text-muted-foreground space-y-0.5">
                     <div className="truncate">WS: {n.ws_url}</div>
                     <div className="truncate">API: {n.api_url}</div>
+                    <div className="truncate">
+                      CENTRIFUGO_NAME: {n.node_name || n.id}
+                      {n.health?.node_name_matched === false && (
+                        <span className="ms-1 text-destructive">
+                          {t('admin.realtimeTopology.nodeNameMismatch')}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex flex-wrap gap-3">
-                      <span>{t('admin.realtimeTopology.connections')}: {n.health?.connections ?? '—'}</span>
+                      <span title={t('admin.realtimeTopology.connectionsHint')}>
+                        {t('admin.realtimeTopology.connections')}: {n.health?.connections ?? '—'}
+                      </span>
                       <span>{t('admin.realtimeTopology.weight')}: {n.weight}</span>
                       <span>
                         {t('admin.realtimeTopology.lastCheck')}:{' '}
@@ -226,6 +236,11 @@ export function RealtimeTopologyTab({
                 placeholder={t('admin.realtimeTopology.nodeName')} className="bg-input border-border text-foreground h-8 text-xs"
               />
               <Input
+                value={draft.node_name} onChange={(e) => setDraft({ ...draft, node_name: e.target.value })}
+                placeholder={t('admin.realtimeTopology.centrifugoNamePlaceholder')}
+                className="bg-input border-border text-foreground h-8 text-xs"
+              />
+              <Input
                 type="number" value={draft.weight}
                 onChange={(e) => setDraft({ ...draft, weight: Number(e.target.value) })}
                 placeholder={t('admin.realtimeTopology.weight')} className="bg-input border-border text-foreground h-8 text-xs"
@@ -247,11 +262,12 @@ export function RealtimeTopologyTab({
               onClick={() => run('add', async () => {
                 await realtimeAdminApi.addNode({
                   name: draft.name || undefined,
+                  node_name: draft.node_name || undefined,
                   ws_url: draft.ws_url,
                   api_url: draft.api_url,
                   weight: draft.weight,
                 });
-                setDraft({ name: '', ws_url: '', api_url: '', weight: 100 });
+                setDraft({ name: '', node_name: '', ws_url: '', api_url: '', weight: 100 });
               }, t('admin.realtimeTopology.nodeAdded'))}
             >
               <Plus className="h-3 w-3 me-1" />{t('admin.realtimeTopology.addNode')}

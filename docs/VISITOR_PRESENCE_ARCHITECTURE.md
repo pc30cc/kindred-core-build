@@ -170,8 +170,20 @@ The `channels` scan is restricted to Mode 1 on purpose: Centrifugo returns
 every matching active channel with no pagination, which is unacceptable for
 large deployments.
 
-Configuration: `VISITOR_CANDIDATE_INDEX_REDIS_URL` (falls back to
-`REALTIME_REDIS_URL` / `REDIS_URL`). When no index can answer — Mode 2/3
+Configuration: `VISITOR_CANDIDATE_INDEX_REDIS_URL`, falling back only to
+`REALTIME_REDIS_URL` (the realtime engine's own Redis, which this index is
+designed to share). A generic `REDIS_URL` is deliberately NOT accepted, so
+presence discovery can never drift into an unrelated cache/job instance.
+
+Index memory is bounded on the WRITE path: at most once per workspace per
+45 s a renewal also runs `ZREMRANGEBYSCORE key -inf now` and refreshes the
+24 h safety TTL. GC therefore does not depend on an operator opening the
+Visitors page, and the steady-state cost of a renewal stays a single `ZADD`.
+
+Discovery is a TRUE UNION: live indexed candidates and recent durable rows
+are merged BEFORE the final `limit`, with indexed candidates taking the
+slots first. A visitor silent for hours but still holding a lease cannot be
+pushed out of the page by `limit` merely-recent rows. When no index can answer — Mode 2/3
 without a Redis URL, or Redis momentarily unreachable — discovery degrades to
 the wide durable window (`CANDIDATE_WINDOW_MS`, 6h) so no visitor is lost;
 it never degrades into periodic writes.

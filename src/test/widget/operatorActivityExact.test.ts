@@ -11,12 +11,38 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const zset = new Map<string, Map<string, number>>();
 let bucketReads = 0;
 
+// Set to false to emulate a Redis/Valkey older than 6.2 (no ZADD GT).
+export let supportsGt = true;
+export const setSupportsGt = (v: boolean) => { supportsGt = v; };
+
 const redis = {
-  async command(cmd: string, key: string, a?: any, b?: any) {
+  async command(cmd: string, key: string, ...rest: any[]) {
     const set = zset.get(key) || new Map<string, number>();
     zset.set(key, set);
-    if (cmd === 'ZADD') { set.set(String(b), Number(a)); return 1; }
-    if (cmd === 'ZSCORE') { const v = set.get(String(a)); return v === undefined ? null : String(v); }
+    if (cmd === 'ZADD') {
+      const flags = rest.filter(r => typeof r === 'string' && /^(GT|LT|CH|NX|XX)$/i.test(String(r)));
+      if (flags.length && !supportsGt) throw new Error("ERR syntax error");
+      const args = rest.slice(flags.length);
+      const score = Number(args[0]);
+      const member = String(args[1]);
+      const cur = set.get(member);
+      const gt = flags.some(f => String(f).toUpperCase() === 'GT');
+      if (gt && cur !== undefined && score <= cur) return 0;
+      set.set(member, score);
+      return 1;
+    }
+    if (cmd === 'EVAL') {
+      // numkeys, key, score, member
+      const indexKey = String(rest[1]);
+      const s2 = zset.get(indexKey) || new Map<string, number>();
+      zset.set(indexKey, s2);
+      const score = Number(rest[2]);
+      const member = String(rest[3]);
+      const cur = s2.get(member);
+      if (cur === undefined || cur < score) { s2.set(member, score); return 1; }
+      return 0;
+    }
+    if (cmd === 'ZSCORE') { const v = set.get(String(rest[0])); return v === undefined ? null : String(v); }
     if (cmd === 'ZREMRANGEBYSCORE' || cmd === 'EXPIRE') return 1;
     return null;
   },
@@ -44,8 +70,10 @@ const {
   publishOperatorActivity,
   getOperatorLastActivity,
   resetOperatorActivity,
+  flushOperatorActivityWrites,
+  __evictActivityCoalesceState,
   OPERATOR_ACTIVITY_ACTIVE_MS,
-} = mod;
+} = mod as any;
 
 const T0 = Date.parse('2026-01-07T12:00:01Z');
 
@@ -53,6 +81,7 @@ describe('exact cross-node operator activity', () => {
   beforeEach(() => {
     zset.clear();
     bucketReads = 0;
+    setSupportsGt(true);
     resetOperatorActivity();
     process.env.OPERATOR_ACTIVITY_REDIS_URL = 'redis://127.0.0.1:6379';
   });
@@ -106,6 +135,7 @@ describe('trailing-edge flush of coalesced activity', () => {
   beforeEach(() => {
     zset.clear();
     bucketReads = 0;
+    setSupportsGt(true);
     resetOperatorActivity();
     process.env.OPERATOR_ACTIVITY_REDIS_URL = 'redis://127.0.0.1:6379';
   });
@@ -133,5 +163,43 @@ describe('trailing-edge flush of coalesced activity', () => {
     expect(await activeAt(OPERATOR_ACTIVITY_ACTIVE_MS)).toBe(true);
     expect(await activeAt(OPERATOR_ACTIVITY_ACTIVE_MS + 18_999)).toBe(true);
     expect(await activeAt(OPERATOR_ACTIVITY_ACTIVE_MS + 19_000)).toBe(false);
+  });
+});
+
+
+/**
+ * REGRESSION: the Redis score must be MONOTONIC.
+ *
+ * A trailing-flush timer armed before the coalescing map was evicted can fire
+ * after a newer immediate write; the older timestamp must never win.
+ */
+describe('monotonic operator activity writes', () => {
+  beforeEach(() => {
+    zset.clear();
+    resetOperatorActivity();
+    setSupportsGt(true);
+    process.env.OPERATOR_ACTIVITY_REDIS_URL = 'redis://127.0.0.1:6379';
+  });
+  afterEach(() => { delete process.env.OPERATOR_ACTIVITY_REDIS_URL; });
+
+  const score = () => zset.get('op:activity:ws')?.get('u1');
+
+  const raceScenario = async () => {
+    await publishOperatorActivity('ws', 'u1', T0);              // immediate T0
+    await publishOperatorActivity('ws', 'u1', T0 + 10_000);     // coalesced → pending
+    __evictActivityCoalesceState();                             // MAX_ENTRIES clear
+    await publishOperatorActivity('ws', 'u1', T0 + 15_000);     // immediate T0+15s
+    await flushOperatorActivityWrites();                        // stale trailing T0+10s
+  };
+
+  it('keeps the newest timestamp when a stale trailing flush fires (ZADD GT)', async () => {
+    await raceScenario();
+    expect(score()).toBe(T0 + 15_000);
+  });
+
+  it('keeps the newest timestamp on servers without ZADD GT (Lua CAS fallback)', async () => {
+    setSupportsGt(false);
+    await raceScenario();
+    expect(score()).toBe(T0 + 15_000);
   });
 });

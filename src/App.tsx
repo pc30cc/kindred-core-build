@@ -378,6 +378,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
 
               <Route path="*" element={<NotFound />} />
             </Routes>
+            )}
           </BrowserRouter>
           </TooltipProvider>
           </PlatformBrandingGate>

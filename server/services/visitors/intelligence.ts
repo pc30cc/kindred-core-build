@@ -23,6 +23,11 @@ import {
   VISITOR_LIVENESS_OFFLINE_MS,
 } from '../widget/visitorLiveness.js';
 
+import {
+  resolveVisitorPresence,
+  applyVisitorPresence,
+} from './presenceSource.js';
+
 import { type GeoResult } from '../geo/index.js';
 import {
   resolveNetworkProfiles,
@@ -149,15 +154,17 @@ export async function listVisitorIntelligence(
   const since = new Date(Date.now() - staleMs).toISOString();
   const policy = await resolveIpVisibilityPolicy(config, workspaceId, opts.viewerRole ?? null);
 
-  const { data: rows, error } = await sb
-    .from('visitor_presence')
-    .select(`
+  const PRESENCE_SELECT = `
       id, status, current_page, updated_at, visitor_session_id, workspace_id,
       visitor_sessions!inner (
         id, visitor_id, workspace_id, contact_id, current_page, referrer, browser, device, os,
         country, city, ip_hash, ip_raw, started_at, last_seen_at
       )
-    `)
+    `;
+
+  const { data: rows, error } = await sb
+    .from('visitor_presence')
+    .select(PRESENCE_SELECT)
     .eq('workspace_id', workspaceId)
     .gte('updated_at', since)
     .order('updated_at', { ascending: false })
@@ -168,7 +175,29 @@ export async function listVisitorIntelligence(
     return [];
   }
 
-  const sessionIds = (rows ?? []).map(r => (r.visitor_sessions as any).id).filter(Boolean);
+  // ── Candidate window = DB recency ∪ realtime membership ─────────────────
+  //
+  // In realtime mode nothing refreshes `updated_at` while a visitor merely
+  // browses, so the `since` window alone would silently drop visitors who are
+  // demonstrably connected. The union with the sharded presence read is what
+  // keeps the list complete without reintroducing liveness writes.
+  const presence = await resolveVisitorPresence(config, workspaceId);
+  const allRows: any[] = [...(rows ?? [])];
+  if (presence.mode === 'realtime' && presence.online.size) {
+    const known = new Set(allRows.map((r) => (r.visitor_sessions as any)?.id).filter(Boolean));
+    const missing = [...presence.online].filter((id) => !known.has(id)).slice(0, limit);
+    if (missing.length) {
+      const { data: extra } = await sb
+        .from('visitor_presence')
+        .select(PRESENCE_SELECT)
+        .eq('workspace_id', workspaceId)
+        .in('visitor_session_id', missing)
+        .limit(limit);
+      for (const r of extra ?? []) allRows.push(r);
+    }
+  }
+
+  const sessionIds = allRows.map(r => (r.visitor_sessions as any).id).filter(Boolean);
   const convsBySession = new Map<string, { id: string; status: string | null; subject: string | null; contact_id: string | null }>();
   const contactsById = new Map<string, VisitorIntelligenceItem['contact']>() as Map<string, NonNullable<VisitorIntelligenceItem['contact']>>;
 
@@ -178,7 +207,7 @@ export async function listVisitorIntelligence(
   // matched an existing contact has it set here, even before a conversation
   // is created). Looking these up first guarantees the Visitors list shows
   // a real name for those sessions rather than "Unknown visitor".
-  const sessionContactIds = (rows ?? [])
+  const sessionContactIds = allRows
     .map(r => (r.visitor_sessions as any).contact_id)
     .filter(Boolean) as string[];
 
@@ -216,7 +245,7 @@ export async function listVisitorIntelligence(
 
   const items: VisitorIntelligenceItem[] = [];
 
-  for (const r of rows ?? []) {
+  for (const r of allRows) {
     const session = r.visitor_sessions as any;
     const profile = profiles.get(session.id) ?? null;
     const net = profile
@@ -237,7 +266,15 @@ export async function listVisitorIntelligence(
     // is keyed on the session row, not the IP.
     const contactId = session.contact_id ?? conv?.contact_id ?? null;
     const contact = contactId ? contactsById.get(contactId) ?? null : null;
-    const status = mergeStatus(r.status, r.updated_at, session.last_seen_at);
+    // Realtime membership wins; the DB-derived status is the fallback and the
+    // handoff grace window prevents a false offline (see presenceSource.ts).
+    const dbStatus = mergeStatus(r.status, r.updated_at, session.last_seen_at);
+    const status = applyVisitorPresence(
+      presence,
+      session.id,
+      dbStatus,
+      r.updated_at ?? session.last_seen_at ?? null,
+    );
     if (!opts.includeOffline && status === 'offline') continue;
 
     items.push({

@@ -34,7 +34,12 @@ import WebSocket from 'ws';
 import { CentrifugoDriver } from '../../server/services/realtime/centrifugo.js';
 import { getClusterHealth, invalidateNodeHealth } from '../../server/services/realtime/nodeHealth.js';
 import { selectNode } from '../../server/services/realtime/nodeRouter.js';
-import { normalizeNodes, type CentrifugoNode } from '../../server/services/realtime/types.js';
+import {
+  buildVisitorPresenceChannelName,
+  buildVisitorPresenceSubject,
+  normalizeNodes,
+  type CentrifugoNode,
+} from '../../server/services/realtime/types.js';
 
 const CENTRIFUGO_BIN = process.env.CENTRIFUGO_BIN || 'centrifugo';
 const REDIS_BIN = process.env.REDIS_SERVER_BIN || 'redis-server';
@@ -57,6 +62,20 @@ const NAMESPACES = JSON.stringify([
     allow_publish_for_client: false,
     allow_presence_for_client: true,
     allow_history_for_client: true,
+    subscribe_for_anonymous: false,
+  },
+  {
+    // Visitor presence (scheme v2): one channel per session, backend-only
+    // presence reads. Mirrors the production namespace contract documented in
+    // server/services/realtime/types.ts.
+    name: 'vp',
+    presence: true,
+    join_leave: false,
+    history_size: 0,
+    allow_subscribe_for_client: false,
+    allow_publish_for_client: false,
+    allow_presence_for_client: false,
+    allow_history_for_client: false,
     subscribe_for_anonymous: false,
   },
 ]);
@@ -219,6 +238,10 @@ class RawClient {
     return this.send({ subscribe: { channel, token } });
   }
 
+  presence(channel: string) {
+    return this.send({ presence: { channel } });
+  }
+
   get isOpen() {
     return this.ws.readyState === WebSocket.OPEN;
   }
@@ -308,6 +331,51 @@ async function main() {
     'cross_node_presence',
     bothOn1 && bothOn2,
     `node1 sees [${presenceViaNode1?.sort().join(', ')}], node2 sees [${presenceViaNode2?.sort().join(', ')}]`,
+  );
+
+  // ── 2b. cross-node VISITOR presence (vp:v2, batched stats) ───────────
+  // Proves the real production read path: a visitor subscribed through node 2
+  // is counted by a `presence_stats` batch issued against node 1.
+  const sessionOn2 = '11111111-1111-4111-8111-111111111111';
+  const sessionAbsent = '22222222-2222-4222-8222-222222222222';
+  const vpChannel = buildVisitorPresenceChannelName(WORKSPACE, sessionOn2);
+  const vpAbsentChannel = buildVisitorPresenceChannelName(WORKSPACE, sessionAbsent);
+  const vpSub = buildVisitorPresenceSubject(sessionOn2);
+  const vpClient = new RawClient(8002);
+  await vpClient.open();
+  await vpClient.connect(connToken(vpSub));
+  const vpSubReply = await vpClient.subscribe(vpChannel, subToken(vpSub, vpChannel));
+  await sleep(500);
+  const statsViaNode1 = await d1.presenceStatsBatch([vpChannel, vpAbsentChannel]);
+  const statsViaNode2 = await d2.presenceStatsBatch([vpChannel, vpAbsentChannel]);
+  record(
+    'cross_node_visitor_presence_v2',
+    !!vpSubReply.subscribe &&
+      statsViaNode1?.get(vpChannel) === 1 &&
+      statsViaNode2?.get(vpChannel) === 1 &&
+      statsViaNode1?.get(vpAbsentChannel) === 0,
+    `subscribe=${!!vpSubReply.subscribe}; node1 sees ${statsViaNode1?.get(vpChannel)} client(s), ` +
+      `node2 sees ${statsViaNode2?.get(vpChannel)}, absent session=${statsViaNode1?.get(vpAbsentChannel)}`,
+  );
+
+  // A visitor must never be able to read presence itself — the namespace
+  // forbids it, so shard-mates (and everyone else) stay unobservable.
+  const clientPresence: any = await vpClient
+    .presence(vpChannel)
+    .catch((e: any) => ({ error: { message: String(e?.message || e) } }));
+  record(
+    'visitor_cannot_read_presence',
+    !!clientPresence?.error,
+    `client presence call rejected: ${JSON.stringify(clientPresence?.error ?? clientPresence)}`,
+  );
+
+  vpClient.close();
+  await sleep(300);
+  const statsAfterClose = await d1.presenceStatsBatch([vpChannel]);
+  record(
+    'visitor_presence_clears_on_disconnect',
+    statsAfterClose?.get(vpChannel) === 0,
+    `after close node1 sees ${statsAfterClose?.get(vpChannel)} client(s)`,
   );
 
   // ── 3. per-node connection counts ────────────────────────────────────

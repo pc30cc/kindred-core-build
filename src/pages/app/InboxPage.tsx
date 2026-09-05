@@ -15,7 +15,8 @@ import { useVisitorPresenceForConversation } from '@/hooks/useVisitorPresence';
 import { conversationsApi, newClientMessageId } from '@/lib/conversations-api';
 import { useQueryClient } from '@tanstack/react-query';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
-import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
+import { useTeamPresence } from '@/hooks/useTeamPresence';
+import { useWorkspaceRole } from '@/hooks/useWorkspaceRole';
 import { isTypingSuppressed } from '@/realtime/policySnapshot';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -270,7 +271,20 @@ export default function InboxPage() {
   // conversation transferred to another operator leaves this Inbox. Managers
   // can flip to the full workspace view; the server enforces the privilege.
   const { data: wsRole } = useWorkspaceRole(workspace?.id);
-  const canSwitchScope = isWorkspaceAdmin(wsRole) || wsRole === 'team_lead';
+  // Only the workspace owner may widen the Inbox to the whole workspace, and
+  // only while there is at least one other operator who is actually
+  // responsive (active/away) — otherwise the toggle has nothing to reveal.
+  const { data: teamPresence } = useTeamPresence(workspace?.id);
+  const responsiveOperators = useMemo(
+    () =>
+      (teamPresence?.presence ?? []).filter(
+        (p) =>
+          p.user_id !== user?.id &&
+          (p.state === 'online' || p.presence_state === 'active' || p.presence_state === 'away'),
+      ).length,
+    [teamPresence, user?.id],
+  );
+  const canSwitchScope = wsRole === 'owner' && responsiveOperators > 0;
   const [inboxScope, setInboxScope] = useState<'mine' | 'all'>(
     () => (localStorage.getItem('inbox.scope') === 'all' ? 'all' : 'mine'),
   );
@@ -1211,27 +1225,6 @@ export default function InboxPage() {
             </button>
             ) : null}
 
-            {/* Managers only: switch between "my conversations" (default,
-                transferred threads disappear) and the full workspace view. */}
-            {canSwitchScope ? (
-              <button
-                type="button"
-                onClick={() => setInboxScope(scope === 'all' ? 'mine' : 'all')}
-                title={t('inbox.scopeHint') || 'Show conversations assigned to other operators too'}
-                aria-pressed={scope === 'all'}
-                className={cn(
-                  'mb-1.5 ms-1 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] font-medium transition-colors duration-150',
-                  scope === 'all'
-                    ? 'border-primary/40 bg-primary/10 text-primary'
-                    : 'border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground',
-                )}
-              >
-                <Users className="w-3.5 h-3.5" />
-                {scope === 'all'
-                  ? (t('inbox.scopeAll') || 'All conversations')
-                  : (t('inbox.scopeMine') || 'My conversations')}
-              </button>
-            ) : null}
           </div>
   );
 
@@ -1748,6 +1741,32 @@ export default function InboxPage() {
             })
           )}
         </ScrollArea>
+
+        {/* Owner-only workspace scope switch, pinned right above search. */}
+        {canSwitchScope ? (
+          <div className="px-3 pt-2.5 border-t border-border/60 bg-card/60">
+            <label
+              className={cn(
+                'flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-[11.5px] font-medium cursor-pointer transition-colors',
+                scope === 'all'
+                  ? 'border-primary/40 bg-primary/10 text-primary'
+                  : 'border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground',
+              )}
+            >
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 shrink-0 accent-primary cursor-pointer"
+                checked={scope === 'all'}
+                onChange={(e) => setInboxScope(e.target.checked ? 'all' : 'mine')}
+              />
+              <Users className="w-3.5 h-3.5 shrink-0" />
+              <span className="shrink-0">{t('inbox.scopeAll') || 'All conversations'}</span>
+              <span className="truncate text-[10.5px] font-normal text-muted-foreground">
+                {t('inbox.scopeHint') || 'Show conversations assigned to other operators too'}
+              </span>
+            </label>
+          </div>
+        ) : null}
 
         {/* Search — pinned at the bottom of the conversation list */}
         <div className="p-3 border-t border-border/60 bg-card/60">

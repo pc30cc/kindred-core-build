@@ -1077,72 +1077,10 @@ export default function InboxPage() {
       : 'bg-secondary text-muted-foreground',
   );
 
-  /* Remaining status filters stay in the list header as pills. */
-  const filterTabsNode = (
-    <div
-      role="tablist"
-      aria-label={t('inbox.title') || 'Inbox'}
-      className="flex w-full items-center gap-1 overflow-x-auto scrollbar-hide pb-0.5"
-      dir={dir}
-    >
-      {(['pending', 'resolved'] as FilterStatus[]).map((s) => {
-        const count = stableCounts[s] || 0;
-        const isActive = !isQueueMode && !extraChip && filter === s;
-        const dotColor = s === 'pending' ? 'bg-warning' : 'bg-info';
-        return (
-          <button
-            key={s}
-            role="tab"
-            aria-selected={isActive}
-            onClick={() => setFilter(s)}
-            className={cn(
-              pillBase,
-              isActive
-                ? 'bg-primary/10 text-primary border-primary/30'
-                : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground',
-            )}
-          >
-            <span className="relative flex w-2 h-2 items-center justify-center">
-              {liveTabs[s] && (
-                <span className="absolute inline-flex w-full h-full rounded-full bg-success opacity-75 animate-ping" />
-              )}
-              <span className={cn(
-                'relative inline-flex w-2 h-2 rounded-full',
-                liveTabs[s] ? 'bg-success animate-pulse' : isActive ? dotColor : 'bg-muted-foreground/30',
-              )} />
-            </span>
-            {statusLabels[s]}
-            <span
-              aria-hidden={count === 0}
-              className={cn(pillCount(isActive), count === 0 && 'opacity-0')}
-            >{count}</span>
-          </button>
-        );
-      })}
-      {/* All conversations sits right next to "resolved". */}
-      <button
-        role="tab"
-        aria-selected={!isQueueMode && !extraChip && filter === 'all'}
-        onClick={() => { setExtraChip(null); setQueueTab(null); setFilter('all'); }}
-        className={cn(
-          pillBase,
-          !isQueueMode && !extraChip && filter === 'all'
-            ? 'bg-primary/10 text-primary border-primary/30'
-            : 'bg-transparent text-muted-foreground border-transparent hover:bg-muted/60 hover:text-foreground',
-        )}
-      >
-        <Inbox className="w-3.5 h-3.5" />
-        {t('inbox.all') || 'All'}
-        <span
-          aria-hidden={(stableCounts.all || 0) === 0}
-          className={cn(
-            pillCount(!isQueueMode && !extraChip && filter === 'all'),
-            (stableCounts.all || 0) === 0 && 'opacity-0',
-          )}
-        >{stableCounts.all || 0}</span>
-      </button>
-    </div>
-  );
+  /* The remaining status pills were removed from the list header; "All" is now
+     a small checkbox next to the refresh button. */
+  const filterTabsNode = null;
+
 
 
   /* Secondary views sit on the bottom edge of the top bar as folder tabs

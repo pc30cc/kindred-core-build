@@ -742,6 +742,8 @@ const tr: TranslationKeys = {
     offline: 'Çevrimdışı',
     emptyNoConversations: 'Görüşme yok',
     typeMessage: 'Bir mesaj yazın...',
+    voiceUnsupported: 'Bu cihazda ses kaydı kullanılamıyor.',
+    micDenied: 'Mikrofon erişimi engellendi. Ayarlar > Webyar > Mikrofon bölümünden izin verin.',
     send: 'Gönder',
     assign: 'Ata',
     resolve: 'Çözüldü',

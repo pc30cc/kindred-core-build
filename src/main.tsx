@@ -5,7 +5,11 @@ import { loadFontsForLocale } from "./lib/fonts";
 import { getStoredLocale, loadLocaleMessages } from "./i18n";
 import { installLocalizedDateDefaults, setAppDateLocale } from "./lib/date";
 import { CALL_VIDEO_ORIENTATION_CORRECTION_MODE } from "./features/calls/videoOrientation";
+import { applyNativeShellClasses } from "./lib/native";
 import { applyUiPreferences, loadPlatformUiDefaults, loadUiPreferences, resolveUiPreferences } from "./lib/ui-preferences";
+
+// Native shell (iOS) gets safe-area padding; no-op on the web.
+applyNativeShellClasses();
 
 // Apply personal UI preferences before first paint (no flash of default theme).
 applyUiPreferences(resolveUiPreferences(loadPlatformUiDefaults(), loadUiPreferences()));

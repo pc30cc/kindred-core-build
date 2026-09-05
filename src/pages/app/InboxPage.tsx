@@ -1049,7 +1049,7 @@ export default function InboxPage() {
       return 0;
     });
 
-  }, [conversations, search, t, locale]);
+  }, [conversations, search, t, locale, channelParam]);
 
   const totalUnread = useMemo(() => {
     if (!conversations) return 0;

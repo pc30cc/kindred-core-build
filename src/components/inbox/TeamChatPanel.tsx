@@ -280,7 +280,7 @@ export default function TeamChatPanel() {
                     </Avatar>
                     <span className={cn(
                       'absolute -bottom-0.5 -end-0.5 w-3 h-3 rounded-full border-2 border-card',
-                      online ? 'bg-success' : 'bg-muted-foreground/40',
+                      PRESENCE_DOT_CLASS[pState],
                     )} />
                   </div>
                   <div className="min-w-0 flex-1">

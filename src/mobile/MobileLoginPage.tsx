@@ -73,7 +73,7 @@ export default function MobileLoginPage() {
     'flex-1 min-w-0 h-[52px] bg-transparent border-0 outline-none text-[17px] text-foreground placeholder:text-muted-foreground/60 px-1';
 
   return (
-    <div dir={dir} className="h-[100dvh] bg-white flex flex-col overflow-hidden">
+    <div dir={dir} className="h-[100dvh] bg-background flex flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto px-6 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-4">
         <div className="mx-auto w-full max-w-[420px]">
           <div className="flex flex-col items-center gap-3 pt-2 pb-6">
@@ -91,7 +91,7 @@ export default function MobileLoginPage() {
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
-            <div className="rounded-2xl border border-border bg-white overflow-hidden divide-y divide-border">
+            <div className="rounded-2xl border border-border bg-card overflow-hidden divide-y divide-border">
               <div className="flex items-center px-4" dir="ltr">
                 <Mail className="h-[18px] w-[18px] text-muted-foreground shrink-0" />
                 <input

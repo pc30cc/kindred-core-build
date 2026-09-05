@@ -12,6 +12,13 @@ const config: CapacitorConfig = {
   appId: 'com.webyar.app',
   appName: 'Webyar',
   webDir: 'dist',
+  plugins: {
+    // The keyboard must never resize or scroll the web view: the app's own
+    // nav bar and tab bar stay pinned and only the composer lifts, driven by
+    // the `--kb-inset` CSS variable (src/lib/keyboardInset.ts).
+    Keyboard: { resize: 'none' as any, resizeOnFullScreen: false },
+    PushNotifications: { presentationOptions: ['badge', 'sound', 'alert'] },
+  },
   ios: {
     contentInset: 'always',
     limitsNavigationsToAppBoundDomains: false,

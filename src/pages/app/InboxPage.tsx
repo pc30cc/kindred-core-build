@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
@@ -297,11 +297,22 @@ export default function InboxPage() {
   const [showMobileList, setShowMobileList] = useState(true);
 
   // Resizable conversation list width (desktop only)
+  const tabsRowRef = useRef<HTMLDivElement | null>(null);
+  const hasSavedListWidth = typeof window !== 'undefined' && Number(localStorage.getItem('inbox.listWidth')) >= 260;
   const [listWidth, setListWidth] = useState<number>(() => {
     const saved = Number(localStorage.getItem('inbox.listWidth'));
     return saved >= 260 && saved <= 640 ? saved : 410;
   });
+  // Default width = just a few pixels past the last top tab ("همکاران").
+  useLayoutEffect(() => {
+    if (hasSavedListWidth) return;
+    const el = tabsRowRef.current;
+    if (!el) return;
+    const fit = Math.round(el.scrollWidth) + 10;
+    setListWidth(Math.min(640, Math.max(260, fit)));
+  }, [hasSavedListWidth]);
   const [isResizing, setIsResizing] = useState(false);
+
   useEffect(() => {
     if (!isResizing) return;
     const isRtl = document.documentElement.dir === 'rtl';
@@ -1127,6 +1138,7 @@ export default function InboxPage() {
 
   const toolbarTabsNode = (
           <div
+            ref={tabsRowRef}
             role="tablist"
             aria-label={t('inbox.title') || 'Inbox'}
             className="flex h-full items-end gap-1"

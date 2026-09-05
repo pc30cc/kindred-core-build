@@ -147,14 +147,15 @@ export function AppSidebar() {
     });
   };
 
-  // The Inbox is a dense 3-pane workspace: collapse the nav rail automatically
-  // while it is open, then restore the user's own preference on leaving.
-  const onInbox =
-    /\/inbox(\/|$)/.test(location.pathname) || /\/settings(\/|$)/.test(location.pathname);
+  // Settings is a dense two-pane workspace: collapse the nav rail while it is
+  // open, then restore the user's own preference on leaving. The Inbox keeps
+  // the sidebar exactly as the user left it (its sub-inboxes live there).
+  const onInbox = /\/settings(\/|$)/.test(location.pathname);
   useEffect(() => {
     if (onInbox) setCollapsed(true);
     else setCollapsed(localStorage.getItem('sidebar_collapsed') === '1');
   }, [onInbox]);
+
   const wsMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
@@ -507,7 +508,6 @@ export function AppSidebar() {
 
         {isActive('/inbox') && !collapsed && (
           <div className="ms-5 mt-0.5 space-y-0.5 border-s border-sidebar-border ps-3">
-            <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-1.5 pb-1">{t('inbox.defaultInboxes') || 'Default inboxes'}</p>
             <Link
               to={wsPath('/inbox')}
               className={cn(
@@ -531,7 +531,6 @@ export function AppSidebar() {
 
             {automatedInboxVisible && (
               <>
-                <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-2 pb-1">{t('inbox.aiInboxes') || 'AI inboxes'}</p>
                 <Link
                   to={wsPath('/inbox?queue=automated')}
                   className={cn(
@@ -552,7 +551,6 @@ export function AppSidebar() {
               </>
             )}
 
-            <p className="text-[11px] font-medium text-sidebar-muted-foreground uppercase tracking-wider px-2 pt-2 pb-1">{t('inbox.otherInboxes') || 'Other inboxes'}</p>
             <Link
               to={wsPath('/inbox?queue=spam')}
               className={cn(

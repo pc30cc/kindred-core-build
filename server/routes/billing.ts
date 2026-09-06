@@ -2,6 +2,7 @@ import { Router, raw } from 'express';
 import { z } from 'zod';
 import {
   resolveBillingConfig,
+  resolveNamedBillingConfig,
   getProvider,
   getAllProviders,
   processWebhookEvent,
@@ -59,6 +60,7 @@ import {
 import { settleAndApply } from '../services/billing/invoice/settle.js';
 import { applyWalletDeposit } from '../services/billing/wallet/index.js';
 import { buildWorkspaceBillingReadModel } from '../services/billing/readModel.js';
+import { isAllowedBillingCallbackUrl } from '../services/billing/callbackUrl.js';
 
 /**
  * Customer-friendly receipt for a finalized intent. Everything here comes from
@@ -131,41 +133,6 @@ function getConfig(req: any) {
 function serverConfigOf(req: any): ServerConfig {
   return (req as any).serverConfig as ServerConfig;
 }
-
-/**
- * The gateway return URL must belong to this deployment. Accepts the request's
- * own origin (the normal same-origin reverse-proxy topology) plus any
- * explicitly configured CORS origin. Everything else is an open redirect.
- */
-function isAllowedCallbackUrl(req: any, raw: string): boolean {
-  let target: URL;
-  try {
-    target = new URL(raw);
-  } catch {
-    return false;
-  }
-  if (target.protocol !== 'https:' && target.hostname !== 'localhost' && target.hostname !== '127.0.0.1') {
-    return false;
-  }
-
-  const allowed = new Set<string>();
-  const host = req.get?.('host');
-  if (host) allowed.add(`${req.protocol}://${host}`);
-  const originHeader = req.get?.('origin');
-  if (originHeader) {
-    // Only trusted because mutating requests already passed the origin check
-    // in workspaceAuth (verifyOriginForMutation).
-    allowed.add(originHeader);
-  }
-  for (const o of serverConfigOf(req)?.corsOrigins || []) {
-    if (o && o !== '*') {
-      try { allowed.add(new URL(o).origin); } catch { /* ignore malformed config */ }
-    }
-  }
-
-  return allowed.has(target.origin);
-}
-
 
 /** Resolves the calling user from the session cookie. Writes 401 and returns null on failure. */
 async function requireUser(req: any, res: any): Promise<string | null> {
@@ -502,7 +469,7 @@ billingRouter.post('/checkout', async (req, res) => {
 
     // Open-redirect guard: the return URL is attacker-controllable input and
     // is handed to the bank, so it must point back at this deployment.
-    if (!isAllowedCallbackUrl(req, input.callbackUrl)) {
+    if (!isAllowedBillingCallbackUrl(req, serverConfigOf(req), input.callbackUrl)) {
       return res.status(400).json({ error: 'Invalid callbackUrl' });
     }
 
@@ -621,7 +588,7 @@ billingRouter.post('/verify-callback', async (req, res) => {
   try {
     // Use the same workspace/global resolution chain as checkout. Reading only
     // provider_configs here broke verification for platform-default gateways.
-    const resolved = await resolveBillingConfig(url, key, workspaceId);
+    const resolved = await resolveNamedBillingConfig(url, key, workspaceId, providerName);
     if (!resolved || resolved.provider.name !== providerName) {
       return res.status(400).json({ error: 'Provider not configured' });
     }

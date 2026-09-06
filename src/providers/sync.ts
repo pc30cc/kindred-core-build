@@ -123,6 +123,17 @@ export async function setGlobalDefaultProvider(
   const value = { provider_name: providerName, config: config || {} };
 
   try {
+    // Billing has two separate concerns: this value selects the platform
+    // default, while billing_gateways controls which choices are enabled. Keep
+    // the selected gateway's credential/config copy in the canonical gateway
+    // row so an explicitly selected checkout reads the same settings shown in
+    // the Providers screen. This deliberately does not enable the gateway.
+    if (type === 'billing') {
+      await apiFetch('/api/admin/billing/gateways', {
+        method: 'PUT',
+        body: JSON.stringify({ provider_name: providerName, config: config || {} }),
+      });
+    }
     await apiFetch(`/api/admin/management/runtime-config/${key}`, {
       method: 'PUT',
       body: JSON.stringify({ value }),

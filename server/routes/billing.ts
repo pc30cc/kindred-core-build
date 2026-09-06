@@ -95,7 +95,7 @@ async function buildReceipt(config: ServerConfig, intent: PaymentIntentRow) {
   } else {
     const { data: sub } = await supabase
       .from('workspace_subscriptions')
-      .select('current_period_end, plan_id, billing_plans(name)')
+      .select('current_period_end, plan_id, billing_plans!workspace_subscriptions_plan_id_fkey(name)')
       .eq('workspace_id', intent.workspace_id)
       .maybeSingle();
     receipt.periodEnd = (sub?.current_period_end as string | null) || null;
@@ -310,7 +310,7 @@ billingRouter.post('/invoice-preview', async (req, res) => {
 
     const { data: sub } = await supabase
       .from('workspace_subscriptions')
-      .select('plan_id, status, current_period_end, billing_plans(sort_order)')
+      .select('plan_id, status, current_period_end, billing_plans!workspace_subscriptions_plan_id_fkey(sort_order)')
       .eq('workspace_id', input.workspaceId)
       .maybeSingle();
 

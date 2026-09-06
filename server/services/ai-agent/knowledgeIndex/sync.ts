@@ -29,7 +29,7 @@ async function resolveEmbeddingBudget(config: ServerConfig, workspaceId: string)
     const sb = getServiceClient(config);
     const { data } = await sb
       .from('workspace_subscriptions')
-      .select('billing_plans(slug, limits)')
+      .select('billing_plans!workspace_subscriptions_plan_id_fkey(slug, limits)')
       .eq('workspace_id', workspaceId)
       .maybeSingle();
     const plan: any = (data as any)?.billing_plans;

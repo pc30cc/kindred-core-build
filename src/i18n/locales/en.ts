@@ -34,6 +34,9 @@ const en = {
       failedTitle: 'Payment incomplete',
       failedDescription: 'The payment could not be verified. No charge was recorded; you can try again.',
       dashboard: 'Go to dashboard',
+      receiptNumber: 'Invoice number',
+      trackingCode: 'Tracking code',
+      redirectCountdown: 'Redirecting to the dashboard in {{seconds}} seconds',
     },
     overview: {
       currentPlan: 'Current plan', free: 'Free', trial: 'Trial', trialEnds: 'Trial ends {{date}}',

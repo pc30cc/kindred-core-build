@@ -36,6 +36,9 @@ const fa: TranslationKeys = {
       failedTitle: 'پرداخت تکمیل نشد',
       failedDescription: 'پرداخت تأیید نشد. مبلغی کسر نشده است؛ می‌توانید دوباره تلاش کنید.',
       dashboard: 'رفتن به داشبورد',
+      receiptNumber: 'شماره فاکتور',
+      trackingCode: 'کد پیگیری',
+      redirectCountdown: 'انتقال خودکار به داشبورد تا {{seconds}} ثانیه دیگر',
     },
     overview: {
       currentPlan: 'پلن فعلی', free: 'رایگان', trial: 'دوره آزمایشی', trialEnds: 'پایان دوره آزمایشی {{date}}',

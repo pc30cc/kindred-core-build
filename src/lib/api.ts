@@ -344,7 +344,7 @@ export interface BillingReceipt {
   status: string;
   intentId: string;
   amountIrr: number;
-  purchaseType: 'subscription' | 'ai_credit_topup';
+  purchaseType: 'subscription' | 'ai_credit_topup' | 'wallet_deposit';
   actionType: string | null;
   providerName: string;
   providerRef: string | null;

@@ -7,13 +7,13 @@
  * document is payable, and which gateways may take the money. This page only
  * renders those answers and forwards the customer's gateway choice back.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { SkeletonCard } from '@/components/common/Skeletons';
-import { ArrowRight, CreditCard, Loader2, Printer, Wallet } from 'lucide-react';
+import { ArrowRight, CheckCircle2, CreditCard, Loader2, Printer, Wallet, XCircle } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
@@ -29,6 +29,7 @@ import {
   type PayableGateway,
 } from '@/lib/billingApi';
 import { billingDate, money, Ltr, InvoiceStatusBadge, ErrorState, errorMessage } from './shared';
+import { billingGetPaymentIntent, billingVerifyCallback, type BillingReceipt } from '@/lib/api';
 
 type Kind = 'invoice' | 'deposit';
 
@@ -68,6 +69,12 @@ export default function PaymentPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [paymentResult, setPaymentResult] = useState<{
+    state: 'processing' | 'succeeded' | 'failed';
+    receipt?: BillingReceipt | null;
+  } | null>(null);
+  const [redirectSeconds, setRedirectSeconds] = useState(15);
+  const callbackHandled = useRef(false);
 
   const load = useCallback(() => {
     if (!workspaceId || !id) return;
@@ -96,13 +103,62 @@ export default function PaymentPage() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (!workspaceId || callbackHandled.current) return;
+    const url = new URL(window.location.href);
+    const intentId = url.searchParams.get('intent');
+    const provider = url.searchParams.get('provider');
+    if (!intentId || !provider) return;
+    callbackHandled.current = true;
+    setPaymentResult({ state: 'processing' });
+
+    const params: Record<string, string> = {};
+    url.searchParams.forEach((value, key) => {
+      if (key !== 'intent' && key !== 'provider') params[key] = value;
+    });
+    window.history.replaceState({}, '', url.pathname);
+
+    const finish = (receipt?: BillingReceipt | null) => {
+      setPaymentResult({ state: 'succeeded', receipt });
+      load();
+    };
+    const pollFinalState = async () => {
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1200));
+        const current = await billingGetPaymentIntent(intentId);
+        if (current.status === 'succeeded') return finish(current.receipt);
+        if (!current.pending) throw new Error(current.failureReason || 'PAYMENT_FAILED');
+      }
+      throw new Error('PAYMENT_FINALIZATION_PENDING');
+    };
+
+    billingVerifyCallback({ workspaceId, provider, params, intentId })
+      .then(async (result) => {
+        if (result.verified && !result.pending) return finish(result.receipt);
+        if (result.verified && result.pending) return pollFinalState();
+        throw new Error('PAYMENT_FAILED');
+      })
+      .catch(() => setPaymentResult({ state: 'failed' }));
+  }, [load, workspaceId]);
+
+  useEffect(() => {
+    if (paymentResult?.state !== 'succeeded') return;
+    setRedirectSeconds(15);
+    const countdown = window.setInterval(() => setRedirectSeconds((value) => Math.max(0, value - 1)), 1000);
+    const redirect = window.setTimeout(() => navigate(slug ? `/${slug}` : '/app'), 15000);
+    return () => {
+      window.clearInterval(countdown);
+      window.clearTimeout(redirect);
+    };
+  }, [navigate, paymentResult?.state, slug]);
+
   const backToBilling = () => navigate(slug ? `/${slug}/billing` : '/app/billing');
 
   async function payOnline() {
     if (!workspaceId || !id) return;
     setBusy(true);
     try {
-      const callbackUrl = `${billingReturnOrigin()}/${slug}/billing`;
+      const callbackUrl = `${billingReturnOrigin()}/${slug}/billing/pay/${kind}/${id}`;
       const res =
         kind === 'deposit'
           ? await billingDepositCheckout(workspaceId, id, callbackUrl, selected || undefined)
@@ -263,7 +319,53 @@ export default function PaymentPage() {
       </Card>
 
       {/* ── Payment ──────────────────────────────────────────────────── */}
-      {alreadyPaid ? (
+      {paymentResult ? (
+        <Card className={paymentResult.state === 'failed' ? 'border-destructive/30 print:hidden' : 'border-primary/30 print:hidden'}>
+          <CardContent className="space-y-5 p-6 text-center">
+            {paymentResult.state === 'processing' ? (
+              <Loader2 className="mx-auto h-12 w-12 animate-spin text-primary" />
+            ) : paymentResult.state === 'succeeded' ? (
+              <CheckCircle2 className="mx-auto h-14 w-14 text-primary" />
+            ) : (
+              <XCircle className="mx-auto h-14 w-14 text-destructive" />
+            )}
+            <div>
+              <h2 className="text-xl font-bold">
+                {t(`billing.paymentResult.${paymentResult.state}Title` as any)}
+              </h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {paymentResult.state === 'succeeded'
+                  ? t('billing.paymentResult.successDescription', {
+                      plan: paymentResult.receipt?.planName || t('billing.overview.currentPlan'),
+                    })
+                  : t(`billing.paymentResult.${paymentResult.state}Description` as any)}
+              </p>
+            </div>
+            {paymentResult.state === 'succeeded' && paymentResult.receipt && (
+              <div className="mx-auto grid max-w-xl gap-2 text-sm sm:grid-cols-2">
+                <Row label={t('billing.paymentResult.receiptNumber')} value={paymentResult.receipt.invoiceNumber || paymentResult.receipt.orderId} />
+                <Row label={t('billing.common.amount')} value={money(paymentResult.receipt.amountIrr, locale)} />
+                <Row label={t('billing.paymentResult.trackingCode')} value={paymentResult.receipt.providerRef || '—'} />
+                <Row label={t('billing.common.date')} value={billingDate(paymentResult.receipt.paidAt, locale)} />
+              </div>
+            )}
+            {paymentResult.state === 'succeeded' ? (
+              <div className="space-y-2">
+                <Button onClick={() => navigate(slug ? `/${slug}` : '/app')}>
+                  {t('billing.paymentResult.dashboard')}
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  {t('billing.paymentResult.redirectCountdown', { seconds: redirectSeconds })}
+                </p>
+              </div>
+            ) : paymentResult.state === 'failed' ? (
+              <Button variant="outline" onClick={() => setPaymentResult(null)}>
+                {t('billing.common.retry')}
+              </Button>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : alreadyPaid ? (
         <Card className="border-emerald-500/30 print:hidden">
           <CardContent className="py-6 text-center text-sm text-emerald-600">
             {t('billing.checkout.alreadyPaid')}

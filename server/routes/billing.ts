@@ -57,7 +57,7 @@ import {
   isV2Active,
   LegacyPathRejectedError,
 } from '../services/billing/rollout.js';
-import { settleAndApply } from '../services/billing/invoice/settle.js';
+import { releaseCollection, settleAndApply } from '../services/billing/invoice/settle.js';
 import { applyWalletDeposit } from '../services/billing/wallet/index.js';
 import { buildWorkspaceBillingReadModel } from '../services/billing/readModel.js';
 import { isAllowedBillingCallbackUrl } from '../services/billing/callbackUrl.js';
@@ -114,6 +114,24 @@ async function buildReceipt(config: ServerConfig, intent: PaymentIntentRow) {
   }
 
   return receipt;
+}
+
+/** End every active invoice reservation owned by a terminal payment attempt. */
+async function releaseIntentCollections(
+  config: ServerConfig,
+  intentId: string,
+  reason: string,
+): Promise<void> {
+  const supabase = getServiceClient(config);
+  const { data, error } = await supabase
+    .from('billing_invoice_collections')
+    .select('id')
+    .eq('payment_intent_id', intentId)
+    .eq('status', 'active');
+  if (error) throw new Error(`billing collection lookup failed: ${error.message}`);
+  await Promise.all(
+    (data || []).map((row) => releaseCollection(config, row.id as string, reason)),
+  );
 }
 
 
@@ -613,10 +631,12 @@ billingRouter.post('/verify-callback', async (req, res) => {
         });
       }
       if (intent.status === 'failed' || intent.status === 'canceled' || intent.status === 'expired') {
+        await releaseIntentCollections(cfg, intent.id, `intent_${intent.status}`);
         return res.json({ success: true, verified: false, status: intent.status });
       }
       if (intent.status === 'pending' && !isIntentUsable(intent)) {
         await markPaymentIntentExpired(cfg, intent.id);
+        await releaseIntentCollections(cfg, intent.id, 'intent_expired');
         return res.status(400).json({ error: 'Payment intent expired' });
       }
 
@@ -625,6 +645,7 @@ billingRouter.post('/verify-callback', async (req, res) => {
       const binding = providerRefMatchesIntent(intent, params);
       if (binding.ok === false) {
         await markPaymentIntentFailed(cfg, intent.id, binding.reason);
+        await releaseIntentCollections(cfg, intent.id, 'reference_mismatch');
         return res.status(400).json({ error: 'Payment reference does not match this order' });
       }
 
@@ -634,6 +655,7 @@ billingRouter.post('/verify-callback', async (req, res) => {
       });
       if (!result.verified) {
         await markPaymentIntentFailed(cfg, intent.id, 'gateway_not_verified');
+        await releaseIntentCollections(cfg, intent.id, 'gateway_not_verified');
         return res.json({ success: true, ...result });
       }
 
@@ -840,6 +862,7 @@ billingRouter.post('/verify-callback', async (req, res) => {
       }
 
       await markIntentSucceeded(cfg, intent.id);
+      await releaseIntentCollections(cfg, intent.id, 'payment_completed');
       const finalIntent = await getPaymentIntent(cfg, intent.id);
       return res.json({
         success: true,

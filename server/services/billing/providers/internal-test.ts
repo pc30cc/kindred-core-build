@@ -76,11 +76,6 @@ function verifyOutcomeSignature(ref: string, status: string, sig: string): boole
   return safeEqual(signOutcome(ref, status), sig);
 }
 
-function amountInRials(config: BillingProviderConfig, raw: number): number {
-  const currency = (config.currency as string) || 'IRR';
-  return currency === 'IRT' ? raw * 10 : raw;
-}
-
 /** The gateway page is served by THIS deployment; derive it from the return URL. */
 function gatewayBase(config: BillingProviderConfig, callbackUrl: string): string {
   const configured = typeof config.gateway_base_url === 'string' ? config.gateway_base_url.trim() : '';
@@ -104,7 +99,10 @@ export const internalTestProvider: BillingProviderHandler = {
     config: BillingProviderConfig,
     req: CheckoutRequest,
   ): Promise<CheckoutResult> {
-    const amount = amountInRials(config, parseInt(String(req.metadata?.amount || '0'), 10) || 0);
+    // The billing provider contract always supplies metadata.amount in IRR.
+    // Provider display preferences must not convert this authoritative amount
+    // a second time (an IRT config previously made the simulator show 10×).
+    const amount = parseInt(String(req.metadata?.amount || '0'), 10) || 0;
     if (amount <= 0) {
       throw new Error('Internal test gateway: amount must be greater than zero');
     }

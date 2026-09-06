@@ -28,6 +28,15 @@ const tr: TranslationKeys = {
       paymentSucceeded: 'Ödeme başarıyla tamamlandı.',
       paymentFailed: 'Ödeme doğrulanamadı.',
     },
+    paymentResult: {
+      processingTitle: 'Ödeme tamamlanıyor',
+      processingDescription: 'Ödemeniz doğrulandı ve planınız etkinleştiriliyor…',
+      successTitle: 'Ödeme başarılı',
+      successDescription: 'Ödemeniz kaydedildi ve {{plan}} planı etkinleştirildi. Birkaç saniye içinde kontrol paneline yönlendirileceksiniz.',
+      failedTitle: 'Ödeme tamamlanmadı',
+      failedDescription: 'Ödeme doğrulanamadı. Herhangi bir tahsilat kaydedilmedi; tekrar deneyebilirsiniz.',
+      dashboard: 'Kontrol paneline git',
+    },
     overview: {
       currentPlan: 'Mevcut plan', free: 'Ücretsiz', trial: 'Deneme', trialEnds: 'Deneme {{date}} tarihinde bitiyor',
       active: 'Aktif', inactive: 'Pasif', canceling: 'Dönem sonunda iptal olacak',

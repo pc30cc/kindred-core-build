@@ -11,7 +11,7 @@
  * the server tell us the new truth — the UI never patches financial numbers
  * locally to feel fast.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -23,12 +23,14 @@ import {
 } from '@/components/ui/select';
 import { SkeletonStats, SkeletonCard } from '@/components/common/Skeletons';
 import { Badge } from '@/components/ui/badge';
-import { LayoutGrid, Receipt, Gauge, Wallet, Sparkles, ArrowLeftRight } from 'lucide-react';
+import { LayoutGrid, Receipt, Gauge, Wallet, Sparkles, ArrowLeftRight, CheckCircle2, XCircle } from 'lucide-react';
 
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
 import { billingOverview, billingCancelPlanChange, type BillingOverview } from '@/lib/billingApi';
-import { billingVerifyCallback } from '@/lib/api';
+import { billingGetPaymentIntent, billingVerifyCallback, type BillingReceipt } from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ErrorState, errorMessage } from './shared';
 
 import OverviewTab from './OverviewTab';
@@ -55,6 +57,11 @@ export default function WorkspaceBillingPage({ workspaceId }: { workspaceId: str
   const [tab, setTab] = useState<string>('overview');
   const [reloadKey, setReloadKey] = useState(0);
   const [canceling, setCanceling] = useState(false);
+  const [paymentResult, setPaymentResult] = useState<{
+    state: 'processing' | 'succeeded' | 'failed';
+    receipt?: BillingReceipt | null;
+  } | null>(null);
+  const callbackHandled = useRef(false);
   const navigate = useNavigate();
   const { slug } = useParams<{ slug: string }>();
 
@@ -91,10 +98,13 @@ export default function WorkspaceBillingPage({ workspaceId }: { workspaceId: str
    * cannot replay it.
    */
   useEffect(() => {
+    if (callbackHandled.current) return;
     const url = new URL(window.location.href);
     const intentId = url.searchParams.get('intent');
     const provider = url.searchParams.get('provider');
     if (!intentId || !provider) return;
+    callbackHandled.current = true;
+    setPaymentResult({ state: 'processing' });
 
     const params: Record<string, string> = {};
     url.searchParams.forEach((value, key) => {
@@ -104,15 +114,39 @@ export default function WorkspaceBillingPage({ workspaceId }: { workspaceId: str
     ['intent', 'provider', ...Object.keys(params)].forEach((k) => url.searchParams.delete(k));
     window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
 
+    const finish = (receipt?: BillingReceipt | null) => {
+      setPaymentResult({ state: 'succeeded', receipt });
+      refreshAll();
+    };
+    const pollFinalState = async () => {
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1200));
+        const current = await billingGetPaymentIntent(intentId);
+        if (current.status === 'succeeded') return finish(current.receipt);
+        if (!current.pending) throw new Error(current.failureReason || 'PAYMENT_FAILED');
+      }
+      throw new Error('PAYMENT_FINALIZATION_PENDING');
+    };
+
     billingVerifyCallback({ workspaceId, provider, params, intentId })
-      .then((res: any) => {
-        if (res?.verified) toast.success(t('billing.common.paymentSucceeded'));
-        else toast.error(t('billing.common.paymentFailed'));
+      .then(async (res) => {
+        if (res.verified && !res.pending) return finish(res.receipt);
+        if (res.verified && res.pending) return pollFinalState();
+        throw new Error('PAYMENT_FAILED');
       })
-      .catch((e) => toast.error(errorMessage(e, t)))
-      .finally(() => refreshAll());
+      .catch((e) => {
+        setPaymentResult({ state: 'failed' });
+        toast.error(errorMessage(e, t));
+        refreshAll();
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId]);
+
+  useEffect(() => {
+    if (paymentResult?.state !== 'succeeded') return;
+    const timer = window.setTimeout(() => navigate(`/${slug || ''}`), 6000);
+    return () => window.clearTimeout(timer);
+  }, [navigate, paymentResult?.state, slug]);
 
   async function cancelPendingChange() {
     setCanceling(true);
@@ -150,6 +184,47 @@ export default function WorkspaceBillingPage({ workspaceId }: { workspaceId: str
 
   return (
     <div className="animate-fade-in space-y-6 p-4 text-start md:p-6 lg:p-8" dir={dir}>
+      <Dialog open={paymentResult !== null} onOpenChange={(open) => !open && setPaymentResult(null)}>
+        <DialogContent className="max-w-md text-center" dir={dir}>
+          <DialogHeader className="items-center pe-0 text-center">
+            {paymentResult?.state === 'processing' ? (
+              <div className="h-14 w-14 animate-pulse rounded-full border-4 border-primary/25 border-t-primary" />
+            ) : paymentResult?.state === 'succeeded' ? (
+              <CheckCircle2 className="h-16 w-16 text-emerald-600" />
+            ) : (
+              <XCircle className="h-16 w-16 text-destructive" />
+            )}
+            <DialogTitle className="pt-2 text-xl">
+              {paymentResult?.state === 'processing'
+                ? t('billing.paymentResult.processingTitle')
+                : paymentResult?.state === 'succeeded'
+                  ? t('billing.paymentResult.successTitle')
+                  : t('billing.paymentResult.failedTitle')}
+            </DialogTitle>
+            <DialogDescription className="text-center leading-6">
+              {paymentResult?.state === 'processing'
+                ? t('billing.paymentResult.processingDescription')
+                : paymentResult?.state === 'succeeded'
+                  ? t('billing.paymentResult.successDescription', {
+                      plan: paymentResult.receipt?.planName || t('billing.overview.currentPlan'),
+                    })
+                  : t('billing.paymentResult.failedDescription')}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="sm:justify-center">
+            {paymentResult?.state === 'succeeded' && (
+              <Button onClick={() => navigate(`/${slug || ''}`)}>
+                {t('billing.paymentResult.dashboard')}
+              </Button>
+            )}
+            {paymentResult?.state === 'failed' && (
+              <Button variant="outline" onClick={() => setPaymentResult(null)}>
+                {t('billing.common.close')}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <div className="relative overflow-hidden rounded-2xl border bg-card p-5 shadow-sm md:p-6">
         <div
           className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-primary/10 to-transparent"

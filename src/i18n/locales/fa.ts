@@ -28,6 +28,15 @@ const fa: TranslationKeys = {
       paymentSucceeded: 'پرداخت با موفقیت انجام شد.',
       paymentFailed: 'پرداخت تأیید نشد.',
     },
+    paymentResult: {
+      processingTitle: 'در حال نهایی‌سازی پرداخت',
+      processingDescription: 'پرداخت تأیید شده و پلن شما در حال فعال‌سازی است…',
+      successTitle: 'پرداخت موفق بود',
+      successDescription: 'پرداخت با موفقیت ثبت شد و پلن {{plan}} برای شما فعال شد. تا چند ثانیه دیگر به داشبورد می‌روید.',
+      failedTitle: 'پرداخت تکمیل نشد',
+      failedDescription: 'پرداخت تأیید نشد. مبلغی کسر نشده است؛ می‌توانید دوباره تلاش کنید.',
+      dashboard: 'رفتن به داشبورد',
+    },
     overview: {
       currentPlan: 'پلن فعلی', free: 'رایگان', trial: 'دوره آزمایشی', trialEnds: 'پایان دوره آزمایشی {{date}}',
       active: 'فعال', inactive: 'غیرفعال', canceling: 'در پایان دوره لغو می‌شود',

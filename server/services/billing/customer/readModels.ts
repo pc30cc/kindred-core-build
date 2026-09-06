@@ -661,7 +661,12 @@ export async function listTransactions(
   // "under review" — never as a failure, and never as a raw internal enum.
   const underReview = new Set(
     (payments || [])
-      .filter((p: any) => p.reconciliation_state && p.reconciliation_state !== 'applied')
+      // `settled` is the canonical successful invoice allocation state.
+      // Only verified money explicitly parked by the settlement pipeline is
+      // awaiting reconciliation; older code compared against a nonexistent
+      // `applied` state and consequently labelled every healthy payment as
+      // "under review".
+      .filter((p: any) => p.reconciliation_state === 'unapplied')
       .map((p: any) => p.id as string),
   );
   const transactions = buildTransactionHistory((payments || []) as any, (intents || []) as any).map(

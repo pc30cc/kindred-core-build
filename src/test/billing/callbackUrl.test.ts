@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../server/services/platformOrigins.js', () => ({
-  allowedOrigins: () => ['https://app.example.com'],
+  allowedOrigins: () => ['https://app.example.com', 'https://configured.example.com'],
 }));
 
 const { isAllowedBillingCallbackUrl, isSafeSignedBillingCallback } = await import(

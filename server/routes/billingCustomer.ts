@@ -258,6 +258,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
   }
 
   let hold: { collection_id: string } | null = null;
+  let intentId: string | null = null;
   try {
     const invoice = await getInvoice(cfg, invoiceId);
     if (!invoice || invoice.workspace_id !== workspaceId) return res.status(404).json({ error: 'NOT_FOUND' });
@@ -272,16 +273,9 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
       return res.status(400).json({ error: 'PROVIDER_NOT_SUPPORTED' });
     }
 
-    // Exclusive collection: the wallet auto-pay worker and a second tab can
-    // never collect the same invoice at the same time.
-    hold = await beginCollection(cfg, {
-      invoiceId,
-      channel: 'gateway',
-      amountIrr: due,
-      commandKey: `customer_checkout:${invoiceId}:${Date.now()}`,
-      ttlSeconds: 900,
-    });
-
+    // Create the attempt first, then bind the reservation to it. The former
+    // order created an unowned 15-minute lock whenever execution stopped
+    // between these two writes.
     const intent = await createInvoiceIntent(cfg, {
       workspaceId,
       invoiceId,
@@ -292,7 +286,20 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
       actionType: ((invoice as any).effect_snapshot?.action_type as any) ?? null,
       planNameSnapshot: (invoice as any).plan_name_snapshot ?? null,
       invoiceNumber: (invoice as any).invoice_number,
-      metadata: { origin: 'customer_invoice_checkout', collectionId: hold.collection_id },
+      metadata: { origin: 'customer_invoice_checkout' },
+    });
+    intentId = intent.id;
+
+    // Exclusive collection: wallet auto-pay and another browser tab must not
+    // collect this invoice simultaneously. The database automatically clears
+    // reservations whose linked attempt is terminal.
+    hold = await beginCollection(cfg, {
+      invoiceId,
+      channel: 'gateway',
+      amountIrr: due,
+      commandKey: `customer_checkout:${intent.id}`,
+      paymentIntentId: intent.id,
+      ttlSeconds: 900,
     });
 
     const sep = parsed.data.callbackUrl.includes('?') ? '&' : '?';
@@ -337,6 +344,11 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
   } catch (e) {
     if (hold) {
       await releaseCollection(serverConfigOf(req), hold.collection_id, 'checkout_failed').catch(
+        () => undefined,
+      );
+    }
+    if (intentId) {
+      await markPaymentIntentFailed(serverConfigOf(req), intentId, 'checkout_failed').catch(
         () => undefined,
       );
     }

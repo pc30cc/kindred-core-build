@@ -1,7 +1,7 @@
 /**
- * Billing Engine V2 — customer (workspace) API client.
+ * Unified customer billing API client.
  *
- * Every value rendered by the V2 billing screens comes from here. The browser
+ * Every value rendered by the billing screens comes from here. The browser
  * is a RENDERER, not a calculator: prices, periods, proration, allowances,
  * invoice totals, due dates, wallet balances and payability are all decided by
  * the server. Nothing in this module derives money — it only carries it.
@@ -75,8 +75,6 @@ export interface InvoiceSummary {
 }
 
 export interface BillingOverview {
-  engine: 'v1' | 'v2';
-  rolloutState: 'legacy' | 'shadow' | 'v2_cutover_pending' | 'v2_active';
   permissions: { manage: boolean };
   subscription: {
     status: string | null;

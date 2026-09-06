@@ -429,7 +429,17 @@ export default function OverviewPage() {
               {[
                 { label: tr('dashboard.usageConversations'), value: fmt(usageNum('conversations_count')) },
                 { label: tr('dashboard.usageMessages'), value: fmt(usageNum('messages_count')) },
-                { label: tr('dashboard.usageAiCredits'), value: fmt(usageNum('ai_credits_used')) },
+                {
+                  label: tr('dashboard.usageAiCredits'),
+                  value: aiWallet
+                    ? formatToman(
+                        Number(aiWallet.planRemaining || 0) + Number(aiWallet.purchasedRemaining || 0),
+                        numberLocale,
+                        { withLabel: false },
+                      )
+                    : '—',
+                },
+
               ].map((m) => (
                 <div key={m.label} className="rounded-xl border border-border/50 bg-card px-2.5 py-2 text-center">
                   <div className="text-sm font-bold tabular-nums text-foreground">{m.value}</div>

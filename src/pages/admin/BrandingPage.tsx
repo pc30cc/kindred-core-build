@@ -262,6 +262,7 @@ const BILLING_PROVIDERS = [
   { value: 'stripe', label: 'Stripe' },
   { value: 'paypal', label: 'PayPal' },
   { value: 'paddle', label: 'Paddle' },
+  { value: 'internal_test', label: 'Internal Test Gateway (Simulator)' },
   { value: 'zarinpal', label: 'ZarinPal' },
   { value: 'zarinpal_test', label: 'ZarinPal-Test (Sandbox)' },
   { value: 'iranpardakht_sandbox', label: 'IranPardakht-Sandbox' },

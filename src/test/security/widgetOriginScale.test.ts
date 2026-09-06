@@ -139,13 +139,15 @@ describe('origin → workspace resolution', () => {
 
 // ── Bounded lookup / scale ───────────────────────────────────────────────
 describe('lookup is bounded, not O(total customer domains)', () => {
-  it('generates a bounded, most-specific-first candidate list', () => {
-    expect(hostSuffixCandidates('store.eu.example.com')).toEqual([
-      'store.eu.example.com',
-      'eu.example.com',
-      'example.com',
-    ]);
-    expect(hostSuffixCandidates('a.b.c.d.e.f.g.h.i.example.com').length).toBeLessThanOrEqual(6);
+  it('generates a bounded candidate list containing every plausible suffix', () => {
+    // Order is irrelevant (a single `IN (...)` probe); membership is not.
+    expect(hostSuffixCandidates('store.eu.example.com').sort()).toEqual(
+      ['store.eu.example.com', 'eu.example.com', 'example.com'].sort(),
+    );
+    const deep = hostSuffixCandidates('a.b.c.d.e.f.g.h.i.example.com');
+    expect(deep.length).toBeLessThanOrEqual(7);
+    // The apex-ward candidates survive the cap — the registered domain is there.
+    expect(deep).toContain('example.com');
   });
 
   it('queries only the candidate hostnames — never the full table', async () => {

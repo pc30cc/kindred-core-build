@@ -367,7 +367,7 @@ billingV2CustomerRouter.get('/workspaces/:workspaceId/plans', async (req, res) =
   const cfg = serverConfigOf(req);
   const sb = getServiceClient(cfg);
   try {
-    const [{ data: plans }, { data: sub }] = await Promise.all([
+    const [plansRes, subRes] = await Promise.all([
       sb.from('billing_plans').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
       sb
         .from('workspace_subscriptions')
@@ -375,6 +375,10 @@ billingV2CustomerRouter.get('/workspaces/:workspaceId/plans', async (req, res) =
         .eq('workspace_id', req.params.workspaceId)
         .maybeSingle(),
     ]);
+    if (plansRes.error) throw new Error(`billing plans read failed: ${plansRes.error.message}`);
+    if (subRes.error) throw new Error(`billing subscription read failed: ${subRes.error.message}`);
+    const plans = plansRes.data;
+    const sub = subRes.data;
 
     // Hidden plans (e.g. trial) are admin-only; the customer only ever sees
     // them when they are the plan they are currently subscribed to.

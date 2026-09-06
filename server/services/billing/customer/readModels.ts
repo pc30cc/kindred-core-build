@@ -140,7 +140,7 @@ export async function buildBillingOverview(
     sb
       .from('workspace_subscriptions')
       .select(
-        'status, plan_id, billing_interval, current_period_start, current_period_end, next_invoice_at, next_plan_id, pending_change_type, cancel_at_period_end, trial_ends_at, billing_plans!workspace_subscriptions_plan_id_fkey(name, prices, limits)',
+        'status, plan_id, billing_interval, current_period_start, current_period_end, next_invoice_at, next_plan_id, pending_change_type, cancel_at_period_end, trial_ends_at',
       )
       .eq('workspace_id', workspaceId)
       .maybeSingle(),
@@ -163,6 +163,11 @@ export async function buildBillingOverview(
       .in('state', ['ACTIVE', 'EXPIRING']),
     sb.from('billing_v2_policy').select('wallet_auto_pay_default').maybeSingle(),
   ]);
+
+  // Subscription identity is financial truth. Never turn a failed read into a
+  // synthetic free plan: PostgREST relation/schema-cache failures previously
+  // made `data` null and the UI quietly rendered "Free".
+  if (subRes.error) throw new Error(`billing subscription read failed: ${subRes.error.message}`);
 
   const sub: any = subRes.data ?? null;
   const period: any = periodRes.data ?? null;
@@ -278,17 +283,19 @@ export async function buildBillingOverview(
   const allowanceIrr = num(cycle?.allowance_irr);
   const remainingIrr = num(cycle?.remaining_irr);
 
-  // The embedded plan is the fast path. It must never be the ONLY path: if the
-  // embed ever fails (schema-cache/relationship change) the workspace would be
-  // silently rendered as "Free" while actually paying for a plan. Fall back to
-  // an explicit read by id whenever a plan_id exists but the embed is empty.
-  let plan = (sub?.billing_plans as any) ?? null;
-  if (!plan && sub?.plan_id) {
-    const { data: planRow } = await sb
+  // Resolve the plan explicitly by its canonical id. workspace_subscriptions
+  // has both plan_id and next_plan_id pointing at billing_plans, so embedded
+  // relationship discovery is needlessly fragile and must not decide whether
+  // a paying customer appears to be free.
+  let plan: any = null;
+  if (sub?.plan_id) {
+    const { data: planRow, error: planError } = await sb
       .from('billing_plans')
       .select('name, prices, limits')
       .eq('id', sub.plan_id)
       .maybeSingle();
+    if (planError) throw new Error(`billing plan read failed: ${planError.message}`);
+    if (!planRow) throw new Error(`billing plan ${sub.plan_id} was not found`);
     plan = planRow ?? null;
   }
 

@@ -86,17 +86,42 @@ function isManage(auth: { isAdmin: boolean; role: string | null } | null): boole
 
 /** Same-deployment guard for anything handed to a bank as a return URL. */
 function isAllowedCallbackUrl(req: any, raw: string): boolean {
+  let target: URL;
   try {
-    const target = new URL(raw);
-    if (!['http:', 'https:'].includes(target.protocol)) return false;
-    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '');
-    if (host && target.host === host) return true;
-    const allowed = String(process.env.PUBLIC_APP_URL || process.env.APP_URL || '');
-    if (allowed) return target.origin === new URL(allowed).origin;
-    return false;
+    target = new URL(raw);
   } catch {
     return false;
   }
+  if (target.protocol !== 'https:' && target.hostname !== 'localhost' && target.hostname !== '127.0.0.1') {
+    return false;
+  }
+
+  const allowed = new Set<string>();
+
+  // In production the browser-facing application and the Express process can
+  // have different proxy hosts. The mutation origin has already been checked
+  // by workspaceAuth, so it is the canonical return origin for this request.
+  const originHeader = req.get?.('origin');
+  if (originHeader) {
+    try { allowed.add(new URL(originHeader).origin); } catch { /* ignore malformed header */ }
+  }
+
+  const requestHost = req.get?.('host');
+  if (requestHost) allowed.add(`${req.protocol}://${requestHost}`);
+
+  for (const origin of serverConfigOf(req)?.corsOrigins || []) {
+    if (origin && origin !== '*') {
+      try { allowed.add(new URL(origin).origin); } catch { /* ignore malformed config */ }
+    }
+  }
+
+  for (const configured of [process.env.PUBLIC_APP_URL, process.env.APP_URL]) {
+    if (configured) {
+      try { allowed.add(new URL(configured).origin); } catch { /* ignore malformed config */ }
+    }
+  }
+
+  return allowed.has(target.origin);
 }
 
 /**

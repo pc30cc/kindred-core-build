@@ -305,6 +305,22 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
     const sep = parsed.data.callbackUrl.includes('?') ? '&' : '?';
     const callbackUrl = `${parsed.data.callbackUrl}${sep}intent=${intent.id}&provider=${encodeURIComponent(resolved.provider.name)}`;
 
+    // Persist the browser return before leaving this server. If a gateway (or
+    // proxy in front of it) sends the customer to our API callback instead of
+    // the SPA URL, the callback can still finish and redirect to this exact,
+    // allow-listed destination rather than exposing JSON in the browser.
+    const sb = getServiceClient(cfg);
+    const { error: returnUrlError } = await sb
+      .from('billing_payment_intents')
+      .update({
+        metadata: {
+          ...((intent.metadata as Record<string, unknown>) || {}),
+          return_url: callbackUrl,
+        },
+      })
+      .eq('id', intent.id);
+    if (returnUrlError) throw new Error(`checkout return URL write failed: ${returnUrlError.message}`);
+
     const result = await resolved.provider.createCheckoutSession(resolved.config, {
       workspaceId,
       planId: (invoice as any).plan_id || 'invoice',

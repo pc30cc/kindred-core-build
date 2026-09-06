@@ -156,6 +156,7 @@ const en = {
       AMOUNT_NOT_ALLOWED: 'Please choose one of the suggested amounts.',
       NO_PROVIDER_CONFIGURED: 'No payment gateway is configured.',
       collection_locked: 'A payment is already in progress for this invoice. If you returned from the gateway, try again shortly.',
+      collection_in_progress: 'A payment is already in progress for this invoice. Select Pay again to start a fresh attempt.',
       COLLECTION_IN_PROGRESS: 'A payment is already in progress for this invoice. If you returned from the gateway, try again shortly.',
       INSUFFICIENT_FUNDS: 'Your wallet balance is not enough.',
       FORBIDDEN: 'You do not have permission for this action.',

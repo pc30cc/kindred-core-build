@@ -158,6 +158,7 @@ const tr: TranslationKeys = {
       AMOUNT_NOT_ALLOWED: 'Lütfen önerilen tutarlardan birini seçin.',
       NO_PROVIDER_CONFIGURED: 'Tanımlı bir ödeme geçidi yok.',
       collection_locked: 'Bu fatura için bir ödeme devam ediyor. Ödeme sayfasından döndüyseniz kısa süre sonra tekrar deneyin.',
+      collection_in_progress: 'Bu fatura için bir ödeme devam ediyor. Yeni bir deneme başlatmak için tekrar Öde seçeneğine basın.',
       COLLECTION_IN_PROGRESS: 'Bu fatura için bir ödeme devam ediyor. Ödeme sayfasından döndüyseniz kısa süre sonra tekrar deneyin.',
       INSUFFICIENT_FUNDS: 'Cüzdan bakiyeniz yeterli değil.',
       FORBIDDEN: 'Bu işlem için yetkiniz yok.',

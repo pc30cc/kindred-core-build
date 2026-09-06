@@ -411,7 +411,7 @@ export function billingDepositCheckout(
   );
 }
 
-/** AI credit is bought like everything else in V2: an invoice comes first. */
+/** AI credit is bought like every other billed item: an invoice comes first. */
 export function billingCreateAiCreditInvoice(workspaceId: string, amountIrr: number) {
   return request<{ invoiceId: string; invoiceNumber: string; amountIrr: number }>(
     `${base(workspaceId)}/ai-credit/invoice`,
@@ -419,16 +419,3 @@ export function billingCreateAiCreditInvoice(workspaceId: string, amountIrr: num
   );
 }
 
-/**
- * Stable engine contract (`/api/billing/workspaces/:id/engine`). Read-only:
- * it reports which engine owns the workspace so the UI can pick a screen.
- */
-export interface BillingEngineReadModel {
-  engine: 'v1' | 'v2';
-  rolloutState: 'legacy' | 'shadow' | 'v2_cutover_pending' | 'v2_active';
-  subscriptionStatus: string | null;
-}
-
-export function billingEngineReadModel(workspaceId: string) {
-  return request<BillingEngineReadModel>(`/api/billing/workspaces/${workspaceId}/engine`);
-}

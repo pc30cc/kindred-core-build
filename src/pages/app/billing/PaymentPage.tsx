@@ -154,6 +154,9 @@ export default function PaymentPage() {
     : invoice
       ? !invoice.actions.payable && invoice.totals.dueIrr <= 0
       : false;
+  const blockedMessage = !isDeposit && invoice?.actions.blockedReason
+    ? errorMessage(new Error(invoice.actions.blockedReason), t)
+    : null;
 
   return (
     <div className="animate-fade-in mx-auto max-w-4xl space-y-5 p-4 text-start md:p-6 lg:p-8" dir={dir}>
@@ -323,9 +326,9 @@ export default function PaymentPage() {
               )}
             </div>
 
-            {!isDeposit && invoice?.actions.blockedReason && (
+            {blockedMessage && (
               <p className="text-sm text-destructive">
-                {t(`billing.errors.${invoice.actions.blockedReason}` as any)}
+                {blockedMessage}
               </p>
             )}
           </CardContent>

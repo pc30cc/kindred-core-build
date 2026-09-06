@@ -393,9 +393,6 @@ app.use('/api/operator-activity', operatorActivityRouter);
 // Simulated in-house gateway page (test provider only; must be mounted first).
 app.use('/api/billing/test-gateway', internalTestGatewayRouter);
 app.use('/api/billing', billingCustomerRouter);
-// Temporary compatibility alias for already-open browser tabs. It executes the
-// same router and contains no separate billing logic.
-app.use('/api/billing/v2', billingCustomerRouter);
 app.use('/api/billing', billingRouter);
 app.use('/api/seo', seoRouter);
 

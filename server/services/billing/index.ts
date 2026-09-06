@@ -13,6 +13,7 @@ import { zarinpalTestProvider } from './providers/zarinpal-test.js';
 import { idpayProvider } from './providers/idpay.js';
 import { idpayTestProvider } from './providers/idpay-test.js';
 import { iranPardakhtSandboxProvider } from './providers/iranpardakht-sandbox.js';
+import { internalTestProvider } from './providers/internal-test.js';
 import { nextpayProvider } from './providers/nextpay.js';
 import { paypingProvider } from './providers/payping.js';
 import { zibalProvider } from './providers/zibal.js';
@@ -41,6 +42,8 @@ const providers: Record<string, BillingProviderHandler> = {
   idpay: idpayProvider,
   idpay_test: idpayTestProvider,
   iranpardakht_sandbox: iranPardakhtSandboxProvider,
+  // Self-hosted simulated gateway for exercising the financial pipeline.
+  internal_test: internalTestProvider,
   nextpay: nextpayProvider,
   payping: paypingProvider,
   zibal: zibalProvider,

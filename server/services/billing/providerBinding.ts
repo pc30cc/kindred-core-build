@@ -25,6 +25,8 @@ const CONTRACTS: Record<string, ProviderReferenceContract> = {
   // ZarinPal returns `authority` at create and echoes `Authority` on callback.
   zarinpal:            { requiresPaymentReferenceBinding: true, callbackKeys: ['Authority', 'authority'] },
   zarinpal_test:       { requiresPaymentReferenceBinding: true, callbackKeys: ['Authority', 'authority'] },
+  // Internal test gateway echoes the signed `authority` it was created with.
+  internal_test:       { requiresPaymentReferenceBinding: true, callbackKeys: ['authority', 'Authority'] },
   // IDPay create returns the payment `id`; callback echoes `id` (+ order_id).
   idpay:               { requiresPaymentReferenceBinding: true, callbackKeys: ['id', 'track_id', 'trackId'] },
   idpay_test:          { requiresPaymentReferenceBinding: true, callbackKeys: ['id', 'track_id', 'trackId'] },

@@ -105,6 +105,7 @@ export default function AdminBillingPage() {
     { name: 'paddle', label: 'Paddle', region: 'international' },
     { name: 'lemon_squeezy', label: 'Lemon Squeezy', region: 'international' },
     { name: 'paypal', label: 'PayPal', region: 'international' },
+    { name: 'internal_test', label: 'Internal Test Gateway (Simulator)', region: 'iran' },
     { name: 'zarinpal', label: 'ZarinPal', region: 'iran' },
     { name: 'zarinpal_test', label: 'ZarinPal-Test (Sandbox)', region: 'iran' },
     { name: 'iranpardakht_sandbox', label: 'IranPardakht-Sandbox', region: 'iran' },

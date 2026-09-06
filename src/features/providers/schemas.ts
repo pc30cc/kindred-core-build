@@ -536,6 +536,16 @@ const billingVendors: ProviderVendor[] = [
     ],
   },
   {
+    name: 'internal_test', label: 'درگاه تست داخلی (شبیه‌ساز)',
+    description: 'درگاه شبیه‌سازی‌شدهٔ داخلی برای تست کامل چرخهٔ مالی — بدون اتصال به بانک و بدون تراکنش واقعی. نتیجهٔ پرداخت را خودتان انتخاب می‌کنید.',
+    locales: ['fa', 'en', 'tr'], currency: 'IRR',
+    fields: [
+      { key: 'currency', label: 'واحد پول', type: 'select', options: [
+        { value: 'IRR', label: 'ریال (IRR)' }, { value: 'IRT', label: 'تومان (IRT)' },
+      ]},
+    ],
+  },
+  {
     name: 'zarinpal_test', label: 'زرین‌پال — سندباکس (ZarinPal-Test)',
     description: 'اتصال به محیط سندباکس زرین‌پال برای تست پرداخت — بدون تراکنش واقعی (sandbox.zarinpal.com)',
     docsUrl: 'https://www.zarinpal.com/docs/paymentGateway/sandBox.html',

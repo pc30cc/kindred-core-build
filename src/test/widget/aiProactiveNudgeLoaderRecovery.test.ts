@@ -54,11 +54,12 @@ describe('loader.js — AI nudge lifecycle reporting is session-recovery aware (
     expect(loader).toContain('function installSessionManager(bus)');
     expect(loader).toContain('if (!bus || bus.__canonicalSession) return;');
     expect(loader).toContain('bus.refresh = function ()');
-    expect(loader).toContain('bus.bootstrap = function ()');
-    expect(loader).toContain('bus.recover = function ()');
-    // recover() is "refresh, else bootstrap" — no separate widget-token-minting logic.
-    expect(loader).toContain('recovering = bus.refresh()');
-    expect(loader).toContain('return t || bus.bootstrap();');
+    expect(loader).toContain('bus.bootstrap = function (opts)');
+    expect(loader).toContain('bus.recover = function (opts)');
+    // Soft recovery is still "refresh, else bootstrap" — no separate
+    // widget-token-minting logic outside the canonical session manager.
+    expect(loader).toContain('start = bus.refresh().then(function (t) { return t || bus.bootstrap(); });');
+
 
     // startTracking's own recoverToken() is a thin wrapper delegating to
     // that SAME bus method — it does not reimplement refresh/bootstrap.

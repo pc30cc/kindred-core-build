@@ -244,15 +244,16 @@
      * permanently disabling the manager after repeated refresh failures —
      * a visitor must never be stuck until a full page reload.
      */
-    function recoverSession() {
+    function recoverSession(hard) {
       var bus = sessionBus();
       if (!bus || !bus.recover) return Promise.resolve(null);
-      return bus.recover().then(function (t) {
+      return bus.recover(hard ? { discardToken: true } : undefined).then(function (t) {
         if (!t) return null;
         adopt(t);
         return t;
       }, function () { return null; });
     }
+
 
     /**
      * Refresh the session token. Single-flight: concurrent calls await the
@@ -302,12 +303,20 @@
      * handler: refresh if possible, otherwise a bounded re-bootstrap.
      * Always resolves (never rejects) with the current token or null.
      */
-    function recover() {
+    function recover(opts) {
       if (disabled) {
         disabled = false;
         consecutiveFailures = 0;
       }
-      return refresh().then(function (t) { return t; }, function () { return recoverSession(); });
+      // Hard recovery: the current credential can never work for this origin
+      // (ORIGIN_MISMATCH) or is past every refresh window. Refreshing it is
+      // pointless AND wrong — discard it and mint a fresh origin-bound token.
+      if (opts && opts.discardToken) {
+        token = '';
+        notify();
+        return recoverSession(true);
+      }
+      return refresh().then(function (t) { return t; }, function () { return recoverSession(false); });
     }
 
 
@@ -317,6 +326,10 @@
      */
     function fetchWith(url, init) {
       init = init || {};
+      // Per-call ceiling: one credential recovery attempt per request, so a
+      // server that keeps rejecting a fresh token cannot produce a retry loop.
+      var recoveryRetries = 0;
+      var MAX_RECOVERY_RETRIES = 1;
       function doFetch(t) {
         var headers = {};
         var src = init.headers || {};
@@ -336,19 +349,26 @@
         // Some 403s (origin/workspace mismatch) cannot be recovered by refresh.
         // `recover()` (not `refresh()`) is used so a token expired beyond the
         // server's grace window re-bootstraps instead of stranding the caller.
-        function retryAfterRecovery() {
-          return recover().then(function (newT) {
+        function retryAfterRecovery(hard) {
+          if (recoveryRetries >= MAX_RECOVERY_RETRIES) return Promise.resolve(r);
+          recoveryRetries += 1;
+          return recover(hard ? { discardToken: true } : undefined).then(function (newT) {
             return newT ? doFetch(newT) : r;
           }, function () { return r; });
         }
         return r.clone().json().then(function (body) {
           var code = body && body.code;
-          var refreshable = code === 'TOKEN_EXPIRED' || code === 'INVALID_TOKEN' || code === 'MISSING_TOKEN' || !code;
+          // ORIGIN_MISMATCH: the token was minted for a DIFFERENT origin (the
+          // snippet moved domain, or a cached token survived a host change).
+          // It is recoverable, but only by discarding it and bootstrapping
+          // from the CURRENT origin — never by migrating it across origins.
+          var hard = code === 'ORIGIN_MISMATCH' || code === 'expired_beyond_grace';
+          var refreshable = hard || code === 'TOKEN_EXPIRED' || code === 'INVALID_TOKEN' || code === 'MISSING_TOKEN' || !code;
           if (!refreshable) return r;
-          return retryAfterRecovery();
+          return retryAfterRecovery(hard);
         }, function () {
           // Body wasn't JSON — best-effort retry once.
-          return retryAfterRecovery();
+          return retryAfterRecovery(false);
         });
       });
 

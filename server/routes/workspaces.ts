@@ -35,6 +35,7 @@ import { PhoneVerificationError } from '../services/phoneVerification/types.js';
 import { isEmailVerified } from '../services/auth/identity.js';
 import { checkEntitlementFromDB } from '../middleware/featureGating.js';
 import { getCapability } from '../services/billing/capabilityRegistry.js';
+import { invalidateOriginHostCache, invalidateWorkspaceOriginCache } from '../services/widget/public.js';
 
 export const workspacesRouter = Router();
 
@@ -447,13 +448,17 @@ workspacesRouter.post(`/${WORKSPACE_ID_PARAM}/domains`, async (req: WorkspaceIdR
     domain: parsed.data.domain,
   });
   if (error) return res.status(500).json({ error: error.message });
+  // Adding a customer domain is a DATA operation: no redeploy, no CORS env
+  // change. Invalidate the origin caches so the new domain works right away.
+  invalidateWorkspaceOriginCache(workspaceId);
+  invalidateOriginHostCache(parsed.data.domain);
   return res.json({ success: true });
 });
 
 async function loadDomainForWorkspace(sb: ReturnType<typeof getServiceClient>, workspaceId: string, domainId: string) {
   const { data } = await sb
     .from('workspace_domains')
-    .select('id')
+    .select('id, domain')
     .eq('id', domainId)
     .eq('workspace_id', workspaceId)
     .maybeSingle();
@@ -469,6 +474,10 @@ workspacesRouter.delete(`/${WORKSPACE_ID_PARAM}/domains/:domainId`, async (req: 
   if (!existing) return res.status(404).json({ error: 'Domain not found' });
   const { error } = await sb.from('workspace_domains').delete().eq('id', domainId);
   if (error) return res.status(500).json({ error: error.message });
+  // Removal must take effect immediately — a removed domain keeps working
+  // until its cached entry is dropped.
+  invalidateWorkspaceOriginCache(workspaceId);
+  if (existing.domain) invalidateOriginHostCache(existing.domain);
   return res.json({ success: true });
 });
 

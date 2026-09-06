@@ -4,19 +4,38 @@ import { getServiceClient } from '../../supabase.js';
 import { extractHostname, isOriginAllowed, normalizeDomain } from '../../utils/domain.js';
 
 const CACHE_TTL = 60_000;
+/** Negative (host → no workspace) answers expire faster: a customer that just
+ *  added a domain must not wait a full TTL, and an attacker probing random
+ *  hosts must not be able to pin long-lived entries. */
+const NEGATIVE_CACHE_TTL = 15_000;
 
 /**
- * These two caches are keyed by request-derived values (hostname / origin),
- * so without a bound they grow with the number of DISTINCT hosts a caller
- * sends — including hosts an attacker can invent. Entries were only ever
- * checked for freshness on read, never evicted, which made this a steady
- * heap-growth source. Both are now hard-capped with a TTL sweep, then
- * oldest-first eviction (Map preserves insertion order).
+ * These two caches are keyed by request-derived values (hostname / workspace
+ * id), so without a bound they grow with the number of DISTINCT hosts a
+ * caller sends — including hosts an attacker can invent. Both are hard-capped
+ * with a TTL sweep, then oldest-first eviction (Map preserves insertion
+ * order).
+ *
+ * Invalidation is explicit-first, TTL-as-fallback:
+ *  - a workspace's rules are dropped by id when its domains/widget settings
+ *    change (`invalidateWorkspaceOriginCache`);
+ *  - the exact host of an added/removed domain is dropped by key;
+ *  - cached NEGATIVE host answers carry the domain-mutation generation, so a
+ *    newly added domain (whose host may have been cached as "unknown", incl.
+ *    subdomains we cannot enumerate) is re-resolved on the next request.
+ *
+ * A future multi-node shared layer only has to broadcast the same three
+ * primitives below — no call site needs to change.
  */
 const CACHE_MAX_ENTRIES = 1000;
 
-const workspaceByHostCache = new Map<string, { workspaceId: string | null; ts: number }>();
+type HostEntry = { workspaceId: string | null; ts: number; gen: number };
+
+const workspaceByHostCache = new Map<string, HostEntry>();
 const originRulesCache = new Map<string, { domains: string[]; allowSubdomains: boolean; ts: number }>();
+
+/** Bumped on every domain/allow-list mutation; invalidates cached negatives. */
+let domainGeneration = 0;
 
 function boundCache(cache: Map<string, { ts: number }>): void {
   if (cache.size <= CACHE_MAX_ENTRIES) return;
@@ -35,6 +54,55 @@ function boundCache(cache: Map<string, { ts: number }>): void {
 function isFresh(ts: number) {
   return Date.now() - ts < CACHE_TTL;
 }
+
+function isHostEntryFresh(entry: HostEntry): boolean {
+  if (entry.workspaceId === null) {
+    return entry.gen === domainGeneration && Date.now() - entry.ts < NEGATIVE_CACHE_TTL;
+  }
+  return isFresh(entry.ts);
+}
+
+/** Drop the cached origin rules of one workspace (domain/settings mutation). */
+export function invalidateWorkspaceOriginCache(workspaceId: string): void {
+  originRulesCache.delete(workspaceId);
+  domainGeneration += 1;
+  for (const [host, entry] of workspaceByHostCache) {
+    if (entry.workspaceId === workspaceId) workspaceByHostCache.delete(host);
+  }
+}
+
+/** Drop the cached host → workspace answer for one exact domain. */
+export function invalidateOriginHostCache(domain: string): void {
+  const host = normalizeDomain(domain);
+  if (host) workspaceByHostCache.delete(host);
+  domainGeneration += 1;
+}
+
+/** Test-only: wipe every cached origin decision. */
+export function __resetWidgetOriginCaches(): void {
+  workspaceByHostCache.clear();
+  originRulesCache.clear();
+  domainGeneration += 1;
+}
+
+/**
+ * Bounded list of hostname suffixes that could match a stored domain.
+ * `store.eu.example.com` → ['store.eu.example.com','eu.example.com','example.com'].
+ * The list is capped so a pathological 100-label host cannot turn one request
+ * into 100 index probes; the leftmost (most specific) candidates are kept.
+ */
+const MAX_SUFFIX_CANDIDATES = 6;
+
+export function hostSuffixCandidates(host: string): string[] {
+  const labels = host.split('.').filter(Boolean);
+  if (labels.length < 2) return labels.length === 1 ? [host] : [];
+  const out: string[] = [];
+  for (let i = 0; i <= labels.length - 2 && out.length < MAX_SUFFIX_CANDIDATES; i += 1) {
+    out.push(labels.slice(i).join('.'));
+  }
+  return out;
+}
+
 
 
 function uniqueStrings(values: Array<string | null | undefined>) {
@@ -139,6 +207,16 @@ export function resolveWidgetApiBase(options: {
     || null;
 }
 
+/**
+ * Origin → workspace resolution.
+ *
+ * SCALE CONTRACT: the work done here is bounded by the LENGTH OF THE
+ * REQUESTED HOSTNAME, never by the number of customer domains on the
+ * platform. We generate at most `MAX_SUFFIX_CANDIDATES` normalized hostname
+ * candidates and probe them with one indexed `IN (...)` query against
+ * `workspace_domains.normalized_domain` (partial index on `verified`).
+ * A full-table read (the previous behaviour) is never performed.
+ */
 export async function resolveWorkspaceIdFromOrigin(config: ServerConfig, origin: string | null): Promise<string | null> {
   if (!origin) return null;
 
@@ -147,38 +225,41 @@ export async function resolveWorkspaceIdFromOrigin(config: ServerConfig, origin:
 
   const normalizedHost = normalizeDomain(originHost);
   const cached = workspaceByHostCache.get(normalizedHost);
-  if (cached && isFresh(cached.ts)) {
+  if (cached && isHostEntryFresh(cached)) {
     return cached.workspaceId;
   }
+
+  const rememberHost = (workspaceId: string | null) => {
+    workspaceByHostCache.set(normalizedHost, { workspaceId, ts: Date.now(), gen: domainGeneration });
+    boundCache(workspaceByHostCache);
+    return workspaceId;
+  };
+
+  const candidates = hostSuffixCandidates(normalizedHost);
+  if (!candidates.length) return rememberHost(null);
 
   const supabase = getServiceClient(config);
   const { data: domainRows, error } = await supabase
     .from('workspace_domains')
-    .select('workspace_id, domain, verified')
-    .eq('verified', true);
+    .select('workspace_id, normalized_domain')
+    .eq('verified', true)
+    .in('normalized_domain', candidates);
 
   if (error) throw error;
 
   const rows = (domainRows || []).map((row: any) => ({
     workspace_id: row.workspace_id as string,
-    domain: normalizeDomain(row.domain),
+    domain: String(row.normalized_domain || '').toLowerCase(),
   }));
 
   const exactMatch = rows.find((row) => row.domain === normalizedHost);
-  if (exactMatch) {
-    workspaceByHostCache.set(normalizedHost, { workspaceId: exactMatch.workspace_id, ts: Date.now() });
-  boundCache(workspaceByHostCache);
-    return exactMatch.workspace_id;
-  }
+  if (exactMatch) return rememberHost(exactMatch.workspace_id);
 
-  const candidates = rows.filter((row) => normalizedHost.endsWith(`.${row.domain}`));
-  if (!candidates.length) {
-    workspaceByHostCache.set(normalizedHost, { workspaceId: null, ts: Date.now() });
-  boundCache(workspaceByHostCache);
-    return null;
-  }
+  const suffixMatches = rows.filter((row) => normalizedHost.endsWith(`.${row.domain}`));
+  if (!suffixMatches.length) return rememberHost(null);
 
-  const workspaceIds = Array.from(new Set(candidates.map((row) => row.workspace_id)));
+  // Subdomain matches only count when the owning workspace opted in.
+  const workspaceIds = Array.from(new Set(suffixMatches.map((row) => row.workspace_id)));
   const { data: widgetRows, error: widgetError } = await supabase
     .from('widget_settings')
     .select('workspace_id, allow_subdomains')
@@ -187,15 +268,13 @@ export async function resolveWorkspaceIdFromOrigin(config: ServerConfig, origin:
   if (widgetError) throw widgetError;
 
   const allowSubdomainMap = new Map((widgetRows || []).map((row: any) => [row.workspace_id as string, !!row.allow_subdomains]));
-  const matched = candidates
+  const matched = suffixMatches
     .filter((row) => allowSubdomainMap.get(row.workspace_id))
     .sort((a, b) => b.domain.length - a.domain.length)[0];
 
-  const workspaceId = matched?.workspace_id || null;
-  workspaceByHostCache.set(normalizedHost, { workspaceId, ts: Date.now() });
-  boundCache(workspaceByHostCache);
-  return workspaceId;
+  return rememberHost(matched?.workspace_id || null);
 }
+
 
 export async function getWorkspaceOriginRules(config: ServerConfig, workspaceId: string) {
   const cached = originRulesCache.get(workspaceId);

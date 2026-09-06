@@ -243,6 +243,21 @@ const checkoutSchema = z.object({
   providerName: z.string().min(2).max(60).optional(),
 });
 
+/** Keep the browser page separate from the provider callback endpoint. */
+function paymentReturnUrls(browserUrl: string, intentId: string, providerName: string) {
+  const browserReturn = new URL(browserUrl);
+  browserReturn.searchParams.set('intent', intentId);
+  browserReturn.searchParams.set('provider', providerName);
+
+  const gatewayCallback = new URL('/api/billing/return', browserReturn.origin);
+  gatewayCallback.searchParams.set('intent', intentId);
+  gatewayCallback.searchParams.set('provider', providerName);
+  return {
+    browserReturnUrl: browserReturn.toString(),
+    gatewayCallbackUrl: gatewayCallback.toString(),
+  };
+}
+
 /** Start a gateway collection for an open invoice. */
 billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkout', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
@@ -302,8 +317,11 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
       ttlSeconds: 900,
     });
 
-    const sep = parsed.data.callbackUrl.includes('?') ? '&' : '?';
-    const callbackUrl = `${parsed.data.callbackUrl}${sep}intent=${intent.id}&provider=${encodeURIComponent(resolved.provider.name)}`;
+    const { browserReturnUrl, gatewayCallbackUrl } = paymentReturnUrls(
+      parsed.data.callbackUrl,
+      intent.id,
+      resolved.provider.name,
+    );
 
     // Persist the browser return before leaving this server. If a gateway (or
     // proxy in front of it) sends the customer to our API callback instead of
@@ -315,7 +333,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
       .update({
         metadata: {
           ...((intent.metadata as Record<string, unknown>) || {}),
-          return_url: callbackUrl,
+          return_url: browserReturnUrl,
         },
       })
       .eq('id', intent.id);
@@ -326,7 +344,7 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
       planId: (invoice as any).plan_id || 'invoice',
       interval: ((invoice as any).billing_interval || 'monthly') as any,
       currency: 'IRR',
-      callbackUrl,
+      callbackUrl: gatewayCallbackUrl,
       metadata: { amount: String(due), invoiceId },
     });
 
@@ -614,14 +632,28 @@ billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout', a
       .update({ payment_intent_id: intent.id })
       .eq('id', (deposit as any).id);
 
-    const sep = parsed.data.callbackUrl.includes('?') ? '&' : '?';
-    const callbackUrl = `${parsed.data.callbackUrl}${sep}intent=${intent.id}&provider=${encodeURIComponent(resolved.provider.name)}`;
+    const { browserReturnUrl, gatewayCallbackUrl } = paymentReturnUrls(
+      parsed.data.callbackUrl,
+      intent.id,
+      resolved.provider.name,
+    );
+    const { error: returnUrlError } = await sb
+      .from('billing_payment_intents')
+      .update({
+        metadata: {
+          ...((intent.metadata as Record<string, unknown>) || {}),
+          return_url: browserReturnUrl,
+        },
+      })
+      .eq('id', intent.id);
+    if (returnUrlError) throw new Error(`checkout return URL write failed: ${returnUrlError.message}`);
+
     const result = await resolved.provider.createCheckoutSession(resolved.config, {
       workspaceId,
       planId: 'wallet_deposit',
       interval: 'monthly',
       currency: 'IRR',
-      callbackUrl,
+      callbackUrl: gatewayCallbackUrl,
       metadata: { amount: String(amount), depositId: (deposit as any).id },
     });
 

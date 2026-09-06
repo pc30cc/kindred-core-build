@@ -477,14 +477,24 @@ export async function getWorkspacePlanInfo(
     plan = assignedPlan;
   }
 
-  if (!plan || !sub || !['active', 'trialing'].includes(sub.status)) {
-    const { data: freePlan } = await supabase
+  // Billing V2 keeps the paid entitlement during grace/past-due and until an
+  // explicit free fallback is recorded. A status whitelist incorrectly
+  // demoted those customers in the UI and entitlement checks.
+  const hasAssignedEntitlement = Boolean(plan && sub?.plan_id && !sub?.free_fallback_at);
+  if (!hasAssignedEntitlement) {
+    const { data: freePlan, error: freeError } = await supabase
       .from('billing_plans')
       .select('*')
       .eq('slug', 'free')
       .eq('is_active', true)
       .maybeSingle();
+    if (freeError) throw new Error(`free_plan_read_failed:${freeError.message}`);
+    if (!freePlan) throw new Error('free_plan_not_found');
     plan = freePlan;
+  }
+
+  if (typeof plan?.slug !== 'string' || !plan.slug.trim()) {
+    throw new Error('resolved_plan_has_no_valid_slug');
   }
 
   return {
@@ -512,68 +522,7 @@ export async function getWorkspacePlanInfoDetailed(
   | { ok: false; errorCode: 'plan_status_unavailable'; retryable: true }
 > {
   try {
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
-
-    const { data: sub, error: subError } = await supabase
-      .from('workspace_subscriptions')
-      .select('*')
-      .eq('workspace_id', workspaceId)
-      .maybeSingle();
-    if (subError) {
-      console.error('[FeatureGating] subscription read failed:', subError.message);
-      return { ok: false, errorCode: 'plan_status_unavailable', retryable: true };
-    }
-
-    let plan: any = null;
-    if ((sub as any)?.plan_id) {
-      const { data: assignedPlan, error: planError } = await supabase
-        .from('billing_plans')
-        .select('*')
-        .eq('id', (sub as any).plan_id)
-        .maybeSingle();
-      if (planError) {
-        console.error('[FeatureGating] assigned plan read failed:', planError.message);
-        return { ok: false, errorCode: 'plan_status_unavailable', retryable: true };
-      }
-      plan = assignedPlan;
-    }
-
-    if (!plan || !sub || !['active', 'trialing'].includes((sub as any).status)) {
-      const { data: freePlan, error: freeError } = await supabase
-        .from('billing_plans')
-        .select('*')
-        .eq('slug', 'free')
-        .eq('is_active', true)
-        .maybeSingle();
-      if (freeError) {
-        console.error('[FeatureGating] free plan read failed:', freeError.message);
-        return { ok: false, errorCode: 'plan_status_unavailable', retryable: true };
-      }
-      // R7.4 §9 — "no active Free plan row" is a BROKEN catalogue, not a
-      // valid Free entitlement. Synthesising Free limits here would hand out
-      // an allowance the operator never configured.
-      if (!freePlan) {
-        console.error('[FeatureGating] no active free plan row found');
-        return { ok: false, errorCode: 'plan_status_unavailable', retryable: true };
-      }
-      plan = freePlan;
-    }
-
-    // R7.4 §9 — a plan row without a usable slug cannot drive limits.
-    if (!plan || typeof (plan as any).slug !== 'string' || !(plan as any).slug.trim()) {
-      console.error('[FeatureGating] resolved plan row has no valid slug');
-      return { ok: false, errorCode: 'plan_status_unavailable', retryable: true };
-    }
-
-    return {
-      ok: true,
-      value: {
-        plan,
-        subscription: sub || null,
-        entitlements: (plan?.entitlements as Record<string, boolean>) || {},
-        limits: (plan?.limits as Record<string, number>) || {},
-      },
-    };
+    return { ok: true, value: await getWorkspacePlanInfo(supabaseUrl, serviceRoleKey, workspaceId) };
   } catch (err: any) {
     console.error('[FeatureGating] plan info exception:', err?.message);
     return { ok: false, errorCode: 'plan_status_unavailable', retryable: true };

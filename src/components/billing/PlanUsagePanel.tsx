@@ -117,7 +117,7 @@ export function PlanUsagePanel({ workspaceId }: Props) {
       </div>
     );
   }
-  if (error || !eff || !catalog) {
+  if (error || !eff || !catalog || !eff.plan) {
     return (
       <Card>
         <CardContent className="py-8 text-center text-muted-foreground">
@@ -145,7 +145,7 @@ export function PlanUsagePanel({ workspaceId }: Props) {
 
   const localizedPlanName = ((eff.plan as any)?.localized?.[L]?.name as string | undefined)?.trim()
     || eff.plan?.name
-    || bt(L, 'free');
+    || bt(L, 'planUnavailable');
 
   // Render only limits the plan actually exposes (i.e. has an effective state).
   const visibleLimits = limits.filter((c) => !!eff.limits[c.key]);

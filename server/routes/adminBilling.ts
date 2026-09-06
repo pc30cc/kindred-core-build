@@ -310,7 +310,7 @@ adminBillingRouter.get('/customers', async (req, res) => {
     const [subs, wallets] = await Promise.all([
       client
         .from('workspace_subscriptions')
-        .select('workspace_id, status, plan_id, billing_interval, current_period_end, billing_plans(name, slug)')
+        .select('workspace_id, status, plan_id, billing_interval, current_period_end, billing_plans!workspace_subscriptions_plan_id_fkey(name, slug)')
         .in('workspace_id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']),
       client
         .from('billing_wallet_accounts')

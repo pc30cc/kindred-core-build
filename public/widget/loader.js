@@ -127,6 +127,13 @@
     var recovering = null;
     var lastBootstrapAt = 0;
     var BOOTSTRAP_COOLDOWN_MS = 15000;
+    // Absolute ceiling, independent of the cooldown, so even forced
+    // origin-recovery bootstraps cannot storm the backend.
+    var BOOTSTRAP_WINDOW_MS = 60000;
+    var MAX_BOOTSTRAPS_PER_WINDOW = 4;
+    var windowStartedAt = 0;
+    var bootstrapsInWindow = 0;
+
 
     bus.configure = function (next) {
       if (!next) return;
@@ -162,15 +169,27 @@
       return refreshing;
     };
 
-    bus.bootstrap = function () {
+    bus.bootstrap = function (opts) {
       if (!cfg.apiBase || !cfg.workspaceId) return Promise.resolve(null);
       var now = Date.now();
-      if (now - lastBootstrapAt < BOOTSTRAP_COOLDOWN_MS) return Promise.resolve(null);
+      var force = !!(opts && opts.force);
+      // Storm guard: a hard ceiling of bootstraps per rolling window applies
+      // even to "forced" (origin-recovery) calls, so a server that keeps
+      // rejecting the fresh token can never turn into a bootstrap loop.
+      if (now - windowStartedAt > BOOTSTRAP_WINDOW_MS) {
+        windowStartedAt = now;
+        bootstrapsInWindow = 0;
+      }
+      if (bootstrapsInWindow >= MAX_BOOTSTRAPS_PER_WINDOW) return Promise.resolve(null);
+      if (!force && now - lastBootstrapAt < BOOTSTRAP_COOLDOWN_MS) return Promise.resolve(null);
       lastBootstrapAt = now;
+      bootstrapsInWindow += 1;
       return fetch(cfg.apiBase + '/api/widget/bootstrap', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
+        // Always the CURRENT browser origin: a token is never migrated from
+        // one origin to another, a brand-new origin-bound one is minted.
         body: JSON.stringify({ workspace_id: cfg.workspaceId, origin: window.location.origin }),
       })
         .then(function (r) { return r.ok ? r.json() : null; })
@@ -178,15 +197,33 @@
         .catch(function () { return null; });
     };
 
-    bus.recover = function () {
+    /** Drop an unusable credential so it can never be replayed or refreshed. */
+    bus.discard = function () {
+      try { bus.set(''); } catch (_) {}
+    };
+
+    /**
+     * opts.discardToken — the current token is structurally unusable for this
+     * origin (ORIGIN_MISMATCH) or beyond any refresh window: skip refresh
+     * entirely, throw the token away and bootstrap a fresh origin-bound one.
+     */
+    bus.recover = function (opts) {
       if (recovering) return recovering;
-      recovering = bus.refresh()
-        .then(function (t) { return t || bus.bootstrap(); })
+      var hard = !!(opts && opts.discardToken);
+      var start;
+      if (hard) {
+        bus.discard();
+        start = bus.bootstrap({ force: true });
+      } else {
+        start = bus.refresh().then(function (t) { return t || bus.bootstrap(); });
+      }
+      recovering = start
         .catch(function () { return null; })
         .then(function (t) { recovering = null; return t; }, function () { recovering = null; return null; });
       return recovering;
     };
   })(window.__gs_token);
+
 
 
   function processQueue() {

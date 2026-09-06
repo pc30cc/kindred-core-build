@@ -17,6 +17,7 @@ import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspace
 import { assertPhoneVerificationSatisfied } from '../services/phoneVerification/index.js';
 import { PhoneVerificationError } from '../services/phoneVerification/types.js';
 import {
+import { invalidateWorkspaceOriginCache } from '../services/widget/public.js';
   resolveWidgetEntitlements,
   guardWidgetSettingsPatch,
 } from '../services/widget/entitlements.js';
@@ -106,6 +107,10 @@ widgetSettingsRouter.patch('/:workspaceId', async (req, res) => {
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
+  // Embed allow-list / subdomain policy is read on every widget request from
+  // a short-lived cache — drop it now so the change is live immediately
+  // instead of after the TTL.
+  invalidateWorkspaceOriginCache(workspaceId);
   return res.json({ settings: data });
 });
 

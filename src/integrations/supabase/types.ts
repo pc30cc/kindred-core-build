@@ -12853,6 +12853,7 @@ export type Database = {
           domain: string
           id: string
           is_primary: boolean | null
+          normalized_domain: string | null
           verified: boolean | null
           workspace_id: string
         }
@@ -12861,6 +12862,7 @@ export type Database = {
           domain: string
           id?: string
           is_primary?: boolean | null
+          normalized_domain?: string | null
           verified?: boolean | null
           workspace_id: string
         }
@@ -12869,6 +12871,7 @@ export type Database = {
           domain?: string
           id?: string
           is_primary?: boolean | null
+          normalized_domain?: string | null
           verified?: boolean | null
           workspace_id?: string
         }

@@ -91,7 +91,7 @@ import { startEnforcementTicker } from './services/observability/enforcementTick
 import { startMaxmindUpdateTicker } from './services/geo/maxmindUpdater.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
-import { isPublicWidgetApiPath } from './lib/routePrefix.js';
+import { isPublicWidgetApiPath, PUBLIC_WIDGET_REALTIME_ROUTES } from './lib/routePrefix.js';
 import {
   ipBlockMiddleware,
   emailRateLimiter,
@@ -435,8 +435,11 @@ app.use('/api/admin/map-geo', adminRateLimiter, mapGeoRouter);
 // Realtime — admin config + widget connect/subscribe (auth handled per-route).
 // Public widget endpoints get the dynamic widget CORS; admin endpoints rely on the
 // global appCors applied above.
-app.use('/api/realtime/connect', widgetCorsMiddleware());
-app.use('/api/realtime/subscribe', widgetCorsMiddleware());
+// Single mount driven by the canonical route list in lib/routePrefix.ts —
+// the same list the app-CORS bypass consults, so classification and policy
+// can never drift apart (that drift is what left /visitor-presence on the
+// first-party app CORS allow-list).
+app.use([...PUBLIC_WIDGET_REALTIME_ROUTES], widgetCorsMiddleware());
 app.use('/api/realtime', realtimeRouter);
 
 // Conversations — backend-mediated agent reply send + realtime publish.

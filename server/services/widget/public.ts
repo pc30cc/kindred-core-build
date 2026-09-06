@@ -261,8 +261,29 @@ export async function resolveWorkspaceIdFromOrigin(config: ServerConfig, origin:
     domain: String(row.normalized_domain || '').toLowerCase(),
   }));
 
-  const exactMatch = rows.find((row) => row.domain === normalizedHost);
-  if (exactMatch) return rememberHost(exactMatch.workspace_id);
+  /**
+   * AMBIGUITY IS FAIL-CLOSED. A verified domain may belong to exactly one
+   * workspace (enforced by the partial unique index
+   * `workspace_domains_verified_domain_uniq`). If the data ever violates that
+   * invariant — legacy rows, a direct SQL insert, a race that slipped past
+   * the index — we must NOT pick a row with `find(...)`: that would route a
+   * visitor's origin to a nondeterministic tenant. We resolve to `null`
+   * instead, which makes origin-only resolution deny. The explicit
+   * `workspace_id + origin` widget flow is unaffected: it never calls this
+   * function to choose the tenant, it only asks whether the origin is allowed
+   * FOR THAT workspace.
+   */
+  const uniqueOwner = (matches: Array<{ workspace_id: string; domain: string }>): string | null => {
+    const owners = new Set(matches.map((row) => row.workspace_id));
+    if (owners.size === 1) return matches[0].workspace_id;
+    console.warn(
+      `[widget-origin] ambiguous domain ownership for "${normalizedHost}" (${owners.size} workspaces) — denying origin-only resolution`,
+    );
+    return null;
+  };
+
+  const exactMatches = rows.filter((row) => row.domain === normalizedHost);
+  if (exactMatches.length) return rememberHost(uniqueOwner(exactMatches));
 
   const suffixMatches = rows.filter((row) => normalizedHost.endsWith(`.${row.domain}`));
   if (!suffixMatches.length) return rememberHost(null);
@@ -277,11 +298,14 @@ export async function resolveWorkspaceIdFromOrigin(config: ServerConfig, origin:
   if (widgetError) throw widgetError;
 
   const allowSubdomainMap = new Map((widgetRows || []).map((row: any) => [row.workspace_id as string, !!row.allow_subdomains]));
-  const matched = suffixMatches
-    .filter((row) => allowSubdomainMap.get(row.workspace_id))
-    .sort((a, b) => b.domain.length - a.domain.length)[0];
+  const eligible = suffixMatches.filter((row) => allowSubdomainMap.get(row.workspace_id));
+  if (!eligible.length) return rememberHost(null);
 
-  return rememberHost(matched?.workspace_id || null);
+  // Most specific registered suffix wins; ties across tenants are ambiguous.
+  const longest = Math.max(...eligible.map((row) => row.domain.length));
+  const winners = eligible.filter((row) => row.domain.length === longest);
+
+  return rememberHost(uniqueOwner(winners));
 }
 
 

@@ -1,5 +1,5 @@
 /**
- * Shared presentation helpers for the Billing V2 workspace screens.
+ * Shared presentation helpers for the workspace billing screens.
  *
  * Nothing here computes money. These helpers only turn server-decided values
  * into labels, badges and page furniture — and they map every backend enum to

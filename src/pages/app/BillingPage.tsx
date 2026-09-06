@@ -1,7 +1,7 @@
 /**
  * Canonical workspace billing entry.
  *
- * Billing V2 is the only customer-facing billing experience. There is no
+ * This is the only customer-facing billing experience. There is no
  * region, rollout-state, or legacy fallback dispatch in the frontend.
  */
 import { SkeletonCard, SkeletonStats } from '@/components/common/Skeletons';

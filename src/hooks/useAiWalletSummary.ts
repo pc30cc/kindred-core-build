@@ -1,7 +1,7 @@
 /**
  * Workspace AI credit for dashboard surfaces.
  *
- * Single source of truth: the Billing V2 customer overview read-model — the
+ * Single source of truth: the customer billing overview read-model — the
  * exact same numbers the Billing screen's "AI credit" tab renders. Reading a
  * second source (the AI ledger wallet) made the dashboard disagree with
  * Billing, so it is deliberately not used here.

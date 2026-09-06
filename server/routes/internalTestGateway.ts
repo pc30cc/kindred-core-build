@@ -15,6 +15,7 @@ import {
   signOutcome,
   verifyCheckoutSignature,
 } from '../services/billing/providers/internal-test.js';
+import { isSafeSignedBillingCallback } from '../services/billing/callbackUrl.js';
 
 export const internalTestGatewayRouter = Router();
 
@@ -22,18 +23,6 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string
   ));
-}
-
-/** Only same-deployment (relative-safe absolute) callbacks are ever followed. */
-function isSameOriginCallback(req: { protocol: string; get(name: string): string | undefined }, raw: string): boolean {
-  try {
-    const target = new URL(raw);
-    const host = req.get('host');
-    if (!host) return false;
-    return target.host === host;
-  } catch {
-    return false;
-  }
 }
 
 function withParams(callbackUrl: string, params: Record<string, string>): string {
@@ -55,7 +44,10 @@ internalTestGatewayRouter.get('/', (req, res) => {
   if (!ref || !amount || !cb || !verifyCheckoutSignature(ref, amount, cb, sig)) {
     return res.status(400).type('html').send('<h1>Invalid test gateway request</h1>');
   }
-  if (!isSameOriginCallback(req, cb)) {
+  // The callback was allow-listed by the authenticated checkout endpoint and
+  // is covered by the HMAC above. Requiring the gateway route's proxy Host to
+  // equal the public app Host breaks valid split app/API deployments.
+  if (!isSafeSignedBillingCallback(cb)) {
     return res.status(400).type('html').send('<h1>Invalid callback URL</h1>');
   }
 

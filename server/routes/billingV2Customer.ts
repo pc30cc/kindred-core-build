@@ -57,6 +57,7 @@ import {
   evaluateCoupon,
   listPayableGateways,
 } from '../services/billing/config/index.js';
+import { isAllowedBillingCallbackUrl } from '../services/billing/callbackUrl.js';
 
 
 export const billingV2CustomerRouter = Router();
@@ -82,46 +83,6 @@ function pageParams(req: any) {
 function isManage(auth: { isAdmin: boolean; role: string | null } | null): boolean {
   if (!auth) return false;
   return auth.isAdmin || ['owner', 'admin'].includes(String(auth.role || ''));
-}
-
-/** Same-deployment guard for anything handed to a bank as a return URL. */
-function isAllowedCallbackUrl(req: any, raw: string): boolean {
-  let target: URL;
-  try {
-    target = new URL(raw);
-  } catch {
-    return false;
-  }
-  if (target.protocol !== 'https:' && target.hostname !== 'localhost' && target.hostname !== '127.0.0.1') {
-    return false;
-  }
-
-  const allowed = new Set<string>();
-
-  // In production the browser-facing application and the Express process can
-  // have different proxy hosts. The mutation origin has already been checked
-  // by workspaceAuth, so it is the canonical return origin for this request.
-  const originHeader = req.get?.('origin');
-  if (originHeader) {
-    try { allowed.add(new URL(originHeader).origin); } catch { /* ignore malformed header */ }
-  }
-
-  const requestHost = req.get?.('host');
-  if (requestHost) allowed.add(`${req.protocol}://${requestHost}`);
-
-  for (const origin of serverConfigOf(req)?.corsOrigins || []) {
-    if (origin && origin !== '*') {
-      try { allowed.add(new URL(origin).origin); } catch { /* ignore malformed config */ }
-    }
-  }
-
-  for (const configured of [process.env.PUBLIC_APP_URL, process.env.APP_URL]) {
-    if (configured) {
-      try { allowed.add(new URL(configured).origin); } catch { /* ignore malformed config */ }
-    }
-  }
-
-  return allowed.has(target.origin);
 }
 
 /**
@@ -293,7 +254,7 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/check
   const cfg = serverConfigOf(req);
   const workspaceId = req.params.workspaceId;
   const invoiceId = req.params.invoiceId;
-  if (!isAllowedCallbackUrl(req, parsed.data.callbackUrl)) {
+  if (!isAllowedBillingCallbackUrl(req, cfg, parsed.data.callbackUrl)) {
     return res.status(400).json({ error: 'INVALID_CALLBACK_URL' });
   }
 
@@ -593,7 +554,7 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout',
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   const cfg = serverConfigOf(req);
   const workspaceId = req.params.workspaceId;
-  if (!isAllowedCallbackUrl(req, parsed.data.callbackUrl)) {
+  if (!isAllowedBillingCallbackUrl(req, cfg, parsed.data.callbackUrl)) {
     return res.status(400).json({ error: 'INVALID_CALLBACK_URL' });
   }
 

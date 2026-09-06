@@ -14,6 +14,8 @@ import { useContacts } from '@/hooks/useContacts';
 import { useTeamPresence } from '@/hooks/useTeamPresence';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useWorkspacePlan, useWorkspaceUsage } from '@/hooks/usePlans';
+import { useAiWalletSummary } from '@/hooks/useAiWalletSummary';
+import { formatToman } from '@/lib/money';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { formatLongDate } from '@/lib/date';
 import GetStartedWizard from '@/components/app/GetStartedWizard';

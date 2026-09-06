@@ -134,8 +134,8 @@ export function Pager({
 export function errorMessage(e: unknown, t: (k: any) => string): string {
   const code = (e as any)?.code || (e as any)?.message;
   if (typeof code === 'string' && /^[A-Z_]+$/.test(code)) {
-    const translated = t(`billingV2.errors.${code}`);
-    if (!translated.includes('billingV2.errors.')) return translated;
+    const translated = t(`billing.errors.${code}`);
+    if (!translated.includes('billing.errors.')) return translated;
   }
-  return t('billingV2.errors.generic');
+  return t('billing.errors.generic');
 }

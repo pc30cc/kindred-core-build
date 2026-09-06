@@ -26,9 +26,9 @@ import { Check, Loader2, Sparkles } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
 import {
-  billingV2Plans,
-  billingV2PreviewPlanChange,
-  billingV2ApplyPlanChange,
+  billingPlans,
+  billingPreviewPlanChange,
+  billingApplyPlanChange,
   type PlansView,
   type PlanCard,
   type PlanChangeMode,
@@ -60,7 +60,7 @@ export default function PlansTab({
   const load = () => {
     setLoading(true);
     setError(null);
-    billingV2Plans(workspaceId)
+    billingPlans(workspaceId)
       .then((res) => {
         setData(res);
         if (res.currentInterval) setInterval_(res.currentInterval);
@@ -86,14 +86,14 @@ export default function PlansTab({
       let mode: PlanChangeMode = 'immediate';
       let preview: PlanChangePreview;
       try {
-        preview = await billingV2PreviewPlanChange(workspaceId, { planId: plan.id, interval, mode });
+        preview = await billingPreviewPlanChange(workspaceId, { planId: plan.id, interval, mode });
       } catch {
         // Server refuses an immediate change (typically a downgrade): schedule it.
         mode = 'next_cycle';
-        preview = await billingV2PreviewPlanChange(workspaceId, { planId: plan.id, interval, mode });
+        preview = await billingPreviewPlanChange(workspaceId, { planId: plan.id, interval, mode });
       }
 
-      const res = await billingV2ApplyPlanChange(workspaceId, {
+      const res = await billingApplyPlanChange(workspaceId, {
         planId: plan.id,
         interval,
         mode,
@@ -101,10 +101,10 @@ export default function PlansTab({
       });
       onChanged();
       if (res.invoiceId) {
-        toast.success(t('billingV2.plans.invoiceCreated', { number: res.invoiceNumber || '' }));
+        toast.success(t('billing.plans.invoiceCreated', { number: res.invoiceNumber || '' }));
         navigate(`/${slug}/billing/pay/invoice/${res.invoiceId}`);
       } else {
-        toast.success(t('billingV2.plans.scheduled'));
+        toast.success(t('billing.plans.scheduled'));
       }
     } catch (e) {
       toast.error(errorMessage(e, t));
@@ -115,7 +115,7 @@ export default function PlansTab({
 
 
   if (loading) return <SkeletonStats count={3} />;
-  if (error) return <ErrorState message={error} onRetry={load} retryLabel={t('billingV2.common.retry')} />;
+  if (error) return <ErrorState message={error} onRetry={load} retryLabel={t('billing.common.retry')} />;
   if (!data) return null;
 
   return (
@@ -134,7 +134,7 @@ export default function PlansTab({
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              {t(`billingV2.plans.${i}` as any)}
+              {t(`billing.plans.${i}` as any)}
             </button>
           ))}
         </div>
@@ -182,10 +182,10 @@ export default function PlansTab({
                       className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold text-white"
                       style={{ background: `hsl(var(--plan-accent))` }}
                     >
-                      {t('billingV2.plans.currentPlan')}
+                      {t('billing.plans.currentPlan')}
                     </span>
                   )}
-                  {isPending && <Badge variant="outline">{t('billingV2.overview.pendingChange')}</Badge>}
+                  {isPending && <Badge variant="outline">{t('billing.overview.pendingChange')}</Badge>}
                 </CardTitle>
                 {plan.description && (
                   <p className="pt-1 text-sm leading-relaxed text-muted-foreground">{plan.description}</p>
@@ -197,11 +197,11 @@ export default function PlansTab({
                     className="text-3xl font-extrabold tracking-tight tabular-nums"
                     style={{ color: `hsl(var(--plan-accent))` }}
                   >
-                    {plan.isFree ? t('billingV2.plans.free') : money(price, locale)}
+                    {plan.isFree ? t('billing.plans.free') : money(price, locale)}
                   </span>
                   {!plan.isFree && (
                     <span className="text-xs text-muted-foreground">
-                      {interval === 'yearly' ? t('billingV2.plans.perYear') : t('billingV2.plans.perMonth')}
+                      {interval === 'yearly' ? t('billing.plans.perYear') : t('billing.plans.perMonth')}
                     </span>
                   )}
                 </div>
@@ -216,10 +216,10 @@ export default function PlansTab({
                   >
                     <p className="flex items-center gap-1.5 text-xs font-semibold">
                       <Sparkles className="h-3.5 w-3.5" style={{ color: `hsl(var(--plan-accent))` }} />
-                      {t('billingV2.plans.aiMonthly', { amount: money(plan.aiMonthlyAllowanceIrr, locale) })}
+                      {t('billing.plans.aiMonthly', { amount: money(plan.aiMonthlyAllowanceIrr, locale) })}
                     </p>
                     {interval === 'yearly' && (
-                      <p className="mt-1 text-[11px] text-muted-foreground">{t('billingV2.plans.aiAnnualNote')}</p>
+                      <p className="mt-1 text-[11px] text-muted-foreground">{t('billing.plans.aiAnnualNote')}</p>
                     )}
                   </div>
                 )}
@@ -239,7 +239,7 @@ export default function PlansTab({
                   onClick={() => choosePlan(plan)}
                 >
                   {busy === plan.id && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
-                  {isCurrent ? t('billingV2.plans.currentPlan') : t('billingV2.plans.choose')}
+                  {isCurrent ? t('billing.plans.currentPlan') : t('billing.plans.choose')}
                 </Button>
               </CardContent>
             </Card>
@@ -316,12 +316,12 @@ function PlanFeatureList({ plan, accentVar }: { plan: PlanCard; accentVar: strin
   for (const key of CAP_KEYS) {
     const raw = Number(limits[key]);
     if (!Number.isFinite(raw) || raw === 0) continue;
-    const value = raw < 0 ? t('billingV2.plans.unlimited') : nf.format(raw);
-    items.push(t(`billingV2.plans.cap.${key}` as any, { value }));
+    const value = raw < 0 ? t('billing.plans.unlimited') : nf.format(raw);
+    items.push(t(`billing.plans.cap.${key}` as any, { value }));
   }
   for (const key of FEATURE_KEYS) {
     if (ents[key] !== true) continue;
-    items.push(t(`billingV2.plans.feat.${key}` as any));
+    items.push(t(`billing.plans.feat.${key}` as any));
   }
   // Legacy free-text features, if an admin ever set them.
   if (Array.isArray(plan.features)) {
@@ -334,7 +334,7 @@ function PlanFeatureList({ plan, accentVar }: { plan: PlanCard; accentVar: strin
   return (
     <div className="space-y-2">
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {t('billingV2.plans.includedTitle')}
+        {t('billing.plans.includedTitle')}
       </p>
       <ul className="space-y-1.5 text-sm text-foreground/80">
         {shown.map((label, idx) => (
@@ -352,8 +352,8 @@ function PlanFeatureList({ plan, accentVar }: { plan: PlanCard; accentVar: strin
           style={{ color: `hsl(var(${accentVar}))` }}
         >
           {expanded
-            ? t('billingV2.plans.showLess')
-            : `${t('billingV2.plans.showAll')} (${items.length - 7}+)`}
+            ? t('billing.plans.showLess')
+            : `${t('billing.plans.showAll')} (${items.length - 7}+)`}
         </button>
       )}
     </div>

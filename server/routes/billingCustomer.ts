@@ -1,5 +1,5 @@
 // ============================================================================
-// BILLING ENGINE V2 — CUSTOMER (WORKSPACE) SURFACE, Phase D
+// UNIFIED BILLING — CUSTOMER (WORKSPACE) SURFACE
 //
 // One cohesive endpoint per screen. Rules enforced here, never in the browser:
 //
@@ -51,7 +51,6 @@ import {
   IRAN_PROVIDERS,
 } from '../services/billing/paymentIntent.js';
 import { requiresReferenceBinding } from '../services/billing/providerBinding.js';
-import { isV2Active } from '../services/billing/rollout.js';
 import {
   BillingConfigError,
   evaluateCoupon,
@@ -60,7 +59,7 @@ import {
 import { isAllowedBillingCallbackUrl } from '../services/billing/callbackUrl.js';
 
 
-export const billingV2CustomerRouter = Router();
+export const billingCustomerRouter = Router();
 
 function fail(res: any, e: unknown) {
   if (e instanceof BillingActionError) {
@@ -110,7 +109,7 @@ async function resolveCheckoutProvider(cfg: any, workspaceId: string, providerNa
 
 
 /** Payment methods the customer may actually use for a given currency. */
-billingV2CustomerRouter.get('/workspaces/:workspaceId/gateways', async (req, res) => {
+billingCustomerRouter.get('/workspaces/:workspaceId/gateways', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   try {
@@ -131,7 +130,7 @@ billingV2CustomerRouter.get('/workspaces/:workspaceId/gateways', async (req, res
 });
 
 /** Validates a coupon against a concrete amount. Never applies it by itself. */
-billingV2CustomerRouter.post('/workspaces/:workspaceId/coupons/validate', async (req, res) => {
+billingCustomerRouter.post('/workspaces/:workspaceId/coupons/validate', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   if (!isManage(auth)) return res.status(403).json({ error: 'FORBIDDEN' });
@@ -168,7 +167,7 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/coupons/validate', async 
 // ─── Overview ──────────────────────────────────────────────────────────────
 
 
-billingV2CustomerRouter.get('/workspaces/:workspaceId/overview', async (req, res) => {
+billingCustomerRouter.get('/workspaces/:workspaceId/overview', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   try {
@@ -183,7 +182,7 @@ billingV2CustomerRouter.get('/workspaces/:workspaceId/overview', async (req, res
 
 // ─── Invoices ──────────────────────────────────────────────────────────────
 
-billingV2CustomerRouter.get('/workspaces/:workspaceId/invoices', async (req, res) => {
+billingCustomerRouter.get('/workspaces/:workspaceId/invoices', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   const filterRaw = String(req.query.filter || 'all');
@@ -197,7 +196,7 @@ billingV2CustomerRouter.get('/workspaces/:workspaceId/invoices', async (req, res
   }
 });
 
-billingV2CustomerRouter.get('/workspaces/:workspaceId/invoices/:invoiceId', async (req, res) => {
+billingCustomerRouter.get('/workspaces/:workspaceId/invoices/:invoiceId', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   try {
@@ -217,7 +216,7 @@ billingV2CustomerRouter.get('/workspaces/:workspaceId/invoices/:invoiceId', asyn
 });
 
 /** Pay an open invoice from the wallet: debit + settle + apply, atomically. */
-billingV2CustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/pay-wallet', async (req, res) => {
+billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/pay-wallet', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const cfg = serverConfigOf(req);
@@ -245,7 +244,7 @@ const checkoutSchema = z.object({
 });
 
 /** Start a gateway collection for an open invoice. */
-billingV2CustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkout', async (req, res) => {
+billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkout', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const parsed = checkoutSchema.safeParse(req.body);
@@ -347,7 +346,7 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/check
 
 // ─── Plans / plan change ───────────────────────────────────────────────────
 
-billingV2CustomerRouter.get('/workspaces/:workspaceId/plans', async (req, res) => {
+billingCustomerRouter.get('/workspaces/:workspaceId/plans', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   const cfg = serverConfigOf(req);
@@ -403,7 +402,7 @@ const planChangeSchema = z.object({
   mode: z.enum(['immediate', 'next_cycle']),
 });
 
-billingV2CustomerRouter.post('/workspaces/:workspaceId/plan-change/preview', async (req, res) => {
+billingCustomerRouter.post('/workspaces/:workspaceId/plan-change/preview', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const parsed = planChangeSchema.safeParse(req.body);
@@ -416,7 +415,7 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/plan-change/preview', asy
   }
 });
 
-billingV2CustomerRouter.post('/workspaces/:workspaceId/plan-change', async (req, res) => {
+billingCustomerRouter.post('/workspaces/:workspaceId/plan-change', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const parsed = planChangeSchema.extend({ expectedAmountIrr: z.number().int().min(0) }).safeParse(req.body);
@@ -436,7 +435,7 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/plan-change', async (req,
   }
 });
 
-billingV2CustomerRouter.post('/workspaces/:workspaceId/plan-change/cancel', async (req, res) => {
+billingCustomerRouter.post('/workspaces/:workspaceId/plan-change/cancel', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   try {
@@ -448,7 +447,7 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/plan-change/cancel', asyn
 
 // ─── Wallet ────────────────────────────────────────────────────────────────
 
-billingV2CustomerRouter.get('/workspaces/:workspaceId/wallet', async (req, res) => {
+billingCustomerRouter.get('/workspaces/:workspaceId/wallet', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   try {
@@ -458,7 +457,7 @@ billingV2CustomerRouter.get('/workspaces/:workspaceId/wallet', async (req, res) 
   }
 });
 
-billingV2CustomerRouter.put('/workspaces/:workspaceId/wallet/auto-pay', async (req, res) => {
+billingCustomerRouter.put('/workspaces/:workspaceId/wallet/auto-pay', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const parsed = z.object({ enabled: z.boolean() }).safeParse(req.body);
@@ -476,7 +475,7 @@ const depositSchema = z.object({ amountIrr: z.number().int().positive() });
  * Deposit receipt shown BEFORE the bank. Amount bounds come from server policy,
  * so a hand-crafted request cannot deposit an out-of-policy amount.
  */
-billingV2CustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/preview', async (req, res) => {
+billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/preview', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const parsed = depositSchema.safeParse(req.body);
@@ -511,7 +510,7 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/preview', 
 });
 
 /** A single deposit proforma — the document the customer pays on its own page. */
-billingV2CustomerRouter.get('/workspaces/:workspaceId/wallet/deposits/:depositId', async (req, res) => {
+billingCustomerRouter.get('/workspaces/:workspaceId/wallet/deposits/:depositId', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   const cfg = serverConfigOf(req);
@@ -541,7 +540,7 @@ billingV2CustomerRouter.get('/workspaces/:workspaceId/wallet/deposits/:depositId
 
 
 
-billingV2CustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout', async (req, res) => {
+billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const parsed = z
@@ -617,16 +616,13 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout',
 
 // ─── AI credit purchase (invoice-driven) ───────────────────────────────────
 
-billingV2CustomerRouter.post('/workspaces/:workspaceId/ai-credit/invoice', async (req, res) => {
+billingCustomerRouter.post('/workspaces/:workspaceId/ai-credit/invoice', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const parsed = z.object({ amountIrr: z.number().int().positive() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
   const cfg = serverConfigOf(req);
   try {
-    if (!(await isV2Active(cfg, req.params.workspaceId))) {
-      return res.status(409).json({ error: 'BILLING_V2_REQUIRED' });
-    }
     const sb = getServiceClient(cfg);
     const { data: policy } = await sb
       .from('platform_settings')
@@ -651,7 +647,7 @@ billingV2CustomerRouter.post('/workspaces/:workspaceId/ai-credit/invoice', async
 
 // ─── Transactions (money movement) ─────────────────────────────────────────
 
-billingV2CustomerRouter.get('/workspaces/:workspaceId/transactions', async (req, res) => {
+billingCustomerRouter.get('/workspaces/:workspaceId/transactions', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   try {

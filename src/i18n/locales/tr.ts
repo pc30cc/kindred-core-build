@@ -1,7 +1,7 @@
 import type { TranslationKeys } from './en';
 
 const tr: TranslationKeys = {
-    billingV2: {
+    billing: {
     checkout: {
       back: 'Faturalandırmaya dön',
       print: 'Yazdır',

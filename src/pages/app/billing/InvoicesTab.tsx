@@ -10,7 +10,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { SkeletonTable } from '@/components/common/Skeletons';
 import { useTranslation } from '@/i18n';
-import { billingV2Invoices, type InvoiceSummary } from '@/lib/billingApi';
+import { billingInvoices, type InvoiceSummary } from '@/lib/billingApi';
 import { billingDate, money, Ltr, InvoiceStatusBadge, ErrorState, EmptyState, Pager, errorMessage } from './shared';
 
 const FILTERS = ['all', 'open', 'paid', 'past_due', 'void', 'expired'] as const;
@@ -34,7 +34,7 @@ export default function InvoicesTab({
   const load = () => {
     setLoading(true);
     setError(null);
-    billingV2Invoices(workspaceId, { filter, page, pageSize: 10 })
+    billingInvoices(workspaceId, { filter, page, pageSize: 10 })
       .then((res) => setData({ invoices: res.invoices, total: res.total, pageSize: res.pageSize }))
       .catch((e) => setError(errorMessage(e, t)))
       .finally(() => setLoading(false));
@@ -59,15 +59,15 @@ export default function InvoicesTab({
                 setPage(1);
               }}
             >
-              {t(`billingV2.invoices.filters.${f}` as any)}
+              {t(`billing.invoices.filters.${f}` as any)}
             </Button>
           ))}
         </div>
 
         {loading && <SkeletonTable rows={5} />}
-        {!loading && error && <ErrorState message={error} onRetry={load} retryLabel={t('billingV2.common.retry')} />}
+        {!loading && error && <ErrorState message={error} onRetry={load} retryLabel={t('billing.common.retry')} />}
         {!loading && !error && data && data.invoices.length === 0 && (
-          <EmptyState message={t('billingV2.invoices.empty')} />
+          <EmptyState message={t('billing.invoices.empty')} />
         )}
 
         {!loading && !error && data && data.invoices.length > 0 && (
@@ -77,13 +77,13 @@ export default function InvoicesTab({
               <table className="w-full text-sm">
                 <thead className="text-xs text-muted-foreground">
                   <tr className="border-b">
-                    <th className="p-2 text-start">{t('billingV2.invoices.number')}</th>
-                    <th className="p-2 text-start">{t('billingV2.invoices.plan')}</th>
-                    <th className="p-2 text-start">{t('billingV2.invoices.issued')}</th>
-                    <th className="p-2 text-start">{t('billingV2.invoices.dueDate')}</th>
-                    <th className="p-2 text-start">{t('billingV2.common.status')}</th>
-                    <th className="p-2 text-end">{t('billingV2.invoices.total')}</th>
-                    <th className="p-2 text-end">{t('billingV2.invoices.due')}</th>
+                    <th className="p-2 text-start">{t('billing.invoices.number')}</th>
+                    <th className="p-2 text-start">{t('billing.invoices.plan')}</th>
+                    <th className="p-2 text-start">{t('billing.invoices.issued')}</th>
+                    <th className="p-2 text-start">{t('billing.invoices.dueDate')}</th>
+                    <th className="p-2 text-start">{t('billing.common.status')}</th>
+                    <th className="p-2 text-end">{t('billing.invoices.total')}</th>
+                    <th className="p-2 text-end">{t('billing.invoices.due')}</th>
                     <th className="p-2" />
                   </tr>
                 </thead>
@@ -97,14 +97,14 @@ export default function InvoicesTab({
                       <td className="p-2">
                         <InvoiceStatusBadge
                           status={inv.status}
-                          label={t(`billingV2.invoices.statuses.${inv.status}` as any)}
+                          label={t(`billing.invoices.statuses.${inv.status}` as any)}
                         />
                       </td>
                       <td className="p-2 text-end">{money(inv.totalIrr, locale)}</td>
                       <td className="p-2 text-end font-medium">{money(inv.amountDueIrr, locale)}</td>
                       <td className="p-2 text-end">
                         <Button variant="ghost" size="sm" onClick={() => onOpenInvoice(inv.id)}>
-                          {t('billingV2.common.view')}
+                          {t('billing.common.view')}
                         </Button>
                       </td>
                     </tr>
@@ -125,7 +125,7 @@ export default function InvoicesTab({
                     <Ltr>{inv.invoiceNumber}</Ltr>
                     <InvoiceStatusBadge
                       status={inv.status}
-                      label={t(`billingV2.invoices.statuses.${inv.status}` as any)}
+                      label={t(`billing.invoices.statuses.${inv.status}` as any)}
                     />
                   </div>
                   <p className="text-sm font-medium">{inv.planName || '—'}</p>
@@ -143,12 +143,12 @@ export default function InvoicesTab({
               total={data.total}
               onPage={setPage}
               labels={{
-                page: t('billingV2.common.page', {
+                page: t('billing.common.page', {
                   page,
                   pages: Math.max(1, Math.ceil(data.total / data.pageSize)),
                 }),
-                prev: t('billingV2.common.prev'),
-                next: t('billingV2.common.next'),
+                prev: t('billing.common.prev'),
+                next: t('billing.common.next'),
               }}
             />
           </>

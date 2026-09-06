@@ -7,7 +7,7 @@
  * Billing, so it is deliberately not used here.
  */
 import { useQuery } from '@tanstack/react-query';
-import { billingV2Overview } from '@/lib/billingApi';
+import { billingOverview } from '@/lib/billingApi';
 
 export interface AiCreditSnapshot {
   /** Remaining plan allowance for the running cycle (IRR). */
@@ -25,7 +25,7 @@ export function useAiWalletSummary(workspaceId: string | undefined, enabled = tr
     staleTime: 30_000,
     queryFn: async () => {
       try {
-        const overview = await billingV2Overview(workspaceId!);
+        const overview = await billingOverview(workspaceId!);
         const cycleRemainingIrr = Number(overview.aiCycle?.remainingIrr ?? 0);
         const purchasedRemainingIrr = Number(overview.aiPurchasedRemainingIrr ?? 0);
         return {

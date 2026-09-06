@@ -1,5 +1,5 @@
 const en = {
-    billingV2: {
+    billing: {
     checkout: {
       back: 'Back to billing',
       print: 'Print',

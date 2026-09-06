@@ -140,7 +140,7 @@ export async function buildBillingOverview(
     sb
       .from('workspace_subscriptions')
       .select(
-        'status, plan_id, billing_interval, current_period_start, current_period_end, next_invoice_at, next_plan_id, pending_change_type, cancel_at_period_end, trial_ends_at',
+        'status, plan_id, billing_interval, current_period_start, current_period_end, next_invoice_at, next_plan_id, pending_change_type, cancel_at_period_end, trial_end',
       )
       .eq('workspace_id', workspaceId)
       .maybeSingle(),
@@ -316,7 +316,7 @@ export async function buildBillingOverview(
       interval,
       isFree: monthlyPrice <= 0 && yearlyPrice <= 0,
       isTrial: sub?.status === 'trialing',
-      trialEndsAt: sub?.trial_ends_at ?? null,
+      trialEndsAt: sub?.trial_end ?? null,
       cancelAtPeriodEnd: Boolean(sub?.cancel_at_period_end),
     },
     servicePeriod: period

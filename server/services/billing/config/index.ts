@@ -152,12 +152,35 @@ export async function listGateways(config: ServerConfig): Promise<
     'gateways_read_failed',
   ) || []) as Gateway[];
   const handlers = getAllProviders();
-  return rows.map((g) => ({
+  const listed = rows.map((g) => ({
     ...g,
     implemented: g.provider_name === 'manual' || Boolean(handlers[g.provider_name]),
     capabilities: handlers[g.provider_name]?.capabilities,
   }));
+  // A registered handler with no configuration row still has to be visible in
+  // the admin gateway list, otherwise it can never be switched on.
+  const known = new Set(listed.map((g) => g.provider_name));
+  const maxSort = listed.reduce((m, g) => Math.max(m, g.sort_order ?? 0), 0);
+  let extra = 0;
+  for (const name of Object.keys(handlers)) {
+    if (known.has(name)) continue;
+    extra += 1;
+    listed.push({
+      provider_name: name,
+      display_name: { fa: name, en: name, tr: name },
+      is_active: false,
+      is_test: false,
+      currencies: [],
+      countries: [],
+      sort_order: maxSort + extra,
+      config: {},
+      implemented: true,
+      capabilities: handlers[name]?.capabilities,
+    } as (typeof listed)[number]);
+  }
+  return listed;
 }
+
 
 /** Gateways a customer may actually pay this currency with. */
 export async function listPayableGateways(

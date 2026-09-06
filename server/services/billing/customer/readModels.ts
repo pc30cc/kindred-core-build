@@ -316,7 +316,7 @@ export async function buildBillingOverview(
       interval,
       isFree: monthlyPrice <= 0 && yearlyPrice <= 0,
       isTrial: sub?.status === 'trialing',
-      trialEndsAt: sub?.trial_ends_at ?? null,
+      trialEndsAt: sub?.trial_end ?? null,
       cancelAtPeriodEnd: Boolean(sub?.cancel_at_period_end),
     },
     servicePeriod: period

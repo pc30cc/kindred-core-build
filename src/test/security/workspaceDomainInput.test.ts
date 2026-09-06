@@ -30,7 +30,7 @@ describe('parseWorkspaceDomainInput', () => {
 
   it('converts internationalized domains to punycode', () => {
     expect(ok('مثال.com')).toBe('xn--mgbh0fb.com');
-    expect(ok('https://füße.de')).toBe('xn--fe-vhaaa.de');
+    expect(ok('https://füße.de')).toBe('xn--fe-gia9i.de');
   });
 
   it('rejects wildcards — subdomains are a per-workspace switch', () => {
@@ -41,7 +41,7 @@ describe('parseWorkspaceDomainInput', () => {
   it('rejects non-http schemes and embedded credentials', () => {
     rejected('ftp://example.com', 'INVALID_SCHEME');
     rejected('javascript://example.com', 'INVALID_SCHEME');
-    rejected('user:pass@example.com', 'PORT_NOT_ALLOWED');
+    rejected('user:pass@example.com', 'USERINFO_NOT_ALLOWED');
     rejected('user@example.com', 'USERINFO_NOT_ALLOWED');
   });
 

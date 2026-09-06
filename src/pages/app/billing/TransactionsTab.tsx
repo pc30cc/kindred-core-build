@@ -12,7 +12,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { SkeletonTable } from '@/components/common/Skeletons';
 import { useTranslation } from '@/i18n';
-import { billingV2Transactions, type CustomerTransaction } from '@/lib/billingApi';
+import { billingTransactions, type CustomerTransaction } from '@/lib/billingApi';
 import { billingDate, money, Ltr, ErrorState, EmptyState, Pager, errorMessage } from './shared';
 
 function statusVariant(status: string, needsReview?: boolean) {
@@ -34,7 +34,7 @@ export default function TransactionsTab({ workspaceId, reloadKey }: { workspaceI
   const load = () => {
     setLoading(true);
     setError(null);
-    billingV2Transactions(workspaceId, { page, pageSize: 10 })
+    billingTransactions(workspaceId, { page, pageSize: 10 })
       .then((res) => {
         setRows(res.transactions);
         setTotal(res.total);
@@ -53,8 +53,8 @@ export default function TransactionsTab({ workspaceId, reloadKey }: { workspaceI
     <Card>
       <CardContent className="pt-6">
         {loading && <SkeletonTable rows={5} />}
-        {!loading && error && <ErrorState message={error} onRetry={load} retryLabel={t('billingV2.common.retry')} />}
-        {!loading && !error && rows.length === 0 && <EmptyState message={t('billingV2.transactions.empty')} />}
+        {!loading && error && <ErrorState message={error} onRetry={load} retryLabel={t('billing.common.retry')} />}
+        {!loading && !error && rows.length === 0 && <EmptyState message={t('billing.transactions.empty')} />}
 
         {!loading && !error && rows.length > 0 && (
           <>
@@ -62,24 +62,24 @@ export default function TransactionsTab({ workspaceId, reloadKey }: { workspaceI
               <table className="w-full text-sm">
                 <thead className="text-xs text-muted-foreground">
                   <tr className="border-b">
-                    <th className="p-2 text-start">{t('billingV2.transactions.date')}</th>
-                    <th className="p-2 text-start">{t('billingV2.transactions.type')}</th>
-                    <th className="p-2 text-start">{t('billingV2.transactions.tracking')}</th>
-                    <th className="p-2 text-start">{t('billingV2.common.status')}</th>
-                    <th className="p-2 text-end">{t('billingV2.transactions.amount')}</th>
+                    <th className="p-2 text-start">{t('billing.transactions.date')}</th>
+                    <th className="p-2 text-start">{t('billing.transactions.type')}</th>
+                    <th className="p-2 text-start">{t('billing.transactions.tracking')}</th>
+                    <th className="p-2 text-start">{t('billing.common.status')}</th>
+                    <th className="p-2 text-end">{t('billing.transactions.amount')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((row) => (
                     <tr key={row.id} className="border-b last:border-0">
                       <td className="p-2">{billingDate(row.createdAt, locale)}</td>
-                      <td className="p-2">{t(`billingV2.transactions.purchase.${row.purchaseType}` as any)}</td>
+                      <td className="p-2">{t(`billing.transactions.purchase.${row.purchaseType}` as any)}</td>
                       <td className="p-2">{row.providerReference || row.documentNumber ? <Ltr>{row.providerReference || row.documentNumber}</Ltr> : '—'}</td>
                       <td className="p-2">
                         <Badge variant={statusVariant(row.status, row.needsReview)}>
                           {row.needsReview
-                            ? t('billingV2.transactions.statuses.review')
-                            : t(`billingV2.transactions.statuses.${row.status}` as any)}
+                            ? t('billing.transactions.statuses.review')
+                            : t(`billing.transactions.statuses.${row.status}` as any)}
                         </Badge>
                       </td>
                       <td className="p-2 text-end font-medium">{money(row.amountIrr, locale)}</td>
@@ -94,12 +94,12 @@ export default function TransactionsTab({ workspaceId, reloadKey }: { workspaceI
                 <div key={row.id} className="rounded-lg border p-3">
                   <div className="mb-1 flex items-center justify-between gap-2">
                     <span className="text-sm font-medium">
-                      {t(`billingV2.transactions.purchase.${row.purchaseType}` as any)}
+                      {t(`billing.transactions.purchase.${row.purchaseType}` as any)}
                     </span>
                     <Badge variant={statusVariant(row.status, row.needsReview)}>
                       {row.needsReview
-                        ? t('billingV2.transactions.statuses.review')
-                        : t(`billingV2.transactions.statuses.${row.status}` as any)}
+                        ? t('billing.transactions.statuses.review')
+                        : t(`billing.transactions.statuses.${row.status}` as any)}
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -121,9 +121,9 @@ export default function TransactionsTab({ workspaceId, reloadKey }: { workspaceI
               total={total}
               onPage={setPage}
               labels={{
-                page: t('billingV2.common.page', { page, pages: Math.max(1, Math.ceil(total / pageSize)) }),
-                prev: t('billingV2.common.prev'),
-                next: t('billingV2.common.next'),
+                page: t('billing.common.page', { page, pages: Math.max(1, Math.ceil(total / pageSize)) }),
+                prev: t('billing.common.prev'),
+                next: t('billing.common.next'),
               }}
             />
           </>

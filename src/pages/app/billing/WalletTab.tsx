@@ -18,9 +18,9 @@ import { Loader2, FileText, Wallet as WalletIcon } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
 import {
-  billingV2Wallet,
-  billingV2SetAutoPay,
-  billingV2DepositPreview,
+  billingWallet,
+  billingSetAutoPay,
+  billingDepositPreview,
   type WalletView,
 } from '@/lib/billingApi';
 
@@ -54,7 +54,7 @@ export default function WalletTab({
   const load = () => {
     setLoading(true);
     setError(null);
-    billingV2Wallet(workspaceId, { page, pageSize: 10 })
+    billingWallet(workspaceId, { page, pageSize: 10 })
       .then(setData)
       .catch((e) => setError(errorMessage(e, t)))
       .finally(() => setLoading(false));
@@ -68,10 +68,10 @@ export default function WalletTab({
   async function toggleAutoPay(enabled: boolean) {
     setSavingAutoPay(true);
     try {
-      await billingV2SetAutoPay(workspaceId, enabled);
+      await billingSetAutoPay(workspaceId, enabled);
       setData((prev) => (prev ? { ...prev, autoPayEnabled: enabled } : prev));
       onChanged();
-      toast.success(t('billingV2.wallet.saved'));
+      toast.success(t('billing.wallet.saved'));
     } catch (e) {
       toast.error(errorMessage(e, t));
     } finally {
@@ -87,12 +87,12 @@ export default function WalletTab({
   async function issueDepositInvoice(presetIrr?: number) {
     const amountIrr = presetIrr ?? Number(amountToman) * RIAL_PER_TOMAN;
     if (!Number.isFinite(amountIrr) || amountIrr <= 0) {
-      toast.error(t('billingV2.wallet.invalidAmount'));
+      toast.error(t('billing.wallet.invalidAmount'));
       return;
     }
     setBusy(true);
     try {
-      const res = await billingV2DepositPreview(workspaceId, Math.round(amountIrr));
+      const res = await billingDepositPreview(workspaceId, Math.round(amountIrr));
       onChanged();
       navigate(`/${slug}/billing/pay/deposit/${res.deposit.id}`);
     } catch (e) {
@@ -103,7 +103,7 @@ export default function WalletTab({
   }
 
   if (loading) return <SkeletonStats count={2} />;
-  if (error) return <ErrorState message={error} onRetry={load} retryLabel={t('billingV2.common.retry')} />;
+  if (error) return <ErrorState message={error} onRetry={load} retryLabel={t('billing.common.retry')} />;
   if (!data) return null;
 
   return (
@@ -113,12 +113,12 @@ export default function WalletTab({
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               <WalletIcon className="h-4 w-4 text-primary" />
-              {t('billingV2.wallet.balance')}
+              {t('billing.wallet.balance')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-3xl font-bold">{money(data.balanceIrr, locale)}</p>
-            {data.frozen && <Badge variant="destructive">{t('billingV2.wallet.frozen')}</Badge>}
+            {data.frozen && <Badge variant="destructive">{t('billing.wallet.frozen')}</Badge>}
             {canManage && !data.frozen && (
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-2">
@@ -138,7 +138,7 @@ export default function WalletTab({
                 {data.deposit.allowCustom && (
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-muted-foreground" htmlFor="wallet-amount">
-                      {t('billingV2.wallet.customLabel')}
+                      {t('billing.wallet.customLabel')}
                     </label>
                     <Input
                       id="wallet-amount"
@@ -146,10 +146,10 @@ export default function WalletTab({
                       dir="ltr"
                       value={amountToman}
                       onChange={(e) => setAmountToman(e.target.value.replace(/[^\d]/g, ''))}
-                      placeholder={t('billingV2.wallet.custom')}
+                      placeholder={t('billing.wallet.custom')}
                     />
                     <p className="text-xs text-muted-foreground">
-                      {t('billingV2.wallet.range', {
+                      {t('billing.wallet.range', {
                         min: money(data.deposit.minIrr, locale),
                         max: money(data.deposit.maxIrr, locale),
                       })}
@@ -159,7 +159,7 @@ export default function WalletTab({
 
                 <Button className="w-full gap-2" disabled={busy} onClick={() => issueDepositInvoice()}>
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                  {t('billingV2.wallet.issueDepositInvoice')}
+                  {t('billing.wallet.issueDepositInvoice')}
                 </Button>
               </div>
             )}
@@ -168,11 +168,11 @@ export default function WalletTab({
 
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">{t('billingV2.wallet.autoPay')}</CardTitle>
+            <CardTitle className="text-base">{t('billing.wallet.autoPay')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-sm text-muted-foreground">{t('billingV2.overview.autoPayOn')}</p>
+              <p className="text-sm text-muted-foreground">{t('billing.overview.autoPayOn')}</p>
               <Switch
                 checked={data.autoPayEnabled}
                 disabled={!canManage || savingAutoPay}
@@ -180,7 +180,7 @@ export default function WalletTab({
               />
             </div>
             <p className="rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">
-              {t('billingV2.wallet.autoPayDesc')}
+              {t('billing.wallet.autoPayDesc')}
             </p>
           </CardContent>
         </Card>
@@ -188,11 +188,11 @@ export default function WalletTab({
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">{t('billingV2.wallet.ledger')}</CardTitle>
+          <CardTitle className="text-base">{t('billing.wallet.ledger')}</CardTitle>
         </CardHeader>
         <CardContent>
           {data.ledger.entries.length === 0 ? (
-            <EmptyState message={t('billingV2.wallet.empty')} />
+            <EmptyState message={t('billing.wallet.empty')} />
           ) : (
             <>
               <div className="space-y-2">
@@ -200,7 +200,7 @@ export default function WalletTab({
                   <div key={entry.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
                     <div className="min-w-0">
                       <p className="text-sm font-medium">
-                        {t(`billingV2.wallet.entryTypes.${entry.entryType}` as any)}
+                        {t(`billing.wallet.entryTypes.${entry.entryType}` as any)}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {billingDate(entry.createdAt, locale)}
@@ -221,12 +221,12 @@ export default function WalletTab({
                 total={data.ledger.total}
                 onPage={setPage}
                 labels={{
-                  page: t('billingV2.common.page', {
+                  page: t('billing.common.page', {
                     page,
                     pages: Math.max(1, Math.ceil(data.ledger.total / data.ledger.pageSize)),
                   }),
-                  prev: t('billingV2.common.prev'),
-                  next: t('billingV2.common.next'),
+                  prev: t('billing.common.prev'),
+                  next: t('billing.common.next'),
                 }}
               />
             </>

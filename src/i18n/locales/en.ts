@@ -1,5 +1,5 @@
 const en = {
-    billingV2: {
+    billing: {
     checkout: {
       back: 'Back to billing',
       print: 'Print',
@@ -155,8 +155,8 @@ const en = {
       AMOUNT_OUT_OF_RANGE: 'The amount is outside the allowed range.',
       AMOUNT_NOT_ALLOWED: 'Please choose one of the suggested amounts.',
       NO_PROVIDER_CONFIGURED: 'No payment gateway is configured.',
-      BILLING_V2_REQUIRED: 'This action is not available for your workspace yet.',
-      COLLECTION_IN_PROGRESS: 'An online payment is already in progress.',
+      collection_locked: 'A payment is already in progress for this invoice. If you returned from the gateway, try again shortly.',
+      COLLECTION_IN_PROGRESS: 'A payment is already in progress for this invoice. If you returned from the gateway, try again shortly.',
       INSUFFICIENT_FUNDS: 'Your wallet balance is not enough.',
       FORBIDDEN: 'You do not have permission for this action.',
     },

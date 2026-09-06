@@ -23,11 +23,11 @@ function valueAt(root: any, key: string) {
   return key.split('.').reduce((o, k) => o?.[k], root);
 }
 
-describe('billingV2 translation completeness', () => {
-  const enRoot = (en as any).billingV2;
+describe('billing translation completeness', () => {
+  const enRoot = (en as any).billing;
   const enKeys = leafKeys(enRoot).sort();
 
-  it('en.billingV2 covers all six sections', () => {
+  it('en.billing covers all six sections', () => {
     for (const section of ['overview', 'invoices', 'plans', 'wallet', 'ai', 'transactions']) {
       expect(enRoot[section], `missing section ${section}`).toBeTruthy();
     }
@@ -35,18 +35,18 @@ describe('billingV2 translation completeness', () => {
   });
 
   it('fa carries every key with non-empty Persian text', () => {
-    expect(leafKeys((fa as any).billingV2).sort()).toEqual(enKeys);
+    expect(leafKeys((fa as any).billing).sort()).toEqual(enKeys);
     for (const key of enKeys) {
-      const value = valueAt((fa as any).billingV2, key);
+      const value = valueAt((fa as any).billing, key);
       expect(typeof value, key).toBe('string');
       expect((value as string).trim().length, key).toBeGreaterThan(0);
     }
   });
 
   it('tr carries every key', () => {
-    expect(leafKeys((tr as any).billingV2).sort()).toEqual(enKeys);
+    expect(leafKeys((tr as any).billing).sort()).toEqual(enKeys);
     for (const key of enKeys) {
-      expect(typeof valueAt((tr as any).billingV2, key), key).toBe('string');
+      expect(typeof valueAt((tr as any).billing, key), key).toBe('string');
     }
   });
 
@@ -54,7 +54,7 @@ describe('billingV2 translation completeness', () => {
     const statuses = ['draft', 'open', 'partially_paid', 'paid', 'past_due', 'void', 'expired', 'refunded'];
     for (const root of [en, fa, tr]) {
       for (const s of statuses) {
-        expect((root as any).billingV2.invoices.statuses[s], s).toBeTruthy();
+        expect((root as any).billing.invoices.statuses[s], s).toBeTruthy();
       }
     }
   });
@@ -63,21 +63,21 @@ describe('billingV2 translation completeness', () => {
     const statuses = ['pending', 'processing', 'succeeded', 'canceled', 'failed', 'expired', 'refunded', 'review'];
     const purchases = ['subscription', 'ai_credit_topup', 'wallet_deposit'];
     for (const root of [en, fa, tr]) {
-      for (const s of statuses) expect((root as any).billingV2.transactions.statuses[s], s).toBeTruthy();
-      for (const p of purchases) expect((root as any).billingV2.transactions.purchase[p], p).toBeTruthy();
+      for (const s of statuses) expect((root as any).billing.transactions.statuses[s], s).toBeTruthy();
+      for (const p of purchases) expect((root as any).billing.transactions.purchase[p], p).toBeTruthy();
     }
   });
 
   it('every wallet ledger entry type has a label (no raw DB enum can leak)', () => {
     const types = ['deposit', 'invoice_payment', 'refund', 'credit', 'debit', 'admin_adjustment', 'chargeback'];
     for (const root of [en, fa, tr]) {
-      for (const type of types) expect((root as any).billingV2.wallet.entryTypes[type], type).toBeTruthy();
+      for (const type of types) expect((root as any).billing.wallet.entryTypes[type], type).toBeTruthy();
     }
   });
 
   it('annual plans describe AI credit as a monthly release, never a yearly lump sum', () => {
-    expect((en as any).billingV2.plans.aiMonthly).toContain('per month');
-    expect((fa as any).billingV2.plans.aiMonthly).toContain('ماهانه');
-    expect((fa as any).billingV2.overview.annualNote).toContain('ماه');
+    expect((en as any).billing.plans.aiMonthly).toContain('per month');
+    expect((fa as any).billing.plans.aiMonthly).toContain('ماهانه');
+    expect((fa as any).billing.overview.annualNote).toContain('ماه');
   });
 });

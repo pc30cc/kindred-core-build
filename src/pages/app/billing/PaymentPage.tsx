@@ -18,12 +18,12 @@ import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import {
-  billingV2InvoiceDetail,
-  billingV2PayInvoiceFromWallet,
-  billingV2InvoiceCheckout,
-  billingV2DepositDetail,
-  billingV2DepositCheckout,
-  billingV2Gateways,
+  billingInvoiceDetail,
+  billingPayInvoiceFromWallet,
+  billingInvoiceCheckout,
+  billingDepositDetail,
+  billingDepositCheckout,
+  billingGateways,
   type InvoiceDetail,
   type DepositDocument,
   type PayableGateway,
@@ -75,12 +75,12 @@ export default function PaymentPage() {
     setError(null);
     const doc =
       kind === 'deposit'
-        ? billingV2DepositDetail(workspaceId, id).then((r) => setDeposit(r.deposit))
-        : billingV2InvoiceDetail(workspaceId, id).then(setInvoice);
+        ? billingDepositDetail(workspaceId, id).then((r) => setDeposit(r.deposit))
+        : billingInvoiceDetail(workspaceId, id).then(setInvoice);
 
     Promise.all([
       doc,
-      billingV2Gateways(workspaceId)
+      billingGateways(workspaceId)
         .then((r) => {
           setGateways(r.gateways);
           setSelected((prev) => prev ?? r.gateways[0]?.provider_name ?? null);
@@ -105,8 +105,8 @@ export default function PaymentPage() {
       const callbackUrl = `${billingReturnOrigin()}/${slug}/billing`;
       const res =
         kind === 'deposit'
-          ? await billingV2DepositCheckout(workspaceId, id, callbackUrl, selected || undefined)
-          : await billingV2InvoiceCheckout(workspaceId, id, callbackUrl, selected || undefined);
+          ? await billingDepositCheckout(workspaceId, id, callbackUrl, selected || undefined)
+          : await billingInvoiceCheckout(workspaceId, id, callbackUrl, selected || undefined);
       const url = res.paymentUrl || res.checkoutUrl || res.url;
       if (!url) throw new Error('NO_PROVIDER_CONFIGURED');
       window.location.href = url;
@@ -120,8 +120,8 @@ export default function PaymentPage() {
     if (!workspaceId || !id) return;
     setBusy(true);
     try {
-      await billingV2PayInvoiceFromWallet(workspaceId, id);
-      toast.success(t('billingV2.invoices.detail.walletPaid'));
+      await billingPayInvoiceFromWallet(workspaceId, id);
+      toast.success(t('billing.invoices.detail.walletPaid'));
       backToBilling();
     } catch (e) {
       toast.error(errorMessage(e, t));
@@ -141,7 +141,7 @@ export default function PaymentPage() {
   if (error) {
     return (
       <div className="p-4 md:p-6 lg:p-8" dir={dir}>
-        <ErrorState message={error} onRetry={load} retryLabel={t('billingV2.common.retry')} />
+        <ErrorState message={error} onRetry={load} retryLabel={t('billing.common.retry')} />
       </div>
     );
   }
@@ -160,11 +160,11 @@ export default function PaymentPage() {
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <Button variant="ghost" onClick={backToBilling} className="gap-2">
           <ArrowRight className="h-4 w-4 rtl:rotate-0 ltr:rotate-180" />
-          {t('billingV2.checkout.back')}
+          {t('billing.checkout.back')}
         </Button>
         <Button variant="outline" onClick={() => window.print()} className="gap-2">
           <Printer className="h-4 w-4" />
-          {t('billingV2.checkout.print')}
+          {t('billing.checkout.print')}
         </Button>
       </div>
 
@@ -174,7 +174,7 @@ export default function PaymentPage() {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-sm text-muted-foreground">
-                {isDeposit ? t('billingV2.checkout.depositTitle') : t('billingV2.checkout.invoiceTitle')}
+                {isDeposit ? t('billing.checkout.depositTitle') : t('billing.checkout.invoiceTitle')}
               </p>
               <h1 className="mt-1 text-2xl font-bold">
                 <Ltr>{docNumber || '—'}</Ltr>
@@ -183,7 +183,7 @@ export default function PaymentPage() {
             {!isDeposit && invoice && (
               <InvoiceStatusBadge
                 status={invoice.invoice.status}
-                label={t(`billingV2.invoices.statuses.${invoice.invoice.status}` as any)}
+                label={t(`billing.invoices.statuses.${invoice.invoice.status}` as any)}
               />
             )}
           </div>
@@ -192,17 +192,17 @@ export default function PaymentPage() {
         <CardContent className="space-y-5 p-6">
           <div className="grid gap-3 text-sm sm:grid-cols-2">
             <Row
-              label={t('billingV2.invoices.detail.issuedAt')}
+              label={t('billing.invoices.detail.issuedAt')}
               value={billingDate(
                 isDeposit ? deposit?.createdAt : invoice?.invoice.issuedAt || invoice?.invoice.createdAt,
                 locale,
               )}
             />
             {!isDeposit && invoice?.invoice.dueAt && (
-              <Row label={t('billingV2.invoices.detail.dueAt')} value={billingDate(invoice.invoice.dueAt, locale)} />
+              <Row label={t('billing.invoices.detail.dueAt')} value={billingDate(invoice.invoice.dueAt, locale)} />
             )}
             {!isDeposit && invoice?.invoice.workspaceName && (
-              <Row label={t('billingV2.invoices.detail.workspace')} value={invoice.invoice.workspaceName} />
+              <Row label={t('billing.invoices.detail.workspace')} value={invoice.invoice.workspaceName} />
             )}
           </div>
 
@@ -210,11 +210,11 @@ export default function PaymentPage() {
 
           {/* Lines */}
           <div className="space-y-2">
-            <p className="text-sm font-semibold">{t('billingV2.invoices.detail.lines')}</p>
+            <p className="text-sm font-semibold">{t('billing.invoices.detail.lines')}</p>
             <div className="overflow-hidden rounded-xl border">
               {isDeposit ? (
                 <LineRow
-                  description={t('billingV2.checkout.depositLine')}
+                  description={t('billing.checkout.depositLine')}
                   qty={1}
                   amount={money(deposit?.amountIrr ?? 0, locale)}
                 />
@@ -235,24 +235,24 @@ export default function PaymentPage() {
           <div className="ms-auto w-full max-w-sm space-y-1.5 text-sm">
             {!isDeposit && invoice && (
               <>
-                <Total label={t('billingV2.invoices.detail.subtotal')} value={money(invoice.totals.subtotalIrr, locale)} />
+                <Total label={t('billing.invoices.detail.subtotal')} value={money(invoice.totals.subtotalIrr, locale)} />
                 {invoice.totals.discountIrr > 0 && (
                   <Total
-                    label={t('billingV2.invoices.detail.discount')}
+                    label={t('billing.invoices.detail.discount')}
                     value={`− ${money(invoice.totals.discountIrr, locale)}`}
                   />
                 )}
                 {invoice.totals.taxIrr > 0 && (
-                  <Total label={t('billingV2.invoices.detail.tax')} value={money(invoice.totals.taxIrr, locale)} />
+                  <Total label={t('billing.invoices.detail.tax')} value={money(invoice.totals.taxIrr, locale)} />
                 )}
                 {invoice.totals.paidIrr > 0 && (
-                  <Total label={t('billingV2.invoices.detail.paid')} value={money(invoice.totals.paidIrr, locale)} />
+                  <Total label={t('billing.invoices.detail.paid')} value={money(invoice.totals.paidIrr, locale)} />
                 )}
               </>
             )}
             <Separator className="my-2" />
             <div className="flex items-center justify-between text-base font-bold">
-              <span>{t('billingV2.checkout.payable')}</span>
+              <span>{t('billing.checkout.payable')}</span>
               <span className="text-primary">{money(amountDue, locale)}</span>
             </div>
           </div>
@@ -263,20 +263,20 @@ export default function PaymentPage() {
       {alreadyPaid ? (
         <Card className="border-emerald-500/30 print:hidden">
           <CardContent className="py-6 text-center text-sm text-emerald-600">
-            {t('billingV2.checkout.alreadyPaid')}
+            {t('billing.checkout.alreadyPaid')}
           </CardContent>
         </Card>
       ) : (
         <Card className="print:hidden">
           <CardContent className="space-y-4 p-6">
             <div>
-              <p className="text-base font-semibold">{t('billingV2.checkout.chooseGateway')}</p>
-              <p className="text-sm text-muted-foreground">{t('billingV2.checkout.chooseGatewayHint')}</p>
+              <p className="text-base font-semibold">{t('billing.checkout.chooseGateway')}</p>
+              <p className="text-sm text-muted-foreground">{t('billing.checkout.chooseGatewayHint')}</p>
             </div>
 
             {gateways.length === 0 ? (
               <p className="rounded-lg bg-muted/60 p-3 text-sm text-muted-foreground">
-                {t('billingV2.checkout.noGateway')}
+                {t('billing.checkout.noGateway')}
               </p>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2">
@@ -299,7 +299,7 @@ export default function PaymentPage() {
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-semibold">{name}</span>
                         {g.is_test && (
-                          <span className="text-xs text-amber-600">{t('billingV2.checkout.testGateway')}</span>
+                          <span className="text-xs text-amber-600">{t('billing.checkout.testGateway')}</span>
                         )}
                       </span>
                     </button>
@@ -312,20 +312,20 @@ export default function PaymentPage() {
               <Button size="lg" className="gap-2" onClick={payOnline} disabled={busy || gateways.length === 0}>
                 {busy && <Loader2 className="h-4 w-4 animate-spin" />}
                 <CreditCard className="h-4 w-4" />
-                {t('billingV2.checkout.payNow', { amount: money(amountDue, locale) })}
+                {t('billing.checkout.payNow', { amount: money(amountDue, locale) })}
               </Button>
 
               {!isDeposit && invoice?.actions.canPayWallet && (
                 <Button size="lg" variant="outline" className="gap-2" onClick={payFromWallet} disabled={busy}>
                   <Wallet className="h-4 w-4" />
-                  {t('billingV2.invoices.detail.payWallet')}
+                  {t('billing.invoices.detail.payWallet')}
                 </Button>
               )}
             </div>
 
             {!isDeposit && invoice?.actions.blockedReason && (
               <p className="text-sm text-destructive">
-                {t(`billingV2.errors.${invoice.actions.blockedReason}` as any)}
+                {t(`billing.errors.${invoice.actions.blockedReason}` as any)}
               </p>
             )}
           </CardContent>

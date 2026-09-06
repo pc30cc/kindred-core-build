@@ -20,7 +20,7 @@ import { Progress } from '@/components/ui/progress';
 import { CalendarClock, Wallet, Sparkles, Receipt, Info, X, ArrowUpCircle, Plus } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import type { BillingOverview } from '@/lib/billingApi';
-import { billingV2SetAutoPay } from '@/lib/billingApi';
+import { billingSetAutoPay } from '@/lib/billingApi';
 import { billingDate, money, InvoiceStatusBadge, errorMessage } from './shared';
 
 
@@ -67,8 +67,8 @@ export default function OverviewTab({
   async function toggleAutoPay(enabled: boolean) {
     setSavingAutoPay(true);
     try {
-      await billingV2SetAutoPay(workspaceId, enabled);
-      toast.success(t('billingV2.wallet.saved'));
+      await billingSetAutoPay(workspaceId, enabled);
+      toast.success(t('billing.wallet.saved'));
       onChanged();
     } catch (e) {
       toast.error(errorMessage(e, t));
@@ -101,41 +101,41 @@ export default function OverviewTab({
           <CardHeader className="relative pb-2">
             <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
               <ArrowUpCircle className="h-4 w-4 text-primary" />
-              {t('billingV2.overview.currentPlan')}
+              {t('billing.overview.currentPlan')}
             </CardTitle>
           </CardHeader>
           <CardContent className="relative flex flex-1 flex-col space-y-4">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-3xl font-extrabold tracking-tight">
-                {subscription.planName || t('billingV2.overview.free')}
+                {subscription.planName || t('billing.overview.free')}
               </span>
               {/* A workspace with no paid plan is still on a live free plan —
                   calling that "inactive" reads like a broken account. */}
               <Badge variant={planIsLive ? 'default' : 'secondary'}>
-                {planIsLive ? t('billingV2.overview.active') : t('billingV2.overview.inactive')}
+                {planIsLive ? t('billing.overview.active') : t('billing.overview.inactive')}
               </Badge>
-              {subscription.isTrial && <Badge variant="outline">{t('billingV2.overview.trial')}</Badge>}
+              {subscription.isTrial && <Badge variant="outline">{t('billing.overview.trial')}</Badge>}
               {subscription.interval && (
                 <Badge variant="outline">
                   {subscription.interval === 'yearly'
-                    ? t('billingV2.overview.yearly')
-                    : t('billingV2.overview.monthly')}
+                    ? t('billing.overview.yearly')
+                    : t('billing.overview.monthly')}
                 </Badge>
               )}
               {subscription.cancelAtPeriodEnd && (
-                <Badge variant="outline">{t('billingV2.overview.canceling')}</Badge>
+                <Badge variant="outline">{t('billing.overview.canceling')}</Badge>
               )}
             </div>
 
             {servicePeriod?.start && (
               <div className="space-y-1.5 rounded-xl bg-muted/50 p-3 text-sm">
                 <Row
-                  label={t('billingV2.overview.startedOn')}
+                  label={t('billing.overview.startedOn')}
                   value={billingDate(servicePeriod.start, locale)}
                 />
                 {servicePeriod.end && (
                   <Row
-                    label={t('billingV2.overview.renewsOn')}
+                    label={t('billing.overview.renewsOn')}
                     value={billingDate(servicePeriod.end, locale)}
                   />
                 )}
@@ -143,11 +143,11 @@ export default function OverviewTab({
             )}
 
             <div className="!mt-auto space-y-2 pt-2">
-              <p className="text-xs text-muted-foreground">{t('billingV2.overview.planBoxHint')}</p>
+              <p className="text-xs text-muted-foreground">{t('billing.overview.planBoxHint')}</p>
               {canManage && (
                 <Button size="lg" className="w-full text-base" onClick={() => onGoTo('plans')}>
                   <ArrowUpCircle className="me-2 h-5 w-5" />
-                  {t('billingV2.plans.upgrade')}
+                  {t('billing.plans.upgrade')}
                 </Button>
               )}
             </div>
@@ -165,7 +165,7 @@ export default function OverviewTab({
           <CardHeader className="relative pb-2">
             <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
               <Wallet className="h-4 w-4 text-emerald-600" />
-              {t('billingV2.overview.wallet')}
+              {t('billing.overview.wallet')}
             </CardTitle>
           </CardHeader>
           <CardContent className="relative flex flex-1 flex-col space-y-4">
@@ -173,35 +173,35 @@ export default function OverviewTab({
               <p className="text-3xl font-extrabold tracking-tight tabular-nums">
                 {money(wallet.balanceIrr, locale)}
               </p>
-              <p className="mt-1 text-xs text-muted-foreground">{t('billingV2.overview.walletBalance')}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{t('billing.overview.walletBalance')}</p>
             </div>
 
             <div className="flex items-center justify-between gap-3 rounded-lg border bg-background/60 px-3 py-2">
               <div className="min-w-0">
-                <p className="text-sm font-medium">{t('billingV2.wallet.autoPay')}</p>
+                <p className="text-sm font-medium">{t('billing.wallet.autoPay')}</p>
                 <p className="text-xs text-muted-foreground">
                   {wallet.autoPayEnabled
-                    ? t('billingV2.overview.autoPayOn')
-                    : t('billingV2.overview.autoPayOff')}
+                    ? t('billing.overview.autoPayOn')
+                    : t('billing.overview.autoPayOff')}
                 </p>
               </div>
               <Switch
                 checked={wallet.autoPayEnabled}
                 disabled={!canManage || savingAutoPay}
                 onCheckedChange={toggleAutoPay}
-                aria-label={t('billingV2.wallet.autoPay')}
+                aria-label={t('billing.wallet.autoPay')}
               />
             </div>
 
             {wallet.frozen && (
               <div>
-                <Badge variant="destructive">{t('billingV2.wallet.frozen')}</Badge>
+                <Badge variant="destructive">{t('billing.wallet.frozen')}</Badge>
               </div>
             )}
 
 
             <div className="!mt-auto space-y-2 pt-2">
-              <p className="text-xs text-muted-foreground">{t('billingV2.overview.walletBoxHint')}</p>
+              <p className="text-xs text-muted-foreground">{t('billing.overview.walletBoxHint')}</p>
               {canManage && (
                 <Button
                   size="lg"
@@ -210,7 +210,7 @@ export default function OverviewTab({
                   onClick={() => onGoTo('wallet')}
                 >
                   <Plus className="me-2 h-5 w-5" />
-                  {t('billingV2.wallet.deposit')}
+                  {t('billing.wallet.deposit')}
                 </Button>
               )}
             </div>
@@ -227,7 +227,7 @@ export default function OverviewTab({
           <CardHeader className="relative pb-2">
             <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
               <Sparkles className="h-4 w-4 text-violet-600" />
-              {t('billingV2.ai.title')}
+              {t('billing.ai.title')}
             </CardTitle>
           </CardHeader>
           <CardContent className="relative flex flex-1 flex-col space-y-4">
@@ -235,25 +235,25 @@ export default function OverviewTab({
               <p className="text-3xl font-extrabold tracking-tight tabular-nums">
                 {money(aiTotalRemaining, locale)}
               </p>
-              <p className="mt-1 text-xs text-muted-foreground">{t('billingV2.overview.remaining')}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{t('billing.overview.remaining')}</p>
             </div>
 
             {aiCycle ? (
               <div className="space-y-1.5">
                 <Progress value={cycleUsedPct} />
                 <p className="text-xs text-muted-foreground">
-                  {t('billingV2.overview.usedOfAllowance', {
+                  {t('billing.overview.usedOfAllowance', {
                     used: money(aiCycle.usedIrr, locale),
                     total: money(aiCycle.allowanceIrr, locale),
                   })}
                 </p>
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">{t('billingV2.ai.noCycle')}</p>
+              <p className="text-xs text-muted-foreground">{t('billing.ai.noCycle')}</p>
             )}
 
             <div className="!mt-auto space-y-2 pt-2">
-              <p className="text-xs text-muted-foreground">{t('billingV2.overview.aiBoxHint')}</p>
+              <p className="text-xs text-muted-foreground">{t('billing.overview.aiBoxHint')}</p>
               {canManage && (
                 <Button
                   size="lg"
@@ -262,7 +262,7 @@ export default function OverviewTab({
                   onClick={() => onGoTo('ai')}
                 >
                   <Plus className="me-2 h-5 w-5" />
-                  {t('billingV2.ai.buy')}
+                  {t('billing.ai.buy')}
                 </Button>
               )}
             </div>
@@ -275,11 +275,11 @@ export default function OverviewTab({
       {pendingPlanChange && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
           <div className="text-sm">
-            <p className="font-semibold">{t('billingV2.overview.pendingChange')}</p>
+            <p className="font-semibold">{t('billing.overview.pendingChange')}</p>
             <p className="text-muted-foreground">
-              {t('billingV2.overview.pendingChangeTo', { plan: pendingPlanChange.planName || '' })}
+              {t('billing.overview.pendingChangeTo', { plan: pendingPlanChange.planName || '' })}
               {pendingPlanChange.effectiveAt
-                ? ` · ${t('billingV2.overview.effectiveAt', {
+                ? ` · ${t('billing.overview.effectiveAt', {
                     date: billingDate(pendingPlanChange.effectiveAt, locale),
                   })}`
                 : ''}
@@ -289,7 +289,7 @@ export default function OverviewTab({
           {pendingPlanChange.cancelable && canManage && (
             <Button variant="outline" size="sm" disabled={canceling} onClick={onCancelPendingChange}>
               <X className="me-2 h-4 w-4" />
-              {t('billingV2.overview.cancelChange')}
+              {t('billing.overview.cancelChange')}
             </Button>
           )}
         </div>
@@ -298,7 +298,7 @@ export default function OverviewTab({
       {overview.aiMonthlyOnAnnual && (
         <p className="flex items-start gap-2 rounded-2xl bg-muted/60 p-4 text-xs text-muted-foreground">
           <Info className="mt-0.5 h-4 w-4 shrink-0" />
-          {t('billingV2.overview.annualNote')}
+          {t('billing.overview.annualNote')}
         </p>
       )}
 
@@ -310,23 +310,23 @@ export default function OverviewTab({
         <CardHeader className="pb-3">
           <CardTitle className="flex flex-wrap items-center gap-2 text-base">
             <Receipt className={`h-4 w-4 ${STAGE_ICON[alertStage]}`} />
-            {t('billingV2.overview.upcomingInvoice')}
+            {t('billing.overview.upcomingInvoice')}
             {alert && alert.remindersSent > 0 && !alert.pastDue && (
               <Badge variant="outline">
-                {t('billingV2.overview.reminderCount', {
+                {t('billing.overview.reminderCount', {
                   sent: alert.remindersSent,
                   total: alert.remindersTotal,
                 })}
               </Badge>
             )}
             {alert?.pastDue && (
-              <Badge variant="destructive">{t('billingV2.invoices.statuses.past_due')}</Badge>
+              <Badge variant="destructive">{t('billing.invoices.statuses.past_due')}</Badge>
             )}
           </CardTitle>
         </CardHeader>
         <CardContent className="border-t pt-4">
           {!upcomingInvoice ? (
-            <p className="text-sm text-muted-foreground">{t('billingV2.overview.noUpcomingHint')}</p>
+            <p className="text-sm text-muted-foreground">{t('billing.overview.noUpcomingHint')}</p>
           ) : (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -335,23 +335,23 @@ export default function OverviewTab({
                   <span className="font-medium">{upcomingInvoice.planName || '—'}</span>
                   <InvoiceStatusBadge
                     status={upcomingInvoice.status}
-                    label={t(`billingV2.invoices.statuses.${upcomingInvoice.status}` as any)}
+                    label={t(`billing.invoices.statuses.${upcomingInvoice.status}` as any)}
                   />
                 </div>
                 <p className="text-sm text-muted-foreground">
                   <CalendarClock className="me-1 inline h-3.5 w-3.5" />
                   {upcomingInvoice.activatesAt
-                    ? t('billingV2.overview.activatesOn', {
+                    ? t('billing.overview.activatesOn', {
                         date: billingDate(upcomingInvoice.activatesAt, locale),
                       })
-                    : t('billingV2.overview.dueOn', { date: billingDate(upcomingInvoice.dueAt, locale) })}
+                    : t('billing.overview.dueOn', { date: billingDate(upcomingInvoice.dueAt, locale) })}
                 </p>
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-lg font-bold">{money(upcomingInvoice.amountDueIrr, locale)}</span>
                 {upcomingInvoice.amountDueIrr > 0 && canManage && (
                   <Button size="sm" onClick={() => onPayInvoice(upcomingInvoice.id)}>
-                    {t('billingV2.overview.payNow')}
+                    {t('billing.overview.payNow')}
                   </Button>
                 )}
               </div>
@@ -359,7 +359,7 @@ export default function OverviewTab({
             {alert && alert.suspendAt && alert.stage >= 1 && (
               <p className="flex items-start gap-2 rounded-xl bg-background/70 p-3 text-xs text-muted-foreground">
                 <Info className="mt-0.5 h-4 w-4 shrink-0" />
-                {t('billingV2.overview.suspendWarning', {
+                {t('billing.overview.suspendWarning', {
                   date: billingDate(alert.suspendAt, locale),
                   days: alert.daysToSuspend ?? 0,
                 })}

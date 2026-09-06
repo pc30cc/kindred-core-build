@@ -1,7 +1,7 @@
 import type { TranslationKeys } from './en';
 
 const tr: TranslationKeys = {
-    billingV2: {
+    billing: {
     checkout: {
       back: 'Faturalandırmaya dön',
       print: 'Yazdır',
@@ -157,8 +157,8 @@ const tr: TranslationKeys = {
       AMOUNT_OUT_OF_RANGE: 'Tutar izin verilen aralığın dışında.',
       AMOUNT_NOT_ALLOWED: 'Lütfen önerilen tutarlardan birini seçin.',
       NO_PROVIDER_CONFIGURED: 'Tanımlı bir ödeme geçidi yok.',
-      BILLING_V2_REQUIRED: 'Bu işlem çalışma alanınız için henüz kullanılabilir değil.',
-      COLLECTION_IN_PROGRESS: 'Devam eden bir online ödeme var.',
+      collection_locked: 'Bu fatura için bir ödeme devam ediyor. Ödeme sayfasından döndüyseniz kısa süre sonra tekrar deneyin.',
+      COLLECTION_IN_PROGRESS: 'Bu fatura için bir ödeme devam ediyor. Ödeme sayfasından döndüyseniz kısa süre sonra tekrar deneyin.',
       INSUFFICIENT_FUNDS: 'Cüzdan bakiyeniz yeterli değil.',
       FORBIDDEN: 'Bu işlem için yetkiniz yok.',
     },

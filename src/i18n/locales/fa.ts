@@ -1,7 +1,7 @@
 import type { TranslationKeys } from './en';
 
 const fa: TranslationKeys = {
-    billingV2: {
+    billing: {
     checkout: {
       back: 'بازگشت به پلن و پرداخت',
       print: 'چاپ',
@@ -157,8 +157,8 @@ const fa: TranslationKeys = {
       AMOUNT_OUT_OF_RANGE: 'مبلغ خارج از محدوده مجاز است.',
       AMOUNT_NOT_ALLOWED: 'لطفاً یکی از مبالغ پیشنهادی را انتخاب کنید.',
       NO_PROVIDER_CONFIGURED: 'درگاه پرداختی تنظیم نشده است.',
-      BILLING_V2_REQUIRED: 'این عملیات هنوز برای فضای کاری شما در دسترس نیست.',
-      COLLECTION_IN_PROGRESS: 'پرداخت آنلاین در حال انجام است.',
+      collection_locked: 'یک پرداخت برای این فاکتور در حال انجام است. اگر از درگاه برگشته‌اید، چند لحظه بعد دوباره تلاش کنید.',
+      COLLECTION_IN_PROGRESS: 'یک پرداخت برای این فاکتور در حال انجام است. اگر از درگاه برگشته‌اید، چند لحظه بعد دوباره تلاش کنید.',
       INSUFFICIENT_FUNDS: 'موجودی کیف پول کافی نیست.',
       FORBIDDEN: 'شما اجازه انجام این عملیات را ندارید.',
     },

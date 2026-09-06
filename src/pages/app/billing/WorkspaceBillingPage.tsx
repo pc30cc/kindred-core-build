@@ -27,7 +27,7 @@ import { LayoutGrid, Receipt, Gauge, Wallet, Sparkles, ArrowLeftRight } from 'lu
 
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
-import { billingV2Overview, billingV2CancelPlanChange, type BillingOverview } from '@/lib/billingApi';
+import { billingOverview, billingCancelPlanChange, type BillingOverview } from '@/lib/billingApi';
 import { billingVerifyCallback } from '@/lib/api';
 import { ErrorState, errorMessage } from './shared';
 
@@ -67,7 +67,7 @@ export default function WorkspaceBillingPage({ workspaceId }: { workspaceId: str
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    billingV2Overview(workspaceId)
+    billingOverview(workspaceId)
       .then(setOverview)
       .catch((e) => setError(errorMessage(e, t)))
       .finally(() => setLoading(false));
@@ -106,8 +106,8 @@ export default function WorkspaceBillingPage({ workspaceId }: { workspaceId: str
 
     billingVerifyCallback({ workspaceId, provider, params, intentId })
       .then((res: any) => {
-        if (res?.verified) toast.success(t('billingV2.common.paymentSucceeded'));
-        else toast.error(t('billingV2.common.paymentFailed'));
+        if (res?.verified) toast.success(t('billing.common.paymentSucceeded'));
+        else toast.error(t('billing.common.paymentFailed'));
       })
       .catch((e) => toast.error(errorMessage(e, t)))
       .finally(() => refreshAll());
@@ -117,8 +117,8 @@ export default function WorkspaceBillingPage({ workspaceId }: { workspaceId: str
   async function cancelPendingChange() {
     setCanceling(true);
     try {
-      await billingV2CancelPlanChange(workspaceId);
-      toast.success(t('billingV2.overview.changeCanceled'));
+      await billingCancelPlanChange(workspaceId);
+      toast.success(t('billing.overview.changeCanceled'));
       refreshAll();
     } catch (e) {
       toast.error(errorMessage(e, t));
@@ -140,7 +140,7 @@ export default function WorkspaceBillingPage({ workspaceId }: { workspaceId: str
   if (error && !overview) {
     return (
       <div className="p-4 md:p-6 lg:p-8" dir={dir}>
-        <ErrorState message={error} onRetry={load} retryLabel={t('billingV2.common.retry')} />
+        <ErrorState message={error} onRetry={load} retryLabel={t('billing.common.retry')} />
       </div>
     );
   }
@@ -157,14 +157,14 @@ export default function WorkspaceBillingPage({ workspaceId }: { workspaceId: str
         />
         <div className="relative flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight md:text-3xl">{t('billingV2.title')}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{t('billingV2.subtitle')}</p>
+            <h1 className="text-2xl font-bold tracking-tight md:text-3xl">{t('billing.title')}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">{t('billing.subtitle')}</p>
           </div>
           <Badge
             variant={overview.subscription.status === 'active' ? 'default' : 'secondary'}
             className="rounded-full px-3 py-1 text-sm"
           >
-            {overview.subscription.planName || t('billingV2.overview.free')}
+            {overview.subscription.planName || t('billing.overview.free')}
           </Badge>
         </div>
       </div>
@@ -182,7 +182,7 @@ export default function WorkspaceBillingPage({ workspaceId }: { workspaceId: str
                 <SelectItem key={item.value} value={item.value}>
                   <span className="flex items-center gap-2">
                     <item.icon className="h-4 w-4" />
-                    {t(`billingV2.tabs.${item.labelKey}` as any)}
+                    {t(`billing.tabs.${item.labelKey}` as any)}
                   </span>
                 </SelectItem>
               ))}
@@ -198,7 +198,7 @@ export default function WorkspaceBillingPage({ workspaceId }: { workspaceId: str
               className="group flex-1 gap-2 rounded-xl border border-transparent px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-all hover:bg-muted hover:text-foreground data-[state=active]:border-primary/30 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md"
             >
               <item.icon className="h-4 w-4 shrink-0 transition-transform group-data-[state=active]:scale-110" />
-              <span className="whitespace-nowrap">{t(`billingV2.tabs.${item.labelKey}` as any)}</span>
+              <span className="whitespace-nowrap">{t(`billing.tabs.${item.labelKey}` as any)}</span>
             </TabsTrigger>
           ))}
         </TabsList>

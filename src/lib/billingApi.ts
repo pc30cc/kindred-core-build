@@ -1,7 +1,7 @@
 /**
- * Billing Engine V2 — customer (workspace) API client.
+ * Unified customer billing API client.
  *
- * Every value rendered by the V2 billing screens comes from here. The browser
+ * Every value rendered by the billing screens comes from here. The browser
  * is a RENDERER, not a calculator: prices, periods, proration, allowances,
  * invoice totals, due dates, wallet balances and payability are all decided by
  * the server. Nothing in this module derives money — it only carries it.
@@ -30,7 +30,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return body as T;
 }
 
-const base = (workspaceId: string) => `/api/billing/v2/workspaces/${workspaceId}`;
+const base = (workspaceId: string) => `/api/billing/workspaces/${workspaceId}`;
 
 // ─── Shapes (mirror server/services/billing/customer/readModels.ts) ─────────
 
@@ -75,8 +75,6 @@ export interface InvoiceSummary {
 }
 
 export interface BillingOverview {
-  engine: 'v1' | 'v2';
-  rolloutState: 'legacy' | 'shadow' | 'v2_cutover_pending' | 'v2_active';
   permissions: { manage: boolean };
   subscription: {
     status: string | null;
@@ -244,11 +242,11 @@ export interface CustomerTransaction {
 
 // ─── Reads ─────────────────────────────────────────────────────────────────
 
-export function billingV2Overview(workspaceId: string) {
+export function billingOverview(workspaceId: string) {
   return request<BillingOverview>(`${base(workspaceId)}/overview`);
 }
 
-export function billingV2Invoices(
+export function billingInvoices(
   workspaceId: string,
   opts: { filter?: string; page?: number; pageSize?: number } = {},
 ) {
@@ -261,15 +259,15 @@ export function billingV2Invoices(
   );
 }
 
-export function billingV2InvoiceDetail(workspaceId: string, invoiceId: string) {
+export function billingInvoiceDetail(workspaceId: string, invoiceId: string) {
   return request<InvoiceDetail>(`${base(workspaceId)}/invoices/${invoiceId}`);
 }
 
-export function billingV2Plans(workspaceId: string) {
+export function billingPlans(workspaceId: string) {
   return request<PlansView>(`${base(workspaceId)}/plans`);
 }
 
-export function billingV2Wallet(workspaceId: string, opts: { page?: number; pageSize?: number } = {}) {
+export function billingWallet(workspaceId: string, opts: { page?: number; pageSize?: number } = {}) {
   const params = new URLSearchParams({
     page: String(opts.page ?? 1),
     pageSize: String(opts.pageSize ?? 10),
@@ -277,7 +275,7 @@ export function billingV2Wallet(workspaceId: string, opts: { page?: number; page
   return request<WalletView>(`${base(workspaceId)}/wallet?${params}`);
 }
 
-export function billingV2Transactions(workspaceId: string, opts: { page?: number; pageSize?: number } = {}) {
+export function billingTransactions(workspaceId: string, opts: { page?: number; pageSize?: number } = {}) {
   const params = new URLSearchParams({
     page: String(opts.page ?? 1),
     pageSize: String(opts.pageSize ?? 10),
@@ -289,7 +287,7 @@ export function billingV2Transactions(workspaceId: string, opts: { page?: number
 
 // ─── Writes ────────────────────────────────────────────────────────────────
 
-export function billingV2PayInvoiceFromWallet(workspaceId: string, invoiceId: string) {
+export function billingPayInvoiceFromWallet(workspaceId: string, invoiceId: string) {
   return request<{ success: true; settlement: any; application: any }>(
     `${base(workspaceId)}/invoices/${invoiceId}/pay-wallet`,
     { method: 'POST', body: '{}' },
@@ -304,7 +302,7 @@ export interface PayableGateway {
 }
 
 /** Active payment methods for a currency — decided by the platform, not the UI. */
-export function billingV2Gateways(workspaceId: string, currency = 'IRR') {
+export function billingGateways(workspaceId: string, currency = 'IRR') {
   return request<{ currency: string; gateways: PayableGateway[] }>(
     `${base(workspaceId)}/gateways?currency=${encodeURIComponent(currency)}`,
   );
@@ -319,11 +317,11 @@ export interface DepositDocument {
   createdAt: string;
 }
 
-export function billingV2DepositDetail(workspaceId: string, depositId: string) {
+export function billingDepositDetail(workspaceId: string, depositId: string) {
   return request<{ deposit: DepositDocument }>(`${base(workspaceId)}/wallet/deposits/${depositId}`);
 }
 
-export function billingV2InvoiceCheckout(
+export function billingInvoiceCheckout(
   workspaceId: string,
   invoiceId: string,
   callbackUrl: string,
@@ -342,7 +340,7 @@ export function billingV2InvoiceCheckout(
   );
 }
 
-export function billingV2PreviewPlanChange(
+export function billingPreviewPlanChange(
   workspaceId: string,
   input: { planId: string; interval: 'monthly' | 'yearly'; mode: PlanChangeMode },
 ) {
@@ -357,7 +355,7 @@ export function billingV2PreviewPlanChange(
  * The server refuses the change (409 STALE_PREVIEW) when it no longer matches,
  * so a stale tab can never commit an amount the customer never agreed to.
  */
-export function billingV2ApplyPlanChange(
+export function billingApplyPlanChange(
   workspaceId: string,
   input: {
     planId: string;
@@ -372,21 +370,21 @@ export function billingV2ApplyPlanChange(
   });
 }
 
-export function billingV2CancelPlanChange(workspaceId: string) {
+export function billingCancelPlanChange(workspaceId: string) {
   return request<{ canceled: boolean }>(`${base(workspaceId)}/plan-change/cancel`, {
     method: 'POST',
     body: '{}',
   });
 }
 
-export function billingV2SetAutoPay(workspaceId: string, enabled: boolean) {
+export function billingSetAutoPay(workspaceId: string, enabled: boolean) {
   return request<{ autoPayEnabled: boolean }>(`${base(workspaceId)}/wallet/auto-pay`, {
     method: 'PUT',
     body: JSON.stringify({ enabled }),
   });
 }
 
-export function billingV2DepositPreview(workspaceId: string, amountIrr: number) {
+export function billingDepositPreview(workspaceId: string, amountIrr: number) {
   return request<{
     deposit: {
       id: string;
@@ -401,7 +399,7 @@ export function billingV2DepositPreview(workspaceId: string, amountIrr: number) 
   });
 }
 
-export function billingV2DepositCheckout(
+export function billingDepositCheckout(
   workspaceId: string,
   depositId: string,
   callbackUrl: string,
@@ -414,7 +412,7 @@ export function billingV2DepositCheckout(
 }
 
 /** AI credit is bought like everything else in V2: an invoice comes first. */
-export function billingV2CreateAiCreditInvoice(workspaceId: string, amountIrr: number) {
+export function billingCreateAiCreditInvoice(workspaceId: string, amountIrr: number) {
   return request<{ invoiceId: string; invoiceNumber: string; amountIrr: number }>(
     `${base(workspaceId)}/ai-credit/invoice`,
     { method: 'POST', body: JSON.stringify({ amountIrr }) },

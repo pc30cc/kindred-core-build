@@ -432,13 +432,10 @@ export default function OverviewPage() {
                 {
                   label: tr('dashboard.usageAiCredits'),
                   value: aiWallet
-                    ? formatToman(
-                        Number(aiWallet.planRemaining || 0) + Number(aiWallet.purchasedRemaining || 0),
-                        numberLocale,
-                        { withLabel: false },
-                      )
+                    ? formatToman(aiWallet.totalRemainingIrr, numberLocale, { withLabel: false })
                     : '—',
                 },
+
 
               ].map((m) => (
                 <div key={m.label} className="rounded-xl border border-border/50 bg-card px-2.5 py-2 text-center">

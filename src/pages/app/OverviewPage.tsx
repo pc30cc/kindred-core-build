@@ -14,6 +14,8 @@ import { useContacts } from '@/hooks/useContacts';
 import { useTeamPresence } from '@/hooks/useTeamPresence';
 import { useWorkspaceMembers } from '@/hooks/useWorkspaceMembers';
 import { useWorkspacePlan, useWorkspaceUsage } from '@/hooks/usePlans';
+import { useAiWalletSummary } from '@/hooks/useAiWalletSummary';
+import { formatToman } from '@/lib/money';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
 import { formatLongDate } from '@/lib/date';
 import GetStartedWizard from '@/components/app/GetStartedWizard';
@@ -85,6 +87,7 @@ export default function OverviewPage() {
   const canSeeBilling = isWorkspaceAdmin(wsRole);
   const { data: planData } = useWorkspacePlan(workspace?.id);
   const { data: usageRow } = useWorkspaceUsage(workspace?.id);
+  const { data: aiWallet } = useAiWalletSummary(workspace?.id, canSeeBilling);
 
   // Live usage: keep the "Plan & usage" card fresh without a page refresh.
   const queryClient = useQueryClient();
@@ -92,8 +95,10 @@ export default function OverviewPage() {
     if (!workspace?.id) return;
     queryClient.invalidateQueries({ queryKey: ['workspace-usage', workspace.id] });
     queryClient.invalidateQueries({ queryKey: ['workspace-plan', workspace.id] });
+    queryClient.invalidateQueries({ queryKey: ['ai-wallet-summary', workspace.id] });
   }, [queryClient, workspace?.id]);
   useLiveUsageRefresh(!!workspace?.id, refreshUsage);
+
 
 
   const tr = t as unknown as (k: string) => string;
@@ -424,7 +429,17 @@ export default function OverviewPage() {
               {[
                 { label: tr('dashboard.usageConversations'), value: fmt(usageNum('conversations_count')) },
                 { label: tr('dashboard.usageMessages'), value: fmt(usageNum('messages_count')) },
-                { label: tr('dashboard.usageAiCredits'), value: fmt(usageNum('ai_credits_used')) },
+                {
+                  label: tr('dashboard.usageAiCredits'),
+                  value: aiWallet
+                    ? formatToman(
+                        Number(aiWallet.planRemaining || 0) + Number(aiWallet.purchasedRemaining || 0),
+                        numberLocale,
+                        { withLabel: false },
+                      )
+                    : '—',
+                },
+
               ].map((m) => (
                 <div key={m.label} className="rounded-xl border border-border/50 bg-card px-2.5 py-2 text-center">
                   <div className="text-sm font-bold tabular-nums text-foreground">{m.value}</div>

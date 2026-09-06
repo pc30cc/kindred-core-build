@@ -87,6 +87,7 @@ export default function OverviewPage() {
   const canSeeBilling = isWorkspaceAdmin(wsRole);
   const { data: planData } = useWorkspacePlan(workspace?.id);
   const { data: usageRow } = useWorkspaceUsage(workspace?.id);
+  const { data: aiWallet } = useAiWalletSummary(workspace?.id, canSeeBilling);
 
   // Live usage: keep the "Plan & usage" card fresh without a page refresh.
   const queryClient = useQueryClient();
@@ -94,8 +95,10 @@ export default function OverviewPage() {
     if (!workspace?.id) return;
     queryClient.invalidateQueries({ queryKey: ['workspace-usage', workspace.id] });
     queryClient.invalidateQueries({ queryKey: ['workspace-plan', workspace.id] });
+    queryClient.invalidateQueries({ queryKey: ['ai-wallet-summary', workspace.id] });
   }, [queryClient, workspace?.id]);
   useLiveUsageRefresh(!!workspace?.id, refreshUsage);
+
 
 
   const tr = t as unknown as (k: string) => string;

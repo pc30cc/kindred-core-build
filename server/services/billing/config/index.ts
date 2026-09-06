@@ -166,17 +166,19 @@ export async function listGateways(config: ServerConfig): Promise<
     if (known.has(name)) continue;
     extra += 1;
     listed.push({
+      id: `unconfigured:${name}`,
       provider_name: name,
       display_name: { fa: name, en: name, tr: name },
       is_active: false,
       is_test: false,
-      currencies: [],
-      countries: [],
+      currencies: [] as string[],
+      countries: [] as string[],
       sort_order: maxSort + extra,
       config: {},
       implemented: true,
       capabilities: handlers[name]?.capabilities,
     } as (typeof listed)[number]);
+
   }
   return listed;
 }

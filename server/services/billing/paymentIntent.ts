@@ -204,9 +204,10 @@ export async function createInvoiceIntent(
         billing_interval: input.interval ?? null,
         provider_name: input.providerName,
         amount_irr: input.amountIrr,
-        // The document the customer sees is the INVOICE number; the intent
-        // keeps its own order number only when there is no invoice.
-        invoice_number: input.invoiceNumber || documentNumber,
+        // Every checkout attempt needs its own unique document number. Reusing
+        // the parent invoice number makes retries collide with the globally
+        // unique payment-intent index before any provider is called.
+        invoice_number: documentNumber,
         plan_name_snapshot: input.planNameSnapshot ?? null,
         workspace_name_snapshot: input.workspaceNameSnapshot ?? null,
         discount_irr: 0,

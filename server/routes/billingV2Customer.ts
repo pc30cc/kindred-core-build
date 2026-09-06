@@ -16,7 +16,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { getServiceClient } from '../supabase.js';
-import { resolveBillingConfig, logBillingEvent, getProvider } from '../services/billing/index.js';
+import { resolveBillingConfig, resolveNamedBillingConfig, logBillingEvent } from '../services/billing/index.js';
 import {
   buildBillingOverview,
   listInvoices,
@@ -98,12 +98,12 @@ async function resolveCheckoutProvider(cfg: any, workspaceId: string, providerNa
     const gateways = await listPayableGateways(cfg, 'IRR');
     const gateway = gateways.find((g) => g.provider_name === providerName);
     if (!gateway) return null;
-    const handler = getProvider(gateway.provider_name);
-    if (!handler) return null;
-    return {
-      provider: handler,
-      config: { provider: gateway.provider_name, ...(gateway.config || {}) } as any,
-    };
+    return resolveNamedBillingConfig(
+      cfg.supabaseUrl,
+      cfg.supabaseServiceRoleKey,
+      workspaceId,
+      gateway.provider_name,
+    );
   }
   return resolveBillingConfig(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, workspaceId);
 }

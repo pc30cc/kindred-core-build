@@ -36,6 +36,9 @@ export function isAllowedBillingCallbackUrl(
   const requestOrigin = parseHttpOrigin(req.get?.('origin'));
   if (requestOrigin) candidates.add(requestOrigin);
 
+  const refererOrigin = parseHttpOrigin(req.get?.('referer'));
+  if (refererOrigin) candidates.add(refererOrigin);
+
   const host = req.get?.('host');
   const hostOrigin = host ? parseHttpOrigin(`${req.protocol || 'https'}://${host}`) : null;
   if (hostOrigin) candidates.add(hostOrigin);

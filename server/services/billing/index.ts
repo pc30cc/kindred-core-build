@@ -68,6 +68,55 @@ export function getAllProviders(): Record<string, { name: string; capabilities: 
 }
 
 /**
+ * Resolve the configuration for one explicitly selected gateway. Activation
+ * remains owned by billing_gateways; credentials may come from that canonical
+ * row or from the Providers screen's global/workspace provider setting.
+ */
+export async function resolveNamedBillingConfig(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  workspaceId: string,
+  providerName: string,
+): Promise<{ provider: BillingProviderHandler; config: BillingProviderConfig } | null> {
+  const provider = getProvider(providerName);
+  if (!provider) return null;
+  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const [gatewayResult, workspaceResult, globalResult] = await Promise.all([
+    supabase.from('billing_gateways').select('config').eq('provider_name', providerName).maybeSingle(),
+    supabase
+      .from('provider_configs')
+      .select('config')
+      .eq('workspace_id', workspaceId)
+      .eq('provider_type', 'billing')
+      .eq('provider_name', providerName)
+      .eq('is_active', true)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase.from('app_runtime_config').select('value').eq('key', 'default_billing_provider').maybeSingle(),
+  ]);
+  for (const result of [gatewayResult, workspaceResult, globalResult]) {
+    if (result.error) throw new Error(`billing provider config read failed: ${result.error.message}`);
+  }
+
+  const globalValue = globalResult.data?.value as Record<string, unknown> | null | undefined;
+  const globalName = globalValue && (globalValue.provider_name || globalValue.provider);
+  const globalConfig = globalName === providerName && globalValue
+    ? ((globalValue.config && typeof globalValue.config === 'object' ? globalValue.config : {}) as Record<string, unknown>)
+    : {};
+
+  return {
+    provider,
+    config: {
+      provider: providerName,
+      ...globalConfig,
+      ...((workspaceResult.data?.config as Record<string, unknown> | null) || {}),
+      ...((gatewayResult.data?.config as Record<string, unknown> | null) || {}),
+    },
+  };
+}
+
+/**
  * Resolve billing provider config for a workspace.
  * Resolution chain: workspace override → global default
  */

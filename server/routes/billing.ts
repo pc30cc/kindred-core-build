@@ -2,6 +2,7 @@ import { Router, raw } from 'express';
 import { z } from 'zod';
 import {
   resolveBillingConfig,
+  resolveNamedBillingConfig,
   getProvider,
   getAllProviders,
   processWebhookEvent,
@@ -621,7 +622,7 @@ billingRouter.post('/verify-callback', async (req, res) => {
   try {
     // Use the same workspace/global resolution chain as checkout. Reading only
     // provider_configs here broke verification for platform-default gateways.
-    const resolved = await resolveBillingConfig(url, key, workspaceId);
+    const resolved = await resolveNamedBillingConfig(url, key, workspaceId, providerName);
     if (!resolved || resolved.provider.name !== providerName) {
       return res.status(400).json({ error: 'Provider not configured' });
     }

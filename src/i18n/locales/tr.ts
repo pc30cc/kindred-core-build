@@ -36,6 +36,9 @@ const tr: TranslationKeys = {
       failedTitle: 'Ödeme tamamlanmadı',
       failedDescription: 'Ödeme doğrulanamadı. Herhangi bir tahsilat kaydedilmedi; tekrar deneyebilirsiniz.',
       dashboard: 'Kontrol paneline git',
+      receiptNumber: 'Fatura numarası',
+      trackingCode: 'Takip kodu',
+      redirectCountdown: '{{seconds}} saniye içinde kontrol paneline yönlendirileceksiniz',
     },
     overview: {
       currentPlan: 'Mevcut plan', free: 'Ücretsiz', trial: 'Deneme', trialEnds: 'Deneme {{date}} tarihinde bitiyor',

@@ -1,39 +1,41 @@
 /**
- * Workspace AI wallet summary (customer-facing final numbers only).
+ * Workspace AI credit for dashboard surfaces.
  *
- * The dashboard used to read `workspace_usage_counters.ai_credits_used`,
- * which no code path ever writes — AI spend lives in the AI billing ledger.
- * This hook reads the same authoritative endpoint as the billing screens.
+ * Single source of truth: the Billing V2 customer overview read-model — the
+ * exact same numbers the Billing screen's "AI credit" tab renders. Reading a
+ * second source (the AI ledger wallet) made the dashboard disagree with
+ * Billing, so it is deliberately not used here.
  */
 import { useQuery } from '@tanstack/react-query';
-import { API_BASE } from '@/lib/api';
+import { billingV2Overview } from '@/lib/billingApi';
 
-export interface AiWalletSummary {
-  currency: string;
-  cycleId: string;
-  renewsAt: string;
-  available: number;
-  reserved: number;
-  granted: number;
-  usedThisCycle: number;
-  planRemaining: number;
-  purchasedRemaining: number;
-  aiReplies: number;
-  mode: 'METER_ONLY' | 'ENFORCED';
+export interface AiCreditSnapshot {
+  /** Remaining plan allowance for the running cycle (IRR). */
+  cycleRemainingIrr: number;
+  /** Purchased credit that survives the cycle (IRR). */
+  purchasedRemainingIrr: number;
+  /** What the customer can still spend right now (IRR). */
+  totalRemainingIrr: number;
 }
 
 export function useAiWalletSummary(workspaceId: string | undefined, enabled = true) {
-  return useQuery<AiWalletSummary | null>({
-    queryKey: ['ai-wallet-summary', workspaceId],
+  return useQuery<AiCreditSnapshot | null>({
+    queryKey: ['ai-credit-snapshot', workspaceId],
     enabled: !!workspaceId && enabled,
     staleTime: 30_000,
     queryFn: async () => {
-      const res = await fetch(
-        `${API_BASE}/api/ai-billing/workspaces/${workspaceId}/summary`,
-        { credentials: 'include' },
-      );
-      if (!res.ok) return null;
-      return (await res.json()) as AiWalletSummary;
+      try {
+        const overview = await billingV2Overview(workspaceId!);
+        const cycleRemainingIrr = Number(overview.aiCycle?.remainingIrr ?? 0);
+        const purchasedRemainingIrr = Number(overview.aiPurchasedRemainingIrr ?? 0);
+        return {
+          cycleRemainingIrr,
+          purchasedRemainingIrr,
+          totalRemainingIrr: cycleRemainingIrr + purchasedRemainingIrr,
+        };
+      } catch {
+        return null;
+      }
     },
   });
 }

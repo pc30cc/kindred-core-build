@@ -581,32 +581,30 @@ billingRouter.post('/checkout', async (req, res) => {
 // result to the exact allow-listed payment page saved during checkout, so a
 // browser can never end on an API JSON response.
 billingRouter.get('/return', async (req, res) => {
-  const intentId = typeof req.query.intent === 'string' ? req.query.intent : '';
-  const providerName = typeof req.query.provider === 'string' ? req.query.provider : '';
-  if (!intentId || !providerName) return res.status(400).type('text').send('Invalid payment return');
-
-  const intent = await getPaymentIntent(serverConfigOf(req), intentId);
-  const storedReturn = typeof intent?.metadata?.return_url === 'string'
-    ? intent.metadata.return_url
-    : '';
-  if (!intent || intent.provider_name !== providerName || !storedReturn) {
-    return res.status(400).type('text').send('Invalid payment return');
-  }
-
-  let destination: URL;
   try {
-    destination = new URL(storedReturn);
-  } catch {
-    return res.status(400).type('text').send('Invalid payment return');
-  }
+    const intentId = typeof req.query.intent === 'string' ? req.query.intent : '';
+    const providerName = typeof req.query.provider === 'string' ? req.query.provider : '';
+    if (!intentId || !providerName) return res.status(400).type('text').send('Invalid payment return');
 
-  for (const [key, value] of Object.entries(req.query)) {
-    if (key === 'intent' || key === 'provider') continue;
-    if (typeof value === 'string') destination.searchParams.set(key, value);
+    const intent = await getPaymentIntent(serverConfigOf(req), intentId);
+    const storedReturn = typeof intent?.metadata?.return_url === 'string'
+      ? intent.metadata.return_url
+      : '';
+    if (!intent || intent.provider_name !== providerName || !storedReturn) {
+      return res.status(400).type('text').send('Invalid payment return');
+    }
+
+    const destination = new URL(storedReturn);
+    for (const [key, value] of Object.entries(req.query)) {
+      if (key === 'intent' || key === 'provider') continue;
+      if (typeof value === 'string') destination.searchParams.set(key, value);
+    }
+    destination.searchParams.set('intent', intent.id);
+    destination.searchParams.set('provider', intent.provider_name);
+    return res.redirect(303, destination.toString());
+  } catch {
+    return res.status(502).type('text').send('Payment return is temporarily unavailable');
   }
-  destination.searchParams.set('intent', intent.id);
-  destination.searchParams.set('provider', intent.provider_name);
-  return res.redirect(303, destination.toString());
 });
 
 // ─── POST /api/billing/verify-callback — verify callback from gateway ──

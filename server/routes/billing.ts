@@ -93,14 +93,21 @@ async function buildReceipt(config: ServerConfig, intent: PaymentIntentRow) {
       receipt.newAiBalanceIrr = await aiLedger.availableBalance(config, intent.workspace_id);
     } catch { /* balance is a nicety, never a blocker */ }
   } else {
-    const { data: sub } = await supabase
+    const { data: sub, error: subError } = await supabase
       .from('workspace_subscriptions')
-      .select('current_period_end, plan_id, billing_plans!workspace_subscriptions_plan_id_fkey(name)')
+      .select('current_period_end, plan_id')
       .eq('workspace_id', intent.workspace_id)
       .maybeSingle();
+    if (subError) throw new Error(`billing subscription read failed: ${subError.message}`);
     receipt.periodEnd = (sub?.current_period_end as string | null) || null;
-    if (!receipt.planName) {
-      receipt.planName = ((sub as any)?.billing_plans?.name as string | undefined) || null;
+    if (!receipt.planName && sub?.plan_id) {
+      const { data: plan, error: planError } = await supabase
+        .from('billing_plans')
+        .select('name')
+        .eq('id', sub.plan_id)
+        .maybeSingle();
+      if (planError) throw new Error(`billing plan read failed: ${planError.message}`);
+      receipt.planName = (plan?.name as string | undefined) || null;
     }
   }
 
@@ -230,11 +237,23 @@ billingRouter.get('/status/:workspaceId', async (req, res) => {
   // never "canceled" (the customer may simply have closed the tab).
   try { await expireStalePaymentIntents(serverConfigOf(req), workspaceId); } catch { /* non-fatal */ }
 
-  const { data: sub } = await supabase
+  const { data: sub, error: subError } = await supabase
     .from('workspace_subscriptions')
-    .select('*, billing_plans!workspace_subscriptions_plan_id_fkey(*)')
+    .select('*')
     .eq('workspace_id', workspaceId)
     .maybeSingle();
+  if (subError) return res.status(500).json({ error: 'BILLING_SUBSCRIPTION_READ_FAILED' });
+
+  let subscription = sub as any;
+  if (sub?.plan_id) {
+    const { data: plan, error: planError } = await supabase
+      .from('billing_plans')
+      .select('*')
+      .eq('id', sub.plan_id)
+      .maybeSingle();
+    if (planError || !plan) return res.status(500).json({ error: 'BILLING_PLAN_READ_FAILED' });
+    subscription = { ...sub, billing_plans: plan };
+  }
 
   const { data: payments } = await supabase
     .from('billing_payments')
@@ -258,7 +277,7 @@ billingRouter.get('/status/:workspaceId', async (req, res) => {
   const transactions = buildTransactionHistory((payments || []) as any, (intents || []) as any);
 
   res.json({
-    subscription: sub,
+    subscription,
     payments: payments || [],
     attempts: (intents || []).filter((i: any) => i.status !== 'succeeded'),
     transactions,
@@ -308,15 +327,21 @@ billingRouter.post('/invoice-preview', async (req, res) => {
       return res.status(400).json({ error: 'FREE_PLAN_NO_CHECKOUT' });
     }
 
-    const { data: sub } = await supabase
+    const { data: sub, error: subError } = await supabase
       .from('workspace_subscriptions')
-      .select('plan_id, status, current_period_end, billing_plans!workspace_subscriptions_plan_id_fkey(sort_order)')
+      .select('plan_id, status, current_period_end')
       .eq('workspace_id', input.workspaceId)
       .maybeSingle();
+    if (subError) throw new Error(`billing subscription read failed: ${subError.message}`);
+
+    const { data: currentPlan, error: currentPlanError } = sub?.plan_id
+      ? await supabase.from('billing_plans').select('sort_order').eq('id', sub.plan_id).maybeSingle()
+      : { data: null, error: null };
+    if (currentPlanError) throw new Error(`billing plan read failed: ${currentPlanError.message}`);
 
     const actionType = classifyPlanAction({
       currentPlanId: (sub as any)?.plan_id ?? null,
-      currentPlanRank: ((sub as any)?.billing_plans?.sort_order as number | undefined) ?? null,
+      currentPlanRank: ((currentPlan as any)?.sort_order as number | undefined) ?? null,
       currentStatus: (sub as any)?.status ?? null,
       nextPlanId: plan.id,
       nextPlanRank: (plan as any).sort_order ?? null,

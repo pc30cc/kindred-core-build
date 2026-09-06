@@ -83,7 +83,7 @@ export default function OverviewTab({
       ? Math.min(100, Math.round((aiCycle.usedIrr / aiCycle.allowanceIrr) * 100))
       : 0;
 
-  const planIsLive = subscription.status === 'active' || !subscription.planName;
+  const planIsLive = subscription.status === 'active' || subscription.status === 'trialing' || subscription.isFree;
 
   const aiTotalRemaining = (aiCycle?.remainingIrr ?? 0) + (overview.aiPurchasedRemainingIrr ?? 0);
 

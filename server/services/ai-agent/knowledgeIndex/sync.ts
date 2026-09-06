@@ -27,18 +27,27 @@ const DEFAULT_BUDGET = 200;
 async function resolveEmbeddingBudget(config: ServerConfig, workspaceId: string): Promise<number> {
   try {
     const sb = getServiceClient(config);
-    const { data } = await sb
+    const { data, error: subError } = await sb
       .from('workspace_subscriptions')
-      .select('billing_plans!workspace_subscriptions_plan_id_fkey(slug, limits)')
+      .select('plan_id')
       .eq('workspace_id', workspaceId)
       .maybeSingle();
-    const plan: any = (data as any)?.billing_plans;
+    if (subError) throw subError;
+    if (!(data as any)?.plan_id) return PLAN_BUDGETS.free;
+    const { data: plan, error: planError } = await sb
+      .from('billing_plans')
+      .select('slug, limits')
+      .eq('id', (data as any).plan_id)
+      .maybeSingle();
+    if (planError) throw planError;
+    if (!plan) throw new Error('assigned billing plan not found');
     const limit = plan?.limits?.ai_knowledge_chunks_embedded;
     if (typeof limit === 'number' && limit > 0) return limit;
     const slug = (plan?.slug || '').toLowerCase();
     if (slug && PLAN_BUDGETS[slug]) return PLAN_BUDGETS[slug];
     return DEFAULT_BUDGET;
-  } catch {
+  } catch (error) {
+    console.error('[KnowledgeSync] plan budget resolution failed', error);
     return DEFAULT_BUDGET;
   }
 }

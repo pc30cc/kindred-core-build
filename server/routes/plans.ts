@@ -6,7 +6,7 @@
 import { Router } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import {
-  getWorkspacePlanInfo,
+  getWorkspacePlanInfoDetailed,
   clearEntitlementCache,
   checkEntitlementFromDB,
   checkModuleAccess,
@@ -110,7 +110,9 @@ plansRouter.get('/workspace/:workspaceId/effective', async (req, res) => {
   if (!(await authorizeWorkspaceAccess(req, res, workspaceId))) return;
   const supabase = createClient(url, key);
   try {
-    const info = await getWorkspacePlanInfo(url, key, workspaceId);
+    const resolved = await getWorkspacePlanInfoDetailed(url, key, workspaceId);
+    if (!resolved.ok) return res.status(503).json(resolved);
+    const info = resolved.value;
 
     // Pull overrides + current-period usage in parallel.
     const currentPeriod = new Date().toISOString().slice(0, 7);
@@ -188,7 +190,9 @@ plansRouter.get('/workspace/:workspaceId', async (req, res) => {
   const { url, key } = getConfig(req);
   if (!(await authorizeWorkspaceAccess(req, res, req.params.workspaceId))) return;
   try {
-    const info = await getWorkspacePlanInfo(url, key, req.params.workspaceId);
+    const resolved = await getWorkspacePlanInfoDetailed(url, key, req.params.workspaceId);
+    if (!resolved.ok) return res.status(503).json(resolved);
+    const info = resolved.value;
 
     const supabase = createClient(url, key);
     const currentPeriod = new Date().toISOString().slice(0, 7);

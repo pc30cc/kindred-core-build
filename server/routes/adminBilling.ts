@@ -310,15 +310,29 @@ adminBillingRouter.get('/customers', async (req, res) => {
     const [subs, wallets] = await Promise.all([
       client
         .from('workspace_subscriptions')
-        .select('workspace_id, status, plan_id, billing_interval, current_period_end, billing_plans!workspace_subscriptions_plan_id_fkey(name, slug)')
+        .select('workspace_id, status, plan_id, billing_interval, current_period_end')
         .in('workspace_id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']),
       client
         .from('billing_wallet_accounts')
         .select('workspace_id, available_balance_irr, currency')
         .in('workspace_id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']),
     ]);
+    if (subs.error) throw new Error(subs.error.message);
+    if (wallets.error) throw new Error(wallets.error.message);
 
-    const subByWs = new Map((subs.data || []).map((s: any) => [s.workspace_id, s]));
+    const planIds = [...new Set((subs.data || []).map((s: any) => s.plan_id).filter(Boolean))];
+    const plans = planIds.length
+      ? await client.from('billing_plans').select('id, name, slug').in('id', planIds)
+      : { data: [] as any[], error: null };
+    if (plans.error) throw new Error(plans.error.message);
+    const planById = new Map((plans.data || []).map((p: any) => [p.id, p]));
+
+    const subByWs = new Map(
+      (subs.data || []).map((s: any) => [
+        s.workspace_id,
+        { ...s, billing_plans: s.plan_id ? planById.get(s.plan_id) ?? null : null },
+      ]),
+    );
     const walletByWs = new Map((wallets.data || []).map((w: any) => [w.workspace_id, w]));
 
     res.json({

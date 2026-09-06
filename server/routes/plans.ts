@@ -6,7 +6,7 @@
 import { Router } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import {
-  getWorkspacePlanInfo,
+  getWorkspacePlanInfoDetailed,
   clearEntitlementCache,
   checkEntitlementFromDB,
   checkModuleAccess,

@@ -139,13 +139,15 @@ describe('origin → workspace resolution', () => {
 
 // ── Bounded lookup / scale ───────────────────────────────────────────────
 describe('lookup is bounded, not O(total customer domains)', () => {
-  it('generates a bounded, most-specific-first candidate list', () => {
-    expect(hostSuffixCandidates('store.eu.example.com')).toEqual([
-      'store.eu.example.com',
-      'eu.example.com',
-      'example.com',
-    ]);
-    expect(hostSuffixCandidates('a.b.c.d.e.f.g.h.i.example.com').length).toBeLessThanOrEqual(6);
+  it('generates a bounded candidate list containing every plausible suffix', () => {
+    // Order is irrelevant (a single `IN (...)` probe); membership is not.
+    expect(hostSuffixCandidates('store.eu.example.com').sort()).toEqual(
+      ['store.eu.example.com', 'eu.example.com', 'example.com'].sort(),
+    );
+    const deep = hostSuffixCandidates('a.b.c.d.e.f.g.h.i.example.com');
+    expect(deep.length).toBeLessThanOrEqual(7);
+    // The apex-ward candidates survive the cap — the registered domain is there.
+    expect(deep).toContain('example.com');
   });
 
   it('queries only the candidate hostnames — never the full table', async () => {
@@ -341,5 +343,80 @@ describe('workspace-aware widget CORS', () => {
       const denied = await runCors({ path, originalUrl: path, headers: { origin: 'https://evil.example' }, body: { workspace_id: WS_A } });
       expect(denied.res.headers['Access-Control-Allow-Origin']).toBeUndefined();
     }
+  });
+});
+
+// ── Deep subdomains: the registered apex must never fall off the list ─────
+describe('deep subdomain candidate correctness', () => {
+  beforeEach(() => { db.workspace_domains = []; db.widget_settings = []; queries.length = 0; __resetWidgetOriginCaches(); });
+
+  it('keeps the registered apex in the candidate set for a deeply nested host', () => {
+    const candidates = hostSuffixCandidates('a.b.c.d.e.f.g.example.com');
+    expect(candidates).toContain('example.com');
+    expect(candidates).toContain('a.b.c.d.e.f.g.example.com');
+    expect(candidates.length).toBeLessThanOrEqual(7);
+  });
+
+  it('resolves a deeply nested host to the workspace that owns the apex', async () => {
+    addDomain(WS_A, 'example.com');
+    setSettings(WS_A, [], true);
+    const ws = await resolveWorkspaceIdFromOrigin(config, 'https://a.b.c.d.e.f.g.example.com');
+    expect(ws).toBe(WS_A);
+  });
+
+  it('still refuses the deep host when the workspace disabled subdomains', async () => {
+    addDomain(WS_A, 'example.com');
+    setSettings(WS_A, [], false);
+    expect(await resolveWorkspaceIdFromOrigin(config, 'https://a.b.c.d.e.f.g.example.com')).toBeNull();
+  });
+
+  it('stays bounded for a pathological hostname', () => {
+    const host = Array.from({ length: 80 }, (_, i) => `l${i}`).join('.') + '.example.com';
+    expect(hostSuffixCandidates(host).length).toBeLessThanOrEqual(7);
+  });
+
+  it('prefers the most specific registered suffix across tenants', async () => {
+    addDomain(WS_A, 'example.com');
+    addDomain(WS_B, 'eu.example.com');
+    setSettings(WS_A, [], true);
+    setSettings(WS_B, [], true);
+    expect(await resolveWorkspaceIdFromOrigin(config, 'https://shop.eu.example.com')).toBe(WS_B);
+  });
+});
+
+// ── Ambiguous ownership must fail closed, never pick a tenant ─────────────
+describe('ambiguous domain ownership', () => {
+  beforeEach(() => { db.workspace_domains = []; db.widget_settings = []; queries.length = 0; __resetWidgetOriginCaches(); });
+
+  it('refuses origin-only resolution when two workspaces claim the same verified domain', async () => {
+    addDomain(WS_A, 'shared.com');
+    addDomain(WS_B, 'shared.com');
+    setSettings(WS_A, []);
+    setSettings(WS_B, []);
+    expect(await resolveWorkspaceIdFromOrigin(config, 'https://shared.com')).toBeNull();
+  });
+
+  it('refuses an ambiguous subdomain tie between two workspaces', async () => {
+    addDomain(WS_A, 'tie.com');
+    addDomain(WS_B, 'tie.com');
+    setSettings(WS_A, [], true);
+    setSettings(WS_B, [], true);
+    expect(await resolveWorkspaceIdFromOrigin(config, 'https://shop.tie.com')).toBeNull();
+  });
+
+  it('the explicit workspace_id + origin flow still works on an ambiguous domain', async () => {
+    addDomain(WS_A, 'shared.com');
+    addDomain(WS_B, 'shared.com');
+    setSettings(WS_A, []);
+    setSettings(WS_B, []);
+    const { res } = await runCors({ headers: { origin: 'https://shared.com' }, body: { workspace_id: WS_A } });
+    expect(res.headers['Access-Control-Allow-Origin']).toBe('https://shared.com');
+  });
+
+  it('duplicate rows for the SAME workspace are not treated as ambiguous', async () => {
+    addDomain(WS_A, 'dup.com');
+    addDomain(WS_A, 'www.dup.com');
+    setSettings(WS_A, []);
+    expect(await resolveWorkspaceIdFromOrigin(config, 'https://dup.com')).toBe(WS_A);
   });
 });

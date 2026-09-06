@@ -36,6 +36,7 @@ import { isEmailVerified } from '../services/auth/identity.js';
 import { checkEntitlementFromDB } from '../middleware/featureGating.js';
 import { getCapability } from '../services/billing/capabilityRegistry.js';
 import { invalidateOriginHostCache, invalidateWorkspaceOriginCache } from '../services/widget/public.js';
+import { parseWorkspaceDomainInput } from '../utils/workspaceDomainInput.js';
 
 export const workspacesRouter = Router();
 

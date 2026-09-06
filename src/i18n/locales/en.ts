@@ -26,6 +26,15 @@ const en = {
       paymentSucceeded: 'Payment completed successfully.',
       paymentFailed: 'The payment could not be verified.',
     },
+    paymentResult: {
+      processingTitle: 'Finalizing payment',
+      processingDescription: 'Your payment is verified and your plan is being activated…',
+      successTitle: 'Payment successful',
+      successDescription: 'Your payment was recorded and the {{plan}} plan is now active. You will be taken to the dashboard shortly.',
+      failedTitle: 'Payment incomplete',
+      failedDescription: 'The payment could not be verified. No charge was recorded; you can try again.',
+      dashboard: 'Go to dashboard',
+    },
     overview: {
       currentPlan: 'Current plan', free: 'Free', trial: 'Trial', trialEnds: 'Trial ends {{date}}',
       active: 'Active', inactive: 'Inactive', canceling: 'Cancels at period end',

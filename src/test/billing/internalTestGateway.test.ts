@@ -41,6 +41,21 @@ describe('internal test gateway provider', () => {
     await expect(checkout('0')).rejects.toThrow();
   });
 
+  it('keeps the canonical IRR amount even when an old gateway config says IRT', async () => {
+    const result = await internalTestProvider.createCheckoutSession(
+      { provider: 'internal_test', currency: 'IRT' },
+      {
+        workspaceId: 'ws-1',
+        planId: 'pro',
+        interval: 'monthly',
+        currency: 'IRR',
+        callbackUrl: CALLBACK,
+        metadata: { amount: '1500000' },
+      },
+    );
+    expect(new URL(result.paymentUrl).searchParams.get('amount')).toBe('1500000');
+  });
+
   it('verifies only a correctly signed success outcome', async () => {
     const ref = 'TESTGW-ABC';
     await expect(

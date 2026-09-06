@@ -32,6 +32,28 @@ import { billingDate, money, Ltr, InvoiceStatusBadge, ErrorState, errorMessage }
 
 type Kind = 'invoice' | 'deposit';
 
+/**
+ * The Lovable/local preview proxies API calls as the deployed app origin so
+ * the remote Express server can enforce CSRF safely. Payment callbacks must
+ * use that same public app origin rather than the temporary preview host,
+ * otherwise every provider is rejected before its handler is reached.
+ */
+function billingReturnOrigin(): string {
+  if (!import.meta.env.DEV) return window.location.origin;
+
+  const configured = import.meta.env.VITE_PREVIEW_PROXY_ORIGIN?.trim();
+  const apiBase = import.meta.env.VITE_API_BASE_URL?.trim().replace(/\/+$/, '');
+  const candidate = configured || apiBase?.replace('://api.', '://app.');
+  if (!candidate) return window.location.origin;
+
+  try {
+    const url = new URL(candidate);
+    return url.protocol === 'https:' ? url.origin : window.location.origin;
+  } catch {
+    return window.location.origin;
+  }
+}
+
 export default function PaymentPage() {
   const { kind, id, slug } = useParams<{ kind: Kind; id: string; slug: string }>();
   const navigate = useNavigate();
@@ -80,7 +102,7 @@ export default function PaymentPage() {
     if (!workspaceId || !id) return;
     setBusy(true);
     try {
-      const callbackUrl = `${window.location.origin}/${slug}/billing`;
+      const callbackUrl = `${billingReturnOrigin()}/${slug}/billing`;
       const res =
         kind === 'deposit'
           ? await billingV2DepositCheckout(workspaceId, id, callbackUrl, selected || undefined)

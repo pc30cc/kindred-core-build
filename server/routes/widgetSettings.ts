@@ -16,11 +16,12 @@ import { getServiceClient } from '../supabase.js';
 import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { assertPhoneVerificationSatisfied } from '../services/phoneVerification/index.js';
 import { PhoneVerificationError } from '../services/phoneVerification/types.js';
-import {
 import { invalidateWorkspaceOriginCache } from '../services/widget/public.js';
+import {
   resolveWidgetEntitlements,
   guardWidgetSettingsPatch,
 } from '../services/widget/entitlements.js';
+
 
 export const widgetSettingsRouter = Router();
 

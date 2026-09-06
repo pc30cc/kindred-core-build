@@ -87,20 +87,29 @@ export function __resetWidgetOriginCaches(): void {
 
 /**
  * Bounded list of hostname suffixes that could match a stored domain.
- * `store.eu.example.com` → ['store.eu.example.com','eu.example.com','example.com'].
+ * `store.eu.example.com` → ['store.eu.example.com','example.com','eu.example.com'].
+ *
  * The list is capped so a pathological 100-label host cannot turn one request
- * into 100 index probes; the leftmost (most specific) candidates are kept.
+ * into 100 index probes. The cap is applied FROM THE RIGHT: a registered
+ * customer domain is always near the public suffix, so the apex-ward
+ * candidates (`example.com`, `g.example.com`, …) are the ones that must never
+ * be dropped. Previously the cap kept the most specific (leftmost) suffixes,
+ * which meant a deeply nested host such as
+ * `a.b.c.d.e.f.g.example.com` never probed the registered `example.com` and
+ * silently failed to resolve. The exact host is always included as well, so
+ * an exact match can never be lost either.
  */
-const MAX_SUFFIX_CANDIDATES = 6;
+const MAX_SUFFIX_LABELS = 6;
 
 export function hostSuffixCandidates(host: string): string[] {
   const labels = host.split('.').filter(Boolean);
   if (labels.length < 2) return labels.length === 1 ? [host] : [];
-  const out: string[] = [];
-  for (let i = 0; i <= labels.length - 2 && out.length < MAX_SUFFIX_CANDIDATES; i += 1) {
-    out.push(labels.slice(i).join('.'));
+  const out: string[] = [host];
+  // Shortest (apex-ward) first: 2 labels, 3 labels, … up to MAX_SUFFIX_LABELS.
+  for (let size = 2; size <= Math.min(MAX_SUFFIX_LABELS, labels.length); size += 1) {
+    out.push(labels.slice(labels.length - size).join('.'));
   }
-  return out;
+  return Array.from(new Set(out));
 }
 
 

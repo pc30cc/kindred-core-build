@@ -434,24 +434,36 @@ workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/domains`, async (req: WorkspaceIdRe
   return res.json({ domains: data });
 });
 
-const addDomainSchema = z.object({ domain: z.string().trim().min(1).max(255) });
+const addDomainSchema = z.object({ domain: z.string().min(1).max(300) });
 
 workspacesRouter.post(`/${WORKSPACE_ID_PARAM}/domains`, async (req: WorkspaceIdRequest, res) => {
   const config: ServerConfig = (req as any).serverConfig;
   const workspaceId = req.params.workspaceId;
   const parsed = addDomainSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  // Only a value that the INDEXED origin resolver can find may be stored —
+  // see server/utils/workspaceDomainInput.ts for the canonical contract.
+  const domainInput = parseWorkspaceDomainInput(parsed.data.domain);
+  if (!domainInput.ok) {
+    return res.status(400).json({ error: domainInput.message, code: domainInput.code });
+  }
   if (!(await requireDomainManage(req, res, workspaceId))) return;
   const sb = getServiceClient(config);
   const { error } = await sb.from('workspace_domains').insert({
     workspace_id: workspaceId,
-    domain: parsed.data.domain,
+    domain: domainInput.domain,
   });
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) {
+    // Partial unique index: one VERIFIED domain may belong to one workspace.
+    if ((error as any).code === '23505') {
+      return res.status(409).json({ error: 'This domain is already registered.', code: 'DOMAIN_TAKEN' });
+    }
+    return res.status(500).json({ error: error.message });
+  }
   // Adding a customer domain is a DATA operation: no redeploy, no CORS env
   // change. Invalidate the origin caches so the new domain works right away.
   invalidateWorkspaceOriginCache(workspaceId);
-  invalidateOriginHostCache(parsed.data.domain);
+  invalidateOriginHostCache(domainInput.domain);
   return res.json({ success: true });
 });
 

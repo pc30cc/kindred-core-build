@@ -72,6 +72,12 @@ export default function PaymentPage() {
   const [paymentResult, setPaymentResult] = useState<{
     state: 'processing' | 'succeeded' | 'failed';
     receipt?: BillingReceipt | null;
+    /**
+     * Stable diagnostic code (never a raw error message or provider
+     * response) — the customer never sees this, but it lets a developer
+     * know exactly which stage failed. See PaymentPage's verify effect.
+     */
+    errorCode?: string;
   } | null>(null);
   const [redirectSeconds, setRedirectSeconds] = useState(15);
   const callbackHandled = useRef(false);
@@ -122,23 +128,40 @@ export default function PaymentPage() {
       setPaymentResult({ state: 'succeeded', receipt });
       load();
     };
+    // A gateway that already verified the payment must never be reported to
+    // the customer as "failed" — downstream finalization can still complete
+    // via retry/recovery. The friendly UI stays generic; the code is only
+    // for logs/diagnostics (never a raw exception or provider response).
+    const markPending = (errorCode: string) => {
+      // eslint-disable-next-line no-console
+      console.error('[billing] payment finalization pending', { intentId, provider, errorCode });
+      setPaymentResult({ state: 'processing', errorCode });
+    };
+    const markFailed = (errorCode: string) => {
+      // eslint-disable-next-line no-console
+      console.error('[billing] payment verification failed', { intentId, provider, errorCode });
+      setPaymentResult({ state: 'failed', errorCode });
+    };
     const pollFinalState = async () => {
       for (let attempt = 0; attempt < 10; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 1200));
-        const current = await billingGetPaymentIntent(intentId);
+        // A transient network error while polling is not proof the payment
+        // failed — keep polling rather than giving up on a verified payment.
+        const current = await billingGetPaymentIntent(intentId).catch(() => null);
+        if (!current) continue;
         if (current.status === 'succeeded') return finish(current.receipt);
-        if (!current.pending) throw new Error(current.failureReason || 'PAYMENT_FAILED');
+        if (!current.pending) return markFailed(current.failureReason || 'SETTLEMENT_FAILED');
       }
-      throw new Error('PAYMENT_FINALIZATION_PENDING');
+      return markPending('FINALIZATION_PENDING');
     };
 
     billingVerifyCallback({ workspaceId, provider, params, intentId })
       .then(async (result) => {
         if (result.verified && !result.pending) return finish(result.receipt);
         if (result.verified && result.pending) return pollFinalState();
-        throw new Error('PAYMENT_FAILED');
+        return markFailed(result.status === 'canceled' ? 'GATEWAY_CANCELED' : 'GATEWAY_NOT_VERIFIED');
       })
-      .catch(() => setPaymentResult({ state: 'failed' }));
+      .catch((e) => markFailed(e instanceof Error && e.message ? e.message : 'VERIFY_NETWORK_ERROR'));
   }, [load, workspaceId]);
 
   useEffect(() => {

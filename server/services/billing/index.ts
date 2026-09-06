@@ -13,7 +13,8 @@ import { zarinpalTestProvider } from './providers/zarinpal-test.js';
 import { idpayProvider } from './providers/idpay.js';
 import { idpayTestProvider } from './providers/idpay-test.js';
 import { iranPardakhtSandboxProvider } from './providers/iranpardakht-sandbox.js';
-import { internalTestProvider } from './providers/internal-test.js';
+import { internalTestProvider, INTERNAL_TEST_PROVIDER } from './providers/internal-test.js';
+import { resolvePublicApiOrigin } from './callbackUrl.js';
 import { nextpayProvider } from './providers/nextpay.js';
 import { paypingProvider } from './providers/payping.js';
 import { zibalProvider } from './providers/zibal.js';
@@ -57,6 +58,27 @@ const providers: Record<string, BillingProviderHandler> = {
 
 export function getProvider(name: string): BillingProviderHandler | null {
   return providers[name] || null;
+}
+
+/**
+ * The internal test gateway serves its own "bank page" from THIS deployment
+ * (`/api/billing/test-gateway`) and must never derive that host from a
+ * client-supplied callback URL (see providers/internal-test.ts). Every
+ * resolution path funnels through here so the canonical PUBLIC API origin is
+ * populated exactly once, from the platform's own domain configuration — an
+ * explicit `gateway_base_url` already set (e.g. by an operator override)
+ * always wins.
+ */
+async function withGatewayBaseUrl(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  providerName: string,
+  config: BillingProviderConfig,
+): Promise<BillingProviderConfig> {
+  if (providerName !== INTERNAL_TEST_PROVIDER) return config;
+  if (typeof config.gateway_base_url === 'string' && config.gateway_base_url.trim()) return config;
+  const apiOrigin = await resolvePublicApiOrigin(supabaseUrl, serviceRoleKey);
+  return { ...config, gateway_base_url: apiOrigin };
 }
 
 export function getAllProviders(): Record<string, { name: string; capabilities: BillingProviderHandler['capabilities'] }> {
@@ -105,14 +127,21 @@ export async function resolveNamedBillingConfig(
     ? ((globalValue.config && typeof globalValue.config === 'object' ? globalValue.config : {}) as Record<string, unknown>)
     : {};
 
+  // Canonical precedence: Providers (workspace, then global) is the source of
+  // truth for credentials. `billing_gateways` is operational state
+  // (enabled/disabled, test marker, currencies, display) — it is read here
+  // only as a legacy fallback for a value never migrated to Providers, and
+  // must never silently override a credential entered there.
+  const config: BillingProviderConfig = {
+    provider: providerName,
+    ...((gatewayResult.data?.config as Record<string, unknown> | null) || {}),
+    ...globalConfig,
+    ...((workspaceResult.data?.config as Record<string, unknown> | null) || {}),
+  };
+
   return {
     provider,
-    config: {
-      provider: providerName,
-      ...globalConfig,
-      ...((workspaceResult.data?.config as Record<string, unknown> | null) || {}),
-      ...((gatewayResult.data?.config as Record<string, unknown> | null) || {}),
-    },
+    config: await withGatewayBaseUrl(supabaseUrl, serviceRoleKey, providerName, config),
   };
 }
 
@@ -180,7 +209,13 @@ export async function resolveBillingConfig(
         configId: wsConfig.id,
         updatedAt: wsConfig.updated_at,
       });
-      return { provider: handler, config: { provider: wsConfig.provider_name, ...(wsConfig.config as Record<string, unknown>) } };
+      return {
+        provider: handler,
+        config: await withGatewayBaseUrl(supabaseUrl, serviceRoleKey, wsConfig.provider_name, {
+          provider: wsConfig.provider_name,
+          ...(wsConfig.config as Record<string, unknown>),
+        }),
+      };
     }
   }
 
@@ -198,13 +233,29 @@ export async function resolveBillingConfig(
       provider: name,
       configKey: key,
     });
-    return { provider: handler, config: { ...value, ...inner, provider: name } as BillingProviderConfig };
+    return {
+      provider: handler,
+      config: await withGatewayBaseUrl(
+        supabaseUrl,
+        serviceRoleKey,
+        name,
+        { ...value, ...inner, provider: name } as BillingProviderConfig,
+      ),
+    };
   }
 
   // Preserve an older workspace override when no usable global provider exists.
   if (wsConfig) {
     const handler = getProvider(wsConfig.provider_name);
-    if (handler) return { provider: handler, config: { provider: wsConfig.provider_name, ...(wsConfig.config as Record<string, unknown>) } };
+    if (handler) {
+      return {
+        provider: handler,
+        config: await withGatewayBaseUrl(supabaseUrl, serviceRoleKey, wsConfig.provider_name, {
+          provider: wsConfig.provider_name,
+          ...(wsConfig.config as Record<string, unknown>),
+        }),
+      };
+    }
   }
 
   return null;

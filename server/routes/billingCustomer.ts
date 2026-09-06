@@ -56,7 +56,7 @@ import {
   evaluateCoupon,
   listPayableGateways,
 } from '../services/billing/config/index.js';
-import { isAllowedBillingCallbackUrl } from '../services/billing/callbackUrl.js';
+import { isAllowedBillingCallbackUrl, resolvePublicApiOrigin } from '../services/billing/callbackUrl.js';
 
 
 export const billingCustomerRouter = Router();
@@ -243,13 +243,23 @@ const checkoutSchema = z.object({
   providerName: z.string().min(2).max(60).optional(),
 });
 
-/** Keep the browser page separate from the provider callback endpoint. */
-function paymentReturnUrls(browserUrl: string, intentId: string, providerName: string) {
+/**
+ * `browserReturnUrl` and `gatewayCallbackUrl` are different things:
+ *   - browserReturnUrl = canonical application/payment-document URL — where
+ *     the customer's browser ends up (the app origin).
+ *   - gatewayCallbackUrl = canonical PUBLIC API origin + /api/billing/return
+ *     — where the BANK calls back. It must be built from `apiOrigin`
+ *     (resolved server-side from `platform_domains.api_base_url`, see
+ *     resolvePublicApiOrigin), never from the browser return URL's origin.
+ *     A split app/API deployment where the app host does not proxy `/api/*`
+ *     would otherwise send the bank callback to a 404.
+ */
+export function paymentReturnUrls(browserUrl: string, intentId: string, providerName: string, apiOrigin: string) {
   const browserReturn = new URL(browserUrl);
   browserReturn.searchParams.set('intent', intentId);
   browserReturn.searchParams.set('provider', providerName);
 
-  const gatewayCallback = new URL('/api/billing/return', browserReturn.origin);
+  const gatewayCallback = new URL('/api/billing/return', apiOrigin);
   gatewayCallback.searchParams.set('intent', intentId);
   gatewayCallback.searchParams.set('provider', providerName);
   return {
@@ -317,10 +327,12 @@ billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkou
       ttlSeconds: 900,
     });
 
+    const apiOrigin = await resolvePublicApiOrigin(cfg.supabaseUrl, cfg.supabaseServiceRoleKey);
     const { browserReturnUrl, gatewayCallbackUrl } = paymentReturnUrls(
       parsed.data.callbackUrl,
       intent.id,
       resolved.provider.name,
+      apiOrigin,
     );
 
     // Persist the browser return before leaving this server. If a gateway (or
@@ -632,10 +644,12 @@ billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/checkout', a
       .update({ payment_intent_id: intent.id })
       .eq('id', (deposit as any).id);
 
+    const apiOrigin = await resolvePublicApiOrigin(cfg.supabaseUrl, cfg.supabaseServiceRoleKey);
     const { browserReturnUrl, gatewayCallbackUrl } = paymentReturnUrls(
       parsed.data.callbackUrl,
       intent.id,
       resolved.provider.name,
+      apiOrigin,
     );
     const { error: returnUrlError } = await sb
       .from('billing_payment_intents')

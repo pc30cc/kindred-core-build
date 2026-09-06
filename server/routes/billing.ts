@@ -116,6 +116,38 @@ async function buildReceipt(config: ServerConfig, intent: PaymentIntentRow) {
   return receipt;
 }
 
+/**
+ * `billing_payment_intents.failure_reason` is an internal audit column and
+ * can carry a raw exception message (e.g. from `noteIntentFailureAttempt`).
+ * It must never reach the client verbatim over `/payment-intent/:intentId` —
+ * only a short, code-shaped token passes through; anything free-text
+ * collapses to a generic safe code.
+ */
+function safeFailureCode(reason: string | null | undefined): string | null {
+  if (!reason) return null;
+  const trimmed = reason.trim();
+  if (!trimmed || trimmed.length > 64 || /[\s:'"]/.test(trimmed)) return 'SETTLEMENT_FAILED';
+  return trimmed;
+}
+
+/**
+ * Stable, safe diagnostic codes for a verify-callback failure. Never a raw
+ * exception message or provider response — those can carry credentials or
+ * internal details. The customer only ever sees a friendly translated
+ * message; this is what a developer greps logs / the intent's
+ * `failure_reason` for to know WHICH stage failed.
+ */
+function logBillingSafeError(input: {
+  intentId: string;
+  workspaceId: string;
+  providerName: string;
+  stage: string;
+  safeErrorCode: string;
+}) {
+  // eslint-disable-next-line no-console
+  console.error('[billing] verify-callback failure', input);
+}
+
 /** End every active invoice reservation owned by a terminal payment attempt. */
 async function releaseIntentCollections(
   config: ServerConfig,
@@ -639,7 +671,14 @@ billingRouter.post('/verify-callback', async (req, res) => {
     // provider_configs here broke verification for platform-default gateways.
     const resolved = await resolveNamedBillingConfig(url, key, workspaceId, providerName);
     if (!resolved || resolved.provider.name !== providerName) {
-      return res.status(400).json({ error: 'Provider not configured' });
+      logBillingSafeError({
+        intentId: typeof intentId === 'string' ? intentId : '',
+        workspaceId,
+        providerName,
+        stage: 'provider_resolution',
+        safeErrorCode: 'PROVIDER_NOT_CONFIGURED',
+      });
+      return res.status(400).json({ error: 'PROVIDER_NOT_CONFIGURED' });
     }
 
     if (IRAN_PROVIDERS.has(providerName)) {
@@ -668,7 +707,11 @@ billingRouter.post('/verify-callback', async (req, res) => {
       if (intent.status === 'pending' && !isIntentUsable(intent)) {
         await markPaymentIntentExpired(cfg, intent.id);
         await releaseIntentCollections(cfg, intent.id, 'intent_expired');
-        return res.status(400).json({ error: 'Payment intent expired' });
+        logBillingSafeError({
+          intentId: intent.id, workspaceId, providerName,
+          stage: 'intent_lifecycle', safeErrorCode: 'INTENT_EXPIRED',
+        });
+        return res.status(400).json({ error: 'INTENT_EXPIRED' });
       }
 
       // Identity binding — the callback must carry the same provider
@@ -677,7 +720,11 @@ billingRouter.post('/verify-callback', async (req, res) => {
       if (binding.ok === false) {
         await markPaymentIntentFailed(cfg, intent.id, binding.reason);
         await releaseIntentCollections(cfg, intent.id, 'reference_mismatch');
-        return res.status(400).json({ error: 'Payment reference does not match this order' });
+        logBillingSafeError({
+          intentId: intent.id, workspaceId, providerName,
+          stage: 'reference_binding', safeErrorCode: 'REFERENCE_MISMATCH',
+        });
+        return res.status(400).json({ error: 'REFERENCE_MISMATCH' });
       }
 
       const result = await provider.verifyPayment(resolved.config, {
@@ -687,6 +734,11 @@ billingRouter.post('/verify-callback', async (req, res) => {
       if (!result.verified) {
         await markPaymentIntentFailed(cfg, intent.id, 'gateway_not_verified');
         await releaseIntentCollections(cfg, intent.id, 'gateway_not_verified');
+        logBillingSafeError({
+          intentId: intent.id, workspaceId, providerName,
+          stage: 'gateway_verify',
+          safeErrorCode: result.status === 'canceled' ? 'GATEWAY_CANCELED' : 'GATEWAY_NOT_VERIFIED',
+        });
         return res.json({ success: true, ...result });
       }
 
@@ -748,6 +800,12 @@ billingRouter.post('/verify-callback', async (req, res) => {
           });
         } catch (depositError: any) {
           await noteIntentFailureAttempt(cfg, intent, String(depositError?.message || depositError));
+          logBillingSafeError({
+            intentId: intent.id, workspaceId, providerName,
+            stage: 'wallet_deposit_finalization', safeErrorCode: 'FINALIZATION_PENDING',
+          });
+          // The gateway HAS verified this money. A finalization hiccup must
+          // never be reported to the customer as "failed" — stay recoverable.
           return res.status(202).json({ success: true, verified: true, pending: true });
         }
         await markIntentSucceeded(cfg, intent.id);
@@ -887,8 +945,10 @@ billingRouter.post('/verify-callback', async (req, res) => {
         // The customer HAS paid. Keep the intent recoverable and tell the UI
         // this is pending, never "failed" — a retry finishes the job.
         await noteIntentFailureAttempt(cfg, intent, String(sideEffectError?.message || sideEffectError));
-        // eslint-disable-next-line no-console
-        console.error('[billing] finalization failed, intent recoverable', intent.id);
+        logBillingSafeError({
+          intentId: intent.id, workspaceId, providerName,
+          stage: 'finalization', safeErrorCode: 'FINALIZATION_PENDING',
+        });
         return res.status(202).json({ success: true, verified: true, pending: true });
       }
 
@@ -1112,7 +1172,7 @@ billingRouter.get('/payment-intent/:intentId', async (req, res) => {
     status: intent.status,
     pending: intent.status === 'pending' || intent.status === 'processing',
     receipt: intent.status === 'succeeded' ? await buildReceipt(cfg, intent) : null,
-    failureReason: intent.failure_reason || null,
+    failureReason: safeFailureCode(intent.failure_reason),
   });
 });
 

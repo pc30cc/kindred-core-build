@@ -76,11 +76,27 @@ function verifyOutcomeSignature(ref: string, status: string, sig: string): boole
   return safeEqual(signOutcome(ref, status), sig);
 }
 
-/** The gateway page is served by THIS deployment; derive it from the return URL. */
-function gatewayBase(config: BillingProviderConfig, callbackUrl: string): string {
+/**
+ * The gateway page is a route on THIS Express deployment
+ * (`/api/billing/test-gateway`), which is not necessarily the same origin as
+ * the browser/app that started checkout in a split app/API topology.
+ *
+ * `config.gateway_base_url` is always the canonical PUBLIC API origin by the
+ * time it reaches here — `resolveNamedBillingConfig`/`resolveBillingConfig`
+ * (server/services/billing/index.ts) populate it server-side from
+ * `platform_domains.api_base_url` (never from the caller's callback URL).
+ * A provider must never fall back to deriving its own page's host from the
+ * bank-return callback URL: that was the exact bug that broke split
+ * deployments where the app host does not proxy `/api/*`.
+ */
+function gatewayBase(config: BillingProviderConfig): string {
   const configured = typeof config.gateway_base_url === 'string' ? config.gateway_base_url.trim() : '';
-  const origin = configured || new URL(callbackUrl).origin;
-  return `${origin.replace(/\/+$/, '')}/api/billing/test-gateway`;
+  if (!configured) {
+    throw new Error(
+      'Internal test gateway: no API origin configured (platform_domains.api_base_url or API_BASE_URL)',
+    );
+  }
+  return `${configured.replace(/\/+$/, '')}/api/billing/test-gateway`;
 }
 
 export const internalTestProvider: BillingProviderHandler = {
@@ -107,7 +123,7 @@ export const internalTestProvider: BillingProviderHandler = {
       throw new Error('Internal test gateway: amount must be greater than zero');
     }
     const ref = `TESTGW-${randomBytes(10).toString('hex').toUpperCase()}`;
-    const url = new URL(gatewayBase(config, req.callbackUrl));
+    const url = new URL(gatewayBase(config));
     url.searchParams.set('ref', ref);
     url.searchParams.set('amount', String(amount));
     url.searchParams.set('cb', req.callbackUrl);

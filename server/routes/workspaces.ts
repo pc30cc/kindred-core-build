@@ -446,7 +446,8 @@ workspacesRouter.post(`/${WORKSPACE_ID_PARAM}/domains`, async (req: WorkspaceIdR
   // see server/utils/workspaceDomainInput.ts for the canonical contract.
   const domainInput = parseWorkspaceDomainInput(parsed.data.domain);
   if (!domainInput.ok) {
-    return res.status(400).json({ error: domainInput.message, code: domainInput.code });
+    const failure = domainInput as Extract<DomainInputResult, { ok: false }>;
+    return res.status(400).json({ error: failure.message, code: failure.code });
   }
   if (!(await requireDomainManage(req, res, workspaceId))) return;
   const sb = getServiceClient(config);

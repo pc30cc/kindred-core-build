@@ -277,10 +277,26 @@ export async function buildBillingOverview(
   const interval = (sub?.billing_interval as 'monthly' | 'yearly' | null) ?? null;
   const allowanceIrr = num(cycle?.allowance_irr);
   const remainingIrr = num(cycle?.remaining_irr);
-  const planName = (sub?.billing_plans as any)?.name ?? null;
-  const planPrices = ((sub?.billing_plans as any)?.prices ?? {}) as Record<string, any>;
+
+  // The embedded plan is the fast path. It must never be the ONLY path: if the
+  // embed ever fails (schema-cache/relationship change) the workspace would be
+  // silently rendered as "Free" while actually paying for a plan. Fall back to
+  // an explicit read by id whenever a plan_id exists but the embed is empty.
+  let plan = (sub?.billing_plans as any) ?? null;
+  if (!plan && sub?.plan_id) {
+    const { data: planRow } = await sb
+      .from('billing_plans')
+      .select('name, prices, limits')
+      .eq('id', sub.plan_id)
+      .maybeSingle();
+    plan = planRow ?? null;
+  }
+
+  const planName = plan?.name ?? null;
+  const planPrices = (plan?.prices ?? {}) as Record<string, any>;
   const monthlyPrice = num(planPrices?.IRR?.monthly);
   const yearlyPrice = num(planPrices?.IRR?.yearly);
+
 
   return {
     engine: rolloutState === 'v2_active' ? 'v2' : 'v1',

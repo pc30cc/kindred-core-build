@@ -192,7 +192,10 @@ suite('Internal Test Gateway — full financial pipeline (PostgreSQL)', () => {
     const commandKey = `intent:${uuid()}`;
     const first = await settleAndApply(inv.id, inv.total_irr, paymentId, commandKey);
     expect(first.settlement.status).toBe('paid');
-    expect(first.applied.activated).toBe(true);
+    // ai_credit_purchase effects grant a lot directly — no service period,
+    // so `activated` (period-specific) is not part of this response shape.
+    expect(first.applied.lot_id).toBeTruthy();
+    expect(first.applied.replayed).toBe(false);
 
     const invoiceRow = await one(`SELECT status FROM public.billing_invoices WHERE id=$1`, [inv.id]);
     expect(invoiceRow.status).toBe('paid');
@@ -299,7 +302,7 @@ suite('Internal Test Gateway — full financial pipeline (PostgreSQL)', () => {
     const paymentId = await recordPayment(ws, inv.total_irr, 'zarinpal_test', verified.providerRef);
     const result = await settleAndApply(inv.id, inv.total_irr, paymentId, `intent:${uuid()}`);
     expect(result.settlement.status).toBe('paid');
-    expect(result.applied.activated).toBe(true);
+    expect(result.applied.lot_id).toBeTruthy();
     const invoiceRow = await one(`SELECT status FROM public.billing_invoices WHERE id=$1`, [inv.id]);
     expect(invoiceRow.status).toBe('paid');
   });

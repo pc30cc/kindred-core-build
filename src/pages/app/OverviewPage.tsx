@@ -95,7 +95,7 @@ export default function OverviewPage() {
     if (!workspace?.id) return;
     queryClient.invalidateQueries({ queryKey: ['workspace-usage', workspace.id] });
     queryClient.invalidateQueries({ queryKey: ['workspace-plan', workspace.id] });
-    queryClient.invalidateQueries({ queryKey: ['ai-wallet-summary', workspace.id] });
+    queryClient.invalidateQueries({ queryKey: ['ai-credit-snapshot', workspace.id] });
   }, [queryClient, workspace?.id]);
   useLiveUsageRefresh(!!workspace?.id, refreshUsage);
 

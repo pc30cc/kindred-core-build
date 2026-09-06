@@ -65,12 +65,15 @@ export function verifyCheckoutSignature(
 }
 
 /** Signature of the outcome the gateway page redirects back with. */
-export function signOutcome(ref: string, status: string, amount: string): string {
-  return sign(['outcome', ref, status, amount]);
+// The amount is deliberately NOT part of this signature: the verify step
+// re-derives the authoritative amount from the payment intent, and the
+// gateway page must stay valid for it.
+export function signOutcome(ref: string, status: string): string {
+  return sign(['outcome', ref, status]);
 }
 
-function verifyOutcomeSignature(ref: string, status: string, amount: string, sig: string): boolean {
-  return safeEqual(signOutcome(ref, status, amount), sig);
+function verifyOutcomeSignature(ref: string, status: string, sig: string): boolean {
+  return safeEqual(signOutcome(ref, status), sig);
 }
 
 function amountInRials(config: BillingProviderConfig, raw: number): number {
@@ -125,7 +128,7 @@ export const internalTestProvider: BillingProviderHandler = {
     const amount = parseInt(params.amount || '0', 10) || 0;
     const sig = params.rsig || '';
 
-    if (!ref || !verifyOutcomeSignature(ref, status, String(amount), sig)) {
+    if (!ref || !verifyOutcomeSignature(ref, status, sig)) {
       return { verified: false, providerRef: ref, amount, status: 'failed' };
     }
     if (status !== 'OK') {

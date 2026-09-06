@@ -1,5 +1,5 @@
 /**
- * Billing V2 — the workspace-facing financial screen.
+ * Unified workspace billing screen.
  *
  * Six sections behind one header: overview, invoices, plans, wallet, AI credit
  * and transactions. Desktop shows them as tabs, mobile as a select, because a

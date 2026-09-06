@@ -1,5 +1,5 @@
 /**
- * Phase D — translation completeness for the Billing V2 workspace screens.
+ * Translation completeness for the unified workspace billing screens.
  *
  * `t()`'s key type is derived from en.ts, so a key that exists in English but
  * is missing in fa would silently render English text on a Persian-only

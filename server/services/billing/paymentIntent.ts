@@ -83,6 +83,8 @@ const PROCESSING_RECLAIM_MS = 60 * 1000;
 export const IRAN_PROVIDERS = new Set([
   'zarinpal', 'zarinpal_test', 'idpay', 'idpay_test', 'iranpardakht_sandbox',
   'nextpay', 'payping', 'zibal', 'sep_shaparak',
+  // Internal simulated gateway: same redirect + intent contract, no real money.
+  'internal_test',
 ]);
 
 export async function createSubscriptionIntent(

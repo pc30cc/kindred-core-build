@@ -29,6 +29,7 @@ import { workspaceAlertsRouter } from './routes/workspaceAlerts.js';
 import { availabilityRouter } from './routes/availability.js';
 import { operatorActivityRouter } from './routes/operatorActivity.js';
 import { billingRouter, billingWebhookRouter } from './routes/billing.js';
+import { internalTestGatewayRouter } from './routes/internalTestGateway.js';
 import { billingV2CustomerRouter } from './routes/billingV2Customer.js';
 import { adminBillingV2Router } from './routes/adminBillingV2.js';
 import { adminBillingRouter } from './routes/adminBilling.js';
@@ -389,6 +390,8 @@ app.use('/api/availability', availabilityRouter);
 app.use('/api/operator-activity', operatorActivityRouter);
 
 // Billing — checkout, webhooks, subscription management
+// Simulated in-house gateway page (test provider only; must be mounted first).
+app.use('/api/billing/test-gateway', internalTestGatewayRouter);
 app.use('/api/billing/v2', billingV2CustomerRouter);
 app.use('/api/billing', billingRouter);
 app.use('/api/seo', seoRouter);

@@ -596,7 +596,7 @@ export default function AiBillingPage() {
                           {r.workspace_name || <span className="font-mono text-xs text-muted-foreground">{String(r.workspace_id || '').slice(0, 8)}</span>}
                         </TableCell>
                         <TableCell className="text-sm">
-                          {t(`aiBilling.entryPoints.${r.entry_point}`, { defaultValue: r.entry_point })}
+                          {t(`aiBilling.entryPoints.${r.entry_point}` as any, { defaultValue: r.entry_point })}
                         </TableCell>
 
                         <TableCell className="font-mono text-sm">{r.primary_model || '—'}</TableCell>

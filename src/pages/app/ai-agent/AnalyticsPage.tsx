@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useAiAgentAnalytics, useAiAgentRuns } from '@/hooks/useAiAgent';
+import { useTranslation } from '@/i18n';
 import { aiAgentApi } from '@/lib/ai-agent-api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -8,6 +9,7 @@ import { BarChart3, Loader2 } from 'lucide-react';
 
 export default function AnalyticsPage() {
   const { workspace } = useActiveWorkspace();
+  const { t, dir } = useTranslation();
   const { data: stats, isLoading: l1 } = useAiAgentAnalytics(workspace?.id);
   const { data: runsData, isLoading: l2 } = useAiAgentRuns(workspace?.id);
   const overview = useQuery({
@@ -47,24 +49,24 @@ export default function AnalyticsPage() {
   const topReasons = Object.entries(handoffReasons).sort((a, b) => b[1] - a[1]).slice(0, 6);
 
   const cards = [
-    { label: 'Runs (24h)', value: c?.aiRuns24h ?? 0 },
-    { label: 'Replies (24h)', value: c?.replies24h ?? 0 },
-    { label: 'Handoffs (24h)', value: c?.handoffs24h ?? 0 },
-    { label: 'No answer (24h)', value: c?.noAnswer24h ?? 0 },
-    { label: 'Total runs (30d)', value: s.total },
-    { label: 'Lang. repairs (24h)', value: c?.outputLanguageRepairs24h ?? 0 },
-    { label: 'Pending learning', value: c?.pendingLearningCandidates ?? 0 },
-    { label: 'Embedded chunks', value: c?.embeddedChunks ?? 0 },
+    { label: t('aiAgent.analytics.cards.runs24h'), value: c?.aiRuns24h ?? 0 },
+    { label: t('aiAgent.analytics.cards.replies24h'), value: c?.replies24h ?? 0 },
+    { label: t('aiAgent.analytics.cards.handoffs24h'), value: c?.handoffs24h ?? 0 },
+    { label: t('aiAgent.analytics.cards.noAnswer24h'), value: c?.noAnswer24h ?? 0 },
+    { label: t('aiAgent.analytics.cards.totalRuns30d'), value: s.total },
+    { label: t('aiAgent.analytics.cards.langRepairs24h'), value: c?.outputLanguageRepairs24h ?? 0 },
+    { label: t('aiAgent.analytics.cards.pendingLearning'), value: c?.pendingLearningCandidates ?? 0 },
+    { label: t('aiAgent.analytics.cards.embeddedChunks'), value: c?.embeddedChunks ?? 0 },
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" dir={dir}>
       <div>
         <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2.5">
-          <BarChart3 className="h-5 w-5 text-primary" /> Analytics
+          <BarChart3 className="h-5 w-5 text-primary" /> {t('aiAgent.analytics.title')}
         </h1>
         <p className="text-sm text-muted-foreground mt-1.5">
-          AI Agent activity, handoff reasons, top topics, and learning signals.
+          {t('aiAgent.analytics.subtitle')}
         </p>
       </div>
 
@@ -80,12 +82,12 @@ export default function AnalyticsPage() {
       <div className="grid lg:grid-cols-2 gap-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Top detected topics</CardTitle>
-            <CardDescription>From recent AI runs.</CardDescription>
+            <CardTitle className="text-base">{t('aiAgent.analytics.topTopics.title')}</CardTitle>
+            <CardDescription>{t('aiAgent.analytics.topTopics.subtitle')}</CardDescription>
           </CardHeader>
           <CardContent>
             {topTopics.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-2">No topic data yet.</p>
+              <p className="text-sm text-muted-foreground py-2">{t('aiAgent.analytics.topTopics.empty')}</p>
             ) : (
               <div className="space-y-1.5">
                 {topTopics.map(([slug, count]) => (
@@ -100,10 +102,10 @@ export default function AnalyticsPage() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="text-base">Handoff reasons</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">{t('aiAgent.analytics.handoffReasons.title')}</CardTitle></CardHeader>
           <CardContent>
             {topReasons.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-2">No handoffs yet.</p>
+              <p className="text-sm text-muted-foreground py-2">{t('aiAgent.analytics.handoffReasons.empty')}</p>
             ) : (
               <div className="space-y-1.5">
                 {topReasons.map(([reason, count]) => (
@@ -119,12 +121,12 @@ export default function AnalyticsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">No-answer questions</CardTitle>
-            <CardDescription>Recent visitor questions the agent could not answer.</CardDescription>
+            <CardTitle className="text-base">{t('aiAgent.analytics.noAnswer.title')}</CardTitle>
+            <CardDescription>{t('aiAgent.analytics.noAnswer.subtitle')}</CardDescription>
           </CardHeader>
           <CardContent>
             {noAnswerInputs.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-2">No no-answer questions recorded.</p>
+              <p className="text-sm text-muted-foreground py-2">{t('aiAgent.analytics.noAnswer.empty')}</p>
             ) : (
               <div className="space-y-1">
                 {noAnswerInputs.slice(0, 8).map((q, i) => (
@@ -136,10 +138,10 @@ export default function AnalyticsPage() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="text-base">Low-confidence questions</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">{t('aiAgent.analytics.lowConfidence.title')}</CardTitle></CardHeader>
           <CardContent>
             {lowConfidence.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-2">No low-confidence answers.</p>
+              <p className="text-sm text-muted-foreground py-2">{t('aiAgent.analytics.lowConfidence.empty')}</p>
             ) : (
               <div className="space-y-1">
                 {lowConfidence.slice(0, 8).map((r, i) => (
@@ -155,10 +157,10 @@ export default function AnalyticsPage() {
       </div>
 
       <Card>
-        <CardHeader><CardTitle className="text-base">Recent runs</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base">{t('aiAgent.analytics.recentRuns.title')}</CardTitle></CardHeader>
         <CardContent>
           {runs.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-6 text-center">No runs yet. Try the Playground.</p>
+            <p className="text-sm text-muted-foreground py-6 text-center">{t('aiAgent.analytics.recentRuns.empty')}</p>
           ) : (
             <div className="divide-y">
               {runs.slice(0, 30).map((r: any) => (

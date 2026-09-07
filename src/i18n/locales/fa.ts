@@ -2577,6 +2577,18 @@ const fa: TranslationKeys = {
     components: 'اجزا',
     effectiveFrom: 'اعتبار از',
     entryPoint: 'نقطه ورود',
+    entryPoints: {
+      ai_complete: 'درخواست مستقیم هوش مصنوعی (API)',
+      api_ai_complete: 'درخواست مستقیم هوش مصنوعی (API)',
+      agent_turn: 'پاسخ خودکار ویجت گفتگو',
+      operator_assist: 'دستیار هوش مصنوعی اپراتور (صندوق ورودی)',
+      proactive_nudge: 'پیام هوشمند پیش‌دستانه ویجت',
+      kb_index: 'نمایه‌سازی پایگاه دانش',
+      agent_playground: 'محیط آزمایش دستیار',
+      agent_test_harness: 'اجرای تست‌های خودکار دستیار',
+      assistant_describe_business: 'توصیف خودکار کسب‌وکار (راه‌اندازی دستیار)',
+    },
+
     status: 'وضعیت',
     quality: 'کیفیت داده',
     runRecovery: 'اجرای بازیابی',

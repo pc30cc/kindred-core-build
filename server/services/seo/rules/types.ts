@@ -15,6 +15,7 @@ export interface SeoPageForRules {
   canonicalStatus: 'missing' | 'self' | 'points_elsewhere' | 'invalid' | null;
   metaRobots: string | null;
   isIndexable: boolean;
+  h1: string | null;
   h1Count: number;
   h2Count: number;
   lang: string | null;
@@ -23,8 +24,13 @@ export interface SeoPageForRules {
   imagesMissingAltCount: number;
   hasStructuredData: boolean;
   structuredDataErrors: string[];
+  hasOpenGraph: boolean;
+  hasTwitterCard: boolean;
   isHttps: boolean;
   hasMixedContent: boolean;
+  isNofollow: boolean;
+  discoveredVia: 'start' | 'link' | 'sitemap' | 'redirect';
+  incomingInternalLinksCount: number;
   fetchError: string | null;
   responseTimeMs: number | null;
 }

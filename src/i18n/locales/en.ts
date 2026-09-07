@@ -6214,6 +6214,7 @@ const en = {
       security: 'Security',
       performance: 'Performance',
       structured_data: 'Structured Data',
+      social: 'Social Sharing',
     },
     empty: {
       noSitesTitle: 'No websites in this workspace yet',

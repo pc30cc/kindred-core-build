@@ -6198,6 +6198,7 @@ const fa: TranslationKeys = {
       security: 'امنیت',
       performance: 'عملکرد',
       structured_data: 'داده ساختاریافته',
+      social: 'اشتراک‌گذاری اجتماعی',
     },
     empty: {
       noSitesTitle: 'هنوز وب‌سایتی در این فضای کاری ثبت نشده است',

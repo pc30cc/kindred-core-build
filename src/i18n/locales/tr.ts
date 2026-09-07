@@ -6202,6 +6202,7 @@ const tr: TranslationKeys = {
       security: 'Güvenlik',
       performance: 'Performans',
       structured_data: 'Yapılandırılmış Veri',
+      social: 'Sosyal Paylaşım',
     },
     empty: {
       noSitesTitle: 'Bu çalışma alanında henüz web sitesi yok',

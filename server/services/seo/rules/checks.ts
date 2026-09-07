@@ -187,6 +187,25 @@ const multipleH1: Rule = ({ pages }) => {
   });
 };
 
+const duplicateH1: Rule = ({ pages }) => {
+  const groups = new Map<string, SeoPageForRules[]>();
+  for (const p of indexableCandidates(pages)) {
+    if (!p.h1) continue;
+    const key = p.h1.trim().toLowerCase();
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(p);
+  }
+  const affected: SeoPageForRules[] = [];
+  for (const group of groups.values()) if (group.length > 1) affected.push(...group);
+  return issue({
+    issueType: 'duplicate_h1', category: 'content', severity: 'low',
+    title: 'Duplicate H1 headings',
+    description: 'Multiple indexable pages share the exact same H1 heading, which weakens each page’s distinct topical signal.',
+    recommendation: 'Give each page a unique H1 that reflects its specific content.',
+    affectedUrls: affected.map((p) => p.url),
+  });
+};
+
 const missingCanonical: Rule = ({ pages }) => {
   const affected = indexableCandidates(pages).filter((p) => p.canonicalStatus === 'missing');
   return issue({
@@ -303,6 +322,52 @@ const missingLang: Rule = ({ pages }) => {
   });
 };
 
+const missingOpenGraph: Rule = ({ pages }) => {
+  const affected = indexableCandidates(pages).filter((p) => !p.hasOpenGraph);
+  return issue({
+    issueType: 'missing_open_graph', category: 'social', severity: 'low',
+    title: 'Missing Open Graph tags',
+    description: 'These pages have no Open Graph (og:*) meta tags, so links shared on Facebook, LinkedIn and similar platforms fall back to a generic, unstyled preview.',
+    recommendation: 'Add at least og:title, og:description and og:image meta tags to every indexable page.',
+    affectedUrls: affected.map((p) => p.url),
+  });
+};
+
+const missingTwitterCard: Rule = ({ pages }) => {
+  const affected = indexableCandidates(pages).filter((p) => !p.hasTwitterCard);
+  return issue({
+    issueType: 'missing_twitter_card', category: 'social', severity: 'info',
+    title: 'Missing Twitter Card tag',
+    description: 'These pages have no twitter:card meta tag, so links shared on X/Twitter render as a plain link instead of a rich card.',
+    recommendation: 'Add a twitter:card meta tag (e.g. "summary_large_image") along with twitter:title and twitter:image.',
+    affectedUrls: affected.map((p) => p.url),
+  });
+};
+
+const orphanPages: Rule = ({ pages }) => {
+  const affected = pages.filter(
+    (p) => p.discoveredVia !== 'start' && p.incomingInternalLinksCount === 0 && p.isIndexable && p.httpStatus !== null && p.httpStatus < 400,
+  );
+  return issue({
+    issueType: 'orphan_pages', category: 'links', severity: 'medium',
+    title: 'Orphan pages with no internal links',
+    description: 'These indexable pages were only discovered through the sitemap and have no internal link pointing at them, making them hard for both users and search engines to reach through normal site navigation.',
+    recommendation: 'Add at least one internal link to each of these pages from relevant content or navigation menus.',
+    affectedUrls: affected.map((p) => p.url),
+  });
+};
+
+const nofollowIndexablePages: Rule = ({ pages }) => {
+  const affected = pages.filter((p) => p.isNofollow && p.isIndexable && p.httpStatus !== null && p.httpStatus < 400);
+  return issue({
+    issueType: 'nofollow_indexable_page', category: 'indexability', severity: 'info',
+    title: 'Indexable page marked nofollow',
+    description: 'These pages are indexable but declare a nofollow directive, so search engines will not follow any outbound links from them — a common misconfiguration that can cut off crawl paths to other pages.',
+    recommendation: 'Verify this is intentional; remove the nofollow directive if links on this page should be followed.',
+    affectedUrls: affected.map((p) => p.url),
+  });
+};
+
 const structuredDataErrors: Rule = ({ pages }) => {
   const affected = pages.filter((p) => p.structuredDataErrors.length > 0);
   return issue({
@@ -373,6 +438,7 @@ export const SEO_RULES: Rule[] = [
   duplicateMetaDescription,
   missingH1,
   multipleH1,
+  duplicateH1,
   missingCanonical,
   invalidCanonical,
   canonicalToNonIndexable,
@@ -383,6 +449,10 @@ export const SEO_RULES: Rule[] = [
   imagesMissingAlt,
   lowContent,
   missingLang,
+  missingOpenGraph,
+  missingTwitterCard,
+  orphanPages,
+  nofollowIndexablePages,
   structuredDataErrors,
   slowPages,
   sitemapErrors,

@@ -19,7 +19,7 @@ async function fetchAllPages(sb: ReturnType<typeof getServiceClient>, crawlId: s
   for (;;) {
     const { data, error } = await sb
       .from('seo_pages')
-      .select('id, url, normalized_url, http_status, redirect_chain, title, title_length, meta_description, meta_description_length, canonical_url, canonical_status, meta_robots, is_indexable, h1_count, h2_count, lang, word_count, images_count, images_missing_alt_count, has_structured_data, structured_data_errors, is_https, has_mixed_content, fetch_error, response_time_ms')
+      .select('id, url, normalized_url, http_status, redirect_chain, title, title_length, meta_description, meta_description_length, canonical_url, canonical_status, meta_robots, is_indexable, h1, h1_count, h2_count, lang, word_count, images_count, images_missing_alt_count, has_structured_data, structured_data_errors, has_open_graph, has_twitter_card, is_https, has_mixed_content, is_nofollow, discovered_via, incoming_internal_links_count, fetch_error, response_time_ms')
       .eq('crawl_id', crawlId)
       .range(from, from + FETCH_CHUNK - 1);
     if (error || !data || data.length === 0) break;
@@ -38,6 +38,7 @@ async function fetchAllPages(sb: ReturnType<typeof getServiceClient>, crawlId: s
         canonicalStatus: row.canonical_status,
         metaRobots: row.meta_robots,
         isIndexable: row.is_indexable,
+        h1: row.h1,
         h1Count: row.h1_count,
         h2Count: row.h2_count,
         lang: row.lang,
@@ -46,8 +47,13 @@ async function fetchAllPages(sb: ReturnType<typeof getServiceClient>, crawlId: s
         imagesMissingAltCount: row.images_missing_alt_count,
         hasStructuredData: row.has_structured_data,
         structuredDataErrors: row.structured_data_errors || [],
+        hasOpenGraph: row.has_open_graph,
+        hasTwitterCard: row.has_twitter_card,
         isHttps: row.is_https,
         hasMixedContent: row.has_mixed_content,
+        isNofollow: row.is_nofollow,
+        discoveredVia: row.discovered_via,
+        incomingInternalLinksCount: row.incoming_internal_links_count,
         fetchError: row.fetch_error,
         responseTimeMs: row.response_time_ms,
       });

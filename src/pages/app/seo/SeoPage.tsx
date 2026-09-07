@@ -420,7 +420,7 @@ function IssuesTab({ workspaceId, crawlId }: { workspaceId: string; crawlId: str
           <SelectTrigger className="w-48"><SelectValue placeholder={t('seo.issues.filterCategory')} /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{t('seo.issues.allCategories')}</SelectItem>
-            {['crawlability', 'indexability', 'http', 'metadata', 'content', 'links', 'images', 'canonical', 'sitemap', 'robots', 'security', 'performance', 'structured_data'].map((c) => (
+            {['crawlability', 'indexability', 'http', 'metadata', 'content', 'links', 'images', 'canonical', 'sitemap', 'robots', 'security', 'performance', 'structured_data', 'social'].map((c) => (
               <SelectItem key={c} value={c}>{t(`seo.category.${c}` as any)}</SelectItem>
             ))}
           </SelectContent>

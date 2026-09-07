@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useCurrentWorkspace } from '@/hooks/useWorkspace';
+import { useNavigate } from 'react-router-dom';
+import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import {
   aiKbApi,
   AiKbApiError,
@@ -14,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/lib/toast';
 import { formatTime } from '@/lib/date';
-import { Globe, Sparkles, AlertCircle, CheckCircle2, RefreshCcw, FileText, Clock, Eye, Info, Rocket } from 'lucide-react';
+import { Globe, Sparkles, AlertCircle, RefreshCcw, FileText, Clock, Eye, Info, Rocket } from 'lucide-react';
 
 
 
@@ -35,6 +36,8 @@ export type AiKbSurfaceState =
 
 export default function AiKbBuilderTab() {
   const workspace = useCurrentWorkspace();
+  const navigate = useNavigate();
+  const wsPath = useWorkspacePath();
   const { t, locale, dir } = useTranslation();
   /** Every user-visible string in this surface resolves through i18n. */
   const tr = (k: string, fb: string, vars?: Record<string, string>) => {
@@ -54,6 +57,7 @@ export default function AiKbBuilderTab() {
   const [jobEvents, setJobEvents] = useState<AiKbJobEventDto[]>([]);
   const [busy, setBusy] = useState(false);
   const [stuckQueued, setStuckQueued] = useState(false);
+  const [viewingId, setViewingId] = useState<string | null>(null);
 
   /**
    * Resolves the access state from `/source`, and only loads private job data
@@ -183,37 +187,64 @@ export default function AiKbBuilderTab() {
     return () => clearInterval(id);
   }, [activeJob]);
 
-  const onAction = async (id: string, action: 'accept' | 'reject' | 'publish') => {
-    try {
-      await (action === 'accept' ? aiKbApi.accept(id) : action === 'reject' ? aiKbApi.reject(id) : aiKbApi.publish(id));
-      toast.success(
-        action === 'publish'
-          ? tr('drafts.published', 'Published')
-          : action === 'accept'
-            ? tr('drafts.accepted', 'Saved as KB draft')
-            : tr('drafts.rejected', 'Rejected'),
+  /**
+   * A refused transition means someone else already moved this draft —
+   * re-sync so the operator sees the real state instead of a stale row.
+   */
+  const handleActionError = async (e: unknown) => {
+    const err = e instanceof AiKbApiError ? e : null;
+    if (err?.code === 'invalid_state') {
+      toast.error(
+        err.currentStatus
+          ? tr('drafts.invalidState', 'This draft can no longer be changed.', {
+              status: tr(`drafts.status.${err.currentStatus}`, err.currentStatus),
+            })
+          : tr('drafts.invalidStateGeneric', 'This draft was already reviewed by someone else.'),
       );
       await refresh();
+      return;
+    }
+    if (err?.retryable) {
+      toast.error(tr('drafts.unavailable', 'The knowledge base is temporarily unavailable. Please try again.'));
+      return;
+    }
+    toast.error(errorText(e instanceof Error ? e.message : undefined, tr('drafts.actionFailed', 'Action failed')));
+  };
+
+  const onReject = async (id: string) => {
+    try {
+      await aiKbApi.reject(id);
+      toast.success(tr('drafts.rejected', 'Rejected'));
+      await refresh();
     } catch (e) {
-      const err = e instanceof AiKbApiError ? e : null;
-      // A refused transition means someone else already moved this draft —
-      // re-sync so the operator sees the real state instead of a stale row.
-      if (err?.code === 'invalid_state') {
-        toast.error(
-          err.currentStatus
-            ? tr('drafts.invalidState', 'This draft can no longer be changed.', {
-                status: tr(`drafts.status.${err.currentStatus}`, err.currentStatus),
-              })
-            : tr('drafts.invalidStateGeneric', 'This draft was already reviewed by someone else.'),
-        );
-        await refresh();
-        return;
+      await handleActionError(e);
+    }
+  };
+
+  /**
+   * "View and publish" replaces the old direct accept/publish buttons: it
+   * materializes the draft as an editable KB article (status `draft`, same
+   * `accept` RPC as before) if one doesn't exist yet, then hands off to the
+   * full article editor — where the operator can actually read/edit the
+   * AI-generated content before flipping it to published, instead of
+   * publishing sight-unseen.
+   */
+  const viewAndPublish = async (g: AiKbGeneratedDto) => {
+    if (g.kb_article_id) {
+      navigate(wsPath(`/knowledge-base/articles/${g.kb_article_id}`));
+      return;
+    }
+    setViewingId(g.id);
+    try {
+      const r = await aiKbApi.accept(g.id);
+      await refresh();
+      if (r.kb_article_id) {
+        navigate(wsPath(`/knowledge-base/articles/${r.kb_article_id}`));
       }
-      if (err?.retryable) {
-        toast.error(tr('drafts.unavailable', 'The knowledge base is temporarily unavailable. Please try again.'));
-        return;
-      }
-      toast.error(errorText(e instanceof Error ? e.message : undefined, tr('drafts.actionFailed', 'Action failed')));
+    } catch (e) {
+      await handleActionError(e);
+    } finally {
+      setViewingId(null);
     }
   };
 
@@ -484,8 +515,8 @@ export default function AiKbBuilderTab() {
             <Info className="w-4 h-4 text-primary mt-0.5 shrink-0" />
             <div className="text-xs text-foreground space-y-1">
               <div>{tr('drafts.note1', 'Generated drafts are not visible in the widget yet.')}</div>
-              <div>{tr('drafts.note2', '“Save as draft” creates a KB draft only — invisible to visitors.')}</div>
-              <div>{tr('drafts.note3', '“Publish to widget” makes the article visible in the widget Help Center.')}</div>
+              <div>{tr('drafts.note2', '“View and publish” opens the article so you can review and edit it before it goes live.')}</div>
+              <div>{tr('drafts.note3', 'Publishing from the editor makes the article visible in the widget Help Center.')}</div>
             </div>
           </div>
           <div className="space-y-2">
@@ -508,16 +539,15 @@ export default function AiKbBuilderTab() {
                   <div className="flex items-center gap-2 shrink-0">
                     {g.status === 'pending' && (
                       <>
-                        <Button size="sm" variant="outline" onClick={() => onAction(g.id, 'reject')}>{tr('drafts.reject', 'Reject')}</Button>
-                        <Button size="sm" variant="outline" onClick={() => onAction(g.id, 'accept')}>{tr('drafts.saveDraft', 'Save as draft')}</Button>
-                        <Button size="sm" onClick={() => onAction(g.id, 'publish')} className="gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> {tr('drafts.publish', 'Publish to widget')}
+                        <Button size="sm" variant="outline" onClick={() => onReject(g.id)}>{tr('drafts.reject', 'Reject')}</Button>
+                        <Button size="sm" onClick={() => viewAndPublish(g)} disabled={viewingId === g.id} className="gap-1">
+                          <Eye className="w-3.5 h-3.5" /> {viewingId === g.id ? tr('drafts.opening', 'Opening…') : tr('drafts.viewAndPublish', 'View and publish')}
                         </Button>
                       </>
                     )}
                     {g.status === 'accepted' && (
-                      <Button size="sm" onClick={() => onAction(g.id, 'publish')} className="gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> {tr('drafts.publish', 'Publish to widget')}
+                      <Button size="sm" onClick={() => viewAndPublish(g)} disabled={viewingId === g.id} className="gap-1">
+                        <Eye className="w-3.5 h-3.5" /> {viewingId === g.id ? tr('drafts.opening', 'Opening…') : tr('drafts.viewAndPublish', 'View and publish')}
                       </Button>
                     )}
                     {g.status === 'published' && publicHelpUrl(g) && (

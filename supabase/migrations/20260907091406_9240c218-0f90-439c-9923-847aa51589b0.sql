@@ -1,0 +1,1 @@
+DROP FUNCTION IF EXISTS public.billing_sync_applied_invoice_payment(uuid);

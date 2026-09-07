@@ -13,7 +13,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { SkeletonCard } from '@/components/common/Skeletons';
-import { ArrowRight, CheckCircle2, CreditCard, Loader2, Printer, Wallet, XCircle } from 'lucide-react';
+import { ArrowRight, CheckCircle2, CreditCard, Loader2, Printer, RefreshCw, Wallet, XCircle } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
@@ -80,7 +80,10 @@ export default function PaymentPage() {
     errorCode?: string;
   } | null>(null);
   const [redirectSeconds, setRedirectSeconds] = useState(15);
+  const [canRetryStatus, setCanRetryStatus] = useState(false);
   const callbackHandled = useRef(false);
+
+  const pendingStorageKey = id ? `billing:pending:${kind}:${id}` : null;
 
   const load = useCallback(() => {
     if (!workspaceId || !id) return;
@@ -112,8 +115,11 @@ export default function PaymentPage() {
   useEffect(() => {
     if (!workspaceId || callbackHandled.current) return;
     const url = new URL(window.location.href);
-    const intentId = url.searchParams.get('intent');
-    const provider = url.searchParams.get('provider');
+    const stored = pendingStorageKey ? window.sessionStorage.getItem(pendingStorageKey) : null;
+    let storedContext: { intentId?: string; provider?: string; params?: Record<string, string> } = {};
+    try { storedContext = stored ? JSON.parse(stored) : {}; } catch { storedContext = {}; }
+    const intentId = url.searchParams.get('intent') || storedContext.intentId;
+    const provider = url.searchParams.get('provider') || storedContext.provider;
     if (!intentId || !provider) return;
     callbackHandled.current = true;
     setPaymentResult({ state: 'processing' });
@@ -122,10 +128,16 @@ export default function PaymentPage() {
     url.searchParams.forEach((value, key) => {
       if (key !== 'intent' && key !== 'provider') params[key] = value;
     });
-    window.history.replaceState({}, '', url.pathname);
+    const callbackParams = Object.keys(params).length > 0 ? params : (storedContext.params || {});
+    if (pendingStorageKey) {
+      window.sessionStorage.setItem(pendingStorageKey, JSON.stringify({ intentId, provider, params: callbackParams }));
+    }
 
     const finish = (receipt?: BillingReceipt | null) => {
       setPaymentResult({ state: 'succeeded', receipt });
+      setCanRetryStatus(false);
+      if (pendingStorageKey) window.sessionStorage.removeItem(pendingStorageKey);
+      window.history.replaceState({}, '', url.pathname);
       load();
     };
     // A gateway that already verified the payment must never be reported to
@@ -136,15 +148,20 @@ export default function PaymentPage() {
       // eslint-disable-next-line no-console
       console.error('[billing] payment finalization pending', { intentId, provider, errorCode });
       setPaymentResult({ state: 'processing', errorCode });
+      setCanRetryStatus(true);
     };
     const markFailed = (errorCode: string) => {
       // eslint-disable-next-line no-console
       console.error('[billing] payment verification failed', { intentId, provider, errorCode });
       setPaymentResult({ state: 'failed', errorCode });
+      setCanRetryStatus(false);
+      if (pendingStorageKey) window.sessionStorage.removeItem(pendingStorageKey);
+      window.history.replaceState({}, '', url.pathname);
     };
-    const pollFinalState = async () => {
-      for (let attempt = 0; attempt < 10; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 1200));
+    const pollFinalState = async (attempts = 30) => {
+      setCanRetryStatus(false);
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, Math.min(1000 + attempt * 250, 4000)));
         // A transient network error while polling is not proof the payment
         // failed — keep polling rather than giving up on a verified payment.
         const current = await billingGetPaymentIntent(intentId).catch(() => null);
@@ -155,14 +172,49 @@ export default function PaymentPage() {
       return markPending('FINALIZATION_PENDING');
     };
 
-    billingVerifyCallback({ workspaceId, provider, params, intentId })
+    const verifyOrResume = Object.keys(callbackParams).length > 0
+      ? billingVerifyCallback({ workspaceId, provider, params: callbackParams, intentId })
+      : billingGetPaymentIntent(intentId).then((current) => ({
+          success: true,
+          verified: current.status === 'succeeded' || current.pending,
+          pending: current.pending,
+          receipt: current.receipt || undefined,
+          status: current.status,
+        }));
+
+    verifyOrResume
       .then(async (result) => {
         if (result.verified && !result.pending) return finish(result.receipt);
         if (result.verified && result.pending) return pollFinalState();
         return markFailed(result.status === 'canceled' ? 'GATEWAY_CANCELED' : 'GATEWAY_NOT_VERIFIED');
       })
       .catch((e) => markFailed(e instanceof Error && e.message ? e.message : 'VERIFY_NETWORK_ERROR'));
-  }, [load, workspaceId]);
+  }, [load, pendingStorageKey, workspaceId]);
+
+  const checkPaymentStatus = useCallback(async () => {
+    if (!pendingStorageKey) return;
+    const raw = window.sessionStorage.getItem(pendingStorageKey);
+    if (!raw) return;
+    try {
+      const { intentId } = JSON.parse(raw) as { intentId?: string };
+      if (!intentId) return;
+      setCanRetryStatus(false);
+      const current = await billingGetPaymentIntent(intentId);
+      if (current.status === 'succeeded') {
+        setPaymentResult({ state: 'succeeded', receipt: current.receipt });
+        window.sessionStorage.removeItem(pendingStorageKey);
+        load();
+      } else if (!current.pending) {
+        setPaymentResult({ state: 'failed', errorCode: current.failureReason || 'SETTLEMENT_FAILED' });
+        window.sessionStorage.removeItem(pendingStorageKey);
+      } else {
+        setPaymentResult({ state: 'processing', errorCode: 'FINALIZATION_PENDING' });
+        setCanRetryStatus(true);
+      }
+    } catch {
+      setCanRetryStatus(true);
+    }
+  }, [load, pendingStorageKey]);
 
   useEffect(() => {
     if (paymentResult?.state !== 'succeeded') return;
@@ -229,7 +281,7 @@ export default function PaymentPage() {
   const docNumber = isDeposit ? deposit?.documentNumber : invoice?.invoice.invoiceNumber;
   const amountDue = isDeposit ? deposit?.amountIrr ?? 0 : invoice?.totals.dueIrr ?? 0;
   const alreadyPaid = isDeposit
-    ? deposit?.status === 'succeeded'
+    ? deposit?.status === 'paid'
     : invoice
       ? !invoice.actions.payable && invoice.totals.dueIrr <= 0
       : false;
@@ -358,7 +410,11 @@ export default function PaymentPage() {
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
                 {paymentResult.state === 'succeeded'
-                  ? t('billing.paymentResult.successDescription', {
+                  ? t(paymentResult.receipt?.purchaseType === 'wallet_deposit'
+                      ? 'billing.paymentResult.walletSuccessDescription'
+                      : paymentResult.receipt?.purchaseType === 'ai_credit_topup'
+                        ? 'billing.paymentResult.aiSuccessDescription'
+                        : 'billing.paymentResult.successDescription', {
                       plan: paymentResult.receipt?.planName || t('billing.overview.currentPlan'),
                     })
                   : t(`billing.paymentResult.${paymentResult.state}Description` as any)}
@@ -384,6 +440,11 @@ export default function PaymentPage() {
             ) : paymentResult.state === 'failed' ? (
               <Button variant="outline" onClick={() => setPaymentResult(null)}>
                 {t('billing.common.retry')}
+              </Button>
+            ) : canRetryStatus ? (
+              <Button variant="outline" className="gap-2" onClick={checkPaymentStatus}>
+                <RefreshCw className="h-4 w-4" />
+                {t('billing.paymentResult.checkStatus')}
               </Button>
             ) : null}
           </CardContent>

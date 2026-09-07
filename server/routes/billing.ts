@@ -59,6 +59,7 @@ import {
 } from '../services/billing/rollout.js';
 import { releaseCollection, settleAndApply } from '../services/billing/invoice/settle.js';
 import { applyWalletDeposit } from '../services/billing/wallet/index.js';
+import { recoverUnappliedInvoices } from '../services/billing/worker/recovery.js';
 import { buildWorkspaceBillingReadModel } from '../services/billing/readModel.js';
 import { isAllowedBillingCallbackUrl } from '../services/billing/callbackUrl.js';
 
@@ -1172,9 +1173,16 @@ billingWebhookRouter.post('/:provider', raw({ type: '*/*', limit: '2mb' }), asyn
 // `processing` resolves to the real outcome a moment later.
 billingRouter.get('/payment-intent/:intentId', async (req, res) => {
   const cfg = serverConfigOf(req);
-  const intent = await getPaymentIntent(cfg, req.params.intentId);
+  let intent = await getPaymentIntent(cfg, req.params.intentId);
   if (!intent) return res.status(404).json({ error: 'Not found' });
   if (!(await authorizeWorkspace(req, res, intent.workspace_id, { manage: true }))) return;
+
+  // Polling is also an immediate recovery signal. A verified invoice payment
+  // should not wait for the periodic scheduler before its effect is applied.
+  if (intent.status === 'processing' && (intent as PaymentIntentRow & { invoice_id?: string | null }).invoice_id) {
+    await recoverUnappliedInvoices(cfg, 25).catch(() => {});
+    intent = (await getPaymentIntent(cfg, req.params.intentId)) ?? intent;
+  }
 
   return res.json({
     status: intent.status,

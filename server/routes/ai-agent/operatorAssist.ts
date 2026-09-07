@@ -294,6 +294,7 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
   // provider/model — beginAiRunGuarded refuses to open an ENFORCED
   // reservation without one.
   let assistRunCtx: E7RunContext | null = null;
+  const assistRequestNonce = randomUUID();
   try {
     const assistAiCfg = await e7_resolveAIConfig(config, workspaceId).catch(() => null);
     assistRunCtx = await e7_beginAiRunGuarded(config, {

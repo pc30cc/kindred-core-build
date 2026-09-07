@@ -226,12 +226,12 @@ export default function CallCenterSettingsPage() {
           </Row>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {[
-              ['primary', t('callCenter.settingsPage.primaryColor'), '#3b82f6'],
-              ['accent', t('callCenter.settingsPage.accentColor'), '#10b981'],
-              ['surface', t('callCenter.settingsPage.surfaceColor'), '#ffffff'],
-              ['text', t('callCenter.settingsPage.textColor'), '#111827'],
-              ['muted', t('callCenter.settingsPage.mutedColor'), '#64748b'],
-              ['danger', t('callCenter.settingsPage.dangerColor'), '#dc2626'],
+              ['primary', t('callCenter.settingsPage.primaryColor'), '#1f93ff'],
+              ['accent', t('callCenter.settingsPage.accentColor'), '#1a7f4b'],
+              ['surface', t('callCenter.settingsPage.surfaceColor'), '#fcfcfd'],
+              ['text', t('callCenter.settingsPage.textColor'), '#1c2024'],
+              ['muted', t('callCenter.settingsPage.mutedColor'), '#60646c'],
+              ['danger', t('callCenter.settingsPage.dangerColor'), '#e5484d'],
             ].map(([key, label, fallback]) => (
               <div key={key} className="space-y-1.5">
                 <Label>{label}</Label>

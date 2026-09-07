@@ -1,5 +1,15 @@
 /* Default Call Widget presentation tokens. The structural CSS remains in
  * runtime.css for backwards compatibility during the v1 contract rollout. */
+
+/* Self-hosted IRANSans, reusing the same woff2 files already shipped for
+ * the chat widget (public/widget/fonts) — no new font assets, no
+ * third-party CDN. */
+@font-face { font-family: 'IRANSans'; src: url('../widget/fonts/iransans-400.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'IRANSans'; src: url('../widget/fonts/iransans-500.woff2') format('woff2'); font-weight: 500; font-display: swap; }
+@font-face { font-family: 'IRANSans'; src: url('../widget/fonts/iransans-700.woff2') format('woff2'); font-weight: 600; font-display: swap; }
+@font-face { font-family: 'IRANSans'; src: url('../widget/fonts/iransans-700.woff2') format('woff2'); font-weight: 700; font-display: swap; }
+@font-face { font-family: 'InterWY'; src: url('../widget/fonts/inter-500.woff2') format('woff2'); font-weight: 500; font-display: swap; }
+
 .ccw-presentation-default[data-radius="sm"] { --ccw-radius-panel: 12px; --ccw-radius-control: 8px; }
 .ccw-presentation-default[data-radius="md"] { --ccw-radius-panel: 18px; --ccw-radius-control: 10px; }
 .ccw-presentation-default[data-radius="lg"] { --ccw-radius-panel: 24px; --ccw-radius-control: 14px; }

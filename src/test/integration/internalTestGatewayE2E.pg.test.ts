@@ -64,6 +64,8 @@ const CHAIN = [
   'database/migrations/115_billing_v2_rpcs.sql',
   'database/migrations/116_billing_v2_backfill.sql',
   'database/migrations/117_billing_v2_rollout.sql',
+  'supabase/migrations/20260907084017_0f550cf9-3bfc-4bc0-827e-6f733f470cc9.sql',
+  'supabase/migrations/20260907091741_6f375f35-3e71-48e8-a180-a09dafc6785d.sql',
 ];
 
 let client: any;

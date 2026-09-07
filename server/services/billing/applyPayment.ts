@@ -50,8 +50,9 @@ function isUniqueViolation(error: { code?: string | null; message?: string } | n
 }
 
 /**
- * Writes the customer-facing transaction row. Returns the row id, or `null`
- * when an equivalent row already exists (replay).
+ * Writes the customer-facing transaction row. On replay it resolves and
+ * returns the existing row id, because invoice settlement still needs that
+ * durable payment id to complete safely.
  */
 export async function recordCustomerPayment(
   config: ServerConfig,
@@ -82,7 +83,23 @@ export async function recordCustomerPayment(
     .maybeSingle();
 
   if (error) {
-    if (isUniqueViolation(error as any)) return { id: null, duplicate: true };
+    if (isUniqueViolation(error as any)) {
+      let query = supabase.from('billing_payments').select('id');
+      if (input.paymentIntentId) {
+        query = query.eq('payment_intent_id', input.paymentIntentId);
+      } else if (input.providerPaymentId) {
+        query = query
+          .eq('provider_name', input.providerName)
+          .eq('provider_payment_id', input.providerPaymentId);
+      } else {
+        throw new Error('payment_replay_lookup_failed:missing_idempotency_key');
+      }
+      const { data: existing, error: lookupError } = await query.maybeSingle();
+      if (lookupError || !(existing as { id?: string } | null)?.id) {
+        throw new Error(`payment_replay_lookup_failed:${lookupError?.message || 'not_found'}`);
+      }
+      return { id: (existing as { id: string }).id, duplicate: true };
+    }
     throw new Error(`payment_record_failed:${error.message}`);
   }
   return { id: (data as { id?: string } | null)?.id ?? null, duplicate: false };

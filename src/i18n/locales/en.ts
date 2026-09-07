@@ -5078,6 +5078,7 @@ const en = {
       generated: 'Generated',
       generatedOffline: 'Generated (offline stub)',
       generationFailed: 'Generation failed',
+      creditsExhausted: 'AI credit is exhausted. Top up your AI credit and try again.',
     },
     test: {
       title: 'Test the AI Agent',

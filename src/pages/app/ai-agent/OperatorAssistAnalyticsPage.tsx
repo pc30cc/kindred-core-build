@@ -84,8 +84,9 @@ export default function OperatorAssistAnalyticsPage() {
 
       {a && (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
             <SummaryCard label="Total suggestions" value={a.summary.total_suggestions} />
+            <SummaryCard label="Feedback received" value={a.summary.total_feedback} />
             <SummaryCard label="Acceptance rate" value={pct(a.summary.acceptance_rate)} />
             <SummaryCard
               label="Negative rate"
@@ -94,7 +95,47 @@ export default function OperatorAssistAnalyticsPage() {
             />
             <SummaryCard label="No-source count" value={a.summary.no_source_count} />
             <SummaryCard label="Avg confidence" value={a.summary.avg_confidence.toFixed(2)} />
+            <SummaryCard
+              label="AI credits used"
+              value={a.summary.total_suggestions}
+            />
           </div>
+
+          <div className="grid md:grid-cols-3 gap-3">
+            <SummaryCard label="Positive" value={a.summary.positive} />
+            <SummaryCard label="Neutral" value={a.summary.neutral} />
+            <SummaryCard label="Negative" value={a.summary.negative} tone={a.summary.negative > 0 ? 'warn' : 'default'} />
+          </div>
+
+          {a.summary.usage_increment_failed_count > 0 && (
+            <div className="text-xs text-warning">
+              {a.summary.usage_increment_failed_count} suggestion(s) could not be recorded in the usage counter.
+            </div>
+          )}
+
+          <Card>
+            <CardHeader><CardTitle className="text-sm">Daily trend</CardTitle></CardHeader>
+            <CardContent className="h-[260px]">
+              {a.by_day.length === 0 ? (
+                <div className="text-xs text-muted-foreground">No activity in this range.</div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={a.by_day}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Line type="monotone" dataKey="suggestions" name="Suggestions" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="positive" name="Positive" stroke="hsl(var(--success, 142 71% 45%))" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="negative" name="Negative" stroke="hsl(var(--destructive))" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+
+
 
           <div className="grid md:grid-cols-3 gap-4">
             <Card>

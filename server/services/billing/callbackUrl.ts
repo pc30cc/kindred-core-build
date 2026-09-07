@@ -1,3 +1,4 @@
+import { createClient } from '@supabase/supabase-js';
 import type { ServerConfig } from '../../config.js';
 import { allowedOrigins } from '../platformOrigins.js';
 
@@ -59,4 +60,46 @@ export function isAllowedBillingCallbackUrl(
 /** A signed simulator URL may redirect only to an ordinary HTTPS/local URL. */
 export function isSafeSignedBillingCallback(raw: string): boolean {
   return parseHttpOrigin(raw) !== null;
+}
+
+/**
+ * Canonical PUBLIC API origin — the address of THIS Express deployment, which
+ * a split app/API topology serves from a different host than the browser
+ * app. The bank/gateway callback (`/api/billing/return`,
+ * `/api/billing/test-gateway`) MUST be built from this origin, never from a
+ * browser-supplied return URL: deriving it from `browserReturnUrl.origin`
+ * silently pointed the bank at the app host, which 404s whenever the app
+ * host does not reverse-proxy `/api/*`.
+ *
+ * Resolution order (never the client-supplied callback URL):
+ *   1. `platform_domains.api_base_url` — operator-managed, canonical
+ *   2. `API_BASE_URL` / `PUBLIC_API_URL` env — safe, server-controlled fallback
+ *   3. `platform_domains.app_base_url` / `PUBLIC_APP_URL` / `APP_URL` — only
+ *      when no API-specific origin was ever configured, i.e. a genuine
+ *      single-origin deployment where app and API are the same host
+ */
+export async function resolvePublicApiOrigin(
+  supabaseUrl: string,
+  supabaseServiceRoleKey: string,
+): Promise<string> {
+  const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
+  const { data } = await supabase
+    .from('platform_domains')
+    .select('app_base_url, api_base_url')
+    .limit(1)
+    .maybeSingle();
+
+  const candidates: unknown[] = [
+    (data as { api_base_url?: unknown } | null)?.api_base_url,
+    process.env.API_BASE_URL,
+    process.env.PUBLIC_API_URL,
+    (data as { app_base_url?: unknown } | null)?.app_base_url,
+    process.env.PUBLIC_APP_URL,
+    process.env.APP_URL,
+  ];
+  for (const candidate of candidates) {
+    const origin = parseHttpOrigin(candidate);
+    if (origin) return origin;
+  }
+  throw new Error('BILLING_API_ORIGIN_NOT_CONFIGURED');
 }

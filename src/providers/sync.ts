@@ -120,24 +120,29 @@ export async function setGlobalDefaultProvider(
     return { error: new Error('The auth provider cannot be changed at runtime.') };
   }
   const key = `default_${type}_provider`;
-  const value = { provider_name: providerName, config: config || {} };
 
   try {
-    // Billing has two separate concerns: this value selects the platform
-    // default, while billing_gateways controls which choices are enabled. Keep
-    // the selected gateway's credential/config copy in the canonical gateway
-    // row so an explicitly selected checkout reads the same settings shown in
-    // the Providers screen. This deliberately does not enable the gateway.
+    // Billing credentials have exactly ONE canonical home:
+    // billing_provider_credentials, keyed by provider_name (see
+    // database/migrations/137_billing_provider_credentials.sql). This value
+    // only SELECTS the platform default — it must identify the provider by
+    // name and never carry its own copy of the credentials, so a stale
+    // pointer can never silently override what the Providers screen shows.
     if (type === 'billing') {
-      await apiFetch('/api/admin/billing/gateways', {
+      await apiFetch(`/api/admin/billing/providers/${encodeURIComponent(providerName)}`, {
         method: 'PUT',
-        body: JSON.stringify({ provider_name: providerName, config: config || {} }),
+        body: JSON.stringify({ config: config || {} }),
+      });
+      await apiFetch(`/api/admin/management/runtime-config/${key}`, {
+        method: 'PUT',
+        body: JSON.stringify({ value: { provider_name: providerName } }),
+      });
+    } else {
+      await apiFetch(`/api/admin/management/runtime-config/${key}`, {
+        method: 'PUT',
+        body: JSON.stringify({ value: { provider_name: providerName, config: config || {} } }),
       });
     }
-    await apiFetch(`/api/admin/management/runtime-config/${key}`, {
-      method: 'PUT',
-      body: JSON.stringify({ value }),
-    });
   } catch (err) {
     return { error: err instanceof Error ? err : new Error('Failed to save provider default') };
   }
@@ -175,7 +180,22 @@ export async function getGlobalDefaultProvider(
     const { value } = await apiFetch<{ value: unknown }>(
       `/api/admin/management/runtime-config/${key}`,
     );
-    return (value as { provider_name: string; config: Record<string, unknown> } | null) ?? null;
+    const pointer = value as { provider_name: string; config?: Record<string, unknown> } | null;
+    if (!pointer?.provider_name) return null;
+
+    // Billing's runtime-config value is name-only (see setGlobalDefaultProvider);
+    // its credentials live in the canonical billing_provider_credentials store.
+    if (type === 'billing') {
+      try {
+        const credentials = await apiFetch<{ config: Record<string, unknown> }>(
+          `/api/admin/billing/providers/${encodeURIComponent(pointer.provider_name)}`,
+        );
+        return { provider_name: pointer.provider_name, config: credentials.config ?? {} };
+      } catch {
+        return { provider_name: pointer.provider_name, config: {} };
+      }
+    }
+    return { provider_name: pointer.provider_name, config: pointer.config ?? {} };
   } catch {
     return null;
   }

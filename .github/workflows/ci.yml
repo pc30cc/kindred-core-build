@@ -135,11 +135,17 @@ jobs:
       #
       # --no-file-parallelism: these suites install schema into ONE shared
       # database, so they must not run concurrently.
+      # internalTestGatewayE2E.pg.test.ts replays the FULL Billing Engine V2
+      # migration chain in its own beforeAll (same as billingEngineV2.pg.test.ts
+      # itself) — sharing this database with it would re-run migration 116's
+      # backfill on top of billingEngineV2's own test mutations and trip its
+      # data-integrity check. Both get a dedicated fresh database in the
+      # ai-billing-db job below instead.
       - name: Integration tests
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/app
-        run: bunx vitest run src/test/integration --exclude '**/aiKbTailMigrationCompatibility.pg.test.ts' --no-file-parallelism
+        run: bunx vitest run src/test/integration --exclude '**/aiKbTailMigrationCompatibility.pg.test.ts' --exclude '**/internalTestGatewayE2E.pg.test.ts' --exclude '**/billingProviderCredentialsMigration.pg.test.ts' --no-file-parallelism
 
   # MANDATORY financial gate. AI money invariants (advisory locks, immutable
   # usage ingestion, lot allocation, refunds, recovery lease, ACL) are proven
@@ -231,6 +237,32 @@ jobs:
           REQUIRE_BILLING_DB: '1'
         run: bunx vitest run src/test/integration/billingV2PhaseD0.pg.test.ts --no-file-parallelism
 
+      # Internal Test Gateway E2E replays the SAME migration chain as Billing
+      # Engine V2 (above) — it needs its own fresh database, never a shared one.
+      - name: Create Internal Test Gateway E2E database
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d billing -v ON_ERROR_STOP=1 -c 'CREATE DATABASE billing_internal_test_gateway'
+
+      - name: Internal Test Gateway E2E (checkout -> verify -> settlement -> AI credit) + ZarinPal sandbox contract
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/billing_internal_test_gateway
+          REQUIRE_BILLING_DB: '1'
+        run: bunx vitest run src/test/integration/internalTestGatewayE2E.pg.test.ts --no-file-parallelism
+
+      # The provider-credentials migration test seeds its OWN minimal
+      # pre-migration schema (it does not depend on the Billing Engine V2
+      # chain), but still gets a fresh database for isolation.
+      - name: Create billing provider credentials migration database
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d billing -v ON_ERROR_STOP=1 -c 'CREATE DATABASE billing_provider_credentials'
+
+      - name: billing_provider_credentials migration (137) — one canonical provider-settings source
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/billing_provider_credentials
+          REQUIRE_BILLING_DB: '1'
+        run: bunx vitest run src/test/integration/billingProviderCredentialsMigration.pg.test.ts --no-file-parallelism
 
       - name: AI Billing in-process suites (context propagation, scheduler, failure semantics)
         run: bunx vitest run src/test/aiBilling

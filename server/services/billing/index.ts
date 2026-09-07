@@ -13,7 +13,8 @@ import { zarinpalTestProvider } from './providers/zarinpal-test.js';
 import { idpayProvider } from './providers/idpay.js';
 import { idpayTestProvider } from './providers/idpay-test.js';
 import { iranPardakhtSandboxProvider } from './providers/iranpardakht-sandbox.js';
-import { internalTestProvider } from './providers/internal-test.js';
+import { internalTestProvider, INTERNAL_TEST_PROVIDER } from './providers/internal-test.js';
+import { resolvePublicApiOrigin } from './callbackUrl.js';
 import { nextpayProvider } from './providers/nextpay.js';
 import { paypingProvider } from './providers/payping.js';
 import { zibalProvider } from './providers/zibal.js';
@@ -57,6 +58,54 @@ const providers: Record<string, BillingProviderHandler> = {
 
 export function getProvider(name: string): BillingProviderHandler | null {
   return providers[name] || null;
+}
+
+/**
+ * The internal test gateway serves its own "bank page" from THIS deployment
+ * (`/api/billing/test-gateway`) and must never derive that host from a
+ * client-supplied callback URL (see providers/internal-test.ts). Every
+ * resolution path funnels through here so the canonical PUBLIC API origin is
+ * populated exactly once, from the platform's own domain configuration — an
+ * explicit `gateway_base_url` already set (e.g. by an operator override)
+ * always wins.
+ */
+async function withGatewayBaseUrl(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  providerName: string,
+  config: BillingProviderConfig,
+): Promise<BillingProviderConfig> {
+  if (providerName !== INTERNAL_TEST_PROVIDER) return config;
+  if (typeof config.gateway_base_url === 'string' && config.gateway_base_url.trim()) return config;
+  const apiOrigin = await resolvePublicApiOrigin(supabaseUrl, serviceRoleKey);
+  return { ...config, gateway_base_url: apiOrigin };
+}
+
+/**
+ * The ONE canonical, platform-wide credential source for a billing provider
+ * (`billing_provider_credentials`, keyed only by provider_name — see
+ * database/migrations/137_billing_provider_credentials.sql). It always wins
+ * over any legacy value still carried on `config` (a pre-migration
+ * `billing_gateways.config` / `app_runtime_config.default_billing_provider`
+ * copy) — a workspace-specific override applied by the caller AFTER this
+ * still wins over the platform-wide canonical value, as intended.
+ */
+async function withCanonicalCredentials(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  providerName: string,
+  config: BillingProviderConfig,
+): Promise<BillingProviderConfig> {
+  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const { data, error } = await supabase
+    .from('billing_provider_credentials')
+    .select('config')
+    .eq('provider_name', providerName)
+    .maybeSingle();
+  if (error) throw new Error(`billing provider credentials read failed: ${error.message}`);
+  const canonical = data?.config as Record<string, unknown> | null | undefined;
+  if (!canonical || Object.keys(canonical).length === 0) return config;
+  return { ...config, ...canonical, provider: providerName };
 }
 
 export function getAllProviders(): Record<string, { name: string; capabilities: BillingProviderHandler['capabilities'] }> {
@@ -105,14 +154,25 @@ export async function resolveNamedBillingConfig(
     ? ((globalValue.config && typeof globalValue.config === 'object' ? globalValue.config : {}) as Record<string, unknown>)
     : {};
 
+  // Precedence (lowest -> highest):
+  //   1. billing_gateways.config          — legacy, pre-migration fallback only
+  //   2. app_runtime_config .config       — legacy, pre-migration fallback only
+  //   3. billing_provider_credentials     — the ONE canonical Providers source
+  //   4. provider_configs (this workspace) — workspace-specific override, always wins
+  // `billing_gateways` is operational state (enabled/disabled, test marker,
+  // currencies, display) — it must never silently override a credential
+  // entered in Providers.
+  let config: BillingProviderConfig = {
+    provider: providerName,
+    ...((gatewayResult.data?.config as Record<string, unknown> | null) || {}),
+    ...globalConfig,
+  };
+  config = await withCanonicalCredentials(supabaseUrl, serviceRoleKey, providerName, config);
+  config = { ...config, ...((workspaceResult.data?.config as Record<string, unknown> | null) || {}) };
+
   return {
     provider,
-    config: {
-      provider: providerName,
-      ...globalConfig,
-      ...((workspaceResult.data?.config as Record<string, unknown> | null) || {}),
-      ...((gatewayResult.data?.config as Record<string, unknown> | null) || {}),
-    },
+    config: await withGatewayBaseUrl(supabaseUrl, serviceRoleKey, providerName, config),
   };
 }
 
@@ -180,7 +240,16 @@ export async function resolveBillingConfig(
         configId: wsConfig.id,
         updatedAt: wsConfig.updated_at,
       });
-      return { provider: handler, config: { provider: wsConfig.provider_name, ...(wsConfig.config as Record<string, unknown>) } };
+      const withCanonical = await withCanonicalCredentials(
+        supabaseUrl, serviceRoleKey, wsConfig.provider_name, { provider: wsConfig.provider_name },
+      );
+      return {
+        provider: handler,
+        config: await withGatewayBaseUrl(supabaseUrl, serviceRoleKey, wsConfig.provider_name, {
+          ...withCanonical,
+          ...(wsConfig.config as Record<string, unknown>), // workspace override always wins
+        }),
+      };
     }
   }
 
@@ -198,13 +267,29 @@ export async function resolveBillingConfig(
       provider: name,
       configKey: key,
     });
-    return { provider: handler, config: { ...value, ...inner, provider: name } as BillingProviderConfig };
+    const legacyConfig = { ...value, ...inner, provider: name } as BillingProviderConfig;
+    const withCanonical = await withCanonicalCredentials(supabaseUrl, serviceRoleKey, name, legacyConfig);
+    return {
+      provider: handler,
+      config: await withGatewayBaseUrl(supabaseUrl, serviceRoleKey, name, withCanonical),
+    };
   }
 
   // Preserve an older workspace override when no usable global provider exists.
   if (wsConfig) {
     const handler = getProvider(wsConfig.provider_name);
-    if (handler) return { provider: handler, config: { provider: wsConfig.provider_name, ...(wsConfig.config as Record<string, unknown>) } };
+    if (handler) {
+      const withCanonical = await withCanonicalCredentials(
+        supabaseUrl, serviceRoleKey, wsConfig.provider_name, { provider: wsConfig.provider_name },
+      );
+      return {
+        provider: handler,
+        config: await withGatewayBaseUrl(supabaseUrl, serviceRoleKey, wsConfig.provider_name, {
+          ...withCanonical,
+          ...(wsConfig.config as Record<string, unknown>),
+        }),
+      };
+    }
   }
 
   return null;

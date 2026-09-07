@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
@@ -8,17 +9,25 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { EntitlementAccessGate } from '@/components/plan/EntitlementAccessGate';
+import KnowledgeQnaTab from '@/components/app/knowledge/KnowledgeQnaTab';
+import AiKbBuilderTab from '@/components/app/knowledge/AiKbBuilderTab';
 import {
   Plus, Trash2, BookOpen, Search, Eye, ThumbsUp, Globe,
   FileText, Edit, X, Bold, Italic, Heading2, List, Link2, Code2, Quote, BarChart3,
-  CheckCircle2, AlertCircle, MonitorSmartphone, BookMarked
+  CheckCircle2, AlertCircle, MonitorSmartphone, BookMarked, MessageCircleQuestion
 } from 'lucide-react';
 
 /**
- * Phase 6-S5 — Knowledge Base is an INDEPENDENT product.
- * This page must not import, query or depend on anything AI Agent related.
- * `used_by_ai` stays in the database but is owned by AI Agent → Knowledge
- * Sources; it is never displayed or written from here.
+ * Knowledge Base — the ONE place operators author content. Articles and Q&A
+ * live here as tabs; every consumer (AI retrieval, the chat widget, the
+ * Telegram plugin's FAQ/help-article menu) reads the SAME rows — there is no
+ * per-surface copy of this content anywhere else. The AI-powered "scan my
+ * website" builder is gated by its own plan entitlement (`ai_kb_builder`)
+ * and degrades to an upgrade card for workspaces without it; everything
+ * else on this page (articles, Q&A) has no AI dependency and stays fully
+ * usable on any plan.
  */
 export interface KnowledgeBaseArticleInput {
   title: string;
@@ -59,6 +68,13 @@ function calcSeoScore(form: FormData) {
 export default function KnowledgeBasePage() {
   const { t, dir } = useTranslation();
   const workspace = useCurrentWorkspace();
+  const [params, setParams] = useSearchParams();
+  const activeTab = params.get('tab') === 'qna' ? 'qna' : 'articles';
+  const setActiveTab = (value: string) => {
+    const next = new URLSearchParams(params);
+    if (value === 'qna') next.set('tab', 'qna'); else next.delete('tab');
+    setParams(next, { replace: true });
+  };
   // The platform's active region/language mode decides which article
   // languages exist here — a single-language platform must not offer a
   // language picker or let articles be authored in a language visitors on
@@ -179,38 +195,63 @@ export default function KnowledgeBasePage() {
               </p>
             </div>
           </div>
-          <Button onClick={() => { setShowEditor(true); setEditId(null); setForm({ ...emptyForm, locale }); setEditorTab('editor'); }} className="gap-2 shadow-md shadow-primary/20">
-              <Plus className="w-4 h-4" />
-            <span>{t('knowledgeBase.newArticle')}</span>
-          </Button>
+          {activeTab === 'articles' && (
+            <Button onClick={() => { setShowEditor(true); setEditId(null); setForm({ ...emptyForm, locale }); setEditorTab('editor'); }} className="gap-2 shadow-md shadow-primary/20">
+                <Plus className="w-4 h-4" />
+              <span>{t('knowledgeBase.newArticle')}</span>
+            </Button>
+          )}
         </div>
 
       </div>
 
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="articles" className="gap-2">
+            <BookOpen className="w-4 h-4" /> {t('knowledgeBase.tabs.articles')}
+          </TabsTrigger>
+          <TabsTrigger value="qna" className="gap-2">
+            <MessageCircleQuestion className="w-4 h-4" /> {t('knowledgeBase.tabs.qna')}
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Stats */}
-      <div className="grid grid-cols-4 gap-2.5">
-        <div className="stat-card flex flex-col items-center text-center px-2 py-3">
-          <BookOpen className="w-4 h-4 text-primary mb-1" />
-          <div className="text-lg font-bold text-foreground">{articles?.length ?? 0}</div>
-          <div className="text-[11px] text-muted-foreground">Articles</div>
-        </div>
-        <div className="stat-card flex flex-col items-center text-center px-2 py-3">
-          <Eye className="w-4 h-4 text-info mb-1" />
-          <div className="text-lg font-bold text-foreground">{totalViews}</div>
-          <div className="text-[11px] text-muted-foreground">Views</div>
-        </div>
-        <div className="stat-card flex flex-col items-center text-center px-2 py-3">
-          <ThumbsUp className="w-4 h-4 text-success mb-1" />
-          <div className="text-lg font-bold text-foreground">0</div>
-          <div className="text-[11px] text-muted-foreground">Helpful</div>
-        </div>
-        <div className="stat-card flex flex-col items-center text-center px-2 py-3">
-          <Globe className="w-4 h-4 text-warning mb-1" />
-          <div className="text-lg font-bold text-foreground">{publishedCount}</div>
-          <div className="text-[11px] text-muted-foreground">{t('knowledgeBase.published')}</div>
-        </div>
-      </div>
+        <TabsContent value="articles" className="space-y-6 mt-0">
+          {/* AI-powered article generation — its own plan entitlement; degrades
+              to an upgrade card on plans without it, never blocks the rest of
+              this tab. */}
+          <EntitlementAccessGate
+            mode="inline"
+            requirements={[
+              { type: 'module', key: 'ai_assistant' },
+              { type: 'feature', key: 'ai_kb_builder' },
+            ]}
+          >
+            <AiKbBuilderTab />
+          </EntitlementAccessGate>
+
+          {/* Stats */}
+          <div className="grid grid-cols-4 gap-2.5">
+            <div className="stat-card flex flex-col items-center text-center px-2 py-3">
+              <BookOpen className="w-4 h-4 text-primary mb-1" />
+              <div className="text-lg font-bold text-foreground">{articles?.length ?? 0}</div>
+              <div className="text-[11px] text-muted-foreground">Articles</div>
+            </div>
+            <div className="stat-card flex flex-col items-center text-center px-2 py-3">
+              <Eye className="w-4 h-4 text-info mb-1" />
+              <div className="text-lg font-bold text-foreground">{totalViews}</div>
+              <div className="text-[11px] text-muted-foreground">Views</div>
+            </div>
+            <div className="stat-card flex flex-col items-center text-center px-2 py-3">
+              <ThumbsUp className="w-4 h-4 text-success mb-1" />
+              <div className="text-lg font-bold text-foreground">0</div>
+              <div className="text-[11px] text-muted-foreground">Helpful</div>
+            </div>
+            <div className="stat-card flex flex-col items-center text-center px-2 py-3">
+              <Globe className="w-4 h-4 text-warning mb-1" />
+              <div className="text-lg font-bold text-foreground">{publishedCount}</div>
+              <div className="text-[11px] text-muted-foreground">{t('knowledgeBase.published')}</div>
+            </div>
+          </div>
 
       {/* ═══════ Professional Editor ═══════ */}
       {showEditor && (
@@ -478,7 +519,13 @@ export default function KnowledgeBasePage() {
             ))}
           </div>
         )}
-      </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="qna" className="mt-0">
+          <KnowledgeQnaTab />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

@@ -68,9 +68,6 @@ export type TelegramLocaleMessages = {
 
 export type TelegramHandlingMode = 'human_only' | 'ai_first';
 
-/** A single operator-authored FAQ entry. */
-export type TelegramFaqItem = { question: string; answer: string };
-
 /** The AI capability used elsewhere to gate the assistant. */
 export const TELEGRAM_AI_MODULE_KEY = 'ai_assistant';
 
@@ -97,8 +94,8 @@ export type TelegramSettings = {
     /** Close writing while offline AND the AI is not answering. */
     lockWhenOffline: boolean;
   };
-  /** Operator-authored FAQ, per locale. */
-  faq: Record<TelegramLocale, TelegramFaqItem[]>;
+  /** FAQ answers come from Knowledge Base → Q&A (`ai_agent_qna`), not from
+   *  settings — this only toggles whether the menu entry appears (`menu.faqEnabled`). */
 
   handlingMode: TelegramHandlingMode;
 };
@@ -228,12 +225,6 @@ const DEFAULT_COMMANDS_BY_LOCALE: Record<TelegramLocale, Record<TelegramCommandK
 
 const DEFAULT_COMMANDS: Record<TelegramCommandKey, string> = { ...DEFAULT_COMMANDS_BY_LOCALE.en };
 
-const DEFAULT_FAQ: Record<TelegramLocale, TelegramFaqItem[]> = {
-  en: [],
-  fa: [],
-  tr: [],
-};
-
 export function defaultTelegramSettings(): TelegramSettings {
   return {
     profile: { name: '', shortDescription: '', description: '', photoUrl: '' },
@@ -249,7 +240,6 @@ export function defaultTelegramSettings(): TelegramSettings {
       tr: { ...DEFAULT_COMMANDS_BY_LOCALE.tr },
     },
     menu: { faqEnabled: true, guidesEnabled: true, offlineNoticeEnabled: true, lockWhenOffline: false },
-    faq: { en: [...DEFAULT_FAQ.en], fa: [...DEFAULT_FAQ.fa], tr: [...DEFAULT_FAQ.tr] },
     handlingMode: 'human_only',
   };
 }
@@ -334,21 +324,7 @@ export function parseTelegramSettings(raw: unknown): TelegramSettings {
     lockWhenOffline: menuInput.lockWhenOffline === true,
   };
 
-  // FAQ entries are authored copy: capped in count and length, never markup.
-  const faqInput = (input.faq ?? {}) as Record<string, unknown>;
-  const faq = {} as Record<TelegramLocale, TelegramFaqItem[]>;
-  for (const locale of TELEGRAM_LOCALES) {
-    const list = Array.isArray(faqInput[locale]) ? (faqInput[locale] as unknown[]) : [];
-    faq[locale] = list
-      .slice(0, 30)
-      .map((raw) => {
-        const item = (raw ?? {}) as Record<string, unknown>;
-        return { question: str(item.question, 200, ''), answer: str(item.answer, 3000, '') };
-      })
-      .filter((item) => item.question.trim() && item.answer.trim());
-  }
-
-  return { profile, locales, commands, commandLocales, menu, faq, handlingMode };
+  return { profile, locales, commands, commandLocales, menu, handlingMode };
 
 
 

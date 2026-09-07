@@ -103,7 +103,7 @@ export default function TrainPage() {
           <CardDescription>Common training tasks.</CardDescription>
         </CardHeader>
         <CardContent className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          <Action icon={MessageCircleQuestion} label="Add Q&A" onClick={() => navigate(wsPath('/ai-agent/qna'))} />
+          <Action icon={MessageCircleQuestion} label="Add Q&A" onClick={() => navigate(`${wsPath('/knowledge-base')}?tab=qna`)} />
           <Action icon={Globe} label="Add web page source" onClick={() => navigate(wsPath('/ai-agent/web-pages'))} />
           <Action icon={FileText} label="Upload file" onClick={() => navigate(wsPath('/ai-agent/files'))} />
           <Action icon={GraduationCap} label="Review learning candidates" onClick={() => navigate(wsPath('/ai-agent/learning-candidates'))} />

@@ -46,6 +46,7 @@ import ContactDetailPage from "@/pages/app/ContactDetailPage";
 import VisitorsPage from "@/pages/app/VisitorsPage";
 import KnowledgeBasePage from "@/pages/app/KnowledgeBasePage";
 import { WorkspaceKnowledgeBaseRedirect } from "@/features/workspace/WorkspaceKnowledgeBaseRedirect";
+import { WorkspaceQnaRedirect } from "@/features/workspace/WorkspaceQnaRedirect";
 import WidgetPage from "@/pages/app/WidgetPage";
 import PluginsPage from "@/pages/app/PluginsPage";
 import PluginDetailPage from "@/pages/app/PluginDetailPage";
@@ -59,7 +60,6 @@ import AiAgentAnalyticsPage from "@/pages/app/ai-agent/AnalyticsPage";
 import AiAgentBillingPage from "@/pages/app/ai-agent/BillingPage";
 import AiAgentRoutingPage from "@/pages/app/ai-agent/RoutingPage";
 import AiAgentInstructionsPage from "@/pages/app/ai-agent/InstructionsPage";
-import AiAgentQnaPage from "@/pages/app/ai-agent/QnaPage";
 import AiAgentLearningCandidatesPage from "@/pages/app/ai-agent/LearningCandidatesPage";
 import AiAgentWebPagesPage from "@/pages/app/ai-agent/WebPagesPage";
 import AiAgentFilesPage from "@/pages/app/ai-agent/FilesPage";
@@ -352,7 +352,9 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="billing" element={<AdvancedAiAgentGuard><AiAgentBillingPage /></AdvancedAiAgentGuard>} />
                   <Route path="routing" element={<AiAgentRoutingPage />} />
                   <Route path="instructions" element={<AiAgentInstructionsPage />} />
-                  <Route path="qna" element={<AiAgentQnaPage />} />
+                  {/* Q&A authoring moved to the unified Knowledge Base page
+                      (Articles / Q&A tabs) — this legacy URL redirects there. */}
+                  <Route path="qna" element={<WorkspaceQnaRedirect />} />
                   <Route path="learning-candidates" element={<AiAgentLearningCandidatesPage />} />
                   <Route path="train" element={<AiAgentTrainPage />} />
                   <Route path="web-pages" element={<AiAgentWebPagesPage />} />

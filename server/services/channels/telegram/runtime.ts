@@ -34,6 +34,7 @@ import {
   buildFaqList,
   buildMainMenu,
   escapeHtml,
+  listFaqItems,
   listHelpArticles,
   matchReplyKeyboardCommand,
 } from './menu.js';
@@ -238,7 +239,8 @@ export async function handleTelegramInboundFlow(
       // Retired or switched-off command — never a dead end, show the menu.
       screen = buildMainMenu(settings, locale, fallbackLocale);
     } else if (command === 'faq' && isTelegramMenuEntryEnabled(settings, 'faq')) {
-      screen = buildFaqList(settings, locale, fallbackLocale);
+      const faq = await listFaqItems(config, input.workspaceId, locale, fallbackLocale).catch(() => []);
+      screen = buildFaqList(settings, faq, locale, fallbackLocale);
     } else if (command === 'guides' && isTelegramMenuEntryEnabled(settings, 'guides')) {
       const articles = await listHelpArticles(config, input.workspaceId, locale, fallbackLocale).catch(() => []);
       screen = buildArticleList(settings, articles, 0, locale, fallbackLocale);
@@ -427,11 +429,12 @@ async function resolveCallbackScreen(
 
   if (payload === 'faq' || payload.startsWith('faq:')) {
     if (!isTelegramMenuEntryEnabled(settings, 'faq')) return buildMainMenu(settings, locale, fallbackLocale);
-    if (payload === 'faq') return buildFaqList(settings, locale, fallbackLocale);
+    const faq = await listFaqItems(config, workspaceId, locale, fallbackLocale).catch(() => []);
+    if (payload === 'faq') return buildFaqList(settings, faq, locale, fallbackLocale);
     const index = Number.parseInt(payload.slice(4), 10);
     return Number.isFinite(index)
-      ? buildFaqAnswer(settings, locale, index, fallbackLocale)
-      : buildFaqList(settings, locale, fallbackLocale);
+      ? buildFaqAnswer(settings, faq, locale, index, fallbackLocale)
+      : buildFaqList(settings, faq, locale, fallbackLocale);
   }
 
   if (payload === 'kb' || payload.startsWith('kb:')) {

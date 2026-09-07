@@ -224,7 +224,7 @@ export default function OverviewPage() {
         </CardHeader>
         <CardContent className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-5">
           <QuickAction tone="primary" icon={RefreshCw} label={tr('action.rebuild', 'Rebuild knowledge index')} onClick={() => rebuild.mutate()} loading={rebuild.isPending} isRtl={isRtl} />
-          <QuickAction tone="emerald" icon={Plus} label={tr('action.addQna', 'Add Q&A')} onClick={() => navigate(wsPath('/ai-agent/qna'))} isRtl={isRtl} />
+          <QuickAction tone="emerald" icon={Plus} label={tr('action.addQna', 'Add Q&A')} onClick={() => navigate(`${wsPath('/knowledge-base')}?tab=qna`)} isRtl={isRtl} />
           <QuickAction tone="sky" icon={Globe} label={tr('action.addWeb', 'Add web page source')} onClick={() => navigate(wsPath('/ai-agent/web-pages'))} isRtl={isRtl} />
           <QuickAction tone="violet" icon={Beaker} label={tr('action.test', 'Test AI Agent')} onClick={() => navigate(wsPath('/ai-agent/playground'))} isRtl={isRtl} />
           <QuickAction tone="amber" icon={GraduationCap} label={tr('action.review', 'Review learning candidates')} onClick={() => navigate(wsPath('/ai-agent/learning-candidates'))} isRtl={isRtl} />

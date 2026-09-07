@@ -18,7 +18,10 @@ import * as D from './decimal.js';
 import { billingCycleId } from './runContext.js';
 
 const BATCH = 50;
-const STALE_RUN_MINUTES = 30;
+// A run that recorded usage but did not settle inline is a *financial* hole
+// (service delivered, nothing charged, reservation still held). 30 minutes was
+// far too generous for that; one recovery tick is enough to close it.
+const STALE_RUN_MINUTES = 5;
 
 export interface RecoveryReport {
   releasedReservations: number;
@@ -128,17 +131,20 @@ export async function runAiBillingRecovery(config: ServerConfig): Promise<Recove
       irr = D.add(irr, D.fromString(String((e as any).internal_cost_irr)));
     }
     const charge = D.mul(irr, D.fromString(String((run as any).sell_multiplier ?? '1')));
-    await ledger
-      .settleRun(config, {
+    try {
+      await ledger.settleRun(config, {
         runId: (run as any).id,
         commandKey: `settle:${(run as any).id}`,
         providerCostUsd: D.toString(usd),
         internalCostIrr: D.toStoredIrr(irr),
         customerChargeIrr: D.toStoredIrr(charge),
         billingCycleId: billingCycleId(),
-      })
-      .catch(() => undefined);
-    report.settledRuns += 1;
+      });
+      report.settledRuns += 1;
+    } catch (err: any) {
+      // Leaving this silent hid unbilled runs indefinitely.
+      console.error('[ai-billing] recovery settle failed:', (run as any).id, err?.message || err);
+    }
   }
 
   // 3. Orphaned RUNNING runs with no usage at all

@@ -1179,7 +1179,7 @@ billingRouter.get('/payment-intent/:intentId', async (req, res) => {
 
   // Polling is also an immediate recovery signal. A verified invoice payment
   // should not wait for the periodic scheduler before its effect is applied.
-  if (intent.status === 'processing' && intent.invoice_id) {
+  if (intent.status === 'processing' && (intent as PaymentIntentRow & { invoice_id?: string | null }).invoice_id) {
     await recoverUnappliedInvoices(cfg, 25).catch(() => {});
     intent = (await getPaymentIntent(cfg, req.params.intentId)) ?? intent;
   }

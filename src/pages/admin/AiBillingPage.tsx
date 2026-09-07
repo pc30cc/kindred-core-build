@@ -821,7 +821,9 @@ export default function AiBillingPage() {
               <div>
                 <div className="text-xs text-muted-foreground">{t('aiBilling.schedulerLastError')}</div>
                 <div className={`font-medium ${health?.recoveryScheduler?.lastError ? 'text-destructive' : ''}`}>
-                  {health?.recoveryScheduler?.lastError || t('aiBilling.allClear')}
+                  {health?.recoveryScheduler?.lastError
+                    ? txt(health.recoveryScheduler.lastError)
+                    : t('aiBilling.allClear')}
                 </div>
               </div>
             </CardContent>

@@ -5066,6 +5066,7 @@ const tr: TranslationKeys = {
       generated: 'Oluşturuldu',
       generatedOffline: 'Oluşturuldu (çevrimdışı)',
       generationFailed: 'Oluşturma başarısız',
+      creditsExhausted: 'Yapay zeka kredisi tükendi. Kredi yükleyip tekrar deneyin.',
     },
     test: {
       title: 'AI Asistanı test edin',

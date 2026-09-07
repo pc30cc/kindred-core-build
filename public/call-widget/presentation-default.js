@@ -174,7 +174,7 @@
 
     var launcherFace = el('span', { class: 'ccw-launcher-face' });
     if (cfg.avatar_url) {
-      launcherFace.appendChild(el('img', { class: 'ccw-launcher-logo', src: cfg.avatar_url, alt: '' }));
+      launcherFace.appendChild(el('span', { class: 'ccw-launcher-logo' }, [el('img', { src: cfg.avatar_url, alt: '' })]));
     } else {
       launcherFace.appendChild(el('span', { class: 'ccw-launcher-logo ccw-launcher-logo-fallback' }, [svgIcon(PHONE_PATH, 20)]));
     }

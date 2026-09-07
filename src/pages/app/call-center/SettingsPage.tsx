@@ -156,7 +156,7 @@ export default function CallCenterSettingsPage() {
   }
 
   return (
-    <div className={cn('space-y-6 pb-24', tab === 'presentation' ? 'max-w-6xl' : 'max-w-3xl')} dir={dir}>
+    <div className={cn('space-y-6 pb-24', (tab === 'presentation' || tab === 'general') ? 'max-w-6xl' : 'max-w-3xl')} dir={dir}>
       {platformOff && (
         <Card className="p-4 border-destructive/40 bg-destructive/5 flex gap-2 items-start">
           <AlertCircle className="h-4 w-4 text-destructive mt-0.5" />
@@ -177,8 +177,9 @@ export default function CallCenterSettingsPage() {
         )}
       </TabsList>
 
-      <TabsContent value="general" className="space-y-6 mt-0">
-      <Section title={t('callCenter.settingsPage.identityBranding')} description={t('callCenter.settingsPage.identityBrandingHint')}>
+      <TabsContent value="general" className="mt-0">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px] items-start">
+        <Section title={t('callCenter.settingsPage.identityBranding')} description={t('callCenter.settingsPage.identityBrandingHint')}>
         <Row label={t('callCenter.settingsPage.displayName')}>
           <Input value={s.display_name || ''} onChange={(e) => setS({ ...s, display_name: e.target.value })} placeholder="Support" className="w-60" />
         </Row>
@@ -204,7 +205,11 @@ export default function CallCenterSettingsPage() {
           platform={platform}
           onChange={(next) => setS({ ...s, widget_custom_texts: next })}
         />
-      </Section>
+        </Section>
+        <div className="lg:sticky lg:top-4">
+          <LivePreviewSection t={t} settings={s} previewOnline={previewOnline} setPreviewOnline={setPreviewOnline} />
+        </div>
+        </div>
       </TabsContent>
 
       <TabsContent value="presentation" className="mt-0">
@@ -286,19 +291,7 @@ export default function CallCenterSettingsPage() {
           </div>
         </Section>
         <div className="lg:sticky lg:top-4">
-          <Section
-            title={t('callCenter.settingsPage.livePreview')}
-            description={t('callCenter.settingsPage.livePreviewHint')}
-          >
-            <Select value={previewOnline ? 'online' : 'offline'} onValueChange={(v) => setPreviewOnline(v === 'online')}>
-              <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="online">{t('callCenter.settingsPage.previewOnline')}</SelectItem>
-                <SelectItem value="offline">{t('callCenter.settingsPage.previewOffline')}</SelectItem>
-              </SelectContent>
-            </Select>
-            <CallWidgetPreview settings={s} online={previewOnline} />
-          </Section>
+          <LivePreviewSection t={t} settings={s} previewOnline={previewOnline} setPreviewOnline={setPreviewOnline} />
         </div>
         </div>
       </TabsContent>
@@ -737,9 +730,36 @@ function CallWidgetPreview({ settings, online }: { settings: any; online: boolea
       key={data}
       title="Call Widget live preview"
       sandbox="allow-scripts allow-same-origin"
+      // Sized to the widget's own footprint (368x508 panel + its 20px
+      // anchor offset, plus a little breathing room), not an arbitrary
+      // large box — the widget positions itself with `position: fixed`
+      // inside this iframe exactly as it does on the real site.
       srcDoc={srcDoc}
-      className="w-full h-[700px] rounded-lg border bg-muted/20"
+      className="w-full h-[560px] rounded-lg border bg-muted/20"
     />
+  );
+}
+
+function LivePreviewSection({ t, settings, previewOnline, setPreviewOnline }: {
+  t: (key: string) => string;
+  settings: any;
+  previewOnline: boolean;
+  setPreviewOnline: (v: boolean) => void;
+}) {
+  return (
+    <Section
+      title={t('callCenter.settingsPage.livePreview')}
+      description={t('callCenter.settingsPage.livePreviewHint')}
+    >
+      <Select value={previewOnline ? 'online' : 'offline'} onValueChange={(v) => setPreviewOnline(v === 'online')}>
+        <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="online">{t('callCenter.settingsPage.previewOnline')}</SelectItem>
+          <SelectItem value="offline">{t('callCenter.settingsPage.previewOffline')}</SelectItem>
+        </SelectContent>
+      </Select>
+      <CallWidgetPreview settings={settings} online={previewOnline} />
+    </Section>
   );
 }
 

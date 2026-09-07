@@ -635,7 +635,6 @@
       // still allow visit but warn — will block at request time
     }
     this.state = (this.isOnline() ? STATES.ONLINE : STATES.OFFLINE);
-    if (this.preview) this.open = true;
     this.render();
     // Resume any in-flight call across refresh / navigation.
     try { this.resumeActiveCall(); } catch (_) {}

@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
-import { useKBArticles, useKBCategories, useCreateKBArticle, useUpdateKBArticle } from '@/hooks/useKnowledgeBase';
+import { useKBArticles, useCreateKBArticle, useUpdateKBArticle } from '@/hooks/useKnowledgeBase';
 import { KnowledgeBaseApiError } from '@/lib/knowledge-base-api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,24 +28,25 @@ export interface KnowledgeBaseArticleInput {
   excerpt: string;
   locale: string;
   status: 'draft' | 'published' | 'archived';
-  category_id: string | null;
   visible_in_widget: boolean;
 }
 
 type FormData = {
   title: string; slug: string; content: string; excerpt: string;
-  locale: string; status: string; category_id: string;
+  locale: string; status: string;
 };
 
+type SeoTipId = 'titleLength' | 'excerptLength' | 'cleanSlug' | 'wordCount' | 'headings';
+
 function calcSeoScore(form: FormData) {
-  const tips: { key: string; passed: boolean }[] = [];
+  const tips: { id: SeoTipId; passed: boolean }[] = [];
   const seoTitle = form.title;
-  tips.push({ key: 'Title length (30–70 chars)', passed: seoTitle.length >= 30 && seoTitle.length <= 70 });
-  tips.push({ key: 'Excerpt length (100–170 chars)', passed: (form.excerpt || '').length >= 100 && (form.excerpt || '').length <= 170 });
-  tips.push({ key: 'Clean URL slug', passed: form.slug.length > 0 && /^[a-z0-9-]+$/.test(form.slug) });
+  tips.push({ id: 'titleLength', passed: seoTitle.length >= 30 && seoTitle.length <= 70 });
+  tips.push({ id: 'excerptLength', passed: (form.excerpt || '').length >= 100 && (form.excerpt || '').length <= 170 });
+  tips.push({ id: 'cleanSlug', passed: form.slug.length > 0 && /^[a-z0-9-]+$/.test(form.slug) });
   const wordCount = stripHtmlForCount(form.content).split(/\s+/).filter(Boolean).length;
-  tips.push({ key: 'Content ≥ 300 words', passed: wordCount >= 300 });
-  tips.push({ key: 'Has headings (H2/H3)', passed: /<h[23][\s>]/i.test(form.content) });
+  tips.push({ id: 'wordCount', passed: wordCount >= 300 });
+  tips.push({ id: 'headings', passed: /<h[23][\s>]/i.test(form.content) });
   const passed = tips.filter((t) => t.passed).length;
   const total = tips.length;
   const pct = Math.round((passed / total) * 100);
@@ -72,7 +73,6 @@ export default function ArticleEditorPage() {
   const LOCALE_LABELS: Record<string, string> = { en: 'English', fa: 'فارسی', tr: 'Türkçe' };
 
   const { data: articles, isLoading: articlesLoading } = useKBArticles(workspace?.id);
-  const { data: categories } = useKBCategories(workspace?.id);
   const createArticle = useCreateKBArticle(workspace?.id);
   const updateArticle = useUpdateKBArticle(workspace?.id);
 
@@ -80,7 +80,6 @@ export default function ArticleEditorPage() {
 
   const emptyForm: FormData = {
     title: '', slug: '', content: '', excerpt: '', locale: activeLocales[0] || 'en', status: 'draft',
-    category_id: '',
   };
   const [form, setForm] = useState<FormData>(emptyForm);
   const [hydrated, setHydrated] = useState(isNew);
@@ -94,7 +93,6 @@ export default function ArticleEditorPage() {
       excerpt: existing.excerpt || '',
       locale: existing.locale || activeLocales[0] || 'en',
       status: existing.status || 'draft',
-      category_id: existing.category_id || '',
     });
     setHydrated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -102,6 +100,13 @@ export default function ArticleEditorPage() {
 
   const seoScore = useMemo(() => calcSeoScore(form), [form]);
   const wordCount = useMemo(() => stripHtmlForCount(form.content).split(/\s+/).filter(Boolean).length, [form.content]);
+  const seoTipLabels: Record<SeoTipId, string> = {
+    titleLength: t('knowledgeBase.editor.seo.titleLength'),
+    excerptLength: t('knowledgeBase.editor.seo.excerptLength'),
+    cleanSlug: t('knowledgeBase.editor.seo.cleanSlug'),
+    wordCount: t('knowledgeBase.editor.seo.wordCount'),
+    headings: t('knowledgeBase.editor.seo.headings'),
+  };
 
   const goBack = () => navigate(wsPath('/knowledge-base'));
 
@@ -121,7 +126,6 @@ export default function ArticleEditorPage() {
       excerpt: form.excerpt,
       locale: form.locale,
       status: form.status as KnowledgeBaseArticleInput['status'],
-      category_id: form.category_id || null,
       visible_in_widget: true,
     };
     try {
@@ -183,22 +187,11 @@ export default function ArticleEditorPage() {
         </div>
 
         <div className="p-4 sm:p-6 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="sm:col-span-2">
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                {t('knowledgeBase.editor.titleLabel')} <span className="text-destructive">*</span>
-              </label>
-              <Input value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} placeholder={t('knowledgeBase.editor.titlePlaceholder')} className="text-base" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">{t('knowledgeBase.editor.categoryLabel')}</label>
-              <Select value={form.category_id} onValueChange={(v) => setForm((p) => ({ ...p, category_id: v }))}>
-                <SelectTrigger><SelectValue placeholder={t('knowledgeBase.editor.categoryNone')} /></SelectTrigger>
-                <SelectContent>
-                  {categories?.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+              {t('knowledgeBase.editor.titleLabel')} <span className="text-destructive">*</span>
+            </label>
+            <Input value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} placeholder={t('knowledgeBase.editor.titlePlaceholder')} className="text-base" />
           </div>
 
           <div>
@@ -265,9 +258,9 @@ export default function ArticleEditorPage() {
             </div>
             <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
               {seoScore.tips.map((tip) => (
-                <div key={tip.key} className="flex items-center gap-2 text-xs">
+                <div key={tip.id} className="flex items-center gap-2 text-xs">
                   {tip.passed ? <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
-                  <span className={tip.passed ? 'text-foreground' : 'text-muted-foreground'}>{tip.key}</span>
+                  <span className={tip.passed ? 'text-foreground' : 'text-muted-foreground'}>{seoTipLabels[tip.id]}</span>
                 </div>
               ))}
             </div>

@@ -224,14 +224,10 @@ export default function KnowledgeBasePage() {
                       <FileText className="w-4 h-4 text-primary" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
+                      <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-foreground truncate">{article.title}</span>
                         <Badge className={`text-[10px] px-1.5 py-0 ${statusBadge[article.status]}`}>{statusLabel[article.status] || article.status}</Badge>
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">{LOCALE_LABELS[article.locale] || article.locale}</Badge>
                       </div>
-                      <span className="text-xs text-muted-foreground">
-                        {(article as any).knowledge_base_categories?.name || 'Uncategorized'}
-                      </span>
                     </div>
                     <div className="flex items-center gap-1">
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(wsPath(`/knowledge-base/articles/${article.id}`))} title={t('common.edit')}>

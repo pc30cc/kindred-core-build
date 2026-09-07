@@ -474,6 +474,39 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
     return res.status(400).json({ error: 'ai_provider_not_configured', assist_run_id: runId });
   }
 
+  // Plan AI credits — operator assist now consumes the same monthly AI credit
+  // pool as auto-replies (canonical atomic deduct_ai_credits RPC). Deducted
+  // before the billable provider call so the gate fails closed.
+  const creditGate = await deductAICredits(
+    config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, 1,
+  );
+  if (!creditGate.success) {
+    const unavailable = creditGate.reason === 'rpc_error'
+      || creditGate.reason === 'exception'
+      || creditGate.reason === 'no_response';
+    const notes = [unavailable ? 'ai_credit_status_unavailable' : 'ai_credits_exhausted', ...safetyNotes];
+    const runId = await e7PersistAssistRun(config, {
+      workspaceId, conversationId, requestedBy: auth.userId,
+      status: 'failed', inputMessage, instruction: instruction ?? null, tone: tone ?? null,
+      suggestion: null, confidence, selectedSources, retrievalDebug: hybrid.retrievalDebug,
+      answerStrategy, safetyNotes: notes,
+      provider: aiCfg.provider ?? null, model: aiCfg.model ?? null,
+      error: notes[0],
+    });
+    if (assistRunCtx) {
+      await e7_failAiRun(config, assistRunCtx, notes[0]).catch(() => undefined);
+    }
+    return res.status(unavailable ? 503 : 402).json({
+      error: notes[0],
+      retryable: unavailable,
+      credits_remaining: creditGate.credits_remaining ?? 0,
+      credits_limit: creditGate.credits_limit ?? null,
+      assist_run_id: runId,
+    });
+  }
+
+
+
   try {
     const result = await e7_executeAICompletion(config, {
       workspaceId,

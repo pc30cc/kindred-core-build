@@ -27,7 +27,7 @@ import { decideStrategy as e7_decideStrategy } from '../../services/ai-agent/ans
 import { buildSystemPrompt as e7_buildSystemPrompt, buildUserPrompt as e7_buildUserPrompt } from '../../services/ai-agent/prompt.js';
 import { detectInputLanguage, languageDisplayName } from '../../services/ai-agent/language.js';
 import { resolveAIConfig as e7_resolveAIConfig, executeAICompletion as e7_executeAICompletion } from '../../services/ai/index.js';
-import { checkEntitlementFromDB, deductAICredits } from '../../middleware/featureGating.js';
+import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 import { logRun } from '../../services/ai-agent/logs.js';
 
 import { authorizeMember, isOwnerOrAdmin, requireWorkspace } from './shared.js';

@@ -336,32 +336,14 @@ export function OperatorAssistPanel({
         {result?.suggestion && !loading && (
           <>
           <div className="flex items-center gap-2 flex-wrap">
+            {/* One single insert action — appends when the composer already has text. */}
             <Button
               size="sm"
               onClick={() => insert(composerHasText ? 'append' : 'replace')}
               className="h-7 gap-1.5 text-[12px]"
             >
               <ArrowDownToLine className="w-3.5 h-3.5" />
-              {composerHasText ? t('inbox.aiAssist.append') : t('inbox.aiAssist.insert')}
-            </Button>
-            {composerHasText && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => insert('replace')}
-                className="h-7 gap-1.5 text-[12px]"
-              >
-                {t('inbox.aiAssist.replace')}
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setDebugOpen(true)}
-              className="h-7 gap-1.5 text-[12px]"
-            >
-              <Eye className="w-3.5 h-3.5" />
-              {t('inbox.aiAssist.viewDebug')}
+              {t('inbox.aiAssist.insert')}
             </Button>
             <span className="text-[10px] text-muted-foreground ml-auto">
               {t('inbox.aiAssist.notVisible')}

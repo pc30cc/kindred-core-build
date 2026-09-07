@@ -20,7 +20,7 @@ import { toast } from '@/lib/toast';
 import {
   billingWallet,
   billingSetAutoPay,
-  billingDepositPreview,
+  billingCreateDepositInvoice,
   type WalletView,
 } from '@/lib/billingApi';
 
@@ -80,9 +80,8 @@ export default function WalletTab({
   }
 
   /**
-   * Issuing the top-up document is a separate act from paying it: we create
-   * the deposit proforma here and hand the customer over to its own page,
-   * where the active gateways are listed.
+   * A top-up is an invoice, exactly like a plan purchase: we issue it here and
+   * hand the customer to the one canonical payment page.
    */
   async function issueDepositInvoice(presetIrr?: number) {
     const amountIrr = presetIrr ?? Number(amountToman) * RIAL_PER_TOMAN;
@@ -92,9 +91,10 @@ export default function WalletTab({
     }
     setBusy(true);
     try {
-      const res = await billingDepositPreview(workspaceId, Math.round(amountIrr));
+      const res = await billingCreateDepositInvoice(workspaceId, Math.round(amountIrr));
       onChanged();
-      navigate(`/${slug}/billing/pay/deposit/${res.deposit.id}`);
+      navigate(`/${slug}/billing/pay/invoice/${res.invoiceId}`);
+
     } catch (e) {
       toast.error(errorMessage(e, t));
     } finally {

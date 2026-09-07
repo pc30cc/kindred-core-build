@@ -193,15 +193,33 @@ export async function createInvoiceIntent(
   },
 ): Promise<PaymentIntentRow> {
   const supabase = getServiceClient(config);
+  // The invoice's frozen effect names the business act ('ai_credit_purchase',
+  // 'wallet_deposit', 'plan_*'); the attempt stores the canonical purchase
+  // vocabulary. Plan-less purchases must never carry a plan or an interval.
+  const rawAction = String(input.actionType ?? '');
+  const purchaseType =
+    rawAction === 'ai_credit_topup' || rawAction === 'ai_credit_purchase'
+      ? 'ai_credit_topup'
+      : rawAction === 'wallet_deposit'
+        ? 'wallet_deposit'
+        : 'subscription';
+  const actionType =
+    purchaseType === 'ai_credit_topup'
+      ? 'ai_credit_topup'
+      : purchaseType === 'wallet_deposit'
+        ? 'wallet_deposit'
+        : (input.actionType ?? null);
+  const planLess = purchaseType !== 'subscription';
   return insertWithDocumentNumber<PaymentIntentRow>(async (documentNumber) => {
     const { data, error } = await supabase
       .from('billing_payment_intents')
       .insert({
         workspace_id: input.workspaceId,
-        purchase_type: input.actionType === 'ai_credit_topup' ? 'ai_credit_topup' : 'subscription',
-        action_type: input.actionType ?? null,
-        plan_id: input.planId ?? null,
-        billing_interval: input.interval ?? null,
+        purchase_type: purchaseType,
+        action_type: actionType,
+        plan_id: planLess ? null : (input.planId ?? null),
+        billing_interval: planLess ? null : (input.interval ?? null),
+
         provider_name: input.providerName,
         amount_irr: input.amountIrr,
         // Every checkout attempt needs its own unique document number. Reusing

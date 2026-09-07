@@ -419,3 +419,12 @@ export function billingCreateAiCreditInvoice(workspaceId: string, amountIrr: num
   );
 }
 
+/** Wallet top-up follows the same invoice road as a plan or AI credit purchase. */
+export function billingCreateDepositInvoice(workspaceId: string, amountIrr: number) {
+  return request<{ invoiceId: string; invoiceNumber: string; amountIrr: number }>(
+    `${base(workspaceId)}/wallet/deposit/invoice`,
+    { method: 'POST', body: JSON.stringify({ amountIrr }) },
+  );
+}
+
+

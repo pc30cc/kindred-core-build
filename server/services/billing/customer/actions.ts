@@ -387,3 +387,23 @@ export async function issueAiCreditPurchase(
     metadata: { origin: 'customer_ai_credit_purchase' },
   });
 }
+
+/** Server-validated wallet top-up → an invoice, on the same road as a plan. */
+export async function issueWalletDepositPurchase(
+  config: ServerConfig,
+  workspaceId: string,
+  amountIrr: number,
+  bounds: { minIrr: number; maxIrr: number },
+): Promise<InvoiceRow> {
+  const amount = Math.round(num(amountIrr));
+  if (amount < bounds.minIrr || amount > bounds.maxIrr) {
+    throw new BillingActionError('amount out of range', 400, 'AMOUNT_OUT_OF_RANGE', bounds);
+  }
+  const { issueWalletDepositInvoice } = await import('../invoice/issue.js');
+  return issueWalletDepositInvoice(config, {
+    workspaceId,
+    amountIrr: amount,
+    metadata: { origin: 'customer_wallet_deposit' },
+  });
+}
+

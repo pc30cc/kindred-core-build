@@ -246,6 +246,60 @@ export async function issueAiCreditInvoice(
   });
 }
 
+/**
+ * Issues the invoice for a wallet top-up.
+ *
+ * A deposit buys no service: the paid invoice simply converts gateway money
+ * into wallet balance, exactly once, keyed by the invoice id. It travels the
+ * SAME road as a plan purchase — invoice → checkout → settlement → effect.
+ */
+export async function issueWalletDepositInvoice(
+  config: ServerConfig,
+  input: { workspaceId: string; amountIrr: number; metadata?: Record<string, unknown> },
+): Promise<InvoiceRow> {
+  const amount = Math.round(Number(input.amountIrr));
+  if (!Number.isInteger(amount) || amount <= 0) throw new Error('wallet_deposit_amount_invalid');
+
+  const snapshot: InvoiceEffectSnapshot = {
+    action_type: 'wallet_deposit',
+    source_plan_id: null,
+    target_plan_id: null,
+    billing_interval: null,
+    effective_at: new Date().toISOString(),
+    period_start: null,
+    period_end: null,
+    plan_snapshot: {},
+    limits_snapshot: {},
+    ai_allowance_irr: 0,
+    wallet_deposit_amount_irr: amount,
+    proration: null,
+  };
+
+  return insertAndOpen(config, {
+    workspaceId: input.workspaceId,
+    subscriptionId: null,
+    invoiceType: 'wallet_deposit',
+    planId: null,
+    planName: null,
+    interval: null,
+    periodStart: null,
+    periodEnd: null,
+    totalIrr: amount,
+    lines: [
+      {
+        lineType: 'wallet_deposit',
+        description: 'افزایش موجودی کیف پول',
+        unitAmountIrr: amount,
+        amountIrr: amount,
+      },
+    ],
+    snapshot,
+    metadata: input.metadata ?? {},
+  });
+}
+
+
+
 interface InsertInvoiceInput {
   workspaceId: string;
   subscriptionId: string | null;

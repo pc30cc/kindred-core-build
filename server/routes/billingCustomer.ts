@@ -32,6 +32,7 @@ import {
   cancelPendingPlanChange,
   setWalletAutoPay,
   issueAiCreditPurchase,
+  issueWalletDepositPurchase,
   BillingActionError,
 } from '../services/billing/customer/actions.js';
 import {
@@ -534,6 +535,39 @@ billingCustomerRouter.put('/workspaces/:workspaceId/wallet/auto-pay', async (req
 });
 
 const depositSchema = z.object({ amountIrr: z.number().int().positive() });
+
+/**
+ * Wallet top-up as an INVOICE — identical to a plan purchase or an AI credit
+ * purchase. Amount bounds come from server policy, so a hand-crafted request
+ * cannot deposit an out-of-policy amount.
+ */
+billingCustomerRouter.post('/workspaces/:workspaceId/wallet/deposit/invoice', async (req, res) => {
+  const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
+  if (!auth) return;
+  const parsed = depositSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'INVALID_REQUEST' });
+  const cfg = serverConfigOf(req);
+  try {
+    const view = await buildWalletView(cfg, req.params.workspaceId, { page: 1, pageSize: 5 });
+    const { minIrr, maxIrr, allowCustom, presetsIrr } = view.deposit;
+    const amount = parsed.data.amountIrr;
+    if (!allowCustom && !presetsIrr.includes(amount)) {
+      return res.status(400).json({ error: 'AMOUNT_NOT_ALLOWED' });
+    }
+    const invoice = await issueWalletDepositPurchase(cfg, req.params.workspaceId, amount, {
+      minIrr,
+      maxIrr,
+    });
+    res.json({
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoice_number,
+      amountIrr: Number((invoice as any).amount_due_irr),
+    });
+  } catch (e) {
+    fail(res, e);
+  }
+});
+
 
 /**
  * Deposit receipt shown BEFORE the bank. Amount bounds come from server policy,

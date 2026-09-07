@@ -13,11 +13,13 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 
 type Row = Record<string, any>;
 let tables: Record<string, Row[]> = {};
+let tableErrors: Record<string, { code: string; message: string }> = {};
 
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     from(table: string) {
       let rows = [...(tables[table] || [])];
+      const forcedError = tableErrors[table] || null;
       const builder: any = {
         select: () => builder,
         eq: (col: string, val: unknown) => {
@@ -33,8 +35,8 @@ vi.mock('@supabase/supabase-js', () => ({
           rows = rows.slice(0, n);
           return builder;
         },
-        maybeSingle: async () => ({ data: rows[0] ?? null, error: null }),
-        then: (resolve: any) => resolve({ data: rows, error: null }),
+        maybeSingle: async () => (forcedError ? { data: null, error: forcedError } : { data: rows[0] ?? null, error: null }),
+        then: (resolve: any) => resolve(forcedError ? { data: null, error: forcedError } : { data: rows, error: null }),
       };
       return builder;
     },
@@ -55,6 +57,26 @@ beforeEach(() => {
     billing_provider_credentials: [],
     platform_domains: [],
   };
+  tableErrors = {};
+});
+
+describe('withCanonicalCredentials — deploy-ordering resilience', () => {
+  it('degrades to legacy sources when billing_provider_credentials does not exist yet (migration 137 not applied)', async () => {
+    tables.billing_gateways = [{ provider_name: 'zarinpal', config: { merchant_id: 'legacy-value' } }];
+    tableErrors.billing_provider_credentials = { code: '42P01', message: 'relation "billing_provider_credentials" does not exist' };
+
+    const resolved = await resolveNamedBillingConfig('url', 'key', WORKSPACE_ID, 'zarinpal');
+    expect(resolved?.config.merchant_id).toBe('legacy-value');
+  });
+
+  it('still fails loud on a real (non-missing-table) error', async () => {
+    tables.billing_gateways = [{ provider_name: 'zarinpal', config: { merchant_id: 'legacy-value' } }];
+    tableErrors.billing_provider_credentials = { code: '42501', message: 'permission denied for table billing_provider_credentials' };
+
+    await expect(resolveNamedBillingConfig('url', 'key', WORKSPACE_ID, 'zarinpal')).rejects.toThrow(
+      /billing provider credentials read failed/,
+    );
+  });
 });
 
 describe('resolveNamedBillingConfig — canonical credential precedence', () => {

@@ -102,7 +102,15 @@ async function withCanonicalCredentials(
     .select('config')
     .eq('provider_name', providerName)
     .maybeSingle();
-  if (error) throw new Error(`billing provider credentials read failed: ${error.message}`);
+  if (error) {
+    // 42P01 = undefined_table: migration 137 has not been applied yet on
+    // this deployment. Degrade to the legacy sources already merged into
+    // `config` rather than breaking every checkout/verify call — a missing
+    // canonical layer is never less safe than the pre-migration behavior.
+    // Any OTHER error (permissions, a real query failure) still fails loud.
+    if ((error as { code?: string }).code === '42P01') return config;
+    throw new Error(`billing provider credentials read failed: ${error.message}`);
+  }
   const canonical = data?.config as Record<string, unknown> | null | undefined;
   if (!canonical || Object.keys(canonical).length === 0) return config;
   return { ...config, ...canonical, provider: providerName };

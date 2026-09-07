@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import KnowledgeQnaTab from '@/components/app/knowledge/KnowledgeQnaTab';
+import KnowledgeFilesTab from '@/components/app/knowledge/KnowledgeFilesTab';
 import {
   Plus, Trash2, BookOpen, Search, Eye, ThumbsUp, Globe,
   FileText, Edit, BookMarked, MessageCircleQuestion, Sparkles,
@@ -33,10 +34,11 @@ export default function KnowledgeBasePage() {
   const navigate = useNavigate();
   const wsPath = useWorkspacePath();
   const [params, setParams] = useSearchParams();
-  const activeTab = params.get('tab') === 'qna' ? 'qna' : 'articles';
+  const tabParam = params.get('tab');
+  const activeTab = tabParam === 'qna' || tabParam === 'files' ? tabParam : 'articles';
   const setActiveTab = (value: string) => {
     const next = new URLSearchParams(params);
-    if (value === 'qna') next.set('tab', 'qna'); else next.delete('tab');
+    if (value === 'qna' || value === 'files') next.set('tab', value); else next.delete('tab');
     setParams(next, { replace: true });
   };
   // The platform's active region/language mode decides which article
@@ -120,6 +122,12 @@ export default function KnowledgeBasePage() {
             className="flex-1 sm:flex-initial gap-2.5 rounded-xl px-6 py-3.5 text-base font-bold data-[state=active]:shadow-md"
           >
             <MessageCircleQuestion className="w-5 h-5" /> {t('knowledgeBase.tabs.qna')}
+          </TabsTrigger>
+          <TabsTrigger
+            value="files"
+            className="flex-1 sm:flex-initial gap-2.5 rounded-xl px-6 py-3.5 text-base font-bold data-[state=active]:shadow-md"
+          >
+            <FileText className="w-5 h-5" /> {t('knowledgeBase.tabs.files')}
           </TabsTrigger>
         </TabsList>
 
@@ -242,6 +250,10 @@ export default function KnowledgeBasePage() {
 
         <TabsContent value="qna" className="mt-0">
           <KnowledgeQnaTab />
+        </TabsContent>
+
+        <TabsContent value="files" className="mt-0">
+          <KnowledgeFilesTab />
         </TabsContent>
       </Tabs>
     </div>

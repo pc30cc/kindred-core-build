@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
@@ -8,10 +8,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import RichTextEditor from '@/components/app/knowledge/RichTextEditor';
 import {
-  ArrowLeft, ArrowRight, FileText, Bold, Italic, Heading2, List, Link2, Code2, Quote,
+  ArrowLeft, ArrowRight, FileText,
   BarChart3, CheckCircle2, AlertCircle, MonitorSmartphone, Loader2,
 } from 'lucide-react';
+
+/** Article content is HTML (see RichTextEditor's header comment) — SEO
+ * checks read tag/text signals accordingly, not markdown syntax. */
+function stripHtmlForCount(html: string): string {
+  return (html || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+}
 
 export interface KnowledgeBaseArticleInput {
   title: string;
@@ -36,9 +43,9 @@ function calcSeoScore(form: FormData) {
   tips.push({ key: 'Title length (30–70 chars)', passed: seoTitle.length >= 30 && seoTitle.length <= 70 });
   tips.push({ key: 'Excerpt length (100–170 chars)', passed: (form.excerpt || '').length >= 100 && (form.excerpt || '').length <= 170 });
   tips.push({ key: 'Clean URL slug', passed: form.slug.length > 0 && /^[a-z0-9-]+$/.test(form.slug) });
-  const wordCount = form.content.split(/\s+/).filter(Boolean).length;
+  const wordCount = stripHtmlForCount(form.content).split(/\s+/).filter(Boolean).length;
   tips.push({ key: 'Content ≥ 300 words', passed: wordCount >= 300 });
-  tips.push({ key: 'Has headings (H2/H3)', passed: /^#{2,3}\s/m.test(form.content) });
+  tips.push({ key: 'Has headings (H2/H3)', passed: /<h[23][\s>]/i.test(form.content) });
   const passed = tips.filter((t) => t.passed).length;
   const total = tips.length;
   const pct = Math.round((passed / total) * 100);
@@ -77,8 +84,6 @@ export default function ArticleEditorPage() {
   };
   const [form, setForm] = useState<FormData>(emptyForm);
   const [hydrated, setHydrated] = useState(isNew);
-  const [editorTab, setEditorTab] = useState<'editor' | 'preview'>('editor');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (isNew || hydrated || !existing) return;
@@ -96,19 +101,8 @@ export default function ArticleEditorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existing, isNew, hydrated]);
 
-  const insertMd = useCallback((before: string, after: string = '', placeholder = '') => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    const selected = form.content.slice(start, end) || placeholder;
-    const newContent = form.content.slice(0, start) + before + selected + after + form.content.slice(end);
-    setForm((p) => ({ ...p, content: newContent }));
-    setTimeout(() => { ta.focus(); ta.setSelectionRange(start + before.length, start + before.length + selected.length); }, 0);
-  }, [form.content]);
-
   const seoScore = useMemo(() => calcSeoScore(form), [form]);
-  const wordCount = form.content.split(/\s+/).filter(Boolean).length;
+  const wordCount = useMemo(() => stripHtmlForCount(form.content).split(/\s+/).filter(Boolean).length, [form.content]);
 
   const goBack = () => navigate(wsPath('/knowledge-base'));
 
@@ -188,56 +182,16 @@ export default function ArticleEditorPage() {
           </div>
 
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-medium text-muted-foreground">{t('knowledgeBase.editor.contentLabel')}</label>
-              <div className="flex items-center gap-1 bg-secondary rounded-lg p-0.5">
-                <button onClick={() => setEditorTab('editor')} className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${editorTab === 'editor' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'}`}>
-                  {t('knowledgeBase.editor.editorTab')}
-                </button>
-                <button onClick={() => setEditorTab('preview')} className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${editorTab === 'preview' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground'}`}>
-                  {t('knowledgeBase.editor.previewTab')}
-                </button>
-              </div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">{t('knowledgeBase.editor.contentLabel')}</label>
+            <RichTextEditor
+              value={form.content}
+              onChange={(html) => setForm((p) => ({ ...p, content: html }))}
+              placeholder={t('knowledgeBase.editor.contentPlaceholder')}
+              dir={dir}
+            />
+            <div className="mt-1 px-1 flex items-center justify-between text-[10px] text-muted-foreground">
+              <span>{t('knowledgeBase.editor.wordCount', { count: String(wordCount) })}</span>
             </div>
-
-            {editorTab === 'editor' ? (
-              <div className="border border-border rounded-xl overflow-hidden">
-                <div className="flex items-center gap-0.5 px-2 py-1.5 bg-secondary/50 border-b border-border flex-wrap">
-                  {[
-                    { icon: Bold, action: () => insertMd('**', '**', 'bold'), tip: 'Bold' },
-                    { icon: Italic, action: () => insertMd('*', '*', 'italic'), tip: 'Italic' },
-                    { icon: Heading2, action: () => insertMd('\n## ', '\n', 'Heading'), tip: 'Heading' },
-                    { icon: List, action: () => insertMd('\n- ', '\n'), tip: 'List' },
-                    { icon: Link2, action: () => insertMd('[', '](https://)', 'link'), tip: 'Link' },
-                    { icon: Code2, action: () => insertMd('\n```\n', '\n```\n', 'code'), tip: 'Code' },
-                    { icon: Quote, action: () => insertMd('\n> ', '\n', 'quote'), tip: 'Quote' },
-                  ].map(({ icon: Icon, action, tip }) => (
-                    <button key={tip} onClick={action} title={tip}
-                      className="p-1.5 rounded-md hover:bg-card text-muted-foreground hover:text-foreground transition-colors">
-                      <Icon className="w-4 h-4" />
-                    </button>
-                  ))}
-                </div>
-                <textarea
-                  ref={textareaRef}
-                  placeholder={t('knowledgeBase.editor.contentPlaceholder')}
-                  value={form.content}
-                  onChange={(e) => setForm((p) => ({ ...p, content: e.target.value }))}
-                  className="w-full bg-card px-4 py-3 text-sm text-foreground min-h-[320px] sm:min-h-[420px] resize-y font-mono leading-relaxed focus:outline-none placeholder:text-muted-foreground/50"
-                  dir={dir}
-                />
-                <div className="px-3 py-1.5 bg-secondary/30 border-t border-border flex items-center justify-between text-[10px] text-muted-foreground">
-                  <span>{t('knowledgeBase.editor.wordCount', { count: String(wordCount) })}</span>
-                  <span>{t('knowledgeBase.editor.charCount', { count: String(form.content.length) })}</span>
-                </div>
-              </div>
-            ) : (
-              <div className="border border-border rounded-xl p-4 sm:p-6 min-h-[320px] sm:min-h-[420px] bg-card">
-                <div className="prose prose-sm max-w-none text-foreground">
-                  {form.content || <em className="text-muted-foreground">{t('knowledgeBase.editor.noContentYet')}</em>}
-                </div>
-              </div>
-            )}
           </div>
 
           <div className={`grid grid-cols-1 gap-3 ${canSwitchLanguage ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>

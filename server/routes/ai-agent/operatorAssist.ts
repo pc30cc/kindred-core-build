@@ -328,7 +328,30 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
     console.warn('[ai-billing] operator assist run not opened:', err?.message);
   }
 
+  /**
+   * Every exit path of this handler MUST close the financial run. An open run
+   * keeps its reservation and is never charged — the operator gets paid work
+   * for free and the audit trail shows nothing. Idempotent: safe to call twice.
+   */
+  let runClosed = false;
+  const closeAssistRun = async (failure?: string | null): Promise<void> => {
+    if (!assistRunCtx || runClosed) return;
+    runClosed = true;
+    try {
+      if (failure) await e7_failAiRun(config, assistRunCtx, failure);
+      else if (assistRunCtx.stepSeq > 0) await e7_settleAiRun(config, assistRunCtx);
+      else await e7_failAiRun(config, assistRunCtx, 'no_billable_usage');
+    } catch (closeErr: any) {
+      console.error(
+        '[ai-billing] operator assist run not closed:',
+        assistRunCtx.runId,
+        closeErr?.message || closeErr,
+      );
+    }
+  };
+
   let hybrid: any;
+
   try {
     hybrid = await retrieveHybridSources(config, {
       workspaceId,
@@ -348,6 +371,7 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
       answerStrategy: {}, safetyNotes: [`retrieval_error:${err?.message || 'unknown'}`],
       provider: null, model: null, error: err?.message || 'retrieval_failed',
     });
+    await closeAssistRun(`retrieval_failed:${err?.message || 'unknown'}`);
     return res.status(500).json({ error: 'retrieval_failed', details: err?.message });
   }
 
@@ -468,6 +492,7 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
       provider: null, model: null, error: null,
     });
     baseResponse.assist_run_id = runId;
+    await closeAssistRun();
     return res.json(baseResponse);
   }
 
@@ -481,6 +506,7 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
       answerStrategy, safetyNotes: notes,
       provider: null, model: null, error: 'ai_provider_not_configured',
     });
+    await closeAssistRun('ai_provider_not_configured');
     return res.status(400).json({ error: 'ai_provider_not_configured', assist_run_id: runId });
   }
 
@@ -541,12 +567,10 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
       error: suggestion ? null : 'empty_completion',
     });
     out.assist_run_id = runId;
-    if (assistRunCtx) {
-      await (assistRunCtx.stepSeq > 0
-        ? e7_settleAiRun(config, assistRunCtx)
-        : e7_failAiRun(config, assistRunCtx, 'no_billable_usage')
-      ).catch(() => undefined);
-    }
+    // A silent failure here left the run in USAGE_RECORDED with its
+    // reservation still held — the operator got the answer for free and the
+    // audit trail showed no charge. closeAssistRun logs instead of swallowing.
+    await closeAssistRun();
     return res.json(out);
   } catch (err: any) {
     const notes = [`llm_error:${err?.message || 'unknown'}`, ...safetyNotes];
@@ -558,9 +582,7 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
       provider: aiCfg.provider, model: aiCfg.model,
       error: err?.message || 'llm_failed',
     });
-    if (assistRunCtx) {
-      await e7_failAiRun(config, assistRunCtx, err?.message || 'llm_failed').catch(() => undefined);
-    }
+    await closeAssistRun(err?.message || 'llm_failed');
     return res.status(502).json({ error: 'llm_failed', details: redactSecrets(err?.message) || 'unknown_error' });
   }
 });

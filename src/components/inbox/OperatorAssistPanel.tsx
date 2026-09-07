@@ -8,12 +8,11 @@
  * shows pre-generated suggestions for visitor messages.
  */
 import { useState } from 'react';
-import { Sparkles, ArrowDownToLine, RefreshCw, X, Eye, Loader2, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { Sparkles, ArrowDownToLine, RefreshCw, X, Loader2, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   aiAgentApi,
   type OperatorSuggestReplyResponse,
@@ -61,7 +60,7 @@ export function OperatorAssistPanel({
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<OperatorSuggestReplyResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [debugOpen, setDebugOpen] = useState(false);
+  
   const [rating, setRating] = useState<'positive' | 'negative' | null>(null);
   const [reason, setReason] = useState<OperatorAssistFeedbackReason | ''>('');
   const [comment, setComment] = useState('');
@@ -416,52 +415,6 @@ export function OperatorAssistPanel({
         )}
       </div>
 
-      {/* Debug modal */}
-      <Dialog open={debugOpen} onOpenChange={setDebugOpen}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>AI Assist debug</DialogTitle>
-          </DialogHeader>
-          {result && (
-            <div className="space-y-3 text-[12px]">
-              <section>
-                <div className="font-semibold mb-1">Answer strategy</div>
-                <pre className="bg-muted/40 rounded p-2 overflow-x-auto">
-                  {JSON.stringify(result.answer_strategy, null, 2)}
-                </pre>
-              </section>
-              <section>
-                <div className="font-semibold mb-1">Selected sources (redacted)</div>
-                <pre className="bg-muted/40 rounded p-2 overflow-x-auto">
-                  {JSON.stringify(result.selected_sources, null, 2)}
-                </pre>
-              </section>
-              <section>
-                <div className="font-semibold mb-1">Retrieval debug (redacted)</div>
-                <pre className="bg-muted/40 rounded p-2 overflow-x-auto max-h-64">
-                  {JSON.stringify(result.retrieval_debug, null, 2)}
-                </pre>
-              </section>
-              {result.excluded_summary && Object.keys(result.excluded_summary).length > 0 && (
-                <section>
-                  <div className="font-semibold mb-1">Excluded sources (summary)</div>
-                  <pre className="bg-muted/40 rounded p-2 overflow-x-auto">
-                    {JSON.stringify(result.excluded_summary, null, 2)}
-                  </pre>
-                </section>
-              )}
-              {result.prompt_preview && (
-                <section>
-                  <div className="font-semibold mb-1">Prompt preview (admin only)</div>
-                  <pre className="bg-muted/40 rounded p-2 overflow-x-auto max-h-64 whitespace-pre-wrap">
-                    {`# system\n${result.prompt_preview.system}\n\n# user\n${result.prompt_preview.user}`}
-                  </pre>
-                </section>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

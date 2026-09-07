@@ -27,7 +27,7 @@ import { decideStrategy as e7_decideStrategy } from '../../services/ai-agent/ans
 import { buildSystemPrompt as e7_buildSystemPrompt, buildUserPrompt as e7_buildUserPrompt } from '../../services/ai-agent/prompt.js';
 import { detectInputLanguage, languageDisplayName } from '../../services/ai-agent/language.js';
 import { resolveAIConfig as e7_resolveAIConfig, executeAICompletion as e7_executeAICompletion } from '../../services/ai/index.js';
-import { checkEntitlementFromDB, deductAICredits } from '../../middleware/featureGating.js';
+import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 import { logRun } from '../../services/ai-agent/logs.js';
 
 import { authorizeMember, isOwnerOrAdmin, requireWorkspace } from './shared.js';
@@ -474,36 +474,15 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
     return res.status(400).json({ error: 'ai_provider_not_configured', assist_run_id: runId });
   }
 
-  // Plan AI credits — operator assist now consumes the same monthly AI credit
-  // pool as auto-replies (canonical atomic deduct_ai_credits RPC). Deducted
-  // before the billable provider call so the gate fails closed.
-  const creditGate = await deductAICredits(
-    config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, 1,
-  );
-  if (!creditGate.success) {
-    const unavailable = creditGate.reason === 'rpc_error'
-      || creditGate.reason === 'exception'
-      || creditGate.reason === 'no_response';
-    const notes = [unavailable ? 'ai_credit_status_unavailable' : 'ai_credits_exhausted', ...safetyNotes];
-    const runId = await e7PersistAssistRun(config, {
-      workspaceId, conversationId, requestedBy: auth.userId,
-      status: 'failed', inputMessage, instruction: instruction ?? null, tone: tone ?? null,
-      suggestion: null, confidence, selectedSources, retrievalDebug: hybrid.retrievalDebug,
-      answerStrategy, safetyNotes: notes,
-      provider: aiCfg.provider ?? null, model: aiCfg.model ?? null,
-      error: notes[0],
-    });
-    if (assistRunCtx) {
-      await e7_failAiRun(config, assistRunCtx, notes[0]).catch(() => undefined);
-    }
-    return res.status(unavailable ? 503 : 402).json({
-      error: notes[0],
-      retryable: unavailable,
-      credits_remaining: creditGate.credits_remaining ?? 0,
-      credits_limit: creditGate.credits_limit ?? null,
-      assist_run_id: runId,
-    });
-  }
+  // AI credit accounting for operator assist runs through the SAME canonical
+  // path as widget auto-replies: the AI billing wallet (reserve on
+  // beginAiRunGuarded, settle on real model usage) via `assistRunCtx`.
+  // The legacy `deduct_ai_credits` counter RPC is intentionally NOT used here:
+  // its entitlement key ('ai_credits') does not exist in any plan's limits
+  // (plans expose `ai_credits_per_month` / `included_ai_allowance_irr`), so it
+  // always fails closed and blocked every suggestion.
+
+
 
 
 

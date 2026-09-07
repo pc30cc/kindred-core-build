@@ -328,7 +328,30 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
     console.warn('[ai-billing] operator assist run not opened:', err?.message);
   }
 
+  /**
+   * Every exit path of this handler MUST close the financial run. An open run
+   * keeps its reservation and is never charged — the operator gets paid work
+   * for free and the audit trail shows nothing. Idempotent: safe to call twice.
+   */
+  let runClosed = false;
+  const closeAssistRun = async (failure?: string | null): Promise<void> => {
+    if (!assistRunCtx || runClosed) return;
+    runClosed = true;
+    try {
+      if (failure) await e7_failAiRun(config, assistRunCtx, failure);
+      else if (assistRunCtx.stepSeq > 0) await e7_settleAiRun(config, assistRunCtx);
+      else await e7_failAiRun(config, assistRunCtx, 'no_billable_usage');
+    } catch (closeErr: any) {
+      console.error(
+        '[ai-billing] operator assist run not closed:',
+        assistRunCtx.runId,
+        closeErr?.message || closeErr,
+      );
+    }
+  };
+
   let hybrid: any;
+
   try {
     hybrid = await retrieveHybridSources(config, {
       workspaceId,

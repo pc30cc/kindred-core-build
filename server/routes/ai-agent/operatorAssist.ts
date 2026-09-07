@@ -138,12 +138,43 @@ async function e7PersistAssistRun(
       console.error('[ai-agent.e7] persist assist run error:', error.message);
       return null;
     }
-    return (data?.id as string) || null;
+    const assistRunId = (data?.id as string) || null;
+    // Unified activity feed — operator assist suggestions are mirrored into
+    // the canonical ai_agent_runs log so they show up in "Recent runs"
+    // alongside auto-reply runs. Never breaks the assist response.
+    try {
+      await logRun(config, {
+        workspaceId: payload.workspaceId,
+        conversationId: payload.conversationId,
+        runType: 'suggestion',
+        mode: 'operator_assist',
+        status: payload.status === 'skipped' ? 'skipped' : payload.status,
+        inputText: payload.inputMessage,
+        outputText: payload.suggestion,
+        skipReason: payload.status === 'skipped' ? 'llm_call_skipped' : null,
+        errorMessage: payload.error,
+        provider: payload.provider,
+        model: payload.model,
+        confidence: payload.confidence,
+        creditsUsed: payload.status === 'suggested' && payload.suggestion ? 1 : 0,
+        metadata: {
+          source: 'operator_assist',
+          assist_run_id: assistRunId,
+          requested_by: payload.requestedBy,
+          tone: payload.tone,
+          safety_notes: payload.safetyNotes?.slice(0, 10) || [],
+        },
+      });
+    } catch (mirrorErr: any) {
+      console.warn('[ai-agent.e7] assist run mirror failed:', mirrorErr?.message);
+    }
+    return assistRunId;
   } catch (err: any) {
     console.error('[ai-agent.e7] persist assist run failed:', err?.message);
     return null;
   }
 }
+
 
 operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;

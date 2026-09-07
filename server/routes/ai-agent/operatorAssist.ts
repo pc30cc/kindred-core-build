@@ -6,6 +6,7 @@
  * limits and response shapes are unchanged from the original file.
  */
 import express, { type Request, type Response, type Router } from 'express';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
@@ -293,12 +294,21 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
   // provider/model — beginAiRunGuarded refuses to open an ENFORCED
   // reservation without one.
   let assistRunCtx: E7RunContext | null = null;
+  const assistRequestNonce = randomUUID();
   try {
     const assistAiCfg = await e7_resolveAIConfig(config, workspaceId).catch(() => null);
     assistRunCtx = await e7_beginAiRunGuarded(config, {
       workspaceId,
-      operationKey: `operator_assist:${conversationId}:${latestVisitor?.id || 'latest'}:${tone ?? 'default'}:${(instruction || '').slice(0, 64)}`,
-      payload: { workspaceId, conversationId, inputMessage, instruction: instruction ?? null, tone: tone ?? null, locale: responseLocale },
+      // Each operator "suggest reply" click is its OWN billable business
+      // operation: the operator may regenerate on the same conversation,
+      // same tone and same instruction any number of times, and every one
+      // of those calls hits the model. A stable key made only of
+      // conversation/tone/instruction made every later click resume the
+      // FIRST run (idempotent replay), so no new run appeared in the AI
+      // runs ledger and no further credit was consumed. The per-request
+      // nonce restores one run per request.
+      operationKey: `operator_assist:${conversationId}:${latestVisitor?.id || 'latest'}:${tone ?? 'default'}:${(instruction || '').slice(0, 64)}:${assistRequestNonce}`,
+      payload: { workspaceId, conversationId, inputMessage, instruction: instruction ?? null, tone: tone ?? null, locale: responseLocale, assistRequestNonce },
       entryPoint: 'operator_assist',
       channel: 'operator',
       conversationId,

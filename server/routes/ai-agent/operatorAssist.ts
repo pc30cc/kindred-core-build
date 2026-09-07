@@ -542,10 +542,20 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
     });
     out.assist_run_id = runId;
     if (assistRunCtx) {
-      await (assistRunCtx.stepSeq > 0
-        ? e7_settleAiRun(config, assistRunCtx)
-        : e7_failAiRun(config, assistRunCtx, 'no_billable_usage')
-      ).catch(() => undefined);
+      // A silent failure here left the run in USAGE_RECORDED with its
+      // reservation still held — the operator got the answer for free and the
+      // audit trail showed no charge. Never swallow it again; the recovery
+      // worker is the safety net, the log is the signal.
+      try {
+        if (assistRunCtx.stepSeq > 0) await e7_settleAiRun(config, assistRunCtx);
+        else await e7_failAiRun(config, assistRunCtx, 'no_billable_usage');
+      } catch (settleErr: any) {
+        console.error(
+          '[ai-billing] operator assist run not settled:',
+          assistRunCtx.runId,
+          settleErr?.message || settleErr,
+        );
+      }
     }
     return res.json(out);
   } catch (err: any) {

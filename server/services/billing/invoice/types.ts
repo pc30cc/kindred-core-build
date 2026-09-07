@@ -14,7 +14,8 @@ export type InvoiceType =
   | 'plan_upgrade'
   | 'addon'
   | 'manual'
-  | 'ai_credit_purchase';
+  | 'ai_credit_purchase'
+  | 'wallet_deposit';
 
 export type InvoiceStatus =
   | 'draft'
@@ -31,10 +32,12 @@ export type InvoiceLineType =
   | 'upgrade_proration'
   | 'addon'
   | 'ai_credit'
+  | 'wallet_deposit'
   | 'discount'
   | 'tax'
   | 'credit'
   | 'manual_adjustment';
+
 
 export interface InvoiceLineInput {
   lineType: InvoiceLineType;
@@ -55,7 +58,7 @@ export interface InvoiceLineInput {
  * contract the customer paid for.
  */
 export interface InvoiceEffectSnapshot {
-  action_type: PlanActionType | 'ai_credit_purchase';
+  action_type: PlanActionType | 'ai_credit_purchase' | 'wallet_deposit';
   source_plan_id: string | null;
   target_plan_id: string | null;
   billing_interval: BillingInterval | null;
@@ -70,6 +73,9 @@ export interface InvoiceEffectSnapshot {
   ai_allowance_irr: number;
   /** Purchased AI credit (ai_credit_purchase invoices only), in IRR. */
   ai_credit_amount_irr?: number;
+  /** Wallet top-up (wallet_deposit invoices only), in IRR. */
+  wallet_deposit_amount_irr?: number;
+
   /** Inputs and result of the proration, for audit and dispute resolution. */
   proration?: {
     total_ms: number;

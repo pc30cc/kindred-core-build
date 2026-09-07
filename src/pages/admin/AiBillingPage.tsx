@@ -579,6 +579,7 @@ export default function AiBillingPage() {
                   <TableHeader>
                     <TableRow className="bg-muted/50">
                       <TableHead className="font-semibold text-foreground">{t('aiBilling.time')}</TableHead>
+                      <TableHead className="font-semibold text-foreground">{t('aiBilling.workspace')}</TableHead>
                       <TableHead className="font-semibold text-foreground">{t('aiBilling.entryPoint')}</TableHead>
                       <TableHead className="font-semibold text-foreground">{t('aiBilling.model')}</TableHead>
                       <TableHead className="font-semibold text-foreground">{t('aiBilling.status')}</TableHead>
@@ -591,7 +592,13 @@ export default function AiBillingPage() {
                     {runs.map((r) => (
                       <TableRow key={r.id}>
                         <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{when(r.created_at)}</TableCell>
-                        <TableCell className="text-sm">{r.entry_point}</TableCell>
+                        <TableCell className="text-sm">
+                          {r.workspace_name || <span className="font-mono text-xs text-muted-foreground">{String(r.workspace_id || '').slice(0, 8)}</span>}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {t(`aiBilling.entryPoints.${r.entry_point}`, { defaultValue: r.entry_point })}
+                        </TableCell>
+
                         <TableCell className="font-mono text-sm">{r.primary_model || '—'}</TableCell>
                         <TableCell><Badge variant="outline">{r.status}</Badge></TableCell>
                         <TableCell>

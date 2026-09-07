@@ -19,6 +19,7 @@ import type { ServerConfig } from '../../../config.js';
 import { runRenewalInvoiceScheduler, runWalletAutoPay, runPeriodActivation } from './index.js';
 import { runDunning, runGraceExpiry } from '../dunning/index.js';
 import { dispatchBillingNotifications } from '../notifications/dispatcher.js';
+import { expireStaleCollections, recoverUnappliedInvoices } from '../worker/recovery.js';
 
 const TICK_MS = 5 * 60 * 1000;
 const FIRST_RUN_DELAY_MS = 90_000;
@@ -27,6 +28,8 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 let lastRun: {
   at: string;
+  recovery: unknown;
+  expiredCollections: unknown;
   renewal: unknown;
   wallet: unknown;
   activation: unknown;
@@ -57,6 +60,11 @@ export async function tick(config: ServerConfig): Promise<void> {
   if (running) return; // process-local single flight; the DB lease is the real one
   running = true;
   try {
+    // Recover verified money before ordinary scheduled work. This is the path
+    // that completes a checkout after a process crash or a transient failure
+    // while granting the purchased plan/credit.
+    const recovery = await recoverUnappliedInvoices(config);
+    const expiredCollections = await expireStaleCollections(config);
     const renewal = await runRenewalInvoiceScheduler(config);
     const wallet = await runWalletAutoPay(config);
     const activation = await runPeriodActivation(config);
@@ -69,13 +77,23 @@ export async function tick(config: ServerConfig): Promise<void> {
       notifications = await dispatchBillingNotifications(config);
     } catch (err: any) {
       notifications = { error: String(err?.message || err) };
-      console.warn('[billing-v2] notification dispatch failed:', String(err?.message || err));
+      console.warn('[billing] notification dispatch failed:', String(err?.message || err));
     }
-    lastRun = { at: new Date().toISOString(), renewal, wallet, activation, dunning, grace, notifications };
+    lastRun = {
+      at: new Date().toISOString(),
+      recovery,
+      expiredCollections,
+      renewal,
+      wallet,
+      activation,
+      dunning,
+      grace,
+      notifications,
+    };
     lastError = null;
   } catch (err: any) {
     lastError = { at: new Date().toISOString(), message: String(err?.message || err) };
-    console.warn('[billing-v2] scheduler tick failed:', lastError.message);
+    console.warn('[billing] scheduler tick failed:', lastError.message);
   } finally {
     running = false;
   }

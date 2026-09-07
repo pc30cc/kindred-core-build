@@ -14999,10 +14999,6 @@ export type Database = {
         }
         Returns: Json
       }
-      billing_sync_applied_invoice_payment: {
-        Args: { p_invoice_id: string }
-        Returns: undefined
-      }
       billing_v2_activate: {
         Args: { p_actor_id?: string; p_reason?: string; p_workspace_id: string }
         Returns: Json

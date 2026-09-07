@@ -5062,6 +5062,7 @@ const fa: TranslationKeys = {
       generated: 'تولید شد',
       generatedOffline: 'تولید شد (حالت آفلاین)',
       generationFailed: 'تولید ناموفق بود',
+      creditsExhausted: 'اعتبار هوش مصنوعی تمام شده است. اعتبار را شارژ کنید و دوباره تلاش کنید.',
     },
     test: {
       title: 'آزمایش دستیار هوشمند',

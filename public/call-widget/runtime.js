@@ -50,7 +50,8 @@
       rate_comment_ph: 'Add a comment (optional)',
       rate_submit: 'Submit rating',
       rate_skip: 'Skip',
-      rate_thanks: 'Thank you for your feedback!'
+      rate_thanks: 'Thank you for your feedback!',
+      powered_by: 'Powered by Web Yar'
     },
     fa: {
       talk_now: 'همین حالا تماس بگیرید', callback: 'درخواست تماس', live_support: 'پشتیبانی آنلاین', leave_details: 'ثبت اطلاعات', support: 'پشتیبانی', required: 'الزامی',
@@ -77,7 +78,8 @@
       rate_comment_ph: 'افزودن نظر (اختیاری)',
       rate_submit: 'ثبت امتیاز',
       rate_skip: 'رد کردن',
-      rate_thanks: 'از بازخورد شما متشکریم!'
+      rate_thanks: 'از بازخورد شما متشکریم!',
+      powered_by: 'قدرت گرفته از وب یار'
     },
     tr: {
       talk_now: 'Şimdi konuş', callback: 'Geri arama', live_support: 'Canlı destek', leave_details: 'Bilgilerini bırak', support: 'Destek', required: 'Zorunlu',
@@ -104,7 +106,8 @@
       rate_comment_ph: 'Yorum ekle (isteğe bağlı)',
       rate_submit: 'Puanı gönder',
       rate_skip: 'Atla',
-      rate_thanks: 'Geri bildiriminiz için teşekkürler!'
+      rate_thanks: 'Geri bildiriminiz için teşekkürler!',
+      powered_by: 'Web Yar tarafından desteklenmektedir'
     },
   };
 

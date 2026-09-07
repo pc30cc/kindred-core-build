@@ -88,7 +88,6 @@ export type TelegramCommandLabels = {
   faq: string;
   guides: string;
 };
-export type TelegramFaqItem = { question: string; answer: string };
 export interface TelegramSettings {
   profile: { name: string; shortDescription: string; description: string; photoUrl: string };
   locales: Record<TelegramLocale, TelegramLocaleMessages>;
@@ -103,7 +102,6 @@ export interface TelegramSettings {
     /** Close writing while offline and the AI is not answering. */
     lockWhenOffline: boolean;
   };
-  faq: Record<TelegramLocale, TelegramFaqItem[]>;
   handlingMode: TelegramHandlingMode;
 }
 

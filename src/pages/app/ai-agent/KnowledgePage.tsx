@@ -11,8 +11,6 @@ import { useTranslation } from '@/i18n';
 import { toast } from '@/lib/toast';
 import { formatDate } from '@/lib/date';
 import { isStorageCleanupIncomplete, readApiErrorCode } from '@/lib/ai-knowledge-delete';
-import AiKbBuilderTab from '@/components/app/knowledge/AiKbBuilderTab';
-import { EntitlementAccessGate } from '@/components/plan/EntitlementAccessGate';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
 
@@ -110,26 +108,16 @@ export default function KnowledgePage() {
     <div className="space-y-8" dir={dir}>
       <AiPageHeader icon={BookOpen} accent="cyan" title={tr('title', 'Knowledge')} subtitle={tr('subtitle', 'Sources your AI Agent uses to answer visitors.')} />
 
-      {/* Phase 6-S5-R1 — the AI KB Builder has its OWN entitlement. When it
-          is locked, only this card is replaced; the rest of Knowledge
-          Sources stays usable and the Builder never mounts. */}
-      {/* Phase 6-S5-R4 — `knowledge_base` is NOT a requirement: the Knowledge
-          Base itself is always available. Only the AI surfaces are gated. */}
-      <EntitlementAccessGate
-        mode="inline"
-        requirements={[
-          { type: 'module', key: 'ai_assistant' },
-          { type: 'feature', key: 'ai_kb_builder' },
-        ]}
-      >
-        <AiKbBuilderTab />
-      </EntitlementAccessGate>
-
+      {/* Articles and Q&A are authored in the unified Knowledge Base page
+          (Articles / Q&A tabs, including the AI website-scan builder) — this
+          page only reports RAG indexing status for every source type. Files
+          and website crawl sources are managed here since they have no
+          separate authoring surface. */}
       <div className="flex flex-wrap items-center gap-2">
         <Button asChild variant="default" className="shadow-sm">
           <Link to={wsPath('/knowledge-base')}>
             <BookText className="h-4 w-4 me-2" />
-            {tr('actions.manageArticles', 'Manage articles')}
+            {tr('actions.manageArticles', 'Manage articles & Q&A')}
           </Link>
         </Button>
         <Button variant="outline" onClick={onPickFile} disabled={uploading}>

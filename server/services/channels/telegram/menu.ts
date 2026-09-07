@@ -215,19 +215,60 @@ export function backKeyboard(
 }
 
 // ── FAQ ───────────────────────────────────────────────────────────────
+//
+// FAQ answers come from the SAME `ai_agent_qna` rows as the AI assistant's
+// retrieval and the operator-facing Knowledge Base → Q&A tab — there is no
+// Telegram-specific copy of this content. Mirrors `listHelpArticles` below.
+
+export type FaqEntry = { id: string; question: string; answer: string };
 
 function shortLabel(text: string, max = 48): string {
   const clean = text.replace(/\s+/g, ' ').trim();
   return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
 }
 
+/** Enabled Q&A pairs for the workspace, preferring the requested locale. */
+export async function listFaqItems(
+  config: ServerConfig,
+  workspaceId: string,
+  locale: string | null | undefined,
+  fallback?: string | null,
+): Promise<FaqEntry[]> {
+  const sb = getServiceClient(config);
+  const wanted = [normalizeLocale(locale), normalizeLocale(fallback)].filter(Boolean) as string[];
+
+  const { data, error } = await sb
+    .from('ai_agent_qna')
+    .select('id, question, answer, locale, updated_at')
+    .eq('workspace_id', workspaceId)
+    .eq('enabled', true)
+    .order('updated_at', { ascending: false })
+    .limit(120);
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as any[];
+  for (const candidate of wanted) {
+    const scoped = rows.filter((row) => String(row.locale ?? '').slice(0, 2).toLowerCase() === candidate);
+    if (scoped.length) return scoped.slice(0, 60).map(toFaqEntry);
+  }
+  return rows.slice(0, 60).map(toFaqEntry);
+}
+
+function toFaqEntry(row: any): FaqEntry {
+  return {
+    id: String(row.id),
+    question: String(row.question ?? '').slice(0, 500),
+    answer: String(row.answer ?? '').slice(0, 4000),
+  };
+}
+
 export function buildFaqList(
   settings: TelegramSettings,
+  items: FaqEntry[],
   locale: string | null | undefined,
   fallback?: string | null,
 ) {
   const s = menuStrings(settings, locale, fallback);
-  const items = faqItems(settings, locale, fallback);
   if (!items.length) {
     return {
       text: `<b>${escapeHtml(s.faqTitle)}</b>\n\n${escapeHtml(s.faqEmpty)}`,
@@ -244,29 +285,16 @@ export function buildFaqList(
   };
 }
 
-export function faqItems(
-  settings: TelegramSettings,
-  locale: string | null | undefined,
-  fallback?: string | null,
-) {
-  const chain = [normalizeLocale(locale), normalizeLocale(fallback), 'en' as TelegramLocale];
-  for (const candidate of chain) {
-    if (!candidate) continue;
-    const list = settings.faq?.[candidate];
-    if (list && list.length) return list;
-  }
-  return [];
-}
-
 export function buildFaqAnswer(
   settings: TelegramSettings,
+  items: FaqEntry[],
   locale: string | null | undefined,
   index: number,
   fallback?: string | null,
 ) {
   const s = menuStrings(settings, locale, fallback);
-  const item = faqItems(settings, locale, fallback)[index];
-  if (!item) return buildFaqList(settings, locale, fallback);
+  const item = items[index];
+  if (!item) return buildFaqList(settings, items, locale, fallback);
   return {
     text: `<b>${escapeHtml(item.question)}</b>\n\n${escapeHtml(item.answer)}`,
     replyMarkup: {

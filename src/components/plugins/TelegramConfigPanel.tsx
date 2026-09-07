@@ -17,7 +17,9 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,7 +43,6 @@ import {
   BookOpen,
   HelpCircle,
   Loader2,
-  Plus,
   Trash2,
   PlugZap,
   RefreshCw,
@@ -71,7 +72,6 @@ const CHROME_KEYS = [
 type MessageKey = (typeof REPLY_KEYS)[number] | (typeof CHROME_KEYS)[number];
 const emptyMessages = () =>
   Object.fromEntries([...REPLY_KEYS, ...CHROME_KEYS].map((k) => [k, ''])) as Record<MessageKey, string>;
-type FaqItem = { question: string; answer: string };
 const EMPTY_COMMANDS: Record<CommandKey, string> = {
   start: '', new: '', faq: '', guides: '',
 };
@@ -146,6 +146,7 @@ export function TelegramConfigPanel({
    */
   const isInstagram = descriptor?.credentialKind === 'instagram_graph';
   const managesWebhook = descriptor?.supportsWebhookRegistration !== false;
+  const wsPath = useWorkspacePath();
   const [token, setToken] = useState('');
   const [phoneNumberId, setPhoneNumberId] = useState('');
   const [businessAccountId, setBusinessAccountId] = useState('');
@@ -173,7 +174,6 @@ export function TelegramConfigPanel({
     offlineNoticeEnabled: true,
     lockWhenOffline: false,
   });
-  const [faq, setFaq] = useState<Record<'en' | 'fa' | 'tr', FaqItem[]>>({ en: [], fa: [], tr: [] });
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   // Only the languages this deployment actually speaks may be edited. On a
@@ -246,7 +246,6 @@ export function TelegramConfigPanel({
     setCommands(s.commands);
     if (s.commandLocales) setCommandLocales(s.commandLocales as any);
     if ((s as any).menu) setMenuSettings((prev) => ({ ...prev, ...(s as any).menu }));
-    if ((s as any).faq) setFaq({ en: [], fa: [], tr: [], ...(s as any).faq });
     setBotName((prev) => prev || s.profile.name);
     setShortDescription((prev) => prev || s.profile.shortDescription);
     setDescription((prev) => prev || s.profile.description);
@@ -347,7 +346,6 @@ export function TelegramConfigPanel({
         commands,
         commandLocales,
         menu: menuSettings,
-        faq,
         handlingMode,
       }),
     onSuccess: (data: any) => {
@@ -650,8 +648,6 @@ export function TelegramConfigPanel({
   }
 
   if (section === 'menu') {
-    const items = faq[locale] ?? [];
-    const rtl = locale === 'fa';
     return (
       <div className="space-y-4">
         <Card className="space-y-4 p-4">
@@ -685,90 +681,19 @@ export function TelegramConfigPanel({
         </Card>
 
         {menuSettings.faqEnabled && (
-          <Card className="space-y-4 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <Label>{t('plugins.telegram.faqTitle')}</Label>
-              {editableLocales.length > 1 && (
-                <div className="flex flex-wrap gap-2">
-                  {editableLocales.map((l) => (
-                    <Button
-                      key={l}
-                      type="button"
-                      size="sm"
-                      variant={locale === l ? 'default' : 'outline'}
-                      onClick={() => setLocale(l)}
-                    >
-                      {t(`plugins.telegram.locale.${l}` as never)}
-                    </Button>
-                  ))}
-                </div>
-              )}
+          <Card className="space-y-2 p-4">
+            <div className="flex items-start gap-3">
+              <span className="rounded-lg bg-primary/10 p-2 text-primary">
+                <HelpCircle className="h-4 w-4" />
+              </span>
+              <div className="space-y-1">
+                <p className="text-sm font-medium">{t('plugins.telegram.faqTitle')}</p>
+                <p className="text-xs text-muted-foreground">{t('plugins.telegram.faqSourceHint')}</p>
+                <Button asChild variant="outline" size="sm" className="mt-1">
+                  <Link to={`${wsPath('/knowledge-base')}?tab=qna`}>{t('plugins.telegram.faqManage')}</Link>
+                </Button>
+              </div>
             </div>
-
-            <div className="space-y-3" dir={rtl ? 'rtl' : 'ltr'}>
-              {items.length === 0 && (
-                <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                  {t('plugins.telegram.faqEmpty')}
-                </p>
-              )}
-              {items.map((item, index) => (
-                <div key={index} className="space-y-2 rounded-xl border p-3">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary">{index + 1}</Badge>
-                    <Input
-                      value={item.question}
-                      maxLength={200}
-                      placeholder={t('plugins.telegram.faqQuestion')}
-                      onChange={(e) =>
-                        setFaq((prev) => ({
-                          ...prev,
-                          [locale]: prev[locale].map((row, i) =>
-                            i === index ? { ...row, question: e.target.value } : row,
-                          ),
-                        }))
-                      }
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="text-destructive"
-                      onClick={() =>
-                        setFaq((prev) => ({ ...prev, [locale]: prev[locale].filter((_, i) => i !== index) }))
-                      }
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <Textarea
-                    rows={3}
-                    maxLength={3000}
-                    value={item.answer}
-                    placeholder={t('plugins.telegram.faqAnswer')}
-                    onChange={(e) =>
-                      setFaq((prev) => ({
-                        ...prev,
-                        [locale]: prev[locale].map((row, i) =>
-                          i === index ? { ...row, answer: e.target.value } : row,
-                        ),
-                      }))
-                    }
-                  />
-                </div>
-              ))}
-            </div>
-
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                setFaq((prev) => ({ ...prev, [locale]: [...(prev[locale] ?? []), { question: '', answer: '' }] }))
-              }
-            >
-              <Plus className="me-2 h-4 w-4" />
-              {t('plugins.telegram.faqAdd')}
-            </Button>
           </Card>
         )}
 

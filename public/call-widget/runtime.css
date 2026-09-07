@@ -19,6 +19,7 @@
   font-family: 'IRANSans', 'InterWY', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 .ccw-root *, .ccw-root *::before, .ccw-root *::after { box-sizing: border-box; letter-spacing: 0; }
+.ccw-root [hidden] { display: none !important; }
 .ccw-root[dir="rtl"] { direction: rtl; text-align: right; }
 .ccw-root[lang="fa"], .ccw-root[lang="fa"] * { font-family: 'IRANSans', 'InterWY', Tahoma, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 
@@ -65,8 +66,11 @@
 
 /* ── Panel ───────────────────────────────────────────────────────── */
 .ccw-panel {
-  position: fixed; bottom: 0; right: 20px; z-index: 2147483000;
-  width: 368px; max-width: calc(100vw - 24px); height: 508px; max-height: calc(100vh - 110px);
+  /* Anchored at the exact same fixed point as .ccw-launcher-wrap (same
+     bottom/right) so the panel visually grows from the launcher instead of
+     appearing to open lower on the page. */
+  position: fixed; bottom: 20px; right: 20px; z-index: 2147483000;
+  width: 368px; max-width: calc(100vw - 24px); height: 508px; max-height: calc(100vh - 130px);
   display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box;
   background: hsl(var(--ccw-surface)); color: hsl(var(--ccw-ink));
   box-shadow: 0 25px 50px -12px hsl(0 0% 0% / .25);
@@ -273,7 +277,7 @@ select.ccw-input { background: hsl(0 0% 100%); }
 @media (max-width: 480px) {
   .ccw-launcher-wrap { right: 14px; bottom: 14px; }
   .ccw-launcher-wrap.left { left: 14px; right: auto; }
-  .ccw-panel { right: 10px; left: 10px; width: auto; max-width: none; max-height: calc(100vh - 94px); }
+  .ccw-panel { right: 10px; left: 10px; bottom: 14px; width: auto; max-width: none; max-height: calc(100vh - 108px); }
   .ccw-panel.left { left: 10px; }
   .ccw-row { flex-direction: column; }
   .ccw-title { max-width: calc(100vw - 158px); }

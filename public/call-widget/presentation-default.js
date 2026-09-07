@@ -71,10 +71,16 @@
   function el(tag, attrs, children) {
     var node = document.createElement(tag);
     if (attrs) Object.keys(attrs).forEach(function (key) {
-      if (key === 'class') node.className = attrs[key];
-      else if (key === 'on') Object.keys(attrs[key]).forEach(function (event) { node.addEventListener(event, attrs[key][event]); });
-      else if (key === 'html') node.textContent = attrs[key];
-      else node.setAttribute(key, attrs[key]);
+      var value = attrs[key];
+      if (key === 'class') node.className = value;
+      else if (key === 'on') Object.keys(value).forEach(function (event) { node.addEventListener(event, value[event]); });
+      else if (key === 'html') node.textContent = value;
+      // Boolean attributes (disabled, etc.) are present/absent, not
+      // "true"/"false" strings — setAttribute(key, false) still marks an
+      // element disabled since the attribute's mere presence is what counts.
+      else if (value === true) node.setAttribute(key, '');
+      else if (value === false || value == null) { /* omit */ }
+      else node.setAttribute(key, value);
     });
     (children || []).forEach(function (child) {
       if (child == null) return;
@@ -124,12 +130,26 @@
     return node;
   }
 
+  // The launcher and panel are the two elements CSS animates on open/close
+  // (grow-from-launcher, hover flip). A transition only ever plays on an
+  // element whose style changes while it stays the same DOM node — a freshly
+  // created node's first style resolution is never "from" anything, so these
+  // two outer containers are built once per mount and reused on every
+  // subsequent render; only their contents are replaced each time.
+  function ensureShell(self) {
+    if (self._launcherWrap && self._panel) return;
+    self._launcherWrap = el('div', { class: 'ccw-launcher-wrap' });
+    self._panel = el('div', { class: 'ccw-panel' });
+    self.root.appendChild(self._launcherWrap);
+    self.root.appendChild(self._panel);
+  }
+
   function renderWidget() {
     if (!this.root) return;
     var self = this;
     var tr = function (key, vars) { return self.t(key, vars); };
     var pos = this.position();
-    this.root.replaceChildren();
+    ensureShell(self);
     this.root.setAttribute('lang', this.locale);
     this.root.setAttribute('dir', (LOCALE_META[this.locale] && LOCALE_META[this.locale].dir) || 'ltr');
     this.root.classList.toggle('ccw-is-open', !!this.open);
@@ -139,12 +159,13 @@
 
     // The hide policy applies only while offline. In-flight states remain
     // visible so a network/status transition can never strand a visitor.
-    if (this.state === STATES.OFFLINE && offlineBehavior === 'hide') return;
+    var hideWidget = this.state === STATES.OFFLINE && offlineBehavior === 'hide';
+    self._launcherWrap.hidden = hideWidget;
+    self._panel.hidden = hideWidget;
+    if (hideWidget) return;
 
     // Launcher: a circular icon button (flips from the workspace logo to a
-    // phone icon on hover) plus an adjacent floating text pill. Both persist
-    // in the DOM and are hidden via CSS (.ccw-is-open) rather than
-    // conditionally rendered, so the entrance/exit stays a pure transition.
+    // phone icon on hover) plus an adjacent floating text pill.
     var launcherText = this.isOnline()
       ? tr('talk_now')
       : (offlineBehavior === 'show_callback' ? tr('callback') : tr('support'));
@@ -160,21 +181,21 @@
     launcherFace.appendChild(el('span', { class: 'ccw-launcher-icon' }, [svgIcon(PHONE_PATH, 20)]));
 
     var launcherBtn = el('button', {
-      class: 'ccw-launcher-btn ' + pos,
+      class: 'ccw-launcher-btn',
       'aria-label': launcherText,
       on: { click: function () { self.toggleOpen(); } },
     }, [launcherFace]);
 
-    var launcherLabel = el('div', { class: 'ccw-launcher-label ' + pos }, [
+    var launcherLabel = el('div', { class: 'ccw-launcher-label' }, [
       el('span', { class: 'ccw-launcher-text' }, [launcherText]),
       el('span', { class: 'ccw-launcher-sub' }, [launcherSub]),
     ]);
 
-    this.root.appendChild(el('div', { class: 'ccw-launcher-wrap ' + pos }, [launcherBtn, launcherLabel]));
+    self._launcherWrap.className = 'ccw-launcher-wrap ' + pos;
+    self._launcherWrap.replaceChildren(launcherBtn, launcherLabel);
 
     if (!this.open) return;
 
-    var panel = el('div', { class: 'ccw-panel ' + pos });
     var header = el('div', { class: 'ccw-header' }, [
       el('div', { class: 'ccw-avatar' }, [
         cfg.avatar_url ? el('img', { src: cfg.avatar_url, alt: '' }) : svgIcon(PHONE_PATH, 17),
@@ -189,16 +210,16 @@
       renderLocaleSwitcher.call(this),
       el('button', { class: 'ccw-close', 'aria-label': tr('back'), on: { click: function () { self.toggleOpen(); } } }, [svgIcon(CHEVRON_DOWN, 16)]),
     ]);
-    panel.appendChild(header);
 
     var body = el('div', { class: 'ccw-body ccw-scroll' });
     body.appendChild(renderState.call(this, caps, cfg));
-    panel.appendChild(body);
 
-    panel.appendChild(el('div', { class: 'ccw-footer' }, [
+    var footer = el('div', { class: 'ccw-footer' }, [
       el('a', { href: '#', class: 'ccw-powered', on: { click: function (e) { e.preventDefault(); } } }, [tr('powered_by')]),
-    ]));
-    this.root.appendChild(panel);
+    ]);
+
+    self._panel.className = 'ccw-panel ' + pos;
+    self._panel.replaceChildren(header, body, footer);
   }
 
   function renderLocaleSwitcher() {
@@ -464,6 +485,7 @@
         ];
         if (self.endedCallId && !self.ratingSubmitted) {
           var stars = el('div', { class: 'ccw-stars' });
+          var submitBtn;
           var renderStars = function () {
             stars.replaceChildren();
             for (var i = 1; i <= 5; i++) {
@@ -477,7 +499,17 @@
                 starIcon.appendChild(p);
                 var btn = el('button', {
                   class: 'ccw-star' + (self.ratingValue >= n ? ' filled' : ''), type: 'button', 'aria-label': String(n),
-                  on: { click: function () { self.ratingValue = n; renderStars(); } },
+                  on: {
+                    click: function () {
+                      self.ratingValue = n;
+                      renderStars();
+                      // Picking a star only rebuilds the star icons locally
+                      // (no full re-render, so the comment textarea keeps
+                      // focus) — the submit button's disabled state is kept
+                      // in sync here instead.
+                      if (submitBtn) submitBtn.disabled = self.ratingValue === 0;
+                    },
+                  },
                 }, [starIcon]);
                 stars.appendChild(btn);
               })(i);
@@ -493,9 +525,10 @@
           ]));
           stack.push(stars);
           stack.push(ta);
+          submitBtn = el('button', { class: 'ccw-btn primary', disabled: self.ratingValue === 0, on: { click: function () { self.submitRating(); } } }, [tr('rate_submit')]);
           stack.push(el('div', { class: 'ccw-row' }, [
             el('button', { class: 'ccw-btn secondary', on: { click: function () { self.skipRating ? self.skipRating() : self.reset(); } } }, [tr('rate_skip')]),
-            el('button', { class: 'ccw-btn primary', disabled: self.ratingValue === 0, on: { click: function () { self.submitRating(); } } }, [tr('rate_submit')]),
+            submitBtn,
           ]));
         } else if (self.ratingSubmitted) {
           stack.push(el('span', { class: 'ccw-rate-title' }, [tr('rate_thanks')]));

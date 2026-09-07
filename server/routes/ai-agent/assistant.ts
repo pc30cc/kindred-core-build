@@ -460,16 +460,30 @@ assistantRouter.post('/generate-business-description', requireModule('ai_assista
     articles?.length ? `Sample knowledge titles:\n${(articles || []).map((a) => `- ${a.title}${a.excerpt ? ` — ${a.excerpt}` : ''}`).join('\n')}` : '',
   ].filter(Boolean).join('\n');
   try {
+    // Every generation is a billable AI run: opened (and credit-reserved)
+    // before the provider call, settled on real usage. Entry point
+    // `assistant_describe_business` shows up in Finance → AI runs.
     const r = await executeAICompletion(config, {
       workspaceId,
       systemPrompt: sys,
       prompt: `Context:\n${ctx}\n\nWrite the description now.`,
       maxTokens: 220,
       temperature: 0.4,
-      billing: { entryPoint: 'assistant_describe_business' },
+      billing: {
+        entryPoint: 'assistant_describe_business',
+        operationKey: `assistant_describe_business:${workspaceId}:${randomUUID()}`,
+      },
     });
     return res.json({ description: (r.text || '').trim(), source: 'ai', provider: r.provider, model: r.model });
   } catch (err: any) {
+    const code = err?.code || '';
+    if (
+      code === 'ai_allowance_exhausted' ||
+      code === 'ai_credits_exhausted' ||
+      /exhaust|insufficient/i.test(String(err?.message || ''))
+    ) {
+      return res.status(402).json({ error: 'ai_credits_exhausted' });
+    }
     return res.status(500).json({ error: 'generation_failed', details: err?.message });
   }
 });

@@ -17,6 +17,10 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { Loader2, Sparkles } from 'lucide-react';
+import {
+  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+} from 'recharts';
+
 import { toast } from '@/hooks/use-toast';
 
 type Range = '7d' | '30d' | '90d';
@@ -99,8 +103,9 @@ export default function OperatorAssistAnalyticsPage() {
 
       {a && (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
             <SummaryCard label={t('aiAgent.assistAnalytics.summary.totalSuggestions')} value={a.summary.total_suggestions} />
+            <SummaryCard label={t('aiAgent.assistAnalytics.summary.feedbackReceived')} value={a.summary.total_feedback} />
             <SummaryCard label={t('aiAgent.assistAnalytics.summary.acceptanceRate')} value={pct(a.summary.acceptance_rate)} />
             <SummaryCard
               label={t('aiAgent.assistAnalytics.summary.negativeRate')}
@@ -109,7 +114,45 @@ export default function OperatorAssistAnalyticsPage() {
             />
             <SummaryCard label={t('aiAgent.assistAnalytics.summary.noSourceCount')} value={a.summary.no_source_count} />
             <SummaryCard label={t('aiAgent.assistAnalytics.summary.avgConfidence')} value={a.summary.avg_confidence.toFixed(2)} />
+            <SummaryCard
+              label={t('aiAgent.assistAnalytics.summary.aiCreditsUsed')}
+              value={a.summary.total_suggestions}
+            />
           </div>
+
+          <div className="grid md:grid-cols-3 gap-3">
+            <SummaryCard label={t('aiAgent.assistAnalytics.summary.positive')} value={a.summary.positive} />
+            <SummaryCard label={t('aiAgent.assistAnalytics.summary.neutral')} value={a.summary.neutral} />
+            <SummaryCard label={t('aiAgent.assistAnalytics.summary.negative')} value={a.summary.negative} tone={a.summary.negative > 0 ? 'warn' : 'default'} />
+          </div>
+
+          {a.summary.usage_increment_failed_count > 0 && (
+            <div className="text-xs text-warning">
+              {t('aiAgent.assistAnalytics.usageIncrementFailedWarning', { count: String(a.summary.usage_increment_failed_count) })}
+            </div>
+          )}
+
+          <Card>
+            <CardHeader><CardTitle className="text-sm">{t('aiAgent.assistAnalytics.dailyTrend.title')}</CardTitle></CardHeader>
+            <CardContent className="h-[260px]">
+              {a.by_day.length === 0 ? (
+                <div className="text-xs text-muted-foreground">{t('aiAgent.assistAnalytics.dailyTrend.empty')}</div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={a.by_day}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Line type="monotone" dataKey="suggestions" name={t('aiAgent.assistAnalytics.dailyTrend.seriesSuggestions')} stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="positive" name={t('aiAgent.assistAnalytics.summary.positive')} stroke="hsl(var(--success, 142 71% 45%))" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="negative" name={t('aiAgent.assistAnalytics.summary.negative')} stroke="hsl(var(--destructive))" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
 
           <div className="grid md:grid-cols-3 gap-4">
             <Card>

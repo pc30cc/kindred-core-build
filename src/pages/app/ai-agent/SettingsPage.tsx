@@ -214,7 +214,12 @@ export default function AiAgentSettingsPage() {
       setDirtyField({ business_description: r.description });
       toast.success(r.source === 'ai' ? tr('generated', 'Generated') : tr('generatedOffline', 'Generated (offline stub)'));
     } catch (e: any) {
-      toast.error(e?.message || tr('generationFailed', 'Generation failed'));
+      const msg = String(e?.message || '');
+      if (msg.includes('ai_credits_exhausted')) {
+        toast.error(tr('creditsExhausted', 'AI credit is exhausted. Top up your AI credit and try again.'));
+      } else {
+        toast.error(msg || tr('generationFailed', 'Generation failed'));
+      }
     } finally {
       setGenerating(false);
     }

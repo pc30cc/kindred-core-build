@@ -6,6 +6,7 @@
  * limits and response shapes are unchanged from the original file.
  */
 import express, { type Request, type Response, type Router } from 'express';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
@@ -28,6 +29,8 @@ import { buildSystemPrompt as e7_buildSystemPrompt, buildUserPrompt as e7_buildU
 import { detectInputLanguage, languageDisplayName } from '../../services/ai-agent/language.js';
 import { resolveAIConfig as e7_resolveAIConfig, executeAICompletion as e7_executeAICompletion } from '../../services/ai/index.js';
 import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
+import { logRun } from '../../services/ai-agent/logs.js';
+
 import { authorizeMember, isOwnerOrAdmin, requireWorkspace } from './shared.js';
 
 export const operatorAssistRouter: Router = express.Router();
@@ -138,12 +141,43 @@ async function e7PersistAssistRun(
       console.error('[ai-agent.e7] persist assist run error:', error.message);
       return null;
     }
-    return (data?.id as string) || null;
+    const assistRunId = (data?.id as string) || null;
+    // Unified activity feed — operator assist suggestions are mirrored into
+    // the canonical ai_agent_runs log so they show up in "Recent runs"
+    // alongside auto-reply runs. Never breaks the assist response.
+    try {
+      await logRun(config, {
+        workspaceId: payload.workspaceId,
+        conversationId: payload.conversationId,
+        runType: 'suggestion',
+        mode: 'operator_assist',
+        status: payload.status === 'skipped' ? 'skipped' : payload.status,
+        inputText: payload.inputMessage,
+        outputText: payload.suggestion,
+        skipReason: payload.status === 'skipped' ? 'llm_call_skipped' : null,
+        errorMessage: payload.error,
+        provider: payload.provider,
+        model: payload.model,
+        confidence: payload.confidence,
+        creditsUsed: payload.status === 'suggested' && payload.suggestion ? 1 : 0,
+        metadata: {
+          source: 'operator_assist',
+          assist_run_id: assistRunId,
+          requested_by: payload.requestedBy,
+          tone: payload.tone,
+          safety_notes: payload.safetyNotes?.slice(0, 10) || [],
+        },
+      });
+    } catch (mirrorErr: any) {
+      console.warn('[ai-agent.e7] assist run mirror failed:', mirrorErr?.message);
+    }
+    return assistRunId;
   } catch (err: any) {
     console.error('[ai-agent.e7] persist assist run failed:', err?.message);
     return null;
   }
 }
+
 
 operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
@@ -260,12 +294,21 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
   // provider/model — beginAiRunGuarded refuses to open an ENFORCED
   // reservation without one.
   let assistRunCtx: E7RunContext | null = null;
+  const assistRequestNonce = randomUUID();
   try {
     const assistAiCfg = await e7_resolveAIConfig(config, workspaceId).catch(() => null);
     assistRunCtx = await e7_beginAiRunGuarded(config, {
       workspaceId,
-      operationKey: `operator_assist:${conversationId}:${latestVisitor?.id || 'latest'}:${tone ?? 'default'}:${(instruction || '').slice(0, 64)}`,
-      payload: { workspaceId, conversationId, inputMessage, instruction: instruction ?? null, tone: tone ?? null, locale: responseLocale },
+      // Each operator "suggest reply" click is its OWN billable business
+      // operation: the operator may regenerate on the same conversation,
+      // same tone and same instruction any number of times, and every one
+      // of those calls hits the model. A stable key made only of
+      // conversation/tone/instruction made every later click resume the
+      // FIRST run (idempotent replay), so no new run appeared in the AI
+      // runs ledger and no further credit was consumed. The per-request
+      // nonce restores one run per request.
+      operationKey: `operator_assist:${conversationId}:${latestVisitor?.id || 'latest'}:${tone ?? 'default'}:${(instruction || '').slice(0, 64)}:${assistRequestNonce}`,
+      payload: { workspaceId, conversationId, inputMessage, instruction: instruction ?? null, tone: tone ?? null, locale: responseLocale, assistRequestNonce },
       entryPoint: 'operator_assist',
       channel: 'operator',
       conversationId,
@@ -285,7 +328,30 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
     console.warn('[ai-billing] operator assist run not opened:', err?.message);
   }
 
+  /**
+   * Every exit path of this handler MUST close the financial run. An open run
+   * keeps its reservation and is never charged — the operator gets paid work
+   * for free and the audit trail shows nothing. Idempotent: safe to call twice.
+   */
+  let runClosed = false;
+  const closeAssistRun = async (failure?: string | null): Promise<void> => {
+    if (!assistRunCtx || runClosed) return;
+    runClosed = true;
+    try {
+      if (failure) await e7_failAiRun(config, assistRunCtx, failure);
+      else if (assistRunCtx.stepSeq > 0) await e7_settleAiRun(config, assistRunCtx);
+      else await e7_failAiRun(config, assistRunCtx, 'no_billable_usage');
+    } catch (closeErr: any) {
+      console.error(
+        '[ai-billing] operator assist run not closed:',
+        assistRunCtx.runId,
+        closeErr?.message || closeErr,
+      );
+    }
+  };
+
   let hybrid: any;
+
   try {
     hybrid = await retrieveHybridSources(config, {
       workspaceId,
@@ -305,6 +371,7 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
       answerStrategy: {}, safetyNotes: [`retrieval_error:${err?.message || 'unknown'}`],
       provider: null, model: null, error: err?.message || 'retrieval_failed',
     });
+    await closeAssistRun(`retrieval_failed:${err?.message || 'unknown'}`);
     return res.status(500).json({ error: 'retrieval_failed', details: err?.message });
   }
 
@@ -425,6 +492,7 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
       provider: null, model: null, error: null,
     });
     baseResponse.assist_run_id = runId;
+    await closeAssistRun();
     return res.json(baseResponse);
   }
 
@@ -438,8 +506,21 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
       answerStrategy, safetyNotes: notes,
       provider: null, model: null, error: 'ai_provider_not_configured',
     });
+    await closeAssistRun('ai_provider_not_configured');
     return res.status(400).json({ error: 'ai_provider_not_configured', assist_run_id: runId });
   }
+
+  // AI credit accounting for operator assist runs through the SAME canonical
+  // path as widget auto-replies: the AI billing wallet (reserve on
+  // beginAiRunGuarded, settle on real model usage) via `assistRunCtx`.
+  // The legacy `deduct_ai_credits` counter RPC is intentionally NOT used here:
+  // its entitlement key ('ai_credits') does not exist in any plan's limits
+  // (plans expose `ai_credits_per_month` / `included_ai_allowance_irr`), so it
+  // always fails closed and blocked every suggestion.
+
+
+
+
 
   try {
     const result = await e7_executeAICompletion(config, {
@@ -486,12 +567,10 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
       error: suggestion ? null : 'empty_completion',
     });
     out.assist_run_id = runId;
-    if (assistRunCtx) {
-      await (assistRunCtx.stepSeq > 0
-        ? e7_settleAiRun(config, assistRunCtx)
-        : e7_failAiRun(config, assistRunCtx, 'no_billable_usage')
-      ).catch(() => undefined);
-    }
+    // A silent failure here left the run in USAGE_RECORDED with its
+    // reservation still held — the operator got the answer for free and the
+    // audit trail showed no charge. closeAssistRun logs instead of swallowing.
+    await closeAssistRun();
     return res.json(out);
   } catch (err: any) {
     const notes = [`llm_error:${err?.message || 'unknown'}`, ...safetyNotes];
@@ -503,9 +582,7 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
       provider: aiCfg.provider, model: aiCfg.model,
       error: err?.message || 'llm_failed',
     });
-    if (assistRunCtx) {
-      await e7_failAiRun(config, assistRunCtx, err?.message || 'llm_failed').catch(() => undefined);
-    }
+    await closeAssistRun(err?.message || 'llm_failed');
     return res.status(502).json({ error: 'llm_failed', details: redactSecrets(err?.message) || 'unknown_error' });
   }
 });

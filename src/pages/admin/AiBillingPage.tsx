@@ -58,6 +58,15 @@ export default function AiBillingPage() {
   const money = (irr: unknown) => formatToman(Number(irr ?? 0), locale);
   const usd = (n: unknown, digits = 4) => `$${(Number(n) || 0).toFixed(digits)}`;
   const when = (v?: string | null) => (v ? formatDateTime(v) : '—');
+  /** Renders any API value safely — some columns can return JSON objects. */
+  const txt = (v: unknown, fallback = '—'): string => {
+    if (v == null || v === '') return fallback;
+    if (typeof v === 'string') return v;
+    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+    const o = v as Record<string, unknown>;
+    if (typeof o.message === 'string') return o.message;
+    try { return JSON.stringify(v); } catch { return fallback; }
+  };
 
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState<any>(null);
@@ -579,6 +588,7 @@ export default function AiBillingPage() {
                   <TableHeader>
                     <TableRow className="bg-muted/50">
                       <TableHead className="font-semibold text-foreground">{t('aiBilling.time')}</TableHead>
+                      <TableHead className="font-semibold text-foreground">{t('aiBilling.workspace')}</TableHead>
                       <TableHead className="font-semibold text-foreground">{t('aiBilling.entryPoint')}</TableHead>
                       <TableHead className="font-semibold text-foreground">{t('aiBilling.model')}</TableHead>
                       <TableHead className="font-semibold text-foreground">{t('aiBilling.status')}</TableHead>
@@ -591,9 +601,15 @@ export default function AiBillingPage() {
                     {runs.map((r) => (
                       <TableRow key={r.id}>
                         <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{when(r.created_at)}</TableCell>
-                        <TableCell className="text-sm">{r.entry_point}</TableCell>
-                        <TableCell className="font-mono text-sm">{r.primary_model || '—'}</TableCell>
-                        <TableCell><Badge variant="outline">{r.status}</Badge></TableCell>
+                        <TableCell className="text-sm">
+                          {txt(r.workspace_name, '') || <span className="font-mono text-xs text-muted-foreground">{String(r.workspace_id || '').slice(0, 8)}</span>}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {t(`aiBilling.entryPoints.${txt(r.entry_point)}` as any, { defaultValue: txt(r.entry_point) })}
+                        </TableCell>
+
+                        <TableCell className="font-mono text-sm">{txt(r.primary_model)}</TableCell>
+                        <TableCell><Badge variant="outline">{txt(r.status)}</Badge></TableCell>
                         <TableCell>
                           <Badge variant={r.billing_quality === 'UNRESOLVED' ? 'destructive' : 'secondary'}>
                             {r.billing_quality === 'UNRESOLVED'
@@ -677,7 +693,9 @@ export default function AiBillingPage() {
                       <TableRow key={r.id}>
                         <TableCell className="whitespace-nowrap text-sm">{when(r.created_at)}</TableCell>
                         <TableCell className="font-mono text-xs">{String(r.workspace_id || '').slice(0, 8)}</TableCell>
-                        <TableCell className="text-sm">{r.unresolved_reason || '—'}</TableCell>
+                        <TableCell className="text-sm">
+                          {txt(r.unresolved_reason)}
+                        </TableCell>
                       </TableRow>
                     ))}
                     {!health?.unresolvedRuns?.length && (
@@ -743,7 +761,7 @@ export default function AiBillingPage() {
                       <TableRow key={c.id}>
                         <TableCell className="whitespace-nowrap text-sm">{when(c.created_at)}</TableCell>
                         <TableCell className="font-mono text-xs">{String(c.usage_event_key || '').slice(0, 24)}</TableCell>
-                        <TableCell className="text-sm">{c.conflict_reason || c.reason || '—'}</TableCell>
+                        <TableCell className="text-sm">{txt(c.conflict_reason ?? c.reason)}</TableCell>
                       </TableRow>
                     ))}
                     {!health?.ingestionConflicts?.length && (
@@ -803,7 +821,9 @@ export default function AiBillingPage() {
               <div>
                 <div className="text-xs text-muted-foreground">{t('aiBilling.schedulerLastError')}</div>
                 <div className={`font-medium ${health?.recoveryScheduler?.lastError ? 'text-destructive' : ''}`}>
-                  {health?.recoveryScheduler?.lastError || t('aiBilling.allClear')}
+                  {health?.recoveryScheduler?.lastError
+                    ? txt(health.recoveryScheduler.lastError)
+                    : t('aiBilling.allClear')}
                 </div>
               </div>
             </CardContent>

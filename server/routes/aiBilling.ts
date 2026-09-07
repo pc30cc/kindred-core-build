@@ -676,8 +676,16 @@ aiBillingRouter.get('/admin/runs', async (req, res) => {
   if (typeof req.query.workspaceId === 'string') q = q.eq('workspace_id', req.query.workspaceId);
   if (typeof req.query.quality === 'string') q = q.eq('billing_quality', req.query.quality);
   const { data } = await q;
-  res.json({ runs: data || [] });
+  const rows = data || [];
+  const wsIds = Array.from(new Set(rows.map((r: any) => r.workspace_id).filter(Boolean)));
+  let nameById = new Map<string, string>();
+  if (wsIds.length) {
+    const { data: ws } = await sb.from('workspaces').select('id, name, slug').in('id', wsIds);
+    nameById = new Map((ws || []).map((w: any) => [w.id, w.name || w.slug || '']));
+  }
+  res.json({ runs: rows.map((r: any) => ({ ...r, workspace_name: nameById.get(r.workspace_id) || null })) });
 });
+
 
 aiBillingRouter.get('/admin/runs/:runId', async (req, res) => {
   const sb = getServiceClient(cfg(req));

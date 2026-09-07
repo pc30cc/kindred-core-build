@@ -194,7 +194,9 @@ async function resolveWorkspaceFromIdParam(
     'test-cases': 'ai_agent_test_cases',
     'test-runs': 'ai_agent_test_runs',
     'suggested-test-cases': 'ai_agent_suggested_test_cases',
-    'operator-assist': 'ai_agent_runs',
+    // Operator assist run ids live in their own table (ai_operator_assist_runs),
+    // NOT ai_agent_runs — otherwise feedback POSTs fail workspace resolution.
+    'operator-assist': 'ai_operator_assist_runs',
     'conversations': 'conversations',
     'suggestions': 'ai_agent_suggestions',
     'guidance': 'ai_agent_guidance_rules',

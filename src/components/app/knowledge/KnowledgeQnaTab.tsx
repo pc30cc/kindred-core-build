@@ -321,7 +321,7 @@ export default function KnowledgeQnaTab() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-medium text-foreground">{qi.question}</span>
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">{qi.locale || 'en'}</Badge>
+                        
                         {qi.enabled === false && (
                           <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/40 text-amber-600">
                             {tr('disabled', 'Disabled')}

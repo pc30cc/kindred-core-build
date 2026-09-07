@@ -11,9 +11,11 @@ import { render, screen, waitFor } from '@testing-library/react';
 
 vi.mock('@/hooks/useWorkspace', () => ({
   useCurrentWorkspace: () => ({ id: 'ws-1' }),
+  useWorkspacePath: () => (path: string) => path,
 }));
 vi.mock('@/i18n', () => ({ useTranslation: () => ({ locale: 'en', t: (k: string) => k }) }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
+vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }));
 
 const getSource = vi.fn();
 const listJobs = vi.fn();

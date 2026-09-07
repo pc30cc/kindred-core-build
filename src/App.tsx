@@ -49,6 +49,7 @@ import KnowledgeArticleEditorPage from "@/pages/app/knowledge/ArticleEditorPage"
 import KnowledgeAiBuilderPage from "@/pages/app/knowledge/AiBuilderPage";
 import { WorkspaceKnowledgeBaseRedirect } from "@/features/workspace/WorkspaceKnowledgeBaseRedirect";
 import { WorkspaceQnaRedirect } from "@/features/workspace/WorkspaceQnaRedirect";
+import { WorkspaceFilesRedirect } from "@/features/workspace/WorkspaceFilesRedirect";
 import WidgetPage from "@/pages/app/WidgetPage";
 import PluginsPage from "@/pages/app/PluginsPage";
 import PluginDetailPage from "@/pages/app/PluginDetailPage";
@@ -64,7 +65,6 @@ import AiAgentRoutingPage from "@/pages/app/ai-agent/RoutingPage";
 import AiAgentInstructionsPage from "@/pages/app/ai-agent/InstructionsPage";
 import AiAgentLearningCandidatesPage from "@/pages/app/ai-agent/LearningCandidatesPage";
 import AiAgentWebPagesPage from "@/pages/app/ai-agent/WebPagesPage";
-import AiAgentFilesPage from "@/pages/app/ai-agent/FilesPage";
 import AiAgentTopicsPage from "@/pages/app/ai-agent/TopicsPage";
 import AiAgentWorkflowPage from "@/pages/app/ai-agent/WorkflowPage";
 import AiAgentTriggersPage from "@/pages/app/ai-agent/TriggersPage";
@@ -368,7 +368,10 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="learning-candidates" element={<AiAgentLearningCandidatesPage />} />
                   <Route path="train" element={<AiAgentTrainPage />} />
                   <Route path="web-pages" element={<AiAgentWebPagesPage />} />
-                  <Route path="files" element={<AiAgentFilesPage />} />
+                  {/* File authoring moved to the unified Knowledge Base page
+                      (Articles / Q&A / Files tabs) — this legacy URL
+                      redirects there. */}
+                  <Route path="files" element={<WorkspaceFilesRedirect />} />
                   <Route path="topics" element={<AiAgentTopicsPage />} />
                   <Route path="workflow" element={<AiAgentWorkflowPage />} />
                   <Route path="triggers" element={<AiAgentTriggersPage />} />

@@ -1,16 +1,13 @@
-import { useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { aiAgentApi } from '@/lib/ai-agent-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Loader2, BookOpen, MessageCircleQuestion, Globe, FileText, GraduationCap, BookMarked, BookText, Upload, Trash2 } from 'lucide-react';
+import { Loader2, BookOpen, MessageCircleQuestion, Globe, FileText, GraduationCap, BookMarked, BookText } from 'lucide-react';
 import { useTranslation } from '@/i18n';
-import { toast } from '@/lib/toast';
 import { formatDate } from '@/lib/date';
-import { isStorageCleanupIncomplete, readApiErrorCode } from '@/lib/ai-knowledge-delete';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { AiPageHeader } from '@/components/ai-agent/AiPageHeader';
 
@@ -45,10 +42,6 @@ export default function KnowledgePage() {
   const { workspace } = useActiveWorkspace();
   const wsId = workspace?.id;
   const { t, dir } = useTranslation();
-  const qc = useQueryClient();
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
   const tr = (k: string, fb: string, vars?: Record<string, string>) => {
     const v = t(`aiAgent.knowledge.${k}` as any, vars);
     return !v || v === `aiAgent.knowledge.${k}` ? fb : v;
@@ -63,56 +56,16 @@ export default function KnowledgePage() {
 
   const items: any[] = (health.data?.items || []) as any[];
 
-  const onPickFile = () => fileInputRef.current?.click();
-  const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file || !wsId) return;
-    setUploading(true);
-    const toastId = toast.loading(tr('actions.uploading', 'Uploading file...'));
-    try {
-      await aiAgentApi.uploadAiFile(wsId, file);
-      toast.success(tr('actions.uploadSuccess', 'File uploaded. Indexing will start shortly.'), { id: toastId });
-      qc.invalidateQueries({ queryKey: ['ai-knowledge', wsId] });
-    } catch (err: any) {
-      const code = err?.body?.error || err?.message || 'upload_failed';
-      toast.error(tr(`actions.error.${code}`, tr('actions.uploadError', 'Upload failed')) , { id: toastId });
-    } finally {
-      setUploading(false);
-    }
-  };
-  const onDeleteFile = async (id: string) => {
-    if (!confirm(tr('actions.deleteConfirm', 'Delete this file? It will be removed from AI knowledge.'))) return;
-    setDeletingId(id);
-    const toastId = toast.loading(tr('actions.deleting', 'Deleting file...'));
-    try {
-      const result = await aiAgentApi.deleteAiFile(id);
-      if (isStorageCleanupIncomplete(result)) {
-        toast.warning(
-          tr('actions.deletePartial', 'The file was removed from the knowledge base, but storage cleanup could not be completed.'),
-          { id: toastId },
-        );
-      } else {
-        toast.success(tr('actions.deleteSuccess', 'File deleted.'), { id: toastId });
-      }
-      qc.invalidateQueries({ queryKey: ['ai-knowledge', wsId] });
-    } catch (err: unknown) {
-      const code = readApiErrorCode(err, 'delete_failed');
-      toast.error(tr(`actions.error.${code}`, tr('actions.deleteError', 'Delete failed')), { id: toastId });
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
   return (
     <div className="space-y-8" dir={dir}>
       <AiPageHeader icon={BookOpen} accent="cyan" title={tr('title', 'Knowledge')} subtitle={tr('subtitle', 'Sources your AI Agent uses to answer visitors.')} />
 
-      {/* Articles and Q&A are authored in the unified Knowledge Base page
-          (Articles / Q&A tabs, including the AI website-scan builder) — this
-          page only reports RAG indexing status for every source type. Files
-          and website crawl sources are managed here since they have no
-          separate authoring surface. */}
+      {/* Articles, Q&A and files are all authored in the unified Knowledge
+          Base page (Articles / Q&A / Files tabs, including the AI
+          website-scan builder) — this page only reports RAG indexing
+          status for every source type. Website crawl sources are managed
+          on their own dedicated page (linked from here) since crawling
+          isn't authored content. */}
       <div className="flex flex-wrap items-center gap-2">
         <Button asChild variant="default" className="shadow-sm">
           <Link to={wsPath('/knowledge-base')}>
@@ -120,20 +73,12 @@ export default function KnowledgePage() {
             {tr('actions.manageArticles', 'Manage articles & Q&A')}
           </Link>
         </Button>
-        <Button variant="outline" onClick={onPickFile} disabled={uploading}>
-          {uploading ? <Loader2 className="h-4 w-4 me-2 animate-spin" /> : <Upload className="h-4 w-4 me-2" />}
-          {tr('actions.uploadFile', 'Upload file')}
+        <Button asChild variant="outline">
+          <Link to={`${wsPath('/knowledge-base')}?tab=files`}>
+            <FileText className="h-4 w-4 me-2" />
+            {tr('actions.manageFiles', 'Manage files')}
+          </Link>
         </Button>
-        <p className="text-xs text-muted-foreground basis-full sm:basis-auto sm:ms-2">
-          {tr('actions.uploadHint', 'PDF, DOCX, TXT, MD — used by your AI assistant.')}
-        </p>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf,.doc,.docx,.txt,.md,.csv,.html,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv,text/html"
-          className="hidden"
-          onChange={onFileChange}
-        />
       </div>
 
       {health.isLoading ? (
@@ -176,18 +121,6 @@ export default function KnowledgePage() {
                               </span>
                             )}
                             <Badge variant="outline" className={`text-[10px] ${TONE[s.tone]}`}>{tr(`status.${s.key}`, s.key)}</Badge>
-                            {g.key === 'file' && it.source_id && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 w-7 p-0"
-                                onClick={() => onDeleteFile(it.source_id)}
-                                disabled={deletingId === it.source_id}
-                                title={tr('actions.delete', 'Delete')}
-                              >
-                                {deletingId === it.source_id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                              </Button>
-                            )}
                           </div>
                         );
                       })}

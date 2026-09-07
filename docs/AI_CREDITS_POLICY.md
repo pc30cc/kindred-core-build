@@ -38,7 +38,7 @@ routes that already deduct via the RPC.
 | `POST /api/ai/complete`                              | `requireAICredits(1)`      | Enforced             |
 | AI-KB worker per-page processing                     | `consumeAiCredits()` (RPC) | Enforced             |
 | `POST /api/ai-agent/playground/test`                 | own rate limit only        | Deferred (see below) |
-| `POST /api/ai-agent/operator/suggest-reply`          | own rate limit only        | Deferred (see below) |
+| `POST /api/ai-agent/operator/suggest-reply`          | `deductAICredits(1)` inline | Enforced             |
 | `POST /api/ai-agent/generate-business-description`   | none                       | Deferred (see below) |
 | `POST /api/ai/test`                                  | n/a (caller-supplied keys) | Not gated — correct  |
 | `GET  /api/ai/config/:workspaceId`                   | n/a (read-only)            | Not gated — correct  |
@@ -54,11 +54,13 @@ that needs an explicit policy decision before enforcement:
   per-user rate limit. Today it does not consume workspace AI credits.
   Gating it would silently make workspace owners spend credits during
   configuration testing. Product decision, not coverage decision.
-- **`/operator/suggest-reply`** — has a `callLLM` toggle and a bespoke
-  E7 rate limiter; consumption is conditional. A blanket
-  `requireAICredits(1)` would deduct even on `callLLM=false` paths and
-  would run before the conversation-ownership and operator-permission
-  checks unless wired inline. Needs per-branch wiring before rollout.
+- **`/operator/suggest-reply`** — now enforced, wired inline rather than
+  as middleware: the deduction happens after operator-permission,
+  entitlement and provider-resolution checks and only on the
+  `callLLM=true` branch, so `callLLM=false` previews stay free. Every
+  assist run is additionally mirrored into `ai_agent_runs`
+  (`run_type='suggestion'`, `mode='operator_assist'`) so it appears in
+  the unified Recent-runs activity feed.
 - **`/generate-business-description`** — single AI call used during
   setup. Likely safe to gate later, but introducing it here mid-phase
   would change setup-flow behavior without notice.

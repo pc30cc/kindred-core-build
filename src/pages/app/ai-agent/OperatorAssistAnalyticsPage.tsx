@@ -27,6 +27,14 @@ type Range = '7d' | '30d' | '90d';
 
 function pct(n: number) { return `${Math.round(n * 100)}%`; }
 
+/** Graceful fallback for a code with no translation entry (e.g. a rare
+ * internal error path) — "some_code" -> "Some code" — rather than showing
+ * raw snake_case or an untranslated key. */
+function humanizeCode(code: string): string {
+  const s = code.replace(/_/g, ' ');
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 export default function OperatorAssistAnalyticsPage() {
   const workspace = useCurrentWorkspace();
   const wsPath = useWorkspacePath();
@@ -37,6 +45,40 @@ export default function OperatorAssistAnalyticsPage() {
     '7d': t('aiAgent.assistAnalytics.range.d7'),
     '30d': t('aiAgent.assistAnalytics.range.d30'),
     '90d': t('aiAgent.assistAnalytics.range.d90'),
+  };
+
+  const feedbackReasonLabels: Record<string, string> = {
+    helpful: t('aiAgent.codes.feedbackReason.helpful'),
+    wrong_answer: t('aiAgent.codes.feedbackReason.wrong_answer'),
+    missing_context: t('aiAgent.codes.feedbackReason.missing_context'),
+    bad_tone: t('aiAgent.codes.feedbackReason.bad_tone'),
+    too_long: t('aiAgent.codes.feedbackReason.too_long'),
+    too_short: t('aiAgent.codes.feedbackReason.too_short'),
+    unsafe: t('aiAgent.codes.feedbackReason.unsafe'),
+    not_grounded: t('aiAgent.codes.feedbackReason.not_grounded'),
+    other: t('aiAgent.codes.feedbackReason.other'),
+  };
+  const operatorActionLabels: Record<string, string> = {
+    inserted: t('aiAgent.codes.operatorAction.inserted'),
+    replaced: t('aiAgent.codes.operatorAction.replaced'),
+    appended: t('aiAgent.codes.operatorAction.appended'),
+    copied: t('aiAgent.codes.operatorAction.copied'),
+    dismissed: t('aiAgent.codes.operatorAction.dismissed'),
+    regenerated: t('aiAgent.codes.operatorAction.regenerated'),
+    sent_after_edit: t('aiAgent.codes.operatorAction.sent_after_edit'),
+    sent_as_is: t('aiAgent.codes.operatorAction.sent_as_is'),
+  };
+  const sourceTypeLabels: Record<string, string> = {
+    answer: t('aiAgent.codes.sourceType.answer'),
+    file: t('aiAgent.codes.sourceType.file'),
+    kb_article: t('aiAgent.codes.sourceType.kb_article'),
+    learned_qna: t('aiAgent.codes.sourceType.learned_qna'),
+    operator_assist_feedback: t('aiAgent.codes.sourceType.operator_assist_feedback'),
+    operator_reply: t('aiAgent.codes.sourceType.operator_reply'),
+    qna: t('aiAgent.codes.sourceType.qna'),
+    test_run: t('aiAgent.codes.sourceType.test_run'),
+    web_page: t('aiAgent.codes.sourceType.web_page'),
+    website: t('aiAgent.codes.sourceType.website'),
   };
 
   const suggestMut = useMutation({
@@ -164,7 +206,7 @@ export default function OperatorAssistAnalyticsPage() {
                   <ul className="space-y-1 text-sm">
                     {a.by_reason.sort((x, y) => y.count - x.count).map((r) => (
                       <li key={r.reason} className="flex justify-between">
-                        <span>{r.reason}</span>
+                        <span>{feedbackReasonLabels[r.reason] || humanizeCode(r.reason)}</span>
                         <span className="text-muted-foreground">{r.count}</span>
                       </li>
                     ))}
@@ -181,7 +223,7 @@ export default function OperatorAssistAnalyticsPage() {
                   <ul className="space-y-1 text-sm">
                     {a.by_action.sort((x, y) => y.count - x.count).map((r) => (
                       <li key={r.action} className="flex justify-between">
-                        <span>{r.action}</span>
+                        <span>{operatorActionLabels[r.action] || humanizeCode(r.action)}</span>
                         <span className="text-muted-foreground">{r.count}</span>
                       </li>
                     ))}
@@ -198,7 +240,7 @@ export default function OperatorAssistAnalyticsPage() {
                   <ul className="space-y-1 text-sm">
                     {a.by_source_type.sort((x, y) => y.runs - x.runs).map((r) => (
                       <li key={r.source_type} className="flex justify-between">
-                        <span>{r.source_type}</span>
+                        <span>{sourceTypeLabels[r.source_type] || humanizeCode(r.source_type)}</span>
                         <span className="text-muted-foreground">{r.runs}</span>
                       </li>
                     ))}
@@ -233,13 +275,13 @@ export default function OperatorAssistAnalyticsPage() {
                       <TableRow key={r.run_id}>
                         <TableCell className="text-xs">{new Date(r.created_at).toLocaleString()}</TableCell>
                         <TableCell className="text-xs">{r.confidence != null ? r.confidence.toFixed(2) : '—'}</TableCell>
-                        <TableCell className="text-xs">{r.reason || '—'}</TableCell>
+                        <TableCell className="text-xs">{r.reason ? (feedbackReasonLabels[r.reason] || humanizeCode(r.reason)) : '—'}</TableCell>
                         <TableCell className="text-xs">
                           <div className="flex flex-wrap gap-1">
                             {r.source_types.length === 0
                               ? <span className="text-muted-foreground">{t('aiAgent.assistAnalytics.worstRuns.sourceTypesNone')}</span>
                               : r.source_types.map((s) => (
-                                <Badge key={s} variant="secondary" className="text-[10px]">{s}</Badge>
+                                <Badge key={s} variant="secondary" className="text-[10px]">{sourceTypeLabels[s] || humanizeCode(s)}</Badge>
                               ))}
                           </div>
                         </TableCell>

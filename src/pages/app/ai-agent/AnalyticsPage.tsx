@@ -7,6 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { BarChart3, Loader2 } from 'lucide-react';
 
+/** Graceful fallback for a code with no translation entry (e.g. a rare
+ * internal error path) — "some_code" -> "Some code" — rather than showing
+ * raw snake_case or an untranslated key. */
+function humanizeCode(code: string): string {
+  const s = code.replace(/_/g, ' ');
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 export default function AnalyticsPage() {
   const { workspace } = useActiveWorkspace();
   const { t, dir } = useTranslation();
@@ -47,6 +55,41 @@ export default function AnalyticsPage() {
   }
   const topTopics = Object.entries(topicTally).sort((a, b) => b[1] - a[1]).slice(0, 6);
   const topReasons = Object.entries(handoffReasons).sort((a, b) => b[1] - a[1]).slice(0, 6);
+
+  const runTypeLabels: Record<string, string> = {
+    playground: t('aiAgent.codes.runType.playground'),
+    auto_reply: t('aiAgent.codes.runType.auto_reply'),
+    suggestion: t('aiAgent.codes.runType.suggestion'),
+    handoff: t('aiAgent.codes.runType.handoff'),
+    skip: t('aiAgent.codes.runType.skip'),
+  };
+  const statusLabels: Record<string, string> = {
+    pending: t('aiAgent.codes.status.pending'),
+    proposed: t('aiAgent.codes.status.proposed'),
+    suggested: t('aiAgent.codes.status.suggested'),
+    replied: t('aiAgent.codes.status.replied'),
+    skipped: t('aiAgent.codes.status.skipped'),
+    handoff: t('aiAgent.codes.status.handoff'),
+    no_answer: t('aiAgent.codes.status.no_answer'),
+    failed: t('aiAgent.codes.status.failed'),
+  };
+  const handoffReasonLabels: Record<string, string> = {
+    disabled_or_off: t('aiAgent.codes.handoffReason.disabled_or_off'),
+    mode_suggest_only: t('aiAgent.codes.handoffReason.mode_suggest_only'),
+    operators_online: t('aiAgent.codes.handoffReason.operators_online'),
+    human_already_joined: t('aiAgent.codes.handoffReason.human_already_joined'),
+    pending_handoff: t('aiAgent.codes.handoffReason.pending_handoff'),
+    max_replies_reached: t('aiAgent.codes.handoffReason.max_replies_reached'),
+    rate_limited: t('aiAgent.codes.handoffReason.rate_limited'),
+    human_request: t('aiAgent.codes.handoffReason.human_request'),
+    ok: t('aiAgent.codes.handoffReason.ok'),
+    explicit_human_request: t('aiAgent.codes.handoffReason.explicit_human_request'),
+    routing_rule: t('aiAgent.codes.handoffReason.routing_rule'),
+    human_only_action: t('aiAgent.codes.handoffReason.human_only_action'),
+    owner_policy: t('aiAgent.codes.handoffReason.owner_policy'),
+    insufficient_verified_info_requires_human: t('aiAgent.codes.handoffReason.insufficient_verified_info_requires_human'),
+    unspecified: t('aiAgent.codes.handoffReason.unspecified'),
+  };
 
   const cards = [
     { label: t('aiAgent.analytics.cards.runs24h'), value: c?.aiRuns24h ?? 0 },
@@ -110,7 +153,7 @@ export default function AnalyticsPage() {
               <div className="space-y-1.5">
                 {topReasons.map(([reason, count]) => (
                   <div key={reason} className="flex items-center justify-between text-sm">
-                    <span className="truncate">{reason}</span>
+                    <span className="truncate">{handoffReasonLabels[reason] || humanizeCode(reason)}</span>
                     <Badge variant="outline">{count}</Badge>
                   </div>
                 ))}
@@ -165,8 +208,8 @@ export default function AnalyticsPage() {
             <div className="divide-y">
               {runs.slice(0, 30).map((r: any) => (
                 <div key={r.id} className="py-2.5 flex items-start gap-3 text-sm">
-                  <Badge variant="outline" className="shrink-0">{r.run_type}</Badge>
-                  <Badge variant="secondary" className="shrink-0">{r.status}</Badge>
+                  <Badge variant="outline" className="shrink-0">{runTypeLabels[r.run_type] || humanizeCode(r.run_type)}</Badge>
+                  <Badge variant="secondary" className="shrink-0">{statusLabels[r.status] || humanizeCode(r.status)}</Badge>
                   <div className="flex-1 min-w-0">
                     <p className="truncate text-foreground">{r.input_text || <span className="text-muted-foreground">—</span>}</p>
                     {r.output_text && <p className="truncate text-xs text-muted-foreground mt-0.5">{r.output_text}</p>}

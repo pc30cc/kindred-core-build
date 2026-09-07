@@ -6,6 +6,7 @@
  * limits and response shapes are unchanged from the original file.
  */
 import express, { type Request, type Response, type Router } from 'express';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';

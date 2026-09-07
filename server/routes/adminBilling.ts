@@ -17,6 +17,7 @@ import {
   listCurrencies, upsertCurrency, deleteCurrency,
   listExchangeRates, publishExchangeRate,
   listGateways, upsertGateway,
+  getProviderCredentials, upsertProviderCredentials,
   listTaxRates, upsertTaxRate, deleteTaxRate,
   listCoupons, upsertCoupon, deleteCoupon,
   listUsageItems, upsertUsageItem,
@@ -100,6 +101,9 @@ adminBillingRouter.get('/gateways', async (req, res) => {
   } catch (e) { fail(res, e); }
 });
 
+// Operational state ONLY — no `config`/credentials. Finance -> Gateways
+// governs enabled/disabled, test marker, currencies and display; provider
+// connection settings belong exclusively to the Providers screen below.
 adminBillingRouter.put('/gateways', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   try {
@@ -112,10 +116,33 @@ adminBillingRouter.put('/gateways', async (req, res) => {
         currencies: z.array(z.string().length(3)).optional(),
         countries: z.array(z.string().length(2)).optional(),
         sort_order: z.number().int().optional(),
-        config: z.record(z.unknown()).optional(),
       })
       .parse(req.body);
     res.json({ gateway: await upsertGateway(cfg(req), body as any) });
+  } catch (e) { fail(res, e); }
+});
+
+// ─── Providers (the ONE canonical credential source, keyed by provider_name) ──
+//
+// Platform-wide connection settings (Merchant ID, API key, ...) for a
+// billing provider — independent of Finance -> Gateways' operational state
+// and independent of which provider is currently the default. See
+// database/migrations/137_billing_provider_credentials.sql.
+
+adminBillingRouter.get('/providers/:providerName', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  try {
+    const credentials = await getProviderCredentials(cfg(req), req.params.providerName);
+    res.json({ provider_name: req.params.providerName, config: credentials?.config ?? {} });
+  } catch (e) { fail(res, e); }
+});
+
+adminBillingRouter.put('/providers/:providerName', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  try {
+    const body = z.object({ config: z.record(z.unknown()) }).parse(req.body);
+    const credentials = await upsertProviderCredentials(cfg(req), req.params.providerName, body.config);
+    res.json({ provider_name: credentials.provider_name, config: credentials.config });
   } catch (e) { fail(res, e); }
 });
 

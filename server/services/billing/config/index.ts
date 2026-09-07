@@ -195,18 +195,69 @@ export async function listPayableGateways(
   );
 }
 
+/**
+ * Finance -> Gateways owns only OPERATIONAL state (enabled/disabled, test
+ * marker, currencies, display, order) — never credentials. `config` is
+ * deliberately excluded from what this write accepts: the canonical
+ * credential source is `billing_provider_credentials` (see
+ * upsertProviderCredentials below). A pre-migration `billing_gateways.config`
+ * value is still READ as a legacy fallback (see resolveNamedBillingConfig /
+ * resolveBillingConfig in ../index.ts) but is never written to again.
+ */
 export async function upsertGateway(
   config: ServerConfig,
   input: Partial<Gateway> & { provider_name: string },
 ): Promise<Gateway> {
   const payload: Record<string, unknown> = { provider_name: input.provider_name };
-  for (const k of ['display_name', 'is_active', 'is_test', 'currencies', 'countries', 'sort_order', 'config'] as const) {
+  for (const k of ['display_name', 'is_active', 'is_test', 'currencies', 'countries', 'sort_order'] as const) {
     if (input[k] !== undefined) payload[k] = input[k];
   }
   return ok(
     await db(config).from('billing_gateways').upsert(payload, { onConflict: 'provider_name' }).select().single(),
     'gateway_write_failed',
   ) as Gateway;
+}
+
+// ─── Provider credentials (the ONE canonical Providers-screen source) ──────
+//
+// Keyed only by provider_name — this is the platform-wide credential store
+// for every billing gateway, independent of which one is currently the
+// default and independent of Finance -> Gateways' operational state.
+
+export interface ProviderCredentials {
+  provider_name: string;
+  config: Record<string, unknown>;
+  updated_at: string;
+}
+
+export async function getProviderCredentials(
+  config: ServerConfig,
+  providerName: string,
+): Promise<ProviderCredentials | null> {
+  const res = await db(config)
+    .from('billing_provider_credentials')
+    .select('*')
+    .eq('provider_name', providerName)
+    .maybeSingle();
+  return ok(res, 'provider_credentials_read_failed') as ProviderCredentials | null;
+}
+
+export async function upsertProviderCredentials(
+  config: ServerConfig,
+  providerName: string,
+  credentialConfig: Record<string, unknown>,
+): Promise<ProviderCredentials> {
+  return ok(
+    await db(config)
+      .from('billing_provider_credentials')
+      .upsert(
+        { provider_name: providerName, config: credentialConfig, updated_at: new Date().toISOString() },
+        { onConflict: 'provider_name' },
+      )
+      .select()
+      .single(),
+    'provider_credentials_write_failed',
+  ) as ProviderCredentials;
 }
 
 // ─── Tax rates ─────────────────────────────────────────────────────────────

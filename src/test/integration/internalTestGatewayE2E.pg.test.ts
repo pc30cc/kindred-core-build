@@ -65,7 +65,7 @@ const CHAIN = [
   'database/migrations/116_billing_v2_backfill.sql',
   'database/migrations/117_billing_v2_rollout.sql',
   'supabase/migrations/20260907084017_0f550cf9-3bfc-4bc0-827e-6f733f470cc9.sql',
-  'supabase/migrations/20260907091741_6f375f35-3e71-48e8-a180-a09dafc6785d.sql',
+  'supabase/migrations/20260907091007_7d9a2c41-9adb-4baf-af6c-0e17ef464b09.sql',
 ];
 
 let client: any;
@@ -109,6 +109,24 @@ async function makeInvoice(ws: string, total: number): Promise<any> {
        (workspace_id, invoice_number, invoice_type, status, subtotal_irr, total_irr,
         amount_due_irr, effect_snapshot)
      VALUES ($1,$2,'ai_credit_purchase','draft',$3,$3,$3,$4::jsonb) RETURNING *`,
+    [ws, docNumber(), total, JSON.stringify(snapshot)],
+  );
+  return one(
+    `UPDATE public.billing_invoices SET status='open', issued_at=now() WHERE id=$1 RETURNING *`,
+    [row.id],
+  );
+}
+
+async function makeWalletInvoice(ws: string, total: number): Promise<any> {
+  const snapshot = {
+    action_type: 'wallet_deposit',
+    wallet_deposit_amount_irr: total,
+  };
+  const row = await one(
+    `INSERT INTO public.billing_invoices
+       (workspace_id, invoice_number, invoice_type, status, subtotal_irr, total_irr,
+        amount_due_irr, effect_snapshot)
+     VALUES ($1,$2,'wallet_deposit','draft',$3,$3,$3,$4::jsonb) RETURNING *`,
     [ws, docNumber(), total, JSON.stringify(snapshot)],
   );
   return one(
@@ -256,6 +274,31 @@ suite('Internal Test Gateway — full financial pipeline (PostgreSQL)', () => {
     expect(payments).toHaveLength(0);
     const lots = await q(`SELECT id FROM public.workspace_ai_balance_lots WHERE workspace_id=$1`, [ws]);
     expect(lots).toHaveLength(0);
+  });
+
+  it('settles a wallet invoice and credits its ledger exactly once', async () => {
+    const ws = await makeWorkspace();
+    const inv = await makeWalletInvoice(ws, 1_000_000);
+    const paymentId = await recordPayment(ws, inv.total_irr, 'internal_test', `TESTGW-${uuid()}`);
+    const commandKey = `intent:${uuid()}`;
+
+    const first = await settleAndApply(inv.id, inv.total_irr, paymentId, commandKey);
+    expect(first.settlement.status).toBe('paid');
+    expect(first.applied.wallet_entry_id).toBeTruthy();
+
+    const replay = await settleAndApply(inv.id, inv.total_irr, paymentId, commandKey);
+    expect(replay.applied.replayed).toBe(true);
+
+    const account = await one(
+      `SELECT balance_irr FROM public.billing_wallet_accounts WHERE workspace_id=$1`,
+      [ws],
+    );
+    expect(Number(account.balance_irr)).toBe(inv.total_irr);
+    const entries = await q(
+      `SELECT id FROM public.billing_wallet_ledger WHERE workspace_id=$1 AND command_key=$2`,
+      [ws, `invoice_deposit:${inv.id}`],
+    );
+    expect(entries).toHaveLength(1);
   });
 
   it('rejects a forged outcome signature — a browser cannot fabricate a successful callback', async () => {

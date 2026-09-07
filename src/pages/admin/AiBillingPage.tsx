@@ -684,7 +684,15 @@ export default function AiBillingPage() {
                       <TableRow key={r.id}>
                         <TableCell className="whitespace-nowrap text-sm">{when(r.created_at)}</TableCell>
                         <TableCell className="font-mono text-xs">{String(r.workspace_id || '').slice(0, 8)}</TableCell>
-                        <TableCell className="text-sm">{r.unresolved_reason || '—'}</TableCell>
+                        <TableCell className="text-sm">
+                          {typeof r.unresolved_reason === 'string'
+                            ? r.unresolved_reason
+                            : r.unresolved_reason?.message
+                              ? String(r.unresolved_reason.message)
+                              : r.unresolved_reason
+                                ? JSON.stringify(r.unresolved_reason)
+                                : '—'}
+                        </TableCell>
                       </TableRow>
                     ))}
                     {!health?.unresolvedRuns?.length && (

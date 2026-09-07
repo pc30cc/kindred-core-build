@@ -244,29 +244,35 @@ const checkoutSchema = z.object({
 });
 
 /**
- * `browserReturnUrl` and `gatewayCallbackUrl` are different things:
- *   - browserReturnUrl = canonical application/payment-document URL — where
- *     the customer's browser ends up (the app origin).
- *   - gatewayCallbackUrl = canonical PUBLIC API origin + /api/billing/return
- *     — where the BANK calls back. It must be built from `apiOrigin`
- *     (resolved server-side from `platform_domains.api_base_url`, see
- *     resolvePublicApiOrigin), never from the browser return URL's origin.
- *     A split app/API deployment where the app host does not proxy `/api/*`
- *     would otherwise send the bank callback to a 404.
+ * The bank returns the customer STRAIGHT to the payment document page on the
+ * app origin — no `/api/...` hop in the address bar. The app origin is a
+ * plain SPA host, so this works in a split app/API deployment too (the app
+ * host does not need to proxy `/api/*`).
+ *
+ * `/api/billing/return` on the API origin stays alive as a compatibility
+ * redirect for sessions/gateways that were configured with the old callback;
+ * `apiOrigin` is still resolved server-side and used as the fallback when the
+ * caller-supplied return URL is unusable.
  */
 export function paymentReturnUrls(browserUrl: string, intentId: string, providerName: string, apiOrigin: string) {
   const browserReturn = new URL(browserUrl);
   browserReturn.searchParams.set('intent', intentId);
   browserReturn.searchParams.set('provider', providerName);
 
-  const gatewayCallback = new URL('/api/billing/return', apiOrigin);
-  gatewayCallback.searchParams.set('intent', intentId);
-  gatewayCallback.searchParams.set('provider', providerName);
+  let gatewayCallback = browserReturn.toString();
+  if (browserReturn.protocol !== 'https:' && browserReturn.hostname !== 'localhost' && browserReturn.hostname !== '127.0.0.1') {
+    const fallback = new URL('/api/billing/return', apiOrigin);
+    fallback.searchParams.set('intent', intentId);
+    fallback.searchParams.set('provider', providerName);
+    gatewayCallback = fallback.toString();
+  }
+
   return {
     browserReturnUrl: browserReturn.toString(),
-    gatewayCallbackUrl: gatewayCallback.toString(),
+    gatewayCallbackUrl: gatewayCallback,
   };
 }
+
 
 /** Start a gateway collection for an open invoice. */
 billingCustomerRouter.post('/workspaces/:workspaceId/invoices/:invoiceId/checkout', async (req, res) => {

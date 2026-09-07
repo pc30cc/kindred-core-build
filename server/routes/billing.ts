@@ -608,22 +608,29 @@ billingRouter.post('/checkout', async (req, res) => {
   }
 });
 
-// ─── GET /api/billing/return — browser return from a gateway ─────────
-// The gateway always lands on this server-owned endpoint. It forwards the raw
-// result to the exact allow-listed payment page saved during checkout, so a
-// browser can never end on an API JSON response.
+// ─── GET /api/billing/return — legacy browser return from a gateway ──
+// New checkouts send the bank straight back to the app payment page. This
+// endpoint only exists for sessions created before that change: it forwards
+// the raw result to the exact allow-listed payment page saved at checkout and
+// never leaves the browser on an API response.
 billingRouter.get('/return', async (req, res) => {
+  const bounce = (target: string) => res
+    .status(303)
+    .location(target)
+    .type('html')
+    .send(`<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${target.replace(/"/g, '&quot;')}"><p>در حال بازگشت به صفحه پرداخت…</p><p><a href="${target.replace(/"/g, '&quot;')}">ادامه</a></p>`);
+
   try {
     const intentId = typeof req.query.intent === 'string' ? req.query.intent : '';
     const providerName = typeof req.query.provider === 'string' ? req.query.provider : '';
-    if (!intentId || !providerName) return res.status(400).type('text').send('Invalid payment return');
+    if (!intentId || !providerName) return res.status(400).type('html').send('<p>درخواست بازگشت پرداخت نامعتبر است.</p>');
 
     const intent = await getPaymentIntent(serverConfigOf(req), intentId);
     const storedReturn = typeof intent?.metadata?.return_url === 'string'
       ? intent.metadata.return_url
       : '';
     if (!intent || intent.provider_name !== providerName || !storedReturn) {
-      return res.status(400).type('text').send('Invalid payment return');
+      return res.status(400).type('html').send('<p>درخواست بازگشت پرداخت نامعتبر است.</p>');
     }
 
     const destination = new URL(storedReturn);
@@ -633,11 +640,12 @@ billingRouter.get('/return', async (req, res) => {
     }
     destination.searchParams.set('intent', intent.id);
     destination.searchParams.set('provider', intent.provider_name);
-    return res.redirect(303, destination.toString());
+    return bounce(destination.toString());
   } catch {
-    return res.status(502).type('text').send('Payment return is temporarily unavailable');
+    return res.status(502).type('html').send('<p>بازگشت از درگاه موقتاً در دسترس نیست.</p>');
   }
 });
+
 
 // ─── POST /api/billing/verify-callback — verify callback from gateway ──
 //

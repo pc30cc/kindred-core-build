@@ -594,9 +594,6 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
       provider: aiCfg.provider, model: aiCfg.model,
       error: err?.message || 'llm_failed',
     });
-    if (assistRunCtx) {
-      await e7_failAiRun(config, assistRunCtx, err?.message || 'llm_failed').catch(() => undefined);
-    }
     await closeAssistRun(err?.message || 'llm_failed');
     return res.status(502).json({ error: 'llm_failed', details: redactSecrets(err?.message) || 'unknown_error' });
   }

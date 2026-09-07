@@ -45,6 +45,8 @@ import TeamPage from "@/pages/app/TeamPage";
 import ContactDetailPage from "@/pages/app/ContactDetailPage";
 import VisitorsPage from "@/pages/app/VisitorsPage";
 import KnowledgeBasePage from "@/pages/app/KnowledgeBasePage";
+import KnowledgeArticleEditorPage from "@/pages/app/knowledge/ArticleEditorPage";
+import KnowledgeAiBuilderPage from "@/pages/app/knowledge/AiBuilderPage";
 import { WorkspaceKnowledgeBaseRedirect } from "@/features/workspace/WorkspaceKnowledgeBaseRedirect";
 import { WorkspaceQnaRedirect } from "@/features/workspace/WorkspaceQnaRedirect";
 import WidgetPage from "@/pages/app/WidgetPage";
@@ -290,6 +292,14 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                     under AiAgentLayout and must never be wrapped in an
                     entitlement gate. */}
                 <Route path="knowledge-base" element={<KnowledgeBasePage />} />
+                {/* Dedicated pages: create/edit an article, and the AI
+                    website-scan builder. Same "always available" rule as
+                    the parent route — the AI builder page gates itself
+                    internally via EntitlementAccessGate, never at the
+                    route level. */}
+                <Route path="knowledge-base/articles/new" element={<KnowledgeArticleEditorPage />} />
+                <Route path="knowledge-base/articles/:id" element={<KnowledgeArticleEditorPage />} />
+                <Route path="knowledge-base/ai-builder" element={<KnowledgeAiBuilderPage />} />
                 {/* Legacy KB URL — declared OUTSIDE AiAgentLayout so the
                     redirect still works while AI Agent is disabled. */}
                 <Route path="ai-agent/articles" element={<WorkspaceKnowledgeBaseRedirect />} />

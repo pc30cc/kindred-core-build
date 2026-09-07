@@ -2589,6 +2589,18 @@ const en = {
     components: 'Components',
     effectiveFrom: 'Effective from',
     entryPoint: 'Entry point',
+    entryPoints: {
+      ai_complete: 'Direct AI request (API)',
+      api_ai_complete: 'Direct AI request (API)',
+      agent_turn: 'Widget chat auto-reply',
+      operator_assist: 'Operator AI assist (Inbox)',
+      proactive_nudge: 'Proactive widget nudge',
+      kb_index: 'Knowledge base indexing',
+      agent_playground: 'Agent playground',
+      agent_test_harness: 'Agent test harness',
+      assistant_describe_business: 'Business description (agent setup)',
+    },
+
     status: 'Status',
     quality: 'Quality',
     runRecovery: 'Run recovery',

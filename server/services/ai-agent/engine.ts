@@ -35,6 +35,7 @@ import { runAnswerStage } from './engine/answerStage.js';
 import { runGenerationStage } from './engine/generationStage.js';
 import { runDeliveryStage } from './engine/deliveryStage.js';
 import { logRun } from './logs.js';
+import { resolveAIConfig } from '../ai/index.js';
 import {
   beginAiRunGuarded,
   settleAiRun,

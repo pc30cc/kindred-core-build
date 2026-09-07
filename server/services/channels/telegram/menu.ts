@@ -313,8 +313,8 @@ export type HelpArticle = { id: string; title: string; excerpt: string; content:
 const ARTICLES_PER_PAGE = 6;
 
 /**
- * Published, widget-visible Knowledge Base articles for the workspace,
- * preferring the requested locale and falling back to the platform locale.
+ * Published Knowledge Base articles for the workspace, preferring the
+ * requested locale and falling back to the platform locale.
  */
 export async function listHelpArticles(
   config: ServerConfig,
@@ -330,7 +330,6 @@ export async function listHelpArticles(
     .select('id, title, excerpt, content, slug, locale, updated_at')
     .eq('workspace_id', workspaceId)
     .eq('status', 'published')
-    .eq('visible_in_widget', true)
     .order('updated_at', { ascending: false })
     .limit(120);
   if (error) throw new Error(error.message);

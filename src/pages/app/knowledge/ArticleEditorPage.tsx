@@ -4,14 +4,15 @@ import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { usePlatformRegion } from '@/hooks/usePlatformRegion';
 import { useKBArticles, useKBCategories, useCreateKBArticle, useUpdateKBArticle } from '@/hooks/useKnowledgeBase';
+import { KnowledgeBaseApiError } from '@/lib/knowledge-base-api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
+import { toast } from '@/hooks/use-toast';
 import RichTextEditor from '@/components/app/knowledge/RichTextEditor';
 import {
   ArrowLeft, ArrowRight, FileText,
-  BarChart3, CheckCircle2, AlertCircle, MonitorSmartphone, Loader2,
+  BarChart3, CheckCircle2, AlertCircle, Loader2,
 } from 'lucide-react';
 
 /** Article content is HTML (see RichTextEditor's header comment) — SEO
@@ -34,7 +35,6 @@ export interface KnowledgeBaseArticleInput {
 type FormData = {
   title: string; slug: string; content: string; excerpt: string;
   locale: string; status: string; category_id: string;
-  visible_in_widget: boolean;
 };
 
 function calcSeoScore(form: FormData) {
@@ -80,7 +80,7 @@ export default function ArticleEditorPage() {
 
   const emptyForm: FormData = {
     title: '', slug: '', content: '', excerpt: '', locale: activeLocales[0] || 'en', status: 'draft',
-    category_id: '', visible_in_widget: true,
+    category_id: '',
   };
   const [form, setForm] = useState<FormData>(emptyForm);
   const [hydrated, setHydrated] = useState(isNew);
@@ -95,7 +95,6 @@ export default function ArticleEditorPage() {
       locale: existing.locale || activeLocales[0] || 'en',
       status: existing.status || 'draft',
       category_id: existing.category_id || '',
-      visible_in_widget: existing.visible_in_widget !== false,
     });
     setHydrated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -106,6 +105,11 @@ export default function ArticleEditorPage() {
 
   const goBack = () => navigate(wsPath('/knowledge-base'));
 
+  /**
+   * A published article is meant to be visible everywhere it's consumed
+   * (public help center, chat widget, Telegram) — there is no longer a
+   * separate per-article visibility toggle, so this is always true.
+   */
   const handleSave = async () => {
     const slug = form.slug || form.title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
     // NOTE: `used_by_ai` is intentionally NOT part of the payload so editing
@@ -118,14 +122,30 @@ export default function ArticleEditorPage() {
       locale: form.locale,
       status: form.status as KnowledgeBaseArticleInput['status'],
       category_id: form.category_id || null,
-      visible_in_widget: form.visible_in_widget,
+      visible_in_widget: true,
     };
-    if (id) {
-      await updateArticle.mutateAsync({ id, ...payload });
-    } else {
-      await createArticle.mutateAsync(payload);
+    try {
+      if (id) {
+        await updateArticle.mutateAsync({ id, ...payload });
+      } else {
+        await createArticle.mutateAsync(payload);
+      }
+      toast({
+        title: form.status === 'published'
+          ? t('knowledgeBase.editor.publishedSuccess')
+          : t('knowledgeBase.editor.savedSuccess'),
+      });
+      goBack();
+    } catch (e) {
+      const err = e instanceof KnowledgeBaseApiError ? e : null;
+      const description =
+        err?.code === 'knowledge_base_permission_denied'
+          ? t('knowledgeBase.editor.permissionDenied')
+          : err?.upgradeRequired
+            ? t('knowledgeBase.editor.quotaReached')
+            : undefined;
+      toast({ title: t('knowledgeBase.editor.saveFailed'), description, variant: 'destructive' });
     }
-    goBack();
   };
 
   if (!isNew && articlesLoading) {
@@ -230,21 +250,6 @@ export default function ArticleEditorPage() {
             <Input value={form.excerpt} onChange={(e) => setForm((p) => ({ ...p, excerpt: e.target.value }))} placeholder={t('knowledgeBase.editor.excerptPlaceholder')} />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="border border-border rounded-xl p-3.5 flex items-start gap-3 bg-secondary/20">
-              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                <MonitorSmartphone className="h-4 w-4 text-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium text-foreground">{t('knowledgeBase.visibleInWidget')}</span>
-                  <Switch checked={form.visible_in_widget} onCheckedChange={(v) => setForm((p) => ({ ...p, visible_in_widget: !!v }))} />
-                </div>
-                <p className="text-[11px] text-muted-foreground mt-1">{t('knowledgeBase.visibleInWidgetHint')}</p>
-              </div>
-            </div>
-          </div>
-
           <div className="border border-border rounded-xl overflow-hidden">
             <div className="px-4 py-3 bg-secondary/30 border-b border-border flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -271,7 +276,11 @@ export default function ArticleEditorPage() {
           <div className="flex items-center justify-end gap-3 pt-2 border-t border-border">
             <Button variant="outline" onClick={goBack}>{t('common.cancel')}</Button>
             <Button onClick={handleSave} disabled={createArticle.isPending || updateArticle.isPending || !form.title}>
-              {createArticle.isPending || updateArticle.isPending ? t('common.loading') : id ? t('common.save') : t('common.create')}
+              {createArticle.isPending || updateArticle.isPending
+                ? t('common.loading')
+                : form.status === 'published'
+                  ? t('knowledgeBase.editor.publishAction')
+                  : id ? t('common.save') : t('common.create')}
             </Button>
           </div>
         </div>

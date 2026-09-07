@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { useCurrentWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
+import { useTranslation } from '@/i18n';
 import { aiAgentApi, type OperatorAssistAnalytics } from '@/lib/ai-agent-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -29,14 +30,26 @@ function pct(n: number) { return `${Math.round(n * 100)}%`; }
 export default function OperatorAssistAnalyticsPage() {
   const workspace = useCurrentWorkspace();
   const wsPath = useWorkspacePath();
+  const { t, dir } = useTranslation();
   const [range, setRange] = useState<Range>('7d');
+
+  const rangeLabels: Record<Range, string> = {
+    '7d': t('aiAgent.assistAnalytics.range.d7'),
+    '30d': t('aiAgent.assistAnalytics.range.d30'),
+    '90d': t('aiAgent.assistAnalytics.range.d90'),
+  };
 
   const suggestMut = useMutation({
     mutationFn: (feedbackId: string) => aiAgentApi.suggestTestCaseFromFeedback(feedbackId),
-    onSuccess: () => toast({ title: 'Suggested test created', description: 'Open the Suggested Tests page to review.' }),
+    onSuccess: () => toast({
+      title: t('aiAgent.assistAnalytics.toast.suggestedCreatedTitle'),
+      description: t('aiAgent.assistAnalytics.toast.suggestedCreatedDesc'),
+    }),
     onError: (e: any) => toast({
-      title: 'Could not create suggestion',
-      description: e?.message?.includes('duplicate') ? 'A suggestion for this run already exists.' : (e?.message || 'Failed'),
+      title: t('aiAgent.assistAnalytics.toast.suggestFailedTitle'),
+      description: e?.message?.includes('duplicate')
+        ? t('aiAgent.assistAnalytics.toast.suggestDuplicate')
+        : (e?.message || t('aiAgent.assistAnalytics.toast.suggestFailedGeneric')),
       variant: 'destructive',
     }),
   });
@@ -50,15 +63,15 @@ export default function OperatorAssistAnalyticsPage() {
   const a = data as OperatorAssistAnalytics | undefined;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" dir={dir}>
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-primary" />
-            Assist Analytics
+            {t('aiAgent.assistAnalytics.title')}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Quality of AI Operator Assist suggestions and operator feedback.
+            {t('aiAgent.assistAnalytics.subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-1">
@@ -69,7 +82,7 @@ export default function OperatorAssistAnalyticsPage() {
               variant={range === r ? 'default' : 'outline'}
               onClick={() => setRange(r)}
             >
-              {r}
+              {rangeLabels[r]}
             </Button>
           ))}
         </div>
@@ -77,51 +90,53 @@ export default function OperatorAssistAnalyticsPage() {
 
       {isLoading && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="w-4 h-4 animate-spin" /> Loading analytics…
+          <Loader2 className="w-4 h-4 animate-spin" /> {t('aiAgent.assistAnalytics.loading')}
         </div>
       )}
       {error && (
         <div className="text-sm text-destructive">
-          Could not load analytics: {(error as any)?.message || 'unknown error'}
+          {t('aiAgent.assistAnalytics.loadError', {
+            message: (error as any)?.message || t('aiAgent.assistAnalytics.unknownError'),
+          })}
         </div>
       )}
 
       {a && (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
-            <SummaryCard label="Total suggestions" value={a.summary.total_suggestions} />
-            <SummaryCard label="Feedback received" value={a.summary.total_feedback} />
-            <SummaryCard label="Acceptance rate" value={pct(a.summary.acceptance_rate)} />
+            <SummaryCard label={t('aiAgent.assistAnalytics.summary.totalSuggestions')} value={a.summary.total_suggestions} />
+            <SummaryCard label={t('aiAgent.assistAnalytics.summary.feedbackReceived')} value={a.summary.total_feedback} />
+            <SummaryCard label={t('aiAgent.assistAnalytics.summary.acceptanceRate')} value={pct(a.summary.acceptance_rate)} />
             <SummaryCard
-              label="Negative rate"
+              label={t('aiAgent.assistAnalytics.summary.negativeRate')}
               value={pct(a.summary.negative_rate)}
               tone={a.summary.negative_rate > 0.3 ? 'warn' : 'default'}
             />
-            <SummaryCard label="No-source count" value={a.summary.no_source_count} />
-            <SummaryCard label="Avg confidence" value={a.summary.avg_confidence.toFixed(2)} />
+            <SummaryCard label={t('aiAgent.assistAnalytics.summary.noSourceCount')} value={a.summary.no_source_count} />
+            <SummaryCard label={t('aiAgent.assistAnalytics.summary.avgConfidence')} value={a.summary.avg_confidence.toFixed(2)} />
             <SummaryCard
-              label="AI credits used"
+              label={t('aiAgent.assistAnalytics.summary.aiCreditsUsed')}
               value={a.summary.total_suggestions}
             />
           </div>
 
           <div className="grid md:grid-cols-3 gap-3">
-            <SummaryCard label="Positive" value={a.summary.positive} />
-            <SummaryCard label="Neutral" value={a.summary.neutral} />
-            <SummaryCard label="Negative" value={a.summary.negative} tone={a.summary.negative > 0 ? 'warn' : 'default'} />
+            <SummaryCard label={t('aiAgent.assistAnalytics.summary.positive')} value={a.summary.positive} />
+            <SummaryCard label={t('aiAgent.assistAnalytics.summary.neutral')} value={a.summary.neutral} />
+            <SummaryCard label={t('aiAgent.assistAnalytics.summary.negative')} value={a.summary.negative} tone={a.summary.negative > 0 ? 'warn' : 'default'} />
           </div>
 
           {a.summary.usage_increment_failed_count > 0 && (
             <div className="text-xs text-warning">
-              {a.summary.usage_increment_failed_count} suggestion(s) could not be recorded in the usage counter.
+              {t('aiAgent.assistAnalytics.usageIncrementFailedWarning', { count: String(a.summary.usage_increment_failed_count) })}
             </div>
           )}
 
           <Card>
-            <CardHeader><CardTitle className="text-sm">Daily trend</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-sm">{t('aiAgent.assistAnalytics.dailyTrend.title')}</CardTitle></CardHeader>
             <CardContent className="h-[260px]">
               {a.by_day.length === 0 ? (
-                <div className="text-xs text-muted-foreground">No activity in this range.</div>
+                <div className="text-xs text-muted-foreground">{t('aiAgent.assistAnalytics.dailyTrend.empty')}</div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={a.by_day}>
@@ -130,23 +145,21 @@ export default function OperatorAssistAnalyticsPage() {
                     <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                     <Tooltip />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Line type="monotone" dataKey="suggestions" name="Suggestions" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="positive" name="Positive" stroke="hsl(var(--success, 142 71% 45%))" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="negative" name="Negative" stroke="hsl(var(--destructive))" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="suggestions" name={t('aiAgent.assistAnalytics.dailyTrend.seriesSuggestions')} stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="positive" name={t('aiAgent.assistAnalytics.summary.positive')} stroke="hsl(var(--success, 142 71% 45%))" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="negative" name={t('aiAgent.assistAnalytics.summary.negative')} stroke="hsl(var(--destructive))" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               )}
             </CardContent>
           </Card>
 
-
-
           <div className="grid md:grid-cols-3 gap-4">
             <Card>
-              <CardHeader><CardTitle className="text-sm">Feedback by reason</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">{t('aiAgent.assistAnalytics.byReason.title')}</CardTitle></CardHeader>
               <CardContent>
                 {a.by_reason.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">No reasons recorded.</div>
+                  <div className="text-xs text-muted-foreground">{t('aiAgent.assistAnalytics.byReason.empty')}</div>
                 ) : (
                   <ul className="space-y-1 text-sm">
                     {a.by_reason.sort((x, y) => y.count - x.count).map((r) => (
@@ -160,10 +173,10 @@ export default function OperatorAssistAnalyticsPage() {
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle className="text-sm">Operator actions</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">{t('aiAgent.assistAnalytics.byAction.title')}</CardTitle></CardHeader>
               <CardContent>
                 {a.by_action.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">No actions recorded.</div>
+                  <div className="text-xs text-muted-foreground">{t('aiAgent.assistAnalytics.byAction.empty')}</div>
                 ) : (
                   <ul className="space-y-1 text-sm">
                     {a.by_action.sort((x, y) => y.count - x.count).map((r) => (
@@ -177,10 +190,10 @@ export default function OperatorAssistAnalyticsPage() {
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle className="text-sm">Source type quality</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">{t('aiAgent.assistAnalytics.bySourceType.title')}</CardTitle></CardHeader>
               <CardContent>
                 {a.by_source_type.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">No sources recorded.</div>
+                  <div className="text-xs text-muted-foreground">{t('aiAgent.assistAnalytics.bySourceType.empty')}</div>
                 ) : (
                   <ul className="space-y-1 text-sm">
                     {a.by_source_type.sort((x, y) => y.runs - x.runs).map((r) => (
@@ -197,21 +210,21 @@ export default function OperatorAssistAnalyticsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Worst runs (negative-rated)</CardTitle>
+              <CardTitle className="text-sm">{t('aiAgent.assistAnalytics.worstRuns.title')}</CardTitle>
             </CardHeader>
             <CardContent>
               {a.worst_runs.length === 0 ? (
-                <div className="text-xs text-muted-foreground">No negative-rated runs in this range.</div>
+                <div className="text-xs text-muted-foreground">{t('aiAgent.assistAnalytics.worstRuns.empty')}</div>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Confidence</TableHead>
-                      <TableHead>Reason</TableHead>
-                      <TableHead>Source types</TableHead>
-                      <TableHead>Safety notes</TableHead>
-                      <TableHead>Suggestion</TableHead>
+                      <TableHead>{t('aiAgent.assistAnalytics.worstRuns.colDate')}</TableHead>
+                      <TableHead>{t('aiAgent.assistAnalytics.worstRuns.colConfidence')}</TableHead>
+                      <TableHead>{t('aiAgent.assistAnalytics.worstRuns.colReason')}</TableHead>
+                      <TableHead>{t('aiAgent.assistAnalytics.worstRuns.colSourceTypes')}</TableHead>
+                      <TableHead>{t('aiAgent.assistAnalytics.worstRuns.colSafetyNotes')}</TableHead>
+                      <TableHead>{t('aiAgent.assistAnalytics.worstRuns.colSuggestion')}</TableHead>
                       <TableHead></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -224,7 +237,7 @@ export default function OperatorAssistAnalyticsPage() {
                         <TableCell className="text-xs">
                           <div className="flex flex-wrap gap-1">
                             {r.source_types.length === 0
-                              ? <span className="text-muted-foreground">none</span>
+                              ? <span className="text-muted-foreground">{t('aiAgent.assistAnalytics.worstRuns.sourceTypesNone')}</span>
                               : r.source_types.map((s) => (
                                 <Badge key={s} variant="secondary" className="text-[10px]">{s}</Badge>
                               ))}
@@ -246,7 +259,7 @@ export default function OperatorAssistAnalyticsPage() {
                               to={wsPath(`/ai-agent/runs/${r.run_id}`)}
                               className="text-xs text-primary hover:underline"
                             >
-                              inspect
+                              {t('aiAgent.assistAnalytics.worstRuns.inspect')}
                             </Link>
                             {r.feedback_id && (
                               <Button
@@ -256,7 +269,7 @@ export default function OperatorAssistAnalyticsPage() {
                                 disabled={suggestMut.isPending}
                                 onClick={() => suggestMut.mutate(r.feedback_id!)}
                               >
-                                Create suggested test
+                                {t('aiAgent.assistAnalytics.worstRuns.createSuggestedTest')}
                               </Button>
                             )}
                           </div>

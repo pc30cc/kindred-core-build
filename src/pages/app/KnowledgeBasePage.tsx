@@ -72,6 +72,11 @@ export default function KnowledgeBasePage() {
     published: 'bg-success/15 text-success border border-success/20',
     archived: 'bg-warning/15 text-warning border border-warning/20',
   };
+  const statusLabel: Record<string, string> = {
+    draft: t('knowledgeBase.draft'),
+    published: t('knowledgeBase.published'),
+    archived: t('knowledgeBase.archived'),
+  };
 
   return (
     <div className="space-y-6 animate-fade-in" dir={dir}>
@@ -137,17 +142,17 @@ export default function KnowledgeBasePage() {
             <div className="stat-card flex flex-col items-center text-center px-2 py-3">
               <BookOpen className="w-4 h-4 text-primary mb-1" />
               <div className="text-lg font-bold text-foreground">{articles?.length ?? 0}</div>
-              <div className="text-[11px] text-muted-foreground">Articles</div>
+              <div className="text-[11px] text-muted-foreground">{t('knowledgeBase.stats.articles')}</div>
             </div>
             <div className="stat-card flex flex-col items-center text-center px-2 py-3">
               <Eye className="w-4 h-4 text-info mb-1" />
               <div className="text-lg font-bold text-foreground">{totalViews}</div>
-              <div className="text-[11px] text-muted-foreground">Views</div>
+              <div className="text-[11px] text-muted-foreground">{t('knowledgeBase.stats.views')}</div>
             </div>
             <div className="stat-card flex flex-col items-center text-center px-2 py-3">
               <ThumbsUp className="w-4 h-4 text-success mb-1" />
               <div className="text-lg font-bold text-foreground">0</div>
-              <div className="text-[11px] text-muted-foreground">Helpful</div>
+              <div className="text-[11px] text-muted-foreground">{t('knowledgeBase.stats.helpful')}</div>
             </div>
             <div className="stat-card flex flex-col items-center text-center px-2 py-3">
               <Globe className="w-4 h-4 text-warning mb-1" />
@@ -180,7 +185,7 @@ export default function KnowledgeBasePage() {
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="all">{t('knowledgeBase.status.all')}</SelectItem>
                 <SelectItem value="draft">{t('knowledgeBase.draft')}</SelectItem>
                 <SelectItem value="published">{t('knowledgeBase.published')}</SelectItem>
                 <SelectItem value="archived">{t('knowledgeBase.archived')}</SelectItem>
@@ -191,7 +196,7 @@ export default function KnowledgeBasePage() {
           {/* Article List */}
           <div className="card-elevated">
             <div className="px-5 py-4 border-b border-border">
-              <h2 className="text-sm font-semibold text-foreground">All Articles</h2>
+              <h2 className="text-sm font-semibold text-foreground">{t('knowledgeBase.allArticles')}</h2>
             </div>
             {isLoading ? (
               <div className="p-8 space-y-3">
@@ -209,7 +214,7 @@ export default function KnowledgeBasePage() {
               <div className="py-16 text-center">
                 <BookOpen className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
                 <p className="text-sm font-medium text-foreground mb-1">{t('knowledgeBase.noArticles')}</p>
-                <p className="text-xs text-muted-foreground">Create your first article to get started</p>
+                <p className="text-xs text-muted-foreground">{t('knowledgeBase.noArticlesHint')}</p>
               </div>
             ) : (
               <div className="divide-y divide-border/50">
@@ -221,23 +226,18 @@ export default function KnowledgeBasePage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-0.5">
                         <span className="text-sm font-medium text-foreground truncate">{article.title}</span>
-                        <Badge className={`text-[10px] px-1.5 py-0 ${statusBadge[article.status]}`}>{article.status}</Badge>
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">{article.locale}</Badge>
-                        {(article as any).visible_in_widget === false && (
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/40 text-amber-600">
-                            {t('knowledgeBase.hiddenFromWidget')}
-                          </Badge>
-                        )}
+                        <Badge className={`text-[10px] px-1.5 py-0 ${statusBadge[article.status]}`}>{statusLabel[article.status] || article.status}</Badge>
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">{LOCALE_LABELS[article.locale] || article.locale}</Badge>
                       </div>
                       <span className="text-xs text-muted-foreground">
                         {(article as any).knowledge_base_categories?.name || 'Uncategorized'}
                       </span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(wsPath(`/knowledge-base/articles/${article.id}`))} title="Edit article">
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(wsPath(`/knowledge-base/articles/${article.id}`))} title={t('common.edit')}>
                         <Edit className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => deleteArticle.mutate(article.id)}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => deleteArticle.mutate(article.id)} title={t('common.delete')}>
                         <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </Button>
                     </div>

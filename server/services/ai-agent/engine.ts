@@ -35,6 +35,7 @@ import { runAnswerStage } from './engine/answerStage.js';
 import { runGenerationStage } from './engine/generationStage.js';
 import { runDeliveryStage } from './engine/deliveryStage.js';
 import { logRun } from './logs.js';
+import { resolveAIConfig } from '../ai/index.js';
 import {
   beginAiRunGuarded,
   settleAiRun,
@@ -146,6 +147,21 @@ async function openTurnRun(
   config: ServerConfig,
   input: MaybeRunInput,
 ): Promise<AiRunContext | null> {
+  // ENFORCED billing prices the reservation from the provider/model this turn
+  // will actually use, so the estimate must carry them. Resolving the config
+  // here is a cheap DB read (the generation stage resolves the same config).
+  let estimateProvider: string | undefined;
+  let estimateModel: string | undefined;
+  try {
+    const aiConfig = await resolveAIConfig(config, input.workspaceId);
+    if (aiConfig) {
+      estimateProvider = aiConfig.provider;
+      estimateModel = aiConfig.model;
+    }
+  } catch {
+    /* fall through: billing decides how to treat a missing estimate */
+  }
+
   try {
     return await beginAiRunGuarded(config, {
       workspaceId: input.workspaceId,
@@ -165,8 +181,13 @@ async function openTurnRun(
       entryPoint: input.operatorReplyNow ? 'agent_reply_now' : 'agent_turn',
       channel: 'widget',
       conversationId: input.conversationId || null,
-      estimate: { promptChars: (input.question || '').length },
+      estimate: {
+        promptChars: (input.question || '').length,
+        provider: estimateProvider,
+        model: estimateModel,
+      },
     });
+
   } catch (err) {
     // beginAiRunGuarded already applied the mode policy: whatever reaches here
     // (ENFORCED failure, allowance exhausted, idempotency conflict) must stop

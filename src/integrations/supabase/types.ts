@@ -14453,6 +14453,18 @@ export type Database = {
       }
     }
     Functions: {
+      _ai_kb_apply_generated: {
+        Args: {
+          _article_status: string
+          _content: string
+          _generated_id: string
+          _generated_status: string
+          _reviewer: string
+          _slug_seed?: string
+          _workspace_id: string
+        }
+        Returns: Json
+      }
       _gv_create_challenge_row: {
         Args: {
           _channel: string
@@ -14484,6 +14496,16 @@ export type Database = {
       _gv_do_resend: { Args: { _args: Json }; Returns: Json }
       _gv_do_revoke: { Args: { _args: Json }; Returns: Json }
       _gv_do_verify: { Args: { _args: Json }; Returns: Json }
+      accept_ai_kb_generated_article: {
+        Args: {
+          _content: string
+          _generated_id: string
+          _reviewer: string
+          _slug_seed?: string
+          _workspace_id: string
+        }
+        Returns: Json
+      }
       accept_invitation_existing_context_v2: {
         Args: {
           _handle_hash: string
@@ -15972,6 +15994,16 @@ export type Database = {
         Args: { _user_id: string }
         Returns: undefined
       }
+      publish_ai_kb_generated_article: {
+        Args: {
+          _content: string
+          _generated_id: string
+          _reviewer: string
+          _slug_seed?: string
+          _workspace_id: string
+        }
+        Returns: Json
+      }
       reclaim_expired_invitation_jobs: { Args: never; Returns: number }
       redeem_email_verify_token: {
         Args: { _token_hash: string }
@@ -15995,6 +16027,14 @@ export type Database = {
           _workspace_id: string
         }
         Returns: undefined
+      }
+      reject_ai_kb_generated_article: {
+        Args: {
+          _generated_id: string
+          _reviewer: string
+          _workspace_id: string
+        }
+        Returns: Json
       }
       release_channel_provider_account: {
         Args: { _integration_id: string }

@@ -27,7 +27,9 @@ import { decideStrategy as e7_decideStrategy } from '../../services/ai-agent/ans
 import { buildSystemPrompt as e7_buildSystemPrompt, buildUserPrompt as e7_buildUserPrompt } from '../../services/ai-agent/prompt.js';
 import { detectInputLanguage, languageDisplayName } from '../../services/ai-agent/language.js';
 import { resolveAIConfig as e7_resolveAIConfig, executeAICompletion as e7_executeAICompletion } from '../../services/ai/index.js';
-import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
+import { checkEntitlementFromDB, deductAICredits } from '../../middleware/featureGating.js';
+import { logRun } from '../../services/ai-agent/logs.js';
+
 import { authorizeMember, isOwnerOrAdmin, requireWorkspace } from './shared.js';
 
 export const operatorAssistRouter: Router = express.Router();
@@ -138,12 +140,43 @@ async function e7PersistAssistRun(
       console.error('[ai-agent.e7] persist assist run error:', error.message);
       return null;
     }
-    return (data?.id as string) || null;
+    const assistRunId = (data?.id as string) || null;
+    // Unified activity feed — operator assist suggestions are mirrored into
+    // the canonical ai_agent_runs log so they show up in "Recent runs"
+    // alongside auto-reply runs. Never breaks the assist response.
+    try {
+      await logRun(config, {
+        workspaceId: payload.workspaceId,
+        conversationId: payload.conversationId,
+        runType: 'suggestion',
+        mode: 'operator_assist',
+        status: payload.status === 'skipped' ? 'skipped' : payload.status,
+        inputText: payload.inputMessage,
+        outputText: payload.suggestion,
+        skipReason: payload.status === 'skipped' ? 'llm_call_skipped' : null,
+        errorMessage: payload.error,
+        provider: payload.provider,
+        model: payload.model,
+        confidence: payload.confidence,
+        creditsUsed: payload.status === 'suggested' && payload.suggestion ? 1 : 0,
+        metadata: {
+          source: 'operator_assist',
+          assist_run_id: assistRunId,
+          requested_by: payload.requestedBy,
+          tone: payload.tone,
+          safety_notes: payload.safetyNotes?.slice(0, 10) || [],
+        },
+      });
+    } catch (mirrorErr: any) {
+      console.warn('[ai-agent.e7] assist run mirror failed:', mirrorErr?.message);
+    }
+    return assistRunId;
   } catch (err: any) {
     console.error('[ai-agent.e7] persist assist run failed:', err?.message);
     return null;
   }
 }
+
 
 operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
@@ -440,6 +473,39 @@ operatorAssistRouter.post('/operator/suggest-reply', async (req: Request, res: R
     });
     return res.status(400).json({ error: 'ai_provider_not_configured', assist_run_id: runId });
   }
+
+  // Plan AI credits — operator assist now consumes the same monthly AI credit
+  // pool as auto-replies (canonical atomic deduct_ai_credits RPC). Deducted
+  // before the billable provider call so the gate fails closed.
+  const creditGate = await deductAICredits(
+    config.supabaseUrl, config.supabaseServiceRoleKey, workspaceId, 1,
+  );
+  if (!creditGate.success) {
+    const unavailable = creditGate.reason === 'rpc_error'
+      || creditGate.reason === 'exception'
+      || creditGate.reason === 'no_response';
+    const notes = [unavailable ? 'ai_credit_status_unavailable' : 'ai_credits_exhausted', ...safetyNotes];
+    const runId = await e7PersistAssistRun(config, {
+      workspaceId, conversationId, requestedBy: auth.userId,
+      status: 'failed', inputMessage, instruction: instruction ?? null, tone: tone ?? null,
+      suggestion: null, confidence, selectedSources, retrievalDebug: hybrid.retrievalDebug,
+      answerStrategy, safetyNotes: notes,
+      provider: aiCfg.provider ?? null, model: aiCfg.model ?? null,
+      error: notes[0],
+    });
+    if (assistRunCtx) {
+      await e7_failAiRun(config, assistRunCtx, notes[0]).catch(() => undefined);
+    }
+    return res.status(unavailable ? 503 : 402).json({
+      error: notes[0],
+      retryable: unavailable,
+      credits_remaining: creditGate.credits_remaining ?? 0,
+      credits_limit: creditGate.credits_limit ?? null,
+      assist_run_id: runId,
+    });
+  }
+
+
 
   try {
     const result = await e7_executeAICompletion(config, {

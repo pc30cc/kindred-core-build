@@ -9,6 +9,7 @@ export class AiBillingError extends Error {
       | 'billing_rate_not_configured'
       | 'billing_fx_not_configured'
       | 'billing_policy_not_configured'
+      | 'billing_estimate_missing'
       | 'idempotency_conflict'
       | 'ingestion_conflict'
       | 'refund_cap_exceeded'

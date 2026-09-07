@@ -95,6 +95,13 @@ export function buildOpenAIEmbeddingProvider(
               usage,
             });
           } catch (err) {
+            // METER_ONLY: usage is best-effort observability, never block on
+            // it. ENFORCED: a Run only reaches here after reserveForRun()
+            // already confirmed a rate card and a funded wallet, so a
+            // failure here is a real anomaly (e.g. the card was unpublished
+            // mid-run) — swallowing it would grant this embedding for free
+            // with no audit trail, so it must propagate and fail the caller.
+            if (opts.runCtx.mode === 'ENFORCED') throw err;
             console.warn('[ai-billing] embedding usage not recorded:', (err as any)?.message);
           }
         }

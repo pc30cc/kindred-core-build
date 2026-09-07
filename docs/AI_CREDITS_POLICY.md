@@ -38,7 +38,7 @@ routes that already deduct via the RPC.
 | `POST /api/ai/complete`                              | `requireAICredits(1)`      | Enforced             |
 | AI-KB worker per-page processing                     | `consumeAiCredits()` (RPC) | Enforced             |
 | `POST /api/ai-agent/playground/test`                 | own rate limit only        | Deferred (see below) |
-| `POST /api/ai-agent/operator/suggest-reply`          | `deductAICredits(1)` inline | Enforced             |
+| `POST /api/ai-agent/operator/suggest-reply`          | AI billing wallet (reserve/settle) | Enforced      |
 | `POST /api/ai-agent/generate-business-description`   | none                       | Deferred (see below) |
 | `POST /api/ai/test`                                  | n/a (caller-supplied keys) | Not gated — correct  |
 | `GET  /api/ai/config/:workspaceId`                   | n/a (read-only)            | Not gated — correct  |

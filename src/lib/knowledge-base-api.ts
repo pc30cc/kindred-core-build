@@ -45,8 +45,14 @@ export class KnowledgeBaseApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}/api/knowledge-base${path}`, {credentials: 'include', 
     ...init,
-    headers: { ...({}), ...(init?.headers || {}) },
+    headers: {
+      // Without an explicit JSON content type the Express body parser skips the
+      // payload, so PATCH/POST silently become no-ops (e.g. status never saved).
+      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(init?.headers || {}),
+    },
   });
+
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) throw new KnowledgeBaseApiError(res.status, body);
   return body as T;

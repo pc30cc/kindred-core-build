@@ -4847,6 +4847,27 @@ export type Database = {
         }
         Relationships: []
       }
+      billing_provider_credentials: {
+        Row: {
+          config: Json
+          created_at: string
+          provider_name: string
+          updated_at: string
+        }
+        Insert: {
+          config?: Json
+          created_at?: string
+          provider_name: string
+          updated_at?: string
+        }
+        Update: {
+          config?: Json
+          created_at?: string
+          provider_name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       billing_retention_signals: {
         Row: {
           cleared_at: string | null

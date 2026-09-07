@@ -193,13 +193,18 @@ async function reserveForRun(
   ctx: AiRunContext,
   est?: BeginRunArgs['estimate'],
 ): Promise<void> {
-  let amount = D.fromString('0');
-  if (est?.provider && est?.model) {
-    const card = await resolveRateCard(config, est.provider, est.model);
-    if (!card) throw new AiBillingError('billing_rate_not_configured', `No rate card for ${est.provider}/${est.model}`, 503);
-    const providerCost = estimateProviderCost(card, estimateTokens({ promptChars: est.promptChars, maxTokens: est.maxTokens }));
-    amount = customerCharge(providerCost, ctx);
+  // ENFORCED must never open a reservation it cannot price: a caller that
+  // omits provider/model used to fall through to a flat 1-unit placeholder,
+  // which both under-reserved real cost and let the run proceed even when no
+  // rate card existed at all. Fail closed instead — this is a caller bug,
+  // not a billable-but-unpriced operation.
+  if (!est?.provider || !est?.model) {
+    throw new AiBillingError('billing_estimate_missing', 'ENFORCED billing requires a provider/model estimate to open a reservation', 503);
   }
+  const card = await resolveRateCard(config, est.provider, est.model);
+  if (!card) throw new AiBillingError('billing_rate_not_configured', `No rate card for ${est.provider}/${est.model}`, 503);
+  const providerCost = estimateProviderCost(card, estimateTokens({ promptChars: est.promptChars, maxTokens: est.maxTokens }));
+  let amount = customerCharge(providerCost, ctx);
   if (amount === 0n) amount = D.fromString('1');
 
   const res = await ledger.reserve(config, {

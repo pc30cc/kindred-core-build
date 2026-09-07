@@ -129,29 +129,46 @@ export async function crawlWebsiteSource(
     seenSourceIds.push(pageSourceId);
 
     let pageChunks = 0; let pageEmbeds = 0;
+    let billingDenied = false;
     if (!lowText && ex.text.length > 0) {
       const chunks = chunkText(ex.text);
-      const r = await indexSource(config, {
-        workspaceId: opts.workspaceId,
-        sourceType: 'web_page',
-        sourceId: pageSourceId,
-        title: ex.title || url,
-        sourceUrl: url,
-        locale: ex.locale,
-        chunks,
-        metadata: {
-          parent_source_id: opts.sourceId,
-          page_content_hash: contentHash,
-          fetched_at: new Date().toISOString(),
-        },
-      }, embedder || undefined);
-      pageChunks = r.chunksCreated + r.chunksUpdated;
-      pageEmbeds = r.embeddingsGenerated;
-      summary.chunks_created += r.chunksCreated;
-      summary.embeddings_generated += r.embeddingsGenerated;
+      try {
+        const r = await indexSource(config, {
+          workspaceId: opts.workspaceId,
+          sourceType: 'web_page',
+          sourceId: pageSourceId,
+          title: ex.title || url,
+          sourceUrl: url,
+          locale: ex.locale,
+          chunks,
+          metadata: {
+            parent_source_id: opts.sourceId,
+            page_content_hash: contentHash,
+            fetched_at: new Date().toISOString(),
+          },
+        }, embedder || undefined);
+        pageChunks = r.chunksCreated + r.chunksUpdated;
+        pageEmbeds = r.embeddingsGenerated;
+        summary.chunks_created += r.chunksCreated;
+        summary.embeddings_generated += r.embeddingsGenerated;
+      } catch (err: any) {
+        // ENFORCED billing denial (exhausted wallet, missing rate card) —
+        // every remaining page would fail identically, so stop crawling
+        // instead of burning through the queue on repeat failures. Distinct
+        // from a page fetch/parse error: the page itself was fine, indexing
+        // it is what's blocked.
+        billingDenied = true;
+        summary.errors.push(`ai_billing_denied: ${err?.message || err}`);
+        await recordPage(sb, opts, url, {
+          status: 'failed',
+          http_status: fetched.status,
+          warning: 'ai_billing_denied',
+        });
+      }
     } else if (lowText) {
       summary.warnings.push(`low_text_content: ${url}`);
     }
+    if (billingDenied) break;
 
     await recordPage(sb, opts, url, {
       status: 'fetched',

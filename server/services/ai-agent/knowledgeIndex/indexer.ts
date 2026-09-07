@@ -49,26 +49,31 @@ export interface IndexSourceResult {
  * AI billing — background KB indexing is billable provider work. When the
  * caller did not open a Run (most background paths), a standalone Run is
  * opened for this source so the embedding usage is never lost.
+ *
+ * Uses `beginAiRunGuarded`, not raw `beginAiRun`: under METER_ONLY a billing
+ * outage degrades to null (indexing keeps working, the miss is audited);
+ * under ENFORCED, an unfunded wallet or a missing rate card must fail
+ * closed and propagate to the caller instead of silently returning null —
+ * a null Run here means `embedTexts` is called with no `runCtx`, which
+ * skips billing entirely and grants the embedding for free.
  */
 async function ensureIndexingRun(
   config: ServerConfig,
   workspaceId: string,
   sourceType: string,
   sourceId: string,
+  embedder?: EmbeddingProvider,
 ): Promise<import('../../ai-billing/runContext.js').AiRunContext | null> {
-  try {
-    const { beginAiRun } = await import('../../ai-billing/runContext.js');
-    return await beginAiRun(config, {
-      workspaceId,
-      operationKey: `kb_index:${sourceType}:${sourceId}:${new Date().toISOString().slice(0, 13)}`,
-      payload: { workspaceId, sourceType, sourceId },
-      entryPoint: 'kb_index',
-      estimate: { promptChars: 0 },
-    });
-  } catch (err) {
-    console.warn('[ai-billing] kb index run not opened:', (err as any)?.message);
-    return null;
-  }
+  const { beginAiRunGuarded } = await import('../../ai-billing/runContext.js');
+  return await beginAiRunGuarded(config, {
+    workspaceId,
+    operationKey: `kb_index:${sourceType}:${sourceId}:${new Date().toISOString().slice(0, 13)}`,
+    payload: { workspaceId, sourceType, sourceId },
+    entryPoint: 'kb_index',
+    estimate: embedder
+      ? { promptChars: 0, provider: embedder.name, model: embedder.model }
+      : { promptChars: 0 },
+  });
 }
 
 export async function indexSource(
@@ -173,7 +178,7 @@ export async function indexSource(
     if (slice.length) {
       const ownCtx = opts?.runCtx
         ? null
-        : await ensureIndexingRun(config, input.workspaceId, input.sourceType, input.sourceId);
+        : await ensureIndexingRun(config, input.workspaceId, input.sourceType, input.sourceId, embedder);
       const embedCtx = opts?.runCtx ?? ownCtx;
       try {
         const out = await embedder.embedTexts(slice.map((t) => t.content), { runCtx: embedCtx });

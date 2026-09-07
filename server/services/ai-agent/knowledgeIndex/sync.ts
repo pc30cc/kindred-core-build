@@ -275,15 +275,28 @@ export async function rebuildWorkspaceIndex(
   const eligibleArticleIds = new Set<string>((articles || []).map((a) => a.id as string));
   for (const a of articles || []) {
     const chunks = chunkText([a.title, a.content].filter(Boolean).join('\n\n'));
-    const r = await indexSource(config, {
-      workspaceId,
-      sourceType: 'kb_article',
-      sourceId: a.id as string,
-      title: a.title as string,
-      locale: (a.locale as string) || null,
-      sourceUrl: a.slug ? `/help/${a.slug}` : null,
-      chunks,
-    }, embedder, { remainingEmbedBudget: remainingBudget });
+    let r: Awaited<ReturnType<typeof indexSource>>;
+    try {
+      r = await indexSource(config, {
+        workspaceId,
+        sourceType: 'kb_article',
+        sourceId: a.id as string,
+        title: a.title as string,
+        locale: (a.locale as string) || null,
+        sourceUrl: a.slug ? `/help/${a.slug}` : null,
+        chunks,
+      }, embedder, { remainingEmbedBudget: remainingBudget });
+    } catch (err: any) {
+      // ENFORCED billing denial (exhausted wallet, missing rate card) — not a
+      // transient per-item error. Stop attempting further embeds this
+      // rebuild (they would fail identically) but keep processing remaining
+      // sources so their chunk rows still get written.
+      console.warn('[ai-agent.knowledgeIndex.sync] kb_article billing denial:', err?.message);
+      distrust();
+      fail('embedding_failed');
+      remainingBudget = 0;
+      continue;
+    }
     applyIndexResult(r);
     remainingBudget = Math.max(0, remainingBudget - r.embeddingsGenerated - r.embeddingFailures);
   }
@@ -301,14 +314,23 @@ export async function rebuildWorkspaceIndex(
   if (qnasError) { distrust(); fail('qna_query_failed'); }
   for (const q of qnasError ? [] : (qnas || [])) {
     const chunks = chunkQna(q.question as string, q.answer as string);
-    const r = await indexSource(config, {
-      workspaceId,
-      sourceType: 'qna',
-      sourceId: q.id as string,
-      title: q.question as string,
-      locale: (q.locale as string) || null,
-      chunks,
-    }, embedder, { remainingEmbedBudget: remainingBudget });
+    let r: Awaited<ReturnType<typeof indexSource>>;
+    try {
+      r = await indexSource(config, {
+        workspaceId,
+        sourceType: 'qna',
+        sourceId: q.id as string,
+        title: q.question as string,
+        locale: (q.locale as string) || null,
+        chunks,
+      }, embedder, { remainingEmbedBudget: remainingBudget });
+    } catch (err: any) {
+      console.warn('[ai-agent.knowledgeIndex.sync] qna billing denial:', err?.message);
+      distrust();
+      fail('embedding_failed');
+      remainingBudget = 0;
+      continue;
+    }
     applyIndexResult(r);
     remainingBudget = Math.max(0, remainingBudget - r.embeddingsGenerated - r.embeddingFailures);
   }
@@ -332,15 +354,22 @@ export async function rebuildWorkspaceIndex(
   }
   if (profileOk && profileText) {
     const chunks = chunkText(profileText);
-    const r = await indexSource(config, {
-      workspaceId,
-      sourceType: 'business_profile',
-      sourceId: workspaceId,
-      title: 'Business profile',
-      chunks,
-    }, embedder, { remainingEmbedBudget: remainingBudget });
-    applyIndexResult(r);
-    remainingBudget = Math.max(0, remainingBudget - r.embeddingsGenerated);
+    try {
+      const r = await indexSource(config, {
+        workspaceId,
+        sourceType: 'business_profile',
+        sourceId: workspaceId,
+        title: 'Business profile',
+        chunks,
+      }, embedder, { remainingEmbedBudget: remainingBudget });
+      applyIndexResult(r);
+      remainingBudget = Math.max(0, remainingBudget - r.embeddingsGenerated);
+    } catch (err: any) {
+      console.warn('[ai-agent.knowledgeIndex.sync] business_profile billing denial:', err?.message);
+      distrust();
+      fail('embedding_failed');
+      remainingBudget = 0;
+    }
   }
 
   // 4) Reconciliation sweep — Phase 6-S5-R3.

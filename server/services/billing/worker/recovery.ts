@@ -45,6 +45,17 @@ export async function recoverUnappliedInvoices(
 
   if (invoiceIds.length > 0) {
     const now = new Date().toISOString();
+    const { data: recoveredIntents, error: intentReadError } = await sb
+      .from('billing_payment_intents')
+      .select('id')
+      .in('invoice_id', invoiceIds)
+      .eq('status', 'processing');
+    if (intentReadError) throw new Error(String(intentReadError.message || 'billing_intent_recovery_read_failed'));
+
+    const intentIds = (recoveredIntents || [])
+      .map((row) => row.id as string | null)
+      .filter((intentId): intentId is string => Boolean(intentId));
+
     const { error: intentError } = await sb
       .from('billing_payment_intents')
       .update({ status: 'succeeded', succeeded_at: now, updated_at: now, failure_reason: null })
@@ -54,16 +65,18 @@ export async function recoverUnappliedInvoices(
 
     // A recovered checkout must not leave the invoice reserved. Releasing is
     // idempotent and scoped only to the intents whose effects are now applied.
-    const { error: collectionError } = await sb
-      .from('billing_invoice_collections')
-      .update({ status: 'released', released_at: now, release_reason: 'payment_recovered' })
-      .in('payment_intent_id', invoiceIds)
-      .eq('status', 'active');
-    // Older schemas may not expose payment_intent_id here. The collection TTL
-    // remains the safe fallback; never fail successful financial recovery for
-    // cleanup-only metadata.
-    if (collectionError && (collectionError as { code?: string }).code !== '42703') {
-      throw new Error(String(collectionError.message || 'billing_collection_recovery_failed'));
+    if (intentIds.length > 0) {
+      const { error: collectionError } = await sb
+        .from('billing_invoice_collections')
+        .update({ status: 'released', released_at: now, release_reason: 'payment_recovered' })
+        .in('payment_intent_id', intentIds)
+        .eq('status', 'active');
+      // Older schemas may not expose payment_intent_id here. The collection
+      // TTL remains the safe fallback; never fail successful financial
+      // recovery for cleanup-only metadata.
+      if (collectionError && (collectionError as { code?: string }).code !== '42703') {
+        throw new Error(String(collectionError.message || 'billing_collection_recovery_failed'));
+      }
     }
   }
 

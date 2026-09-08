@@ -11,8 +11,7 @@ Dockerfile.
 |---------------|-----------------------------------|----------------------------|
 | `intelligence` (default) | AI KB Builder pipeline | `public.ai_kb_jobs`        |
 | `source-sync` | Data Hub website source sync      | `public.ai_source_sync_jobs` |
-| `seo-crawler` | SEO / Website Audit crawler       | `public.background_jobs` (`job_type='seo_crawl'`) |
-| `seo-backlinks` | SEO backlink scans (pluggable vendor) | `public.background_jobs` (`job_type='seo_backlink_scan'`) |
+| `seo-crawler` | SEO / Website Audit crawler + backlink scans (pluggable vendor) | `public.background_jobs` (`job_type IN ('seo_crawl','seo_backlink_scan')`) |
 | `all`         | Both loops in same process (dev only) | both                  |
 
 `all` logs a warning. Use only for local/small deploys.
@@ -38,12 +37,16 @@ Create two services from the same repo, same `Dockerfile.worker`:
 2. **Source Sync Worker**
    - `WORKER_KIND=source-sync`
    - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-3. **SEO Crawler Worker**
+3. **SEO Crawler Worker** (also handles backlink scans — one poller, one process)
    - `WORKER_KIND=seo-crawler`
    - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (same two secrets as every
      other worker kind — this worker is given nothing extra; Core remains
      the authorization boundary, and the worker only ever trusts a
-     `seo_crawls` row that Core itself created)
+     `seo_crawls`/`seo_backlink_scans` row that Core itself created). If the
+     plan-gated `seo_backlinks` module is enabled for any plan, this same
+     process also reads `platform_backlinks_provider_config` through the
+     service client to reach the configured backlinks vendor — no separate
+     credential or env var is given to it.
    - Optional: `SEO_CRAWLER_USER_AGENT` (default `KindredSeoBot/1.0
      (+self-hosted)`), `SEO_WORKER_INTERVAL_MS` (default `5000`),
      `SEO_WORKER_LOCK_TTL_SECONDS` (default `120`)
@@ -55,25 +58,14 @@ Create two services from the same repo, same `Dockerfile.worker`:
      each crawl is already bounded by plan-resolved page/duration/byte
      limits (server/services/seo/limits.ts) and never blocks the event loop
      for long stretches (page fetches are async with per-request timeouts).
+     A backlink scan is one outbound HTTP call to the vendor, so it adds
+     negligible load next to the crawler.
    - Graceful shutdown: on `SIGTERM`/`SIGINT` the worker stops claiming new
-     jobs immediately and waits up to 30s for any in-flight crawl to reach a
-     heartbeat/completion boundary before exiting; a crawl still running
-     past that window is safely picked up again once its lock TTL expires
-     (crash-recovery, not data loss — `background_jobs.lock_expires_at`).
-4. **SEO Backlinks Worker** (only needed if the plan-gated `seo_backlinks`
-   module is enabled for any plan)
-   - `WORKER_KIND=seo-backlinks`
-   - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — same two secrets as every
-     other worker kind. The backlinks vendor credential itself is never given
-     to this worker as an env var; it is read from
-     `platform_backlinks_provider_config` through the service client, exactly
-     like the SEO crawler trusts a `seo_crawls` row Core created.
-   - Optional: `SEO_BACKLINKS_WORKER_INTERVAL_MS` (default `5000`),
-     `SEO_BACKLINKS_WORKER_LOCK_TTL_SECONDS` (default `120`)
-   - Each scan is a single outbound HTTP call to the configured backlinks
-     vendor (no multi-page crawl loop), so this worker is much lighter than
-     the SEO Crawler Worker; it can share a container with `seo-crawler` via
-     `WORKER_KIND=seo-crawler,seo-backlinks` on small deploys.
+     jobs immediately and waits up to 30s for any in-flight crawl/scan to
+     reach a heartbeat/completion boundary before exiting; a job still
+     running past that window is safely picked up again once its lock TTL
+     expires (crash-recovery, not data loss —
+     `background_jobs.lock_expires_at`).
 
 No domain or port required for any of these services.
 

@@ -20,6 +20,7 @@ import {
   testBacklinksProvider,
   BacklinksConfigValidationError,
 } from '../services/seo/backlinks/index.js';
+import { getBacklinksPlatformStats, listRecentBacklinkScansAcrossWorkspaces } from '../services/seo/backlinkAdminStats.js';
 
 export const adminSeoBacklinksProviderRouter = Router();
 
@@ -140,4 +141,25 @@ adminSeoBacklinksProviderRouter.post('/test', async (req: Request, res: Response
     error: result.error ?? 'Backlinks data provider returned an error',
     errorCode: result.errorCode ?? 'backlinks_provider_error',
   });
+});
+
+// ─── GET /stats — platform-wide usage, across every workspace ────
+adminSeoBacklinksProviderRouter.get('/stats', async (req: Request, res: Response) => {
+  try {
+    const stats = await getBacklinksPlatformStats(ctx(req).serverConfig);
+    res.json(stats);
+  } catch {
+    res.status(500).json({ error: 'backlinks_stats_failed' });
+  }
+});
+
+// ─── GET /scans — most recent scans across every workspace ───────
+adminSeoBacklinksProviderRouter.get('/scans', async (req: Request, res: Response) => {
+  try {
+    const limit = parseInt(String(req.query.limit || '20'), 10) || 20;
+    const scans = await listRecentBacklinkScansAcrossWorkspaces(ctx(req).serverConfig, limit);
+    res.json({ scans });
+  } catch {
+    res.status(500).json({ error: 'backlinks_scans_failed' });
+  }
 });

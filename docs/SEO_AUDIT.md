@@ -91,14 +91,17 @@ image). Env vars: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (required),
 ## Backlinks module (plan-gated, provider-agnostic)
 
 A second, independently plan-gated module living alongside the crawler,
-following the exact same architecture (job queue + dedicated worker + own
-result tables):
+sharing its worker process (one poller, one container — a backlink scan is a
+single vendor HTTP call, not a multi-page crawl, so it doesn't warrant its
+own container) but with its own result tables:
 
 ```
 Web App → Core API (server/routes/seo.ts, /backlink-scans routes)
             → server/services/seo/{backlinksLimits,backlinkService}.ts
             → generic job queue (background_jobs, job_type=seo_backlink_scan)
-                → SEO Backlinks Worker (worker/seo-backlinks/, WORKER_KIND=seo-backlinks)
+                → SEO Crawler Worker (worker/seo-crawler/, WORKER_KIND=seo-crawler
+                  — same process as the crawl loop; claims both job types)
+                    → worker/seo-backlinks/processScan.ts
                     → server/services/seo/backlinks/ (pluggable provider adapter)
             → Supabase/Postgres (seo_backlink_scans, seo_backlinks,
               platform_backlinks_provider_config)

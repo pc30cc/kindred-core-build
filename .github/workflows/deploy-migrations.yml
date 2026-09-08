@@ -1,0 +1,48 @@
+name: Deploy — apply pending database migrations
+
+# Runs on every push to main. Applies any database/migrations/*.sql file
+# not yet recorded in the target database's ledger (public._schema_migrations)
+# — see scripts/migrate-database.sh. Safe to run repeatedly: a push with no
+# new migration files is a no-op.
+#
+# Requires a repo secret DATABASE_URL (a Postgres connection string — works
+# whether the database is self-hosted or your Supabase project's direct
+# connection string). Until that secret is set, this workflow logs a clear
+# warning and exits successfully without touching anything — it never fails
+# the pipeline just because the secret is missing.
+#
+# One-time setup before the FIRST run against a database that already has
+# some/all of this migration chain applied by hand: see docs/AUTO_MIGRATIONS.md.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'database/migrations/**'
+  workflow_dispatch: {}
+
+jobs:
+  migrate:
+    name: Apply pending migrations
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check DATABASE_URL is configured
+        id: check
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::DATABASE_URL secret is not set — skipping automatic migration. See docs/AUTO_MIGRATIONS.md to enable this workflow."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply pending migrations
+        if: steps.check.outputs.configured == 'true'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: ./scripts/migrate-database.sh

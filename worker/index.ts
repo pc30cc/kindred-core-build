@@ -9,7 +9,6 @@
  *   intelligence            → AI KB Builder (public.ai_kb_jobs)
  *   source-sync             → Data Hub source sync (public.ai_source_sync_jobs)
  *   seo-crawler,channels    → e.g. these two kinds sharing one container
- *   seo-backlinks           → SEO backlink scans (public.background_jobs, job_type=seo_backlink_scan)
  *   invitations             → a different kind in another container
  *   all                     → every loop in the same process (dev/small deploys only)
  *
@@ -25,6 +24,10 @@
 // 'channels' polls public.channel_jobs for plugin channel traffic (Telegram
 // inbound/outbound). It is intentionally a SEPARATE kind so channel volume
 // can never starve AI workers, and vice versa.
+// 'seo-crawler' also claims 'seo_backlink_scan' jobs — a backlink scan is one
+// vendor HTTP call, far lighter than a multi-page crawl, so it shares this
+// worker's single poller rather than needing its own kind/container (see
+// worker/seo-crawler/index.ts and worker/seo-backlinks/processScan.ts).
 const ALLOWED = new Set([
   'intelligence',
   'source-sync',
@@ -33,7 +36,6 @@ const ALLOWED = new Set([
   'channels',
   'invitations',
   'seo-crawler',
-  'seo-backlinks',
   'all',
 ]);
 
@@ -91,10 +93,6 @@ async function main() {
   if (runs('seo-crawler')) {
     const mod = await import('./seo-crawler/index.js');
     mod.startSeoCrawlerWorker?.();
-  }
-  if (runs('seo-backlinks')) {
-    const mod = await import('./seo-backlinks/index.js');
-    mod.startSeoBacklinksWorker?.();
   }
 
   if (runsAll) {

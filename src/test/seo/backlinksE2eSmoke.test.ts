@@ -9,20 +9,16 @@
  *   createBacklinkScan({workspaceId, siteId}) [NO url param]
  *   -> background_jobs row enqueued
  *   -> claimNextJob() (the worker's claim)
- *   -> processBacklinkScan() [worker/seo-backlinks/index.ts's real
- *      orchestration: fetchBacklinksForTarget -> normalize -> insert
- *      seo_backlinks -> mark completed -> completeJob]
+ *   -> processBacklinkScan() [worker/seo-backlinks/processScan.ts's real
+ *      orchestration, invoked from the SAME unified poller as the crawler
+ *      (worker/seo-crawler/index.ts): fetchBacklinksForTarget -> normalize
+ *      -> insert seo_backlinks -> mark completed -> completeJob]
  *   -> getBacklinkScan()/listBacklinks() return the completed, normalized scan.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { makeFakeSupabase, type FakeTables } from './testUtils/fakeSupabase.js';
 
-// worker/seo-backlinks/index.ts derives its own WORKER_ID from this env var
-// (falling back to a random value) — pin it so this test's claimNextJob()
-// call and the module's internal heartbeat call inside processBacklinkScan()
-// use the SAME worker identity, exactly like a real deployed worker process
-// would (mirrors src/test/seo/e2eSmoke.test.ts's WORKER_ID pin).
-process.env.WORKER_ID = 'worker-1';
+const WORKER_ID = 'worker-1';
 
 const WORKSPACE_A = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const WORKSPACE_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
@@ -64,7 +60,7 @@ const {
   createBacklinkScan, getBacklinkScan, listBacklinks, BacklinkScanLimitError,
 } = await import('../../../server/services/seo/backlinkService.js');
 const { claimNextJob, heartbeatJob, getJob } = await import('../../../server/services/jobs/queue.js');
-const { processBacklinkScan } = await import('../../../worker/seo-backlinks/index.js');
+const { processBacklinkScan } = await import('../../../worker/seo-backlinks/processScan.js');
 
 function seedTables(): FakeTables {
   const now = new Date().toISOString();
@@ -102,9 +98,9 @@ describe('SEO Backlinks end-to-end backend/worker pipeline', () => {
   it('runs the full pipeline to a completed scan with normalized backlinks', async () => {
     const scan = await createBacklinkScan(config, { workspaceId: WORKSPACE_A, siteId: SITE_A, userId: USER_ID });
 
-    const job = await claimNextJob(config, { jobTypes: ['seo_backlink_scan'], workerId: 'worker-1', lockTtlSeconds: 120 });
+    const job = await claimNextJob(config, { jobTypes: ['seo_backlink_scan'], workerId: WORKER_ID, lockTtlSeconds: 120 });
     expect(job).toBeTruthy();
-    expect(job!.locked_by).toBe('worker-1');
+    expect(job!.locked_by).toBe(WORKER_ID);
 
     const secondClaim = await claimNextJob(config, { jobTypes: ['seo_backlink_scan'], workerId: 'worker-2', lockTtlSeconds: 120 });
     expect(secondClaim).toBeNull();
@@ -115,7 +111,7 @@ describe('SEO Backlinks end-to-end backend/worker pipeline', () => {
     const scanRow = tables.seo_backlink_scans.find((s) => s.job_id === job!.id);
     expect(scanRow).toBeTruthy();
 
-    await processBacklinkScan(config, job!.id, scanRow);
+    await processBacklinkScan(config, job!.id, scanRow, WORKER_ID, 120);
 
     const finalJob = await getJob(config, job!.id);
     expect(finalJob?.status).toBe('completed');

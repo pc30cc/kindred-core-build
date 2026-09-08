@@ -3602,6 +3602,7 @@ const tr: TranslationKeys = {
       voiceVideo: 'Ses ve Video',
       callCenter: 'Çağrı Merkezi',
       aiAgent: 'AI Ajanı',
+      seoIntegrations: 'SEO Entegrasyonları',
       aiBilling: 'AI Faturalandırma',
       advancedRouting: 'Gelişmiş Yönlendirme',
       system: 'Sistem',
@@ -3632,6 +3633,10 @@ const tr: TranslationKeys = {
         operations: 'Operasyonlar',
         governance: 'Yönetim ve uyumluluk',
       },
+    },
+    seoIntegrations: {
+      title: 'SEO Entegrasyonları',
+      subtitle: 'SEO Geri Bağlantı, Anahtar Kelime Araştırması ve Sıralama Takibi modüllerinin arkasındaki platform düzeyi veri sağlayıcılarını yapılandırın.',
     },
     verification: {
       title: 'Doğrulama ve OTP',
@@ -6152,6 +6157,7 @@ const tr: TranslationKeys = {
       links: 'Bağlantılar',
       technical: 'Teknik SEO',
       sitemap: 'Site Haritası',
+      backlinks: 'Geri Bağlantılar',
       performance: 'Performans',
       history: 'Denetim Geçmişi',
     },
@@ -6305,6 +6311,36 @@ const tr: TranslationKeys = {
     performance: {
       comingSoonTitle: 'Performans denetimi yakında geliyor',
       comingSoonDescription: 'Lighthouse tabanlı performans, erişilebilirlik ve en iyi uygulama puanlaması ileride burada görünecek. Veri modeli buna zaten hazır — sizin bir şey yapmanız gerekmiyor.',
+    },
+    backlinks: {
+      runScan: 'Geri Bağlantıları Tara',
+      rescan: 'Yeniden Tara',
+      totalBacklinks: 'Toplam Geri Bağlantı',
+      referringDomains: 'Referans Veren Alan Adları',
+      dofollow: 'Dofollow',
+      nofollow: 'Nofollow',
+      columnSource: 'Kaynak',
+      columnAnchor: 'Bağlantı Metni',
+      columnType: 'Tür',
+      columnDomainRank: 'Alan Adı Sıralaması',
+      limits: {
+        workspace_concurrency_limit: 'Bu çalışma alanı eşzamanlı geri bağlantı tarama limitine ulaştı. Mevcut taramanın bitmesini bekleyin.',
+        module_not_available: 'Geri bağlantı analizi mevcut planınızda bulunmuyor.',
+        frequency_limit: 'Bu site çok yakın zamanda tarandı. Daha sonra tekrar deneyin.',
+        retryAfter: 'Yaklaşık {{hours}} saat sonra başka bir tarama çalıştırabilirsiniz.',
+      },
+      errors: {
+        startFailed: 'Geri bağlantı taraması başlatılamadı. Lütfen biraz sonra tekrar deneyin.',
+      },
+      empty: {
+        notAvailableTitle: 'Geri bağlantı analizi planınızda yok',
+        notAvailableDescription: 'Bu siteye kimlerin bağlantı verdiğini, referans veren alan adlarını ve dofollow/nofollow dağılımını görmek için planınızı yükseltin.',
+        neverScannedTitle: 'Henüz geri bağlantı taraması yok',
+        neverScannedDescription: 'Bu siteye kimlerin bağlantı verdiğini görmek için bir geri bağlantı taraması çalıştırın.',
+        runningTitle: 'Geri bağlantılar alınıyor…',
+        failedTitle: 'Son geri bağlantı taraması başarısız oldu',
+        noBacklinks: 'Bu site için geri bağlantı bulunamadı.',
+      },
     },
     history: {
       date: 'Tarih',

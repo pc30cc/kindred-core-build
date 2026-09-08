@@ -5,8 +5,9 @@ import {
   useSeoSites, useSeoLimits, useLatestCrawl, useCrawlHistory, useStartCrawl, useCancelCrawl,
   useCrawl, useCrawlPages, useCrawlIssues, useIssueAffectedUrls, useCrawlLinks, useCrawlSitemaps,
   useCrawlComparison,
+  useBacklinksLimits, useLatestBacklinkScan, useStartBacklinkScan, useBacklinks,
 } from '@/hooks/useSeo';
-import { SeoApiError, type SeoCrawl, type SeoIssue } from '@/lib/seo-api';
+import { SeoApiError, TERMINAL_SEO_STATUSES, type SeoCrawl, type SeoIssue } from '@/lib/seo-api';
 import { toast } from '@/lib/toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { SkeletonStats, SkeletonTable } from '@/components/common/Skeletons';
-import { Radar, RefreshCw, AlertTriangle, CheckCircle2, XCircle, ArrowLeft, ExternalLink } from 'lucide-react';
+import { Radar, RefreshCw, AlertTriangle, CheckCircle2, XCircle, ArrowLeft, ExternalLink, Link2, Lock } from 'lucide-react';
 
 const SEVERITY_CLASS: Record<string, string> = {
   critical: 'bg-destructive/15 text-destructive border-destructive/30',
@@ -194,6 +195,7 @@ export default function SeoPage() {
       {siteId && crawl && crawl.status === 'completed' && (
         <SeoDashboard
           workspaceId={workspaceId}
+          siteId={siteId}
           crawl={crawl}
           onRunAgain={handleStart}
           runPending={startCrawl.isPending}
@@ -215,9 +217,10 @@ function PageHeader() {
 }
 
 function SeoDashboard({
-  workspaceId, crawl, onRunAgain, runPending, history,
+  workspaceId, siteId, crawl, onRunAgain, runPending, history,
 }: {
   workspaceId: string;
+  siteId: string;
   crawl: SeoCrawl;
   onRunAgain: () => void;
   runPending: boolean;
@@ -253,6 +256,7 @@ function SeoDashboard({
           <TabsTrigger value="pages">{t('seo.tabs.pages')}</TabsTrigger>
           <TabsTrigger value="links">{t('seo.tabs.links')}</TabsTrigger>
           <TabsTrigger value="sitemap">{t('seo.tabs.sitemap')}</TabsTrigger>
+          <TabsTrigger value="backlinks">{t('seo.tabs.backlinks')}</TabsTrigger>
           <TabsTrigger value="performance">{t('seo.tabs.performance')}</TabsTrigger>
           <TabsTrigger value="history">{t('seo.tabs.history')}</TabsTrigger>
         </TabsList>
@@ -262,6 +266,7 @@ function SeoDashboard({
         <TabsContent value="pages"><PagesTab workspaceId={workspaceId} crawlId={crawl.id} /></TabsContent>
         <TabsContent value="links"><LinksTab workspaceId={workspaceId} crawlId={crawl.id} /></TabsContent>
         <TabsContent value="sitemap"><SitemapTab workspaceId={workspaceId} crawlId={crawl.id} crawl={crawl} /></TabsContent>
+        <TabsContent value="backlinks"><BacklinksTab workspaceId={workspaceId} siteId={siteId} /></TabsContent>
         <TabsContent value="performance"><PerformanceTab /></TabsContent>
         <TabsContent value="history"><HistoryTab workspaceId={workspaceId} crawl={crawl} history={history} /></TabsContent>
       </Tabs>
@@ -597,6 +602,151 @@ function PerformanceTab() {
         <p className="max-w-md text-sm text-muted-foreground">{t('seo.performance.comingSoonDescription')}</p>
       </CardContent>
     </Card>
+  );
+}
+
+function startBacklinkScanErrorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
+  if (err instanceof SeoApiError) {
+    switch (err.code) {
+      case 'workspace_concurrency_limit':
+        return t('seo.backlinks.limits.workspace_concurrency_limit' as any);
+      case 'module_not_available':
+        return t('seo.backlinks.limits.module_not_available' as any);
+      case 'frequency_limit': {
+        const hours = Math.max(1, Math.round((err.retryAfterSeconds ?? 0) / 3600));
+        return `${t('seo.backlinks.limits.frequency_limit' as any)} ${t('seo.backlinks.limits.retryAfter' as any, { hours })}`;
+      }
+      case 'site_not_found':
+        return t('seo.errors.siteNotFound' as any);
+      default:
+        return t('seo.backlinks.errors.startFailed' as any);
+    }
+  }
+  return t('seo.backlinks.errors.startFailed' as any);
+}
+
+function BacklinksTab({ workspaceId, siteId }: { workspaceId: string; siteId: string }) {
+  const { t } = useTranslation();
+  const { data: limitsData } = useBacklinksLimits(workspaceId);
+  const { data: latestData, isLoading } = useLatestBacklinkScan(workspaceId, siteId);
+  const startScan = useStartBacklinkScan(workspaceId);
+  const scan = latestData?.scan || null;
+  const isRunning = !!scan && !TERMINAL_SEO_STATUSES.has(scan.status);
+  const { data: backlinksData } = useBacklinks(workspaceId, scan?.status === 'completed' ? scan.id : undefined, { limit: 100 });
+  const backlinks = backlinksData?.backlinks || [];
+
+  const maxPerScan = limitsData?.limits.seo_backlinks_max_per_scan ?? 0;
+  const moduleAvailable = maxPerScan > 0;
+
+  const handleStart = () => {
+    startScan.mutate(siteId, {
+      onError: (err) => toast.error(startBacklinkScanErrorMessage(t, err)),
+    });
+  };
+
+  if (isLoading) return <div className="mt-4"><SkeletonStats count={4} /></div>;
+
+  if (!moduleAvailable) {
+    return (
+      <Card className="mt-4">
+        <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+          <Lock className="h-10 w-10 text-muted-foreground" />
+          <h3 className="text-lg font-semibold">{t('seo.backlinks.empty.notAvailableTitle')}</h3>
+          <p className="max-w-md text-sm text-muted-foreground">{t('seo.backlinks.empty.notAvailableDescription')}</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!scan) {
+    return (
+      <Card className="mt-4">
+        <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+          <Link2 className="h-10 w-10 text-muted-foreground" />
+          <h3 className="text-lg font-semibold">{t('seo.backlinks.empty.neverScannedTitle')}</h3>
+          <p className="max-w-md text-sm text-muted-foreground">{t('seo.backlinks.empty.neverScannedDescription')}</p>
+          <Button onClick={handleStart} disabled={startScan.isPending} className="gap-2">
+            <Link2 className="h-4 w-4" /> {t('seo.backlinks.runScan')}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isRunning) {
+    return (
+      <Card className="mt-4">
+        <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+          <RefreshCw className="h-8 w-8 animate-spin text-primary" />
+          <h3 className="text-lg font-semibold">{t('seo.backlinks.empty.runningTitle')}</h3>
+          <Progress value={scan.progress} className="w-full max-w-xs" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (scan.status === 'failed') {
+    return (
+      <Card className="mt-4">
+        <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+          <XCircle className="h-10 w-10 text-destructive" />
+          <h3 className="text-lg font-semibold">{t('seo.backlinks.empty.failedTitle')}</h3>
+          <Button onClick={handleStart} disabled={startScan.isPending} className="gap-2">
+            <RefreshCw className="h-4 w-4" /> {t('seo.backlinks.runScan')}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="mt-4 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 flex-1">
+          <StatCard label={t('seo.backlinks.totalBacklinks')} value={scan.total_backlinks ?? 0} />
+          <StatCard label={t('seo.backlinks.referringDomains')} value={scan.referring_domains ?? 0} />
+          <StatCard label={t('seo.backlinks.dofollow')} value={scan.dofollow_count ?? 0} accent="text-emerald-500" />
+          <StatCard label={t('seo.backlinks.nofollow')} value={scan.nofollow_count ?? 0} />
+        </div>
+        <Button onClick={handleStart} disabled={startScan.isPending} variant="outline" className="gap-2">
+          <RefreshCw className="h-4 w-4" /> {t('seo.backlinks.rescan')}
+        </Button>
+      </div>
+
+      <Card>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('seo.backlinks.columnSource')}</TableHead>
+              <TableHead>{t('seo.backlinks.columnAnchor')}</TableHead>
+              <TableHead>{t('seo.backlinks.columnType')}</TableHead>
+              <TableHead>{t('seo.backlinks.columnDomainRank')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {backlinks.length === 0 && (
+              <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">{t('seo.backlinks.empty.noBacklinks')}</TableCell></TableRow>
+            )}
+            {backlinks.map((b) => (
+              <TableRow key={b.id}>
+                <TableCell className="max-w-xs truncate">
+                  <a href={b.source_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-primary hover:underline">
+                    {b.source_domain} <ExternalLink className="h-3 w-3 shrink-0" />
+                  </a>
+                </TableCell>
+                <TableCell className="max-w-xs truncate text-muted-foreground">{b.anchor_text || '—'}</TableCell>
+                <TableCell>
+                  <Badge variant={b.is_dofollow ? 'default' : 'secondary'} className="text-[10px]">
+                    {b.is_dofollow ? 'dofollow' : 'nofollow'}
+                  </Badge>
+                </TableCell>
+                <TableCell>{b.domain_rank ?? '—'}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+    </div>
   );
 }
 

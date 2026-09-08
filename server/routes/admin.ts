@@ -21,6 +21,7 @@ import { adminEnforcementRouter } from './adminEnforcement.js';
 import { adminCallsRouter } from './adminCalls.js';
 import { adminAdvancedRoutingRouter } from './adminAdvancedRouting.js';
 import { adminSmsProvidersRouter } from './adminSmsProviders.js';
+import { adminSeoBacklinksProviderRouter } from './adminSeoBacklinksProvider.js';
 import { adminPhoneVerificationRouter } from './adminPhoneVerification.js';
 import { adminVerificationRouter } from './adminVerification.js';
 import { adminSecurityRouter } from './adminSecurity.js';
@@ -120,6 +121,10 @@ adminRouter.use('/advanced-routing', adminAdvancedRoutingRouter);
 // Phase 6-S3A — platform SMS provider (Kavenegar). Credential is stored in a
 // service-role-only table and never returned to the browser.
 adminRouter.use('/providers/sms', adminSmsProvidersRouter);
+
+// SEO Backlinks — platform backlinks-data provider (DataForSEO). Same
+// singleton-credential shape as the SMS provider above.
+adminRouter.use('/providers/seo-backlinks', adminSeoBacklinksProviderRouter);
 
 // Phase 6-S3B — per-user phone verification (status / resend / manual verify).
 // Mounted inside the admin router so `requireAdmin` runs first.

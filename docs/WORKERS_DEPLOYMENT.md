@@ -12,6 +12,7 @@ Dockerfile.
 | `intelligence` (default) | AI KB Builder pipeline | `public.ai_kb_jobs`        |
 | `source-sync` | Data Hub website source sync      | `public.ai_source_sync_jobs` |
 | `seo-crawler` | SEO / Website Audit crawler       | `public.background_jobs` (`job_type='seo_crawl'`) |
+| `seo-backlinks` | SEO backlink scans (pluggable vendor) | `public.background_jobs` (`job_type='seo_backlink_scan'`) |
 | `all`         | Both loops in same process (dev only) | both                  |
 
 `all` logs a warning. Use only for local/small deploys.
@@ -59,6 +60,20 @@ Create two services from the same repo, same `Dockerfile.worker`:
      heartbeat/completion boundary before exiting; a crawl still running
      past that window is safely picked up again once its lock TTL expires
      (crash-recovery, not data loss — `background_jobs.lock_expires_at`).
+4. **SEO Backlinks Worker** (only needed if the plan-gated `seo_backlinks`
+   module is enabled for any plan)
+   - `WORKER_KIND=seo-backlinks`
+   - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — same two secrets as every
+     other worker kind. The backlinks vendor credential itself is never given
+     to this worker as an env var; it is read from
+     `platform_backlinks_provider_config` through the service client, exactly
+     like the SEO crawler trusts a `seo_crawls` row Core created.
+   - Optional: `SEO_BACKLINKS_WORKER_INTERVAL_MS` (default `5000`),
+     `SEO_BACKLINKS_WORKER_LOCK_TTL_SECONDS` (default `120`)
+   - Each scan is a single outbound HTTP call to the configured backlinks
+     vendor (no multi-page crawl loop), so this worker is much lighter than
+     the SEO Crawler Worker; it can share a container with `seo-crawler` via
+     `WORKER_KIND=seo-crawler,seo-backlinks` on small deploys.
 
 No domain or port required for any of these services.
 

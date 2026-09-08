@@ -205,3 +205,87 @@ export function compareCrawl(workspaceId: string, crawlId: string) {
 }
 
 export const TERMINAL_SEO_STATUSES: ReadonlySet<SeoJobStatus> = new Set(['completed', 'failed', 'cancelled']);
+
+// ─── SEO Backlinks ─────────────────────────────────────────────────────
+
+export interface SeoBacklinksLimits {
+  planSlug: string | null;
+  planName: string | null;
+  limits: {
+    seo_backlinks_max_per_scan: number;
+    seo_backlinks_workspace_concurrent_scans: number;
+    seo_backlinks_scan_frequency_hours: number;
+    [key: string]: number;
+  };
+}
+
+export interface SeoBacklinkScan {
+  id: string;
+  job_id: string;
+  workspace_id: string;
+  website_id: string;
+  target_url: string;
+  provider: string;
+  max_backlinks: number;
+  status: SeoJobStatus;
+  progress: number;
+  progress_stage: string | null;
+  total_backlinks: number | null;
+  referring_domains: number | null;
+  dofollow_count: number | null;
+  nofollow_count: number | null;
+  new_backlinks: number | null;
+  lost_backlinks: number | null;
+  error_message: string | null;
+  error_category: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface SeoBacklink {
+  id: string;
+  source_url: string;
+  source_domain: string;
+  target_url: string;
+  anchor_text: string | null;
+  is_dofollow: boolean;
+  is_new: boolean;
+  is_lost: boolean;
+  page_rank: number | null;
+  domain_rank: number | null;
+  spam_score: number | null;
+  first_seen: string | null;
+  last_seen: string | null;
+}
+
+export function getBacklinksLimits(workspaceId: string) {
+  return api<SeoBacklinksLimits>(`/api/seo/${workspaceId}/backlinks/limits`);
+}
+
+export function getLatestBacklinkScan(workspaceId: string, siteId: string) {
+  return api<{ scan: SeoBacklinkScan | null }>(`/api/seo/${workspaceId}/sites/${siteId}/backlink-scans/latest`);
+}
+
+export function listBacklinkScanHistory(workspaceId: string, siteId: string, opts: { limit?: number; offset?: number } = {}) {
+  return api<{ scans: SeoBacklinkScan[]; total: number }>(`/api/seo/${workspaceId}/sites/${siteId}/backlink-scans${qs(opts)}`);
+}
+
+export function startBacklinkScan(workspaceId: string, siteId: string) {
+  return api<{ scan: SeoBacklinkScan }>(`/api/seo/${workspaceId}/backlink-scans`, {
+    method: 'POST',
+    body: JSON.stringify({ siteId }),
+  });
+}
+
+export function getBacklinkScan(workspaceId: string, scanId: string) {
+  return api<{ scan: SeoBacklinkScan }>(`/api/seo/${workspaceId}/backlink-scans/${scanId}`);
+}
+
+export function cancelBacklinkScan(workspaceId: string, scanId: string) {
+  return api<{ ok: boolean }>(`/api/seo/${workspaceId}/backlink-scans/${scanId}/cancel`, { method: 'POST' });
+}
+
+export function listBacklinks(workspaceId: string, scanId: string, opts: { dofollow?: boolean; isNew?: boolean; search?: string; limit?: number; offset?: number } = {}) {
+  return api<{ backlinks: SeoBacklink[]; total: number }>(`/api/seo/${workspaceId}/backlink-scans/${scanId}/backlinks${qs(opts as any)}`);
+}

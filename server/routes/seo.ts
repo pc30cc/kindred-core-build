@@ -19,8 +19,10 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import type { ServerConfig } from '../config.js';
+import { requireModule } from '../middleware/featureGating.js';
 import { listWorkspaceSites } from '../services/seo/siteResolver.js';
 import { resolveSeoLimits } from '../services/seo/limits.js';
+import { resolveBacklinksLimits } from '../services/seo/backlinksLimits.js';
 import {
   createCrawl,
   getCrawl,
@@ -35,6 +37,15 @@ import {
   compareWithPreviousCrawl,
   CrawlLimitError,
 } from '../services/seo/crawlService.js';
+import {
+  createBacklinkScan,
+  getBacklinkScan,
+  getLatestBacklinkScanForSite,
+  listBacklinkScansForSite,
+  listBacklinks,
+  requestBacklinkScanCancel,
+  BacklinkScanLimitError,
+} from '../services/seo/backlinkService.js';
 import { SiteResolutionError } from '../services/seo/siteResolver.js';
 
 export const seoRouter = Router();
@@ -237,4 +248,107 @@ seoRouter.get('/:workspaceId/crawls/:crawlId/compare', async (req, res) => {
   if (!(await requireCrawlInWorkspace(req, res, workspaceId, crawlId))) return;
   const comparison = await compareWithPreviousCrawl(configOf(req), workspaceId, crawlId);
   res.json(comparison);
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// SEO Backlinks — same authorization contract as the crawl routes above:
+// authorizeWorkspaceAccess first on every route, {manage:true} for anything
+// that consumes quota, every resource re-scoped by workspace_id in the query.
+// requireModule('seo_backlinks') additionally gates scan creation/reads on
+// the plan's module flag (the always-on crawl module has no such gate today).
+// ─────────────────────────────────────────────────────────────────────────
+
+// ─── GET /:workspaceId/backlinks/limits ───
+seoRouter.get('/:workspaceId/backlinks/limits', async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  const resolved = await resolveBacklinksLimits(configOf(req), workspaceId);
+  res.json(resolved);
+});
+
+// ─── GET /:workspaceId/sites/:siteId/backlink-scans/latest ───
+seoRouter.get('/:workspaceId/sites/:siteId/backlink-scans/latest', requireModule('seo_backlinks'), async (req, res) => {
+  const { workspaceId, siteId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(siteId)) return res.status(400).json({ error: 'invalid_site_id' });
+  const scan = await getLatestBacklinkScanForSite(configOf(req), workspaceId, siteId);
+  res.json({ scan });
+});
+
+// ─── GET /:workspaceId/sites/:siteId/backlink-scans — scan history ───
+seoRouter.get('/:workspaceId/sites/:siteId/backlink-scans', requireModule('seo_backlinks'), async (req, res) => {
+  const { workspaceId, siteId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(siteId)) return res.status(400).json({ error: 'invalid_site_id' });
+  const limit = Math.min(parseInt(String(req.query.limit || '20'), 10) || 20, 100);
+  const offset = Math.max(parseInt(String(req.query.offset || '0'), 10) || 0, 0);
+  const result = await listBacklinkScansForSite(configOf(req), workspaceId, siteId, { limit, offset });
+  res.json(result);
+});
+
+// ─── POST /:workspaceId/backlink-scans — start a new scan. Body: { siteId } ONLY. ───
+const createBacklinkScanSchema = z.object({ siteId: z.string().uuid() });
+
+seoRouter.post('/:workspaceId/backlink-scans', requireModule('seo_backlinks'), async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  const parsed = createBacklinkScanSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_input', detail: parsed.error.flatten() });
+
+  try {
+    const scan = await createBacklinkScan(configOf(req), { workspaceId, siteId: parsed.data.siteId, userId: auth.userId });
+    res.status(201).json({ scan });
+  } catch (err) {
+    if (err instanceof SiteResolutionError) return res.status(404).json({ error: err.code });
+    if (err instanceof BacklinkScanLimitError) {
+      return res.status(429).json({ error: err.reason, retryAfterSeconds: err.retryAfterSeconds, message: err.message });
+    }
+    res.status(500).json({ error: 'create_backlink_scan_failed', detail: (err as Error)?.message });
+  }
+});
+
+// ─── GET /:workspaceId/backlink-scans/:scanId ───
+seoRouter.get('/:workspaceId/backlink-scans/:scanId', requireModule('seo_backlinks'), async (req, res) => {
+  const { workspaceId, scanId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(scanId)) return res.status(400).json({ error: 'invalid_scan_id' });
+  const scan = await getBacklinkScan(configOf(req), workspaceId, scanId);
+  if (!scan) return res.status(404).json({ error: 'scan_not_found' });
+  res.json({ scan });
+});
+
+// ─── POST /:workspaceId/backlink-scans/:scanId/cancel ───
+seoRouter.post('/:workspaceId/backlink-scans/:scanId/cancel', requireModule('seo_backlinks'), async (req, res) => {
+  const { workspaceId, scanId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  if (!isUuid(scanId)) return res.status(400).json({ error: 'invalid_scan_id' });
+  const scan = await getBacklinkScan(configOf(req), workspaceId, scanId);
+  if (!scan) return res.status(404).json({ error: 'scan_not_found' });
+  const result = await requestBacklinkScanCancel(configOf(req), workspaceId, scanId);
+  res.json(result);
+});
+
+// ─── GET /:workspaceId/backlink-scans/:scanId/backlinks ───
+seoRouter.get('/:workspaceId/backlink-scans/:scanId/backlinks', requireModule('seo_backlinks'), async (req, res) => {
+  const { workspaceId, scanId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(scanId)) return res.status(400).json({ error: 'invalid_scan_id' });
+  const scan = await getBacklinkScan(configOf(req), workspaceId, scanId);
+  if (!scan) return res.status(404).json({ error: 'scan_not_found' });
+  const { dofollow, isNew, search } = req.query;
+  const result = await listBacklinks(configOf(req), workspaceId, scanId, {
+    dofollowOnly: dofollow === 'true',
+    isNew: isNew === 'true' ? true : isNew === 'false' ? false : undefined,
+    search: search ? String(search).slice(0, 200) : undefined,
+    limit: parseInt(String(req.query.limit || '50'), 10),
+    offset: parseInt(String(req.query.offset || '0'), 10),
+  });
+  res.json(result);
 });

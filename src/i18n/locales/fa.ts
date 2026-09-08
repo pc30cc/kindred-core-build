@@ -3598,6 +3598,7 @@ const fa: TranslationKeys = {
       voiceVideo: 'صدا و تصویر',
       callCenter: 'مرکز تماس',
       aiAgent: 'دستیار هوشمند',
+      seoIntegrations: 'یکپارچه‌سازی‌های سئو',
       aiBilling: 'صورتحساب هوش مصنوعی',
       advancedRouting: 'مسیریابی پیشرفته',
       system: 'سیستم',
@@ -3628,6 +3629,10 @@ const fa: TranslationKeys = {
         operations: 'عملیات',
         governance: 'مدیریت و انطباق',
       },
+    },
+    seoIntegrations: {
+      title: 'یکپارچه‌سازی‌های سئو',
+      subtitle: 'ارائه‌دهنده‌های داده در سطح پلتفرم برای ماژول‌های بک‌لینک، تحقیق کلمات کلیدی و رتبه‌سنجی سئو را پیکربندی کنید.',
     },
     verification: {
       title: 'تأیید هویت و کد یکبارمصرف',
@@ -6148,6 +6153,7 @@ const fa: TranslationKeys = {
       links: 'لینک‌ها',
       technical: 'سئوی فنی',
       sitemap: 'نقشه سایت',
+      backlinks: 'بک‌لینک‌ها',
       performance: 'عملکرد',
       history: 'تاریخچه بررسی‌ها',
     },
@@ -6301,6 +6307,36 @@ const fa: TranslationKeys = {
     performance: {
       comingSoonTitle: 'بررسی عملکرد به‌زودی اضافه می‌شود',
       comingSoonDescription: 'امتیازدهی عملکرد، دسترس‌پذیری و بهترین شیوه‌ها بر پایه Lighthouse در به‌روزرسانی بعدی اضافه خواهد شد. ساختار داده از هم‌اکنون آماده است و نیازی به اقدام از سمت شما نیست.',
+    },
+    backlinks: {
+      runScan: 'بررسی بک‌لینک‌ها',
+      rescan: 'بررسی مجدد',
+      totalBacklinks: 'مجموع بک‌لینک‌ها',
+      referringDomains: 'دامنه‌های ارجاع‌دهنده',
+      dofollow: 'دوفالو',
+      nofollow: 'نوفالو',
+      columnSource: 'منبع',
+      columnAnchor: 'متن لنگر',
+      columnType: 'نوع',
+      columnDomainRank: 'رتبه دامنه',
+      limits: {
+        workspace_concurrency_limit: 'این فضای کاری به سقف بررسی همزمان بک‌لینک رسیده است. تا پایان بررسی جاری صبر کنید.',
+        module_not_available: 'تحلیل بک‌لینک در پلن فعلی شما در دسترس نیست.',
+        frequency_limit: 'این سایت اخیراً بررسی شده است. بعداً دوباره امتحان کنید.',
+        retryAfter: 'می‌توانید تا حدود {{hours}} ساعت دیگر بررسی دیگری اجرا کنید.',
+      },
+      errors: {
+        startFailed: 'شروع بررسی بک‌لینک ممکن نشد. لطفاً کمی بعد دوباره تلاش کنید.',
+      },
+      empty: {
+        notAvailableTitle: 'تحلیل بک‌لینک در پلن شما نیست',
+        notAvailableDescription: 'برای دیدن سایت‌هایی که به این سایت لینک داده‌اند، دامنه‌های ارجاع‌دهنده و تفکیک دوفالو/نوفالو پلن خود را ارتقا دهید.',
+        neverScannedTitle: 'هنوز بررسی بک‌لینکی انجام نشده',
+        neverScannedDescription: 'برای دیدن سایت‌هایی که به این سایت لینک داده‌اند، یک بررسی بک‌لینک اجرا کنید.',
+        runningTitle: 'در حال دریافت بک‌لینک‌ها…',
+        failedTitle: 'آخرین بررسی بک‌لینک ناموفق بود',
+        noBacklinks: 'بک‌لینکی برای این سایت یافت نشد.',
+      },
     },
     history: {
       date: 'تاریخ',

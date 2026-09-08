@@ -207,6 +207,16 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'seo_max_depth',               type: 'limit', label: 'SEO — Max crawl depth',            group: 'seo', description: 'Maximum link depth (clicks from the homepage) the SEO crawler will follow in a single audit run.', defaultValue: 3, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 20 },
   { key: 'seo_workspace_concurrent_jobs', type: 'limit', label: 'SEO — Concurrent audits',        group: 'seo', description: 'Maximum number of SEO audits that may be queued or running at once for the whole workspace, across all its registered websites.', defaultValue: 1, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 30 },
   { key: 'seo_crawl_frequency_hours',   type: 'limit', label: 'SEO — Re-audit cooldown (hours)',  group: 'seo', description: 'Minimum number of hours that must pass since a website\'s last audit before another one may be started for it.', defaultValue: 24, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 40 },
+
+  // ─── SEO Backlinks (server/services/seo/backlinksLimits.ts is the actual
+  // enforcement point, mirroring server/services/seo/limits.ts exactly).
+  // A vendor call costs the platform real money (see
+  // server/services/seo/backlinks/), so 0 on Free is a deliberate default —
+  // this module is opt-in per plan, unlike the always-on 'seo' crawl module. ───
+  { key: 'seo_backlinks', type: 'module', label: 'SEO — Backlink Analysis', group: 'modules', description: 'Fetch and browse the backlink profile of a website registered in the workspace, via a platform-configured backlinks data provider.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 131 },
+  { key: 'seo_backlinks_max_per_scan',            type: 'limit', label: 'SEO — Max backlinks per scan',       group: 'seo', description: 'Maximum number of backlink rows fetched and stored in a single backlink scan.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 50 },
+  { key: 'seo_backlinks_workspace_concurrent_scans', type: 'limit', label: 'SEO — Concurrent backlink scans', group: 'seo', description: 'Maximum number of backlink scans that may be queued or running at once for the whole workspace.', defaultValue: 1, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 60 },
+  { key: 'seo_backlinks_scan_frequency_hours',    type: 'limit', label: 'SEO — Backlink re-scan cooldown (hours)', group: 'seo', description: 'Minimum number of hours that must pass since a website\'s last backlink scan before another one may be started for it.', defaultValue: 168, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 70 },
 ];
 
 

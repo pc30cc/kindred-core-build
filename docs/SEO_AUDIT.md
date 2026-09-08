@@ -88,6 +88,49 @@ image). Env vars: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (required),
 `SEO_CRAWLER_USER_AGENT`, `SEO_WORKER_INTERVAL_MS`,
 `SEO_WORKER_LOCK_TTL_SECONDS` (all optional, sane defaults).
 
+## Backlinks module (plan-gated, provider-agnostic)
+
+A second, independently plan-gated module living alongside the crawler,
+following the exact same architecture (job queue + dedicated worker + own
+result tables):
+
+```
+Web App → Core API (server/routes/seo.ts, /backlink-scans routes)
+            → server/services/seo/{backlinksLimits,backlinkService}.ts
+            → generic job queue (background_jobs, job_type=seo_backlink_scan)
+                → SEO Backlinks Worker (worker/seo-backlinks/, WORKER_KIND=seo-backlinks)
+                    → server/services/seo/backlinks/ (pluggable provider adapter)
+            → Supabase/Postgres (seo_backlink_scans, seo_backlinks,
+              platform_backlinks_provider_config)
+            → SEO UI (SeoPage.tsx's Backlinks tab)
+```
+
+- **Plan-gated, opt-in by default.** Unlike the always-on crawl module, the
+  `seo_backlinks` module defaults to `false` in every plan's entitlements
+  (`server/services/billing/capabilityRegistry.ts`) — a platform admin must
+  explicitly enable it per plan (`/admin/plans`) before any workspace on that
+  plan can use it. Its own limits (`seo_backlinks_max_per_scan`,
+  `seo_backlinks_workspace_concurrent_scans`,
+  `seo_backlinks_scan_frequency_hours`) are resolved the same way as the
+  crawler's, in `server/services/seo/backlinksLimits.ts`.
+- **Pluggable vendor, platform-level config.** The actual backlink-data
+  vendor is never hardcoded into call sites: `server/services/seo/backlinks/`
+  defines a small adapter interface (`types.ts`) with one concrete
+  implementation today (`providers/dataforseo.ts`, DataForSEO's `live`
+  Backlinks API — one synchronous HTTP call per scan, no task polling). Which
+  vendor is active is a single platform-level config row
+  (`platform_backlinks_provider_config`, same singleton-credential shape as
+  `platform_sms_provider_config`), set from `/admin/seo-integrations`. Adding
+  a second vendor is one new adapter file plus one branch in
+  `resolveProvider()` — no route or UI call site changes.
+- **Credential never reaches the browser.** The admin UI only ever sees
+  `hasCredentials: boolean` and the login (never the password); the actual
+  vendor credential is read only by `server/services/seo/backlinks/index.ts`
+  through the service-role client.
+- **No arbitrary URL, same as the crawler.** `POST /:workspaceId/backlink-scans`
+  takes only `{ siteId }`; the target URL is resolved server-side from
+  `workspace_domains` via the same `siteResolver.ts` the crawler uses.
+
 ## Known V1 limitations
 
 - Performance/Lighthouse auditing is schema-only (see above).

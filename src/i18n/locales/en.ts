@@ -3613,6 +3613,7 @@ const en = {
       voiceVideo: 'Voice & Video',
       callCenter: 'Call Center',
       aiAgent: 'AI Agent',
+      seoIntegrations: 'SEO Integrations',
       aiBilling: 'AI Billing',
       advancedRouting: 'Advanced Routing',
       system: 'System',
@@ -3643,6 +3644,10 @@ const en = {
         operations: 'Operations',
         governance: 'Governance',
       },
+    },
+    seoIntegrations: {
+      title: 'SEO Integrations',
+      subtitle: 'Configure the platform-level data providers behind the SEO Backlinks, Keyword Research and Rank Tracking modules.',
     },
     verification: {
       title: 'Verification & OTP',
@@ -6164,6 +6169,7 @@ const en = {
       links: 'Links',
       technical: 'Technical SEO',
       sitemap: 'Sitemap',
+      backlinks: 'Backlinks',
       performance: 'Performance',
       history: 'Crawl History',
     },
@@ -6317,6 +6323,36 @@ const en = {
     performance: {
       comingSoonTitle: 'Performance auditing is coming soon',
       comingSoonDescription: 'Lighthouse-based performance, accessibility and best-practices scoring will appear here in a future update. The data model already supports it — no action is needed on your part.',
+    },
+    backlinks: {
+      runScan: 'Scan Backlinks',
+      rescan: 'Rescan',
+      totalBacklinks: 'Total Backlinks',
+      referringDomains: 'Referring Domains',
+      dofollow: 'Dofollow',
+      nofollow: 'Nofollow',
+      columnSource: 'Source',
+      columnAnchor: 'Anchor Text',
+      columnType: 'Type',
+      columnDomainRank: 'Domain Rank',
+      limits: {
+        workspace_concurrency_limit: 'This workspace has reached its concurrent backlink scan limit. Wait for the current scan to finish.',
+        module_not_available: 'Backlink analysis is not available on your current plan.',
+        frequency_limit: 'This site was scanned too recently. Try again later.',
+        retryAfter: 'You can run another scan in about {{hours}} hour(s).',
+      },
+      errors: {
+        startFailed: 'Could not start the backlink scan. Please try again in a moment.',
+      },
+      empty: {
+        notAvailableTitle: 'Backlink analysis is not on your plan',
+        notAvailableDescription: 'Upgrade your plan to see who links to this site, referring domains, and dofollow/nofollow breakdowns.',
+        neverScannedTitle: 'No backlink scan yet',
+        neverScannedDescription: 'Run a backlink scan to see who links to this site.',
+        runningTitle: 'Fetching backlinks…',
+        failedTitle: 'The last backlink scan failed',
+        noBacklinks: 'No backlinks found for this site.',
+      },
     },
     history: {
       date: 'Date',

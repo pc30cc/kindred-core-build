@@ -58,10 +58,11 @@ export function SeoSectionNav({
   const activeSection = findSection(activeSectionKey);
 
   return (
-    <div className="flex shrink-0">
+    <div className="flex h-full shrink-0">
       {/* Tool switcher — icon rail */}
       <TooltipProvider delayDuration={150}>
         <nav className="flex w-16 flex-col items-center gap-1.5 border-e border-border/60 bg-muted/30 py-3">
+
           {SEO_SECTIONS.map((s) => {
             const active = s.key === activeSectionKey;
             const Icon = s.icon;

@@ -15,7 +15,11 @@ type ModuleKey =
   | 'ai_assistant'
   | 'call_center'
   | 'visitor_tracking'
-  | 'contacts';
+  | 'contacts'
+  | 'seo_backlinks'
+  | 'seo_keywords'
+  | 'seo_rank_tracking'
+  | 'seo_performance';
 
 interface Props {
   /** Locks on a plan module (Sidebar-level product areas). */

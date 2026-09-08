@@ -16,6 +16,9 @@ import {
   getRankTrackingLimits, listTrackedKeywords, addTrackedKeyword, removeTrackedKeyword, listRankChecks,
   getPerformanceLimits, getLatestPerformanceAudit, startPerformanceAudit, listPerformanceResults,
   type SeoPerformanceAudit,
+  getGscLimits, getGscConnection, startGscOAuth, disconnectGsc, listGscProperties,
+  listGscAvailableSites, linkGscProperty, unlinkGscProperty, setPrimaryGscProperty,
+  queryGscSearchAnalytics, type SeoGscDimension,
 } from '@/lib/seo-api';
 
 export function useSeoSites(workspaceId?: string) {
@@ -347,5 +350,98 @@ export function usePerformanceResults(workspaceId?: string, auditId?: string) {
     queryKey: ['seo-performance-results', workspaceId, auditId],
     queryFn: () => listPerformanceResults(workspaceId!, auditId!),
     enabled: !!workspaceId && !!auditId,
+  });
+}
+
+// ─── SEO GSC Insights ─────────────────────────────────────────────────────
+
+export function useGscLimits(workspaceId?: string) {
+  return useQuery({
+    queryKey: ['seo-gsc-limits', workspaceId],
+    queryFn: () => getGscLimits(workspaceId!),
+    enabled: !!workspaceId,
+  });
+}
+
+export function useGscConnection(workspaceId?: string) {
+  return useQuery({
+    queryKey: ['seo-gsc-connection', workspaceId],
+    queryFn: () => getGscConnection(workspaceId!),
+    enabled: !!workspaceId,
+  });
+}
+
+export function useStartGscOAuth(workspaceId: string) {
+  return useMutation({
+    mutationFn: () => startGscOAuth(workspaceId),
+  });
+}
+
+export function useDisconnectGsc(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => disconnectGsc(workspaceId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['seo-gsc-connection', workspaceId] });
+      qc.invalidateQueries({ queryKey: ['seo-gsc-properties', workspaceId] });
+    },
+  });
+}
+
+export function useGscProperties(workspaceId?: string) {
+  return useQuery({
+    queryKey: ['seo-gsc-properties', workspaceId],
+    queryFn: () => listGscProperties(workspaceId!),
+    enabled: !!workspaceId,
+  });
+}
+
+export function useGscAvailableSites(workspaceId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ['seo-gsc-available-sites', workspaceId],
+    queryFn: () => listGscAvailableSites(workspaceId!),
+    enabled: !!workspaceId && enabled,
+  });
+}
+
+export function useLinkGscProperty(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ siteUrl, websiteId }: { siteUrl: string; websiteId?: string }) => linkGscProperty(workspaceId, siteUrl, websiteId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['seo-gsc-properties', workspaceId] });
+    },
+  });
+}
+
+export function useUnlinkGscProperty(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (propertyId: string) => unlinkGscProperty(workspaceId, propertyId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['seo-gsc-properties', workspaceId] });
+    },
+  });
+}
+
+export function useSetPrimaryGscProperty(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (propertyId: string) => setPrimaryGscProperty(workspaceId, propertyId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['seo-gsc-properties', workspaceId] });
+    },
+  });
+}
+
+export function useGscSearchAnalytics(
+  workspaceId: string | undefined,
+  propertyId: string | undefined,
+  params: { startDate: string; endDate: string; dimensions: SeoGscDimension[]; rowLimit?: number },
+) {
+  return useQuery({
+    queryKey: ['seo-gsc-search-analytics', workspaceId, propertyId, params.startDate, params.endDate, params.dimensions.join(','), params.rowLimit],
+    queryFn: () => queryGscSearchAnalytics(workspaceId!, propertyId!, params),
+    enabled: !!workspaceId && !!propertyId,
   });
 }

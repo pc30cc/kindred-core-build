@@ -5,6 +5,7 @@ import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { SEO_SECTIONS, findSection, firstLeafKey, findLeaf } from './seoNavTree';
 import { SeoSectionNav } from './SeoSectionNav';
 import { SeoRoadmapPlaceholder } from './SeoRoadmapPlaceholder';
+import { GscInsightsSection } from './GscInsightsSection';
 import {
   useSeoSites, useSeoLimits, useLatestCrawl, useCrawlHistory, useStartCrawl, useCancelCrawl,
   useCrawl, useCrawlPages, useCrawlIssues, useIssueAffectedUrls, useCrawlLinks, useCrawlSitemaps,
@@ -145,7 +146,7 @@ export default function SeoPage() {
     return <div className="p-6"><SkeletonStats count={4} /></div>;
   }
 
-  if (sites.length === 0) {
+  if (activeSection.needsSite && sites.length === 0) {
     return (
       <div className="p-6">
         <PageHeader />
@@ -177,6 +178,8 @@ export default function SeoPage() {
               section={activeSection}
               subsectionKey={subsectionKey}
             />
+          ) : activeSection.key === 'gsc-insights' ? (
+            <GscInsightsSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
           ) : (
             <SeoRoadmapPlaceholder label={t(findLeaf(activeSection, subsectionKey)?.labelKey as any || activeSection.labelKey as any)} />
           )}
@@ -987,7 +990,7 @@ function startBacklinkScanErrorMessage(t: (key: string, opts?: Record<string, un
 }
 
 /** Gradient hero stat card — matches OverviewPage.tsx's dashboard-card visual language. */
-function GradientStatCard({
+export function GradientStatCard({
   icon: Icon, iconGradient, blobColor, value, label,
 }: {
   icon: React.ComponentType<{ className?: string }>;

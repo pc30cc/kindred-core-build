@@ -484,3 +484,109 @@ export function getPerformanceAudit(workspaceId: string, auditId: string) {
 export function listPerformanceResults(workspaceId: string, auditId: string) {
   return api<{ results: SeoPerformanceResult[] }>(`/api/seo/${workspaceId}/performance-audits/${auditId}/results`);
 }
+
+// ─── GSC Insights ──────────────────────────────────────────────────────
+// Unlike the four modules above, GSC has no crawl/scan/run — a workspace
+// connects its own Google account (OAuth), links a Search Console
+// property, and every view below just queries that property's Search
+// Analytics data live (cached briefly server-side).
+
+export interface SeoGscLimits {
+  planSlug: string | null;
+  planName: string | null;
+  limits: {
+    seo_gsc_max_properties: number;
+    seo_gsc_sync_frequency_hours: number;
+    [key: string]: number;
+  };
+  platformConfigured: boolean;
+}
+
+export interface SeoGscConnection {
+  connected: boolean;
+  googleAccountEmail: string | null;
+  status: 'active' | 'revoked' | 'error' | null;
+  lastError: string | null;
+  connectedAt: string | null;
+}
+
+export interface SeoGscProperty {
+  id: string;
+  siteUrl: string;
+  permissionLevel: string | null;
+  isPrimary: boolean;
+  websiteId: string | null;
+  createdAt: string;
+}
+
+export interface SeoGscAvailableSite {
+  siteUrl: string;
+  permissionLevel: string | null;
+}
+
+export type SeoGscDimension = 'query' | 'page' | 'device' | 'country' | 'date' | 'searchAppearance';
+
+export interface SeoGscSearchAnalyticsRow {
+  keys: string[];
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+}
+
+export interface SeoGscSearchAnalyticsResult {
+  rows: SeoGscSearchAnalyticsRow[];
+  responseAggregationType: string | null;
+  cached: boolean;
+  fetchedAt: string;
+}
+
+export function getGscLimits(workspaceId: string) {
+  return api<SeoGscLimits>(`/api/seo/${workspaceId}/gsc/limits`);
+}
+
+export function getGscConnection(workspaceId: string) {
+  return api<{ connection: SeoGscConnection; platformConfigured: boolean }>(`/api/seo/${workspaceId}/gsc/connection`);
+}
+
+export function startGscOAuth(workspaceId: string) {
+  return api<{ url: string }>(`/api/seo/${workspaceId}/gsc/oauth/start`, { method: 'POST' });
+}
+
+export function disconnectGsc(workspaceId: string) {
+  return api<{ ok: boolean }>(`/api/seo/${workspaceId}/gsc/disconnect`, { method: 'POST' });
+}
+
+export function listGscProperties(workspaceId: string) {
+  return api<{ properties: SeoGscProperty[] }>(`/api/seo/${workspaceId}/gsc/properties`);
+}
+
+export function listGscAvailableSites(workspaceId: string) {
+  return api<{ sites: SeoGscAvailableSite[] }>(`/api/seo/${workspaceId}/gsc/available-sites`);
+}
+
+export function linkGscProperty(workspaceId: string, siteUrl: string, websiteId?: string) {
+  return api<{ property: SeoGscProperty }>(`/api/seo/${workspaceId}/gsc/properties`, {
+    method: 'POST',
+    body: JSON.stringify({ siteUrl, websiteId }),
+  });
+}
+
+export function unlinkGscProperty(workspaceId: string, propertyId: string) {
+  return api<{ ok: boolean }>(`/api/seo/${workspaceId}/gsc/properties/${propertyId}`, { method: 'DELETE' });
+}
+
+export function setPrimaryGscProperty(workspaceId: string, propertyId: string) {
+  return api<{ ok: boolean }>(`/api/seo/${workspaceId}/gsc/properties/${propertyId}/primary`, { method: 'POST' });
+}
+
+export function queryGscSearchAnalytics(
+  workspaceId: string,
+  propertyId: string,
+  params: { startDate: string; endDate: string; dimensions: SeoGscDimension[]; rowLimit?: number; forceRefresh?: boolean },
+) {
+  return api<SeoGscSearchAnalyticsResult>(`/api/seo/${workspaceId}/gsc/properties/${propertyId}/search-analytics`, {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+}

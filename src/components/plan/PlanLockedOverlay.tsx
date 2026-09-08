@@ -19,7 +19,8 @@ type ModuleKey =
   | 'seo_backlinks'
   | 'seo_keywords'
   | 'seo_rank_tracking'
-  | 'seo_performance';
+  | 'seo_performance'
+  | 'seo_gsc_insights';
 
 interface Props {
   /** Locks on a plan module (Sidebar-level product areas). */

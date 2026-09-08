@@ -260,6 +260,14 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'seo_explorer_max_keywords_per_scan',       type: 'limit', label: 'SEO — Max keywords per Explorer scan', group: 'seo', description: 'Maximum number of organic-keyword rows fetched and stored in a single Site Explorer keyword lookup.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 180 },
   { key: 'seo_explorer_workspace_concurrent_scans',  type: 'limit', label: 'SEO — Concurrent Explorer lookups', group: 'seo', description: 'Maximum number of Site Explorer lookups (backlinks + keywords combined) that may be queued or running at once for the whole workspace.', defaultValue: 1, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 190 },
   { key: 'seo_explorer_scan_frequency_hours',        type: 'limit', label: 'SEO — Explorer re-lookup cooldown (hours)', group: 'seo', description: 'Minimum number of hours that must pass since the same domain\'s last Site Explorer lookup of a given kind before another one may be started for it.', defaultValue: 168, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'hours', sortOrder: 200 },
+
+  // ─── SEO Web Analytics (server/services/webAnalytics). Reads the SAME
+  // visitor_sessions/visitor_page_views data already collected by the chat
+  // widget's tracking snippet (gated by the existing `visitor_tracking`
+  // module) — this module only gates the REPORTING UI and the two things
+  // that add real new data: custom event tracking and saved funnels. ───
+  { key: 'web_analytics', type: 'module', label: 'SEO — Web Analytics', group: 'modules', description: 'Traffic, audience and behavior reporting (sources, pages, geography, devices, custom events and funnels) built on the workspace\'s visitor-tracking data.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 137 },
+  { key: 'web_analytics_max_funnels', type: 'limit', label: 'SEO — Max saved funnels', group: 'seo', description: 'Maximum number of saved Web Analytics funnels a workspace may define.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 210 },
 ];
 
 

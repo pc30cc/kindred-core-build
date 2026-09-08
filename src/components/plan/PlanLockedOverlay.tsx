@@ -21,7 +21,8 @@ type ModuleKey =
   | 'seo_rank_tracking'
   | 'seo_performance'
   | 'seo_gsc_insights'
-  | 'seo_site_explorer';
+  | 'seo_site_explorer'
+  | 'web_analytics';
 
 interface Props {
   /** Locks on a plan module (Sidebar-level product areas). */

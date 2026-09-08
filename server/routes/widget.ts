@@ -105,6 +105,7 @@ import { sendEmail } from '../services/email/index.js';
 import { resolveWorkspaceAppUrl } from '../services/auth-email.js';
 
 import { enrichVisitorSessionGeo } from '../services/geo/index.js';
+import { trackEvent } from '../services/webAnalytics/eventsService.js';
 import { getClientCountry, hashIp } from '../utils/clientIp.js';
 import { checkTypingAllowed } from '../services/widget/typingRateLimit.js';
 import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';
@@ -2341,6 +2342,12 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
     browser,
     device,
     os,
+    utm_source,
+    utm_medium,
+    utm_campaign,
+    utm_term,
+    utm_content,
+    language,
   } = req.body;
 
   try {
@@ -2451,6 +2458,16 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
             browser: browser || null,
             device: device || null,
             os: os || null,
+            // First-touch attribution — set once, at session creation, and
+            // never overwritten on later page_view/heartbeat calls for the
+            // same session (Web Analytics' Traffic Sources report reads
+            // these; see server/services/webAnalytics/channels.ts).
+            utm_source: utm_source ? String(utm_source).slice(0, 200) : null,
+            utm_medium: utm_medium ? String(utm_medium).slice(0, 200) : null,
+            utm_campaign: utm_campaign ? String(utm_campaign).slice(0, 200) : null,
+            utm_term: utm_term ? String(utm_term).slice(0, 200) : null,
+            utm_content: utm_content ? String(utm_content).slice(0, 200) : null,
+            language: language ? String(language).slice(0, 35) : null,
           }).select('id').maybeSingle();
 
         if (newSession) {
@@ -2516,6 +2533,36 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
   } catch (err: any) {
     console.error('[widget-track] Error:', err.message);
     res.json({ ok: true, session_id: session_id || null }); // Don't fail on tracking errors
+  }
+});
+
+// ═══════════════════════════════════════════════
+// POST /event — Web Analytics custom event
+// (window.gsAnalytics.track(name, properties) in the loader snippet)
+// ═══════════════════════════════════════════════
+widgetRouter.post('/event', widgetRateLimit('default'), async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
+  if (res.headersSent) return;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+
+  const { session_id, event_name, properties, page_url } = req.body;
+  if (typeof event_name !== 'string' || !event_name.trim()) {
+    return res.status(400).json({ error: 'event_name required' });
+  }
+
+  try {
+    const result = await trackEvent(config, {
+      workspaceId,
+      sessionId: typeof session_id === 'string' ? session_id : null,
+      eventName: event_name,
+      properties,
+      pageUrl: typeof page_url === 'string' ? page_url : null,
+    });
+    res.json(result);
+  } catch (err: any) {
+    console.error('[widget-event] Error:', err.message);
+    res.json({ ok: true }); // Never fail the visitor's page on a tracking error
   }
 });
 

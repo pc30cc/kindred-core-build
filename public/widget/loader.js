@@ -2586,6 +2586,32 @@
     // bus method (see its definition above), so nothing needs to be
     // (re)assigned onto the bus from inside startTracking.
 
+    // Public custom-event API for Web Analytics — a workspace's own site
+    // code calls window.gsAnalytics.track("signup_completed", {plan:"pro"}).
+    // Never auto-fired; purely opt-in. Best-effort: never throws, never
+    // blocks the caller's page.
+    try {
+      window.gsAnalytics = window.gsAnalytics || {};
+      window.gsAnalytics.track = function (eventName, properties) {
+        try {
+          if (!eventName || typeof eventName !== "string") return;
+          fetch(apiBase + "/api/widget/event", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json", "X-Widget-Token": tokenNow() },
+            body: JSON.stringify({
+              workspace_id: workspaceId,
+              session_id: window.__gs_session_id || null,
+              event_name: eventName,
+              properties: properties || {},
+              page_url: currentPage(),
+            }),
+          }).catch(function () {});
+        } catch (_) {}
+      };
+    } catch (_) {}
+
+    var trackQuery = currentQuery();
     fetch(apiBase + "/api/widget/track", {
       method: "POST",
       credentials: "include",
@@ -2599,6 +2625,14 @@
         browser: detectBrowser(),
         device: /Mobi|Android/i.test(navigator.userAgent) ? "Mobile" : "Desktop",
         os: detectOS(),
+        // First-touch attribution for Web Analytics (server only persists
+        // these on brand-new sessions — see server/routes/widget.ts).
+        utm_source: trackQuery.utm_source || null,
+        utm_medium: trackQuery.utm_medium || null,
+        utm_campaign: trackQuery.utm_campaign || null,
+        utm_term: trackQuery.utm_term || null,
+        utm_content: trackQuery.utm_content || null,
+        language: (configData.locale || document.documentElement.lang || navigator.language || null),
       }),
     })
       .then(function (r) { return r.json(); })

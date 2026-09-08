@@ -245,36 +245,23 @@ widgetKbRouter.get('/search', async (req: Request, res: Response) => {
   const locale = normalizeLocale(parsed.data.locale);
 
   const supabase = getServiceClient(config);
-  const { data: rows, error } = await supabase.rpc('kb_search_articles', {
-    p_workspace_id: workspace_id,
-    p_locale: locale,
-    p_query: q,
-    p_limit: limit,
-  });
+  // Search spans every language of the workspace.
+  const like = `%${q.replace(/[%_]/g, ' ')}%`;
+  const { data: rows, error } = await supabase
+    .from('knowledge_base_articles')
+    .select('id, title, slug, excerpt, locale')
+    .eq('workspace_id', workspace_id)
+    .eq('status', 'published')
+    .or(`title.ilike.${like},excerpt.ilike.${like},content.ilike.${like}`)
+    .limit(limit);
 
   if (error) {
-    console.error('[kb-search] rpc failed:', error.message);
+    console.error('[kb-search] failed:', error.message);
     return res.json({ results: [] });
   }
 
-  // Cross-locale fallback: if no results in requested locale, search across
-  // all locales for this workspace using a simple ilike match. This keeps the
-  // widget useful when content was authored in a different language than the
-  // visitor's UI locale.
-  let results = rows || [];
-  if (!results.length) {
-    const like = `%${q.replace(/[%_]/g, ' ')}%`;
-    const { data: anyRows } = await supabase
-      .from('knowledge_base_articles')
-      .select('id, title, slug, excerpt, locale')
-      .eq('workspace_id', workspace_id)
-      .eq('status', 'published')
-      .or(`title.ilike.${like},excerpt.ilike.${like},content.ilike.${like}`)
-      .limit(limit);
-    results = anyRows || [];
-  }
+  return res.json({ locale, q, results: rows || [] });
 
-  return res.json({ locale, q, results });
 });
 
 // ──────────────────────────────────────────────────────────────────────

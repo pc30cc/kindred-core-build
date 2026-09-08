@@ -107,6 +107,15 @@ export class SeoApiError extends Error {
   status: number;
   code: string;
   retryAfterSeconds?: number;
+  /**
+   * Set when this response came from the `requireModule` gating middleware
+   * (server/middleware/featureGating.ts) rejecting the request because the
+   * plan's module flag itself is off — a distinct failure from any
+   * in-service limit check (which reports its own `code`, e.g.
+   * 'module_not_available' from a *_limit <= 0 check). Both mean "this
+   * plan can't use this module," so callers should treat them the same way.
+   */
+  upgradeRequired?: boolean;
   constructor(status: number, body: any) {
     const code = typeof body?.error === 'string' ? body.error : 'seo_request_failed';
     super(code);
@@ -114,6 +123,7 @@ export class SeoApiError extends Error {
     this.status = status;
     this.code = code;
     this.retryAfterSeconds = body?.retryAfterSeconds;
+    this.upgradeRequired = body?.upgrade_required === true;
   }
 }
 

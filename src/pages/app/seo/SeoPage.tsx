@@ -8,6 +8,7 @@ import { SeoRoadmapPlaceholder } from './SeoRoadmapPlaceholder';
 import { GscInsightsSection } from './GscInsightsSection';
 import { SiteExplorerSection } from './SiteExplorerSection';
 import { WebAnalyticsSection } from './WebAnalyticsSection';
+import { BotAnalyticsSection } from './BotAnalyticsSection';
 import {
   useSeoSites, useSeoLimits, useLatestCrawl, useCrawlHistory, useStartCrawl, useCancelCrawl,
   useCrawl, useCrawlPages, useCrawlIssues, useIssueAffectedUrls, useCrawlLinks, useCrawlSitemaps,
@@ -184,6 +185,8 @@ export default function SeoPage() {
             <SiteExplorerSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
           ) : activeSection.key === 'web-analytics' ? (
             <WebAnalyticsSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
+          ) : activeSection.key === 'bot-analytics' ? (
+            <BotAnalyticsSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
           ) : (
             <SeoRoadmapPlaceholder label={t(findLeaf(activeSection, subsectionKey)?.labelKey as any || activeSection.labelKey as any)} />
           )}

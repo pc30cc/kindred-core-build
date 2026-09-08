@@ -268,6 +268,13 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   // that add real new data: custom event tracking and saved funnels. ───
   { key: 'web_analytics', type: 'module', label: 'SEO — Web Analytics', group: 'modules', description: 'Traffic, audience and behavior reporting (sources, pages, geography, devices, custom events and funnels) built on the workspace\'s visitor-tracking data.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 137 },
   { key: 'web_analytics_max_funnels', type: 'limit', label: 'SEO — Max saved funnels', group: 'seo', description: 'Maximum number of saved Web Analytics funnels a workspace may define.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 210 },
+
+  // Bot Analytics (Phase 5) — a log-file analyzer, not a JS beacon: most
+  // search/AI crawlers never execute the widget's JS, so there is no
+  // existing pipeline to reuse. The workspace uploads its own server/CDN
+  // access log; this module gates both the reporting UI and log uploads. ───
+  { key: 'bot_analytics', type: 'module', label: 'SEO — Bot Analytics', group: 'modules', description: 'Upload web-server/CDN access logs to see which search-engine and AI/LLM crawlers (Googlebot, GPTBot, ClaudeBot, PerplexityBot, ...) visited the site, and which pages they hit.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 138 },
+  { key: 'bot_analytics_max_log_lines', type: 'limit', label: 'SEO — Max log lines per import', group: 'seo', description: 'Maximum number of lines from one uploaded access log a workspace may process per import.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 211 },
 ];
 
 

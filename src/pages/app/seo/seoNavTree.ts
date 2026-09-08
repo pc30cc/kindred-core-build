@@ -155,12 +155,12 @@ export const SEO_SECTIONS: SeoSection[] = [
     labelKey: 'seo.nav.section.botAnalytics',
     icon: Bot,
     needsSite: false,
-    built: false,
+    built: true,
     items: [
-      leaf('overview', 'seo.nav.item.overview', false),
-      leaf('categories', 'seo.nav.item.categories', false),
-      leaf('crawledPages', 'seo.nav.item.crawledPages', false),
-      leaf('aiBots', 'seo.nav.item.aiBots', false),
+      leaf('overview', 'seo.nav.item.overview', true),
+      leaf('categories', 'seo.nav.item.categories', true),
+      leaf('crawledPages', 'seo.nav.item.crawledPages', true),
+      leaf('aiBots', 'seo.nav.item.aiBots', true),
     ],
   },
   {

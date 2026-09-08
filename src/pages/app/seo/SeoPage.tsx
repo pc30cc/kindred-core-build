@@ -22,6 +22,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
 import { SkeletonStats, SkeletonTable } from '@/components/common/Skeletons';
+import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
 import {
   Radar, RefreshCw, AlertTriangle, CheckCircle2, XCircle, ArrowLeft, ExternalLink, Link2, Lock,
   Globe2, TrendingUp, Sparkles, ShieldCheck, LayoutDashboard, FileText, Link as LinkIcon, Map as MapIcon,
@@ -345,10 +346,18 @@ function SeoDashboard({
         <TabsContent value="pages"><PagesTab workspaceId={workspaceId} crawlId={crawl.id} /></TabsContent>
         <TabsContent value="links"><LinksTab workspaceId={workspaceId} crawlId={crawl.id} /></TabsContent>
         <TabsContent value="sitemap"><SitemapTab workspaceId={workspaceId} crawlId={crawl.id} crawl={crawl} /></TabsContent>
-        <TabsContent value="backlinks"><BacklinksTab workspaceId={workspaceId} siteId={siteId} /></TabsContent>
-        <TabsContent value="keywords"><KeywordsTab workspaceId={workspaceId} siteId={siteId} /></TabsContent>
-        <TabsContent value="rankTracking"><RankTrackingTab workspaceId={workspaceId} siteId={siteId} /></TabsContent>
-        <TabsContent value="performance"><PerformanceTab workspaceId={workspaceId} crawlId={crawl.id} /></TabsContent>
+        <TabsContent value="backlinks">
+          <PlanLockedOverlay moduleKey="seo_backlinks"><BacklinksTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>
+        </TabsContent>
+        <TabsContent value="keywords">
+          <PlanLockedOverlay moduleKey="seo_keywords"><KeywordsTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>
+        </TabsContent>
+        <TabsContent value="rankTracking">
+          <PlanLockedOverlay moduleKey="seo_rank_tracking"><RankTrackingTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>
+        </TabsContent>
+        <TabsContent value="performance">
+          <PlanLockedOverlay moduleKey="seo_performance"><PerformanceTab workspaceId={workspaceId} crawlId={crawl.id} /></PlanLockedOverlay>
+        </TabsContent>
         <TabsContent value="history"><HistoryTab workspaceId={workspaceId} crawl={crawl} history={history} /></TabsContent>
       </Tabs>
     </div>

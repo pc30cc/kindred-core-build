@@ -680,6 +680,7 @@ function SitemapTab({ workspaceId, crawlId, crawl }: { workspaceId: string; craw
 
 function startPerformanceAuditErrorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
   if (err instanceof SeoApiError) {
+    if (err.upgradeRequired) return t('seo.performance.limits.module_not_available' as any);
     switch (err.code) {
       case 'module_not_available':
         return t('seo.performance.limits.module_not_available' as any);
@@ -902,6 +903,7 @@ function PerformanceTab({ workspaceId, crawlId }: { workspaceId: string; crawlId
 
 function startBacklinkScanErrorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
   if (err instanceof SeoApiError) {
+    if (err.upgradeRequired) return t('seo.backlinks.limits.module_not_available' as any);
     switch (err.code) {
       case 'workspace_concurrency_limit':
         return t('seo.backlinks.limits.workspace_concurrency_limit' as any);
@@ -1205,6 +1207,7 @@ function BacklinksTab({ workspaceId, siteId }: { workspaceId: string; siteId: st
 
 function startKeywordRunErrorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
   if (err instanceof SeoApiError) {
+    if (err.upgradeRequired) return t('seo.keywords.limits.module_not_available' as any);
     switch (err.code) {
       case 'workspace_concurrency_limit':
         return t('seo.keywords.limits.workspace_concurrency_limit' as any);
@@ -1435,6 +1438,7 @@ function KeywordsTab({ workspaceId, siteId }: { workspaceId: string; siteId: str
 
 function addTrackedKeywordErrorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
   if (err instanceof SeoApiError) {
+    if (err.upgradeRequired) return t('seo.rankTracking.limits.module_not_available' as any);
     switch (err.code) {
       case 'module_not_available': return t('seo.rankTracking.limits.module_not_available' as any);
       case 'max_keywords_reached': return t('seo.rankTracking.limits.max_keywords_reached' as any);

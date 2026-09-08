@@ -1,5 +1,5 @@
 /**
- * SEO crawl worker — polls `background_jobs` for THREE job types and
+ * SEO crawl worker — polls `background_jobs` for FOUR job types and
  * dispatches each to its own processor, all in one poller/one process:
  *   - `seo_crawl` — runs the crawl, normalizes results, evaluates SEO
  *     rules, computes the score, finalizes `seo_crawls`.
@@ -7,10 +7,14 @@
  *     finalizes `seo_backlink_scans` (worker/seo-backlinks/processScan.ts).
  *   - `seo_keyword_research` — calls the pluggable keyword-data provider,
  *     finalizes `seo_keyword_research_runs` (worker/seo-keywords/processRun.ts).
- * Both backlink scans and keyword lookups are a single vendor HTTP call,
- * far lighter than a multi-page crawl, so they share this worker rather
- * than needing their own container. (Rank Tracking has no job type at all —
- * it's a ticker, see server/services/seo/rankTrackingTicker.ts.)
+ *   - `seo_performance_audit` — calls the pluggable performance provider once
+ *     per selected page, finalizes `seo_performance_audits`
+ *     (worker/seo-performance/processAudit.ts).
+ * Backlink scans and keyword lookups are a single vendor HTTP call, and a
+ * performance audit is a small bounded batch of them — all far lighter than
+ * a multi-page crawl, so they share this worker rather than needing their
+ * own container. (Rank Tracking has no job type at all — it's a ticker, see
+ * server/services/seo/rankTrackingTicker.ts.)
  *
  * Deployment: one Coolify service built from the SAME shared Dockerfile.worker
  * image as every other worker kind, with WORKER_KIND=seo-crawler. No public
@@ -36,11 +40,13 @@ import { processBacklinkScan, classifyBacklinkScanError } from '../seo-backlinks
 import type { SeoBacklinkScanRow } from '../../server/services/seo/backlinkService.js';
 import { processKeywordResearchRun, classifyKeywordRunError } from '../seo-keywords/processRun.js';
 import type { SeoKeywordResearchRunRow } from '../../server/services/seo/keywordResearchService.js';
+import { processPerformanceAudit, classifyPerformanceAuditError } from '../seo-performance/processAudit.js';
+import type { SeoPerformanceAuditRow } from '../../server/services/seo/performanceAuditService.js';
 
 const POLL_INTERVAL_MS = parseInt(process.env.SEO_WORKER_INTERVAL_MS || process.env.WORKER_INTERVAL_MS || '5000', 10);
 const LOCK_TTL_SECONDS = parseInt(process.env.SEO_WORKER_LOCK_TTL_SECONDS || '120', 10);
 const WORKER_ID = process.env.WORKER_ID || `seo-crawler-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
-const JOB_TYPES = ['seo_crawl', 'seo_backlink_scan', 'seo_keyword_research'];
+const JOB_TYPES = ['seo_crawl', 'seo_backlink_scan', 'seo_keyword_research', 'seo_performance_audit'];
 
 function log(event: string, data: Record<string, unknown> = {}) {
   try { console.log(`[seo-crawler-worker] ${event}`, JSON.stringify(data)); }
@@ -177,6 +183,23 @@ async function tickKeywordResearch(config: ReturnType<typeof loadConfig>, sb: Re
   }
 }
 
+async function tickPerformanceAudit(config: ReturnType<typeof loadConfig>, sb: ReturnType<typeof getServiceClient>, jobId: string): Promise<void> {
+  const { data: audit } = await sb.from('seo_performance_audits').select('*').eq('job_id', jobId).maybeSingle();
+  if (!audit) {
+    await failJob(config, { jobId, errorMessage: 'seo_performance_audits_row_missing', errorCategory: 'internal_error', retryable: false });
+    return;
+  }
+  try {
+    await processPerformanceAudit(config, jobId, audit as SeoPerformanceAuditRow, WORKER_ID, LOCK_TTL_SECONDS);
+  } catch (err) {
+    const { category, message, retryable } = classifyPerformanceAuditError(err);
+    log('performance audit failed', { jobId, category, message });
+    await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable });
+    await sb.from('seo_performance_audits').update({ status: 'failed', error_message: message.slice(0, 1000), error_category: category, finished_at: new Date().toISOString() }).eq('job_id', jobId).in('status', ['queued', 'running', 'processing']);
+    await sb.from('seo_performance_results').update({ status: 'unavailable' }).eq('audit_id', (audit as SeoPerformanceAuditRow).id).eq('status', 'pending');
+  }
+}
+
 async function tick(config: ReturnType<typeof loadConfig>): Promise<void> {
   if (shuttingDown) return;
   const job = await claimNextJob(config, { jobTypes: JOB_TYPES, workerId: WORKER_ID, lockTtlSeconds: LOCK_TTL_SECONDS });
@@ -187,6 +210,7 @@ async function tick(config: ReturnType<typeof loadConfig>): Promise<void> {
   try {
     if (job.job_type === 'seo_backlink_scan') await tickBacklinkScan(config, sb, job.id);
     else if (job.job_type === 'seo_keyword_research') await tickKeywordResearch(config, sb, job.id);
+    else if (job.job_type === 'seo_performance_audit') await tickPerformanceAudit(config, sb, job.id);
     else await tickCrawl(config, sb, job.id);
   } finally {
     inFlight--;

@@ -25,6 +25,7 @@ import { resolveSeoLimits } from '../services/seo/limits.js';
 import { resolveBacklinksLimits } from '../services/seo/backlinksLimits.js';
 import { resolveKeywordsLimits } from '../services/seo/keywordsLimits.js';
 import { resolveRankTrackingLimits } from '../services/seo/rankTrackingLimits.js';
+import { resolvePerformanceLimits } from '../services/seo/performanceLimits.js';
 import {
   createCrawl,
   getCrawl,
@@ -64,6 +65,14 @@ import {
   listRankChecksForKeyword,
   TrackedKeywordLimitError,
 } from '../services/seo/rankTrackingService.js';
+import {
+  createPerformanceAudit,
+  getPerformanceAudit,
+  getLatestPerformanceAuditForCrawl,
+  listPerformanceResults,
+  requestPerformanceAuditCancel,
+  PerformanceAuditLimitError,
+} from '../services/seo/performanceAuditService.js';
 import { SiteResolutionError } from '../services/seo/siteResolver.js';
 
 export const seoRouter = Router();
@@ -529,4 +538,77 @@ seoRouter.get('/:workspaceId/tracked-keywords/:keywordId/checks', requireModule(
   const limit = parseInt(String(req.query.limit || '90'), 10) || 90;
   const result = await listRankChecksForKeyword(configOf(req), workspaceId, keywordId, { limit });
   res.json(result);
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// SEO Performance Auditing — same authorization contract as Backlinks
+// above, but every route is scoped by crawlId (via requireCrawlInWorkspace)
+// rather than siteId, since an audit runs on top of one specific crawl.
+// ─────────────────────────────────────────────────────────────────────────
+
+seoRouter.get('/:workspaceId/performance/limits', async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  const resolved = await resolvePerformanceLimits(configOf(req), workspaceId);
+  res.json(resolved);
+});
+
+seoRouter.get('/:workspaceId/crawls/:crawlId/performance-audits/latest', requireModule('seo_performance'), async (req, res) => {
+  const { workspaceId, crawlId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!(await requireCrawlInWorkspace(req, res, workspaceId, crawlId))) return;
+  const audit = await getLatestPerformanceAuditForCrawl(configOf(req), workspaceId, crawlId);
+  res.json({ audit });
+});
+
+seoRouter.post('/:workspaceId/crawls/:crawlId/performance-audits', requireModule('seo_performance'), async (req, res) => {
+  const { workspaceId, crawlId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  if (!(await requireCrawlInWorkspace(req, res, workspaceId, crawlId))) return;
+
+  try {
+    const audit = await createPerformanceAudit(configOf(req), { workspaceId, crawlId, userId: auth.userId });
+    res.status(201).json({ audit });
+  } catch (err) {
+    if (err instanceof PerformanceAuditLimitError) {
+      const status = err.reason === 'crawl_not_found' ? 404 : 429;
+      return res.status(status).json({ error: err.reason, retryAfterSeconds: err.retryAfterSeconds, message: err.message });
+    }
+    res.status(500).json({ error: 'create_performance_audit_failed', detail: (err as Error)?.message });
+  }
+});
+
+seoRouter.get('/:workspaceId/performance-audits/:auditId', requireModule('seo_performance'), async (req, res) => {
+  const { workspaceId, auditId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(auditId)) return res.status(400).json({ error: 'invalid_audit_id' });
+  const audit = await getPerformanceAudit(configOf(req), workspaceId, auditId);
+  if (!audit) return res.status(404).json({ error: 'audit_not_found' });
+  res.json({ audit });
+});
+
+seoRouter.post('/:workspaceId/performance-audits/:auditId/cancel', requireModule('seo_performance'), async (req, res) => {
+  const { workspaceId, auditId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  if (!isUuid(auditId)) return res.status(400).json({ error: 'invalid_audit_id' });
+  const audit = await getPerformanceAudit(configOf(req), workspaceId, auditId);
+  if (!audit) return res.status(404).json({ error: 'audit_not_found' });
+  const result = await requestPerformanceAuditCancel(configOf(req), workspaceId, auditId);
+  res.json(result);
+});
+
+seoRouter.get('/:workspaceId/performance-audits/:auditId/results', requireModule('seo_performance'), async (req, res) => {
+  const { workspaceId, auditId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(auditId)) return res.status(400).json({ error: 'invalid_audit_id' });
+  const audit = await getPerformanceAudit(configOf(req), workspaceId, auditId);
+  if (!audit) return res.status(404).json({ error: 'audit_not_found' });
+  const results = await listPerformanceResults(configOf(req), workspaceId, auditId);
+  res.json({ results });
 });

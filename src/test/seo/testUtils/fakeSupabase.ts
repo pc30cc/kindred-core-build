@@ -91,6 +91,19 @@ const TABLE_DEFAULTS: Record<string, Record<string, unknown>> = {
   platform_rank_tracking_provider_config: {
     provider_name: 'disabled', config: {}, is_active: false, updated_by: null,
   },
+  seo_performance_audits: {
+    status: 'queued', progress: 0, progress_stage: null, max_pages: 0,
+    pages_audited: null, cancel_requested: false,
+    error_message: null, error_category: null, created_by: null, started_at: null, finished_at: null,
+  },
+  seo_performance_results: {
+    status: 'pending', performance_score: null, accessibility_score: null, best_practices_score: null,
+    seo_score: null, lcp_ms: null, cls: null, inp_ms: null, fcp_ms: null, tbt_ms: null, raw_summary: null,
+    audit_id: null, page_id: null,
+  },
+  platform_performance_provider_config: {
+    provider_name: 'disabled', config: {}, is_active: false, updated_by: null,
+  },
 };
 
 /** Splits a PostgREST filter string on top-level commas (parens don't count). */

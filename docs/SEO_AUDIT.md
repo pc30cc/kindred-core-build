@@ -69,15 +69,48 @@ log-dampened affected-count factor × percent-of-site factor. The full
 breakdown (which issues cost how many points) is persisted on
 `seo_crawls.score_breakdown` and shown in the Overview tab.
 
-## Performance auditing (Lighthouse/Unlighthouse)
+## Performance module (plan-gated, provider-agnostic)
 
-**Schema contract only in V1** — `seo_performance_results` exists with the
-full column set (Performance/Accessibility/Best-Practices/SEO scores, LCP,
-CLS, INP, FCP, TBT) so the API/UI contract is stable, but no
-`performance-worker` ships yet. This was an explicit, permitted scope
-decision so the core crawler could be fully production-ready rather than
-shipping two half-finished workers. The UI's Performance tab says so
-honestly instead of showing fake data.
+A fourth module, structurally close to Backlinks/Keywords but auditing a
+bounded batch of pages per run instead of one target:
+
+```
+Web App → Core API (server/routes/seo.ts, /performance-audits routes)
+            → server/services/seo/{performanceLimits,performanceAuditService}.ts
+            → generic job queue (background_jobs, job_type=seo_performance_audit)
+                → SEO Crawler Worker (worker/seo-crawler/, WORKER_KIND=seo-crawler
+                  — same process as the other three SEO job types; claims
+                  all four)
+                    → worker/seo-performance/processAudit.ts
+                    → server/services/seo/performance/ (pluggable provider adapter)
+            → Supabase/Postgres (seo_performance_audits, seo_performance_results,
+              platform_performance_provider_config)
+            → SEO UI (SeoPage.tsx's Performance tab)
+```
+
+- **Plan-gated, opt-in by default.** `seo_performance` defaults to `false`
+  in every plan's entitlements. Its limits
+  (`seo_performance_max_pages_per_audit`, `seo_performance_audit_frequency_hours`)
+  are resolved in `server/services/seo/performanceLimits.ts`.
+- **Pluggable vendor, platform-level config.** `server/services/seo/performance/`
+  follows the same adapter shape as the other three modules, with
+  `providers/pagespeed.ts` calling Google's PageSpeed Insights v5 API — a
+  single synchronous HTTP call that runs a real Lighthouse audit server-side
+  (no headless Chrome on our own infrastructure) and returns Performance,
+  Accessibility, Best Practices and SEO category scores plus Core Web
+  Vitals (LCP, CLS, INP, FCP, TBT) directly. The active vendor is
+  `platform_performance_provider_config`, set from `/admin/seo-integrations`.
+  Unlike the other three modules' `{login, password}` shape, PageSpeed
+  Insights authenticates with a single optional API key (`{apiKey}`) — it
+  works keyless at a lower shared quota.
+- **Credential never reaches the browser**, same guarantee as the other
+  modules.
+- **Runs on top of a completed crawl, not an arbitrary URL.**
+  `POST /:workspaceId/crawls/:crawlId/performance-audits` takes only the
+  crawl to audit; up to the plan's `seo_performance_max_pages_per_audit`
+  already-crawled indexable pages are selected server-side (home page
+  first, then by internal-link count) — the client never supplies a page
+  list or URL.
 
 ## Deployment (Coolify)
 

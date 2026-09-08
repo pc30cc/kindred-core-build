@@ -8,6 +8,7 @@ import {
   useBacklinksLimits, useLatestBacklinkScan, useStartBacklinkScan, useBacklinks,
   useKeywordsLimits, useLatestKeywordRun, useStartKeywordRun, useKeywordResults,
   useRankTrackingLimits, useTrackedKeywords, useAddTrackedKeyword, useRemoveTrackedKeyword, useRankChecks,
+  usePerformanceLimits, useLatestPerformanceAudit, useStartPerformanceAudit, usePerformanceResults,
 } from '@/hooks/useSeo';
 import { SeoApiError, TERMINAL_SEO_STATUSES, type SeoCrawl, type SeoIssue } from '@/lib/seo-api';
 import { toast } from '@/lib/toast';
@@ -38,6 +39,51 @@ const SEVERITY_CLASS: Record<string, string> = {
   low: 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30',
   info: 'bg-muted text-muted-foreground border-border',
 };
+
+// Numeric thresholds the rules engine (server/services/seo/rules/{policy,checks}.ts)
+// bakes into the English title/description/recommendation it persists on
+// seo_issues — mirrored here so the localized string can be re-interpolated
+// in the active locale instead of showing the raw English number sentence.
+const ISSUE_TEXT_PARAMS: Record<string, Record<string, number>> = {
+  title_length: { min: 30, max: 60 },
+  meta_description_length: { min: 70, max: 160 },
+  low_content: { count: 100 },
+  slow_response: { ms: 3000 },
+};
+
+/**
+ * `seo_issues.{title,description,recommendation}` are persisted in English
+ * by the rules engine (issue_type is the stable, language-neutral key).
+ * These look up the matching `seo.issues.types.<issue_type>.*` translation
+ * and fall back to the raw persisted English text for any issue_type that
+ * doesn't have one yet (e.g. a rule added without its i18n keys).
+ */
+function localizedIssueTypeTitle(t: (key: string, opts?: Record<string, unknown>) => string, issueType: string, fallback: string): string {
+  const key = `seo.issues.types.${issueType}.title`;
+  const translated = t(key as any);
+  return translated === key ? fallback : translated;
+}
+
+function localizedIssueTitle(t: (key: string, opts?: Record<string, unknown>) => string, issue: SeoIssue): string {
+  return localizedIssueTypeTitle(t, issue.issue_type, issue.title);
+}
+
+function localizedIssueDescription(t: (key: string, opts?: Record<string, unknown>) => string, issue: SeoIssue): string {
+  const key = `seo.issues.types.${issue.issue_type}.description`;
+  const params: Record<string, number> = { ...(ISSUE_TEXT_PARAMS[issue.issue_type] || {}) };
+  if (issue.issue_type === 'sitemap_coverage_gap') {
+    const match = /(\d+)/.exec(issue.description || '');
+    params.count = match ? parseInt(match[1], 10) : issue.affected_count;
+  }
+  const translated = t(key as any, params);
+  return translated === key ? issue.description : translated;
+}
+
+function localizedIssueRecommendation(t: (key: string, opts?: Record<string, unknown>) => string, issue: SeoIssue): string {
+  const key = `seo.issues.types.${issue.issue_type}.recommendation`;
+  const translated = t(key as any, ISSUE_TEXT_PARAMS[issue.issue_type] || {});
+  return translated === key ? issue.recommendation : translated;
+}
 
 /** Maps a failed start/cancel-crawl request to a translated, human-readable message. */
 export function startCrawlErrorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
@@ -302,7 +348,7 @@ function SeoDashboard({
         <TabsContent value="backlinks"><BacklinksTab workspaceId={workspaceId} siteId={siteId} /></TabsContent>
         <TabsContent value="keywords"><KeywordsTab workspaceId={workspaceId} siteId={siteId} /></TabsContent>
         <TabsContent value="rankTracking"><RankTrackingTab workspaceId={workspaceId} siteId={siteId} /></TabsContent>
-        <TabsContent value="performance"><PerformanceTab /></TabsContent>
+        <TabsContent value="performance"><PerformanceTab workspaceId={workspaceId} crawlId={crawl.id} /></TabsContent>
         <TabsContent value="history"><HistoryTab workspaceId={workspaceId} crawl={crawl} history={history} /></TabsContent>
       </Tabs>
     </div>
@@ -336,15 +382,19 @@ function OverviewTab({ crawl, issues }: { crawl: SeoCrawl; issues: SeoIssue[] })
         <CardHeader><CardTitle className="text-sm">{t('seo.summary.seoScore')} — {t('seo.overview.scoreTrend')}</CardTitle></CardHeader>
         <CardContent className="space-y-2">
           {crawl.score !== null && crawl.score_version && (
-            <p className="text-xs text-muted-foreground">score_version: {crawl.score_version}</p>
+            <p className="text-xs text-muted-foreground">{t('seo.overview.scoreVersionLabel')}: {crawl.score_version}</p>
           )}
           {breakdown.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t('seo.overview.noIssues')}</p>
           ) : (
-            <ul className="space-y-1 text-sm">
+            <ul className="space-y-1.5 text-sm">
               {breakdown.slice(0, 8).map((e) => (
-                <li key={e.issueType} className="flex justify-between gap-2">
-                  <span className="text-muted-foreground">{e.label}</span>
+                <li key={e.issueType} className="flex items-center justify-between gap-2">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Badge className={`shrink-0 ${SEVERITY_CLASS[e.severity]}`}>{t(`seo.severity.${e.severity}` as any)}</Badge>
+                    <span className="truncate">{localizedIssueTypeTitle(t, e.issueType, e.label)}</span>
+                  </span>
+                  <span className="shrink-0 text-muted-foreground">{t('seo.overview.pointsDeducted' as any, { points: e.penalty, count: e.affectedCount })}</span>
                 </li>
               ))}
             </ul>
@@ -363,7 +413,7 @@ function OverviewTab({ crawl, issues }: { crawl: SeoCrawl; issues: SeoIssue[] })
                 <li key={i.id} className="flex items-center justify-between gap-2 text-sm">
                   <span className="flex items-center gap-2">
                     <Badge className={SEVERITY_CLASS[i.severity]}>{t(`seo.severity.${i.severity}` as any)}</Badge>
-                    {i.title}
+                    {localizedIssueTitle(t, i)}
                   </span>
                   <span className="text-muted-foreground">{i.affected_count}</span>
                 </li>
@@ -425,12 +475,12 @@ function IssuesTab({ workspaceId, crawlId }: { workspaceId: string; crawlId: str
           </Button>
           <CardTitle className="flex items-center gap-2">
             <Badge className={SEVERITY_CLASS[selected.severity]}>{t(`seo.severity.${selected.severity}` as any)}</Badge>
-            {selected.title}
+            {localizedIssueTitle(t, selected)}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
-          <div><div className="font-medium">{t('seo.issues.whyItMatters')}</div><p className="text-muted-foreground">{selected.description}</p></div>
-          <div><div className="font-medium">{t('seo.issues.recommendedFix')}</div><p className="text-muted-foreground">{selected.recommendation}</p></div>
+          <div><div className="font-medium">{t('seo.issues.whyItMatters')}</div><p className="text-muted-foreground">{localizedIssueDescription(t, selected)}</p></div>
+          <div><div className="font-medium">{t('seo.issues.recommendedFix')}</div><p className="text-muted-foreground">{localizedIssueRecommendation(t, selected)}</p></div>
           <div>
             <div className="font-medium">{t('seo.issues.affectedUrls')} ({selected.affected_count})</div>
             <ul className="mt-2 max-h-96 space-y-1 overflow-auto text-xs">
@@ -483,7 +533,7 @@ function IssuesTab({ workspaceId, crawlId }: { workspaceId: string; crawlId: str
             {issues.map((i) => (
               <TableRow key={i.id} className="cursor-pointer" onClick={() => setSelected(i)}>
                 <TableCell><Badge className={SEVERITY_CLASS[i.severity]}>{t(`seo.severity.${i.severity}` as any)}</Badge></TableCell>
-                <TableCell className="font-medium">{i.title}</TableCell>
+                <TableCell className="font-medium">{localizedIssueTitle(t, i)}</TableCell>
                 <TableCell className="text-muted-foreground">{t(`seo.category.${i.category}` as any)}</TableCell>
                 <TableCell>{i.affected_count}</TableCell>
               </TableRow>
@@ -628,15 +678,225 @@ function SitemapTab({ workspaceId, crawlId, crawl }: { workspaceId: string; craw
   );
 }
 
-function PerformanceTab() {
+function startPerformanceAuditErrorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
+  if (err instanceof SeoApiError) {
+    switch (err.code) {
+      case 'module_not_available':
+        return t('seo.performance.limits.module_not_available' as any);
+      case 'frequency_limit': {
+        const hours = Math.max(1, Math.round((err.retryAfterSeconds ?? 0) / 3600));
+        return `${t('seo.performance.limits.frequency_limit' as any)} ${t('seo.performance.limits.retryAfter' as any, { hours })}`;
+      }
+      case 'crawl_not_found':
+        return t('seo.performance.errors.crawlNotFound' as any);
+      default:
+        return t('seo.performance.errors.startFailed' as any);
+    }
+  }
+  return t('seo.performance.errors.startFailed' as any);
+}
+
+function scoreBadgeClass(score: number | null): string {
+  if (score === null) return 'border-border text-muted-foreground';
+  if (score >= 90) return 'border-emerald-500/40 text-emerald-500 bg-emerald-500/10';
+  if (score >= 50) return 'border-amber-500/40 text-amber-500 bg-amber-500/10';
+  return 'border-destructive/40 text-destructive bg-destructive/10';
+}
+
+function PerformanceTab({ workspaceId, crawlId }: { workspaceId: string; crawlId: string }) {
   const { t } = useTranslation();
+  const { data: limitsData } = usePerformanceLimits(workspaceId);
+  const { data: latestData, isLoading } = useLatestPerformanceAudit(workspaceId, crawlId);
+  const startAudit = useStartPerformanceAudit(workspaceId);
+  const audit = latestData?.audit || null;
+  const isRunning = !!audit && !TERMINAL_SEO_STATUSES.has(audit.status);
+  const { data: resultsData } = usePerformanceResults(workspaceId, audit?.status === 'completed' ? audit.id : undefined);
+  const results = (resultsData?.results || []).filter((r) => r.status === 'completed');
+
+  const maxPages = limitsData?.limits.seo_performance_max_pages_per_audit ?? 0;
+  const moduleAvailable = maxPages > 0;
+
+  const stats = useMemo(() => {
+    const avg = (key: 'performance_score' | 'accessibility_score' | 'best_practices_score' | 'seo_score') => {
+      const withScore = results.filter((r) => r[key] !== null);
+      return withScore.length ? Math.round(withScore.reduce((s, r) => s + (r[key] || 0), 0) / withScore.length) : null;
+    };
+    return {
+      performance: avg('performance_score'),
+      accessibility: avg('accessibility_score'),
+      bestPractices: avg('best_practices_score'),
+      seo: avg('seo_score'),
+    };
+  }, [results]);
+
+  const pageScores = useMemo(
+    () => [...results]
+      .filter((r) => r.performance_score !== null)
+      .sort((a, b) => (a.performance_score || 0) - (b.performance_score || 0))
+      .slice(0, 8)
+      .map((r) => ({ url: (() => { try { return new URL(r.url).pathname || '/'; } catch { return r.url; } })(), score: r.performance_score || 0 })),
+    [results],
+  );
+
+  const handleStart = () => {
+    startAudit.mutate(crawlId, {
+      onError: (err) => toast.error(startPerformanceAuditErrorMessage(t, err)),
+    });
+  };
+
+  const tooltipStyle = {
+    contentStyle: { background: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: 12, fontSize: 12, color: 'hsl(var(--popover-foreground))' },
+    labelStyle: { color: 'hsl(var(--muted-foreground))' },
+  };
+
+  if (isLoading) return <div className="mt-4"><SkeletonStats count={4} /></div>;
+
+  if (!moduleAvailable) {
+    return (
+      <BacklinksEmptyState
+        icon={Lock} iconGradient="from-slate-500 to-slate-700"
+        title={t('seo.performance.empty.notAvailableTitle')}
+        description={t('seo.performance.empty.notAvailableDescription')}
+      />
+    );
+  }
+
+  if (!audit) {
+    return (
+      <BacklinksEmptyState
+        icon={Gauge} iconGradient="from-indigo-500 to-violet-500"
+        title={t('seo.performance.empty.neverRunTitle')}
+        description={t('seo.performance.empty.neverRunDescription')}
+        action={(
+          <Button onClick={handleStart} disabled={startAudit.isPending} className="gap-2">
+            <Gauge className="h-4 w-4" /> {t('seo.performance.runAudit')}
+          </Button>
+        )}
+      />
+    );
+  }
+
+  if (isRunning) {
+    return (
+      <Card className="mt-4 overflow-hidden">
+        <CardContent className="relative flex flex-col items-center justify-center gap-4 py-16 text-center">
+          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-lg">
+            <RefreshCw className="h-6 w-6 animate-spin" />
+          </span>
+          <h3 className="text-lg font-semibold">{t('seo.performance.empty.runningTitle')}</h3>
+          <Progress value={audit.progress} className="w-full max-w-xs" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (audit.status === 'failed') {
+    return (
+      <BacklinksEmptyState
+        icon={XCircle} iconGradient="from-rose-500 to-red-600"
+        title={t('seo.performance.empty.failedTitle')}
+        action={(
+          <Button onClick={handleStart} disabled={startAudit.isPending} className="gap-2">
+            <RefreshCw className="h-4 w-4" /> {t('seo.performance.runAudit')}
+          </Button>
+        )}
+      />
+    );
+  }
+
   return (
-    <Card className="mt-4">
-      <CardContent className="flex flex-col items-center justify-center gap-2 py-16 text-center">
-        <h3 className="text-lg font-semibold">{t('seo.performance.comingSoonTitle')}</h3>
-        <p className="max-w-md text-sm text-muted-foreground">{t('seo.performance.comingSoonDescription')}</p>
-      </CardContent>
-    </Card>
+    <div className="mt-4 space-y-4">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-md shadow-indigo-500/25">
+            <Gauge className="h-4.5 w-4.5" />
+          </span>
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">{t('seo.performance.resultsTitle')}</h3>
+            {audit.finished_at && (
+              <p className="text-xs text-muted-foreground">
+                {t('seo.performance.lastAudited')}: {new Date(audit.finished_at).toLocaleString()}
+              </p>
+            )}
+          </div>
+        </div>
+        <Button onClick={handleStart} disabled={startAudit.isPending} variant="outline" className="gap-2">
+          <RefreshCw className={`h-4 w-4 ${startAudit.isPending ? 'animate-spin' : ''}`} /> {t('seo.performance.newAudit')}
+        </Button>
+      </div>
+
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <GradientStatCard icon={Gauge} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={stats.performance ?? '—'} label={t('seo.performance.avgPerformance')} />
+        <GradientStatCard icon={CheckCircle2} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={stats.accessibility ?? '—'} label={t('seo.performance.avgAccessibility')} />
+        <GradientStatCard icon={ShieldCheck} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={stats.bestPractices ?? '—'} label={t('seo.performance.avgBestPractices')} />
+        <GradientStatCard icon={Search} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={stats.seo ?? '—'} label={t('seo.performance.avgSeoScore')} />
+      </div>
+
+      {/* Chart */}
+      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
+        <h4 className="mb-2 text-sm font-semibold text-foreground">{t('seo.performance.chartTitle')}</h4>
+        {pageScores.length === 0 ? (
+          <p className="flex h-[200px] items-center justify-center text-xs text-muted-foreground">{t('seo.performance.empty.noResults')}</p>
+        ) : (
+          <div className="h-[240px] w-full" dir="ltr">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={pageScores} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="perfScoreGrad" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#ef4444" />
+                    <stop offset="100%" stopColor="#f59e0b" />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                <XAxis type="number" domain={[0, 100]} tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                <YAxis type="category" dataKey="url" tickLine={false} axisLine={false} width={140} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                <ReTooltip {...tooltipStyle} cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }} />
+                <Bar dataKey="score" name={t('seo.performance.avgPerformance')} fill="url(#perfScoreGrad)" radius={[0, 4, 4, 0]} maxBarSize={18} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      {/* Table */}
+      <Card className="overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>URL</TableHead>
+              <TableHead>{t('seo.performance.columnPerformance')}</TableHead>
+              <TableHead>{t('seo.performance.columnAccessibility')}</TableHead>
+              <TableHead>{t('seo.performance.columnBestPractices')}</TableHead>
+              <TableHead>{t('seo.performance.columnSeo')}</TableHead>
+              <TableHead>{t('seo.performance.columnLcp')}</TableHead>
+              <TableHead>{t('seo.performance.columnCls')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {results.length === 0 && (
+              <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground">{t('seo.performance.empty.noResults')}</TableCell></TableRow>
+            )}
+            {results.map((r) => (
+              <TableRow key={r.id}>
+                <TableCell className="max-w-xs truncate">
+                  <a href={r.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-primary hover:underline">
+                    {r.url} <ExternalLink className="h-3 w-3 shrink-0" />
+                  </a>
+                </TableCell>
+                <TableCell><Badge variant="outline" className={`text-[10px] ${scoreBadgeClass(r.performance_score)}`}>{r.performance_score ?? '—'}</Badge></TableCell>
+                <TableCell><Badge variant="outline" className={`text-[10px] ${scoreBadgeClass(r.accessibility_score)}`}>{r.accessibility_score ?? '—'}</Badge></TableCell>
+                <TableCell><Badge variant="outline" className={`text-[10px] ${scoreBadgeClass(r.best_practices_score)}`}>{r.best_practices_score ?? '—'}</Badge></TableCell>
+                <TableCell><Badge variant="outline" className={`text-[10px] ${scoreBadgeClass(r.seo_score)}`}>{r.seo_score ?? '—'}</Badge></TableCell>
+                <TableCell className="text-muted-foreground">{r.lcp_ms !== null ? `${(r.lcp_ms / 1000).toFixed(1)}s` : '—'}</TableCell>
+                <TableCell className="text-muted-foreground">{r.cls ?? '—'}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+    </div>
   );
 }
 

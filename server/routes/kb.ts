@@ -440,17 +440,16 @@ publicKbRouter.get('/help/:locale', async (req: Request, res: Response) => {
     .from('knowledge_base_categories')
     .select('id, name, slug, description, icon, sort_order')
     .eq('workspace_id', workspaceId)
-    .eq('locale', locale)
     .order('sort_order', { ascending: true });
 
   const { data: featured } = await supabase
     .from('knowledge_base_articles')
     .select('title, slug, excerpt')
     .eq('workspace_id', workspaceId)
-    .eq('locale', locale)
     .eq('status', 'published')
     .order('sort_order', { ascending: true })
-    .limit(8);
+    .limit(12);
+
 
   const base = getRequestHostUrl(req);
   const canonical = `${base}/help/${locale}`;

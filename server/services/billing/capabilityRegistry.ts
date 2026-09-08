@@ -24,7 +24,7 @@
 
 export type CapabilityType = 'feature' | 'module' | 'channel' | 'limit';
 export type CapabilityUnit =
-  | 'count' | 'bytes' | 'mb' | 'gb' | 'seconds' | 'minutes'
+  | 'count' | 'bytes' | 'mb' | 'gb' | 'seconds' | 'minutes' | 'hours'
   | 'per_month' | 'per_day' | 'percent' | 'boolean' | 'days';
 
 export interface CapabilityDefinition {
@@ -206,7 +206,7 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'seo_max_pages_per_crawl',     type: 'limit', label: 'SEO — Max pages per audit',        group: 'seo', description: 'Maximum number of pages the SEO crawler will visit in a single audit run.', defaultValue: 100, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 10 },
   { key: 'seo_max_depth',               type: 'limit', label: 'SEO — Max crawl depth',            group: 'seo', description: 'Maximum link depth (clicks from the homepage) the SEO crawler will follow in a single audit run.', defaultValue: 3, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 20 },
   { key: 'seo_workspace_concurrent_jobs', type: 'limit', label: 'SEO — Concurrent audits',        group: 'seo', description: 'Maximum number of SEO audits that may be queued or running at once for the whole workspace, across all its registered websites.', defaultValue: 1, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 30 },
-  { key: 'seo_crawl_frequency_hours',   type: 'limit', label: 'SEO — Re-audit cooldown (hours)',  group: 'seo', description: 'Minimum number of hours that must pass since a website\'s last audit before another one may be started for it.', defaultValue: 24, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 40 },
+  { key: 'seo_crawl_frequency_hours',   type: 'limit', label: 'SEO — Re-audit cooldown (hours)',  group: 'seo', description: 'Minimum number of hours that must pass since a website\'s last audit before another one may be started for it.', defaultValue: 24, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'hours', sortOrder: 40 },
 
   // ─── SEO Backlinks (server/services/seo/backlinksLimits.ts is the actual
   // enforcement point, mirroring server/services/seo/limits.ts exactly).
@@ -216,7 +216,7 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'seo_backlinks', type: 'module', label: 'SEO — Backlink Analysis', group: 'modules', description: 'Fetch and browse the backlink profile of a website registered in the workspace, via a platform-configured backlinks data provider.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 131 },
   { key: 'seo_backlinks_max_per_scan',            type: 'limit', label: 'SEO — Max backlinks per scan',       group: 'seo', description: 'Maximum number of backlink rows fetched and stored in a single backlink scan.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 50 },
   { key: 'seo_backlinks_workspace_concurrent_scans', type: 'limit', label: 'SEO — Concurrent backlink scans', group: 'seo', description: 'Maximum number of backlink scans that may be queued or running at once for the whole workspace.', defaultValue: 1, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 60 },
-  { key: 'seo_backlinks_scan_frequency_hours',    type: 'limit', label: 'SEO — Backlink re-scan cooldown (hours)', group: 'seo', description: 'Minimum number of hours that must pass since a website\'s last backlink scan before another one may be started for it.', defaultValue: 168, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 70 },
+  { key: 'seo_backlinks_scan_frequency_hours',    type: 'limit', label: 'SEO — Backlink re-scan cooldown (hours)', group: 'seo', description: 'Minimum number of hours that must pass since a website\'s last backlink scan before another one may be started for it.', defaultValue: 168, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'hours', sortOrder: 70 },
 
   // ─── SEO Keyword Research (server/services/seo/keywordsLimits.ts).
   // Same "opt-in, 0 on Free" reasoning as Backlinks — a vendor lookup costs
@@ -224,21 +224,21 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'seo_keywords', type: 'module', label: 'SEO — Keyword Research', group: 'modules', description: 'Look up search volume, CPC and competition for a list of seed keywords, via a platform-configured keyword data provider.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 132 },
   { key: 'seo_keywords_max_per_lookup',              type: 'limit', label: 'SEO — Max keywords per lookup',      group: 'seo', description: 'Maximum number of seed keywords accepted in a single keyword research lookup.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 80 },
   { key: 'seo_keywords_workspace_concurrent_runs',   type: 'limit', label: 'SEO — Concurrent keyword lookups',   group: 'seo', description: 'Maximum number of keyword research lookups that may be queued or running at once for the whole workspace.', defaultValue: 1, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 90 },
-  { key: 'seo_keywords_lookup_frequency_hours',      type: 'limit', label: 'SEO — Keyword lookup cooldown (hours)', group: 'seo', description: 'Minimum number of hours that must pass since a website\'s last keyword research lookup before another one may be started for it.', defaultValue: 24, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 100 },
+  { key: 'seo_keywords_lookup_frequency_hours',      type: 'limit', label: 'SEO — Keyword lookup cooldown (hours)', group: 'seo', description: 'Minimum number of hours that must pass since a website\'s last keyword research lookup before another one may be started for it.', defaultValue: 24, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'hours', sortOrder: 100 },
 
   // ─── SEO Rank Tracking (server/services/seo/rankTrackingLimits.ts).
   // Same "opt-in, 0 on Free" reasoning — every recurring check costs the
   // platform real money via server/services/seo/rankTrackingTicker.ts. ───
   { key: 'seo_rank_tracking', type: 'module', label: 'SEO — Rank Tracking', group: 'modules', description: 'Track a watchlist of keywords and periodically record their Google ranking position for a website registered in the workspace.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 133 },
   { key: 'seo_rank_tracking_max_keywords',           type: 'limit', label: 'SEO — Max tracked keywords per site', group: 'seo', description: 'Maximum number of keywords a single website may have on its rank-tracking watchlist at once.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 110 },
-  { key: 'seo_rank_tracking_check_frequency_hours',  type: 'limit', label: 'SEO — Rank re-check interval (hours)', group: 'seo', description: 'How often (in hours) each tracked keyword\'s position is re-checked. 24 = daily, 168 = weekly.', defaultValue: 168, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 120 },
+  { key: 'seo_rank_tracking_check_frequency_hours',  type: 'limit', label: 'SEO — Rank re-check interval (hours)', group: 'seo', description: 'How often (in hours) each tracked keyword\'s position is re-checked. 24 = daily, 168 = weekly.', defaultValue: 168, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'hours', sortOrder: 120 },
 
   // ─── SEO Performance Auditing (server/services/seo/performanceLimits.ts).
   // Same "opt-in, 0 on Free" reasoning — each audited page costs the
   // platform a real PageSpeed Insights API call. ───
   { key: 'seo_performance', type: 'module', label: 'SEO — Performance Auditing', group: 'modules', description: 'Fetch Core Web Vitals and Lighthouse category scores for a website\'s pages, via a platform-configured performance data provider.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 134 },
   { key: 'seo_performance_max_pages_per_audit',      type: 'limit', label: 'SEO — Max pages per performance audit', group: 'seo', description: 'Maximum number of pages audited for Core Web Vitals in a single performance audit run.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 130 },
-  { key: 'seo_performance_audit_frequency_hours',    type: 'limit', label: 'SEO — Performance re-audit cooldown (hours)', group: 'seo', description: 'Minimum number of hours that must pass since a crawl\'s last performance audit before another one may be started for it.', defaultValue: 168, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 140 },
+  { key: 'seo_performance_audit_frequency_hours',    type: 'limit', label: 'SEO — Performance re-audit cooldown (hours)', group: 'seo', description: 'Minimum number of hours that must pass since a crawl\'s last performance audit before another one may be started for it.', defaultValue: 168, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'hours', sortOrder: 140 },
 ];
 
 

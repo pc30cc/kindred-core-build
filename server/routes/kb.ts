@@ -140,48 +140,27 @@ widgetKbRouter.get('/categories', async (req: Request, res: Response) => {
   const locale = normalizeLocale(parsed.data.locale);
 
   const supabase = getServiceClient(config);
-  let [{ data: cats }, { data: articles }] = await Promise.all([
+  // Articles are NOT split by language: every published article of the
+  // workspace is returned regardless of its locale.
+  const [{ data: cats }, { data: articles }] = await Promise.all([
     supabase
       .from('knowledge_base_categories')
       .select('id, name, slug, description, icon, sort_order')
       .eq('workspace_id', workspace_id)
-      .eq('locale', locale)
       .order('sort_order', { ascending: true }),
     supabase
-      .from('knowledge_base_articles')
-      .select('id, title, slug, excerpt, category_id, sort_order')
-      .eq('workspace_id', workspace_id)
-      .eq('locale', locale)
-      .eq('status', 'published')
-      .order('sort_order', { ascending: true })
-      .order('updated_at', { ascending: false })
-      .limit(20),
-  ]);
-
-  // Fallback: if there are no published articles in the requested locale,
-  // return the most recent published articles in ANY locale so the widget
-  // is not blank when content was authored in a different language.
-  if (!articles || articles.length === 0) {
-    const { data: anyArticles } = await supabase
       .from('knowledge_base_articles')
       .select('id, title, slug, excerpt, category_id, sort_order, locale')
       .eq('workspace_id', workspace_id)
       .eq('status', 'published')
+      .order('sort_order', { ascending: true })
       .order('updated_at', { ascending: false })
-      .limit(20);
-    articles = anyArticles || [];
-  }
-  if (!cats || cats.length === 0) {
-    const { data: anyCats } = await supabase
-      .from('knowledge_base_categories')
-      .select('id, name, slug, description, icon, sort_order')
-      .eq('workspace_id', workspace_id)
-      .order('sort_order', { ascending: true });
-    cats = anyCats || [];
-  }
+      .limit(50),
+  ]);
 
   return res.json({ locale, categories: cats || [], articles: articles || [] });
 });
+
 
 const categoryArticlesSchema = z.object({
   locale: z.string().min(2).max(10).optional(),

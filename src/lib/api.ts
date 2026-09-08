@@ -1120,6 +1120,76 @@ export async function adminListRecentPerformanceAudits(limit = 20) {
   return request<{ audits: AdminRecentPerformanceAudit[] }>(`/api/admin/providers/seo-performance/audits?limit=${limit}`, {});
 }
 
+// ─── Admin: SEO GSC Insights (platform-level, super admin only) ─────────
+// No stored credential — the Google OAuth client id/secret live in the
+// server environment only. This is status + platform-wide adoption stats.
+
+export interface AdminGscPlatformConfig {
+  configured: boolean;
+}
+
+export async function adminGetGscPlatformConfig() {
+  return request<AdminGscPlatformConfig>('/api/admin/providers/seo-gsc', {});
+}
+
+export interface AdminGscPlatformStats {
+  totalConnections: number;
+  activeConnections: number;
+  revokedConnections: number;
+  errorConnections: number;
+  totalPropertiesLinked: number;
+}
+
+export async function adminGetGscStats() {
+  return request<AdminGscPlatformStats>('/api/admin/providers/seo-gsc/stats', {});
+}
+
+export interface AdminRecentGscConnection {
+  workspace_id: string;
+  workspace_name: string | null;
+  google_account_email: string | null;
+  status: string;
+  properties_linked: number;
+  created_at: string;
+}
+
+export async function adminListRecentGscConnections(limit = 20) {
+  return request<{ connections: AdminRecentGscConnection[] }>(`/api/admin/providers/seo-gsc/connections?limit=${limit}`, {});
+}
+
+// ─── Admin: SEO Site Explorer (platform-level, super admin only) ────────
+// No stored credential — reuses the Backlinks/Keyword Research DataForSEO
+// credentials already configured above.
+
+export interface AdminExplorerPlatformStats {
+  totalLookups: number;
+  completedLookups: number;
+  runningLookups: number;
+  failedLookups: number;
+  workspacesUsed: number;
+  backlinkLookups: number;
+  keywordLookups: number;
+}
+
+export async function adminGetExplorerStats() {
+  return request<AdminExplorerPlatformStats>('/api/admin/providers/seo-site-explorer/stats', {});
+}
+
+export interface AdminRecentExplorerLookup {
+  id: string;
+  workspace_id: string;
+  workspace_name: string | null;
+  kind: 'backlinks' | 'keywords';
+  target_domain: string;
+  status: string;
+  result_count: number | null;
+  created_at: string;
+}
+
+export async function adminListRecentExplorerLookups(limit = 20) {
+  return request<{ lookups: AdminRecentExplorerLookup[] }>(`/api/admin/providers/seo-site-explorer/lookups?limit=${limit}`, {});
+}
+
 // ─── Phone verification (account-level OTP) ──────────────────────
 // Responses are sanitized by the backend: they never contain the SMS vendor,
 // template, sender/line number, provider message id or a raw provider error.

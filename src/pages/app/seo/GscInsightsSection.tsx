@@ -39,7 +39,7 @@ import {
 import { SeoApiError, type SeoGscDimension, type SeoGscSearchAnalyticsRow } from '@/lib/seo-api';
 import { GradientStatCard } from './SeoPage';
 import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip,
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip,
 } from 'recharts';
 
 function isoDate(d: Date): string {
@@ -341,7 +341,25 @@ function summarize(rows: SeoGscSearchAnalyticsRow[]) {
   return { totalClicks, totalImpressions, avgCtr, avgPosition: weightedPosition };
 }
 
+function GscChartTooltip({ active, payload, label }: any) {
+  const { t } = useTranslation();
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-lg border border-border/60 bg-popover px-3 py-2 shadow-lg">
+      <p className="mb-1 text-xs font-medium text-foreground">{label}</p>
+      {payload.map((p: any) => (
+        <div key={p.dataKey} className="flex items-center gap-2 text-xs">
+          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.color }} />
+          <span className="text-muted-foreground">{p.dataKey === 'clicks' ? t('seo.gsc.stat.clicks' as any) : t('seo.gsc.stat.impressions' as any)}</span>
+          <span className="ms-auto font-semibold tabular-nums text-foreground">{formatCompact(p.value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function GscTrendChart({ rows }: { rows: SeoGscSearchAnalyticsRow[] }) {
+  const { t } = useTranslation();
   const data = useMemo(
     () => [...rows]
       .sort((a, b) => (a.keys[0] < b.keys[0] ? -1 : 1))
@@ -349,18 +367,32 @@ function GscTrendChart({ rows }: { rows: SeoGscSearchAnalyticsRow[] }) {
     [rows],
   );
   return (
-    <div className="h-64">
+    <div className="h-72">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
-          <XAxis dataKey="date" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-          <YAxis yAxisId="clicks" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={40} />
-          <YAxis yAxisId="impressions" orientation="right" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={50} />
-          <ReTooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-          <Line yAxisId="clicks" type="monotone" dataKey="clicks" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
-          <Line yAxisId="impressions" type="monotone" dataKey="impressions" stroke="#94a3b8" strokeWidth={2} dot={false} />
-        </LineChart>
+        <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+          <defs>
+            <linearGradient id="gscClicksFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.32} />
+              <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id="gscImpressionsFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.22} />
+              <stop offset="100%" stopColor="#38bdf8" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border/40" />
+          <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
+          <YAxis yAxisId="clicks" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} width={40} />
+          <YAxis yAxisId="impressions" orientation="right" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} width={50} />
+          <ReTooltip content={<GscChartTooltip />} />
+          <Area yAxisId="impressions" type="monotone" dataKey="impressions" stroke="#38bdf8" strokeWidth={2} fill="url(#gscImpressionsFill)" />
+          <Area yAxisId="clicks" type="monotone" dataKey="clicks" stroke="hsl(var(--primary))" strokeWidth={2.5} fill="url(#gscClicksFill)" />
+        </AreaChart>
       </ResponsiveContainer>
+      <div className="mt-2 flex items-center justify-center gap-4 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" />{t('seo.gsc.stat.clicks' as any)}</span>
+        <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-400" />{t('seo.gsc.stat.impressions' as any)}</span>
+      </div>
     </div>
   );
 }

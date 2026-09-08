@@ -127,17 +127,23 @@ export function createPageSpeedAdapter(
       const audits = lighthouseResult.audits as Record<string, unknown> | undefined;
 
       const clsRaw = auditNumeric(audits, 'cumulative-layout-shift');
+      // Lighthouse's *_ms audits report `numericValue` as a float (e.g.
+      // 2345.678). The seo_performance_results columns for these are
+      // `integer` — round here rather than relying on the DB layer to
+      // coerce it, since a raw float sent through PostgREST to an integer
+      // column can be rejected outright instead of implicitly rounded.
+      const roundMs = (v: number | null): number | null => (v === null ? null : Math.round(v));
 
       return {
         performanceScore: categoryScore(categories, 'performance'),
         accessibilityScore: categoryScore(categories, 'accessibility'),
         bestPracticesScore: categoryScore(categories, 'best-practices'),
         seoScore: categoryScore(categories, 'seo'),
-        lcpMs: auditNumeric(audits, 'largest-contentful-paint'),
+        lcpMs: roundMs(auditNumeric(audits, 'largest-contentful-paint')),
         cls: clsRaw === null ? null : Math.round(clsRaw * 1000) / 1000,
-        inpMs: auditNumeric(audits, 'interaction-to-next-paint') ?? auditNumeric(audits, 'experimental-interaction-to-next-paint'),
-        fcpMs: auditNumeric(audits, 'first-contentful-paint'),
-        tbtMs: auditNumeric(audits, 'total-blocking-time'),
+        inpMs: roundMs(auditNumeric(audits, 'interaction-to-next-paint') ?? auditNumeric(audits, 'experimental-interaction-to-next-paint')),
+        fcpMs: roundMs(auditNumeric(audits, 'first-contentful-paint')),
+        tbtMs: roundMs(auditNumeric(audits, 'total-blocking-time')),
         rawSummary: { fetchedAt: new Date().toISOString(), finalUrl: (envelope as any).id ?? url },
       };
     },

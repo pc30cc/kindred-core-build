@@ -140,48 +140,27 @@ widgetKbRouter.get('/categories', async (req: Request, res: Response) => {
   const locale = normalizeLocale(parsed.data.locale);
 
   const supabase = getServiceClient(config);
-  let [{ data: cats }, { data: articles }] = await Promise.all([
+  // Articles are NOT split by language: every published article of the
+  // workspace is returned regardless of its locale.
+  const [{ data: cats }, { data: articles }] = await Promise.all([
     supabase
       .from('knowledge_base_categories')
       .select('id, name, slug, description, icon, sort_order')
       .eq('workspace_id', workspace_id)
-      .eq('locale', locale)
       .order('sort_order', { ascending: true }),
     supabase
-      .from('knowledge_base_articles')
-      .select('id, title, slug, excerpt, category_id, sort_order')
-      .eq('workspace_id', workspace_id)
-      .eq('locale', locale)
-      .eq('status', 'published')
-      .order('sort_order', { ascending: true })
-      .order('updated_at', { ascending: false })
-      .limit(20),
-  ]);
-
-  // Fallback: if there are no published articles in the requested locale,
-  // return the most recent published articles in ANY locale so the widget
-  // is not blank when content was authored in a different language.
-  if (!articles || articles.length === 0) {
-    const { data: anyArticles } = await supabase
       .from('knowledge_base_articles')
       .select('id, title, slug, excerpt, category_id, sort_order, locale')
       .eq('workspace_id', workspace_id)
       .eq('status', 'published')
+      .order('sort_order', { ascending: true })
       .order('updated_at', { ascending: false })
-      .limit(20);
-    articles = anyArticles || [];
-  }
-  if (!cats || cats.length === 0) {
-    const { data: anyCats } = await supabase
-      .from('knowledge_base_categories')
-      .select('id, name, slug, description, icon, sort_order')
-      .eq('workspace_id', workspace_id)
-      .order('sort_order', { ascending: true });
-    cats = anyCats || [];
-  }
+      .limit(50),
+  ]);
 
   return res.json({ locale, categories: cats || [], articles: articles || [] });
 });
+
 
 const categoryArticlesSchema = z.object({
   locale: z.string().min(2).max(10).optional(),
@@ -199,25 +178,23 @@ widgetKbRouter.get('/category-articles', async (req: Request, res: Response) => 
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
   const workspaceId = await resolveWorkspaceForHost(config, req);
   if (!workspaceId) return res.status(404).json({ error: 'no_workspace' });
-  const locale = normalizeLocale(parsed.data.locale);
   const supabase = getServiceClient(config);
-  const { data: cat } = await supabase
+  const { data: cats } = await supabase
     .from('knowledge_base_categories')
     .select('id')
     .eq('workspace_id', workspaceId)
-    .eq('locale', locale)
-    .eq('slug', parsed.data.slug)
-    .maybeSingle();
-  if (!cat) return res.json({ articles: [] });
+    .eq('slug', parsed.data.slug);
+  const catIds = (cats || []).map((c: any) => c.id);
+  if (!catIds.length) return res.json({ articles: [] });
   const { data: arts } = await supabase
     .from('knowledge_base_articles')
     .select('title, slug, excerpt')
     .eq('workspace_id', workspaceId)
-    .eq('category_id', (cat as any).id)
-    .eq('locale', locale)
+    .in('category_id', catIds)
     .eq('status', 'published')
     .order('sort_order', { ascending: true });
   return res.json({ articles: arts || [] });
+
 });
 
 const articleSchema = z.object({
@@ -232,38 +209,20 @@ widgetKbRouter.get('/article', async (req: Request, res: Response) => {
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
 
   const { workspace_id, slug } = parsed.data;
-  const locale = normalizeLocale(parsed.data.locale);
 
   const supabase = getServiceClient(config);
-  let { data: article } = await supabase
+  // Language-agnostic: a slug resolves to its published article whatever
+  // locale it was authored in.
+  const { data: rows } = await supabase
     .from('knowledge_base_articles')
     .select('id, title, slug, excerpt, content, locale, updated_at, category_id')
     .eq('workspace_id', workspace_id)
-    .eq('locale', locale)
     .eq('slug', slug)
     .eq('status', 'published')
-    .maybeSingle();
+    .order('updated_at', { ascending: false })
+    .limit(1);
+  const article = (rows && rows[0]) || null;
 
-  if (!article) {
-    // Fallback: same slug in any other locale (cross-language content).
-    // The unique constraint is (workspace_id, slug, locale) — the SAME slug
-    // legitimately exists once per locale (e.g. an 'en' and a 'tr' article
-    // sharing one slug), so this can match more than one row. .maybeSingle()
-    // errors out on >1 row and silently swallows the error (only `data` was
-    // destructured), which turned a perfectly normal multi-locale slug into
-    // a 404. Ordered + limited to one row instead, so a match always wins
-    // deterministically rather than erroring on the exact case this
-    // fallback exists to handle.
-    const { data: anyArticles } = await supabase
-      .from('knowledge_base_articles')
-      .select('id, title, slug, excerpt, content, locale, updated_at, category_id')
-      .eq('workspace_id', workspace_id)
-      .eq('slug', slug)
-      .eq('status', 'published')
-      .order('locale', { ascending: true })
-      .limit(1);
-    article = (anyArticles && anyArticles[0]) || null;
-  }
 
   if (!article) return res.status(404).json({ error: 'not_found' });
 
@@ -286,36 +245,23 @@ widgetKbRouter.get('/search', async (req: Request, res: Response) => {
   const locale = normalizeLocale(parsed.data.locale);
 
   const supabase = getServiceClient(config);
-  const { data: rows, error } = await supabase.rpc('kb_search_articles', {
-    p_workspace_id: workspace_id,
-    p_locale: locale,
-    p_query: q,
-    p_limit: limit,
-  });
+  // Search spans every language of the workspace.
+  const like = `%${q.replace(/[%_]/g, ' ')}%`;
+  const { data: rows, error } = await supabase
+    .from('knowledge_base_articles')
+    .select('id, title, slug, excerpt, locale')
+    .eq('workspace_id', workspace_id)
+    .eq('status', 'published')
+    .or(`title.ilike.${like},excerpt.ilike.${like},content.ilike.${like}`)
+    .limit(limit);
 
   if (error) {
-    console.error('[kb-search] rpc failed:', error.message);
+    console.error('[kb-search] failed:', error.message);
     return res.json({ results: [] });
   }
 
-  // Cross-locale fallback: if no results in requested locale, search across
-  // all locales for this workspace using a simple ilike match. This keeps the
-  // widget useful when content was authored in a different language than the
-  // visitor's UI locale.
-  let results = rows || [];
-  if (!results.length) {
-    const like = `%${q.replace(/[%_]/g, ' ')}%`;
-    const { data: anyRows } = await supabase
-      .from('knowledge_base_articles')
-      .select('id, title, slug, excerpt, locale')
-      .eq('workspace_id', workspace_id)
-      .eq('status', 'published')
-      .or(`title.ilike.${like},excerpt.ilike.${like},content.ilike.${like}`)
-      .limit(limit);
-    results = anyRows || [];
-  }
+  return res.json({ locale, q, results: rows || [] });
 
-  return res.json({ locale, q, results });
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -494,17 +440,16 @@ publicKbRouter.get('/help/:locale', async (req: Request, res: Response) => {
     .from('knowledge_base_categories')
     .select('id, name, slug, description, icon, sort_order')
     .eq('workspace_id', workspaceId)
-    .eq('locale', locale)
     .order('sort_order', { ascending: true });
 
   const { data: featured } = await supabase
     .from('knowledge_base_articles')
     .select('title, slug, excerpt')
     .eq('workspace_id', workspaceId)
-    .eq('locale', locale)
     .eq('status', 'published')
     .order('sort_order', { ascending: true })
-    .limit(8);
+    .limit(12);
+
 
   const base = getRequestHostUrl(req);
   const canonical = `${base}/help/${locale}`;
@@ -578,24 +523,23 @@ publicKbRouter.get('/help/:locale/c/:slug', async (req: Request, res: Response) 
   if (!workspaceId) return res.status(404).send('Not found');
 
   const supabase = getServiceClient(config);
-  const { data: cat } = await supabase
+  const { data: catRows } = await supabase
     .from('knowledge_base_categories')
     .select('id, name, slug, description')
     .eq('workspace_id', workspaceId)
-    .eq('locale', locale)
-    .eq('slug', req.params.slug)
-    .maybeSingle();
+    .eq('slug', req.params.slug);
 
+  const cat = (catRows && catRows[0]) || null;
   if (!cat) return res.status(404).send('Not found');
 
   const { data: arts } = await supabase
     .from('knowledge_base_articles')
     .select('title, slug, excerpt')
     .eq('workspace_id', workspaceId)
-    .eq('category_id', (cat as any).id)
-    .eq('locale', locale)
+    .in('category_id', (catRows || []).map((c: any) => c.id))
     .eq('status', 'published')
     .order('sort_order', { ascending: true });
+
 
   const base = getRequestHostUrl(req);
   const canonical = `${base}/help/${locale}/c/${(cat as any).slug}`;
@@ -655,14 +599,16 @@ publicKbRouter.get('/help/:locale/a/:slug', async (req: Request, res: Response) 
   if (!workspaceId) return res.status(404).send('Not found');
 
   const supabase = getServiceClient(config);
-  const { data: article } = await supabase
+  const { data: articleRows } = await supabase
     .from('knowledge_base_articles')
     .select('id, title, slug, excerpt, content, locale, updated_at, category_id')
     .eq('workspace_id', workspaceId)
-    .eq('locale', locale)
     .eq('slug', req.params.slug)
     .eq('status', 'published')
-    .maybeSingle();
+    .order('updated_at', { ascending: false })
+    .limit(1);
+  const article = (articleRows && articleRows[0]) || null;
+
 
   if (!article) return res.status(404).send(renderShell({
     title: 'Article not found',
@@ -744,14 +690,17 @@ publicKbRouter.get('/help/:locale/search', async (req: Request, res: Response) =
   let results: any[] = [];
   if (q.length >= 2) {
     const supabase = getServiceClient(config);
-    const { data } = await supabase.rpc('kb_search_articles', {
-      p_workspace_id: workspaceId,
-      p_locale: locale,
-      p_query: q,
-      p_limit: 20,
-    });
+    const like = `%${q.replace(/[%_]/g, ' ')}%`;
+    const { data } = await supabase
+      .from('knowledge_base_articles')
+      .select('id, title, slug, excerpt, locale')
+      .eq('workspace_id', workspaceId)
+      .eq('status', 'published')
+      .or(`title.ilike.${like},excerpt.ilike.${like},content.ilike.${like}`)
+      .limit(20);
     results = (data as any[]) || [];
   }
+
 
   const base = getRequestHostUrl(req);
   const canonical = `${base}/help/${locale}/search${q ? `?q=${encodeURIComponent(q)}` : ''}`;

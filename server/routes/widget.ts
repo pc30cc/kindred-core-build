@@ -1711,7 +1711,7 @@ widgetRouter.get('/help-articles', widgetRateLimit('default'), async (req: Reque
       .order('sort_order', { ascending: true })
       .limit(limit);
 
-    if (locale) query = query.eq('locale', locale);
+    // Articles are not split by language.
     if (search) query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
 
     const { data: articles } = await query;
@@ -3216,7 +3216,7 @@ widgetRouter.get('/kb', async (req: Request, res: Response) => {
       .order('sort_order', { ascending: true })
       .limit(limit);
 
-    if (locale) query = query.eq('locale', locale);
+    // Articles are not split by language.
 
     const { data: articles, error: kbError } = await query;
     if (kbError) throw kbError;

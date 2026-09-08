@@ -1041,6 +1041,85 @@ export async function adminListRecentRankChecks(limit = 20) {
   return request<{ checks: AdminRecentRankCheck[] }>(`/api/admin/providers/seo-rank-tracking/checks?limit=${limit}`, {});
 }
 
+// ─── Admin: SEO Performance provider (platform-level, super admin only) ──
+// Unlike the other three modules, PageSpeed Insights authenticates with a
+// single optional API key rather than login+password.
+
+export interface AdminPerformanceProviderInfo {
+  providerName: 'pagespeed' | 'disabled';
+  configured: boolean;
+  enabled: boolean;
+  hasCredentials: boolean;
+  updatedAt: string | null;
+}
+
+export interface AdminPerformanceTestResult {
+  success: boolean;
+  provider: string;
+  latencyMs?: number;
+  error?: string;
+  errorCode?: string;
+}
+
+export async function adminGetPerformanceProvider() {
+  return request<AdminPerformanceProviderInfo>('/api/admin/providers/seo-performance', {});
+}
+
+export interface AdminPerformanceProviderSavePayload {
+  providerName: 'pagespeed';
+  enabled: boolean;
+  apiKey?: string;
+}
+
+export async function adminSavePerformanceProvider(payload: AdminPerformanceProviderSavePayload) {
+  return request<AdminPerformanceProviderInfo>('/api/admin/providers/seo-performance', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function adminDeletePerformanceProvider() {
+  return request<AdminPerformanceProviderInfo>('/api/admin/providers/seo-performance', {
+    method: 'DELETE',
+  });
+}
+
+export async function adminTestPerformanceProvider() {
+  return request<AdminPerformanceTestResult>('/api/admin/providers/seo-performance/test', {
+    method: 'POST',
+  });
+}
+
+export interface AdminPerformancePlatformStats {
+  totalAudits: number;
+  completedAudits: number;
+  runningAudits: number;
+  failedAudits: number;
+  workspacesUsed: number;
+  totalPagesAudited: number;
+}
+
+export async function adminGetPerformanceStats() {
+  return request<AdminPerformancePlatformStats>('/api/admin/providers/seo-performance/stats', {});
+}
+
+export interface AdminRecentPerformanceAudit {
+  id: string;
+  workspace_id: string;
+  workspace_name: string | null;
+  crawl_id: string;
+  provider: string;
+  status: string;
+  pages_audited: number | null;
+  error_category: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export async function adminListRecentPerformanceAudits(limit = 20) {
+  return request<{ audits: AdminRecentPerformanceAudit[] }>(`/api/admin/providers/seo-performance/audits?limit=${limit}`, {});
+}
+
 // ─── Phone verification (account-level OTP) ──────────────────────
 // Responses are sanitized by the backend: they never contain the SMS vendor,
 // template, sender/line number, provider message id or a raw provider error.

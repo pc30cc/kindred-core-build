@@ -414,3 +414,63 @@ export function removeTrackedKeyword(workspaceId: string, keywordId: string) {
 export function listRankChecks(workspaceId: string, keywordId: string, opts: { limit?: number } = {}) {
   return api<{ checks: SeoRankCheck[] }>(`/api/seo/${workspaceId}/tracked-keywords/${keywordId}/checks${qs(opts)}`);
 }
+
+export interface SeoPerformanceLimits {
+  planSlug: string | null;
+  planName: string | null;
+  limits: {
+    seo_performance_max_pages_per_audit: number;
+    seo_performance_audit_frequency_hours: number;
+    [key: string]: number;
+  };
+}
+
+export interface SeoPerformanceAudit {
+  id: string;
+  crawl_id: string;
+  provider: string;
+  max_pages: number;
+  status: SeoJobStatus;
+  progress: number;
+  progress_stage: string | null;
+  pages_audited: number | null;
+  error_message: string | null;
+  error_category: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export interface SeoPerformanceResult {
+  id: string;
+  url: string;
+  status: 'pending' | 'completed' | 'unavailable';
+  performance_score: number | null;
+  accessibility_score: number | null;
+  best_practices_score: number | null;
+  seo_score: number | null;
+  lcp_ms: number | null;
+  cls: number | null;
+  inp_ms: number | null;
+  fcp_ms: number | null;
+  tbt_ms: number | null;
+}
+
+export function getPerformanceLimits(workspaceId: string) {
+  return api<SeoPerformanceLimits>(`/api/seo/${workspaceId}/performance/limits`);
+}
+
+export function getLatestPerformanceAudit(workspaceId: string, crawlId: string) {
+  return api<{ audit: SeoPerformanceAudit | null }>(`/api/seo/${workspaceId}/crawls/${crawlId}/performance-audits/latest`);
+}
+
+export function startPerformanceAudit(workspaceId: string, crawlId: string) {
+  return api<{ audit: SeoPerformanceAudit }>(`/api/seo/${workspaceId}/crawls/${crawlId}/performance-audits`, { method: 'POST' });
+}
+
+export function getPerformanceAudit(workspaceId: string, auditId: string) {
+  return api<{ audit: SeoPerformanceAudit }>(`/api/seo/${workspaceId}/performance-audits/${auditId}`);
+}
+
+export function listPerformanceResults(workspaceId: string, auditId: string) {
+  return api<{ results: SeoPerformanceResult[] }>(`/api/seo/${workspaceId}/performance-audits/${auditId}/results`);
+}

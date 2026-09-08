@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Radar, Link2, CheckCircle2, XCircle, Loader2, Globe2, TrendingUp, Search, LineChart } from 'lucide-react';
+import { Radar, Link2, CheckCircle2, XCircle, Loader2, Globe2, TrendingUp, Search, LineChart, Gauge } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -7,13 +7,16 @@ import { cn } from '@/lib/utils';
 import { AdminBacklinksProviderCard } from '@/features/providers/AdminBacklinksProviderCard';
 import { AdminKeywordsProviderCard } from '@/features/providers/AdminKeywordsProviderCard';
 import { AdminRankTrackingProviderCard } from '@/features/providers/AdminRankTrackingProviderCard';
+import { AdminPerformanceProviderCard } from '@/features/providers/AdminPerformanceProviderCard';
 import {
   adminGetBacklinksStats, adminListRecentBacklinkScans,
   adminGetKeywordsStats, adminListRecentKeywordRuns,
   adminGetRankTrackingStats, adminListRecentRankChecks,
+  adminGetPerformanceStats, adminListRecentPerformanceAudits,
   type AdminBacklinksPlatformStats, type AdminRecentBacklinkScan,
   type AdminKeywordsPlatformStats, type AdminRecentKeywordRun,
   type AdminRankTrackingPlatformStats, type AdminRecentRankCheck,
+  type AdminPerformancePlatformStats, type AdminRecentPerformanceAudit,
 } from '@/lib/api';
 
 const STATUS_CLASS: Record<string, string> = {
@@ -58,18 +61,22 @@ export default function AdminSeoIntegrationsPage() {
   const [keywordRuns, setKeywordRuns] = useState<AdminRecentKeywordRun[]>([]);
   const [rankStats, setRankStats] = useState<AdminRankTrackingPlatformStats | null>(null);
   const [rankChecks, setRankChecks] = useState<AdminRecentRankCheck[]>([]);
+  const [perfStats, setPerfStats] = useState<AdminPerformancePlatformStats | null>(null);
+  const [perfAudits, setPerfAudits] = useState<AdminRecentPerformanceAudit[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [statsRes, scansRes, kwStatsRes, kwRunsRes, rankStatsRes, rankChecksRes] = await Promise.all([
+      const [statsRes, scansRes, kwStatsRes, kwRunsRes, rankStatsRes, rankChecksRes, perfStatsRes, perfAuditsRes] = await Promise.all([
         adminGetBacklinksStats(),
         adminListRecentBacklinkScans(20),
         adminGetKeywordsStats(),
         adminListRecentKeywordRuns(20),
         adminGetRankTrackingStats(),
         adminListRecentRankChecks(20),
+        adminGetPerformanceStats(),
+        adminListRecentPerformanceAudits(20),
       ]);
       setBacklinksStats(statsRes);
       setScans(scansRes.scans);
@@ -77,6 +84,8 @@ export default function AdminSeoIntegrationsPage() {
       setKeywordRuns(kwRunsRes.runs);
       setRankStats(rankStatsRes);
       setRankChecks(rankChecksRes.checks);
+      setPerfStats(perfStatsRes);
+      setPerfAudits(perfAuditsRes.audits);
     } catch {
       setBacklinksStats(null);
       setScans([]);
@@ -84,6 +93,8 @@ export default function AdminSeoIntegrationsPage() {
       setKeywordRuns([]);
       setRankStats(null);
       setRankChecks([]);
+      setPerfStats(null);
+      setPerfAudits([]);
     } finally {
       setLoading(false);
     }
@@ -268,6 +279,64 @@ export default function AdminSeoIntegrationsPage() {
                       <td className="px-4 py-2 text-muted-foreground">{c.keyword}</td>
                       <td className="px-4 py-2 text-foreground">{c.position ?? '—'}</td>
                       <td className="px-4 py-2 text-muted-foreground">{new Date(c.checked_at).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ─── Performance ────────────────────────────────────────────── */}
+      <SectionHeading icon={Gauge} title={t('admin.seoIntegrations.performanceSection' as any)} />
+
+      <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
+        <StatTile icon={Gauge} tone="text-primary bg-primary/10" value={perfStats?.totalAudits ?? '—'} label={t('admin.seoIntegrations.performanceStats.totalAudits' as any)} />
+        <StatTile icon={CheckCircle2} tone="text-emerald-500 bg-emerald-500/10" value={perfStats?.completedAudits ?? '—'} label={t('admin.seoIntegrations.performanceStats.completedAudits' as any)} />
+        <StatTile icon={Globe2} tone="text-violet-500 bg-violet-500/10" value={perfStats?.workspacesUsed ?? '—'} label={t('admin.seoIntegrations.performanceStats.workspacesUsed' as any)} />
+        <StatTile icon={TrendingUp} tone="text-amber-500 bg-amber-500/10" value={perfStats?.totalPagesAudited ?? '—'} label={t('admin.seoIntegrations.performanceStats.totalPagesAudited' as any)} />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <AdminPerformanceProviderCard />
+      </div>
+
+      <Card className="border-border/60">
+        <CardContent className="p-0">
+          <div className="flex items-center gap-2 border-b border-border/60 px-4 py-3">
+            <TrendingUp className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">{t('admin.seoIntegrations.recentPerformanceAudits' as any)}</h2>
+          </div>
+          {loading ? (
+            <div className="flex items-center gap-2 p-6 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('admin.seoIntegrations.loading' as any)}
+            </div>
+          ) : perfAudits.length === 0 ? (
+            <p className="p-6 text-center text-xs text-muted-foreground">{t('admin.seoIntegrations.noPerformanceAudits' as any)}</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border/60 text-start text-muted-foreground">
+                    <th className="px-4 py-2 text-start font-medium">{t('admin.seoIntegrations.columnWorkspace' as any)}</th>
+                    <th className="px-4 py-2 text-start font-medium">{t('admin.seoIntegrations.columnStatus' as any)}</th>
+                    <th className="px-4 py-2 text-start font-medium">{t('admin.seoIntegrations.columnPagesAudited' as any)}</th>
+                    <th className="px-4 py-2 text-start font-medium">{t('admin.seoIntegrations.columnDate' as any)}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {perfAudits.map((a) => (
+                    <tr key={a.id} className="border-b border-border/40 last:border-0">
+                      <td className="px-4 py-2 text-foreground">{a.workspace_name ?? a.workspace_id.slice(0, 8)}</td>
+                      <td className="px-4 py-2">
+                        <Badge variant="outline" className={cn('text-[10px]', STATUS_CLASS[a.status] || 'border-border text-muted-foreground')}>
+                          {a.status === 'failed' && <XCircle className="me-1 h-3 w-3" />}
+                          {a.status}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-2 text-foreground">{a.pages_audited ?? '—'}</td>
+                      <td className="px-4 py-2 text-muted-foreground">{new Date(a.created_at).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>

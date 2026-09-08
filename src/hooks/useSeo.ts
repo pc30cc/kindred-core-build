@@ -14,6 +14,8 @@ import {
   getKeywordsLimits, getLatestKeywordRun, listKeywordRunHistory, startKeywordRun,
   getKeywordRun, listKeywordResults, type SeoKeywordRun,
   getRankTrackingLimits, listTrackedKeywords, addTrackedKeyword, removeTrackedKeyword, listRankChecks,
+  getPerformanceLimits, getLatestPerformanceAudit, startPerformanceAudit, listPerformanceResults,
+  type SeoPerformanceAudit,
 } from '@/lib/seo-api';
 
 export function useSeoSites(workspaceId?: string) {
@@ -304,5 +306,46 @@ export function useRankChecks(workspaceId?: string, keywordId?: string) {
     queryKey: ['seo-rank-checks', workspaceId, keywordId],
     queryFn: () => listRankChecks(workspaceId!, keywordId!),
     enabled: !!workspaceId && !!keywordId,
+  });
+}
+
+// ─── SEO Performance Auditing ────────────────────────────────────────────
+
+export function usePerformanceLimits(workspaceId?: string) {
+  return useQuery({
+    queryKey: ['seo-performance-limits', workspaceId],
+    queryFn: () => getPerformanceLimits(workspaceId!),
+    enabled: !!workspaceId,
+  });
+}
+
+export function useLatestPerformanceAudit(workspaceId?: string, crawlId?: string) {
+  return useQuery({
+    queryKey: ['seo-latest-performance-audit', workspaceId, crawlId],
+    queryFn: () => getLatestPerformanceAudit(workspaceId!, crawlId!),
+    enabled: !!workspaceId && !!crawlId,
+    refetchInterval: (q) => {
+      const data = q.state.data as { audit: SeoPerformanceAudit | null } | undefined;
+      if (!data?.audit) return false;
+      return TERMINAL_SEO_STATUSES.has(data.audit.status) ? false : 4000;
+    },
+  });
+}
+
+export function useStartPerformanceAudit(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (crawlId: string) => startPerformanceAudit(workspaceId, crawlId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['seo-latest-performance-audit', workspaceId] });
+    },
+  });
+}
+
+export function usePerformanceResults(workspaceId?: string, auditId?: string) {
+  return useQuery({
+    queryKey: ['seo-performance-results', workspaceId, auditId],
+    queryFn: () => listPerformanceResults(workspaceId!, auditId!),
+    enabled: !!workspaceId && !!auditId,
   });
 }

@@ -232,6 +232,13 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'seo_rank_tracking', type: 'module', label: 'SEO — Rank Tracking', group: 'modules', description: 'Track a watchlist of keywords and periodically record their Google ranking position for a website registered in the workspace.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 133 },
   { key: 'seo_rank_tracking_max_keywords',           type: 'limit', label: 'SEO — Max tracked keywords per site', group: 'seo', description: 'Maximum number of keywords a single website may have on its rank-tracking watchlist at once.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 110 },
   { key: 'seo_rank_tracking_check_frequency_hours',  type: 'limit', label: 'SEO — Rank re-check interval (hours)', group: 'seo', description: 'How often (in hours) each tracked keyword\'s position is re-checked. 24 = daily, 168 = weekly.', defaultValue: 168, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 120 },
+
+  // ─── SEO Performance Auditing (server/services/seo/performanceLimits.ts).
+  // Same "opt-in, 0 on Free" reasoning — each audited page costs the
+  // platform a real PageSpeed Insights API call. ───
+  { key: 'seo_performance', type: 'module', label: 'SEO — Performance Auditing', group: 'modules', description: 'Fetch Core Web Vitals and Lighthouse category scores for a website\'s pages, via a platform-configured performance data provider.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 134 },
+  { key: 'seo_performance_max_pages_per_audit',      type: 'limit', label: 'SEO — Max pages per performance audit', group: 'seo', description: 'Maximum number of pages audited for Core Web Vitals in a single performance audit run.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 130 },
+  { key: 'seo_performance_audit_frequency_hours',    type: 'limit', label: 'SEO — Performance re-audit cooldown (hours)', group: 'seo', description: 'Minimum number of hours that must pass since a crawl\'s last performance audit before another one may be started for it.', defaultValue: 168, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 140 },
 ];
 
 

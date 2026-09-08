@@ -17,6 +17,7 @@ function page(overrides: Partial<SeoPageForRules>): SeoPageForRules {
     canonicalStatus: 'self',
     metaRobots: null,
     isIndexable: true,
+    h1: 'A perfectly fine H1 heading',
     h1Count: 1,
     h2Count: 2,
     lang: 'en',
@@ -25,8 +26,13 @@ function page(overrides: Partial<SeoPageForRules>): SeoPageForRules {
     imagesMissingAltCount: 0,
     hasStructuredData: false,
     structuredDataErrors: [],
+    hasOpenGraph: true,
+    hasTwitterCard: true,
     isHttps: true,
     hasMixedContent: false,
+    isNofollow: false,
+    discoveredVia: 'link',
+    incomingInternalLinksCount: 1,
     fetchError: null,
     responseTimeMs: 200,
     ...overrides,
@@ -179,5 +185,50 @@ describe('SEO rules — links + sitemap', () => {
     const issues = runAllRules(ctx([dead], { sitemapUrls: ['https://example.com/dead'] }));
     const issue = issues.find((i) => i.issueType === 'sitemap_non_indexable_urls');
     expect(issue?.affectedUrls).toEqual(['https://example.com/dead']);
+  });
+});
+
+describe('SEO rules — social tags', () => {
+  it('flags indexable pages missing Open Graph tags', () => {
+    const issues = runAllRules(ctx([
+      page({ url: 'https://example.com/no-og', hasOpenGraph: false }),
+      page({ url: 'https://example.com/noindex-no-og', hasOpenGraph: false, isIndexable: false }),
+    ]));
+    const issue = issues.find((i) => i.issueType === 'missing_open_graph');
+    expect(issue?.affectedUrls).toEqual(['https://example.com/no-og']);
+  });
+
+  it('flags indexable pages missing a Twitter Card tag', () => {
+    const issues = runAllRules(ctx([page({ hasTwitterCard: false })]));
+    expect(issues.find((i) => i.issueType === 'missing_twitter_card')).toBeTruthy();
+  });
+});
+
+describe('SEO rules — duplicate H1', () => {
+  it('flags duplicate H1 headings across pages', () => {
+    const issues = runAllRules(ctx([
+      page({ url: 'https://example.com/a', h1: 'Same Heading' }),
+      page({ url: 'https://example.com/b', h1: 'Same Heading' }),
+      page({ url: 'https://example.com/c', h1: 'Different Heading' }),
+    ]));
+    const issue = issues.find((i) => i.issueType === 'duplicate_h1');
+    expect(issue?.affectedUrls.sort()).toEqual(['https://example.com/a', 'https://example.com/b']);
+  });
+});
+
+describe('SEO rules — link graph health', () => {
+  it('flags indexable pages reachable only via sitemap with no internal inlinks as orphans', () => {
+    const issues = runAllRules(ctx([
+      page({ url: 'https://example.com/orphan', discoveredVia: 'sitemap', incomingInternalLinksCount: 0 }),
+      page({ url: 'https://example.com/linked', discoveredVia: 'sitemap', incomingInternalLinksCount: 2 }),
+      page({ url: 'https://example.com/', discoveredVia: 'start', incomingInternalLinksCount: 0 }),
+    ]));
+    const issue = issues.find((i) => i.issueType === 'orphan_pages');
+    expect(issue?.affectedUrls).toEqual(['https://example.com/orphan']);
+  });
+
+  it('flags an indexable page that is also marked nofollow', () => {
+    const issues = runAllRules(ctx([page({ isNofollow: true })]));
+    expect(issues.find((i) => i.issueType === 'nofollow_indexable_page')).toBeTruthy();
   });
 });

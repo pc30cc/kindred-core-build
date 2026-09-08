@@ -4,7 +4,7 @@ import {
   Flag, Palette, Globe, FileText, CreditCard, Shield,
   Database, Crown, MessageSquare, MapPin, PhoneCall,
   ChevronLeft, ChevronRight, LogOut, ArrowLeft, ArrowRight, Activity, Video, Sparkles,
-  KeyRound, X, ShieldCheck,
+  KeyRound, X, ShieldCheck, Radar,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/features/auth/AuthContext';
@@ -22,6 +22,7 @@ const adminNav = [
   { group: 'experience', key: 'voiceVideo', path: '/admin/voice-video', icon: Video },
   { group: 'experience', key: 'callCenter', path: '/admin/call-center', icon: PhoneCall },
   { group: 'experience', key: 'aiAgent', path: '/admin/ai-agent', icon: Sparkles },
+  { group: 'experience', key: 'seoIntegrations', path: '/admin/seo-integrations', icon: Radar },
   { group: 'operations', key: 'system', path: '/admin/system', icon: Server },
   { group: 'operations', key: 'observability', path: '/admin/observability', icon: Activity },
   { group: 'operations', key: 'featureFlags', path: '/admin/feature-flags', icon: Flag },

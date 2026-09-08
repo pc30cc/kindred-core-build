@@ -24,6 +24,10 @@
 // 'channels' polls public.channel_jobs for plugin channel traffic (Telegram
 // inbound/outbound). It is intentionally a SEPARATE kind so channel volume
 // can never starve AI workers, and vice versa.
+// 'seo-crawler' also claims 'seo_backlink_scan' jobs — a backlink scan is one
+// vendor HTTP call, far lighter than a multi-page crawl, so it shares this
+// worker's single poller rather than needing its own kind/container (see
+// worker/seo-crawler/index.ts and worker/seo-backlinks/processScan.ts).
 const ALLOWED = new Set([
   'intelligence',
   'source-sync',

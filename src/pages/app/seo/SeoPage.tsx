@@ -5,8 +5,9 @@ import {
   useSeoSites, useSeoLimits, useLatestCrawl, useCrawlHistory, useStartCrawl, useCancelCrawl,
   useCrawl, useCrawlPages, useCrawlIssues, useIssueAffectedUrls, useCrawlLinks, useCrawlSitemaps,
   useCrawlComparison,
+  useBacklinksLimits, useLatestBacklinkScan, useStartBacklinkScan, useBacklinks,
 } from '@/hooks/useSeo';
-import { SeoApiError, type SeoCrawl, type SeoIssue } from '@/lib/seo-api';
+import { SeoApiError, TERMINAL_SEO_STATUSES, type SeoCrawl, type SeoIssue } from '@/lib/seo-api';
 import { toast } from '@/lib/toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,7 +18,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { SkeletonStats, SkeletonTable } from '@/components/common/Skeletons';
-import { Radar, RefreshCw, AlertTriangle, CheckCircle2, XCircle, ArrowLeft, ExternalLink } from 'lucide-react';
+import { Radar, RefreshCw, AlertTriangle, CheckCircle2, XCircle, ArrowLeft, ExternalLink, Link2, Lock, Globe2, TrendingUp, Sparkles, ShieldCheck } from 'lucide-react';
+import {
+  PieChart, Pie, Cell, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip as ReTooltip, ResponsiveContainer,
+} from 'recharts';
 
 const SEVERITY_CLASS: Record<string, string> = {
   critical: 'bg-destructive/15 text-destructive border-destructive/30',
@@ -194,6 +199,7 @@ export default function SeoPage() {
       {siteId && crawl && crawl.status === 'completed' && (
         <SeoDashboard
           workspaceId={workspaceId}
+          siteId={siteId}
           crawl={crawl}
           onRunAgain={handleStart}
           runPending={startCrawl.isPending}
@@ -215,9 +221,10 @@ function PageHeader() {
 }
 
 function SeoDashboard({
-  workspaceId, crawl, onRunAgain, runPending, history,
+  workspaceId, siteId, crawl, onRunAgain, runPending, history,
 }: {
   workspaceId: string;
+  siteId: string;
   crawl: SeoCrawl;
   onRunAgain: () => void;
   runPending: boolean;
@@ -253,6 +260,7 @@ function SeoDashboard({
           <TabsTrigger value="pages">{t('seo.tabs.pages')}</TabsTrigger>
           <TabsTrigger value="links">{t('seo.tabs.links')}</TabsTrigger>
           <TabsTrigger value="sitemap">{t('seo.tabs.sitemap')}</TabsTrigger>
+          <TabsTrigger value="backlinks">{t('seo.tabs.backlinks')}</TabsTrigger>
           <TabsTrigger value="performance">{t('seo.tabs.performance')}</TabsTrigger>
           <TabsTrigger value="history">{t('seo.tabs.history')}</TabsTrigger>
         </TabsList>
@@ -262,6 +270,7 @@ function SeoDashboard({
         <TabsContent value="pages"><PagesTab workspaceId={workspaceId} crawlId={crawl.id} /></TabsContent>
         <TabsContent value="links"><LinksTab workspaceId={workspaceId} crawlId={crawl.id} /></TabsContent>
         <TabsContent value="sitemap"><SitemapTab workspaceId={workspaceId} crawlId={crawl.id} crawl={crawl} /></TabsContent>
+        <TabsContent value="backlinks"><BacklinksTab workspaceId={workspaceId} siteId={siteId} /></TabsContent>
         <TabsContent value="performance"><PerformanceTab /></TabsContent>
         <TabsContent value="history"><HistoryTab workspaceId={workspaceId} crawl={crawl} history={history} /></TabsContent>
       </Tabs>
@@ -420,7 +429,7 @@ function IssuesTab({ workspaceId, crawlId }: { workspaceId: string; crawlId: str
           <SelectTrigger className="w-48"><SelectValue placeholder={t('seo.issues.filterCategory')} /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{t('seo.issues.allCategories')}</SelectItem>
-            {['crawlability', 'indexability', 'http', 'metadata', 'content', 'links', 'images', 'canonical', 'sitemap', 'robots', 'security', 'performance', 'structured_data'].map((c) => (
+            {['crawlability', 'indexability', 'http', 'metadata', 'content', 'links', 'images', 'canonical', 'sitemap', 'robots', 'security', 'performance', 'structured_data', 'social'].map((c) => (
               <SelectItem key={c} value={c}>{t(`seo.category.${c}` as any)}</SelectItem>
             ))}
           </SelectContent>
@@ -597,6 +606,309 @@ function PerformanceTab() {
         <p className="max-w-md text-sm text-muted-foreground">{t('seo.performance.comingSoonDescription')}</p>
       </CardContent>
     </Card>
+  );
+}
+
+function startBacklinkScanErrorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
+  if (err instanceof SeoApiError) {
+    switch (err.code) {
+      case 'workspace_concurrency_limit':
+        return t('seo.backlinks.limits.workspace_concurrency_limit' as any);
+      case 'module_not_available':
+        return t('seo.backlinks.limits.module_not_available' as any);
+      case 'frequency_limit': {
+        const hours = Math.max(1, Math.round((err.retryAfterSeconds ?? 0) / 3600));
+        return `${t('seo.backlinks.limits.frequency_limit' as any)} ${t('seo.backlinks.limits.retryAfter' as any, { hours })}`;
+      }
+      case 'site_not_found':
+        return t('seo.errors.siteNotFound' as any);
+      default:
+        return t('seo.backlinks.errors.startFailed' as any);
+    }
+  }
+  return t('seo.backlinks.errors.startFailed' as any);
+}
+
+/** Gradient hero stat card — matches OverviewPage.tsx's dashboard-card visual language. */
+function GradientStatCard({
+  icon: Icon, iconGradient, blobColor, value, label,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  iconGradient: string;
+  blobColor: string;
+  value: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
+      <div className={`pointer-events-none absolute -top-10 -end-8 h-24 w-24 rounded-full ${blobColor} blur-2xl`} />
+      <div className="relative flex items-center gap-3">
+        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${iconGradient} text-white shadow-md`}>
+          <Icon className="h-4.5 w-4.5" />
+        </span>
+        <div className="min-w-0">
+          <div className="text-2xl font-bold leading-tight text-foreground">{value}</div>
+          <p className="truncate text-xs text-muted-foreground">{label}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BacklinksEmptyState({
+  icon: Icon, iconGradient, title, description, action,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  iconGradient: string;
+  title: string;
+  description?: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <Card className="mt-4 overflow-hidden">
+      <CardContent className="relative flex flex-col items-center justify-center gap-3 py-16 text-center">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-primary/5 to-transparent" />
+        <span className={`relative flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br ${iconGradient} text-white shadow-lg`}>
+          <Icon className="h-6 w-6" />
+        </span>
+        <h3 className="relative text-lg font-semibold">{title}</h3>
+        {description && <p className="relative max-w-md text-sm text-muted-foreground">{description}</p>}
+        {action && <div className="relative">{action}</div>}
+      </CardContent>
+    </Card>
+  );
+}
+
+const DOFOLLOW_COLOR = '#10b981';
+const NOFOLLOW_COLOR = 'hsl(var(--muted-foreground))';
+
+function rankTierClass(rank: number | null): string {
+  if (rank === null) return 'border-border text-muted-foreground';
+  if (rank >= 500) return 'border-emerald-500/40 text-emerald-500 bg-emerald-500/10';
+  if (rank >= 200) return 'border-sky-500/40 text-sky-500 bg-sky-500/10';
+  return 'border-border text-muted-foreground';
+}
+
+function BacklinksTab({ workspaceId, siteId }: { workspaceId: string; siteId: string }) {
+  const { t } = useTranslation();
+  const { data: limitsData } = useBacklinksLimits(workspaceId);
+  const { data: latestData, isLoading } = useLatestBacklinkScan(workspaceId, siteId);
+  const startScan = useStartBacklinkScan(workspaceId);
+  const scan = latestData?.scan || null;
+  const isRunning = !!scan && !TERMINAL_SEO_STATUSES.has(scan.status);
+  const { data: backlinksData } = useBacklinks(workspaceId, scan?.status === 'completed' ? scan.id : undefined, { limit: 100 });
+  const backlinks = backlinksData?.backlinks || [];
+
+  const maxPerScan = limitsData?.limits.seo_backlinks_max_per_scan ?? 0;
+  const moduleAvailable = maxPerScan > 0;
+
+  const dofollowCount = scan?.dofollow_count ?? 0;
+  const nofollowCount = scan?.nofollow_count ?? 0;
+  const linkTypeTotal = dofollowCount + nofollowCount;
+  const dofollowPct = linkTypeTotal > 0 ? Math.round((dofollowCount / linkTypeTotal) * 100) : 0;
+  const linkTypeData = useMemo(() => [
+    { name: t('seo.backlinks.dofollow'), value: dofollowCount, color: DOFOLLOW_COLOR },
+    { name: t('seo.backlinks.nofollow'), value: nofollowCount, color: NOFOLLOW_COLOR },
+  ], [t, dofollowCount, nofollowCount]);
+
+  const topDomains = useMemo(() => {
+    const byDomain = new Map<string, number>();
+    for (const b of backlinks) {
+      const rank = b.domain_rank ?? 0;
+      if (rank > (byDomain.get(b.source_domain) ?? -1)) byDomain.set(b.source_domain, rank);
+    }
+    return Array.from(byDomain.entries())
+      .map(([domain, rank]) => ({ domain, rank }))
+      .sort((a, b) => b.rank - a.rank)
+      .slice(0, 6);
+  }, [backlinks]);
+
+  const handleStart = () => {
+    startScan.mutate(siteId, {
+      onError: (err) => toast.error(startBacklinkScanErrorMessage(t, err)),
+    });
+  };
+
+  const tooltipStyle = {
+    contentStyle: { background: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: 12, fontSize: 12, color: 'hsl(var(--popover-foreground))' },
+    labelStyle: { color: 'hsl(var(--muted-foreground))' },
+  };
+
+  if (isLoading) return <div className="mt-4"><SkeletonStats count={4} /></div>;
+
+  if (!moduleAvailable) {
+    return (
+      <BacklinksEmptyState
+        icon={Lock} iconGradient="from-slate-500 to-slate-700"
+        title={t('seo.backlinks.empty.notAvailableTitle')}
+        description={t('seo.backlinks.empty.notAvailableDescription')}
+      />
+    );
+  }
+
+  if (!scan) {
+    return (
+      <BacklinksEmptyState
+        icon={Link2} iconGradient="from-indigo-500 to-violet-500"
+        title={t('seo.backlinks.empty.neverScannedTitle')}
+        description={t('seo.backlinks.empty.neverScannedDescription')}
+        action={(
+          <Button onClick={handleStart} disabled={startScan.isPending} className="gap-2">
+            <Link2 className="h-4 w-4" /> {t('seo.backlinks.runScan')}
+          </Button>
+        )}
+      />
+    );
+  }
+
+  if (isRunning) {
+    return (
+      <Card className="mt-4 overflow-hidden">
+        <CardContent className="relative flex flex-col items-center justify-center gap-4 py-16 text-center">
+          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-lg">
+            <RefreshCw className="h-6 w-6 animate-spin" />
+          </span>
+          <h3 className="text-lg font-semibold">{t('seo.backlinks.empty.runningTitle')}</h3>
+          <Progress value={scan.progress} className="w-full max-w-xs" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (scan.status === 'failed') {
+    return (
+      <BacklinksEmptyState
+        icon={XCircle} iconGradient="from-rose-500 to-red-600"
+        title={t('seo.backlinks.empty.failedTitle')}
+        action={(
+          <Button onClick={handleStart} disabled={startScan.isPending} className="gap-2">
+            <RefreshCw className="h-4 w-4" /> {t('seo.backlinks.runScan')}
+          </Button>
+        )}
+      />
+    );
+  }
+
+  return (
+    <div className="mt-4 space-y-4">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-md shadow-indigo-500/25">
+            <Link2 className="h-4.5 w-4.5" />
+          </span>
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">{t('seo.backlinks.profileTitle')}</h3>
+            {scan.finished_at && (
+              <p className="text-xs text-muted-foreground">
+                {t('seo.backlinks.lastScanned')}: {new Date(scan.finished_at).toLocaleString()}
+              </p>
+            )}
+          </div>
+        </div>
+        <Button onClick={handleStart} disabled={startScan.isPending} variant="outline" className="gap-2">
+          <RefreshCw className={`h-4 w-4 ${startScan.isPending ? 'animate-spin' : ''}`} /> {t('seo.backlinks.rescan')}
+        </Button>
+      </div>
+
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <GradientStatCard icon={Link2} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={scan.total_backlinks ?? 0} label={t('seo.backlinks.totalBacklinks')} />
+        <GradientStatCard icon={Globe2} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={scan.referring_domains ?? 0} label={t('seo.backlinks.referringDomains')} />
+        <GradientStatCard icon={TrendingUp} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={`${dofollowPct}%`} label={t('seo.backlinks.dofollowShare')} />
+        <GradientStatCard icon={Sparkles} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={scan.new_backlinks ?? 0} label={t('seo.backlinks.newBacklinks')} />
+      </div>
+
+      {/* Charts */}
+      <div className="grid gap-4 lg:grid-cols-5">
+        <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 shadow-sm lg:col-span-2">
+          <h4 className="mb-2 text-sm font-semibold text-foreground">{t('seo.backlinks.linkTypeChartTitle')}</h4>
+          {linkTypeTotal === 0 ? (
+            <p className="flex h-[200px] items-center justify-center text-xs text-muted-foreground">{t('seo.backlinks.empty.noBacklinks')}</p>
+          ) : (
+            <div className="relative h-[200px] w-full" dir="ltr">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={linkTypeData} dataKey="value" nameKey="name" innerRadius={52} outerRadius={78} paddingAngle={2} strokeWidth={2} stroke="hsl(var(--card))">
+                    {linkTypeData.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
+                  </Pie>
+                  <ReTooltip {...tooltipStyle} />
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: 11, color: 'hsl(var(--muted-foreground))' }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center pb-6">
+                <span className="text-2xl font-bold text-foreground">{dofollowPct}%</span>
+                <span className="text-[10px] text-muted-foreground">{t('seo.backlinks.dofollow')}</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 shadow-sm lg:col-span-3">
+          <h4 className="mb-2 text-sm font-semibold text-foreground">{t('seo.backlinks.topDomainsChartTitle')}</h4>
+          {topDomains.length === 0 ? (
+            <p className="flex h-[200px] items-center justify-center text-xs text-muted-foreground">{t('seo.backlinks.empty.noBacklinks')}</p>
+          ) : (
+            <div className="h-[200px] w-full" dir="ltr">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={topDomains} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="domainRankGrad" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor="#6366f1" />
+                      <stop offset="100%" stopColor="#8b5cf6" />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                  <XAxis type="number" tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                  <YAxis type="category" dataKey="domain" tickLine={false} axisLine={false} width={110} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                  <ReTooltip {...tooltipStyle} cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }} />
+                  <Bar dataKey="rank" name={t('seo.backlinks.columnDomainRank')} fill="url(#domainRankGrad)" radius={[0, 4, 4, 0]} maxBarSize={18} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Table */}
+      <Card className="overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('seo.backlinks.columnSource')}</TableHead>
+              <TableHead>{t('seo.backlinks.columnAnchor')}</TableHead>
+              <TableHead>{t('seo.backlinks.columnType')}</TableHead>
+              <TableHead>{t('seo.backlinks.columnDomainRank')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {backlinks.length === 0 && (
+              <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">{t('seo.backlinks.empty.noBacklinks')}</TableCell></TableRow>
+            )}
+            {backlinks.map((b) => (
+              <TableRow key={b.id}>
+                <TableCell className="max-w-xs truncate">
+                  <a href={b.source_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-primary hover:underline">
+                    {b.source_domain} <ExternalLink className="h-3 w-3 shrink-0" />
+                  </a>
+                  {b.is_new && <Badge variant="outline" className="ms-2 border-emerald-500/40 text-[9px] text-emerald-500">{t('seo.backlinks.newBadge')}</Badge>}
+                </TableCell>
+                <TableCell className="max-w-xs truncate text-muted-foreground">{b.anchor_text || '—'}</TableCell>
+                <TableCell>
+                  <Badge variant="outline" className={`gap-1 text-[10px] ${b.is_dofollow ? 'border-emerald-500/40 text-emerald-500' : 'border-border text-muted-foreground'}`}>
+                    {b.is_dofollow ? <ShieldCheck className="h-3 w-3" /> : null}
+                    {b.is_dofollow ? 'dofollow' : 'nofollow'}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <Badge variant="outline" className={`text-[10px] ${rankTierClass(b.domain_rank)}`}>{b.domain_rank ?? '—'}</Badge>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+    </div>
   );
 }
 

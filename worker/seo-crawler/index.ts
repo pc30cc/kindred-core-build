@@ -1,7 +1,12 @@
 /**
- * SEO crawl worker — polls `background_jobs` for `job_type = 'seo_crawl'`,
- * runs the crawl, normalizes results, evaluates SEO rules, computes the
- * score, and finalizes the `seo_crawls` row.
+ * SEO crawl worker — polls `background_jobs` for BOTH `job_type = 'seo_crawl'`
+ * (runs the crawl, normalizes results, evaluates SEO rules, computes the
+ * score, finalizes `seo_crawls`) AND `job_type = 'seo_backlink_scan'` (calls
+ * the pluggable backlinks provider, finalizes `seo_backlink_scans` — see
+ * worker/seo-backlinks/processScan.ts). One poller, one claim call, one
+ * process: a backlink scan is a single vendor HTTP call, far lighter than a
+ * multi-page crawl, so it shares this worker rather than needing its own
+ * container.
  *
  * Deployment: one Coolify service built from the SAME shared Dockerfile.worker
  * image as every other worker kind, with WORKER_KIND=seo-crawler. No public
@@ -11,8 +16,8 @@
  * SECRETS: this process only ever needs SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY
  * (same as every other worker) — it never receives platform secrets it
  * doesn't use. Core (the Express API) remains the actual authorization
- * boundary; this worker trusts the `seo_crawls` row it claims because Core
- * is the only thing that ever creates one.
+ * boundary; this worker trusts the `seo_crawls`/`seo_backlink_scans` row it
+ * claims because Core is the only thing that ever creates one.
  */
 import { loadConfig } from '../../server/config.js';
 import { claimNextJob, heartbeatJob, completeJob, failJob, acknowledgeJobCancel } from '../../server/services/jobs/queue.js';
@@ -23,10 +28,13 @@ import { evaluateAndPersistIssues } from '../../server/services/seo/rules/engine
 import { computeSeoScore } from '../../server/services/seo/scoring/score.js';
 import type { SeoCrawlLimits } from '../../server/services/seo/limits.js';
 import type { SeoCrawlRow } from '../../server/services/seo/crawlService.js';
+import { processBacklinkScan, classifyBacklinkScanError } from '../seo-backlinks/processScan.js';
+import type { SeoBacklinkScanRow } from '../../server/services/seo/backlinkService.js';
 
 const POLL_INTERVAL_MS = parseInt(process.env.SEO_WORKER_INTERVAL_MS || process.env.WORKER_INTERVAL_MS || '5000', 10);
 const LOCK_TTL_SECONDS = parseInt(process.env.SEO_WORKER_LOCK_TTL_SECONDS || '120', 10);
 const WORKER_ID = process.env.WORKER_ID || `seo-crawler-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+const JOB_TYPES = ['seo_crawl', 'seo_backlink_scan'];
 
 function log(event: string, data: Record<string, unknown> = {}) {
   try { console.log(`[seo-crawler-worker] ${event}`, JSON.stringify(data)); }
@@ -115,25 +123,48 @@ export async function processCrawl(config: ReturnType<typeof loadConfig>, jobId:
 let shuttingDown = false;
 let inFlight = 0;
 
+async function tickCrawl(config: ReturnType<typeof loadConfig>, sb: ReturnType<typeof getServiceClient>, jobId: string): Promise<void> {
+  const { data: crawl } = await sb.from('seo_crawls').select('*').eq('job_id', jobId).maybeSingle();
+  if (!crawl) {
+    await failJob(config, { jobId, errorMessage: 'seo_crawls_row_missing', errorCategory: 'internal_error', retryable: false });
+    return;
+  }
+  try {
+    await processCrawl(config, jobId, crawl as SeoCrawlRow);
+  } catch (err) {
+    const { category, message, retryable } = classifyError(err);
+    log('crawl failed', { jobId, category, message });
+    await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable });
+    await sb.from('seo_crawls').update({ status: 'failed', error_message: message.slice(0, 1000), error_category: category, finished_at: new Date().toISOString() }).eq('job_id', jobId).in('status', ['queued', 'running', 'processing']);
+  }
+}
+
+async function tickBacklinkScan(config: ReturnType<typeof loadConfig>, sb: ReturnType<typeof getServiceClient>, jobId: string): Promise<void> {
+  const { data: scan } = await sb.from('seo_backlink_scans').select('*').eq('job_id', jobId).maybeSingle();
+  if (!scan) {
+    await failJob(config, { jobId, errorMessage: 'seo_backlink_scans_row_missing', errorCategory: 'internal_error', retryable: false });
+    return;
+  }
+  try {
+    await processBacklinkScan(config, jobId, scan as SeoBacklinkScanRow, WORKER_ID, LOCK_TTL_SECONDS);
+  } catch (err) {
+    const { category, message, retryable } = classifyBacklinkScanError(err);
+    log('backlink scan failed', { jobId, category, message });
+    await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable });
+    await sb.from('seo_backlink_scans').update({ status: 'failed', error_message: message.slice(0, 1000), error_category: category, finished_at: new Date().toISOString() }).eq('job_id', jobId).in('status', ['queued', 'running', 'processing']);
+  }
+}
+
 async function tick(config: ReturnType<typeof loadConfig>): Promise<void> {
   if (shuttingDown) return;
-  const job = await claimNextJob(config, { jobTypes: ['seo_crawl'], workerId: WORKER_ID, lockTtlSeconds: LOCK_TTL_SECONDS });
+  const job = await claimNextJob(config, { jobTypes: JOB_TYPES, workerId: WORKER_ID, lockTtlSeconds: LOCK_TTL_SECONDS });
   if (!job) return;
 
   inFlight++;
   const sb = getServiceClient(config);
   try {
-    const { data: crawl } = await sb.from('seo_crawls').select('*').eq('job_id', job.id).maybeSingle();
-    if (!crawl) {
-      await failJob(config, { jobId: job.id, errorMessage: 'seo_crawls_row_missing', errorCategory: 'internal_error', retryable: false });
-      return;
-    }
-    await processCrawl(config, job.id, crawl as SeoCrawlRow);
-  } catch (err) {
-    const { category, message, retryable } = classifyError(err);
-    log('crawl failed', { jobId: job.id, category, message });
-    await failJob(config, { jobId: job.id, errorMessage: message, errorCategory: category, retryable });
-    await sb.from('seo_crawls').update({ status: 'failed', error_message: message.slice(0, 1000), error_category: category, finished_at: new Date().toISOString() }).eq('job_id', job.id).in('status', ['queued', 'running', 'processing']);
+    if (job.job_type === 'seo_backlink_scan') await tickBacklinkScan(config, sb, job.id);
+    else await tickCrawl(config, sb, job.id);
   } finally {
     inFlight--;
   }

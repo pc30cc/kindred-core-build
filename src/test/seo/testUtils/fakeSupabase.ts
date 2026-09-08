@@ -56,6 +56,19 @@ const TABLE_DEFAULTS: Record<string, Record<string, unknown>> = {
   },
   seo_issues: { status: 'new' },
   seo_sitemaps: { http_status: null, error_message: null, url_count: 0 },
+  seo_backlink_scans: {
+    status: 'queued', progress: 0, progress_stage: null, max_backlinks: 0,
+    total_backlinks: null, referring_domains: null, dofollow_count: null, nofollow_count: null,
+    new_backlinks: null, lost_backlinks: null, cancel_requested: false,
+    error_message: null, error_category: null, created_by: null, started_at: null, finished_at: null,
+  },
+  seo_backlinks: {
+    anchor_text: null, is_dofollow: true, is_new: false, is_lost: false,
+    page_rank: null, domain_rank: null, spam_score: null, first_seen: null, last_seen: null,
+  },
+  platform_backlinks_provider_config: {
+    provider_name: 'disabled', config: {}, is_active: false, updated_by: null,
+  },
 };
 
 /** Splits a PostgREST filter string on top-level commas (parens don't count). */

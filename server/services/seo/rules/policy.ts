@@ -14,4 +14,4 @@ export type IssueSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 export type IssueCategory =
   | 'crawlability' | 'indexability' | 'http' | 'metadata' | 'content'
   | 'links' | 'images' | 'canonical' | 'sitemap' | 'robots' | 'security'
-  | 'performance' | 'structured_data';
+  | 'performance' | 'structured_data' | 'social';

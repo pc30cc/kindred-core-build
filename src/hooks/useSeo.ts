@@ -9,6 +9,8 @@ import {
   listSeoSites, getSeoLimits, getLatestCrawl, listCrawlHistory, startCrawl, getCrawl,
   cancelCrawl, listCrawlPages, listCrawlIssues, listIssueAffectedUrls, listCrawlLinks,
   listCrawlSitemaps, compareCrawl, TERMINAL_SEO_STATUSES, type SeoCrawl,
+  getBacklinksLimits, getLatestBacklinkScan, listBacklinkScanHistory, startBacklinkScan,
+  getBacklinkScan, cancelBacklinkScan, listBacklinks, type SeoBacklinkScan,
 } from '@/lib/seo-api';
 
 export function useSeoSites(workspaceId?: string) {
@@ -128,5 +130,79 @@ export function useCrawlComparison(workspaceId?: string, crawlId?: string) {
     queryKey: ['seo-compare', workspaceId, crawlId],
     queryFn: () => compareCrawl(workspaceId!, crawlId!),
     enabled: !!workspaceId && !!crawlId,
+  });
+}
+
+// ─── SEO Backlinks ─────────────────────────────────────────────────────
+
+export function useBacklinksLimits(workspaceId?: string) {
+  return useQuery({
+    queryKey: ['seo-backlinks-limits', workspaceId],
+    queryFn: () => getBacklinksLimits(workspaceId!),
+    enabled: !!workspaceId,
+  });
+}
+
+export function useLatestBacklinkScan(workspaceId?: string, siteId?: string) {
+  return useQuery({
+    queryKey: ['seo-latest-backlink-scan', workspaceId, siteId],
+    queryFn: () => getLatestBacklinkScan(workspaceId!, siteId!),
+    enabled: !!workspaceId && !!siteId,
+    refetchInterval: (q) => {
+      const data = q.state.data as { scan: SeoBacklinkScan | null } | undefined;
+      if (!data?.scan) return false;
+      return TERMINAL_SEO_STATUSES.has(data.scan.status) ? false : 4000;
+    },
+  });
+}
+
+export function useBacklinkScan(workspaceId?: string, scanId?: string) {
+  return useQuery({
+    queryKey: ['seo-backlink-scan', workspaceId, scanId],
+    queryFn: () => getBacklinkScan(workspaceId!, scanId!),
+    enabled: !!workspaceId && !!scanId,
+    refetchInterval: (q) => {
+      const data = q.state.data as { scan: SeoBacklinkScan } | undefined;
+      if (!data?.scan) return 4000;
+      return TERMINAL_SEO_STATUSES.has(data.scan.status) ? false : 4000;
+    },
+  });
+}
+
+export function useBacklinkScanHistory(workspaceId?: string, siteId?: string, limit = 20, offset = 0) {
+  return useQuery({
+    queryKey: ['seo-backlink-scan-history', workspaceId, siteId, limit, offset],
+    queryFn: () => listBacklinkScanHistory(workspaceId!, siteId!, { limit, offset }),
+    enabled: !!workspaceId && !!siteId,
+  });
+}
+
+export function useStartBacklinkScan(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (siteId: string) => startBacklinkScan(workspaceId, siteId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['seo-latest-backlink-scan', workspaceId] });
+      qc.invalidateQueries({ queryKey: ['seo-backlink-scan-history', workspaceId] });
+    },
+  });
+}
+
+export function useCancelBacklinkScan(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (scanId: string) => cancelBacklinkScan(workspaceId, scanId),
+    onSuccess: (_data, scanId) => {
+      qc.invalidateQueries({ queryKey: ['seo-backlink-scan', workspaceId, scanId] });
+      qc.invalidateQueries({ queryKey: ['seo-latest-backlink-scan', workspaceId] });
+    },
+  });
+}
+
+export function useBacklinks(workspaceId?: string, scanId?: string, filters: Parameters<typeof listBacklinks>[2] = {}) {
+  return useQuery({
+    queryKey: ['seo-backlinks', workspaceId, scanId, filters],
+    queryFn: () => listBacklinks(workspaceId!, scanId!, filters),
+    enabled: !!workspaceId && !!scanId,
   });
 }

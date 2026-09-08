@@ -794,6 +794,90 @@ export async function adminTestSmsProvider() {
   });
 }
 
+// ─── Admin: SEO Backlinks provider (platform-level, super admin only) ────
+// The backend never returns the stored credential; `hasCredentials` is the
+// only signal the browser receives about it.
+
+export interface AdminBacklinksProviderInfo {
+  providerName: 'dataforseo' | 'disabled';
+  configured: boolean;
+  enabled: boolean;
+  hasCredentials: boolean;
+  login: string | null;
+  updatedAt: string | null;
+}
+
+export interface AdminBacklinksTestResult {
+  success: boolean;
+  provider: string;
+  latencyMs?: number;
+  balance?: number | null;
+  currency?: string;
+  error?: string;
+  errorCode?: string;
+}
+
+export async function adminGetBacklinksProvider() {
+  return request<AdminBacklinksProviderInfo>('/api/admin/providers/seo-backlinks', {});
+}
+
+export interface AdminBacklinksProviderSavePayload {
+  providerName: 'dataforseo';
+  enabled: boolean;
+  login?: string;
+  password?: string;
+}
+
+export async function adminSaveBacklinksProvider(payload: AdminBacklinksProviderSavePayload) {
+  return request<AdminBacklinksProviderInfo>('/api/admin/providers/seo-backlinks', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function adminDeleteBacklinksProvider() {
+  return request<AdminBacklinksProviderInfo>('/api/admin/providers/seo-backlinks', {
+    method: 'DELETE',
+  });
+}
+
+export async function adminTestBacklinksProvider() {
+  return request<AdminBacklinksTestResult>('/api/admin/providers/seo-backlinks/test', {
+    method: 'POST',
+  });
+}
+
+export interface AdminBacklinksPlatformStats {
+  totalScans: number;
+  completedScans: number;
+  runningScans: number;
+  failedScans: number;
+  workspacesUsed: number;
+  totalBacklinksFetched: number;
+}
+
+export async function adminGetBacklinksStats() {
+  return request<AdminBacklinksPlatformStats>('/api/admin/providers/seo-backlinks/stats', {});
+}
+
+export interface AdminRecentBacklinkScan {
+  id: string;
+  workspace_id: string;
+  workspace_name: string | null;
+  target_url: string;
+  provider: string;
+  status: string;
+  total_backlinks: number | null;
+  referring_domains: number | null;
+  error_category: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export async function adminListRecentBacklinkScans(limit = 20) {
+  return request<{ scans: AdminRecentBacklinkScan[] }>(`/api/admin/providers/seo-backlinks/scans?limit=${limit}`, {});
+}
+
 // ─── Phone verification (account-level OTP) ──────────────────────
 // Responses are sanitized by the backend: they never contain the SMS vendor,
 // template, sender/line number, provider message id or a raw provider error.

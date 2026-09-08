@@ -523,24 +523,23 @@ publicKbRouter.get('/help/:locale/c/:slug', async (req: Request, res: Response) 
   if (!workspaceId) return res.status(404).send('Not found');
 
   const supabase = getServiceClient(config);
-  const { data: cat } = await supabase
+  const { data: catRows } = await supabase
     .from('knowledge_base_categories')
     .select('id, name, slug, description')
     .eq('workspace_id', workspaceId)
-    .eq('locale', locale)
-    .eq('slug', req.params.slug)
-    .maybeSingle();
+    .eq('slug', req.params.slug);
 
+  const cat = (catRows && catRows[0]) || null;
   if (!cat) return res.status(404).send('Not found');
 
   const { data: arts } = await supabase
     .from('knowledge_base_articles')
     .select('title, slug, excerpt')
     .eq('workspace_id', workspaceId)
-    .eq('category_id', (cat as any).id)
-    .eq('locale', locale)
+    .in('category_id', (catRows || []).map((c: any) => c.id))
     .eq('status', 'published')
     .order('sort_order', { ascending: true });
+
 
   const base = getRequestHostUrl(req);
   const canonical = `${base}/help/${locale}/c/${(cat as any).slug}`;

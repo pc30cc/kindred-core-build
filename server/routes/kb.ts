@@ -690,14 +690,17 @@ publicKbRouter.get('/help/:locale/search', async (req: Request, res: Response) =
   let results: any[] = [];
   if (q.length >= 2) {
     const supabase = getServiceClient(config);
-    const { data } = await supabase.rpc('kb_search_articles', {
-      p_workspace_id: workspaceId,
-      p_locale: locale,
-      p_query: q,
-      p_limit: 20,
-    });
+    const like = `%${q.replace(/[%_]/g, ' ')}%`;
+    const { data } = await supabase
+      .from('knowledge_base_articles')
+      .select('id, title, slug, excerpt, locale')
+      .eq('workspace_id', workspaceId)
+      .eq('status', 'published')
+      .or(`title.ilike.${like},excerpt.ilike.${like},content.ilike.${like}`)
+      .limit(20);
     results = (data as any[]) || [];
   }
+
 
   const base = getRequestHostUrl(req);
   const canonical = `${base}/help/${locale}/search${q ? `?q=${encodeURIComponent(q)}` : ''}`;

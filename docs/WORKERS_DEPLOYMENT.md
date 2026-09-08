@@ -11,7 +11,7 @@ Dockerfile.
 |---------------|-----------------------------------|----------------------------|
 | `intelligence` (default) | AI KB Builder pipeline | `public.ai_kb_jobs`        |
 | `source-sync` | Data Hub website source sync      | `public.ai_source_sync_jobs` |
-| `seo-crawler` | SEO / Website Audit crawler + backlink scans (pluggable vendor) | `public.background_jobs` (`job_type IN ('seo_crawl','seo_backlink_scan')`) |
+| `seo-crawler` | SEO / Website Audit crawler + backlink scans + keyword research (all pluggable vendors) | `public.background_jobs` (`job_type IN ('seo_crawl','seo_backlink_scan','seo_keyword_research')`) |
 | `all`         | Both loops in same process (dev only) | both                  |
 
 `all` logs a warning. Use only for local/small deploys.
@@ -37,16 +37,21 @@ Create two services from the same repo, same `Dockerfile.worker`:
 2. **Source Sync Worker**
    - `WORKER_KIND=source-sync`
    - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-3. **SEO Crawler Worker** (also handles backlink scans — one poller, one process)
+3. **SEO Crawler Worker** (also handles backlink scans and keyword research —
+   one poller, one process, claiming all three `background_jobs` job types)
    - `WORKER_KIND=seo-crawler`
    - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (same two secrets as every
      other worker kind — this worker is given nothing extra; Core remains
      the authorization boundary, and the worker only ever trusts a
-     `seo_crawls`/`seo_backlink_scans` row that Core itself created). If the
-     plan-gated `seo_backlinks` module is enabled for any plan, this same
-     process also reads `platform_backlinks_provider_config` through the
-     service client to reach the configured backlinks vendor — no separate
-     credential or env var is given to it.
+     `seo_crawls`/`seo_backlink_scans`/`seo_keyword_research_runs` row that
+     Core itself created). If the plan-gated `seo_backlinks` /
+     `seo_keywords` modules are enabled for any plan, this same process also
+     reads `platform_backlinks_provider_config` /
+     `platform_keywords_provider_config` through the service client to reach
+     the configured vendor for each — no separate credential or env var is
+     given to it. Rank Tracking does NOT run on this worker: it has no
+     user-triggered job, only a periodic watchlist refresh, so it runs as a
+     ticker inside the Backend API process instead (see below).
    - Optional: `SEO_CRAWLER_USER_AGENT` (default `KindredSeoBot/1.0
      (+self-hosted)`), `SEO_WORKER_INTERVAL_MS` (default `5000`),
      `SEO_WORKER_LOCK_TTL_SECONDS` (default `120`)
@@ -68,6 +73,20 @@ Create two services from the same repo, same `Dockerfile.worker`:
      `background_jobs.lock_expires_at`).
 
 No domain or port required for any of these services.
+
+## SEO Rank Tracking ticker (runs on the Backend API, not a worker)
+
+Unlike Backlinks and Keyword Research, Rank Tracking has no user-triggered
+"run" — it's a persistent per-site keyword watchlist that gets refreshed on
+a schedule. `server/services/seo/rankTrackingTicker.ts` is started from
+`server/index.ts` (the Backend API process) alongside the other
+observability tickers, on a 15-minute `setInterval`. It acquires a
+cluster-wide lease (`server/services/observability/tickerLease.ts`, same
+mechanism as `alertingTicker.ts`) before each run so horizontally-scaled API
+replicas never double-check the same keyword. It no-ops entirely unless a
+platform Rank Tracking provider is configured and active
+(`platform_rank_tracking_provider_config`). No extra env var or worker
+deployment is required for it — it ships with the Backend API container.
 
 ## Backend API production env
 

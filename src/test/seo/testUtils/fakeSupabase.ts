@@ -69,6 +69,28 @@ const TABLE_DEFAULTS: Record<string, Record<string, unknown>> = {
   platform_backlinks_provider_config: {
     provider_name: 'disabled', config: {}, is_active: false, updated_by: null,
   },
+  seo_keyword_research_runs: {
+    status: 'queued', progress: 0, progress_stage: null, max_keywords: 0,
+    total_keywords: null, cancel_requested: false,
+    error_message: null, error_category: null, created_by: null, started_at: null, finished_at: null,
+  },
+  seo_keyword_results: {
+    search_volume: null, cpc: null, competition: null, competition_level: null,
+    difficulty: null, is_seed: false,
+  },
+  platform_keywords_provider_config: {
+    provider_name: 'disabled', config: {}, is_active: false, updated_by: null,
+  },
+  seo_tracked_keywords: {
+    device: 'desktop', location_code: null, is_active: true, last_position: null,
+    last_ranking_url: null, last_checked_at: null, created_by: null,
+  },
+  seo_rank_checks: {
+    position: null, ranking_url: null,
+  },
+  platform_rank_tracking_provider_config: {
+    provider_name: 'disabled', config: {}, is_active: false, updated_by: null,
+  },
 };
 
 /** Splits a PostgREST filter string on top-level commas (parens don't count). */

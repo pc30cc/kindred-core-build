@@ -289,3 +289,128 @@ export function cancelBacklinkScan(workspaceId: string, scanId: string) {
 export function listBacklinks(workspaceId: string, scanId: string, opts: { dofollow?: boolean; isNew?: boolean; search?: string; limit?: number; offset?: number } = {}) {
   return api<{ backlinks: SeoBacklink[]; total: number }>(`/api/seo/${workspaceId}/backlink-scans/${scanId}/backlinks${qs(opts as any)}`);
 }
+
+// ─── SEO Keyword Research ──────────────────────────────────────────────
+
+export interface SeoKeywordsLimits {
+  planSlug: string | null;
+  planName: string | null;
+  limits: {
+    seo_keywords_max_per_lookup: number;
+    seo_keywords_workspace_concurrent_runs: number;
+    seo_keywords_lookup_frequency_hours: number;
+    [key: string]: number;
+  };
+}
+
+export interface SeoKeywordRun {
+  id: string;
+  job_id: string;
+  workspace_id: string;
+  website_id: string;
+  seed_keywords: string[];
+  provider: string;
+  max_keywords: number;
+  status: SeoJobStatus;
+  progress: number;
+  progress_stage: string | null;
+  total_keywords: number | null;
+  error_message: string | null;
+  error_category: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface SeoKeywordResult {
+  id: string;
+  keyword: string;
+  search_volume: number | null;
+  cpc: number | null;
+  competition: number | null;
+  competition_level: 'low' | 'medium' | 'high' | null;
+  difficulty: number | null;
+  is_seed: boolean;
+}
+
+export function getKeywordsLimits(workspaceId: string) {
+  return api<SeoKeywordsLimits>(`/api/seo/${workspaceId}/keywords/limits`);
+}
+
+export function getLatestKeywordRun(workspaceId: string, siteId: string) {
+  return api<{ run: SeoKeywordRun | null }>(`/api/seo/${workspaceId}/sites/${siteId}/keyword-runs/latest`);
+}
+
+export function listKeywordRunHistory(workspaceId: string, siteId: string, opts: { limit?: number; offset?: number } = {}) {
+  return api<{ runs: SeoKeywordRun[]; total: number }>(`/api/seo/${workspaceId}/sites/${siteId}/keyword-runs${qs(opts)}`);
+}
+
+export function startKeywordRun(workspaceId: string, siteId: string, seedKeywords: string[]) {
+  return api<{ run: SeoKeywordRun }>(`/api/seo/${workspaceId}/keyword-runs`, {
+    method: 'POST',
+    body: JSON.stringify({ siteId, seedKeywords }),
+  });
+}
+
+export function getKeywordRun(workspaceId: string, runId: string) {
+  return api<{ run: SeoKeywordRun }>(`/api/seo/${workspaceId}/keyword-runs/${runId}`);
+}
+
+export function listKeywordResults(workspaceId: string, runId: string, opts: { search?: string; seedOnly?: boolean; limit?: number; offset?: number } = {}) {
+  return api<{ results: SeoKeywordResult[]; total: number }>(`/api/seo/${workspaceId}/keyword-runs/${runId}/results${qs(opts as any)}`);
+}
+
+// ─── SEO Rank Tracking ──────────────────────────────────────────────────
+
+export interface SeoRankTrackingLimits {
+  planSlug: string | null;
+  planName: string | null;
+  limits: {
+    seo_rank_tracking_max_keywords: number;
+    seo_rank_tracking_check_frequency_hours: number;
+    [key: string]: number;
+  };
+}
+
+export interface SeoTrackedKeyword {
+  id: string;
+  keyword: string;
+  device: 'desktop' | 'mobile';
+  is_active: boolean;
+  last_position: number | null;
+  last_ranking_url: string | null;
+  last_checked_at: string | null;
+  next_check_at: string;
+  created_at: string;
+}
+
+export interface SeoRankCheck {
+  id: string;
+  position: number | null;
+  ranking_url: string | null;
+  provider: string;
+  checked_at: string;
+}
+
+export function getRankTrackingLimits(workspaceId: string) {
+  return api<SeoRankTrackingLimits>(`/api/seo/${workspaceId}/rank-tracking/limits`);
+}
+
+export function listTrackedKeywords(workspaceId: string, siteId: string, opts: { limit?: number; offset?: number } = {}) {
+  return api<{ keywords: SeoTrackedKeyword[]; total: number }>(`/api/seo/${workspaceId}/sites/${siteId}/tracked-keywords${qs(opts)}`);
+}
+
+export function addTrackedKeyword(workspaceId: string, siteId: string, keyword: string, device?: 'desktop' | 'mobile') {
+  return api<{ keyword: SeoTrackedKeyword }>(`/api/seo/${workspaceId}/tracked-keywords`, {
+    method: 'POST',
+    body: JSON.stringify({ siteId, keyword, device }),
+  });
+}
+
+export function removeTrackedKeyword(workspaceId: string, keywordId: string) {
+  return api<{ ok: boolean }>(`/api/seo/${workspaceId}/tracked-keywords/${keywordId}`, { method: 'DELETE' });
+}
+
+export function listRankChecks(workspaceId: string, keywordId: string, opts: { limit?: number } = {}) {
+  return api<{ checks: SeoRankCheck[] }>(`/api/seo/${workspaceId}/tracked-keywords/${keywordId}/checks${qs(opts)}`);
+}

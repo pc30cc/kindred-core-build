@@ -25,6 +25,8 @@ import { adminSeoBacklinksProviderRouter } from './adminSeoBacklinksProvider.js'
 import { adminSeoKeywordsProviderRouter } from './adminSeoKeywordsProvider.js';
 import { adminSeoRankTrackingProviderRouter } from './adminSeoRankTrackingProvider.js';
 import { adminSeoPerformanceProviderRouter } from './adminSeoPerformanceProvider.js';
+import { adminSeoGscProviderRouter } from './adminSeoGscProvider.js';
+import { adminSeoExplorerProviderRouter } from './adminSeoExplorerProvider.js';
 import { adminPhoneVerificationRouter } from './adminPhoneVerification.js';
 import { adminVerificationRouter } from './adminVerification.js';
 import { adminSecurityRouter } from './adminSecurity.js';
@@ -132,6 +134,11 @@ adminRouter.use('/providers/seo-backlinks', adminSeoBacklinksProviderRouter);
 adminRouter.use('/providers/seo-keywords', adminSeoKeywordsProviderRouter);
 adminRouter.use('/providers/seo-rank-tracking', adminSeoRankTrackingProviderRouter);
 adminRouter.use('/providers/seo-performance', adminSeoPerformanceProviderRouter);
+// GSC Insights (env-var OAuth client, no stored credential) and Site
+// Explorer (reuses the backlinks/keywords credentials above) — status +
+// platform-wide adoption stats only, no config to save here.
+adminRouter.use('/providers/seo-gsc', adminSeoGscProviderRouter);
+adminRouter.use('/providers/seo-site-explorer', adminSeoExplorerProviderRouter);
 
 // Phase 6-S3B — per-user phone verification (status / resend / manual verify).
 // Mounted inside the admin router so `requireAdmin` runs first.

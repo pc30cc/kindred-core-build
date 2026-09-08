@@ -9,10 +9,11 @@
  * queued/running/completed lifecycle, sharing one workspace-wide
  * concurrency budget and a per-domain re-lookup cooldown.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  Search, Globe2, Link2, TrendingUp, ArrowUpRight, RefreshCw, ExternalLink, Sparkles,
+  Search, Globe2, Link2, TrendingUp, ArrowUpRight, RefreshCw, ExternalLink, Sparkles, Unlink,
 } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as ReTooltip } from 'recharts';
 import { useTranslation } from '@/i18n';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -25,6 +26,7 @@ import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
 import { SeoRoadmapPlaceholder } from './SeoRoadmapPlaceholder';
 import { toast } from '@/lib/toast';
 import {
+  useSeoSites,
   useExplorerHistory, useExplorerLimits,
   useLatestExplorerBacklinkScan, useStartExplorerBacklinkScan, useExplorerBacklinks,
   useLatestExplorerKeywordScan, useStartExplorerKeywordScan, useExplorerKeywords,
@@ -63,6 +65,9 @@ function SiteExplorerInner({ workspaceId, subsectionKey }: { workspaceId: string
   const [activeDomain, setActiveDomain] = useState<string | undefined>(undefined);
   const { data: historyData } = useExplorerHistory(workspaceId);
   const history = historyData?.history || [];
+  const { data: sitesData } = useSeoSites(workspaceId);
+  const ownDomain = (sitesData?.sites || []).find((s) => s.is_primary)?.domain || sitesData?.sites?.[0]?.domain;
+  const ownDomainAlreadyRecent = !!ownDomain && history.some((h) => h.domain === ownDomain);
 
   const handleExplore = (raw: string) => {
     const trimmed = raw.trim();
@@ -91,9 +96,18 @@ function SiteExplorerInner({ workspaceId, subsectionKey }: { workspaceId: string
               <Search className="h-4 w-4" />{t('seo.explorer.search.cta' as any)}
             </Button>
           </form>
-          {history.length > 0 && (
+          {(ownDomain && !ownDomainAlreadyRecent) || history.length > 0 ? (
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-xs text-muted-foreground">{t('seo.explorer.search.recent' as any)}</span>
+              {ownDomain && !ownDomainAlreadyRecent && (
+                <button
+                  type="button"
+                  onClick={() => { setInputValue(ownDomain); handleExplore(ownDomain); }}
+                  className="flex items-center gap-1 rounded-full border border-primary/40 bg-primary/5 px-2.5 py-0.5 text-xs text-primary transition-colors hover:bg-primary/10"
+                >
+                  <Globe2 className="h-3 w-3" />{ownDomain} · {t('seo.explorer.search.yourSite' as any)}
+                </button>
+              )}
               {history.map((h) => (
                 <button
                   key={h.domain}
@@ -105,7 +119,7 @@ function SiteExplorerInner({ workspaceId, subsectionKey }: { workspaceId: string
                 </button>
               ))}
             </div>
-          )}
+          ) : null}
         </CardContent>
       </Card>
 
@@ -304,6 +318,58 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
+const LINK_TYPE_COLORS = { dofollow: 'hsl(var(--primary))', nofollow: '#94a3b8' };
+
+function LinkTypeDonut({ dofollow, nofollow }: { dofollow: number; nofollow: number }) {
+  const { t } = useTranslation();
+  const total = dofollow + nofollow;
+  const data = useMemo(
+    () => [
+      { key: 'dofollow', value: dofollow, label: 'dofollow' },
+      { key: 'nofollow', value: nofollow, label: 'nofollow' },
+    ].filter((d) => d.value > 0),
+    [dofollow, nofollow],
+  );
+  const dofollowPct = total > 0 ? Math.round((dofollow / total) * 100) : 0;
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">{t('seo.explorer.linkTypes' as any)}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {total === 0 ? (
+          <p className="py-8 text-center text-xs text-muted-foreground">{t('seo.gsc.empty.noData' as any)}</p>
+        ) : (
+          <div className="relative">
+            <div className="h-40">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={data} dataKey="value" nameKey="label" innerRadius={44} outerRadius={64} paddingAngle={2} stroke="none">
+                    {data.map((d) => <Cell key={d.key} fill={LINK_TYPE_COLORS[d.key as keyof typeof LINK_TYPE_COLORS]} />)}
+                  </Pie>
+                  <ReTooltip
+                    formatter={(value: number, _name, entry) => [formatCompact(value), (entry?.payload as any)?.label]}
+                    contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-xl font-bold tabular-nums">{dofollowPct}%</span>
+              <span className="text-[10px] text-muted-foreground">dofollow</span>
+            </div>
+          </div>
+        )}
+        <div className="mt-2 flex items-center justify-center gap-4 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" />{t('seo.explorer.stat.dofollow' as any)}</span>
+          <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-slate-400" />nofollow</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function ExplorerBacklinksView({ workspaceId, domain }: { workspaceId: string; domain: string }) {
   const { t } = useTranslation();
   const scanQuery = useLatestExplorerBacklinkScan(workspaceId, domain);
@@ -347,6 +413,36 @@ function ExplorerBacklinksView({ workspaceId, domain }: { workspaceId: string; d
             <GradientStatCard icon={TrendingUp} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={formatCompact(scan.dofollow_count ?? 0)} label={t('seo.explorer.stat.dofollow' as any)} />
             <GradientStatCard icon={Sparkles} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={formatCompact(scan.new_backlinks ?? 0)} label={t('seo.explorer.stat.new' as any)} />
           </div>
+
+          <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
+            <LinkTypeDonut dofollow={scan.dofollow_count ?? 0} nofollow={scan.nofollow_count ?? 0} />
+            <Card className="lg:col-span-1">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">{t('seo.explorer.linkChanges' as any)}</CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-2 gap-4">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-500">
+                    <Sparkles className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="text-lg font-bold tabular-nums leading-tight">{formatCompact(scan.new_backlinks ?? 0)}</p>
+                    <p className="text-xs text-muted-foreground">{t('seo.explorer.stat.new' as any)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-destructive/10 text-destructive">
+                    <Unlink className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="text-lg font-bold tabular-nums leading-tight">{formatCompact(scan.lost_backlinks ?? 0)}</p>
+                    <p className="text-xs text-muted-foreground">{t('seo.explorer.stat.lost' as any)}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
           <Card>
             <CardContent className="pt-6">
               {resultsQuery.isLoading ? (

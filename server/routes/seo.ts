@@ -43,6 +43,14 @@ import {
 import { isGscError, type GscDimension } from '../services/seo/gsc/types.js';
 import { resolveAppBaseUrl } from '../services/invitations/tokens.js';
 import { getServiceClient } from '../supabase.js';
+import { resolveExplorerLimits } from '../services/seo/explorerLimits.js';
+import {
+  createExplorerBacklinkScan, getExplorerBacklinkScan, getLatestExplorerBacklinkScanForDomain,
+  listExplorerBacklinks, requestExplorerBacklinkScanCancel,
+  createExplorerKeywordScan, getExplorerKeywordScan, getLatestExplorerKeywordScanForDomain,
+  listExplorerKeywords, requestExplorerKeywordScanCancel,
+  listExplorerHistory, ExplorerScanLimitError,
+} from '../services/seo/siteExplorerService.js';
 import {
   createCrawl,
   getCrawl,
@@ -830,4 +838,167 @@ seoRouter.post('/:workspaceId/gsc/properties/:propertyId/search-analytics', requ
   } catch (err) {
     sendGscError(res, err);
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// SEO Site Explorer — arbitrary/competitor-domain lookups. Deliberately
+// NOT scoped by siteId: every route below takes a raw `domain` string
+// (query param on reads, body field on writes) instead of resolving a
+// workspace_domains row, since the whole point is to work on domains the
+// workspace never registered.
+// ─────────────────────────────────────────────────────────────────────────
+
+function sendExplorerScanError(res: any, err: unknown) {
+  if (err instanceof ExplorerScanLimitError) {
+    const status = err.reason === 'invalid_domain' ? 400 : err.reason === 'module_not_available' ? 403 : 429;
+    return res.status(status).json({
+      error: err.reason,
+      message: err.message,
+      retryAfterSeconds: err.retryAfterSeconds,
+      upgrade_required: err.reason === 'module_not_available',
+    });
+  }
+  res.status(500).json({ error: 'explorer_scan_failed', detail: (err as Error)?.message });
+}
+
+seoRouter.get('/:workspaceId/explorer/limits', async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  const resolved = await resolveExplorerLimits(configOf(req), workspaceId);
+  res.json(resolved);
+});
+
+seoRouter.get('/:workspaceId/explorer/history', requireModule('seo_site_explorer'), async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  const history = await listExplorerHistory(configOf(req), workspaceId);
+  res.json({ history });
+});
+
+// ── Backlinks by domain ──
+seoRouter.get('/:workspaceId/explorer/backlink-scans/latest', requireModule('seo_site_explorer'), async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  const domain = typeof req.query.domain === 'string' ? req.query.domain : '';
+  if (!domain) return res.status(400).json({ error: 'missing_domain' });
+  const scan = await getLatestExplorerBacklinkScanForDomain(configOf(req), workspaceId, domain);
+  res.json({ scan });
+});
+
+seoRouter.post('/:workspaceId/explorer/backlink-scans', requireModule('seo_site_explorer'), async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  const domain = typeof req.body?.domain === 'string' ? req.body.domain.trim() : '';
+  if (!domain) return res.status(400).json({ error: 'missing_domain' });
+  try {
+    const scan = await createExplorerBacklinkScan(configOf(req), { workspaceId, domain, userId: auth.userId });
+    res.status(201).json({ scan });
+  } catch (err) {
+    sendExplorerScanError(res, err);
+  }
+});
+
+seoRouter.get('/:workspaceId/explorer/backlink-scans/:scanId', requireModule('seo_site_explorer'), async (req, res) => {
+  const { workspaceId, scanId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(scanId)) return res.status(400).json({ error: 'invalid_scan_id' });
+  const scan = await getExplorerBacklinkScan(configOf(req), workspaceId, scanId);
+  if (!scan) return res.status(404).json({ error: 'scan_not_found' });
+  res.json({ scan });
+});
+
+seoRouter.post('/:workspaceId/explorer/backlink-scans/:scanId/cancel', requireModule('seo_site_explorer'), async (req, res) => {
+  const { workspaceId, scanId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  if (!isUuid(scanId)) return res.status(400).json({ error: 'invalid_scan_id' });
+  const scan = await getExplorerBacklinkScan(configOf(req), workspaceId, scanId);
+  if (!scan) return res.status(404).json({ error: 'scan_not_found' });
+  const result = await requestExplorerBacklinkScanCancel(configOf(req), workspaceId, scanId);
+  res.json(result);
+});
+
+seoRouter.get('/:workspaceId/explorer/backlink-scans/:scanId/backlinks', requireModule('seo_site_explorer'), async (req, res) => {
+  const { workspaceId, scanId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(scanId)) return res.status(400).json({ error: 'invalid_scan_id' });
+  const scan = await getExplorerBacklinkScan(configOf(req), workspaceId, scanId);
+  if (!scan) return res.status(404).json({ error: 'scan_not_found' });
+  const { dofollowOnly, isNew, search, limit, offset } = req.query as Record<string, string | undefined>;
+  const result = await listExplorerBacklinks(configOf(req), workspaceId, scanId, {
+    dofollowOnly: dofollowOnly === 'true',
+    isNew: isNew === undefined ? undefined : isNew === 'true',
+    search,
+    limit: limit ? Number(limit) : undefined,
+    offset: offset ? Number(offset) : undefined,
+  });
+  res.json(result);
+});
+
+// ── Organic keywords by domain ──
+seoRouter.get('/:workspaceId/explorer/keyword-scans/latest', requireModule('seo_site_explorer'), async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  const domain = typeof req.query.domain === 'string' ? req.query.domain : '';
+  if (!domain) return res.status(400).json({ error: 'missing_domain' });
+  const scan = await getLatestExplorerKeywordScanForDomain(configOf(req), workspaceId, domain);
+  res.json({ scan });
+});
+
+seoRouter.post('/:workspaceId/explorer/keyword-scans', requireModule('seo_site_explorer'), async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  const domain = typeof req.body?.domain === 'string' ? req.body.domain.trim() : '';
+  if (!domain) return res.status(400).json({ error: 'missing_domain' });
+  try {
+    const scan = await createExplorerKeywordScan(configOf(req), { workspaceId, domain, userId: auth.userId });
+    res.status(201).json({ scan });
+  } catch (err) {
+    sendExplorerScanError(res, err);
+  }
+});
+
+seoRouter.get('/:workspaceId/explorer/keyword-scans/:scanId', requireModule('seo_site_explorer'), async (req, res) => {
+  const { workspaceId, scanId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(scanId)) return res.status(400).json({ error: 'invalid_scan_id' });
+  const scan = await getExplorerKeywordScan(configOf(req), workspaceId, scanId);
+  if (!scan) return res.status(404).json({ error: 'scan_not_found' });
+  res.json({ scan });
+});
+
+seoRouter.post('/:workspaceId/explorer/keyword-scans/:scanId/cancel', requireModule('seo_site_explorer'), async (req, res) => {
+  const { workspaceId, scanId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  if (!isUuid(scanId)) return res.status(400).json({ error: 'invalid_scan_id' });
+  const scan = await getExplorerKeywordScan(configOf(req), workspaceId, scanId);
+  if (!scan) return res.status(404).json({ error: 'scan_not_found' });
+  const result = await requestExplorerKeywordScanCancel(configOf(req), workspaceId, scanId);
+  res.json(result);
+});
+
+seoRouter.get('/:workspaceId/explorer/keyword-scans/:scanId/keywords', requireModule('seo_site_explorer'), async (req, res) => {
+  const { workspaceId, scanId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(scanId)) return res.status(400).json({ error: 'invalid_scan_id' });
+  const scan = await getExplorerKeywordScan(configOf(req), workspaceId, scanId);
+  if (!scan) return res.status(404).json({ error: 'scan_not_found' });
+  const { search, limit, offset } = req.query as Record<string, string | undefined>;
+  const result = await listExplorerKeywords(configOf(req), workspaceId, scanId, {
+    search,
+    limit: limit ? Number(limit) : undefined,
+    offset: offset ? Number(offset) : undefined,
+  });
+  res.json(result);
 });

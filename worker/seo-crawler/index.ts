@@ -42,11 +42,17 @@ import { processKeywordResearchRun, classifyKeywordRunError } from '../seo-keywo
 import type { SeoKeywordResearchRunRow } from '../../server/services/seo/keywordResearchService.js';
 import { processPerformanceAudit, classifyPerformanceAuditError } from '../seo-performance/processAudit.js';
 import type { SeoPerformanceAuditRow } from '../../server/services/seo/performanceAuditService.js';
+import { processExplorerBacklinkScan, classifyExplorerBacklinkScanError } from '../seo-explorer/processBacklinkScan.js';
+import { processExplorerKeywordScan, classifyExplorerKeywordScanError } from '../seo-explorer/processKeywordScan.js';
+import type { SeoExplorerBacklinkScanRow, SeoExplorerKeywordScanRow } from '../../server/services/seo/siteExplorerService.js';
 
 const POLL_INTERVAL_MS = parseInt(process.env.SEO_WORKER_INTERVAL_MS || process.env.WORKER_INTERVAL_MS || '5000', 10);
 const LOCK_TTL_SECONDS = parseInt(process.env.SEO_WORKER_LOCK_TTL_SECONDS || '120', 10);
 const WORKER_ID = process.env.WORKER_ID || `seo-crawler-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
-const JOB_TYPES = ['seo_crawl', 'seo_backlink_scan', 'seo_keyword_research', 'seo_performance_audit'];
+const JOB_TYPES = [
+  'seo_crawl', 'seo_backlink_scan', 'seo_keyword_research', 'seo_performance_audit',
+  'seo_explorer_backlink_scan', 'seo_explorer_keyword_scan',
+];
 
 function log(event: string, data: Record<string, unknown> = {}) {
   try { console.log(`[seo-crawler-worker] ${event}`, JSON.stringify(data)); }
@@ -200,6 +206,38 @@ async function tickPerformanceAudit(config: ReturnType<typeof loadConfig>, sb: R
   }
 }
 
+async function tickExplorerBacklinkScan(config: ReturnType<typeof loadConfig>, sb: ReturnType<typeof getServiceClient>, jobId: string): Promise<void> {
+  const { data: scan } = await sb.from('seo_explorer_backlink_scans').select('*').eq('job_id', jobId).maybeSingle();
+  if (!scan) {
+    await failJob(config, { jobId, errorMessage: 'seo_explorer_backlink_scans_row_missing', errorCategory: 'internal_error', retryable: false });
+    return;
+  }
+  try {
+    await processExplorerBacklinkScan(config, jobId, scan as SeoExplorerBacklinkScanRow, WORKER_ID, LOCK_TTL_SECONDS);
+  } catch (err) {
+    const { category, message, retryable } = classifyExplorerBacklinkScanError(err);
+    log('explorer backlink scan failed', { jobId, category, message });
+    await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable });
+    await sb.from('seo_explorer_backlink_scans').update({ status: 'failed', error_message: message.slice(0, 1000), error_category: category, finished_at: new Date().toISOString() }).eq('job_id', jobId).in('status', ['queued', 'running', 'processing']);
+  }
+}
+
+async function tickExplorerKeywordScan(config: ReturnType<typeof loadConfig>, sb: ReturnType<typeof getServiceClient>, jobId: string): Promise<void> {
+  const { data: scan } = await sb.from('seo_explorer_keyword_scans').select('*').eq('job_id', jobId).maybeSingle();
+  if (!scan) {
+    await failJob(config, { jobId, errorMessage: 'seo_explorer_keyword_scans_row_missing', errorCategory: 'internal_error', retryable: false });
+    return;
+  }
+  try {
+    await processExplorerKeywordScan(config, jobId, scan as SeoExplorerKeywordScanRow, WORKER_ID, LOCK_TTL_SECONDS);
+  } catch (err) {
+    const { category, message, retryable } = classifyExplorerKeywordScanError(err);
+    log('explorer keyword scan failed', { jobId, category, message });
+    await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable });
+    await sb.from('seo_explorer_keyword_scans').update({ status: 'failed', error_message: message.slice(0, 1000), error_category: category, finished_at: new Date().toISOString() }).eq('job_id', jobId).in('status', ['queued', 'running', 'processing']);
+  }
+}
+
 async function tick(config: ReturnType<typeof loadConfig>): Promise<void> {
   if (shuttingDown) return;
   const job = await claimNextJob(config, { jobTypes: JOB_TYPES, workerId: WORKER_ID, lockTtlSeconds: LOCK_TTL_SECONDS });
@@ -211,6 +249,8 @@ async function tick(config: ReturnType<typeof loadConfig>): Promise<void> {
     if (job.job_type === 'seo_backlink_scan') await tickBacklinkScan(config, sb, job.id);
     else if (job.job_type === 'seo_keyword_research') await tickKeywordResearch(config, sb, job.id);
     else if (job.job_type === 'seo_performance_audit') await tickPerformanceAudit(config, sb, job.id);
+    else if (job.job_type === 'seo_explorer_backlink_scan') await tickExplorerBacklinkScan(config, sb, job.id);
+    else if (job.job_type === 'seo_explorer_keyword_scan') await tickExplorerKeywordScan(config, sb, job.id);
     else await tickCrawl(config, sb, job.id);
   } finally {
     inFlight--;

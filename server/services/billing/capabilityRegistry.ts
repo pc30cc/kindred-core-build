@@ -248,6 +248,18 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'seo_gsc_insights', type: 'module', label: 'SEO — GSC Insights', group: 'modules', description: 'Connect a Google Search Console property and browse its search performance data (clicks, impressions, CTR, position) directly inside the workspace.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 135 },
   { key: 'seo_gsc_max_properties',      type: 'limit', label: 'SEO — Max connected GSC properties', group: 'seo', description: 'Maximum number of Google Search Console properties a workspace may link at once.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 150 },
   { key: 'seo_gsc_sync_frequency_hours', type: 'limit', label: 'SEO — GSC data refresh cooldown (hours)', group: 'seo', description: 'Minimum number of hours between refreshes of cached Search Console data for a linked property.', defaultValue: 6, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'hours', sortOrder: 160 },
+
+  // ─── SEO Site Explorer (server/services/seo/siteExplorerService.ts).
+  // Deliberately separate from seo_backlinks/seo_keywords: those analyze a
+  // website THIS workspace registered, Site Explorer looks up ANY domain
+  // (including competitors') on demand — a materially different cost/abuse
+  // profile, so it gets its own module flag and its own limits rather than
+  // reusing the registered-site ones. ───
+  { key: 'seo_site_explorer', type: 'module', label: 'SEO — Site Explorer', group: 'modules', description: 'Look up the backlink profile and organic keywords of any domain — including competitors — without registering it as a workspace website.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 136 },
+  { key: 'seo_explorer_max_backlinks_per_scan',      type: 'limit', label: 'SEO — Max backlinks per Explorer scan', group: 'seo', description: 'Maximum number of backlink rows fetched and stored in a single Site Explorer backlink lookup.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 170 },
+  { key: 'seo_explorer_max_keywords_per_scan',       type: 'limit', label: 'SEO — Max keywords per Explorer scan', group: 'seo', description: 'Maximum number of organic-keyword rows fetched and stored in a single Site Explorer keyword lookup.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 180 },
+  { key: 'seo_explorer_workspace_concurrent_scans',  type: 'limit', label: 'SEO — Concurrent Explorer lookups', group: 'seo', description: 'Maximum number of Site Explorer lookups (backlinks + keywords combined) that may be queued or running at once for the whole workspace.', defaultValue: 1, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 190 },
+  { key: 'seo_explorer_scan_frequency_hours',        type: 'limit', label: 'SEO — Explorer re-lookup cooldown (hours)', group: 'seo', description: 'Minimum number of hours that must pass since the same domain\'s last Site Explorer lookup of a given kind before another one may be started for it.', defaultValue: 168, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'hours', sortOrder: 200 },
 ];
 
 

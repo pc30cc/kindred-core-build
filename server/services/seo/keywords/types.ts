@@ -68,6 +68,29 @@ export interface KeywordsFetchResult {
   items: KeywordResultItem[];
 }
 
+/**
+ * One row of DataForSEO Labs' Ranked Keywords report: a keyword the TARGET
+ * DOMAIN currently ranks for — distinct from KeywordResultItem, which is a
+ * seed-keyword volume lookup with no ranking/URL/traffic data at all.
+ */
+export interface RankedKeywordItem {
+  keyword: string;
+  searchVolume: number | null;
+  cpc: number | null;
+  competition: number | null;
+  /** The target domain's current absolute SERP position for this keyword. */
+  position: number | null;
+  /** The target domain's URL ranking for this keyword. */
+  rankingUrl: string | null;
+  /** Estimated monthly organic clicks this keyword drives to the ranking URL. */
+  trafficEstimate: number | null;
+}
+
+export interface RankedKeywordsFetchResult {
+  items: RankedKeywordItem[];
+  totalCount: number;
+}
+
 export interface KeywordsProviderInfo {
   providerName: KeywordsProviderName;
   configured: boolean;

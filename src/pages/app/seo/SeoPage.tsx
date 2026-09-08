@@ -6,6 +6,7 @@ import { SEO_SECTIONS, findSection, firstLeafKey, findLeaf } from './seoNavTree'
 import { SeoSectionNav } from './SeoSectionNav';
 import { SeoRoadmapPlaceholder } from './SeoRoadmapPlaceholder';
 import { GscInsightsSection } from './GscInsightsSection';
+import { SiteExplorerSection } from './SiteExplorerSection';
 import {
   useSeoSites, useSeoLimits, useLatestCrawl, useCrawlHistory, useStartCrawl, useCancelCrawl,
   useCrawl, useCrawlPages, useCrawlIssues, useIssueAffectedUrls, useCrawlLinks, useCrawlSitemaps,
@@ -180,6 +181,8 @@ export default function SeoPage() {
             />
           ) : activeSection.key === 'gsc-insights' ? (
             <GscInsightsSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
+          ) : activeSection.key === 'site-explorer' ? (
+            <SiteExplorerSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
           ) : (
             <SeoRoadmapPlaceholder label={t(findLeaf(activeSection, subsectionKey)?.labelKey as any || activeSection.labelKey as any)} />
           )}
@@ -225,8 +228,6 @@ function SiteScopedSection({
         <SiteAuditSection key={siteId} workspaceId={workspaceId} siteId={siteId} subsectionKey={subsectionKey} />
       ) : section.key === 'rank-tracker' ? (
         <RankTrackerSection key={siteId} workspaceId={workspaceId} siteId={siteId} subsectionKey={subsectionKey} />
-      ) : section.key === 'site-explorer' ? (
-        <SiteExplorerSection key={siteId} workspaceId={workspaceId} siteId={siteId} subsectionKey={subsectionKey} />
       ) : null}
     </div>
   );
@@ -241,17 +242,6 @@ function RankTrackerSection({ workspaceId, siteId, subsectionKey }: { workspaceI
   return <SeoRoadmapPlaceholder label={t((leaf?.labelKey || 'seo.nav.section.rankTracker') as any)} />;
 }
 
-function SiteExplorerSection({ workspaceId, siteId, subsectionKey }: { workspaceId: string; siteId: string; subsectionKey: string }) {
-  const { t } = useTranslation();
-  if (subsectionKey === 'backlinks') {
-    return <PlanLockedOverlay moduleKey="seo_backlinks"><BacklinksTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>;
-  }
-  if (subsectionKey === 'organicKeywords') {
-    return <PlanLockedOverlay moduleKey="seo_keywords"><KeywordsTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>;
-  }
-  const leaf = findLeaf(findSection('site-explorer'), subsectionKey);
-  return <SeoRoadmapPlaceholder label={t((leaf?.labelKey || 'seo.nav.section.siteExplorer') as any)} />;
-}
 
 /** The original crawl-status-gated flow (never crawled / running / failed / cancelled / completed), scoped to the Site Audit tool. */
 function SiteAuditSection({ workspaceId, siteId, subsectionKey }: { workspaceId: string; siteId: string; subsectionKey: string }) {
@@ -416,6 +406,12 @@ function SeoDashboard({
       {subsectionKey === 'sitemap' && <SitemapTab workspaceId={workspaceId} crawlId={crawl.id} crawl={crawl} />}
       {subsectionKey === 'performance' && (
         <PlanLockedOverlay moduleKey="seo_performance"><PerformanceTab workspaceId={workspaceId} crawlId={crawl.id} /></PlanLockedOverlay>
+      )}
+      {subsectionKey === 'backlinks' && (
+        <PlanLockedOverlay moduleKey="seo_backlinks"><BacklinksTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>
+      )}
+      {subsectionKey === 'keywords' && (
+        <PlanLockedOverlay moduleKey="seo_keywords"><KeywordsTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>
       )}
       {subsectionKey === 'history' && <HistoryTab workspaceId={workspaceId} crawl={crawl} history={history} />}
     </div>

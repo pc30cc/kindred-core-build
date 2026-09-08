@@ -163,32 +163,30 @@ export default function SeoPage() {
   const subsectionKey = subsectionParam || firstLeafKey(activeSection);
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="p-6 pb-0"><PageHeader /></div>
-      <div className="mt-4 flex min-h-0 flex-1 items-stretch gap-0 px-6 pb-6">
-        <SeoSectionNav activeSectionKey={activeSection.key} activeSubsectionKey={subsectionKey} />
-        <div className="flex-1 overflow-y-auto rounded-e-xl border border-s-0 border-border/60 bg-background p-6">
-          {activeSection.needsSite ? (
-            <SiteScopedSection
-              workspaceId={workspaceId}
-              sites={sites}
-              siteId={siteId}
-              onSiteChange={setSiteId}
-              section={activeSection}
-              subsectionKey={subsectionKey}
-            />
-          ) : activeSection.key === 'gsc-insights' ? (
-            <GscInsightsSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
-          ) : activeSection.key === 'site-explorer' ? (
-            <SiteExplorerSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
-          ) : (
-            <SeoRoadmapPlaceholder label={t(findLeaf(activeSection, subsectionKey)?.labelKey as any || activeSection.labelKey as any)} />
-          )}
-        </div>
+    <div className="flex h-full min-h-0 items-stretch">
+      <SeoSectionNav activeSectionKey={activeSection.key} activeSubsectionKey={subsectionKey} />
+      <div className="flex-1 overflow-y-auto bg-background p-6">
+        {activeSection.needsSite ? (
+          <SiteScopedSection
+            workspaceId={workspaceId}
+            sites={sites}
+            siteId={siteId}
+            onSiteChange={setSiteId}
+            section={activeSection}
+            subsectionKey={subsectionKey}
+          />
+        ) : activeSection.key === 'gsc-insights' ? (
+          <GscInsightsSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
+        ) : activeSection.key === 'site-explorer' ? (
+          <SiteExplorerSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
+        ) : (
+          <SeoRoadmapPlaceholder label={t(findLeaf(activeSection, subsectionKey)?.labelKey as any || activeSection.labelKey as any)} />
+        )}
       </div>
     </div>
   );
 }
+
 
 /** Handles the three site-scoped tools (Site Audit, Rank Tracker, Site Explorer): site picker + per-tool content. */
 function SiteScopedSection({

@@ -9996,6 +9996,490 @@ export type Database = {
           },
         ]
       }
+      seo_explorer_backlink_scans: {
+        Row: {
+          cancel_requested: boolean
+          created_at: string
+          created_by: string | null
+          dofollow_count: number | null
+          error_category: string | null
+          error_message: string | null
+          finished_at: string | null
+          id: string
+          job_id: string
+          lost_backlinks: number | null
+          max_backlinks: number
+          new_backlinks: number | null
+          nofollow_count: number | null
+          progress: number
+          progress_stage: string | null
+          provider: string
+          referring_domains: number | null
+          started_at: string | null
+          status: string
+          target_domain: string
+          target_url: string
+          total_backlinks: number | null
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          cancel_requested?: boolean
+          created_at?: string
+          created_by?: string | null
+          dofollow_count?: number | null
+          error_category?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          job_id: string
+          lost_backlinks?: number | null
+          max_backlinks?: number
+          new_backlinks?: number | null
+          nofollow_count?: number | null
+          progress?: number
+          progress_stage?: string | null
+          provider: string
+          referring_domains?: number | null
+          started_at?: string | null
+          status?: string
+          target_domain: string
+          target_url: string
+          total_backlinks?: number | null
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          cancel_requested?: boolean
+          created_at?: string
+          created_by?: string | null
+          dofollow_count?: number | null
+          error_category?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          job_id?: string
+          lost_backlinks?: number | null
+          max_backlinks?: number
+          new_backlinks?: number | null
+          nofollow_count?: number | null
+          progress?: number
+          progress_stage?: string | null
+          provider?: string
+          referring_domains?: number | null
+          started_at?: string | null
+          status?: string
+          target_domain?: string
+          target_url?: string
+          total_backlinks?: number | null
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_explorer_backlink_scans_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "background_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_explorer_backlink_scans_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      seo_explorer_backlinks: {
+        Row: {
+          anchor_text: string | null
+          created_at: string
+          domain_rank: number | null
+          first_seen: string | null
+          id: string
+          is_dofollow: boolean
+          is_lost: boolean
+          is_new: boolean
+          last_seen: string | null
+          page_rank: number | null
+          scan_id: string
+          source_domain: string
+          source_url: string
+          spam_score: number | null
+          target_url: string
+          workspace_id: string
+        }
+        Insert: {
+          anchor_text?: string | null
+          created_at?: string
+          domain_rank?: number | null
+          first_seen?: string | null
+          id?: string
+          is_dofollow?: boolean
+          is_lost?: boolean
+          is_new?: boolean
+          last_seen?: string | null
+          page_rank?: number | null
+          scan_id: string
+          source_domain: string
+          source_url: string
+          spam_score?: number | null
+          target_url: string
+          workspace_id: string
+        }
+        Update: {
+          anchor_text?: string | null
+          created_at?: string
+          domain_rank?: number | null
+          first_seen?: string | null
+          id?: string
+          is_dofollow?: boolean
+          is_lost?: boolean
+          is_new?: boolean
+          last_seen?: string | null
+          page_rank?: number | null
+          scan_id?: string
+          source_domain?: string
+          source_url?: string
+          spam_score?: number | null
+          target_url?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_explorer_backlinks_scan_id_fkey"
+            columns: ["scan_id"]
+            isOneToOne: false
+            referencedRelation: "seo_explorer_backlink_scans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_explorer_backlinks_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      seo_explorer_keyword_scans: {
+        Row: {
+          cancel_requested: boolean
+          created_at: string
+          created_by: string | null
+          error_category: string | null
+          error_message: string | null
+          finished_at: string | null
+          id: string
+          job_id: string
+          max_keywords: number
+          progress: number
+          progress_stage: string | null
+          provider: string
+          started_at: string | null
+          status: string
+          target_domain: string
+          total_keywords: number | null
+          total_traffic_estimate: number | null
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          cancel_requested?: boolean
+          created_at?: string
+          created_by?: string | null
+          error_category?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          job_id: string
+          max_keywords?: number
+          progress?: number
+          progress_stage?: string | null
+          provider: string
+          started_at?: string | null
+          status?: string
+          target_domain: string
+          total_keywords?: number | null
+          total_traffic_estimate?: number | null
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          cancel_requested?: boolean
+          created_at?: string
+          created_by?: string | null
+          error_category?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          job_id?: string
+          max_keywords?: number
+          progress?: number
+          progress_stage?: string | null
+          provider?: string
+          started_at?: string | null
+          status?: string
+          target_domain?: string
+          total_keywords?: number | null
+          total_traffic_estimate?: number | null
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_explorer_keyword_scans_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "background_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_explorer_keyword_scans_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      seo_explorer_keywords: {
+        Row: {
+          competition: number | null
+          cpc: number | null
+          created_at: string
+          id: string
+          keyword: string
+          position: number | null
+          ranking_url: string | null
+          scan_id: string
+          search_volume: number | null
+          traffic_estimate: number | null
+          workspace_id: string
+        }
+        Insert: {
+          competition?: number | null
+          cpc?: number | null
+          created_at?: string
+          id?: string
+          keyword: string
+          position?: number | null
+          ranking_url?: string | null
+          scan_id: string
+          search_volume?: number | null
+          traffic_estimate?: number | null
+          workspace_id: string
+        }
+        Update: {
+          competition?: number | null
+          cpc?: number | null
+          created_at?: string
+          id?: string
+          keyword?: string
+          position?: number | null
+          ranking_url?: string | null
+          scan_id?: string
+          search_volume?: number | null
+          traffic_estimate?: number | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_explorer_keywords_scan_id_fkey"
+            columns: ["scan_id"]
+            isOneToOne: false
+            referencedRelation: "seo_explorer_keyword_scans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_explorer_keywords_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      seo_gsc_connections: {
+        Row: {
+          connected_by: string
+          created_at: string
+          google_account_email: string | null
+          id: string
+          last_error: string | null
+          refresh_token_envelope: Json
+          scope: string
+          status: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          connected_by: string
+          created_at?: string
+          google_account_email?: string | null
+          id?: string
+          last_error?: string | null
+          refresh_token_envelope: Json
+          scope?: string
+          status?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          connected_by?: string
+          created_at?: string
+          google_account_email?: string | null
+          id?: string
+          last_error?: string | null
+          refresh_token_envelope?: Json
+          scope?: string
+          status?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_gsc_connections_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      seo_gsc_oauth_states: {
+        Row: {
+          consumed_at: string | null
+          created_at: string
+          expires_at: string
+          initiated_by: string
+          redirect_path: string | null
+          token: string
+          workspace_id: string
+        }
+        Insert: {
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          initiated_by: string
+          redirect_path?: string | null
+          token: string
+          workspace_id: string
+        }
+        Update: {
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          initiated_by?: string
+          redirect_path?: string | null
+          token?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_gsc_oauth_states_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      seo_gsc_properties: {
+        Row: {
+          connection_id: string
+          created_at: string
+          id: string
+          is_primary: boolean
+          permission_level: string | null
+          site_url: string
+          website_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          connection_id: string
+          created_at?: string
+          id?: string
+          is_primary?: boolean
+          permission_level?: string | null
+          site_url: string
+          website_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          connection_id?: string
+          created_at?: string
+          id?: string
+          is_primary?: boolean
+          permission_level?: string | null
+          site_url?: string
+          website_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_gsc_properties_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "seo_gsc_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_gsc_properties_website_id_fkey"
+            columns: ["website_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_domains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_gsc_properties_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      seo_gsc_query_cache: {
+        Row: {
+          fetched_at: string
+          id: string
+          property_id: string
+          query_hash: string
+          query_params: Json
+          response_aggregation_type: string | null
+          rows: Json
+        }
+        Insert: {
+          fetched_at?: string
+          id?: string
+          property_id: string
+          query_hash: string
+          query_params: Json
+          response_aggregation_type?: string | null
+          rows?: Json
+        }
+        Update: {
+          fetched_at?: string
+          id?: string
+          property_id?: string
+          query_hash?: string
+          query_params?: Json
+          response_aggregation_type?: string | null
+          rows?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_gsc_query_cache_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "seo_gsc_properties"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       seo_issue_pages: {
         Row: {
           created_at: string

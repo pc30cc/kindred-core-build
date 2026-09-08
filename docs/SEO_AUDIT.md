@@ -134,6 +134,83 @@ Web App → Core API (server/routes/seo.ts, /backlink-scans routes)
   takes only `{ siteId }`; the target URL is resolved server-side from
   `workspace_domains` via the same `siteResolver.ts` the crawler uses.
 
+## Keyword Research module (plan-gated, provider-agnostic)
+
+A third module, structured identically to Backlinks: same worker process,
+same job-queue pattern, its own result tables and its own plan-gated limits.
+
+```
+Web App → Core API (server/routes/seo.ts, /keyword-runs routes)
+            → server/services/seo/{keywordsLimits,keywordResearchService}.ts
+            → generic job queue (background_jobs, job_type=seo_keyword_research)
+                → SEO Crawler Worker (worker/seo-crawler/, WORKER_KIND=seo-crawler
+                  — same process as the crawl + backlink scan loops; claims
+                  all three job types)
+                    → worker/seo-keywords/processRun.ts
+                    → server/services/seo/keywords/ (pluggable provider adapter)
+            → Supabase/Postgres (seo_keyword_research_runs, seo_keyword_results,
+              platform_keywords_provider_config)
+            → SEO UI (SeoPage.tsx's Keywords tab)
+```
+
+- **Plan-gated, opt-in by default.** `seo_keywords` defaults to `false` in
+  every plan's entitlements, same as Backlinks. Its limits
+  (`seo_keywords_max_per_lookup`, `seo_keywords_workspace_concurrent_runs`,
+  `seo_keywords_lookup_frequency_hours`) are resolved in
+  `server/services/seo/keywordsLimits.ts`.
+- **Pluggable vendor, platform-level config.** `server/services/seo/keywords/`
+  follows the same adapter shape as Backlinks, with `providers/dataforseo.ts`
+  calling DataForSEO's `google_ads/search_volume/live` endpoint. The active
+  vendor is a single platform-level config row
+  (`platform_keywords_provider_config`), set from `/admin/seo-integrations`.
+- **Credential never reaches the browser**, same guarantee as Backlinks.
+- **Seed keywords, not arbitrary crawling.** `POST /:workspaceId/keyword-runs`
+  takes `{ siteId, seedKeywords }` (1–1000 keywords, bounded by the plan's
+  `seo_keywords_max_per_lookup`); the provider returns search volume, CPC and
+  a locally-derived competition level (low/medium/high) for each seed.
+
+## Rank Tracking module (plan-gated, provider-agnostic)
+
+Structurally different from the other two modules: there is no user-triggered
+"run" to poll for completion. A workspace builds a persistent per-site
+keyword watchlist, and a periodic ticker refreshes each tracked keyword's
+search position on a schedule — so it does not use `background_jobs` or the
+SEO Crawler Worker at all.
+
+```
+Web App → Core API (server/routes/seo.ts, /tracked-keywords routes)
+            → server/services/seo/{rankTrackingLimits,rankTrackingService}.ts
+            → Supabase/Postgres (seo_tracked_keywords — direct writes, no queue)
+
+server/index.ts (Backend API process)
+    → server/services/seo/rankTrackingTicker.ts (setInterval, 15 min,
+      cluster-wide lease via tickerLease.ts — same pattern as
+      alertingTicker.ts)
+        → server/services/seo/rankTracking/ (pluggable provider adapter)
+        → Supabase/Postgres (seo_rank_checks, seo_tracked_keywords)
+        → SEO UI (SeoPage.tsx's Rank Tracking tab)
+```
+
+- **Plan-gated, opt-in by default.** `seo_rank_tracking` defaults to `false`
+  in every plan's entitlements. Its limits (`seo_rank_tracking_max_keywords`,
+  `seo_rank_tracking_check_frequency_hours`) are resolved in
+  `server/services/seo/rankTrackingLimits.ts`.
+- **Pluggable vendor, platform-level config.** `server/services/seo/rankTracking/`
+  follows the same adapter shape as the other two modules, with
+  `providers/dataforseo.ts` calling DataForSEO's `serp/google/organic/live`
+  endpoint and scanning the result for the tracked domain. The active vendor
+  is `platform_rank_tracking_provider_config`, set from
+  `/admin/seo-integrations`.
+- **Credential never reaches the browser**, same guarantee as the other
+  modules.
+- **No user-triggered run; the ticker is the only writer of rank data.**
+  `POST /:workspaceId/tracked-keywords` only adds a keyword to the watchlist
+  (bounded by `seo_rank_tracking_max_keywords`) with `next_check_at = now()`
+  for an immediate first check; `rankTrackingTicker.ts` is the sole process
+  that ever calls the vendor and writes `seo_rank_checks` /
+  `seo_tracked_keywords.last_position`. A per-keyword provider error bumps
+  `next_check_at` by 1 hour rather than leaving the keyword perpetually due.
+
 ## Known V1 limitations
 
 - Performance/Lighthouse auditing is schema-only (see above).

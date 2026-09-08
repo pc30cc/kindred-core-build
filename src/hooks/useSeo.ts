@@ -11,6 +11,9 @@ import {
   listCrawlSitemaps, compareCrawl, TERMINAL_SEO_STATUSES, type SeoCrawl,
   getBacklinksLimits, getLatestBacklinkScan, listBacklinkScanHistory, startBacklinkScan,
   getBacklinkScan, cancelBacklinkScan, listBacklinks, type SeoBacklinkScan,
+  getKeywordsLimits, getLatestKeywordRun, listKeywordRunHistory, startKeywordRun,
+  getKeywordRun, listKeywordResults, type SeoKeywordRun,
+  getRankTrackingLimits, listTrackedKeywords, addTrackedKeyword, removeTrackedKeyword, listRankChecks,
 } from '@/lib/seo-api';
 
 export function useSeoSites(workspaceId?: string) {
@@ -204,5 +207,102 @@ export function useBacklinks(workspaceId?: string, scanId?: string, filters: Par
     queryKey: ['seo-backlinks', workspaceId, scanId, filters],
     queryFn: () => listBacklinks(workspaceId!, scanId!, filters),
     enabled: !!workspaceId && !!scanId,
+  });
+}
+
+// ─── SEO Keyword Research ─────────────────────────────────────────────
+
+export function useKeywordsLimits(workspaceId?: string) {
+  return useQuery({
+    queryKey: ['seo-keywords-limits', workspaceId],
+    queryFn: () => getKeywordsLimits(workspaceId!),
+    enabled: !!workspaceId,
+  });
+}
+
+export function useLatestKeywordRun(workspaceId?: string, siteId?: string) {
+  return useQuery({
+    queryKey: ['seo-latest-keyword-run', workspaceId, siteId],
+    queryFn: () => getLatestKeywordRun(workspaceId!, siteId!),
+    enabled: !!workspaceId && !!siteId,
+    refetchInterval: (q) => {
+      const data = q.state.data as { run: SeoKeywordRun | null } | undefined;
+      if (!data?.run) return false;
+      return TERMINAL_SEO_STATUSES.has(data.run.status) ? false : 4000;
+    },
+  });
+}
+
+export function useKeywordRunHistory(workspaceId?: string, siteId?: string, limit = 20, offset = 0) {
+  return useQuery({
+    queryKey: ['seo-keyword-run-history', workspaceId, siteId, limit, offset],
+    queryFn: () => listKeywordRunHistory(workspaceId!, siteId!, { limit, offset }),
+    enabled: !!workspaceId && !!siteId,
+  });
+}
+
+export function useStartKeywordRun(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ siteId, seedKeywords }: { siteId: string; seedKeywords: string[] }) => startKeywordRun(workspaceId, siteId, seedKeywords),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['seo-latest-keyword-run', workspaceId] });
+      qc.invalidateQueries({ queryKey: ['seo-keyword-run-history', workspaceId] });
+    },
+  });
+}
+
+export function useKeywordResults(workspaceId?: string, runId?: string, filters: Parameters<typeof listKeywordResults>[2] = {}) {
+  return useQuery({
+    queryKey: ['seo-keyword-results', workspaceId, runId, filters],
+    queryFn: () => listKeywordResults(workspaceId!, runId!, filters),
+    enabled: !!workspaceId && !!runId,
+  });
+}
+
+// ─── SEO Rank Tracking ─────────────────────────────────────────────────
+
+export function useRankTrackingLimits(workspaceId?: string) {
+  return useQuery({
+    queryKey: ['seo-rank-tracking-limits', workspaceId],
+    queryFn: () => getRankTrackingLimits(workspaceId!),
+    enabled: !!workspaceId,
+  });
+}
+
+export function useTrackedKeywords(workspaceId?: string, siteId?: string) {
+  return useQuery({
+    queryKey: ['seo-tracked-keywords', workspaceId, siteId],
+    queryFn: () => listTrackedKeywords(workspaceId!, siteId!),
+    enabled: !!workspaceId && !!siteId,
+  });
+}
+
+export function useAddTrackedKeyword(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ siteId, keyword, device }: { siteId: string; keyword: string; device?: 'desktop' | 'mobile' }) =>
+      addTrackedKeyword(workspaceId, siteId, keyword, device),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['seo-tracked-keywords', workspaceId] });
+    },
+  });
+}
+
+export function useRemoveTrackedKeyword(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (keywordId: string) => removeTrackedKeyword(workspaceId, keywordId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['seo-tracked-keywords', workspaceId] });
+    },
+  });
+}
+
+export function useRankChecks(workspaceId?: string, keywordId?: string) {
+  return useQuery({
+    queryKey: ['seo-rank-checks', workspaceId, keywordId],
+    queryFn: () => listRankChecks(workspaceId!, keywordId!),
+    enabled: !!workspaceId && !!keywordId,
   });
 }

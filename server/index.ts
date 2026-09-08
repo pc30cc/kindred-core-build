@@ -90,6 +90,7 @@ import { startNodeHealthRefresher } from './services/realtime/healthRefresher.js
 import { startReliabilityRollup } from './services/observability/reliabilityRollupTicker.js';
 import { startEnforcementTicker } from './services/observability/enforcementTicker.js';
 import { startMaxmindUpdateTicker } from './services/geo/maxmindUpdater.js';
+import { startRankTrackingTicker } from './services/seo/rankTrackingTicker.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import { isPublicWidgetApiPath, PUBLIC_WIDGET_REALTIME_ROUTES } from './lib/routePrefix.js';
@@ -624,6 +625,11 @@ app.listen(config.port, () => {
   // maxmind_local enabled + auto mode + credentials. Never blocks startup and
   // never touches the widget request path.
   startMaxmindUpdateTicker(config);
+
+  // SEO Rank Tracking — periodic keyword-position refresh (every 15 min).
+  // No-ops unless a platform rank-tracking provider is configured and
+  // active. See server/services/seo/rankTrackingTicker.ts.
+  startRankTrackingTicker(config);
 
   // Phase 9 — Call invitation TTL sweeper (every 30s). Flips pending
   // invitations whose CALL_INVITATION_TTL_SECONDS window passed into

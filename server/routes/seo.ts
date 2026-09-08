@@ -23,6 +23,8 @@ import { requireModule } from '../middleware/featureGating.js';
 import { listWorkspaceSites } from '../services/seo/siteResolver.js';
 import { resolveSeoLimits } from '../services/seo/limits.js';
 import { resolveBacklinksLimits } from '../services/seo/backlinksLimits.js';
+import { resolveKeywordsLimits } from '../services/seo/keywordsLimits.js';
+import { resolveRankTrackingLimits } from '../services/seo/rankTrackingLimits.js';
 import {
   createCrawl,
   getCrawl,
@@ -46,6 +48,22 @@ import {
   requestBacklinkScanCancel,
   BacklinkScanLimitError,
 } from '../services/seo/backlinkService.js';
+import {
+  createKeywordResearchRun,
+  getKeywordResearchRun,
+  getLatestKeywordResearchRunForSite,
+  listKeywordResearchRunsForSite,
+  listKeywordResults,
+  requestKeywordRunCancel,
+  KeywordRunLimitError,
+} from '../services/seo/keywordResearchService.js';
+import {
+  addTrackedKeyword,
+  removeTrackedKeyword,
+  listTrackedKeywordsForSite,
+  listRankChecksForKeyword,
+  TrackedKeywordLimitError,
+} from '../services/seo/rankTrackingService.js';
 import { SiteResolutionError } from '../services/seo/siteResolver.js';
 
 export const seoRouter = Router();
@@ -350,5 +368,165 @@ seoRouter.get('/:workspaceId/backlink-scans/:scanId/backlinks', requireModule('s
     limit: parseInt(String(req.query.limit || '50'), 10),
     offset: parseInt(String(req.query.offset || '0'), 10),
   });
+  res.json(result);
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// SEO Keyword Research — same authorization contract as Backlinks above.
+// ─────────────────────────────────────────────────────────────────────────
+
+seoRouter.get('/:workspaceId/keywords/limits', async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  const resolved = await resolveKeywordsLimits(configOf(req), workspaceId);
+  res.json(resolved);
+});
+
+seoRouter.get('/:workspaceId/sites/:siteId/keyword-runs/latest', requireModule('seo_keywords'), async (req, res) => {
+  const { workspaceId, siteId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(siteId)) return res.status(400).json({ error: 'invalid_site_id' });
+  const run = await getLatestKeywordResearchRunForSite(configOf(req), workspaceId, siteId);
+  res.json({ run });
+});
+
+seoRouter.get('/:workspaceId/sites/:siteId/keyword-runs', requireModule('seo_keywords'), async (req, res) => {
+  const { workspaceId, siteId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(siteId)) return res.status(400).json({ error: 'invalid_site_id' });
+  const limit = Math.min(parseInt(String(req.query.limit || '20'), 10) || 20, 100);
+  const offset = Math.max(parseInt(String(req.query.offset || '0'), 10) || 0, 0);
+  const result = await listKeywordResearchRunsForSite(configOf(req), workspaceId, siteId, { limit, offset });
+  res.json(result);
+});
+
+const createKeywordRunSchema = z.object({ siteId: z.string().uuid(), seedKeywords: z.array(z.string().min(1).max(200)).min(1).max(1000) });
+
+seoRouter.post('/:workspaceId/keyword-runs', requireModule('seo_keywords'), async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  const parsed = createKeywordRunSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_input', detail: parsed.error.flatten() });
+
+  try {
+    const run = await createKeywordResearchRun(configOf(req), {
+      workspaceId, siteId: parsed.data.siteId, userId: auth.userId, seedKeywords: parsed.data.seedKeywords,
+    });
+    res.status(201).json({ run });
+  } catch (err) {
+    if (err instanceof SiteResolutionError) return res.status(404).json({ error: err.code });
+    if (err instanceof KeywordRunLimitError) {
+      return res.status(429).json({ error: err.reason, retryAfterSeconds: err.retryAfterSeconds, message: err.message });
+    }
+    res.status(500).json({ error: 'create_keyword_run_failed', detail: (err as Error)?.message });
+  }
+});
+
+seoRouter.get('/:workspaceId/keyword-runs/:runId', requireModule('seo_keywords'), async (req, res) => {
+  const { workspaceId, runId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(runId)) return res.status(400).json({ error: 'invalid_run_id' });
+  const run = await getKeywordResearchRun(configOf(req), workspaceId, runId);
+  if (!run) return res.status(404).json({ error: 'run_not_found' });
+  res.json({ run });
+});
+
+seoRouter.post('/:workspaceId/keyword-runs/:runId/cancel', requireModule('seo_keywords'), async (req, res) => {
+  const { workspaceId, runId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  if (!isUuid(runId)) return res.status(400).json({ error: 'invalid_run_id' });
+  const run = await getKeywordResearchRun(configOf(req), workspaceId, runId);
+  if (!run) return res.status(404).json({ error: 'run_not_found' });
+  const result = await requestKeywordRunCancel(configOf(req), workspaceId, runId);
+  res.json(result);
+});
+
+seoRouter.get('/:workspaceId/keyword-runs/:runId/results', requireModule('seo_keywords'), async (req, res) => {
+  const { workspaceId, runId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(runId)) return res.status(400).json({ error: 'invalid_run_id' });
+  const run = await getKeywordResearchRun(configOf(req), workspaceId, runId);
+  if (!run) return res.status(404).json({ error: 'run_not_found' });
+  const { search, seedOnly } = req.query;
+  const result = await listKeywordResults(configOf(req), workspaceId, runId, {
+    search: search ? String(search).slice(0, 200) : undefined,
+    seedOnly: seedOnly === 'true',
+    limit: parseInt(String(req.query.limit || '100'), 10),
+    offset: parseInt(String(req.query.offset || '0'), 10),
+  });
+  res.json(result);
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// SEO Rank Tracking — same authorization contract as Backlinks above.
+// No job/scan concept: keywords are a persistent watchlist, refreshed by
+// server/services/seo/rankTrackingTicker.ts on a schedule.
+// ─────────────────────────────────────────────────────────────────────────
+
+seoRouter.get('/:workspaceId/rank-tracking/limits', async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  const resolved = await resolveRankTrackingLimits(configOf(req), workspaceId);
+  res.json(resolved);
+});
+
+seoRouter.get('/:workspaceId/sites/:siteId/tracked-keywords', requireModule('seo_rank_tracking'), async (req, res) => {
+  const { workspaceId, siteId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(siteId)) return res.status(400).json({ error: 'invalid_site_id' });
+  const limit = Math.min(parseInt(String(req.query.limit || '100'), 10) || 100, 500);
+  const offset = Math.max(parseInt(String(req.query.offset || '0'), 10) || 0, 0);
+  const result = await listTrackedKeywordsForSite(configOf(req), workspaceId, siteId, { limit, offset });
+  res.json(result);
+});
+
+const addTrackedKeywordSchema = z.object({ siteId: z.string().uuid(), keyword: z.string().min(1).max(200), device: z.enum(['desktop', 'mobile']).optional() });
+
+seoRouter.post('/:workspaceId/tracked-keywords', requireModule('seo_rank_tracking'), async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  const parsed = addTrackedKeywordSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_input', detail: parsed.error.flatten() });
+
+  try {
+    const keyword = await addTrackedKeyword(configOf(req), {
+      workspaceId, siteId: parsed.data.siteId, userId: auth.userId, keyword: parsed.data.keyword, device: parsed.data.device,
+    });
+    res.status(201).json({ keyword });
+  } catch (err) {
+    if (err instanceof SiteResolutionError) return res.status(404).json({ error: err.code });
+    if (err instanceof TrackedKeywordLimitError) {
+      return res.status(429).json({ error: err.reason, message: err.message });
+    }
+    res.status(500).json({ error: 'add_tracked_keyword_failed', detail: (err as Error)?.message });
+  }
+});
+
+seoRouter.delete('/:workspaceId/tracked-keywords/:keywordId', requireModule('seo_rank_tracking'), async (req, res) => {
+  const { workspaceId, keywordId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  if (!isUuid(keywordId)) return res.status(400).json({ error: 'invalid_keyword_id' });
+  const result = await removeTrackedKeyword(configOf(req), workspaceId, keywordId);
+  res.json(result);
+});
+
+seoRouter.get('/:workspaceId/tracked-keywords/:keywordId/checks', requireModule('seo_rank_tracking'), async (req, res) => {
+  const { workspaceId, keywordId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(keywordId)) return res.status(400).json({ error: 'invalid_keyword_id' });
+  const limit = parseInt(String(req.query.limit || '90'), 10) || 90;
+  const result = await listRankChecksForKeyword(configOf(req), workspaceId, keywordId, { limit });
   res.json(result);
 });

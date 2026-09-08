@@ -22,6 +22,8 @@ import { adminCallsRouter } from './adminCalls.js';
 import { adminAdvancedRoutingRouter } from './adminAdvancedRouting.js';
 import { adminSmsProvidersRouter } from './adminSmsProviders.js';
 import { adminSeoBacklinksProviderRouter } from './adminSeoBacklinksProvider.js';
+import { adminSeoKeywordsProviderRouter } from './adminSeoKeywordsProvider.js';
+import { adminSeoRankTrackingProviderRouter } from './adminSeoRankTrackingProvider.js';
 import { adminPhoneVerificationRouter } from './adminPhoneVerification.js';
 import { adminVerificationRouter } from './adminVerification.js';
 import { adminSecurityRouter } from './adminSecurity.js';
@@ -122,9 +124,12 @@ adminRouter.use('/advanced-routing', adminAdvancedRoutingRouter);
 // service-role-only table and never returned to the browser.
 adminRouter.use('/providers/sms', adminSmsProvidersRouter);
 
-// SEO Backlinks — platform backlinks-data provider (DataForSEO). Same
-// singleton-credential shape as the SMS provider above.
+// SEO Backlinks / Keyword Research / Rank Tracking — platform data
+// providers (DataForSEO). Same singleton-credential shape as the SMS
+// provider above; each module can point at a different vendor.
 adminRouter.use('/providers/seo-backlinks', adminSeoBacklinksProviderRouter);
+adminRouter.use('/providers/seo-keywords', adminSeoKeywordsProviderRouter);
+adminRouter.use('/providers/seo-rank-tracking', adminSeoRankTrackingProviderRouter);
 
 // Phase 6-S3B — per-user phone verification (status / resend / manual verify).
 // Mounted inside the admin router so `requireAdmin` runs first.

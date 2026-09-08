@@ -847,6 +847,110 @@ export async function adminTestBacklinksProvider() {
   });
 }
 
+// ─── Admin: SEO Keyword Research provider (platform-level, super admin only) ──
+// Mirrors the Backlinks provider block above exactly.
+
+export interface AdminKeywordsProviderInfo {
+  providerName: 'dataforseo' | 'disabled';
+  configured: boolean;
+  enabled: boolean;
+  hasCredentials: boolean;
+  login: string | null;
+  updatedAt: string | null;
+}
+
+export interface AdminKeywordsTestResult {
+  success: boolean;
+  provider: string;
+  latencyMs?: number;
+  balance?: number | null;
+  currency?: string;
+  error?: string;
+  errorCode?: string;
+}
+
+export async function adminGetKeywordsProvider() {
+  return request<AdminKeywordsProviderInfo>('/api/admin/providers/seo-keywords', {});
+}
+
+export interface AdminKeywordsProviderSavePayload {
+  providerName: 'dataforseo';
+  enabled: boolean;
+  login?: string;
+  password?: string;
+}
+
+export async function adminSaveKeywordsProvider(payload: AdminKeywordsProviderSavePayload) {
+  return request<AdminKeywordsProviderInfo>('/api/admin/providers/seo-keywords', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function adminDeleteKeywordsProvider() {
+  return request<AdminKeywordsProviderInfo>('/api/admin/providers/seo-keywords', {
+    method: 'DELETE',
+  });
+}
+
+export async function adminTestKeywordsProvider() {
+  return request<AdminKeywordsTestResult>('/api/admin/providers/seo-keywords/test', {
+    method: 'POST',
+  });
+}
+
+// ─── Admin: SEO Rank Tracking provider (platform-level, super admin only) ──
+// Mirrors the Backlinks provider block above exactly.
+
+export interface AdminRankTrackingProviderInfo {
+  providerName: 'dataforseo' | 'disabled';
+  configured: boolean;
+  enabled: boolean;
+  hasCredentials: boolean;
+  login: string | null;
+  updatedAt: string | null;
+}
+
+export interface AdminRankTrackingTestResult {
+  success: boolean;
+  provider: string;
+  latencyMs?: number;
+  balance?: number | null;
+  currency?: string;
+  error?: string;
+  errorCode?: string;
+}
+
+export async function adminGetRankTrackingProvider() {
+  return request<AdminRankTrackingProviderInfo>('/api/admin/providers/seo-rank-tracking', {});
+}
+
+export interface AdminRankTrackingProviderSavePayload {
+  providerName: 'dataforseo';
+  enabled: boolean;
+  login?: string;
+  password?: string;
+}
+
+export async function adminSaveRankTrackingProvider(payload: AdminRankTrackingProviderSavePayload) {
+  return request<AdminRankTrackingProviderInfo>('/api/admin/providers/seo-rank-tracking', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function adminDeleteRankTrackingProvider() {
+  return request<AdminRankTrackingProviderInfo>('/api/admin/providers/seo-rank-tracking', {
+    method: 'DELETE',
+  });
+}
+
+export async function adminTestRankTrackingProvider() {
+  return request<AdminRankTrackingTestResult>('/api/admin/providers/seo-rank-tracking/test', {
+    method: 'POST',
+  });
+}
+
 export interface AdminBacklinksPlatformStats {
   totalScans: number;
   completedScans: number;
@@ -876,6 +980,65 @@ export interface AdminRecentBacklinkScan {
 
 export async function adminListRecentBacklinkScans(limit = 20) {
   return request<{ scans: AdminRecentBacklinkScan[] }>(`/api/admin/providers/seo-backlinks/scans?limit=${limit}`, {});
+}
+
+// ─── Admin: SEO Keyword Research platform stats ──────────────────────────
+
+export interface AdminKeywordsPlatformStats {
+  totalRuns: number;
+  completedRuns: number;
+  runningRuns: number;
+  failedRuns: number;
+  workspacesUsed: number;
+  totalKeywordsLookedUp: number;
+}
+
+export async function adminGetKeywordsStats() {
+  return request<AdminKeywordsPlatformStats>('/api/admin/providers/seo-keywords/stats', {});
+}
+
+export interface AdminRecentKeywordRun {
+  id: string;
+  workspace_id: string;
+  workspace_name: string | null;
+  seed_keywords: string[];
+  provider: string;
+  status: string;
+  total_keywords: number | null;
+  error_category: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export async function adminListRecentKeywordRuns(limit = 20) {
+  return request<{ runs: AdminRecentKeywordRun[] }>(`/api/admin/providers/seo-keywords/runs?limit=${limit}`, {});
+}
+
+// ─── Admin: SEO Rank Tracking platform stats ─────────────────────────────
+
+export interface AdminRankTrackingPlatformStats {
+  totalTrackedKeywords: number;
+  activeTrackedKeywords: number;
+  workspacesUsed: number;
+  checksLast24h: number;
+}
+
+export async function adminGetRankTrackingStats() {
+  return request<AdminRankTrackingPlatformStats>('/api/admin/providers/seo-rank-tracking/stats', {});
+}
+
+export interface AdminRecentRankCheck {
+  id: string;
+  workspace_id: string;
+  workspace_name: string | null;
+  keyword: string;
+  position: number | null;
+  provider: string;
+  checked_at: string;
+}
+
+export async function adminListRecentRankChecks(limit = 20) {
+  return request<{ checks: AdminRecentRankCheck[] }>(`/api/admin/providers/seo-rank-tracking/checks?limit=${limit}`, {});
 }
 
 // ─── Phone verification (account-level OTP) ──────────────────────

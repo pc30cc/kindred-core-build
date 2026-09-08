@@ -125,6 +125,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/140_seo_backlinks.sql',
     hosted: 'supabase/migrations/20260909130000_seo_backlinks.sql',
   },
+  {
+    label: '141 — SEO Keyword Research + Rank Tracking modules',
+    selfHost: 'database/migrations/141_seo_keywords_and_rank_tracking.sql',
+    hosted: 'supabase/migrations/20260909140000_seo_keywords_and_rank_tracking.sql',
+  },
 
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered

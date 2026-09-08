@@ -217,6 +217,21 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'seo_backlinks_max_per_scan',            type: 'limit', label: 'SEO — Max backlinks per scan',       group: 'seo', description: 'Maximum number of backlink rows fetched and stored in a single backlink scan.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 50 },
   { key: 'seo_backlinks_workspace_concurrent_scans', type: 'limit', label: 'SEO — Concurrent backlink scans', group: 'seo', description: 'Maximum number of backlink scans that may be queued or running at once for the whole workspace.', defaultValue: 1, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 60 },
   { key: 'seo_backlinks_scan_frequency_hours',    type: 'limit', label: 'SEO — Backlink re-scan cooldown (hours)', group: 'seo', description: 'Minimum number of hours that must pass since a website\'s last backlink scan before another one may be started for it.', defaultValue: 168, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 70 },
+
+  // ─── SEO Keyword Research (server/services/seo/keywordsLimits.ts).
+  // Same "opt-in, 0 on Free" reasoning as Backlinks — a vendor lookup costs
+  // the platform real money. ───
+  { key: 'seo_keywords', type: 'module', label: 'SEO — Keyword Research', group: 'modules', description: 'Look up search volume, CPC and competition for a list of seed keywords, via a platform-configured keyword data provider.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 132 },
+  { key: 'seo_keywords_max_per_lookup',              type: 'limit', label: 'SEO — Max keywords per lookup',      group: 'seo', description: 'Maximum number of seed keywords accepted in a single keyword research lookup.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 80 },
+  { key: 'seo_keywords_workspace_concurrent_runs',   type: 'limit', label: 'SEO — Concurrent keyword lookups',   group: 'seo', description: 'Maximum number of keyword research lookups that may be queued or running at once for the whole workspace.', defaultValue: 1, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 90 },
+  { key: 'seo_keywords_lookup_frequency_hours',      type: 'limit', label: 'SEO — Keyword lookup cooldown (hours)', group: 'seo', description: 'Minimum number of hours that must pass since a website\'s last keyword research lookup before another one may be started for it.', defaultValue: 24, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 100 },
+
+  // ─── SEO Rank Tracking (server/services/seo/rankTrackingLimits.ts).
+  // Same "opt-in, 0 on Free" reasoning — every recurring check costs the
+  // platform real money via server/services/seo/rankTrackingTicker.ts. ───
+  { key: 'seo_rank_tracking', type: 'module', label: 'SEO — Rank Tracking', group: 'modules', description: 'Track a watchlist of keywords and periodically record their Google ranking position for a website registered in the workspace.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 133 },
+  { key: 'seo_rank_tracking_max_keywords',           type: 'limit', label: 'SEO — Max tracked keywords per site', group: 'seo', description: 'Maximum number of keywords a single website may have on its rank-tracking watchlist at once.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 110 },
+  { key: 'seo_rank_tracking_check_frequency_hours',  type: 'limit', label: 'SEO — Rank re-check interval (hours)', group: 'seo', description: 'How often (in hours) each tracked keyword\'s position is re-checked. 24 = daily, 168 = weekly.', defaultValue: 168, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 120 },
 ];
 
 

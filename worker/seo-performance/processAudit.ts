@@ -81,7 +81,7 @@ export async function processPerformanceAudit(
     const row = pending[i];
     try {
       const { result } = await auditUrlPerformance(config, row.url, AUDIT_STRATEGY);
-      await sb.from('seo_performance_results').update({
+      const { error: updateError, count } = await sb.from('seo_performance_results').update({
         status: 'completed',
         performance_score: result.performanceScore,
         accessibility_score: result.accessibilityScore,
@@ -93,7 +93,14 @@ export async function processPerformanceAudit(
         fcp_ms: result.fcpMs,
         tbt_ms: result.tbtMs,
         raw_summary: result.rawSummary,
-      }).eq('id', row.id);
+      }, { count: 'exact' }).eq('id', row.id);
+      // The Supabase client resolves query errors on the object rather than
+      // throwing — without this check a rejected write (e.g. a value that
+      // doesn't fit the column type) would silently leave the row 'pending'
+      // while still being counted here as a success.
+      if (updateError || !count) {
+        throw new Error(`seo_performance_results_update_failed: ${updateError?.message || 'no rows matched'}`);
+      }
       audited++;
     } catch (err) {
       const { category, message } = classifyPerformanceAuditError(err);

@@ -9,9 +9,13 @@
  */
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 vi.mock('@/i18n', () => ({ useTranslation: () => ({ t: (k: string) => k, dir: 'ltr' }) }));
-vi.mock('@/hooks/useWorkspace', () => ({ useActiveWorkspace: () => ({ workspace: { id: 'ws-1' } }) }));
+vi.mock('@/hooks/useWorkspace', () => ({
+  useActiveWorkspace: () => ({ workspace: { id: 'ws-1', slug: 'ws-1' } }),
+  useWorkspacePath: () => (path: string) => `/ws-1${path}`,
+}));
 vi.mock('@/lib/toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const cancelledCrawl = {
@@ -48,7 +52,13 @@ const SeoPage = (await import('@/pages/app/seo/SeoPage')).default;
 
 describe('SeoPage — cancelled crawl status', () => {
   it('renders the cancelled empty-state (not a blank page) when the latest crawl was cancelled', () => {
-    render(<SeoPage />);
+    render(
+      <MemoryRouter initialEntries={['/ws-1/seo/site-audit/overview']}>
+        <Routes>
+          <Route path="/:slug/seo/:section/:subsection" element={<SeoPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
     expect(screen.getByText('seo.empty.cancelledTitle')).toBeInTheDocument();
     expect(screen.getByText('seo.empty.cancelledCta')).toBeInTheDocument();
   });

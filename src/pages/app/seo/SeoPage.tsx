@@ -1,6 +1,10 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
-import { useActiveWorkspace } from '@/hooks/useWorkspace';
+import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
+import { SEO_SECTIONS, findSection, firstLeafKey, findLeaf } from './seoNavTree';
+import { SeoSectionNav } from './SeoSectionNav';
+import { SeoRoadmapPlaceholder } from './SeoRoadmapPlaceholder';
 import {
   useSeoSites, useSeoLimits, useLatestCrawl, useCrawlHistory, useStartCrawl, useCancelCrawl,
   useCrawl, useCrawlPages, useCrawlIssues, useIssueAffectedUrls, useCrawlLinks, useCrawlSitemaps,
@@ -15,7 +19,6 @@ import { toast } from '@/lib/toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -25,8 +28,8 @@ import { SkeletonStats, SkeletonTable } from '@/components/common/Skeletons';
 import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
 import {
   Radar, RefreshCw, AlertTriangle, CheckCircle2, XCircle, ArrowLeft, ExternalLink, Link2, Lock,
-  Globe2, TrendingUp, Sparkles, ShieldCheck, LayoutDashboard, FileText, Link as LinkIcon, Map as MapIcon,
-  Search, LineChart, Gauge, History as HistoryIcon, Plus, Trash2, Minus, ArrowUp, ArrowDown, Target,
+  Globe2, TrendingUp, Sparkles, ShieldCheck,
+  Search, LineChart, Gauge, Plus, Trash2, Minus, ArrowUp, ArrowDown, Target,
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -114,6 +117,21 @@ export default function SeoPage() {
   const { t } = useTranslation();
   const { workspace } = useActiveWorkspace();
   const workspaceId = workspace?.id;
+  const wsPath = useWorkspacePath();
+  const navigate = useNavigate();
+  const { section: sectionParam, subsection: subsectionParam } = useParams<{ section?: string; subsection?: string }>();
+
+  const activeSection = findSection(sectionParam);
+
+  // Canonicalize the URL: bare /seo, or a section with no subsection, redirect
+  // to that section's first report so the nav's active state is always well-defined.
+  useEffect(() => {
+    if (!sectionParam) {
+      navigate(wsPath(`/seo/${activeSection.key}/${firstLeafKey(activeSection)}`), { replace: true });
+    } else if (!subsectionParam) {
+      navigate(wsPath(`/seo/${activeSection.key}/${firstLeafKey(activeSection)}`), { replace: true });
+    }
+  }, [sectionParam, subsectionParam, activeSection, navigate, wsPath]);
 
   const { data: sitesData, isLoading: sitesLoading } = useSeoSites(workspaceId);
   const sites = sitesData?.sites || [];
@@ -122,18 +140,6 @@ export default function SeoPage() {
   useEffect(() => {
     if (!siteId && sites.length === 1) setSiteId(sites[0].id);
   }, [sites, siteId]);
-
-  const { data: limitsData } = useSeoLimits(workspaceId);
-  const { data: latestData, isLoading: latestLoading } = useLatestCrawl(workspaceId, siteId);
-  const { data: historyData } = useCrawlHistory(workspaceId, siteId, 20, 0);
-  const startCrawl = useStartCrawl(workspaceId || '');
-  const cancelCrawl = useCancelCrawl(workspaceId || '');
-
-  const [activeCrawlId, setActiveCrawlId] = useState<string | undefined>(undefined);
-  const latestCrawl = latestData?.crawl || null;
-  const crawlId = activeCrawlId || latestCrawl?.id;
-  const { data: crawlData } = useCrawl(workspaceId, crawlId);
-  const crawl = crawlData?.crawl || latestCrawl;
 
   if (!workspaceId || sitesLoading) {
     return <div className="p-6"><SkeletonStats count={4} /></div>;
@@ -154,21 +160,50 @@ export default function SeoPage() {
     );
   }
 
-  const handleStart = () => {
-    if (!siteId) return;
-    startCrawl.mutate(siteId, {
-      onSuccess: (res) => setActiveCrawlId(res.crawl.id),
-      onError: (err) => toast.error(startCrawlErrorMessage(t, err)),
-    });
-  };
+  const subsectionKey = subsectionParam || firstLeafKey(activeSection);
 
   return (
-    <div className="p-6 space-y-6">
-      <PageHeader />
+    <div className="flex h-full flex-col">
+      <div className="p-6 pb-0"><PageHeader /></div>
+      <div className="mt-4 flex min-h-0 flex-1 items-stretch gap-0 px-6 pb-6">
+        <SeoSectionNav activeSectionKey={activeSection.key} activeSubsectionKey={subsectionKey} />
+        <div className="flex-1 overflow-y-auto rounded-e-xl border border-s-0 border-border/60 bg-background p-6">
+          {activeSection.needsSite ? (
+            <SiteScopedSection
+              workspaceId={workspaceId}
+              sites={sites}
+              siteId={siteId}
+              onSiteChange={setSiteId}
+              section={activeSection}
+              subsectionKey={subsectionKey}
+            />
+          ) : (
+            <SeoRoadmapPlaceholder label={t(findLeaf(activeSection, subsectionKey)?.labelKey as any || activeSection.labelKey as any)} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
+/** Handles the three site-scoped tools (Site Audit, Rank Tracker, Site Explorer): site picker + per-tool content. */
+function SiteScopedSection({
+  workspaceId, sites, siteId, onSiteChange, section, subsectionKey,
+}: {
+  workspaceId: string;
+  sites: { id: string; domain: string }[];
+  siteId: string | undefined;
+  onSiteChange: (id: string) => void;
+  section: ReturnType<typeof findSection>;
+  subsectionKey: string;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <div className="space-y-6">
       {sites.length > 1 && (
         <div className="max-w-xs">
-          <Select value={siteId} onValueChange={(v) => { setSiteId(v); setActiveCrawlId(undefined); }}>
+          <Select value={siteId} onValueChange={onSiteChange}>
             <SelectTrigger>
               <SelectValue placeholder={t('seo.sitePlaceholder')} />
             </SelectTrigger>
@@ -181,86 +216,149 @@ export default function SeoPage() {
         </div>
       )}
 
-      {siteId && latestLoading && <SkeletonStats count={4} />}
-
-      {siteId && !latestLoading && !crawl && (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-            <Radar className="h-10 w-10 text-muted-foreground" />
-            <h3 className="text-lg font-semibold">{t('seo.empty.neverCrawledTitle')}</h3>
-            <p className="max-w-md text-sm text-muted-foreground">{t('seo.empty.neverCrawledDescription')}</p>
-            {limitsData && (
-              <p className="text-xs text-muted-foreground">{t('seo.limits.maxPages', { count: limitsData.limits.seo_max_pages_per_crawl })}</p>
-            )}
-            <Button onClick={handleStart} disabled={startCrawl.isPending} className="gap-2">
-              <Radar className="h-4 w-4" /> {t('seo.empty.neverCrawledCta')}
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {siteId && crawl && (crawl.status === 'queued' || crawl.status === 'running' || crawl.status === 'processing') && (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center gap-4 py-16 text-center">
-            <Radar className="h-10 w-10 animate-pulse text-primary" />
-            <h3 className="text-lg font-semibold">{t('seo.empty.runningTitle')}</h3>
-            <p className="max-w-md text-sm text-muted-foreground">{t('seo.empty.runningDescription')}</p>
-            <div className="w-full max-w-sm space-y-2">
-              <Progress value={crawl.progress} />
-              <p className="text-xs text-muted-foreground">
-                {crawl.progress_stage ? (t(`seo.stage.${crawl.progress_stage.split(':')[0]}` as any) || crawl.progress_stage) : t('seo.stage.preparing')}
-                {crawl.pages_crawled > 0 ? ` · ${crawl.pages_crawled}` : ''}
-              </p>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => cancelCrawl.mutate(crawl.id, { onError: (err) => toast.error(startCrawlErrorMessage(t, err)) })}
-              disabled={cancelCrawl.isPending}
-            >
-              {t('seo.cancelCrawl')}
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {siteId && crawl && crawl.status === 'failed' && (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-            <XCircle className="h-10 w-10 text-destructive" />
-            <h3 className="text-lg font-semibold">{t('seo.empty.failedTitle')}</h3>
-            {crawl.error_message && <p className="max-w-md text-sm text-muted-foreground">{crawl.error_message}</p>}
-            <Button onClick={handleStart} disabled={startCrawl.isPending} className="gap-2">
-              <RefreshCw className="h-4 w-4" /> {t('seo.empty.failedCta')}
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {siteId && crawl && crawl.status === 'cancelled' && (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-            <XCircle className="h-10 w-10 text-muted-foreground" />
-            <h3 className="text-lg font-semibold">{t('seo.empty.cancelledTitle')}</h3>
-            <p className="max-w-md text-sm text-muted-foreground">{t('seo.empty.cancelledDescription')}</p>
-            <Button onClick={handleStart} disabled={startCrawl.isPending} className="gap-2">
-              <Radar className="h-4 w-4" /> {t('seo.empty.cancelledCta')}
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {siteId && crawl && crawl.status === 'completed' && (
-        <SeoDashboard
-          workspaceId={workspaceId}
-          siteId={siteId}
-          crawl={crawl}
-          onRunAgain={handleStart}
-          runPending={startCrawl.isPending}
-          history={historyData?.crawls || []}
-        />
-      )}
+      {!siteId ? (
+        <p className="text-sm text-muted-foreground">{t('seo.sitePlaceholder')}</p>
+      ) : section.key === 'site-audit' ? (
+        <SiteAuditSection key={siteId} workspaceId={workspaceId} siteId={siteId} subsectionKey={subsectionKey} />
+      ) : section.key === 'rank-tracker' ? (
+        <RankTrackerSection key={siteId} workspaceId={workspaceId} siteId={siteId} subsectionKey={subsectionKey} />
+      ) : section.key === 'site-explorer' ? (
+        <SiteExplorerSection key={siteId} workspaceId={workspaceId} siteId={siteId} subsectionKey={subsectionKey} />
+      ) : null}
     </div>
+  );
+}
+
+function RankTrackerSection({ workspaceId, siteId, subsectionKey }: { workspaceId: string; siteId: string; subsectionKey: string }) {
+  const { t } = useTranslation();
+  if (subsectionKey === 'trackedKeywords') {
+    return <PlanLockedOverlay moduleKey="seo_rank_tracking"><RankTrackingTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>;
+  }
+  const leaf = findLeaf(findSection('rank-tracker'), subsectionKey);
+  return <SeoRoadmapPlaceholder label={t((leaf?.labelKey || 'seo.nav.section.rankTracker') as any)} />;
+}
+
+function SiteExplorerSection({ workspaceId, siteId, subsectionKey }: { workspaceId: string; siteId: string; subsectionKey: string }) {
+  const { t } = useTranslation();
+  if (subsectionKey === 'backlinks') {
+    return <PlanLockedOverlay moduleKey="seo_backlinks"><BacklinksTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>;
+  }
+  if (subsectionKey === 'organicKeywords') {
+    return <PlanLockedOverlay moduleKey="seo_keywords"><KeywordsTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>;
+  }
+  const leaf = findLeaf(findSection('site-explorer'), subsectionKey);
+  return <SeoRoadmapPlaceholder label={t((leaf?.labelKey || 'seo.nav.section.siteExplorer') as any)} />;
+}
+
+/** The original crawl-status-gated flow (never crawled / running / failed / cancelled / completed), scoped to the Site Audit tool. */
+function SiteAuditSection({ workspaceId, siteId, subsectionKey }: { workspaceId: string; siteId: string; subsectionKey: string }) {
+  const { t } = useTranslation();
+  const { data: limitsData } = useSeoLimits(workspaceId);
+  const { data: latestData, isLoading: latestLoading } = useLatestCrawl(workspaceId, siteId);
+  const { data: historyData } = useCrawlHistory(workspaceId, siteId, 20, 0);
+  const startCrawl = useStartCrawl(workspaceId);
+  const cancelCrawl = useCancelCrawl(workspaceId);
+
+  const [activeCrawlId, setActiveCrawlId] = useState<string | undefined>(undefined);
+  const latestCrawl = latestData?.crawl || null;
+  const crawlId = activeCrawlId || latestCrawl?.id;
+  const { data: crawlData } = useCrawl(workspaceId, crawlId);
+  const crawl = crawlData?.crawl || latestCrawl;
+
+  const handleStart = () => {
+    startCrawl.mutate(siteId, {
+      onSuccess: (res) => setActiveCrawlId(res.crawl.id),
+      onError: (err) => toast.error(startCrawlErrorMessage(t, err)),
+    });
+  };
+
+  if (latestLoading) return <SkeletonStats count={4} />;
+
+  if (!crawl) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+          <Radar className="h-10 w-10 text-muted-foreground" />
+          <h3 className="text-lg font-semibold">{t('seo.empty.neverCrawledTitle')}</h3>
+          <p className="max-w-md text-sm text-muted-foreground">{t('seo.empty.neverCrawledDescription')}</p>
+          {limitsData && (
+            <p className="text-xs text-muted-foreground">{t('seo.limits.maxPages', { count: limitsData.limits.seo_max_pages_per_crawl })}</p>
+          )}
+          <Button onClick={handleStart} disabled={startCrawl.isPending} className="gap-2">
+            <Radar className="h-4 w-4" /> {t('seo.empty.neverCrawledCta')}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (crawl.status === 'queued' || crawl.status === 'running' || crawl.status === 'processing') {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center gap-4 py-16 text-center">
+          <Radar className="h-10 w-10 animate-pulse text-primary" />
+          <h3 className="text-lg font-semibold">{t('seo.empty.runningTitle')}</h3>
+          <p className="max-w-md text-sm text-muted-foreground">{t('seo.empty.runningDescription')}</p>
+          <div className="w-full max-w-sm space-y-2">
+            <Progress value={crawl.progress} />
+            <p className="text-xs text-muted-foreground">
+              {crawl.progress_stage ? (t(`seo.stage.${crawl.progress_stage.split(':')[0]}` as any) || crawl.progress_stage) : t('seo.stage.preparing')}
+              {crawl.pages_crawled > 0 ? ` · ${crawl.pages_crawled}` : ''}
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => cancelCrawl.mutate(crawl.id, { onError: (err) => toast.error(startCrawlErrorMessage(t, err)) })}
+            disabled={cancelCrawl.isPending}
+          >
+            {t('seo.cancelCrawl')}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (crawl.status === 'failed') {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+          <XCircle className="h-10 w-10 text-destructive" />
+          <h3 className="text-lg font-semibold">{t('seo.empty.failedTitle')}</h3>
+          {crawl.error_message && <p className="max-w-md text-sm text-muted-foreground">{crawl.error_message}</p>}
+          <Button onClick={handleStart} disabled={startCrawl.isPending} className="gap-2">
+            <RefreshCw className="h-4 w-4" /> {t('seo.empty.failedCta')}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (crawl.status === 'cancelled') {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+          <XCircle className="h-10 w-10 text-muted-foreground" />
+          <h3 className="text-lg font-semibold">{t('seo.empty.cancelledTitle')}</h3>
+          <p className="max-w-md text-sm text-muted-foreground">{t('seo.empty.cancelledDescription')}</p>
+          <Button onClick={handleStart} disabled={startCrawl.isPending} className="gap-2">
+            <Radar className="h-4 w-4" /> {t('seo.empty.cancelledCta')}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <SeoDashboard
+      workspaceId={workspaceId}
+      siteId={siteId}
+      crawl={crawl}
+      onRunAgain={handleStart}
+      runPending={startCrawl.isPending}
+      history={historyData?.crawls || []}
+      subsectionKey={subsectionKey}
+    />
   );
 }
 
@@ -275,7 +373,7 @@ function PageHeader() {
 }
 
 function SeoDashboard({
-  workspaceId, siteId, crawl, onRunAgain, runPending, history,
+  workspaceId, siteId, crawl, onRunAgain, runPending, history, subsectionKey,
 }: {
   workspaceId: string;
   siteId: string;
@@ -283,6 +381,7 @@ function SeoDashboard({
   onRunAgain: () => void;
   runPending: boolean;
   history: SeoCrawl[];
+  subsectionKey: string;
 }) {
   const { t } = useTranslation();
   const { data: issuesData } = useCrawlIssues(workspaceId, crawl.id, { limit: 200 });
@@ -307,59 +406,15 @@ function SeoDashboard({
         </Button>
       </div>
 
-      <Tabs defaultValue="overview">
-        <TabsList className="h-auto w-full flex-wrap justify-start gap-1.5 rounded-xl bg-muted/60 p-2">
-          <TabsTrigger value="overview" className="gap-2 rounded-lg px-4 py-2.5 text-sm font-medium data-[state=active]:shadow-md">
-            <LayoutDashboard className="h-4 w-4" /> {t('seo.tabs.overview')}
-          </TabsTrigger>
-          <TabsTrigger value="issues" className="gap-2 rounded-lg px-4 py-2.5 text-sm font-medium data-[state=active]:shadow-md">
-            <AlertTriangle className="h-4 w-4" /> {t('seo.tabs.issues')}
-          </TabsTrigger>
-          <TabsTrigger value="pages" className="gap-2 rounded-lg px-4 py-2.5 text-sm font-medium data-[state=active]:shadow-md">
-            <FileText className="h-4 w-4" /> {t('seo.tabs.pages')}
-          </TabsTrigger>
-          <TabsTrigger value="links" className="gap-2 rounded-lg px-4 py-2.5 text-sm font-medium data-[state=active]:shadow-md">
-            <LinkIcon className="h-4 w-4" /> {t('seo.tabs.links')}
-          </TabsTrigger>
-          <TabsTrigger value="sitemap" className="gap-2 rounded-lg px-4 py-2.5 text-sm font-medium data-[state=active]:shadow-md">
-            <MapIcon className="h-4 w-4" /> {t('seo.tabs.sitemap')}
-          </TabsTrigger>
-          <TabsTrigger value="backlinks" className="gap-2 rounded-lg px-4 py-2.5 text-sm font-medium data-[state=active]:shadow-md">
-            <Link2 className="h-4 w-4" /> {t('seo.tabs.backlinks')}
-          </TabsTrigger>
-          <TabsTrigger value="keywords" className="gap-2 rounded-lg px-4 py-2.5 text-sm font-medium data-[state=active]:shadow-md">
-            <Search className="h-4 w-4" /> {t('seo.tabs.keywords')}
-          </TabsTrigger>
-          <TabsTrigger value="rankTracking" className="gap-2 rounded-lg px-4 py-2.5 text-sm font-medium data-[state=active]:shadow-md">
-            <LineChart className="h-4 w-4" /> {t('seo.tabs.rankTracking')}
-          </TabsTrigger>
-          <TabsTrigger value="performance" className="gap-2 rounded-lg px-4 py-2.5 text-sm font-medium data-[state=active]:shadow-md">
-            <Gauge className="h-4 w-4" /> {t('seo.tabs.performance')}
-          </TabsTrigger>
-          <TabsTrigger value="history" className="gap-2 rounded-lg px-4 py-2.5 text-sm font-medium data-[state=active]:shadow-md">
-            <HistoryIcon className="h-4 w-4" /> {t('seo.tabs.history')}
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="overview"><OverviewTab crawl={crawl} issues={issues} /></TabsContent>
-        <TabsContent value="issues"><IssuesTab workspaceId={workspaceId} crawlId={crawl.id} /></TabsContent>
-        <TabsContent value="pages"><PagesTab workspaceId={workspaceId} crawlId={crawl.id} /></TabsContent>
-        <TabsContent value="links"><LinksTab workspaceId={workspaceId} crawlId={crawl.id} /></TabsContent>
-        <TabsContent value="sitemap"><SitemapTab workspaceId={workspaceId} crawlId={crawl.id} crawl={crawl} /></TabsContent>
-        <TabsContent value="backlinks">
-          <PlanLockedOverlay moduleKey="seo_backlinks"><BacklinksTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>
-        </TabsContent>
-        <TabsContent value="keywords">
-          <PlanLockedOverlay moduleKey="seo_keywords"><KeywordsTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>
-        </TabsContent>
-        <TabsContent value="rankTracking">
-          <PlanLockedOverlay moduleKey="seo_rank_tracking"><RankTrackingTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>
-        </TabsContent>
-        <TabsContent value="performance">
-          <PlanLockedOverlay moduleKey="seo_performance"><PerformanceTab workspaceId={workspaceId} crawlId={crawl.id} /></PlanLockedOverlay>
-        </TabsContent>
-        <TabsContent value="history"><HistoryTab workspaceId={workspaceId} crawl={crawl} history={history} /></TabsContent>
-      </Tabs>
+      {subsectionKey === 'overview' && <OverviewTab crawl={crawl} issues={issues} />}
+      {subsectionKey === 'issues' && <IssuesTab workspaceId={workspaceId} crawlId={crawl.id} />}
+      {subsectionKey === 'pages' && <PagesTab workspaceId={workspaceId} crawlId={crawl.id} />}
+      {subsectionKey === 'links' && <LinksTab workspaceId={workspaceId} crawlId={crawl.id} />}
+      {subsectionKey === 'sitemap' && <SitemapTab workspaceId={workspaceId} crawlId={crawl.id} crawl={crawl} />}
+      {subsectionKey === 'performance' && (
+        <PlanLockedOverlay moduleKey="seo_performance"><PerformanceTab workspaceId={workspaceId} crawlId={crawl.id} /></PlanLockedOverlay>
+      )}
+      {subsectionKey === 'history' && <HistoryTab workspaceId={workspaceId} crawl={crawl} history={history} />}
     </div>
   );
 }

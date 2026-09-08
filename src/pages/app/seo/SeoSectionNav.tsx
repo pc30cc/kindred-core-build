@@ -1,0 +1,99 @@
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { ChevronDown } from 'lucide-react';
+import { useTranslation } from '@/i18n';
+import { useWorkspacePath } from '@/hooks/useWorkspace';
+import { cn } from '@/lib/utils';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Badge } from '@/components/ui/badge';
+import { SEO_SECTIONS, findSection, firstLeafKey, type SeoNavGroup, type SeoNavLeaf } from './seoNavTree';
+
+function SubNavLeafLink({
+  sectionKey, leaf, active,
+}: { sectionKey: string; leaf: SeoNavLeaf; active: boolean }) {
+  const { t } = useTranslation();
+  const wsPath = useWorkspacePath();
+  return (
+    <Link
+      to={wsPath(`/seo/${sectionKey}/${leaf.key}`)}
+      className={cn(
+        'flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors',
+        active ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+      )}
+    >
+      <span className="truncate">{t(leaf.labelKey as any)}</span>
+      {!leaf.built && <Badge variant="outline" className="shrink-0 text-[9px] font-normal text-muted-foreground">{t('seo.nav.soon' as any)}</Badge>}
+    </Link>
+  );
+}
+
+function SubNavGroup({
+  sectionKey, group, activeSubsectionKey,
+}: { sectionKey: string; group: SeoNavGroup; activeSubsectionKey: string | undefined }) {
+  const { t } = useTranslation();
+  const hasActiveChild = group.children.some((c) => c.key === activeSubsectionKey);
+  const [open, setOpen] = useState(hasActiveChild);
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+        <span className="truncate font-medium">{t(group.labelKey as any)}</span>
+        <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 transition-transform', open && 'rotate-180')} />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="ms-2 space-y-0.5 border-s border-border/60 ps-2 pt-0.5">
+        {group.children.map((child) => (
+          <SubNavLeafLink key={child.key} sectionKey={sectionKey} leaf={child} active={child.key === activeSubsectionKey} />
+        ))}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+export function SeoSectionNav({
+  activeSectionKey, activeSubsectionKey,
+}: { activeSectionKey: string; activeSubsectionKey: string | undefined }) {
+  const { t } = useTranslation();
+  const wsPath = useWorkspacePath();
+  const activeSection = findSection(activeSectionKey);
+
+  return (
+    <div className="flex shrink-0">
+      {/* Tool switcher — icon rail */}
+      <TooltipProvider delayDuration={150}>
+        <nav className="flex w-16 flex-col items-center gap-1.5 border-e border-border/60 bg-muted/30 py-3">
+          {SEO_SECTIONS.map((s) => {
+            const active = s.key === activeSectionKey;
+            const Icon = s.icon;
+            return (
+              <Tooltip key={s.key}>
+                <TooltipTrigger asChild>
+                  <Link
+                    to={wsPath(`/seo/${s.key}/${firstLeafKey(s)}`)}
+                    className={cn(
+                      'flex h-11 w-11 items-center justify-center rounded-xl transition-colors',
+                      active ? 'bg-primary text-primary-foreground shadow-md' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                    )}
+                  >
+                    <Icon className="h-5 w-5" />
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="text-xs font-medium">{t(s.labelKey as any)}</TooltipContent>
+              </Tooltip>
+            );
+          })}
+        </nav>
+      </TooltipProvider>
+
+      {/* Active tool's report list */}
+      <div className="flex w-56 flex-col gap-0.5 overflow-y-auto bg-card p-3">
+        <h3 className="truncate px-2 pb-2 text-sm font-semibold text-foreground">{t(activeSection.labelKey as any)}</h3>
+        {activeSection.items.map((item) => (
+          item.type === 'leaf'
+            ? <SubNavLeafLink key={item.key} sectionKey={activeSection.key} leaf={item} active={item.key === activeSubsectionKey} />
+            : <SubNavGroup key={item.key} sectionKey={activeSection.key} group={item} activeSubsectionKey={activeSubsectionKey} />
+        ))}
+      </div>
+    </div>
+  );
+}

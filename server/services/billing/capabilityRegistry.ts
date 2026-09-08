@@ -239,6 +239,15 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'seo_performance', type: 'module', label: 'SEO — Performance Auditing', group: 'modules', description: 'Fetch Core Web Vitals and Lighthouse category scores for a website\'s pages, via a platform-configured performance data provider.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 134 },
   { key: 'seo_performance_max_pages_per_audit',      type: 'limit', label: 'SEO — Max pages per performance audit', group: 'seo', description: 'Maximum number of pages audited for Core Web Vitals in a single performance audit run.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 130 },
   { key: 'seo_performance_audit_frequency_hours',    type: 'limit', label: 'SEO — Performance re-audit cooldown (hours)', group: 'seo', description: 'Minimum number of hours that must pass since a crawl\'s last performance audit before another one may be started for it.', defaultValue: 168, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'hours', sortOrder: 140 },
+
+  // ─── SEO GSC Insights (server/services/seo/gsc). Unlike the other four
+  // SEO modules there is no platform-level vendor credential — each
+  // workspace authorizes its OWN Google account via OAuth, so the only
+  // platform-configurable knobs are how many properties may be linked and
+  // how often cached Search Console data may be refreshed. ───
+  { key: 'seo_gsc_insights', type: 'module', label: 'SEO — GSC Insights', group: 'modules', description: 'Connect a Google Search Console property and browse its search performance data (clicks, impressions, CTR, position) directly inside the workspace.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 135 },
+  { key: 'seo_gsc_max_properties',      type: 'limit', label: 'SEO — Max connected GSC properties', group: 'seo', description: 'Maximum number of Google Search Console properties a workspace may link at once.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 150 },
+  { key: 'seo_gsc_sync_frequency_hours', type: 'limit', label: 'SEO — GSC data refresh cooldown (hours)', group: 'seo', description: 'Minimum number of hours between refreshes of cached Search Console data for a linked property.', defaultValue: 6, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'hours', sortOrder: 160 },
 ];
 
 

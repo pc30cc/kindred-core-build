@@ -26,6 +26,23 @@ import { resolveBacklinksLimits } from '../services/seo/backlinksLimits.js';
 import { resolveKeywordsLimits } from '../services/seo/keywordsLimits.js';
 import { resolveRankTrackingLimits } from '../services/seo/rankTrackingLimits.js';
 import { resolvePerformanceLimits } from '../services/seo/performanceLimits.js';
+import { resolveGscLimits } from '../services/seo/gscLimits.js';
+import {
+  isGscPlatformConfigured,
+  startGscOAuth,
+  handleGscOAuthCallback,
+  getConnectionInfo as getGscConnectionInfo,
+  disconnectGsc,
+  listProperties as listGscProperties,
+  discoverAvailableSites,
+  linkProperty as linkGscProperty,
+  unlinkProperty as unlinkGscProperty,
+  setPrimaryProperty as setPrimaryGscProperty,
+  querySearchAnalytics,
+} from '../services/seo/gsc/index.js';
+import { isGscError, type GscDimension } from '../services/seo/gsc/types.js';
+import { resolveAppBaseUrl } from '../services/invitations/tokens.js';
+import { getServiceClient } from '../supabase.js';
 import {
   createCrawl,
   getCrawl,
@@ -611,4 +628,206 @@ seoRouter.get('/:workspaceId/performance-audits/:auditId/results', requireModule
   if (!audit) return res.status(404).json({ error: 'audit_not_found' });
   const results = await listPerformanceResults(configOf(req), workspaceId, auditId);
   res.json({ results });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// SEO GSC Insights — the one SEO module with no platform-level vendor
+// credential: each workspace authorizes its OWN Google account via OAuth
+// (server/services/seo/gsc). The consent-callback route below is the ONLY
+// route in this router that is NOT workspace-scoped in its path — Google
+// requires one fixed, pre-registered redirect_uri, so the workspace travels
+// instead inside the signed, single-use `state` token minted by the
+// /gsc/oauth/start route and verified server-side in handleGscOAuthCallback.
+// ─────────────────────────────────────────────────────────────────────────
+
+const GSC_DIMENSIONS = ['query', 'page', 'device', 'country', 'date', 'searchAppearance'] as const;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function gscErrorStatus(code: string): number {
+  switch (code) {
+    case 'gsc_not_configured':
+    case 'gsc_not_connected':
+    case 'gsc_no_property_linked':
+      return 409;
+    case 'gsc_property_not_found':
+      return 404;
+    case 'gsc_invalid_state':
+    case 'gsc_auth_failed':
+    case 'gsc_token_revoked':
+      return 401;
+    case 'gsc_rate_limited':
+      return 429;
+    case 'gsc_limit_reached':
+      return 403;
+    case 'gsc_timeout':
+    case 'gsc_network_error':
+      return 502;
+    default:
+      return 500;
+  }
+}
+
+function sendGscError(res: any, err: unknown) {
+  if (isGscError(err)) {
+    return res.status(gscErrorStatus(err.code)).json({ error: err.code, message: err.message, upgrade_required: err.code === 'gsc_limit_reached' });
+  }
+  res.status(500).json({ error: 'gsc_unexpected_error', detail: (err as Error)?.message });
+}
+
+seoRouter.get('/:workspaceId/gsc/limits', async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  const resolved = await resolveGscLimits(configOf(req), workspaceId);
+  res.json({ ...resolved, platformConfigured: isGscPlatformConfigured() });
+});
+
+seoRouter.get('/:workspaceId/gsc/connection', requireModule('seo_gsc_insights'), async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  try {
+    const connection = await getGscConnectionInfo(configOf(req), workspaceId);
+    res.json({ connection, platformConfigured: isGscPlatformConfigured() });
+  } catch (err) {
+    sendGscError(res, err);
+  }
+});
+
+seoRouter.post('/:workspaceId/gsc/oauth/start', requireModule('seo_gsc_insights'), async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  try {
+    const result = await startGscOAuth(configOf(req), workspaceId, auth.userId);
+    res.json(result);
+  } catch (err) {
+    sendGscError(res, err);
+  }
+});
+
+// NOT workspace-scoped — see file header. Never accepts a client-supplied
+// workspaceId; the only source of truth is the signed `state` row.
+seoRouter.get('/gsc/oauth/callback', async (req, res) => {
+  const config = configOf(req);
+  const code = typeof req.query.code === 'string' ? req.query.code : '';
+  const state = typeof req.query.state === 'string' ? req.query.state : '';
+  const appBaseUrl = await resolveAppBaseUrl(config);
+
+  if (!code || !state) {
+    return res.redirect(`${appBaseUrl}/app/seo/gsc-insights/overview?gsc=error&reason=missing_params`);
+  }
+  try {
+    const { workspaceId } = await handleGscOAuthCallback(config, code, state);
+    const sb = getServiceClient(config);
+    const { data: ws } = await sb.from('workspaces').select('slug').eq('id', workspaceId).maybeSingle();
+    const slug = (ws as { slug?: string } | null)?.slug;
+    const base = slug ? `${appBaseUrl}/${slug}` : `${appBaseUrl}/app`;
+    return res.redirect(`${base}/seo/gsc-insights/overview?gsc=connected`);
+  } catch (err) {
+    const code2 = isGscError(err) ? err.code : 'gsc_unexpected_error';
+    return res.redirect(`${appBaseUrl}/app/seo/gsc-insights/overview?gsc=error&reason=${encodeURIComponent(code2)}`);
+  }
+});
+
+seoRouter.post('/:workspaceId/gsc/disconnect', requireModule('seo_gsc_insights'), async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  try {
+    await disconnectGsc(configOf(req), workspaceId);
+    res.json({ ok: true });
+  } catch (err) {
+    sendGscError(res, err);
+  }
+});
+
+seoRouter.get('/:workspaceId/gsc/properties', requireModule('seo_gsc_insights'), async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  try {
+    const properties = await listGscProperties(configOf(req), workspaceId);
+    res.json({ properties });
+  } catch (err) {
+    sendGscError(res, err);
+  }
+});
+
+seoRouter.get('/:workspaceId/gsc/available-sites', requireModule('seo_gsc_insights'), async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  try {
+    const sites = await discoverAvailableSites(configOf(req), workspaceId);
+    res.json({ sites });
+  } catch (err) {
+    sendGscError(res, err);
+  }
+});
+
+seoRouter.post('/:workspaceId/gsc/properties', requireModule('seo_gsc_insights'), async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  const siteUrl = typeof req.body?.siteUrl === 'string' ? req.body.siteUrl.trim() : '';
+  const websiteId = isUuid(req.body?.websiteId) ? req.body.websiteId : null;
+  if (!siteUrl) return res.status(400).json({ error: 'invalid_site_url' });
+  try {
+    const property = await linkGscProperty(configOf(req), workspaceId, siteUrl, websiteId);
+    res.status(201).json({ property });
+  } catch (err) {
+    sendGscError(res, err);
+  }
+});
+
+seoRouter.delete('/:workspaceId/gsc/properties/:propertyId', requireModule('seo_gsc_insights'), async (req, res) => {
+  const { workspaceId, propertyId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  if (!isUuid(propertyId)) return res.status(400).json({ error: 'invalid_property_id' });
+  try {
+    await unlinkGscProperty(configOf(req), workspaceId, propertyId);
+    res.json({ ok: true });
+  } catch (err) {
+    sendGscError(res, err);
+  }
+});
+
+seoRouter.post('/:workspaceId/gsc/properties/:propertyId/primary', requireModule('seo_gsc_insights'), async (req, res) => {
+  const { workspaceId, propertyId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  if (!isUuid(propertyId)) return res.status(400).json({ error: 'invalid_property_id' });
+  try {
+    await setPrimaryGscProperty(configOf(req), workspaceId, propertyId);
+    res.json({ ok: true });
+  } catch (err) {
+    sendGscError(res, err);
+  }
+});
+
+seoRouter.post('/:workspaceId/gsc/properties/:propertyId/search-analytics', requireModule('seo_gsc_insights'), async (req, res) => {
+  const { workspaceId, propertyId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(propertyId)) return res.status(400).json({ error: 'invalid_property_id' });
+
+  const startDate = typeof req.body?.startDate === 'string' ? req.body.startDate : '';
+  const endDate = typeof req.body?.endDate === 'string' ? req.body.endDate : '';
+  const dimensionsRaw = Array.isArray(req.body?.dimensions) ? req.body.dimensions : [];
+  const dimensions = dimensionsRaw.filter((d: unknown): d is GscDimension => (GSC_DIMENSIONS as readonly string[]).includes(d as string));
+  const rowLimit = Number.isFinite(req.body?.rowLimit) ? Math.min(Math.max(Number(req.body.rowLimit), 1), 5000) : undefined;
+  const forceRefresh = req.body?.forceRefresh === true;
+
+  if (!DATE_RE.test(startDate) || !DATE_RE.test(endDate) || dimensions.length === 0) {
+    return res.status(400).json({ error: 'invalid_query_params' });
+  }
+
+  try {
+    const result = await querySearchAnalytics(configOf(req), workspaceId, propertyId, { startDate, endDate, dimensions, rowLimit }, { forceRefresh });
+    res.json(result);
+  } catch (err) {
+    sendGscError(res, err);
+  }
 });

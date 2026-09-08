@@ -287,6 +287,8 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="billing" element={<RequireWorkspaceAdmin><BillingPage /></RequireWorkspaceAdmin>} />
                 <Route path="billing/pay/:kind/:id" element={<RequireWorkspaceAdmin><BillingPaymentPage /></RequireWorkspaceAdmin>} />
                 <Route path="seo" element={<RequireWorkspaceAdmin><SeoPage /></RequireWorkspaceAdmin>} />
+                <Route path="seo/:section" element={<RequireWorkspaceAdmin><SeoPage /></RequireWorkspaceAdmin>} />
+                <Route path="seo/:section/:subsection" element={<RequireWorkspaceAdmin><SeoPage /></RequireWorkspaceAdmin>} />
                 {/* Phase 6-S5-R4 — Knowledge Base is a CORE workspace product.
                     It is ALWAYS available: no plan gate, no AI dependency, no
                     upgrade screen. Only authentication + workspace membership

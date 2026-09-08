@@ -19,6 +19,10 @@ import {
   getGscLimits, getGscConnection, startGscOAuth, disconnectGsc, listGscProperties,
   listGscAvailableSites, linkGscProperty, unlinkGscProperty, setPrimaryGscProperty,
   queryGscSearchAnalytics, type SeoGscDimension,
+  getExplorerLimits, getExplorerHistory,
+  getLatestExplorerBacklinkScan, startExplorerBacklinkScan, listExplorerBacklinks,
+  getLatestExplorerKeywordScan, startExplorerKeywordScan, listExplorerKeywords,
+  type SeoExplorerBacklinkScan, type SeoExplorerKeywordScan,
 } from '@/lib/seo-api';
 
 export function useSeoSites(workspaceId?: string) {
@@ -431,6 +435,88 @@ export function useSetPrimaryGscProperty(workspaceId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['seo-gsc-properties', workspaceId] });
     },
+  });
+}
+
+// ─── SEO Site Explorer ─────────────────────────────────────────────────────
+
+export function useExplorerLimits(workspaceId?: string) {
+  return useQuery({
+    queryKey: ['seo-explorer-limits', workspaceId],
+    queryFn: () => getExplorerLimits(workspaceId!),
+    enabled: !!workspaceId,
+  });
+}
+
+export function useExplorerHistory(workspaceId?: string) {
+  return useQuery({
+    queryKey: ['seo-explorer-history', workspaceId],
+    queryFn: () => getExplorerHistory(workspaceId!),
+    enabled: !!workspaceId,
+  });
+}
+
+export function useLatestExplorerBacklinkScan(workspaceId?: string, domain?: string) {
+  return useQuery({
+    queryKey: ['seo-explorer-latest-backlink-scan', workspaceId, domain],
+    queryFn: () => getLatestExplorerBacklinkScan(workspaceId!, domain!),
+    enabled: !!workspaceId && !!domain,
+    refetchInterval: (q) => {
+      const data = q.state.data as { scan: SeoExplorerBacklinkScan | null } | undefined;
+      if (!data?.scan) return false;
+      return TERMINAL_SEO_STATUSES.has(data.scan.status) ? false : 4000;
+    },
+  });
+}
+
+export function useStartExplorerBacklinkScan(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (domain: string) => startExplorerBacklinkScan(workspaceId, domain),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['seo-explorer-latest-backlink-scan', workspaceId] });
+      qc.invalidateQueries({ queryKey: ['seo-explorer-history', workspaceId] });
+    },
+  });
+}
+
+export function useExplorerBacklinks(workspaceId?: string, scanId?: string, opts: { limit?: number; offset?: number } = {}) {
+  return useQuery({
+    queryKey: ['seo-explorer-backlinks', workspaceId, scanId, opts.limit, opts.offset],
+    queryFn: () => listExplorerBacklinks(workspaceId!, scanId!, opts),
+    enabled: !!workspaceId && !!scanId,
+  });
+}
+
+export function useLatestExplorerKeywordScan(workspaceId?: string, domain?: string) {
+  return useQuery({
+    queryKey: ['seo-explorer-latest-keyword-scan', workspaceId, domain],
+    queryFn: () => getLatestExplorerKeywordScan(workspaceId!, domain!),
+    enabled: !!workspaceId && !!domain,
+    refetchInterval: (q) => {
+      const data = q.state.data as { scan: SeoExplorerKeywordScan | null } | undefined;
+      if (!data?.scan) return false;
+      return TERMINAL_SEO_STATUSES.has(data.scan.status) ? false : 4000;
+    },
+  });
+}
+
+export function useStartExplorerKeywordScan(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (domain: string) => startExplorerKeywordScan(workspaceId, domain),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['seo-explorer-latest-keyword-scan', workspaceId] });
+      qc.invalidateQueries({ queryKey: ['seo-explorer-history', workspaceId] });
+    },
+  });
+}
+
+export function useExplorerKeywords(workspaceId?: string, scanId?: string, opts: { limit?: number; offset?: number } = {}) {
+  return useQuery({
+    queryKey: ['seo-explorer-keywords', workspaceId, scanId, opts.limit, opts.offset],
+    queryFn: () => listExplorerKeywords(workspaceId!, scanId!, opts),
+    enabled: !!workspaceId && !!scanId,
   });
 }
 

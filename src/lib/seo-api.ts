@@ -580,6 +580,138 @@ export function setPrimaryGscProperty(workspaceId: string, propertyId: string) {
   return api<{ ok: boolean }>(`/api/seo/${workspaceId}/gsc/properties/${propertyId}/primary`, { method: 'POST' });
 }
 
+// ─── Site Explorer (arbitrary/competitor domains) ─────────────────────────
+// No siteId anywhere below — every call takes a raw `domain` string. This is
+// the ONLY SEO surface that operates on a domain the workspace never
+// registered in workspace_domains.
+
+export interface SeoExplorerLimits {
+  planSlug: string | null;
+  planName: string | null;
+  limits: {
+    seo_explorer_max_backlinks_per_scan: number;
+    seo_explorer_max_keywords_per_scan: number;
+    seo_explorer_workspace_concurrent_scans: number;
+    seo_explorer_scan_frequency_hours: number;
+    [key: string]: number;
+  };
+}
+
+export interface SeoExplorerHistoryEntry {
+  domain: string;
+  lastLookedUpAt: string;
+}
+
+export interface SeoExplorerBacklinkScan {
+  id: string;
+  target_domain: string;
+  target_url: string;
+  provider: string;
+  max_backlinks: number;
+  status: SeoJobStatus;
+  progress: number;
+  progress_stage: string | null;
+  total_backlinks: number | null;
+  referring_domains: number | null;
+  dofollow_count: number | null;
+  nofollow_count: number | null;
+  new_backlinks: number | null;
+  lost_backlinks: number | null;
+  error_message: string | null;
+  error_category: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export interface SeoExplorerBacklink {
+  id: string;
+  source_url: string;
+  source_domain: string;
+  target_url: string;
+  anchor_text: string | null;
+  is_dofollow: boolean;
+  is_new: boolean;
+  is_lost: boolean;
+  page_rank: number | null;
+  domain_rank: number | null;
+  spam_score: number | null;
+  first_seen: string | null;
+  last_seen: string | null;
+}
+
+export interface SeoExplorerKeywordScan {
+  id: string;
+  target_domain: string;
+  provider: string;
+  max_keywords: number;
+  status: SeoJobStatus;
+  progress: number;
+  progress_stage: string | null;
+  total_keywords: number | null;
+  total_traffic_estimate: number | null;
+  error_message: string | null;
+  error_category: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export interface SeoExplorerKeyword {
+  id: string;
+  keyword: string;
+  search_volume: number | null;
+  cpc: number | null;
+  competition: number | null;
+  position: number | null;
+  ranking_url: string | null;
+  traffic_estimate: number | null;
+}
+
+export function getExplorerLimits(workspaceId: string) {
+  return api<SeoExplorerLimits>(`/api/seo/${workspaceId}/explorer/limits`);
+}
+
+export function getExplorerHistory(workspaceId: string) {
+  return api<{ history: SeoExplorerHistoryEntry[] }>(`/api/seo/${workspaceId}/explorer/history`);
+}
+
+export function getLatestExplorerBacklinkScan(workspaceId: string, domain: string) {
+  return api<{ scan: SeoExplorerBacklinkScan | null }>(`/api/seo/${workspaceId}/explorer/backlink-scans/latest${qs({ domain })}`);
+}
+
+export function startExplorerBacklinkScan(workspaceId: string, domain: string) {
+  return api<{ scan: SeoExplorerBacklinkScan }>(`/api/seo/${workspaceId}/explorer/backlink-scans`, {
+    method: 'POST',
+    body: JSON.stringify({ domain }),
+  });
+}
+
+export function getExplorerBacklinkScan(workspaceId: string, scanId: string) {
+  return api<{ scan: SeoExplorerBacklinkScan }>(`/api/seo/${workspaceId}/explorer/backlink-scans/${scanId}`);
+}
+
+export function listExplorerBacklinks(workspaceId: string, scanId: string, opts: { limit?: number; offset?: number } = {}) {
+  return api<{ backlinks: SeoExplorerBacklink[]; total: number }>(`/api/seo/${workspaceId}/explorer/backlink-scans/${scanId}/backlinks${qs(opts)}`);
+}
+
+export function getLatestExplorerKeywordScan(workspaceId: string, domain: string) {
+  return api<{ scan: SeoExplorerKeywordScan | null }>(`/api/seo/${workspaceId}/explorer/keyword-scans/latest${qs({ domain })}`);
+}
+
+export function startExplorerKeywordScan(workspaceId: string, domain: string) {
+  return api<{ scan: SeoExplorerKeywordScan }>(`/api/seo/${workspaceId}/explorer/keyword-scans`, {
+    method: 'POST',
+    body: JSON.stringify({ domain }),
+  });
+}
+
+export function getExplorerKeywordScan(workspaceId: string, scanId: string) {
+  return api<{ scan: SeoExplorerKeywordScan }>(`/api/seo/${workspaceId}/explorer/keyword-scans/${scanId}`);
+}
+
+export function listExplorerKeywords(workspaceId: string, scanId: string, opts: { limit?: number; offset?: number } = {}) {
+  return api<{ results: SeoExplorerKeyword[]; total: number }>(`/api/seo/${workspaceId}/explorer/keyword-scans/${scanId}/keywords${qs(opts)}`);
+}
+
 export function queryGscSearchAnalytics(
   workspaceId: string,
   propertyId: string,

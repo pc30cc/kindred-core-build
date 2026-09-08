@@ -140,6 +140,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/143_seo_gsc_insights.sql',
     hosted: 'supabase/migrations/20260909160000_seo_gsc_insights.sql',
   },
+  {
+    label: '144 — SEO Site Explorer arbitrary-domain lookups',
+    selfHost: 'database/migrations/144_seo_site_explorer.sql',
+    hosted: 'supabase/migrations/20260909170000_seo_site_explorer.sql',
+  },
 
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered

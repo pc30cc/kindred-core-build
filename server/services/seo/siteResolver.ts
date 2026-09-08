@@ -40,7 +40,7 @@ export interface ResolvedSite {
 }
 
 /** Parses a free-text `workspace_domains.domain` value (may or may not carry a scheme/path) into a bare hostname. */
-function extractHostname(input: string): string | null {
+export function extractHostname(input: string): string | null {
   const trimmed = (input || '').trim();
   if (!trimmed) return null;
   const withScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed) ? trimmed : `https://${trimmed}`;
@@ -87,6 +87,23 @@ export async function resolveWorkspaceSite(
     verified: !!row.verified,
     isPrimary: !!row.is_primary,
   };
+}
+
+/**
+ * Parses and normalizes free-text user input (Site Explorer's domain search
+ * box) into a canonical host + https URL. Unlike the crawler's target
+ * resolution, this domain is NEVER fetched directly by our own servers — it
+ * is only ever passed as a string to an external vendor API (DataForSEO), so
+ * SSRF is not in scope here. Still rejects obviously-not-a-public-domain
+ * input (no dot, bare IP literal, localhost) as basic hygiene.
+ */
+export function normalizeExplorerDomain(input: string): { canonicalHost: string; canonicalUrl: string } | null {
+  const hostname = extractHostname(input);
+  if (!hostname) return null;
+  const canonicalHost = normalizeHost(hostname);
+  if (!canonicalHost.includes('.')) return null;
+  if (canonicalHost === 'localhost' || /^\d{1,3}(\.\d{1,3}){3}$/.test(canonicalHost)) return null;
+  return { canonicalHost, canonicalUrl: `https://${canonicalHost}` };
 }
 
 export interface WorkspaceSiteSummary {

@@ -21,6 +21,8 @@ import {
   type KeywordsAccountInfo,
   type KeywordsFetchResult,
   type DataForSeoKeywordsConfig,
+  type RankedKeywordItem,
+  type RankedKeywordsFetchResult,
 } from '../types.js';
 
 export const DATAFORSEO_TIMEOUT_MS = 30_000;
@@ -30,6 +32,7 @@ const DEFAULT_LANGUAGE_CODE = 'en';
 
 export interface DataForSeoKeywordsAdapter {
   fetchKeywordData(input: { keywords: string[] }): Promise<KeywordsFetchResult>;
+  fetchRankedKeywords(input: { target: string; limit: number }): Promise<RankedKeywordsFetchResult>;
   getAccountInfo(): Promise<KeywordsAccountInfo>;
 }
 
@@ -109,6 +112,38 @@ function parseItem(raw: unknown): KeywordResultItem | null {
   };
 }
 
+/**
+ * Parses one item of DataForSEO Labs' Ranked Keywords report
+ * (`dataforseo_labs/google/ranked_keywords/live`). FIELD-MAPPING NOTE: same
+ * caveat as parseItem above — written against DataForSEO's documented v3
+ * conventions (`keyword_data.keyword`, `keyword_data.keyword_info.{search_volume,
+ * cpc,competition}`, `ranked_serp_element.serp_item.{rank_absolute,relative_url,
+ * url,etv}`), not verified against a live response from this sandboxed
+ * environment. Every field is optional-safe; only `keyword_data.keyword` is
+ * required per item.
+ */
+function parseRankedItem(raw: unknown): RankedKeywordItem | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const item = raw as Record<string, unknown>;
+  const keywordData = (item.keyword_data && typeof item.keyword_data === 'object' ? item.keyword_data : {}) as Record<string, unknown>;
+  const keyword = readString(keywordData, 'keyword');
+  if (!keyword) return null;
+  const keywordInfo = (keywordData.keyword_info && typeof keywordData.keyword_info === 'object' ? keywordData.keyword_info : {}) as Record<string, unknown>;
+
+  const rankedElement = (item.ranked_serp_element && typeof item.ranked_serp_element === 'object' ? item.ranked_serp_element : {}) as Record<string, unknown>;
+  const serpItem = (rankedElement.serp_item && typeof rankedElement.serp_item === 'object' ? rankedElement.serp_item : {}) as Record<string, unknown>;
+
+  return {
+    keyword,
+    searchVolume: readNumber(keywordInfo, 'search_volume'),
+    cpc: readNumber(keywordInfo, 'cpc'),
+    competition: readNumber(keywordInfo, 'competition'),
+    position: readNumber(serpItem, 'rank_absolute'),
+    rankingUrl: readString(serpItem, 'url') || readString(serpItem, 'relative_url'),
+    trafficEstimate: readNumber(serpItem, 'etv'),
+  };
+}
+
 export function createDataForSeoKeywordsAdapter(
   config: DataForSeoKeywordsConfig,
   options: DataForSeoKeywordsAdapterOptions = {},
@@ -145,6 +180,43 @@ export function createDataForSeoKeywordsAdapter(
         if (parsed) items.push(parsed);
       }
       return { items };
+    },
+
+    async fetchRankedKeywords({ target, limit }) {
+      const body = await postJson(
+        `${apiBase}/dataforseo_labs/google/ranked_keywords/live`,
+        [{
+          target,
+          location_code: DEFAULT_LOCATION_CODE,
+          language_code: DEFAULT_LANGUAGE_CODE,
+          limit: Math.max(1, Math.min(limit, 1000)),
+          load_rank_absolute: true,
+          order_by: ['keyword_data.keyword_info.search_volume,desc'],
+        }],
+        headers,
+        fetchImpl,
+        timeoutMs,
+      );
+      const envelope = body as Record<string, unknown>;
+      const tasks = Array.isArray(envelope.tasks) ? envelope.tasks : [];
+      const task = tasks[0] as Record<string, unknown> | undefined;
+      if (!task) throw new KeywordsError('keywords_provider_error');
+      const taskStatus = readNumber(task, 'status_code');
+      if (taskStatus !== null && taskStatus !== 20000) {
+        if (taskStatus === 40501 || taskStatus === 40201) throw new KeywordsError('keywords_auth_failed');
+        if (taskStatus === 40202) throw new KeywordsError('keywords_insufficient_credit');
+        throw new KeywordsError('keywords_provider_error');
+      }
+      const results = Array.isArray(task.result) ? task.result : [];
+      const first = results[0] as Record<string, unknown> | undefined;
+      const rawItems = first && Array.isArray(first.items) ? first.items : [];
+
+      const items: RankedKeywordItem[] = [];
+      for (const raw of rawItems) {
+        const parsed = parseRankedItem(raw);
+        if (parsed) items.push(parsed);
+      }
+      return { items, totalCount: readNumber(first || {}, 'total_count') ?? items.length };
     },
 
     async getAccountInfo() {

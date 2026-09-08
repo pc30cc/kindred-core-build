@@ -16,6 +16,7 @@ import {
   type KeywordsProviderName,
   type KeywordsTestResult,
   type DataForSeoKeywordsConfig,
+  type RankedKeywordsFetchResult,
 } from './types.js';
 import { createDataForSeoKeywordsAdapter, type DataForSeoKeywordsAdapter, type DataForSeoKeywordsAdapterOptions } from './providers/dataforseo.js';
 
@@ -182,6 +183,18 @@ export async function fetchKeywordDataForSeeds(
 ): Promise<{ provider: string; result: KeywordsFetchResult }> {
   const resolved = await resolveProvider(serverConfig, options);
   const result = await resolved.adapter.fetchKeywordData({ keywords });
+  return { provider: resolved.providerName, result };
+}
+
+/** Ranked keywords a domain currently ranks for (DataForSEO Labs) — the real data behind Site Explorer's Organic Keywords report. */
+export async function fetchRankedKeywordsForTarget(
+  serverConfig: ServerConfig,
+  target: string,
+  limit: number,
+  options: KeywordsRuntimeOptions = {},
+): Promise<{ provider: string; result: RankedKeywordsFetchResult }> {
+  const resolved = await resolveProvider(serverConfig, options);
+  const result = await resolved.adapter.fetchRankedKeywords({ target, limit });
   return { provider: resolved.providerName, result };
 }
 

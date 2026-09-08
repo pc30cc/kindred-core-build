@@ -599,14 +599,16 @@ publicKbRouter.get('/help/:locale/a/:slug', async (req: Request, res: Response) 
   if (!workspaceId) return res.status(404).send('Not found');
 
   const supabase = getServiceClient(config);
-  const { data: article } = await supabase
+  const { data: articleRows } = await supabase
     .from('knowledge_base_articles')
     .select('id, title, slug, excerpt, content, locale, updated_at, category_id')
     .eq('workspace_id', workspaceId)
-    .eq('locale', locale)
     .eq('slug', req.params.slug)
     .eq('status', 'published')
-    .maybeSingle();
+    .order('updated_at', { ascending: false })
+    .limit(1);
+  const article = (articleRows && articleRows[0]) || null;
+
 
   if (!article) return res.status(404).send(renderShell({
     title: 'Article not found',

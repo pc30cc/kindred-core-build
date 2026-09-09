@@ -662,6 +662,7 @@ function gscErrorStatus(code: string): number {
     case 'gsc_invalid_state':
     case 'gsc_auth_failed':
     case 'gsc_token_revoked':
+    case 'gsc_insufficient_scope':
       return 401;
     case 'gsc_rate_limited':
       return 429;

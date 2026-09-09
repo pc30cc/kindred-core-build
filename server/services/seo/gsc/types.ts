@@ -19,6 +19,7 @@ export const GSC_ERROR_CODES = [
   'gsc_invalid_state',
   'gsc_auth_failed',
   'gsc_token_revoked',
+  'gsc_insufficient_scope',
   'gsc_rate_limited',
   'gsc_timeout',
   'gsc_network_error',
@@ -37,6 +38,8 @@ export const GSC_ERROR_MESSAGES: Record<GscErrorCode, string> = {
   gsc_invalid_state: 'The Google sign-in link expired or was already used — please try connecting again',
   gsc_auth_failed: 'Authentication with Google Search Console failed',
   gsc_token_revoked: 'Access to this Google account was revoked — please reconnect',
+  gsc_insufficient_scope:
+    'The connected Google account did not grant Search Console permission — reconnect and tick the Search Console checkbox on the Google consent screen',
   gsc_rate_limited: 'Google Search Console rate limit exceeded',
   gsc_timeout: 'Google Search Console request timed out',
   gsc_network_error: 'Could not reach Google Search Console',

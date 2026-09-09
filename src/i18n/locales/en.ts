@@ -6427,6 +6427,8 @@ const en = {
         gsc_invalid_state: 'The Google sign-in link expired or was already used — please try connecting again.',
         gsc_auth_failed: 'Authentication with Google Search Console failed.',
         gsc_token_revoked: 'Access to this Google account was revoked. Please reconnect.',
+        gsc_insufficient_scope:
+          'This Google account did not grant Search Console permission. Reconnect and tick the Search Console checkbox on the Google consent screen.',
         gsc_rate_limited: 'Google Search Console rate limit exceeded. Please try again shortly.',
         gsc_limit_reached: 'Maximum number of connected Search Console properties reached for your plan.',
         gsc_timeout: 'Google Search Console request timed out.',

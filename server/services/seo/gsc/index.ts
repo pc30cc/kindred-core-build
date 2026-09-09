@@ -117,6 +117,16 @@ export async function handleGscOAuthCallback(
     // closed rather than storing a connection that can never be refreshed.
     throw new GscError('gsc_auth_failed');
   }
+  // Google silently drops scopes the user unticked on the consent screen, so
+  // verify Search Console access was actually granted BEFORE storing a
+  // connection that would only fail later with a confusing 403.
+  if (tokens.scope && !/auth\/webmasters(\.readonly)?/.test(tokens.scope)) {
+    throw new GscError(
+      'gsc_insufficient_scope',
+      undefined,
+      `Granted scopes: ${tokens.scope}`,
+    );
+  }
   const email = await ga.fetchAccountEmail(tokens.accessToken);
 
   const envelope = encryptPluginSecret(tokens.refreshToken, config.pluginSecretsMasterKey);

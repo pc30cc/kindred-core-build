@@ -6411,6 +6411,8 @@ const fa: TranslationKeys = {
         gsc_invalid_state: 'لینک ورود گوگل منقضی شده یا قبلاً استفاده شده — لطفاً دوباره متصل شوید.',
         gsc_auth_failed: 'احراز هویت با Google Search Console ناموفق بود.',
         gsc_token_revoked: 'دسترسی به این حساب گوگل لغو شده است. لطفاً دوباره متصل شوید.',
+        gsc_insufficient_scope:
+          'این حساب گوگل اجازهٔ Search Console را نداده است. دوباره متصل شوید و در صفحهٔ رضایت گوگل تیک دسترسی Search Console را بزنید.',
         gsc_rate_limited: 'محدودیت نرخ درخواست Google Search Console رد شد. کمی بعد دوباره تلاش کنید.',
         gsc_limit_reached: 'حداکثر تعداد ملک‌های متصل Search Console برای پلن شما پر شده است.',
         gsc_timeout: 'درخواست Google Search Console با تایم‌اوت مواجه شد.',

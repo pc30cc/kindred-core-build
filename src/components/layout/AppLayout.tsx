@@ -219,8 +219,18 @@ export function AppLayout() {
           {/* Verification notice sits at the BOTTOM so it never pushes the
               page header down; resend is wired to the self-hosted mailer. */}
           {showVerificationBanner && <EmailVerificationBar />}
-          {isMobile && <MobileBottomNav onMenuClick={() => setMobileNavOpen(true)} />}
+          {isMobile && (
+            <div
+              aria-hidden
+              className="shrink-0"
+              style={{ height: 'calc(60px + env(safe-area-inset-bottom))' }}
+            />
+          )}
         </div>
+        {/* `fixed`, so it renders outside this column entirely — see
+            MobileBottomNav.tsx for why. The spacer above keeps page content
+            from ending up underneath it. */}
+        {isMobile && <MobileBottomNav onMenuClick={() => setMobileNavOpen(true)} />}
         {/* Survives route changes — reads the same LiveKit room as the
             sidebar surface so navigation never disconnects the call. */}
         <FloatingOperatorCallWindow />

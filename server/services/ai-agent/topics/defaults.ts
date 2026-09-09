@@ -177,13 +177,25 @@ export const DEFAULT_TOPICS: DefaultTopic[] = [
     action: 'route',
   },
   {
+    // Detector confidence for a SINGLE matched keyword tops out at
+    // 0.5 * 0.65 = 0.325 (see topics/detector.ts kwScore/exScore formula):
+    // it takes 2+ keyword hits, or one exact/near-exact example match, to
+    // clear a 0.5+ threshold. Real one-line visitor messages ("نظرت در مورد
+    // جنگ ایران و آمریکا چیه") usually carry exactly one of these keywords
+    // ("جنگ") and don't repeat an example closely enough to hit the example
+    // score either — so a 0.5 threshold here silently never fires. The
+    // threshold is deliberately set at 0.3 (below the single-keyword
+    // ceiling) so ONE unambiguous hit is enough. 'government'/'دولت'/
+    // 'hükümet' are intentionally excluded from the keyword list — they're
+    // common in legitimate business talk (e.g. "government/enterprise
+    // customers") and would false-positive constantly at this threshold.
     name: 'Off-topic',
     slug: 'off-topic',
     description: 'Politics, war, religion or other subjects unrelated to the business. When matched, the assistant declines with a fixed reply instead of answering — see action: "decline".',
     keywords: [
-      'war','politics','political','election','president','government','religion','religious',
-      'savaş','siyaset','siyasi','seçim','başkan','hükümet','din','dini','mezhep',
-      'جنگ','سیاست','سیاسی','انتخابات','رئیس‌جمهور','دولت','مذهب','دینی','مذهبی','جنگی',
+      'war','politics','political','election','president','religion','religious',
+      'savaş','siyaset','siyasi','seçim','başkan','din','dini','mezhep',
+      'جنگ','سیاست','سیاسی','انتخابات','رئیس‌جمهور','مذهب','دینی','مذهبی','جنگی',
     ],
     examples: [
       'who do you support in the election', 'what do you think about the war', 'is god real',
@@ -191,6 +203,6 @@ export const DEFAULT_TOPICS: DefaultTopic[] = [
       'جنگ ایران و آمریکا کی تموم میشه', 'نظرت راجب سیاست چیه', 'به کی رای بدم', 'دین بهتر کدومه',
     ],
     action: 'decline',
-    confidence_threshold: 0.5,
+    confidence_threshold: 0.3,
   },
 ];

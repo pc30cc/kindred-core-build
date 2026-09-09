@@ -182,7 +182,37 @@ export const PLUGIN_REGISTRY: readonly PluginDefinition[] = Object.freeze([
   comingSoon('discord', 'channels'),
   comingSoon('sms', 'channels'),
   comingSoon('shopify', 'commerce'),
-  comingSoon('woocommerce', 'commerce'),
+  {
+    // WooCommerce — first Commerce Integration Platform connector. The
+    // plugin (plugins/webyar-woocommerce/) is a lightweight bridge; all
+    // catalog/order intelligence lives in server/services/commerce/**. See
+    // docs/commerce/ARCHITECTURE.md.
+    id: 'woocommerce',
+    slug: 'woocommerce',
+    version: '1.0.0',
+    category: 'commerce',
+    status: 'available',
+    capabilities: [
+      'store.read',
+      'products.read',
+      'catalog.export',
+      'availability.read',
+      'orders.read',
+      'tracking.read',
+      'customer_context',
+      'events.push',
+      'widget.bootstrap',
+    ],
+    workspaceInstallable: true,
+    hasSettings: true,
+    hasSecrets: true,
+    supportsInbox: false,
+    supportsAI: true,
+    supportsMedia: false,
+    supportsWebhook: true,
+    planModuleKey: 'commerce',
+    planChannelKey: null,
+  },
   comingSoon('hubspot', 'crm'),
   comingSoon('webhooks', 'developer'),
 ]);

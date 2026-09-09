@@ -38,6 +38,7 @@ import {
 } from '@/hooks/useSeo';
 import { SeoApiError, type SeoGscDimension, type SeoGscSearchAnalyticsRow } from '@/lib/seo-api';
 import { GradientStatCard } from './SeoPage';
+import { prettyUrl } from '@/lib/prettyUrl';
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip,
 } from 'recharts';
@@ -222,7 +223,7 @@ function GscPropertyPicker({ workspaceId, connectionEmail }: { workspaceId: stri
             {sites.map((s) => (
               <div key={s.siteUrl} className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2.5">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{s.siteUrl}</p>
+                  <p className="truncate text-sm font-medium" dir="ltr">{prettyUrl(s.siteUrl)}</p>
                   {s.permissionLevel && <p className="text-xs text-muted-foreground">{s.permissionLevel}</p>}
                 </div>
                 <Button size="sm" variant="outline" onClick={() => handleLink(s.siteUrl)} disabled={linkProperty.isPending}>
@@ -271,7 +272,7 @@ function GscPropertyBar({
           <SelectContent>
             {properties.map((p) => (
               <SelectItem key={p.id} value={p.id}>
-                {p.siteUrl}{p.isPrimary ? ` (${t('seo.gsc.property.primary' as any)})` : ''}
+                {prettyUrl(p.siteUrl)}{p.isPrimary ? ` (${t('seo.gsc.property.primary' as any)})` : ''}
               </SelectItem>
             ))}
           </SelectContent>
@@ -286,7 +287,7 @@ function GscPropertyBar({
               <SelectValue placeholder={t('seo.gsc.property.addAnother' as any)} />
             </SelectTrigger>
             <SelectContent>
-              {linkable.map((s) => <SelectItem key={s.siteUrl} value={s.siteUrl}>{s.siteUrl}</SelectItem>)}
+              {linkable.map((s) => <SelectItem key={s.siteUrl} value={s.siteUrl}>{prettyUrl(s.siteUrl)}</SelectItem>)}
             </SelectContent>
           </Select>
         )}

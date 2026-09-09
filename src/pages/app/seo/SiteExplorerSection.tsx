@@ -34,6 +34,7 @@ import {
 import { SeoApiError } from '@/lib/seo-api';
 import { GradientStatCard } from './SeoPage';
 import { findSection, findLeaf } from './seoNavTree';
+import { prettyUrl } from '@/lib/prettyUrl';
 
 function explorerErrorMessage(err: unknown, t: (k: any) => string): string {
   if (err instanceof SeoApiError) {
@@ -462,7 +463,7 @@ function ExplorerBacklinksView({ workspaceId, domain }: { workspaceId: string; d
                   <TableBody>
                     {(resultsQuery.data?.backlinks || []).map((b) => (
                       <TableRow key={b.id}>
-                        <TableCell className="max-w-[280px] truncate font-medium" title={b.source_url}>
+                        <TableCell className="max-w-[280px] truncate font-medium" title={prettyUrl(b.source_url)}>
                           <a href={b.source_url} target="_blank" rel="noreferrer" className="hover:underline">{b.source_domain}</a>
                         </TableCell>
                         <TableCell className="max-w-[240px] truncate text-muted-foreground">{b.anchor_text || '—'}</TableCell>
@@ -553,7 +554,7 @@ function ExplorerKeywordsView({ workspaceId, domain }: { workspaceId: string; do
                         </TableCell>
                         <TableCell className="text-end tabular-nums">{k.traffic_estimate ?? '—'}</TableCell>
                         <TableCell className="max-w-[220px] truncate text-muted-foreground" title={k.ranking_url || undefined}>
-                          {k.ranking_url ? <a href={k.ranking_url} target="_blank" rel="noreferrer" className="hover:underline">{k.ranking_url}</a> : '—'}
+                          {k.ranking_url ? <a href={k.ranking_url} target="_blank" rel="noreferrer" dir="ltr" className="hover:underline">{prettyUrl(k.ranking_url)}</a> : '—'}
                         </TableCell>
                       </TableRow>
                     ))}

@@ -511,7 +511,7 @@ function SiteStructureNodeRow({ node, depth }: { node: SiteStructureNode; depth:
         {hasChildren ? (open ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />) : <span className="w-3.5" />}
         <Network className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <span className="truncate font-mono text-xs">{node.segment}</span>
-        <span className="ms-auto shrink-0 tabular-nums text-xs text-muted-foreground">{formatCompact(node.views)}</span>
+        <span className="ml-auto shrink-0 tabular-nums text-xs text-muted-foreground">{formatCompact(node.views)}</span>
       </button>
       {hasChildren && open && (
         <div>

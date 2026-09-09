@@ -528,6 +528,7 @@ const tr: TranslationKeys = {
   nav: {
     overview: 'Genel Bakış',
     dashboard: 'Kontrol Paneli',
+    menu: 'Menü',
     inbox: 'Gelen Kutusu',
     contacts: 'Kişiler',
     visitors: 'Ziyaretçiler',

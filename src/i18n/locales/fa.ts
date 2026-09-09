@@ -528,6 +528,7 @@ const fa: TranslationKeys = {
   nav: {
     overview: 'نمای کلی',
     dashboard: 'داشبورد',
+    menu: 'منو',
     inbox: 'صندوق ورودی',
     contacts: 'مخاطبین',
     visitors: 'بازدیدکنندگان',

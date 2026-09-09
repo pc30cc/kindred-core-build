@@ -35,6 +35,8 @@ import { resolveSourceDomainDetailed } from '../services/ai-kb/sourceDomain.js';
 import { resolveAiKbLimitsDetailed, countJobsThisMonthDetailed } from '../services/ai-kb/limits.js';
 import { readAiCreditStateDetailed, logAiKbUsage } from '../services/ai-kb/credits.js';
 import { firstReadFailure } from '../services/ai-kb/readResult.js';
+import { resolveKbArticleQuota } from '../services/billing/kbArticleQuota.js';
+
 import { slugifyTitle, type PlanSnapshot } from '../services/ai-kb/types.js';
 import { normalizeArticleHtml } from '../services/ai-kb/htmlNormalize.js';
 import {

@@ -155,6 +155,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/146_bot_analytics.sql',
     hosted: 'supabase/migrations/20260910090000_bot_analytics.sql',
   },
+  {
+    label: '147 — SEO Brand Radar',
+    selfHost: 'database/migrations/147_brand_radar.sql',
+    hosted: 'supabase/migrations/20260910120000_brand_radar.sql',
+  },
 
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered

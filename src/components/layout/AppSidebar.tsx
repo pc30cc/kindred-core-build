@@ -372,7 +372,7 @@ export function AppSidebar({
         'relative flex flex-col bg-sidebar',
         variant === 'drawer'
           ? 'h-full w-full'
-          : 'h-screen border-e border-sidebar-border transition-[width] duration-200',
+          : 'h-screen h-dvh border-e border-sidebar-border transition-[width] duration-200',
         variant === 'rail' && (collapsed ? 'w-[68px]' : 'w-[220px]'),
       )}
       style={{ backgroundImage: 'var(--gradient-sidebar)' }}

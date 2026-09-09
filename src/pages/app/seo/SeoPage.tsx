@@ -14,6 +14,8 @@ import {
   useSeoSites, useSeoLimits, useLatestCrawl, useCrawlHistory, useStartCrawl, useCancelCrawl,
   useCrawl, useCrawlPages, useCrawlIssues, useIssueAffectedUrls, useCrawlLinks, useCrawlSitemaps,
   useCrawlComparison,
+  useBacklinksLimits, useLatestBacklinkScan, useStartBacklinkScan, useBacklinks,
+  useKeywordsLimits, useLatestKeywordRun, useStartKeywordRun, useKeywordResults,
   useRankTrackingLimits, useTrackedKeywords, useAddTrackedKeyword, useRemoveTrackedKeyword, useRankChecks,
   usePerformanceLimits, useLatestPerformanceAudit, useStartPerformanceAudit, usePerformanceResults,
 } from '@/hooks/useSeo';
@@ -30,8 +32,8 @@ import { Progress } from '@/components/ui/progress';
 import { SkeletonStats, SkeletonTable } from '@/components/common/Skeletons';
 import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
 import {
-  Radar, RefreshCw, AlertTriangle, CheckCircle2, XCircle, ArrowLeft, ExternalLink, Lock,
-  TrendingUp, Sparkles, ShieldCheck,
+  Radar, RefreshCw, AlertTriangle, CheckCircle2, XCircle, ArrowLeft, ExternalLink, Link2, Lock,
+  Globe2, TrendingUp, Sparkles, ShieldCheck,
   Search, LineChart, Gauge, Plus, Trash2, Target,
 } from 'lucide-react';
 import {
@@ -352,6 +354,7 @@ function SiteAuditSection({ workspaceId, siteId, subsectionKey }: { workspaceId:
   return (
     <SeoDashboard
       workspaceId={workspaceId}
+      siteId={siteId}
       crawl={crawl}
       onRunAgain={handleStart}
       runPending={startCrawl.isPending}
@@ -372,9 +375,10 @@ function PageHeader() {
 }
 
 function SeoDashboard({
-  workspaceId, crawl, onRunAgain, runPending, history, subsectionKey,
+  workspaceId, siteId, crawl, onRunAgain, runPending, history, subsectionKey,
 }: {
   workspaceId: string;
+  siteId: string;
   crawl: SeoCrawl;
   onRunAgain: () => void;
   runPending: boolean;
@@ -411,6 +415,12 @@ function SeoDashboard({
       {subsectionKey === 'sitemap' && <SitemapTab workspaceId={workspaceId} crawlId={crawl.id} crawl={crawl} />}
       {subsectionKey === 'performance' && (
         <PlanLockedOverlay moduleKey="seo_performance"><PerformanceTab workspaceId={workspaceId} crawlId={crawl.id} /></PlanLockedOverlay>
+      )}
+      {subsectionKey === 'backlinks' && (
+        <PlanLockedOverlay moduleKey="seo_backlinks"><BacklinksTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>
+      )}
+      {subsectionKey === 'keywords' && (
+        <PlanLockedOverlay moduleKey="seo_keywords"><KeywordsTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>
       )}
       {subsectionKey === 'history' && <HistoryTab workspaceId={workspaceId} crawl={crawl} history={history} />}
     </div>
@@ -1009,6 +1019,493 @@ function BacklinksEmptyState({
         {action && <div className="relative">{action}</div>}
       </CardContent>
     </Card>
+  );
+}
+
+function startBacklinkScanErrorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
+  if (err instanceof SeoApiError) {
+    if (err.upgradeRequired) return t('seo.backlinks.limits.module_not_available' as any);
+    switch (err.code) {
+      case 'workspace_concurrency_limit':
+        return t('seo.backlinks.limits.workspace_concurrency_limit' as any);
+      case 'module_not_available':
+        return t('seo.backlinks.limits.module_not_available' as any);
+      case 'frequency_limit': {
+        const hours = Math.max(1, Math.round((err.retryAfterSeconds ?? 0) / 3600));
+        return `${t('seo.backlinks.limits.frequency_limit' as any)} ${t('seo.backlinks.limits.retryAfter' as any, { hours })}`;
+      }
+      case 'site_not_found':
+        return t('seo.errors.siteNotFound' as any);
+      default:
+        return t('seo.backlinks.errors.startFailed' as any);
+    }
+  }
+  return t('seo.backlinks.errors.startFailed' as any);
+}
+
+const DOFOLLOW_COLOR = '#10b981';
+const NOFOLLOW_COLOR = 'hsl(var(--muted-foreground))';
+
+function rankTierClass(rank: number | null): string {
+  if (rank === null) return 'border-border text-muted-foreground';
+  if (rank >= 500) return 'border-emerald-500/40 text-emerald-500 bg-emerald-500/10';
+  if (rank >= 200) return 'border-sky-500/40 text-sky-500 bg-sky-500/10';
+  return 'border-border text-muted-foreground';
+}
+
+/** Own-site backlink profile (continuous monitoring of a registered site) — distinct from Site Explorer's arbitrary/competitor-domain lookup. */
+function BacklinksTab({ workspaceId, siteId }: { workspaceId: string; siteId: string }) {
+  const { t } = useTranslation();
+  const { data: limitsData } = useBacklinksLimits(workspaceId);
+  const { data: latestData, isLoading } = useLatestBacklinkScan(workspaceId, siteId);
+  const startScan = useStartBacklinkScan(workspaceId);
+  const scan = latestData?.scan || null;
+  const isRunning = !!scan && !TERMINAL_SEO_STATUSES.has(scan.status);
+  const { data: backlinksData } = useBacklinks(workspaceId, scan?.status === 'completed' ? scan.id : undefined, { limit: 100 });
+  const backlinks = backlinksData?.backlinks || [];
+
+  const maxPerScan = limitsData?.limits.seo_backlinks_max_per_scan ?? 0;
+  const moduleAvailable = maxPerScan > 0;
+
+  const dofollowCount = scan?.dofollow_count ?? 0;
+  const nofollowCount = scan?.nofollow_count ?? 0;
+  const linkTypeTotal = dofollowCount + nofollowCount;
+  const dofollowPct = linkTypeTotal > 0 ? Math.round((dofollowCount / linkTypeTotal) * 100) : 0;
+  const linkTypeData = useMemo(() => [
+    { name: t('seo.backlinks.dofollow'), value: dofollowCount, color: DOFOLLOW_COLOR },
+    { name: t('seo.backlinks.nofollow'), value: nofollowCount, color: NOFOLLOW_COLOR },
+  ], [t, dofollowCount, nofollowCount]);
+
+  const topDomains = useMemo(() => {
+    const byDomain = new Map<string, number>();
+    for (const b of backlinks) {
+      const rank = b.domain_rank ?? 0;
+      if (rank > (byDomain.get(b.source_domain) ?? -1)) byDomain.set(b.source_domain, rank);
+    }
+    return Array.from(byDomain.entries())
+      .map(([domain, rank]) => ({ domain, rank }))
+      .sort((a, b) => b.rank - a.rank)
+      .slice(0, 6);
+  }, [backlinks]);
+
+  const handleStart = () => {
+    startScan.mutate(siteId, {
+      onError: (err) => toast.error(startBacklinkScanErrorMessage(t, err)),
+    });
+  };
+
+  const tooltipStyle = {
+    contentStyle: { background: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: 12, fontSize: 12, color: 'hsl(var(--popover-foreground))' },
+    labelStyle: { color: 'hsl(var(--muted-foreground))' },
+  };
+
+  if (isLoading) return <div className="mt-4"><SkeletonStats count={4} /></div>;
+
+  if (!moduleAvailable) {
+    return (
+      <BacklinksEmptyState
+        icon={Lock} iconGradient="from-slate-500 to-slate-700"
+        title={t('seo.backlinks.empty.notAvailableTitle')}
+        description={t('seo.backlinks.empty.notAvailableDescription')}
+      />
+    );
+  }
+
+  if (!scan) {
+    return (
+      <BacklinksEmptyState
+        icon={Link2} iconGradient="from-indigo-500 to-violet-500"
+        title={t('seo.backlinks.empty.neverScannedTitle')}
+        description={t('seo.backlinks.empty.neverScannedDescription')}
+        action={(
+          <Button onClick={handleStart} disabled={startScan.isPending} className="gap-2">
+            <Link2 className="h-4 w-4" /> {t('seo.backlinks.runScan')}
+          </Button>
+        )}
+      />
+    );
+  }
+
+  if (isRunning) {
+    return (
+      <Card className="mt-4 overflow-hidden">
+        <CardContent className="relative flex flex-col items-center justify-center gap-4 py-16 text-center">
+          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-lg">
+            <RefreshCw className="h-6 w-6 animate-spin" />
+          </span>
+          <h3 className="text-lg font-semibold">{t('seo.backlinks.empty.runningTitle')}</h3>
+          <Progress value={scan.progress} className="w-full max-w-xs" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (scan.status === 'failed') {
+    return (
+      <BacklinksEmptyState
+        icon={XCircle} iconGradient="from-rose-500 to-red-600"
+        title={t('seo.backlinks.empty.failedTitle')}
+        action={(
+          <Button onClick={handleStart} disabled={startScan.isPending} className="gap-2">
+            <RefreshCw className="h-4 w-4" /> {t('seo.backlinks.runScan')}
+          </Button>
+        )}
+      />
+    );
+  }
+
+  return (
+    <div className="mt-4 space-y-4">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-md shadow-indigo-500/25">
+            <Link2 className="h-4.5 w-4.5" />
+          </span>
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">{t('seo.backlinks.profileTitle')}</h3>
+            {scan.finished_at && (
+              <p className="text-xs text-muted-foreground">
+                {t('seo.backlinks.lastScanned')}: {new Date(scan.finished_at).toLocaleString()}
+              </p>
+            )}
+          </div>
+        </div>
+        <Button onClick={handleStart} disabled={startScan.isPending} variant="outline" className="gap-2">
+          <RefreshCw className={`h-4 w-4 ${startScan.isPending ? 'animate-spin' : ''}`} /> {t('seo.backlinks.rescan')}
+        </Button>
+      </div>
+
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <GradientStatCard icon={Link2} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={scan.total_backlinks ?? 0} label={t('seo.backlinks.totalBacklinks')} />
+        <GradientStatCard icon={Globe2} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={scan.referring_domains ?? 0} label={t('seo.backlinks.referringDomains')} />
+        <GradientStatCard icon={TrendingUp} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={`${dofollowPct}%`} label={t('seo.backlinks.dofollowShare')} />
+        <GradientStatCard icon={Sparkles} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={scan.new_backlinks ?? 0} label={t('seo.backlinks.newBacklinks')} />
+      </div>
+
+      {/* Charts */}
+      <div className="grid gap-4 lg:grid-cols-5">
+        <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 shadow-sm lg:col-span-2">
+          <h4 className="mb-2 text-sm font-semibold text-foreground">{t('seo.backlinks.linkTypeChartTitle')}</h4>
+          {linkTypeTotal === 0 ? (
+            <p className="flex h-[200px] items-center justify-center text-xs text-muted-foreground">{t('seo.backlinks.empty.noBacklinks')}</p>
+          ) : (
+            <div className="relative h-[200px] w-full" dir="ltr">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={linkTypeData} dataKey="value" nameKey="name" innerRadius={52} outerRadius={78} paddingAngle={2} strokeWidth={2} stroke="hsl(var(--card))">
+                    {linkTypeData.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
+                  </Pie>
+                  <ReTooltip {...tooltipStyle} />
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: 11, color: 'hsl(var(--muted-foreground))' }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center pb-6">
+                <span className="text-2xl font-bold text-foreground">{dofollowPct}%</span>
+                <span className="text-[10px] text-muted-foreground">{t('seo.backlinks.dofollow')}</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 shadow-sm lg:col-span-3">
+          <h4 className="mb-2 text-sm font-semibold text-foreground">{t('seo.backlinks.topDomainsChartTitle')}</h4>
+          {topDomains.length === 0 ? (
+            <p className="flex h-[200px] items-center justify-center text-xs text-muted-foreground">{t('seo.backlinks.empty.noBacklinks')}</p>
+          ) : (
+            <div className="h-[200px] w-full" dir="ltr">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={topDomains} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="domainRankGrad" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor="#6366f1" />
+                      <stop offset="100%" stopColor="#8b5cf6" />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                  <XAxis type="number" tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                  <YAxis type="category" dataKey="domain" tickLine={false} axisLine={false} width={110} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                  <ReTooltip {...tooltipStyle} cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }} />
+                  <Bar dataKey="rank" name={t('seo.backlinks.columnDomainRank')} fill="url(#domainRankGrad)" radius={[0, 4, 4, 0]} maxBarSize={18} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Table */}
+      <Card className="overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('seo.backlinks.columnSource')}</TableHead>
+              <TableHead>{t('seo.backlinks.columnAnchor')}</TableHead>
+              <TableHead>{t('seo.backlinks.columnType')}</TableHead>
+              <TableHead>{t('seo.backlinks.columnDomainRank')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {backlinks.length === 0 && (
+              <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">{t('seo.backlinks.empty.noBacklinks')}</TableCell></TableRow>
+            )}
+            {backlinks.map((b) => (
+              <TableRow key={b.id}>
+                <TableCell className="max-w-xs truncate">
+                  <a href={b.source_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-primary hover:underline">
+                    {b.source_domain} <ExternalLink className="h-3 w-3 shrink-0" />
+                  </a>
+                  {b.is_new && <Badge variant="outline" className="ms-2 border-emerald-500/40 text-[9px] text-emerald-500">{t('seo.backlinks.newBadge')}</Badge>}
+                </TableCell>
+                <TableCell className="max-w-xs truncate text-muted-foreground">{b.anchor_text || '—'}</TableCell>
+                <TableCell>
+                  <Badge variant="outline" className={`gap-1 text-[10px] ${b.is_dofollow ? 'border-emerald-500/40 text-emerald-500' : 'border-border text-muted-foreground'}`}>
+                    {b.is_dofollow ? <ShieldCheck className="h-3 w-3" /> : null}
+                    {b.is_dofollow ? 'dofollow' : 'nofollow'}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <Badge variant="outline" className={`text-[10px] ${rankTierClass(b.domain_rank)}`}>{b.domain_rank ?? '—'}</Badge>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+    </div>
+  );
+}
+
+function startKeywordRunErrorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
+  if (err instanceof SeoApiError) {
+    if (err.upgradeRequired) return t('seo.keywords.limits.module_not_available' as any);
+    switch (err.code) {
+      case 'workspace_concurrency_limit':
+        return t('seo.keywords.limits.workspace_concurrency_limit' as any);
+      case 'module_not_available':
+        return t('seo.keywords.limits.module_not_available' as any);
+      case 'too_many_keywords':
+        return t('seo.keywords.limits.too_many_keywords' as any);
+      case 'frequency_limit': {
+        const hours = Math.max(1, Math.round((err.retryAfterSeconds ?? 0) / 3600));
+        return `${t('seo.keywords.limits.frequency_limit' as any)} ${t('seo.keywords.limits.retryAfter' as any, { hours })}`;
+      }
+      case 'site_not_found':
+        return t('seo.errors.siteNotFound' as any);
+      default:
+        return t('seo.keywords.errors.startFailed' as any);
+    }
+  }
+  return t('seo.keywords.errors.startFailed' as any);
+}
+
+function competitionBadgeClass(level: string | null): string {
+  if (level === 'low') return 'border-emerald-500/40 text-emerald-500 bg-emerald-500/10';
+  if (level === 'medium') return 'border-amber-500/40 text-amber-500 bg-amber-500/10';
+  if (level === 'high') return 'border-destructive/40 text-destructive bg-destructive/10';
+  return 'border-border text-muted-foreground';
+}
+
+/** Own-site keyword research (continuous monitoring of a registered site) — distinct from Site Explorer's arbitrary/competitor-domain lookup. */
+function KeywordsTab({ workspaceId, siteId }: { workspaceId: string; siteId: string }) {
+  const { t } = useTranslation();
+  const { data: limitsData } = useKeywordsLimits(workspaceId);
+  const { data: latestData, isLoading } = useLatestKeywordRun(workspaceId, siteId);
+  const startRun = useStartKeywordRun(workspaceId);
+  const run = latestData?.run || null;
+  const isRunning = !!run && !TERMINAL_SEO_STATUSES.has(run.status);
+  const { data: resultsData } = useKeywordResults(workspaceId, run?.status === 'completed' ? run.id : undefined, { limit: 200 });
+  const results = resultsData?.results || [];
+
+  const maxPerLookup = limitsData?.limits.seo_keywords_max_per_lookup ?? 0;
+  const moduleAvailable = maxPerLookup > 0;
+
+  const [seedInput, setSeedInput] = useState('');
+  const [showForm, setShowForm] = useState(false);
+
+  const stats = useMemo(() => {
+    const withVolume = results.filter((r) => r.search_volume !== null);
+    const avgVolume = withVolume.length ? Math.round(withVolume.reduce((s, r) => s + (r.search_volume || 0), 0) / withVolume.length) : 0;
+    const withCpc = results.filter((r) => r.cpc !== null);
+    const avgCpc = withCpc.length ? withCpc.reduce((s, r) => s + (r.cpc || 0), 0) / withCpc.length : 0;
+    const highCompetition = results.filter((r) => r.competition_level === 'high').length;
+    return { avgVolume, avgCpc, highCompetition };
+  }, [results]);
+
+  const topKeywords = useMemo(
+    () => [...results].filter((r) => r.search_volume !== null).sort((a, b) => (b.search_volume || 0) - (a.search_volume || 0)).slice(0, 8)
+      .map((r) => ({ keyword: r.keyword, volume: r.search_volume || 0 })),
+    [results],
+  );
+
+  const handleRun = () => {
+    const seeds = Array.from(new Set(seedInput.split(/[\n,]/).map((s) => s.trim()).filter(Boolean)));
+    if (seeds.length === 0) return;
+    startRun.mutate({ siteId, seedKeywords: seeds }, {
+      onSuccess: () => { setShowForm(false); setSeedInput(''); },
+      onError: (err) => toast.error(startKeywordRunErrorMessage(t, err)),
+    });
+  };
+
+  const tooltipStyle = {
+    contentStyle: { background: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: 12, fontSize: 12, color: 'hsl(var(--popover-foreground))' },
+    labelStyle: { color: 'hsl(var(--muted-foreground))' },
+  };
+
+  if (isLoading) return <div className="mt-4"><SkeletonStats count={4} /></div>;
+
+  if (!moduleAvailable) {
+    return (
+      <BacklinksEmptyState
+        icon={Lock} iconGradient="from-slate-500 to-slate-700"
+        title={t('seo.keywords.empty.notAvailableTitle')}
+        description={t('seo.keywords.empty.notAvailableDescription')}
+      />
+    );
+  }
+
+  const seedForm = (
+    <Card className="mt-4">
+      <CardContent className="space-y-3 py-5">
+        <p className="text-sm font-medium text-foreground">{t('seo.keywords.seedInputLabel')}</p>
+        <Textarea
+          value={seedInput}
+          onChange={(e) => setSeedInput(e.target.value)}
+          placeholder={t('seo.keywords.seedInputPlaceholder')}
+          className="min-h-[100px]"
+        />
+        <p className="text-xs text-muted-foreground">{t('seo.keywords.seedInputHint', { max: maxPerLookup })}</p>
+        <div className="flex gap-2">
+          <Button onClick={handleRun} disabled={startRun.isPending || !seedInput.trim()} className="gap-2">
+            <Search className="h-4 w-4" /> {t('seo.keywords.runLookup')}
+          </Button>
+          {run && <Button variant="ghost" onClick={() => setShowForm(false)}>{t('seo.keywords.cancel' as any)}</Button>}
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  if (!run || showForm) {
+    if (!run) {
+      return (
+        <div className="mt-4">
+          <BacklinksEmptyState
+            icon={Search} iconGradient="from-indigo-500 to-violet-500"
+            title={t('seo.keywords.empty.neverRunTitle')}
+            description={t('seo.keywords.empty.neverRunDescription')}
+          />
+          {seedForm}
+        </div>
+      );
+    }
+    return seedForm;
+  }
+
+  if (isRunning) {
+    return (
+      <Card className="mt-4 overflow-hidden">
+        <CardContent className="relative flex flex-col items-center justify-center gap-4 py-16 text-center">
+          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-lg">
+            <RefreshCw className="h-6 w-6 animate-spin" />
+          </span>
+          <h3 className="text-lg font-semibold">{t('seo.keywords.empty.runningTitle')}</h3>
+          <Progress value={run.progress} className="w-full max-w-xs" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (run.status === 'failed') {
+    return (
+      <BacklinksEmptyState
+        icon={XCircle} iconGradient="from-rose-500 to-red-600"
+        title={t('seo.keywords.empty.failedTitle')}
+        action={<Button onClick={() => setShowForm(true)} className="gap-2"><RefreshCw className="h-4 w-4" /> {t('seo.keywords.runLookup')}</Button>}
+      />
+    );
+  }
+
+  return (
+    <div className="mt-4 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-md shadow-indigo-500/25">
+            <Search className="h-4.5 w-4.5" />
+          </span>
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">{t('seo.keywords.resultsTitle')}</h3>
+            {run.finished_at && <p className="text-xs text-muted-foreground">{t('seo.backlinks.lastScanned')}: {new Date(run.finished_at).toLocaleString()}</p>}
+          </div>
+        </div>
+        <Button onClick={() => setShowForm(true)} variant="outline" className="gap-2">
+          <Plus className="h-4 w-4" /> {t('seo.keywords.newLookup')}
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <GradientStatCard icon={Search} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={run.total_keywords ?? 0} label={t('seo.keywords.totalKeywords')} />
+        <GradientStatCard icon={TrendingUp} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={stats.avgVolume.toLocaleString()} label={t('seo.keywords.avgVolume')} />
+        <GradientStatCard icon={Sparkles} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={`$${stats.avgCpc.toFixed(2)}`} label={t('seo.keywords.avgCpc')} />
+        <GradientStatCard icon={AlertTriangle} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={stats.highCompetition} label={t('seo.keywords.highCompetition')} />
+      </div>
+
+      {topKeywords.length > 0 && (
+        <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
+          <h4 className="mb-2 text-sm font-semibold text-foreground">{t('seo.keywords.topKeywordsChartTitle')}</h4>
+          <div className="h-[220px] w-full" dir="ltr">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={topKeywords} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="keywordVolumeGrad" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#6366f1" />
+                    <stop offset="100%" stopColor="#8b5cf6" />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                <XAxis type="number" tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                <YAxis type="category" dataKey="keyword" tickLine={false} axisLine={false} width={130} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} />
+                <ReTooltip {...tooltipStyle} cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }} />
+                <Bar dataKey="volume" name={t('seo.keywords.columnVolume')} fill="url(#keywordVolumeGrad)" radius={[0, 4, 4, 0]} maxBarSize={18} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      <Card className="overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('seo.keywords.columnKeyword')}</TableHead>
+              <TableHead>{t('seo.keywords.columnVolume')}</TableHead>
+              <TableHead>{t('seo.keywords.columnCpc')}</TableHead>
+              <TableHead>{t('seo.keywords.columnCompetition')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {results.length === 0 && (
+              <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">{t('seo.keywords.empty.noResults')}</TableCell></TableRow>
+            )}
+            {results.map((r) => (
+              <TableRow key={r.id}>
+                <TableCell className="max-w-xs truncate font-medium">
+                  {r.keyword}
+                  {r.is_seed && <Badge variant="outline" className="ms-2 text-[9px]">{t('seo.keywords.seedBadge')}</Badge>}
+                </TableCell>
+                <TableCell>{r.search_volume?.toLocaleString() ?? '—'}</TableCell>
+                <TableCell>{r.cpc !== null ? `$${r.cpc.toFixed(2)}` : '—'}</TableCell>
+                <TableCell>
+                  {r.competition_level ? (
+                    <Badge variant="outline" className={`text-[10px] ${competitionBadgeClass(r.competition_level)}`}>{r.competition_level}</Badge>
+                  ) : '—'}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+    </div>
   );
 }
 

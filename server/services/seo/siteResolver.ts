@@ -40,9 +40,12 @@ export interface ResolvedSite {
 }
 
 /** Parses a free-text `workspace_domains.domain` value (may or may not carry a scheme/path) into a bare hostname. */
+/** Longer than any real hostname/URL could legitimately be (DNS caps a hostname at 253 chars) — rejected before any parsing. */
+const MAX_DOMAIN_INPUT_LEN = 2048;
+
 export function extractHostname(input: string): string | null {
   const trimmed = (input || '').trim();
-  if (!trimmed) return null;
+  if (!trimmed || trimmed.length > MAX_DOMAIN_INPUT_LEN) return null;
   const withScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(trimmed) ? trimmed : `https://${trimmed}`;
   try {
     const hostname = new URL(withScheme).hostname.toLowerCase();

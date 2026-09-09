@@ -15,6 +15,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { executeAICompletion } from '../ai/index.js';
+import { AiBillingError } from '../ai-billing/errors.js';
 import { textMentionsName, computeMentionPosition, mentionedCompetitors } from './mentionDetection.js';
 import type { BrandRadarSettings, BrandRadarTopic } from './settingsService.js';
 
@@ -103,6 +104,12 @@ export async function runAllTopicsAiVisibility(
     try {
       results.push(await runAiVisibilityCheck(config, { workspaceId: args.workspaceId, topic, settings: args.settings, userId: args.userId }));
     } catch (err: any) {
+      // AiBillingError (e.g. allowance exhausted) must propagate to the
+      // caller so the route can surface `upgrade_required` — swallowing it
+      // into `errors` here would silently downgrade a 403 upgrade prompt
+      // into a generic "some checks failed" toast, and every remaining
+      // topic would fail the same billed call for the same reason anyway.
+      if (err instanceof AiBillingError) throw err;
       errors.push({ topicId: topic.id, message: err?.message || 'unknown_error' });
     }
   }
@@ -138,8 +145,14 @@ export async function getLatestAiChecksByTopic(config: ServerConfig, workspaceId
   const rows = (data || []) as Record<string, any>[];
   const latestByTopic = new Map<string, Record<string, any>>();
   for (const row of rows) {
-    const key = row.topic_id || row.id;
-    if (!latestByTopic.has(key)) latestByTopic.set(key, row);
+    // A deleted topic leaves its checks behind with topic_id = null (ON
+    // DELETE SET NULL) — those aren't a "currently-defined topic" per this
+    // function's contract, and falling back to `row.id` as the key would
+    // make every one of that topic's past checks its own distinct entry
+    // here forever, inflating totals (e.g. Overview's mentionRate) with
+    // stale data for a topic nobody can see or re-run.
+    if (!row.topic_id) continue;
+    if (!latestByTopic.has(row.topic_id)) latestByTopic.set(row.topic_id, row);
   }
   return Array.from(latestByTopic.values()).map(toResult);
 }

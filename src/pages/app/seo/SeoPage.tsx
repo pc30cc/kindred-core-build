@@ -30,6 +30,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
 import { SkeletonStats, SkeletonTable } from '@/components/common/Skeletons';
 import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
+import { prettyUrl } from '@/lib/prettyUrl';
 import {
   Radar, RefreshCw, AlertTriangle, CheckCircle2, XCircle, ArrowLeft, ExternalLink, Link2, Lock,
   Globe2, TrendingUp, Sparkles, ShieldCheck, Copy,
@@ -604,8 +605,8 @@ function AffectedUrlsPanel({
               <li key={`${u.url}-${idx}`} className="flex items-center gap-2 px-3 py-2 hover:bg-muted/40">
                 <span className="w-6 shrink-0 text-[11px] tabular-nums text-muted-foreground">{idx + 1}</span>
                 <div className="min-w-0 flex-1" dir="ltr">
-                  <div className="truncate font-mono text-xs" title={u.url}>{path}</div>
-                  {origin && <div className="truncate text-[11px] text-muted-foreground">{origin}</div>}
+                  <div className="truncate font-mono text-xs" title={prettyUrl(u.url)}>{prettyUrl(path)}</div>
+                  {origin && <div className="truncate text-[11px] text-muted-foreground">{prettyUrl(origin)}</div>}
                 </div>
                 <Button
                   variant="ghost" size="icon" className="h-7 w-7 shrink-0"
@@ -753,7 +754,7 @@ function PagesTab({ workspaceId, crawlId }: { workspaceId: string; crawlId: stri
               )}
               {pages.map((p) => (
                 <TableRow key={p.id}>
-                  <TableCell className="max-w-xs truncate"><a href={p.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:underline">{p.url}<ExternalLink className="h-3 w-3 shrink-0" /></a></TableCell>
+                  <TableCell className="max-w-xs truncate"><a href={p.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:underline">{prettyUrl(p.url)}<ExternalLink className="h-3 w-3 shrink-0" /></a></TableCell>
                   <TableCell>{p.http_status ?? '—'}</TableCell>
                   <TableCell>{p.is_indexable ? t('seo.pages.indexable') : t('seo.pages.nonIndexable')}</TableCell>
                   <TableCell className="max-w-xs truncate">{p.title || '—'}</TableCell>
@@ -800,7 +801,7 @@ function LinksTab({ workspaceId, crawlId }: { workspaceId: string; crawlId: stri
             )}
             {links.map((l) => (
               <TableRow key={l.id}>
-                <TableCell className="max-w-xs truncate">{l.target_url}</TableCell>
+                <TableCell className="max-w-xs truncate" dir="ltr">{prettyUrl(l.target_url)}</TableCell>
                 <TableCell>{l.http_status ?? '—'}</TableCell>
                 <TableCell className="max-w-xs truncate">{l.source_page?.url || '—'}</TableCell>
               </TableRow>
@@ -840,7 +841,7 @@ function SitemapTab({ workspaceId, crawlId, crawl }: { workspaceId: string; craw
             )}
             {sitemaps.map((s) => (
               <TableRow key={s.id}>
-                <TableCell className="max-w-xs truncate">{s.url}</TableCell>
+                <TableCell className="max-w-xs truncate" dir="ltr">{prettyUrl(s.url)}</TableCell>
                 <TableCell>
                   <Badge className={s.status === 'valid' ? 'bg-emerald-500/15 text-emerald-600' : 'bg-destructive/15 text-destructive'}>
                     {s.status === 'valid' ? t('seo.sitemap.valid') : t('seo.sitemap.invalid')}
@@ -1061,7 +1062,7 @@ function PerformanceTab({ workspaceId, crawlId }: { workspaceId: string; crawlId
               <TableRow key={r.id}>
                 <TableCell className="max-w-xs truncate">
                   <a href={r.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-primary hover:underline">
-                    {r.url} <ExternalLink className="h-3 w-3 shrink-0" />
+                    {prettyUrl(r.url)} <ExternalLink className="h-3 w-3 shrink-0" />
                   </a>
                 </TableCell>
                 <TableCell><Badge variant="outline" className={`text-[10px] ${scoreBadgeClass(r.performance_score)}`}>{r.performance_score ?? '—'}</Badge></TableCell>

@@ -49,6 +49,17 @@ services:
       # Public HTTPS origin of the channels-gateway service (what Telegram calls).
       - PUBLIC_CHANNELS_BASE_URL=${PUBLIC_CHANNELS_BASE_URL:-}
       - CHANNELS_INTERNAL_BASE_URL=${CHANNELS_INTERNAL_BASE_URL:-http://channels-gateway:3011}
+      # ── SEO — Google Search Console OAuth (optional) ────────────────
+      # Required only for SEO → GSC Insights. Without all three, that
+      # module reports "not configured" instead of a raw error — see
+      # server/services/seo/gsc/oauthConfig.ts. Create one Google Cloud
+      # OAuth Client (type: Web application); GOOGLE_OAUTH_REDIRECT_URI
+      # must exactly match an Authorised redirect URI on that client,
+      # and must be reachable at this backend's own public origin
+      # (typically your api.* subdomain, not the frontend's app.* one).
+      - GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID:-}
+      - GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      - GOOGLE_OAUTH_REDIRECT_URI=${GOOGLE_OAUTH_REDIRECT_URI:-}
       # Centrifugo bootstrap defaults (optional — admin can also configure via UI).
       # When set, the backend can pre-populate the realtime provider config on first run.
       - CENTRIFUGO_WS_URL=${CENTRIFUGO_WS_URL:-ws://localhost:8000/connection/websocket}

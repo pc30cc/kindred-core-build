@@ -113,11 +113,17 @@ export function useCrawlIssues(workspaceId?: string, crawlId?: string, filters: 
   });
 }
 
-export function useIssueAffectedUrls(workspaceId?: string, crawlId?: string, issueId?: string) {
+export function useIssueAffectedUrls(
+  workspaceId?: string,
+  crawlId?: string,
+  issueId?: string,
+  opts: { limit?: number; offset?: number } = {},
+) {
   return useQuery({
-    queryKey: ['seo-issue-pages', workspaceId, crawlId, issueId],
-    queryFn: () => listIssueAffectedUrls(workspaceId!, crawlId!, issueId!),
+    queryKey: ['seo-issue-pages', workspaceId, crawlId, issueId, opts],
+    queryFn: () => listIssueAffectedUrls(workspaceId!, crawlId!, issueId!, opts),
     enabled: !!workspaceId && !!crawlId && !!issueId,
+    placeholderData: (prev) => prev,
   });
 }
 

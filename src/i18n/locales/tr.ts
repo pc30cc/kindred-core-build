@@ -6801,6 +6801,15 @@ const tr: TranslationKeys = {
       affectedUrls: 'Etkilenen URL\'ler',
       empty: 'Geçerli filtrelerle eşleşen sorun yok.',
       backToList: 'Sorun listesine dön',
+      searchUrls: 'URL ara',
+      copyAll: 'Tümünü kopyala',
+      copyUrl: 'URL kopyala',
+      openUrl: 'Yeni sekmede aç',
+      urlCopied: 'URL kopyalandı',
+      urlsCopied: 'URL’ler kopyalandı',
+      urlsShown: '{{total}} içinden {{shown}} gösteriliyor',
+      loadMoreUrls: 'Daha fazla URL yükle',
+      noUrls: 'Gösterilecek URL yok.',
       types: {
         http_5xx: {
           title: 'Sunucu hatası döndüren sayfalar (5xx)',

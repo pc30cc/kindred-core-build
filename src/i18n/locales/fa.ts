@@ -6797,6 +6797,15 @@ const fa: TranslationKeys = {
       affectedUrls: 'آدرس‌های درگیر',
       empty: 'هیچ مشکلی با فیلترهای فعلی مطابقت ندارد.',
       backToList: 'بازگشت به فهرست مشکلات',
+      searchUrls: 'جست‌وجوی آدرس',
+      copyAll: 'کپی همه',
+      copyUrl: 'کپی آدرس',
+      openUrl: 'باز کردن در تب جدید',
+      urlCopied: 'آدرس کپی شد',
+      urlsCopied: 'آدرس‌ها کپی شدند',
+      urlsShown: 'نمایش {{shown}} از {{total}}',
+      loadMoreUrls: 'نمایش آدرس‌های بیشتر',
+      noUrls: 'آدرسی برای نمایش نیست.',
       types: {
         http_5xx: {
           title: 'صفحات با خطای سرور (5xx)',

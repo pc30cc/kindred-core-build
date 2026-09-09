@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+
 import { useWorkspaces } from '@/hooks/useWorkspace';
 import {
   Globe, Link2, Server, Code2, Copy, Check, AlertTriangle,
@@ -359,28 +359,8 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
           </Button>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">{t('admin.widgetSettingsPage.urls.previewWorkspace' as any)}</Label>
-            {adminWorkspaces && adminWorkspaces.length > 0 ? (
-              <Select value={previewWorkspaceId} onValueChange={setPreviewWorkspaceId}>
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder={t('admin.widgetSettingsPage.urls.selectWorkspace' as any)} />
-                </SelectTrigger>
-                <SelectContent>
-                  {adminWorkspaces.map((w) => (
-                    <SelectItem key={w.id} value={w.id} className="text-xs">
-                      <span className="font-medium">{w.name}</span>
-                      <span className="text-muted-foreground ms-2 font-mono">{w.id.slice(0, 8)}…</span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <p className="text-xs text-muted-foreground italic">
-                {t('admin.widgetSettingsPage.urls.noWorkspace' as any)}
-              </p>
-            )}
-          </div>
+
+
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">

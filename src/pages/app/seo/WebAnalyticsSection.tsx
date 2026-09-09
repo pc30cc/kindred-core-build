@@ -71,6 +71,22 @@ function formatCompact(v: number): string {
   return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(v);
 }
 
+/** Decode percent-encoded URLs/paths so non-Latin slugs read like the browser address bar. */
+function prettyUrl(value: string): string {
+  if (!value) return value;
+  try {
+    return decodeURI(value);
+  } catch {
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  }
+}
+
+
+
 function webAnalyticsErrorMessage(err: unknown, t: (k: any) => string): string {
   if (err instanceof WebAnalyticsApiError) {
     if (err.upgradeRequired) return t('seo.webAnalytics.errors.limit_reached' as any);

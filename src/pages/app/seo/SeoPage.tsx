@@ -33,7 +33,7 @@ import { SkeletonStats, SkeletonTable } from '@/components/common/Skeletons';
 import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
 import {
   Radar, RefreshCw, AlertTriangle, CheckCircle2, XCircle, ArrowLeft, ExternalLink, Link2, Lock,
-  Globe2, TrendingUp, Sparkles, ShieldCheck,
+  Globe2, TrendingUp, Sparkles, ShieldCheck, Copy,
   Search, LineChart, Gauge, Plus, Trash2, Target,
 } from 'lucide-react';
 import {

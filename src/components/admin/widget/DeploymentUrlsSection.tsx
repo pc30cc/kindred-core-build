@@ -359,28 +359,8 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
           </Button>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">{t('admin.widgetSettingsPage.urls.previewWorkspace' as any)}</Label>
-            {adminWorkspaces && adminWorkspaces.length > 0 ? (
-              <Select value={previewWorkspaceId} onValueChange={setPreviewWorkspaceId}>
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder={t('admin.widgetSettingsPage.urls.selectWorkspace' as any)} />
-                </SelectTrigger>
-                <SelectContent>
-                  {adminWorkspaces.map((w) => (
-                    <SelectItem key={w.id} value={w.id} className="text-xs">
-                      <span className="font-medium">{w.name}</span>
-                      <span className="text-muted-foreground ms-2 font-mono">{w.id.slice(0, 8)}…</span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <p className="text-xs text-muted-foreground italic">
-                {t('admin.widgetSettingsPage.urls.noWorkspace' as any)}
-              </p>
-            )}
-          </div>
+
+
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">

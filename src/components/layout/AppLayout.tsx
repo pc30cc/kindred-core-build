@@ -171,7 +171,8 @@ export function AppLayout() {
     /\/settings(\/|$)/.test(pathname) ||
     /\/visitors(\/|$)/.test(pathname) ||
     /\/ai-agent(\/|$)/.test(pathname) ||
-    /\/seo(\/|$)/.test(pathname);
+    /\/seo(\/|$)/.test(pathname) ||
+    /\/analytics(\/|$)/.test(pathname);
 
   // Strict: if slug doesn't match any workspace, show 404
   if (!isLoading && notFound) {

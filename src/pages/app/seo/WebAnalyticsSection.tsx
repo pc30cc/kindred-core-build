@@ -557,22 +557,22 @@ function TrackedEventsView({ workspaceId, range }: { workspaceId: string; range:
       ) : (data?.rows.length || 0) === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.trackedEvents.empty' as any)}</p>
       ) : (
-        <Table>
+        <Table dir="ltr">
           <TableHeader>
             <TableRow>
-              <TableHead>{t('seo.webAnalytics.column.event' as any)}</TableHead>
-              <TableHead className="text-end">{t('seo.webAnalytics.column.count' as any)}</TableHead>
-              <TableHead className="text-end">{t('seo.webAnalytics.column.uniqueSessions' as any)}</TableHead>
+              <TableHead className="text-left">{t('seo.webAnalytics.column.event' as any)}</TableHead>
+              <TableHead className="text-right">{t('seo.webAnalytics.column.count' as any)}</TableHead>
+              <TableHead className="text-right">{t('seo.webAnalytics.column.uniqueSessions' as any)}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {(data?.rows || []).map((r) => (
               <TableRow key={r.eventName}>
-                <TableCell className="font-medium">
+                <TableCell className="text-left font-medium">
                   <span className="flex items-center gap-2"><Zap className="h-3.5 w-3.5 text-amber-500" />{r.eventName}</span>
                 </TableCell>
-                <TableCell className="text-end tabular-nums">{formatCompact(r.count)}</TableCell>
-                <TableCell className="text-end tabular-nums text-muted-foreground">{formatCompact(r.uniqueSessions)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatCompact(r.count)}</TableCell>
+                <TableCell className="text-right tabular-nums text-muted-foreground">{formatCompact(r.uniqueSessions)}</TableCell>
               </TableRow>
             ))}
           </TableBody>

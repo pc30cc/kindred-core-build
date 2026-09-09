@@ -64,6 +64,8 @@ export const SEO_SECTIONS: SeoSection[] = [
       leaf('links', 'seo.nav.item.links', true),
       leaf('sitemap', 'seo.nav.item.sitemap', true),
       leaf('performance', 'seo.nav.item.performance', true),
+      leaf('backlinks', 'seo.nav.item.backlinks', true),
+      leaf('keywords', 'seo.nav.item.keywords', true),
       leaf('history', 'seo.nav.item.history', true),
     ],
   },

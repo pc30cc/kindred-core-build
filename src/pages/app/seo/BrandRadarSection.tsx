@@ -123,7 +123,7 @@ function BrandRadarDataView({ workspaceId, subsectionKey, range }: { workspaceId
     case 'searchDemand': return <SearchDemandView workspaceId={workspaceId} range={range} />;
     case 'webVisibility': return <WebVisibilityView workspaceId={workspaceId} />;
     case 'competitors': return <CompetitorsView workspaceId={workspaceId} range={range} />;
-    case 'settings': return <SettingsView workspaceId={workspaceId} />;
+    case 'settings': return <SettingsView key={workspaceId} workspaceId={workspaceId} />;
     default: return null;
   }
 }

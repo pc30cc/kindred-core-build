@@ -503,9 +503,10 @@ function SiteStructureNodeRow({ node, depth }: { node: SiteStructureNode; depth:
     <div>
       <button
         type="button"
+        dir="ltr"
         onClick={() => hasChildren && setOpen((v) => !v)}
-        className="flex w-full items-center gap-1.5 rounded-md py-1.5 text-sm transition-colors hover:bg-muted"
-        style={{ paddingInlineStart: `${depth * 18 + 4}px` }}
+        className="flex w-full items-center gap-1.5 rounded-md py-1.5 text-left text-sm transition-colors hover:bg-muted"
+        style={{ paddingLeft: `${depth * 18 + 4}px` }}
       >
         {hasChildren ? (open ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />) : <span className="w-3.5" />}
         <Network className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />

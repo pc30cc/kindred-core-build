@@ -408,6 +408,18 @@ export function DeploymentUrlsSection({ settings, onSave, saving }: Props) {
             {t('admin.widgetSettingsPage.urls.commentsHint' as any)}
           </p>
 
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={handleReset} disabled={!isDirty || saving}>
+              {t('admin.widgetSettingsPage.urls.reset' as any)}
+            </Button>
+            <Button size="sm" onClick={handleSave} disabled={!isDirty || saving}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin me-1.5" /> : null}
+              {t('admin.widgetSettingsPage.urls.save' as any)}
+            </Button>
+          </div>
+
+
+
           <Textarea
             readOnly
             value={embedSnippet}

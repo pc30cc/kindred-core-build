@@ -24,6 +24,8 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { deleteFile } from '../services/storage/index.js';
+import { parseWorkspaceDomainInput, type DomainInputResult } from '../utils/workspaceDomainInput.js';
+import { invalidateOriginHostCache, invalidateWorkspaceOriginCache } from '../services/widget/public.js';
 
 export const adminManagementRouter = Router();
 
@@ -602,6 +604,72 @@ adminManagementRouter.get('/domains', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ domains: data ?? [] });
 });
+
+// ── Edit a workspace's own domain (platform admin override) ────────────
+// The workspace owner manages these in Settings → Domains. A platform admin
+// may correct/replace the value or move the "primary" flag without being a
+// member of that workspace. Same canonical-input contract as the workspace
+// route, and the same origin cache invalidation so the change is live at once.
+const adminDomainPatchSchema = z.object({
+  domain: z.string().min(1).max(300).optional(),
+  is_primary: z.boolean().optional(),
+});
+
+adminManagementRouter.patch('/domains/:id', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const parsed = adminDomainPatchSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  if (parsed.data.domain === undefined && parsed.data.is_primary === undefined) {
+    return res.status(400).json({ error: 'Nothing to update' });
+  }
+
+  const sb = getServiceClient(serverConfigOf(req));
+  const { data: existing } = await sb
+    .from('workspace_domains')
+    .select('id, domain, workspace_id')
+    .eq('id', req.params.id)
+    .maybeSingle();
+  if (!existing) return res.status(404).json({ error: 'Domain not found' });
+
+  const update: Record<string, unknown> = {};
+  let nextDomain: string | null = null;
+  if (parsed.data.domain !== undefined) {
+    const input = parseWorkspaceDomainInput(parsed.data.domain);
+    if (!input.ok) {
+      const failure = input as Extract<DomainInputResult, { ok: false }>;
+      return res.status(400).json({ error: failure.message, code: failure.code });
+    }
+    nextDomain = input.domain;
+    update.domain = input.domain;
+  }
+  if (parsed.data.is_primary !== undefined) update.is_primary = parsed.data.is_primary;
+
+  if (parsed.data.is_primary === true) {
+    await sb
+      .from('workspace_domains')
+      .update({ is_primary: false })
+      .eq('workspace_id', (existing as any).workspace_id);
+  }
+
+  const { data, error } = await sb
+    .from('workspace_domains')
+    .update(update)
+    .eq('id', req.params.id)
+    .select('*, workspaces(name)')
+    .maybeSingle();
+  if (error) {
+    if ((error as any).code === '23505') {
+      return res.status(409).json({ error: 'This domain is already registered.', code: 'DOMAIN_TAKEN' });
+    }
+    return res.status(500).json({ error: error.message });
+  }
+
+  invalidateWorkspaceOriginCache((existing as any).workspace_id);
+  if ((existing as any).domain) invalidateOriginHostCache((existing as any).domain);
+  if (nextDomain) invalidateOriginHostCache(nextDomain);
+  return res.json({ domain: data });
+});
+
 
 // ── Login attempts for an email (security forensics) ───────────────────
 const loginAttemptsSchema = z.object({

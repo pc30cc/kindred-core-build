@@ -87,6 +87,12 @@ async function requestJson(
       const detail = `Google ${res.status} @ ${endpoint} — ${reasonText}`;
       if (flatReason === 'invalid_grant') throw new GscError('gsc_token_revoked', undefined, detail);
       console.error(`[gsc] ${endpoint} returned ${res.status}: ${reasonText}`);
+      // Google returns 403 ACCESS_TOKEN_SCOPE_INSUFFICIENT when the account
+      // authorized sign-in but never granted the Search Console scope. Only a
+      // reconnect with the right checkbox ticked can fix it.
+      if (/insufficient authentication scopes|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(reasonText)) {
+        throw new GscError('gsc_insufficient_scope', undefined, detail);
+      }
       throw new GscError('gsc_auth_failed', undefined, detail);
     }
     if (res.status === 429) throw new GscError('gsc_rate_limited');

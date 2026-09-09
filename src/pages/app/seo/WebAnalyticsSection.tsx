@@ -472,20 +472,20 @@ function Possible404View({ workspaceId, range }: { workspaceId: string; range: {
         {data.rows.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.possible404.empty' as any)}</p>
         ) : (
-          <Table>
+          <Table dir="ltr">
             <TableHeader>
               <TableRow>
-                <TableHead>{t('seo.webAnalytics.column.page' as any)}</TableHead>
-                <TableHead className="text-end">{t('seo.webAnalytics.column.status' as any)}</TableHead>
-                <TableHead className="text-end">{t('seo.webAnalytics.column.views' as any)}</TableHead>
+                <TableHead className="text-left">{t('seo.webAnalytics.column.page' as any)}</TableHead>
+                <TableHead className="text-right">{t('seo.webAnalytics.column.status' as any)}</TableHead>
+                <TableHead className="text-right">{t('seo.webAnalytics.column.views' as any)}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.rows.map((r) => (
                 <TableRow key={r.path}>
-                  <TableCell className="max-w-[360px] truncate font-medium" title={r.path}>{r.path}</TableCell>
-                  <TableCell className="text-end"><Badge variant="destructive" className="text-[10px]">{r.httpStatus}</Badge></TableCell>
-                  <TableCell className="text-end tabular-nums">{formatCompact(r.views)}</TableCell>
+                  <TableCell className="max-w-[360px] truncate text-left font-medium" title={r.path}>{r.path}</TableCell>
+                  <TableCell className="text-right"><Badge variant="destructive" className="text-[10px]">{r.httpStatus}</Badge></TableCell>
+                  <TableCell className="text-right tabular-nums">{formatCompact(r.views)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -503,14 +503,15 @@ function SiteStructureNodeRow({ node, depth }: { node: SiteStructureNode; depth:
     <div>
       <button
         type="button"
+        dir="ltr"
         onClick={() => hasChildren && setOpen((v) => !v)}
-        className="flex w-full items-center gap-1.5 rounded-md py-1.5 text-sm transition-colors hover:bg-muted"
-        style={{ paddingInlineStart: `${depth * 18 + 4}px` }}
+        className="flex w-full items-center gap-1.5 rounded-md py-1.5 text-left text-sm transition-colors hover:bg-muted"
+        style={{ paddingLeft: `${depth * 18 + 4}px` }}
       >
         {hasChildren ? (open ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />) : <span className="w-3.5" />}
         <Network className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <span className="truncate font-mono text-xs">{node.segment}</span>
-        <span className="ms-auto shrink-0 tabular-nums text-xs text-muted-foreground">{formatCompact(node.views)}</span>
+        <span className="ml-auto shrink-0 tabular-nums text-xs text-muted-foreground">{formatCompact(node.views)}</span>
       </button>
       {hasChildren && open && (
         <div>
@@ -556,22 +557,22 @@ function TrackedEventsView({ workspaceId, range }: { workspaceId: string; range:
       ) : (data?.rows.length || 0) === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.trackedEvents.empty' as any)}</p>
       ) : (
-        <Table>
+        <Table dir="ltr">
           <TableHeader>
             <TableRow>
-              <TableHead>{t('seo.webAnalytics.column.event' as any)}</TableHead>
-              <TableHead className="text-end">{t('seo.webAnalytics.column.count' as any)}</TableHead>
-              <TableHead className="text-end">{t('seo.webAnalytics.column.uniqueSessions' as any)}</TableHead>
+              <TableHead className="text-left">{t('seo.webAnalytics.column.event' as any)}</TableHead>
+              <TableHead className="text-right">{t('seo.webAnalytics.column.count' as any)}</TableHead>
+              <TableHead className="text-right">{t('seo.webAnalytics.column.uniqueSessions' as any)}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {(data?.rows || []).map((r) => (
               <TableRow key={r.eventName}>
-                <TableCell className="font-medium">
+                <TableCell className="text-left font-medium">
                   <span className="flex items-center gap-2"><Zap className="h-3.5 w-3.5 text-amber-500" />{r.eventName}</span>
                 </TableCell>
-                <TableCell className="text-end tabular-nums">{formatCompact(r.count)}</TableCell>
-                <TableCell className="text-end tabular-nums text-muted-foreground">{formatCompact(r.uniqueSessions)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatCompact(r.count)}</TableCell>
+                <TableCell className="text-right tabular-nums text-muted-foreground">{formatCompact(r.uniqueSessions)}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -627,18 +628,18 @@ function EventPropertiesView({ workspaceId, range }: { workspaceId: string; rang
             ) : (breakdownData?.rows.length || 0) === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData' as any)}</p>
             ) : (
-              <Table>
+              <Table dir="ltr">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{t('seo.webAnalytics.eventProperties.value' as any)}</TableHead>
-                    <TableHead className="text-end">{t('seo.webAnalytics.column.count' as any)}</TableHead>
+                    <TableHead className="text-left">{t('seo.webAnalytics.eventProperties.value' as any)}</TableHead>
+                    <TableHead className="text-right">{t('seo.webAnalytics.column.count' as any)}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {(breakdownData?.rows || []).map((r) => (
                     <TableRow key={r.value}>
-                      <TableCell className="font-medium">{r.value}</TableCell>
-                      <TableCell className="text-end tabular-nums">{formatCompact(r.count)}</TableCell>
+                      <TableCell className="text-left font-medium">{r.value}</TableCell>
+                      <TableCell className="text-right tabular-nums">{formatCompact(r.count)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

@@ -717,13 +717,26 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
     return res.status(503).json({ error: 'ai_kb_status_unavailable' });
   }
 
+  // Plan cap is evaluated ONCE for the batch and then decremented locally,
+  // so a bulk publish can never push the workspace past `max_kb_articles`.
+  const quota = await resolveKbArticleQuota(config, job.workspace_id);
+  if (!quota.ok && quota.status === 503) return res.status(503).json(quota.body);
+  let remaining = quota.ok
+    ? (quota.unlimited ? Number.POSITIVE_INFINITY : quota.remaining)
+    : 0;
+
   const published: Array<{ generated_id: string; kb_article_id: string }> = [];
   const failed: Array<{
     generated_id: string;
-    error: 'publish_failed' | 'invalid_state';
+    error: 'publish_failed' | 'invalid_state' | 'limit_reached';
     current_status?: string | null;
   }> = [];
   for (const gen of drafts || []) {
+    const consumesCapacity = !(gen as any).kb_article_id;
+    if (consumesCapacity && remaining <= 0) {
+      failed.push({ generated_id: gen.id, error: 'limit_reached' });
+      continue;
+    }
     const { result, transportError } = await applyGeneratedDraft(sb, gen, auth.userId, 'publish');
     if (transportError || !result?.ok || !result.kb_article_id) {
       // A draft another operator already rejected is reported as a conflict,
@@ -744,10 +757,27 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
       failed.push({ generated_id: gen.id, error: 'publish_failed' });
       continue;
     }
+    if (consumesCapacity) remaining -= 1;
     published.push({ generated_id: gen.id, kb_article_id: result.kb_article_id });
   }
-  return res.json({ ok: true, published_count: published.length, failed_count: failed.length, published, failed });
+  const limitReached = failed.some((f) => f.error === 'limit_reached');
+  return res.json({
+    ok: true,
+    published_count: published.length,
+    failed_count: failed.length,
+    published,
+    failed,
+    ...(limitReached
+      ? {
+          limit_reached: true,
+          feature: 'max_kb_articles',
+          upgrade_required: true,
+          ...(quota.ok && !quota.unlimited ? { limit: quota.limit } : {}),
+        }
+      : {}),
+  });
 });
+
 
 // ──────────────────────────────────────────────────────────────
 //  GET /api/ai-kb/generated/:id/visibility — diagnostics

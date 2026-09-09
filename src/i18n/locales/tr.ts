@@ -542,6 +542,7 @@ const tr: TranslationKeys = {
     callCenter: 'Çağrı Merkezi',
     billing: 'Faturalandırma',
     seo: 'SEO',
+    webAnalytics: 'Web Analitiği',
     settings: 'Ayarlar',
     general: 'Genel',
     domains: 'Alan Adları',
@@ -6531,6 +6532,7 @@ const tr: TranslationKeys = {
       linkChanges: 'Bağlantı Değişiklikleri',
     },
     webAnalytics: {
+      pageSubtitle: 'Trafik, kitle ve davranış raporlaması — kaynaklar, sayfalar, coğrafya, cihazlar, özel etkinlikler ve huniler.',
       dataSourceNote: 'Sohbet widget kodunuzun zaten topladığı ziyaretçi verileri üzerine kuruludur — ayrı bir izleme kodu gerekmez.',
       range: {
         last7: 'Son 7 gün',

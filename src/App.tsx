@@ -89,6 +89,7 @@ import EmailPage from "@/pages/app/EmailPage";
 import BillingPage from "@/pages/app/BillingPage";
 import BillingPaymentPage from "@/pages/app/billing/PaymentPage";
 import SeoPage from "@/pages/app/seo/SeoPage";
+import WebAnalyticsPage from "@/pages/app/analytics/WebAnalyticsPage";
 import SettingsGeneralPage from "@/pages/app/settings/GeneralPage";
 import SettingsIntegrationsPage from "@/pages/app/settings/IntegrationsPage";
 import SettingsDomainsPage from "@/pages/app/settings/DomainsPage";
@@ -289,6 +290,12 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="seo" element={<RequireWorkspaceAdmin><SeoPage /></RequireWorkspaceAdmin>} />
                 <Route path="seo/:section" element={<RequireWorkspaceAdmin><SeoPage /></RequireWorkspaceAdmin>} />
                 <Route path="seo/:section/:subsection" element={<RequireWorkspaceAdmin><SeoPage /></RequireWorkspaceAdmin>} />
+                {/* Web Analytics — generic site-traffic/behavior reporting, split out
+                    of the SEO suite into its own main-menu item (it isn't search-specific
+                    like the tools under /seo). Plan-gated inside WebAnalyticsSection itself
+                    (moduleKey="web_analytics"), same as it was when nested under /seo. */}
+                <Route path="analytics" element={<RequireWorkspaceAdmin><WebAnalyticsPage /></RequireWorkspaceAdmin>} />
+                <Route path="analytics/:subsection" element={<RequireWorkspaceAdmin><WebAnalyticsPage /></RequireWorkspaceAdmin>} />
                 {/* Phase 6-S5-R4 — Knowledge Base is a CORE workspace product.
                     It is ALWAYS available: no plan gate, no AI dependency, no
                     upgrade screen. Only authentication + workspace membership

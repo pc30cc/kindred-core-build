@@ -7,7 +7,6 @@ import { SeoSectionNav } from './SeoSectionNav';
 import { SeoRoadmapPlaceholder } from './SeoRoadmapPlaceholder';
 import { GscInsightsSection } from './GscInsightsSection';
 import { SiteExplorerSection } from './SiteExplorerSection';
-import { WebAnalyticsSection } from './WebAnalyticsSection';
 import { BotAnalyticsSection } from './BotAnalyticsSection';
 import { BrandRadarSection } from './BrandRadarSection';
 import {
@@ -184,8 +183,6 @@ export default function SeoPage() {
           <GscInsightsSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
         ) : activeSection.key === 'site-explorer' ? (
           <SiteExplorerSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
-        ) : activeSection.key === 'web-analytics' ? (
-          <WebAnalyticsSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
         ) : activeSection.key === 'bot-analytics' ? (
           <BotAnalyticsSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
         ) : activeSection.key === 'brand-radar' ? (

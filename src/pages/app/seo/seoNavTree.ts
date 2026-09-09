@@ -1,19 +1,23 @@
 /**
  * SEO suite navigation tree — the two-level structure behind the SEO area's
- * nested sidebar (icon rail of 7 tools, each with its own list of reports).
- * Modeled on Ahrefs' real product IA (Site Explorer, Web Analytics, Bot
- * Analytics, Site Audit, Rank Tracker, GSC Insights, Brand Radar), reduced
- * to what this app can actually back today vs. what is still on the roadmap
- * — see each section's `built` flag and each leaf's `built` flag.
+ * nested sidebar (icon rail of 6 tools, each with its own list of reports).
+ * Modeled on Ahrefs' real product IA (Site Explorer, Bot Analytics, Site
+ * Audit, Rank Tracker, GSC Insights, Brand Radar), reduced to what this app
+ * can actually back today vs. what is still on the roadmap — see each
+ * section's `built` flag and each leaf's `built` flag.
+ *
+ * Web Analytics (generic site-traffic/behavior reporting) lives outside this
+ * tree as its own main-menu item — see src/pages/app/analytics/ — since it
+ * isn't search-specific like the tools here.
  *
  * `needsSite` marks sections that operate on one registered workspace_domains
  * site (Site Audit, Rank Tracker, Site Explorer); sections without it
- * (Web Analytics, Bot Analytics, GSC Insights, Brand Radar) are workspace- or
- * brand-level and don't require picking a site first.
+ * (Bot Analytics, GSC Insights, Brand Radar) are workspace- or brand-level
+ * and don't require picking a site first.
  */
 import type { LucideIcon } from 'lucide-react';
 import {
-  Sparkles, Globe2, BarChart3, Bot, Radar, TrendingUp, Search,
+  Sparkles, Globe2, Bot, Radar, TrendingUp, Search,
 } from 'lucide-react';
 
 export interface SeoNavLeaf {
@@ -110,46 +114,6 @@ export const SEO_SECTIONS: SeoSection[] = [
       leaf('pages', 'seo.nav.item.pages', true),
       leaf('devices', 'seo.nav.item.devices', true),
       leaf('opportunities', 'seo.nav.item.opportunities', true),
-    ],
-  },
-  {
-    key: 'web-analytics',
-    labelKey: 'seo.nav.section.webAnalytics',
-    icon: BarChart3,
-    needsSite: false,
-    built: true,
-    items: [
-      leaf('overview', 'seo.nav.item.overview', true),
-      group('trafficSources', 'seo.nav.item.trafficSources', [
-        leaf('channels', 'seo.nav.item.channels', true),
-        leaf('sources', 'seo.nav.item.sources', true),
-        leaf('campaigns', 'seo.nav.item.campaigns', true),
-      ]),
-      group('pages', 'seo.nav.item.pages', [
-        leaf('topPages', 'seo.nav.item.topPages', true),
-        leaf('entryPages', 'seo.nav.item.entryPages', true),
-        leaf('exitPages', 'seo.nav.item.exitPages', true),
-        leaf('clonedPages', 'seo.nav.item.clonedPages', true),
-        leaf('possible404', 'seo.nav.item.possible404', true),
-        leaf('siteStructure', 'seo.nav.item.siteStructure', true),
-        leaf('new', 'seo.nav.item.new', true),
-      ]),
-      group('geography', 'seo.nav.item.geography', [
-        leaf('continents', 'seo.nav.item.continents', true),
-        leaf('countries', 'seo.nav.item.countries', true),
-        leaf('cities', 'seo.nav.item.cities', true),
-        leaf('languages', 'seo.nav.item.languages', true),
-      ]),
-      group('browsersSystems', 'seo.nav.item.browsersSystems', [
-        leaf('browsers', 'seo.nav.item.browsers', true),
-        leaf('operatingSystems', 'seo.nav.item.operatingSystems', true),
-        leaf('devices', 'seo.nav.item.devices', true),
-      ]),
-      group('events', 'seo.nav.item.events', [
-        leaf('trackedEvents', 'seo.nav.item.trackedEvents', true),
-        leaf('funnels', 'seo.nav.item.funnels', true),
-        leaf('eventProperties', 'seo.nav.item.eventProperties', true),
-      ]),
     ],
   },
   {

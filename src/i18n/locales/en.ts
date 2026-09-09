@@ -540,6 +540,7 @@ const en = {
     callCenter: 'Call Center',
     billing: 'Billing',
     seo: 'SEO',
+    webAnalytics: 'Web Analytics',
     settings: 'Settings',
     general: 'General',
     domains: 'Domains',
@@ -6543,6 +6544,7 @@ const en = {
       linkChanges: 'Link Changes',
     },
     webAnalytics: {
+      pageSubtitle: 'Traffic, audience and behavior reporting — sources, pages, geography, devices, custom events and funnels.',
       dataSourceNote: 'Built on the visitor data your chat widget snippet already collects — no separate tracking code needed.',
       range: {
         last7: 'Last 7 days',

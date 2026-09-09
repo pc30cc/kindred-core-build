@@ -542,6 +542,7 @@ const fa: TranslationKeys = {
     callCenter: 'مرکز تماس',
     billing: 'صورتحساب',
     seo: 'سئو',
+    webAnalytics: 'آنالیز وب‌سایت',
     settings: 'تنظیمات',
     general: 'عمومی',
     domains: 'دامنه‌ها',
@@ -6527,6 +6528,7 @@ const fa: TranslationKeys = {
       linkChanges: 'تغییرات لینک',
     },
     webAnalytics: {
+      pageSubtitle: 'گزارش ترافیک، مخاطبان و رفتار کاربران — منابع ورودی، صفحات، جغرافیا، دستگاه‌ها، ایونت‌های سفارشی و فانل‌ها.',
       dataSourceNote: 'بر پایه داده‌ی بازدیدکنندگانی که ابزارک چت شما همین حالا جمع‌آوری می‌کند — بدون نیاز به کد ردیابی جداگانه.',
       range: {
         last7: '۷ روز گذشته',

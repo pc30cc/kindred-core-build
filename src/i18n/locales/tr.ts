@@ -6415,6 +6415,8 @@ const tr: TranslationKeys = {
         gsc_invalid_state: 'Google oturum açma bağlantısının süresi doldu veya zaten kullanıldı — lütfen tekrar bağlanmayı deneyin.',
         gsc_auth_failed: 'Google Search Console ile kimlik doğrulama başarısız oldu.',
         gsc_token_revoked: 'Bu Google hesabına erişim iptal edildi. Lütfen yeniden bağlanın.',
+        gsc_insufficient_scope:
+          'Bu Google hesabı Search Console iznini vermedi. Yeniden bağlanın ve Google onay ekranında Search Console kutusunu işaretleyin.',
         gsc_rate_limited: 'Google Search Console hız sınırı aşıldı. Lütfen kısa süre sonra tekrar deneyin.',
         gsc_limit_reached: 'Planınız için bağlanabilecek maksimum Search Console mülk sayısına ulaşıldı.',
         gsc_timeout: 'Google Search Console isteği zaman aşımına uğradı.',

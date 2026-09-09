@@ -600,11 +600,32 @@ function respondApplyFailure(
   return res.status(500).json({ error: fallback });
 }
 
+/**
+ * The accept/publish transaction INSERTS a knowledge_base_articles row, so it
+ * is subject to the same `max_kb_articles` plan cap as the manual editor.
+ * Drafts already linked to an article update that row instead and therefore
+ * consume no additional capacity. Returns false when the response was sent.
+ */
+async function enforceKbArticleQuotaForDraft(
+  res: Response,
+  config: ServerConfig,
+  gen: { workspace_id: string; kb_article_id?: string | null },
+): Promise<boolean> {
+  if (gen.kb_article_id) return true;
+  const quota = await resolveKbArticleQuota(config, gen.workspace_id);
+  if (quota.ok) return true;
+  res.status(quota.status).json(quota.body);
+  return false;
+}
+
 aiKbRouter.post('/generated/:id/accept', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const ctx = await loadGenerated(req, res, config, ['can_manage_knowledge_base']);
   if (!ctx) return;
   const { gen, sb, userId } = ctx;
+  if (!(await enforceKbArticleQuotaForDraft(res, config, gen as any))) return;
+
+
 
   const { result, transportError } = await applyGeneratedDraft(sb, gen, userId, 'accept');
   if (transportError) {

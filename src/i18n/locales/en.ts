@@ -5217,6 +5217,8 @@ const en = {
       },
       onlyKbTitle: 'Answer only from Knowledge Base',
       onlyKbDesc: 'Recommended. Hands off when no match is found.',
+      strictScopeTitle: 'Only talk about this business',
+      strictScopeDesc: 'Declines unrelated general knowledge, other websites/products, and any topic outside this business with a short redirect instead of an answer.',
       welcome: 'Welcome message',
       welcomePlaceholder: 'Hi! How can I help?',
       fallback: 'Fallback message',

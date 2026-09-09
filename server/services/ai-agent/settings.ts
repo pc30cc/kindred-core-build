@@ -35,6 +35,19 @@ export interface AgentSettings {
   answer_guidance: AnswerGuidance;
   mode: AgentMode;
   answer_only_from_kb: boolean;
+  /**
+   * Allow-list scope mode. false (default) preserves the existing
+   * conversational persona: the assistant may engage with greetings, small
+   * talk, and general questions unrelated to the business. true switches the
+   * CONVERSATION section of the system prompt (see prompt.ts) to a strict
+   * allow-list: only greetings/identity questions and questions about this
+   * business are answered; everything else gets a short "I can only help
+   * with X" redirect. Independent of, and complementary to, the topics
+   * `decline` gate (topics/*) — that gate is a deterministic hard guarantee
+   * for specific sensitive categories regardless of this setting; this
+   * setting is a prompt-level default posture for everything else.
+   */
+  strict_topic_scope: boolean;
   welcome_message: string | null;
   fallback_message: string;
   handoff_keywords: string[];
@@ -97,6 +110,7 @@ function defaults(workspaceId: string): Omit<AgentSettings, 'id' | 'created_at' 
     answer_guidance: 'conservative',
     mode: 'off',
     answer_only_from_kb: true,
+    strict_topic_scope: false,
     welcome_message: null,
     fallback_message: "I'm not sure about that yet. I'll connect you with a human agent.",
     handoff_keywords: DEFAULT_HANDOFF_KEYWORDS,
@@ -162,7 +176,7 @@ export async function getOrCreateSettings(
 
 const ALLOWED_UPDATE_FIELDS = new Set([
   'enabled','agent_name','agent_logo_url','business_description','answer_guidance',
-  'mode','answer_only_from_kb','welcome_message','fallback_message','handoff_keywords',
+  'mode','answer_only_from_kb','strict_topic_scope','welcome_message','fallback_message','handoff_keywords',
   'max_replies_per_conversation','max_replies_per_hour','allowed_locales',
   'show_sources_to_operator','show_sources_to_visitor',
   'handoff_on_low_confidence','handoff_on_human_request','handoff_when_no_kb_match',

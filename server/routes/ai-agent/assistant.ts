@@ -75,6 +75,7 @@ const updateSchema = z.object({
   answer_guidance: z.enum(['conservative','balanced','creative']).optional(),
   mode: z.enum(['off','suggest_only','auto_reply_when_offline','auto_reply_until_human_joins','auto_reply_always']).optional(),
   answer_only_from_kb: z.boolean().optional(),
+  strict_topic_scope: z.boolean().optional(),
   welcome_message: z.string().max(500).nullable().optional(),
   fallback_message: z.string().max(500).optional(),
   handoff_keywords: z.array(z.string().max(100)).max(50).optional(),

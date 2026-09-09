@@ -27,6 +27,7 @@ export interface CustomerSafeAgentSettings {
   business_description: string | null;
   answer_guidance: AgentSettings['answer_guidance'];
   answer_only_from_kb: boolean;
+  strict_topic_scope: boolean;
   welcome_message: string | null;
   fallback_message: string;
   allowed_locales: string[];
@@ -83,6 +84,7 @@ export function toCustomerSafeAiAgentSettings(s: AgentSettings): CustomerSafeAge
     business_description: s.business_description,
     answer_guidance: s.answer_guidance,
     answer_only_from_kb: !!s.answer_only_from_kb,
+    strict_topic_scope: !!s.strict_topic_scope,
     welcome_message: s.welcome_message,
     fallback_message: s.fallback_message,
     allowed_locales: s.allowed_locales || [],

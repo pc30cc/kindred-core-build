@@ -25,7 +25,7 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
-import { useWidgetPlatformSettings } from '@/hooks/useWidgetPlatformSettings';
+import { useWidgetPlatformPublicSettings } from '@/hooks/useWidgetPlatformSettings';
 import { resolveWidgetUrls, buildWidgetEmbedSnippet } from '@/lib/widgetEmbed';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -75,7 +75,7 @@ interface ChannelGroup {
 export default function SettingsIntegrationsPage() {
   const { t } = useTranslation();
   const workspace = useCurrentWorkspace();
-  const { data: platformWidget } = useWidgetPlatformSettings();
+  const { data: platformWidget } = useWidgetPlatformPublicSettings();
   const [copied, setCopied] = useState<string | null>(null);
   const [openChannel, setOpenChannel] = useState<Channel | null>(null);
 

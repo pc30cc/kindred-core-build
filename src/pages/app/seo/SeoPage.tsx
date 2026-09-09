@@ -527,6 +527,123 @@ function TechRow({ label, ok }: { label: string; ok: boolean }) {
   );
 }
 
+/**
+ * Affected-URL list for a single issue. URLs are always rendered LTR (they are
+ * never RTL text, even on a Persian page), split into origin + path so long
+ * paths stay readable, and paginated against the API's own limit/offset so a
+ * 500-URL issue never renders as one truncated blob.
+ */
+function AffectedUrlsPanel({
+  workspaceId, crawlId, issue,
+}: { workspaceId: string; crawlId: string; issue: SeoIssue }) {
+  const { t } = useTranslation();
+  const PAGE = 50;
+  const [limit, setLimit] = useState(PAGE);
+  const [search, setSearch] = useState('');
+  const { data, isLoading } = useIssueAffectedUrls(workspaceId, crawlId, issue.id, { limit, offset: 0 });
+
+  const urls = data?.urls || [];
+  const total = data?.total ?? issue.affected_count;
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q ? urls.filter((u) => u.url.toLowerCase().includes(q)) : urls;
+  }, [urls, search]);
+
+  function split(raw: string): { origin: string; path: string } {
+    try {
+      const u = new URL(raw);
+      return { origin: u.origin, path: `${u.pathname}${u.search}${u.hash}` || '/' };
+    } catch {
+      return { origin: '', path: raw };
+    }
+  }
+
+  async function copyAll() {
+    try {
+      await navigator.clipboard.writeText(filtered.map((u) => u.url).join('\n'));
+      toast.success(t('seo.issues.urlsCopied' as any));
+    } catch {
+      toast.error(t('common.error' as any));
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="font-medium">
+          {t('seo.issues.affectedUrls')}{' '}
+          <span className="text-muted-foreground">
+            ({t('seo.issues.urlsShown' as any, { shown: filtered.length, total })})
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t('seo.issues.searchUrls' as any)}
+              className="h-8 w-48 ps-7 text-xs"
+              dir="ltr"
+            />
+          </div>
+          <Button variant="outline" size="sm" className="h-8 gap-1" onClick={copyAll} disabled={filtered.length === 0}>
+            <Copy className="h-3.5 w-3.5" /> {t('seo.issues.copyAll' as any)}
+          </Button>
+        </div>
+      </div>
+
+      {isLoading && urls.length === 0 ? (
+        <SkeletonTable rows={5} />
+      ) : filtered.length === 0 ? (
+        <p className="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">
+          {t('seo.issues.noUrls' as any)}
+        </p>
+      ) : (
+        <ul className="max-h-[26rem] divide-y overflow-auto rounded-md border">
+          {filtered.map((u, idx) => {
+            const { origin, path } = split(u.url);
+            return (
+              <li key={`${u.url}-${idx}`} className="flex items-center gap-2 px-3 py-2 hover:bg-muted/40">
+                <span className="w-6 shrink-0 text-[11px] tabular-nums text-muted-foreground">{idx + 1}</span>
+                <div className="min-w-0 flex-1" dir="ltr">
+                  <div className="truncate font-mono text-xs" title={u.url}>{path}</div>
+                  {origin && <div className="truncate text-[11px] text-muted-foreground">{origin}</div>}
+                </div>
+                <Button
+                  variant="ghost" size="icon" className="h-7 w-7 shrink-0"
+                  title={t('seo.issues.copyUrl' as any)}
+                  onClick={() => {
+                    navigator.clipboard.writeText(u.url).then(
+                      () => toast.success(t('seo.issues.urlCopied' as any)),
+                      () => toast.error(t('common.error' as any)),
+                    );
+                  }}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </Button>
+                <a
+                  href={u.url} target="_blank" rel="noopener noreferrer"
+                  className="shrink-0 rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  title={t('seo.issues.openUrl' as any)}
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {urls.length < total && (
+        <Button variant="outline" size="sm" className="w-full" onClick={() => setLimit((n) => n + PAGE)}>
+          {t('seo.issues.loadMoreUrls' as any)}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function IssuesTab({ workspaceId, crawlId }: { workspaceId: string; crawlId: string }) {
   const { t } = useTranslation();
   const [severity, setSeverity] = useState<string | undefined>(undefined);
@@ -534,7 +651,6 @@ function IssuesTab({ workspaceId, crawlId }: { workspaceId: string; crawlId: str
   const [selected, setSelected] = useState<SeoIssue | null>(null);
   const { data } = useCrawlIssues(workspaceId, crawlId, { severity, category, limit: 100 });
   const issues = data?.issues || [];
-  const { data: affected } = useIssueAffectedUrls(workspaceId, crawlId, selected?.id);
 
   if (selected) {
     return (
@@ -548,21 +664,16 @@ function IssuesTab({ workspaceId, crawlId }: { workspaceId: string; crawlId: str
             {localizedIssueTitle(t, selected)}
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3 text-sm">
+        <CardContent className="space-y-4 text-sm">
           <div><div className="font-medium">{t('seo.issues.whyItMatters')}</div><p className="text-muted-foreground">{localizedIssueDescription(t, selected)}</p></div>
           <div><div className="font-medium">{t('seo.issues.recommendedFix')}</div><p className="text-muted-foreground">{localizedIssueRecommendation(t, selected)}</p></div>
-          <div>
-            <div className="font-medium">{t('seo.issues.affectedUrls')} ({selected.affected_count})</div>
-            <ul className="mt-2 max-h-96 space-y-1 overflow-auto text-xs">
-              {(affected?.urls || []).map((u, idx) => (
-                <li key={idx} className="truncate text-muted-foreground">{u.url}</li>
-              ))}
-            </ul>
-          </div>
+          <AffectedUrlsPanel workspaceId={workspaceId} crawlId={crawlId} issue={selected} />
         </CardContent>
       </Card>
     );
   }
+
+
 
   return (
     <div className="mt-4 space-y-3">

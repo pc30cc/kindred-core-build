@@ -106,7 +106,7 @@ async function requestJson(
   } catch (err) {
     if (err instanceof GscError) throw err;
     if ((err as { name?: string })?.name === 'AbortError') throw new GscError('gsc_timeout');
-    throw new GscError('gsc_network_error');
+    throw new GscError('gsc_network_error', undefined, `Could not reach ${url.replace(/\?.*$/, '')}: ${(err as Error)?.message || 'unknown network error'}`);
   } finally {
     clearTimeout(timer);
   }

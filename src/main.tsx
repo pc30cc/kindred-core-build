@@ -10,6 +10,7 @@ import { applyNativeShellClasses } from "./lib/native";
 import { hydrateMobileSession } from "./lib/mobileSession";
 import { installAuthTransport } from "./lib/authFetch";
 import { applyUiPreferences, loadPlatformUiDefaults, loadUiPreferences, resolveUiPreferences } from "./lib/ui-preferences";
+import { registerServiceWorker } from "./lib/pwa";
 
 // Native shell (iOS) gets safe-area padding; no-op on the web.
 applyNativeShellClasses();
@@ -84,3 +85,4 @@ async function bootstrap() {
 void bootstrap();
 
 void installKeyboardInset();
+registerServiceWorker();

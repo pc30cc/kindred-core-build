@@ -2749,6 +2749,18 @@
       .catch(function () {});
   }
 
+  // Top-level query-param reader. `startSmart` has its own local copy; this
+  // one exists so `startTracking` (a sibling scope) can read UTM params
+  // without throwing "currentQuery is not defined".
+  function currentQuery() {
+    var out = {};
+    try {
+      var sp = new URLSearchParams(window.location.search || "");
+      sp.forEach(function (v, k) { out[k.toLowerCase()] = v; });
+    } catch (_) {}
+    return out;
+  }
+
   function detectBrowser() {
     var ua = navigator.userAgent;
     if (ua.indexOf("Chrome") > -1 && ua.indexOf("Edg") === -1) return "Chrome";

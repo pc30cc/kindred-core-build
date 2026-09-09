@@ -526,6 +526,7 @@ const en = {
   nav: {
     overview: 'Overview',
     dashboard: 'Dashboard',
+    menu: 'Menu',
     inbox: 'Inbox',
     contacts: 'Contacts',
     visitors: 'Visitors',

@@ -80,7 +80,18 @@ function NavTip({ label, enabled, children }: { label: string; enabled: boolean;
   );
 }
 
-export function AppSidebar() {
+export function AppSidebar({
+  variant = 'rail',
+  onNavigate,
+}: {
+  /** 'rail' = the permanent desktop nav column (default, unchanged behavior).
+   *  'drawer' = full-width content for the mobile Sheet drawer: always
+   *  expanded (no collapse toggle), no fixed rail width/height. */
+  variant?: 'rail' | 'drawer';
+  /** Drawer mode only — called once per navigation so the caller can close
+   *  the Sheet. Not used in rail mode. */
+  onNavigate?: () => void;
+}) {
   const { t, dir } = useTranslation();
   const { locale, setLocale } = useI18n();
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
@@ -153,11 +164,11 @@ export function AppSidebar() {
   const [createWsOpen, setCreateWsOpen] = useState(false);
   const [wsLimitNotice, setWsLimitNotice] = useState(false);
   const { data: wsCapacity, isLoading: wsCapacityLoading } = useWorkspaceCapacity(wsMenuOpen);
-  const [collapsed, setCollapsed] = useState<boolean>(
+  const [collapsedPref, setCollapsedPref] = useState<boolean>(
     () => localStorage.getItem('sidebar_collapsed') === '1',
   );
   const toggleCollapsed = () => {
-    setCollapsed((v) => {
+    setCollapsedPref((v) => {
       localStorage.setItem('sidebar_collapsed', v ? '0' : '1');
       return !v;
     });
@@ -168,9 +179,23 @@ export function AppSidebar() {
   // the sidebar exactly as the user left it (its sub-inboxes live there).
   const onInbox = /\/settings(\/|$)/.test(location.pathname);
   useEffect(() => {
-    if (onInbox) setCollapsed(true);
-    else setCollapsed(localStorage.getItem('sidebar_collapsed') === '1');
+    if (onInbox) setCollapsedPref(true);
+    else setCollapsedPref(localStorage.getItem('sidebar_collapsed') === '1');
   }, [onInbox]);
+
+  // Drawer variant (mobile Sheet) is always fully expanded -- there is no
+  // narrow-rail state to collapse into, and the toggle button is hidden
+  // below. Every existing `collapsed` reference in the JSX below reads this
+  // derived value, so the rest of the component needs no further changes.
+  const collapsed = variant === 'drawer' ? false : collapsedPref;
+
+  // Drawer variant only: close the Sheet on every navigation. Effect (not a
+  // per-Link onClick) so it works uniformly for the ~20 Link/button
+  // destinations below without touching each one individually.
+  useEffect(() => {
+    if (variant === 'drawer') onNavigate?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname, location.search]);
 
   const wsMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -331,19 +356,25 @@ export function AppSidebar() {
     <>
     <aside
       className={cn(
-        'relative flex h-screen flex-col border-e border-sidebar-border bg-sidebar transition-[width] duration-200',
-        collapsed ? 'w-[68px]' : 'w-[220px]',
+        'relative flex flex-col bg-sidebar',
+        variant === 'drawer'
+          ? 'h-full w-full'
+          : 'h-screen border-e border-sidebar-border transition-[width] duration-200',
+        variant === 'rail' && (collapsed ? 'w-[68px]' : 'w-[220px]'),
       )}
       style={{ backgroundImage: 'var(--gradient-sidebar)' }}
     >
-      {/* Collapse toggle — centered on the sidebar divider line */}
-      <button
-        onClick={toggleCollapsed}
-        aria-label="toggle sidebar"
-        className="absolute top-1/2 end-0 z-30 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-sidebar-border bg-sidebar text-sidebar-muted-foreground shadow-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground ltr:translate-x-1/2 rtl:-translate-x-1/2"
-      >
-        {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-      </button>
+      {/* Collapse toggle — centered on the sidebar divider line. Rail only:
+          the drawer variant has no collapsed state to toggle into. */}
+      {variant === 'rail' && (
+        <button
+          onClick={toggleCollapsed}
+          aria-label="toggle sidebar"
+          className="absolute top-1/2 end-0 z-30 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-sidebar-border bg-sidebar text-sidebar-muted-foreground shadow-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground ltr:translate-x-1/2 rtl:-translate-x-1/2"
+        >
+          {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+        </button>
+      )}
 
       {/* Workspace header with dropdown */}
       <div className="relative px-3 pt-3 pb-2" ref={wsMenuRef}>

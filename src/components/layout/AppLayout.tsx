@@ -2,6 +2,9 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { AppSidebar } from './AppSidebar';
 import { AppTopBar } from './AppTopBar';
 import { CommandPalette } from './CommandPalette';
+import { MobileBottomNav } from './MobileBottomNav';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { useI18n } from '@/i18n';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { WorkspaceNotFound } from '@/features/workspace/WorkspaceNotFound';
@@ -156,7 +159,7 @@ function EmailVerificationBar() {
 }
 
 export function AppLayout() {
-  const { dir } = useI18n();
+  const { t, dir } = useI18n();
   const { user } = useAuth();
   const { workspace, notFound, isLoading } = useActiveWorkspace();
   const showVerificationBanner = user && !user.emailVerified;
@@ -174,6 +177,14 @@ export function AppLayout() {
     /\/seo(\/|$)/.test(pathname) ||
     /\/analytics(\/|$)/.test(pathname);
 
+  // Mobile web / PWA: the permanent 220px desktop rail (AppSidebar) is
+  // replaced by a bottom tab bar + an on-demand Sheet drawer holding the
+  // exact same AppSidebar content (variant="drawer") — never a second,
+  // divergent copy of the nav/entitlement logic. Native (Capacitor) gets
+  // neither: it has its own MobileRoutes shell (see src/App.tsx).
+  const isMobile = useIsMobile();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
   // Strict: if slug doesn't match any workspace, show 404
   if (!isLoading && notFound) {
     return <WorkspaceNotFound />;
@@ -183,7 +194,16 @@ export function AppLayout() {
     <div dir={dir} className="app-scope flex h-screen overflow-hidden bg-background text-foreground">
       <OperatorCallProvider>
         <CommandPalette />
-        <AppSidebar />
+        {isMobile ? (
+          <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+            <SheetContent side={dir === 'rtl' ? 'right' : 'left'} className="w-[280px] p-0">
+              <SheetTitle className="sr-only">{t('nav.menu')}</SheetTitle>
+              <AppSidebar variant="drawer" onNavigate={() => setMobileNavOpen(false)} />
+            </SheetContent>
+          </Sheet>
+        ) : (
+          <AppSidebar />
+        )}
         <div className="flex flex-1 flex-col overflow-hidden">
           <AppTopBar />
           <DegradedModeBanner />
@@ -199,6 +219,7 @@ export function AppLayout() {
           {/* Verification notice sits at the BOTTOM so it never pushes the
               page header down; resend is wired to the self-hosted mailer. */}
           {showVerificationBanner && <EmailVerificationBar />}
+          {isMobile && <MobileBottomNav onMenuClick={() => setMobileNavOpen(true)} />}
         </div>
         {/* Survives route changes — reads the same LiveKit room as the
             sidebar surface so navigation never disconnects the call. */}

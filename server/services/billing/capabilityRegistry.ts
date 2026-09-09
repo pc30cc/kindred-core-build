@@ -80,6 +80,15 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   // existing access; it only makes the module visible/toggleable in the
   // admin Plans editor. Wiring real enforcement is a separate follow-up.
   { key: 'seo', type: 'module', label: 'SEO / Website Audit', group: 'modules', description: 'Crawl and analyze the technical SEO health of a website registered in the workspace (Settings → Domains).', defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 130 },
+  // Commerce Integration Platform (docs/commerce/ARCHITECTURE.md). 'commerce'
+  // gates the module (connect a store, see the Commerce settings page at
+  // all); the finer-grained keys below gate specific AI tool families so a
+  // plan can offer product Q&A without order/customer-history access.
+  { key: 'commerce', type: 'module', label: 'Commerce Integrations', group: 'modules', description: 'Connect a store (WooCommerce and future providers) so the AI Assistant can answer product, price, and order questions from real store data.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 135 },
+  { key: 'commerce_catalog', type: 'feature', label: 'Commerce — Product Catalog', group: 'commerce', description: 'AI can search products, prices, and stock from the connected store.', defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 10 },
+  { key: 'commerce_orders', type: 'feature', label: 'Commerce — Orders & Tracking', group: 'commerce', description: 'AI can answer order status and tracking questions after identity verification.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 20 },
+  { key: 'commerce_customer_history', type: 'feature', label: 'Commerce — Customer Order History', group: 'commerce', description: 'AI can list a verified customer\'s recent orders.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 30 },
+  { key: 'commerce_max_connected_stores', type: 'limit', label: 'Commerce — Connected Stores', group: 'commerce', unit: 'count', defaultValue: 1, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 40 },
 
   // ─── Channels ───
   { key: 'chat_widget', type: 'channel', label: 'Chat Widget', group: 'channels', defaultValue: true,  planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 10 },

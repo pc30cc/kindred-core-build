@@ -18,28 +18,25 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { getWorkspacePlanInfoDetailed } from '../../middleware/featureGating.js';
 
-export type KbArticleQuota =
-  | { ok: true; unlimited: true }
-  | { ok: true; unlimited: false; limit: number; used: number; remaining: number }
-  | { ok: false; status: 503; body: { error: string; feature: 'max_kb_articles'; retryable: true } }
-  | {
-      ok: false;
-      status: 403;
-      body: {
-        error: string;
-        feature: 'max_kb_articles';
-        plan: string | null;
-        limit: number;
-        used: number;
-        upgrade_required: true;
-      };
-    };
+export interface KbQuotaAllow {
+  ok: true;
+  unlimited: boolean;
+  limit: number | null;
+  used: number | null;
+  remaining: number;
+}
+export interface KbQuotaDenial {
+  ok: false;
+  status: 403 | 503;
+  body: Record<string, unknown>;
+}
+export type KbArticleQuota = KbQuotaAllow | KbQuotaDenial;
 
 export async function resolveKbArticleQuota(
   config: ServerConfig,
   workspaceId: string,
 ): Promise<KbArticleQuota> {
-  if (config.selfHostBillingUnlimited === true) return { ok: true, unlimited: true };
+  if (config.selfHostBillingUnlimited === true) return { ok: true, unlimited: true, limit: null, used: null, remaining: Number.POSITIVE_INFINITY };
 
   const info = await getWorkspacePlanInfoDetailed(
     config.supabaseUrl,
@@ -61,7 +58,7 @@ export async function resolveKbArticleQuota(
     const n = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() ? Number(raw) : NaN;
     if (Number.isFinite(n)) { limit = n; break; }
   }
-  if (limit === null || limit < 0) return { ok: true, unlimited: true };
+  if (limit === null || limit < 0) return { ok: true, unlimited: true, limit: null, used: null, remaining: Number.POSITIVE_INFINITY };
 
   const { count, error } = await getServiceClient(config)
     .from('knowledge_base_articles')

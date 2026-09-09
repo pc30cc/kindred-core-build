@@ -722,7 +722,7 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
   const quota = await resolveKbArticleQuota(config, job.workspace_id);
   if (!quota.ok && quota.status === 503) return res.status(503).json(quota.body);
   let remaining = quota.ok
-    ? (quota.unlimited ? Number.POSITIVE_INFINITY : quota.remaining)
+    ? quota.remaining
     : 0;
 
   const published: Array<{ generated_id: string; kb_article_id: string }> = [];
@@ -772,7 +772,7 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
           limit_reached: true,
           feature: 'max_kb_articles',
           upgrade_required: true,
-          ...(quota.ok && !quota.unlimited ? { limit: quota.limit } : {}),
+          ...(quota.ok && quota.limit !== null ? { limit: quota.limit } : {}),
         }
       : {}),
   });

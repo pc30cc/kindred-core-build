@@ -43,12 +43,15 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
 
   return (
     <nav
-      // A normal flex-column child (like AppTopBar), NOT `fixed` — this way
-      // <main>'s flex-1 sizing naturally leaves room for it, which composes
-      // correctly with full-bleed pages (Inbox, Settings, ...) that manage
-      // their own internal height/scroll, instead of every page having to
-      // remember to pad its content by this bar's height.
-      className="z-40 flex h-[60px] shrink-0 items-stretch border-t border-border/60 bg-background/95 backdrop-blur-xl supports-[backdrop-filter]:bg-background/80"
+      // `fixed` and pinned to the true visual viewport bottom — NOT a normal
+      // flex-column child. Relying on flex sizing meant this bar's visibility
+      // depended on every single page correctly respecting the shell's
+      // height (h-dvh/flex-1) with no internal overflow of its own; any page
+      // that didn't could push it below the fold. Being fixed makes it
+      // immune to that entirely. AppLayout reserves the equivalent height
+      // with a plain spacer div so page content still ends above it instead
+      // of being covered by it.
+      className="fixed inset-x-0 bottom-0 z-40 flex h-[60px] items-stretch border-t border-border/60 bg-background/95 backdrop-blur-xl supports-[backdrop-filter]:bg-background/80"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
       {tabs.map((tab) => {

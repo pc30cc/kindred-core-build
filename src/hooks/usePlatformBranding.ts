@@ -33,31 +33,11 @@ export function useUpdatePlatformBranding() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (updates: Partial<PlatformBranding>) => {
-      // Check if row exists
-      const { data: existing } = await supabase
-        .from('platform_branding')
-        .select('id')
-        .limit(1)
-        .maybeSingle();
-
-      if (existing) {
-        const { data, error } = await supabase
-          .from('platform_branding')
-          .update({ ...updates, updated_at: new Date().toISOString() })
-          .eq('id', existing.id)
-          .select()
-          .single();
-        if (error) throw error;
-        return data;
-      } else {
-        const { data, error } = await supabase
-          .from('platform_branding')
-          .insert({ ...updates, updated_at: new Date().toISOString() })
-          .select()
-          .single();
-        if (error) throw error;
-        return data;
-      }
+      const { branding } = await adminFetch<{ branding: PlatformBranding }>(
+        '/api/admin/management/platform-branding',
+        { method: 'PUT', body: JSON.stringify(updates) },
+      );
+      return branding;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['platform_branding'] }),
   });

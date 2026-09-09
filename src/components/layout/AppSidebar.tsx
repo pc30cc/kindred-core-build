@@ -191,11 +191,24 @@ export function AppSidebar({
 
   // Drawer variant only: close the Sheet on every navigation. Effect (not a
   // per-Link onClick) so it works uniformly for the ~20 Link/button
-  // destinations below without touching each one individually.
+  // destinations below without touching each one individually. The drawer
+  // remounts this component fresh every time it opens (SheetContent doesn't
+  // forceMount), so the effect's first run on that mount is NOT a
+  // navigation — it must be skipped, or the drawer closes itself the
+  // instant it opens.
+  const drawerLocationKey = useRef<string | null>(null);
   useEffect(() => {
-    if (variant === 'drawer') onNavigate?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname, location.search]);
+    if (variant !== 'drawer') return;
+    const key = `${location.pathname}${location.search}`;
+    if (drawerLocationKey.current === null) {
+      drawerLocationKey.current = key;
+      return;
+    }
+    if (drawerLocationKey.current !== key) {
+      drawerLocationKey.current = key;
+      onNavigate?.();
+    }
+  }, [variant, location.pathname, location.search, onNavigate]);
 
   const wsMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);

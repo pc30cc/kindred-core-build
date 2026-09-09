@@ -31,6 +31,11 @@ function deriveUnsure(s: any): Unsure {
 function deriveStyle(s: any): Style {
   return (s?.instructions?.max_answer_length as Style) || 'medium';
 }
+// Tone is now written exclusively from this page as one of the three preset
+// values below. This still tolerates any older free-text value a workspace
+// may have saved back when the (now-removed) Instructions page also had a
+// tone control, so an existing custom value still maps to a sane preset
+// instead of silently resetting to "friendly".
 function deriveTone(s: any): Tone {
   const t = (s?.instructions?.tone || '').toLowerCase();
   if (t.includes('formal')) return 'formal';
@@ -76,10 +81,11 @@ export default function BehaviorPage() {
   // clobbering the tone-preservation spread) on unrelated saves.
   const [styleDirty, setStyleDirty] = useState(false);
   const [tone, setTone] = useState<Tone>('friendly');
-  // PHASE 2 FIX: deriveTone() collapses any custom free-text tone (set via
-  // the Instructions page) into one of 3 presets for display here. Without
-  // dirty tracking, saving Behavior for an unrelated reason would silently
-  // overwrite that custom value with whichever preset it was collapsed to.
+  // PHASE 2 FIX: deriveTone() collapses any older free-text tone (from back
+  // when the Instructions page also had a tone control) into one of 3
+  // presets for display here. Without dirty tracking, saving Behavior for an
+  // unrelated reason would silently overwrite that legacy value with
+  // whichever preset it was collapsed to.
   const [toneDirty, setToneDirty] = useState(false);
   const [lang, setLang] = useState<Lang>('visitor');
   // PHASE 2.1 FIX: deriveLang() collapses ANY non-empty allowed_locales

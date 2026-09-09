@@ -961,6 +961,7 @@ export type Database = {
           show_sources_to_operator: boolean
           show_sources_to_visitor: boolean
           stop_on_handoff: boolean
+          strict_topic_scope: boolean
           updated_at: string
           welcome_message: string | null
           workspace_id: string
@@ -1007,6 +1008,7 @@ export type Database = {
           show_sources_to_operator?: boolean
           show_sources_to_visitor?: boolean
           stop_on_handoff?: boolean
+          strict_topic_scope?: boolean
           updated_at?: string
           welcome_message?: string | null
           workspace_id: string
@@ -1053,6 +1055,7 @@ export type Database = {
           show_sources_to_operator?: boolean
           show_sources_to_visitor?: boolean
           stop_on_handoff?: boolean
+          strict_topic_scope?: boolean
           updated_at?: string
           welcome_message?: string | null
           workspace_id?: string

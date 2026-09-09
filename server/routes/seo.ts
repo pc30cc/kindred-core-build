@@ -734,6 +734,11 @@ seoRouter.get('/gsc/oauth/callback', async (req, res) => {
     return res.redirect(`${base}/seo/gsc-insights/overview?gsc=connected`);
   } catch (err) {
     const code2 = isGscError(err) ? err.code : 'gsc_unexpected_error';
+    // The redirect only ever carries the normalized code (never a credential
+    // or raw provider payload — see google.ts's file header), so this is the
+    // ONLY place an operator can see WHY a connection attempt failed instead
+    // of the user's generic, localized "authentication failed" toast.
+    console.error(`[gsc] oauth callback failed: ${code2}${isGscError(err) ? '' : ` (${(err as Error)?.message || 'no message'})`}`);
     return res.redirect(`${appBaseUrl}/app/seo/gsc-insights/overview?gsc=error&reason=${encodeURIComponent(code2)}`);
   }
 });

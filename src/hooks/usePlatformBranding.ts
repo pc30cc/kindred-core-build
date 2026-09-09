@@ -82,31 +82,12 @@ export function useUpsertPlatformBrandingLocalized() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (row: Partial<PlatformBrandingLocalized> & { locale: string }) => {
-      // Check if locale row exists
-      const { data: existing } = await supabase
-        .from('platform_branding_localized')
-        .select('id')
-        .eq('locale', row.locale)
-        .maybeSingle();
-
-      if (existing) {
-        const { data, error } = await supabase
-          .from('platform_branding_localized')
-          .update({ ...row, updated_at: new Date().toISOString() })
-          .eq('id', existing.id)
-          .select()
-          .single();
-        if (error) throw error;
-        return data;
-      } else {
-        const { data, error } = await supabase
-          .from('platform_branding_localized')
-          .insert({ ...row, updated_at: new Date().toISOString() })
-          .select()
-          .single();
-        if (error) throw error;
-        return data;
-      }
+      const { id: _id, created_at: _c, updated_at: _u, ...rest } = row as any;
+      const { branding } = await adminFetch<{ branding: PlatformBrandingLocalized }>(
+        '/api/admin/management/platform-branding-localized',
+        { method: 'PUT', body: JSON.stringify(rest) },
+      );
+      return branding;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['platform_branding_localized'] }),
   });

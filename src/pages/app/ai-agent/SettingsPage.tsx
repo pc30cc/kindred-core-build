@@ -196,6 +196,7 @@ export default function AiAgentSettingsPage() {
     if (dirty.has('answer_guidance')) patch.answer_guidance = form.answer_guidance;
     if (dirty.has('fallback_message')) patch.fallback_message = form.fallback_message;
     if (dirty.has('answer_only_from_kb')) patch.answer_only_from_kb = form.answer_only_from_kb;
+    if (dirty.has('strict_topic_scope')) patch.strict_topic_scope = form.strict_topic_scope;
     if (dirty.has('show_sources_to_operator')) patch.show_sources_to_operator = form.show_sources_to_operator;
     try {
       await update.mutateAsync(patch);
@@ -382,6 +383,13 @@ export default function AiAgentSettingsPage() {
                   <p className="text-xs text-muted-foreground">{tr('onlyKbDesc', 'Recommended. Hands off when no match is found.')}</p>
                 </div>
                 <Switch checked={form.answer_only_from_kb} onCheckedChange={(v) => setDirtyField({ answer_only_from_kb: v })} />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-border/40 p-3 hover:border-primary/40 hover:bg-accent/30 transition-colors">
+                <div>
+                  <p className="text-sm font-medium">{tr('strictScopeTitle', 'Only talk about this business')}</p>
+                  <p className="text-xs text-muted-foreground">{tr('strictScopeDesc', 'Decline greetings-unrelated general knowledge, other websites/products, and any topic outside this business, with a short redirect instead of an answer.')}</p>
+                </div>
+                <Switch checked={!!form.strict_topic_scope} onCheckedChange={(v) => setDirtyField({ strict_topic_scope: v })} />
               </div>
               <div>
                 <Label>{tr('fallback', 'Fallback message')}</Label>

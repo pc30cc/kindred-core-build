@@ -5205,6 +5205,8 @@ const tr: TranslationKeys = {
       },
       onlyKbTitle: 'Yalnızca Bilgi Tabanından yanıtla',
       onlyKbDesc: 'Önerilir. Eşleşme bulunmadığında operatöre devreder.',
+      strictScopeTitle: 'Yalnızca bu işletme hakkında konuş',
+      strictScopeDesc: 'İlgisiz genel bilgi sorularını, diğer web siteleri/ürünleri ve bu işletmenin dışındaki her konuyu yanıtlamak yerine kısa bir yönlendirmeyle reddeder.',
       welcome: 'Karşılama mesajı',
       welcomePlaceholder: 'Merhaba! Nasıl yardımcı olabilirim?',
       fallback: 'Yedek mesaj',

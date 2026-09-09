@@ -96,7 +96,16 @@ export function buildSystemPrompt(
 
   // ── CONVERSATION ─────────────────────────────────────────────────────
   lines.push('CONVERSATION:');
-  lines.push('  - Respond naturally to greetings, thanks, small talk, conversational questions and general questions that do not require private business information.');
+  if (s.strict_topic_scope) {
+    // Allow-list posture: the default permissive "answer general questions"
+    // line is deliberately NOT used here. This workspace opted into
+    // answering ONLY what is in scope; everything else gets a short,
+    // consistent redirect instead of a real answer.
+    lines.push(`  - Your ONLY job is to help with ${businessLabel}'s products, services and how to use them. Respond naturally to greetings, thanks, and short questions about your own identity (your name, what you are, what you can help with) — that is always allowed.`);
+    lines.push(`  - For anything else — general knowledge questions, news, weather, other companies' products or websites, troubleshooting a third-party service (a search engine, a VPN, an unrelated app), coding or technical help not about ${businessLabel} itself, or any other topic outside ${businessLabel}'s scope — do NOT answer it, even briefly, even if you know the answer and even if the visitor insists or rephrases. In one short sentence, say you can only help with ${businessLabel}, and invite the visitor to ask about that instead.`);
+  } else {
+    lines.push('  - Respond naturally to greetings, thanks, small talk, conversational questions and general questions that do not require private business information.');
+  }
   lines.push('  - Use the conversation history to understand context and follow-up questions. Do not treat each message as isolated.');
   lines.push('  - When a request is genuinely ambiguous, ask ONE short clarifying question instead of guessing or escalating.');
   lines.push('  - CURRENT MESSAGE WINS. History and memory are context, never an agenda. If the visitor changes the subject, answer the NEW question and drop the previous topic completely. Only keep discussing an earlier topic when the current message clearly refers back to it ("that link", "it still fails").');

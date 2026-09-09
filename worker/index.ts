@@ -10,6 +10,7 @@
  *   source-sync             → Data Hub source sync (public.ai_source_sync_jobs)
  *   seo-crawler,channels    → e.g. these two kinds sharing one container
  *   invitations             → a different kind in another container
+ *   superadmin-telegram     → private read-only technical Telegram bot
  *   all                     → every loop in the same process (dev/small deploys only)
  *
  * Default is "intelligence" so existing Coolify deployments built from the
@@ -36,6 +37,7 @@ const ALLOWED = new Set([
   'channels',
   'invitations',
   'seo-crawler',
+  'superadmin-telegram',
   'all',
 ]);
 
@@ -93,6 +95,19 @@ async function main() {
   if (runs('seo-crawler')) {
     const mod = await import('./seo-crawler/index.js');
     mod.startSeoCrawlerWorker?.();
+  }
+  if (runs('superadmin-telegram')) {
+    if (runsAll && !process.env.SUPERADMIN_TELEGRAM_BOT_TOKEN) {
+      console.warn('[worker] superadmin-telegram skipped under WORKER_KIND=all because its dedicated env is not configured');
+    } else {
+      const mod = await import('./superadmin-telegram/index.js');
+      void mod.startSuperadminTelegramWorker().catch(() => {
+        // Deliberately omit the underlying message: startup/provider errors may
+        // carry deployment context and this bot never logs secrets or chat data.
+        console.error('[worker] superadmin-telegram failed to start');
+        process.exit(1);
+      });
+    }
   }
 
   if (runsAll) {

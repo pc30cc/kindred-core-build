@@ -148,30 +148,11 @@ export function useUpdatePlatformDomains() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (updates: Partial<PlatformDomains>) => {
-      const { data: existing } = await supabase
-        .from('platform_domains')
-        .select('id')
-        .limit(1)
-        .maybeSingle();
-
-      if (existing) {
-        const { data, error } = await supabase
-          .from('platform_domains')
-          .update({ ...updates, updated_at: new Date().toISOString() })
-          .eq('id', existing.id)
-          .select()
-          .single();
-        if (error) throw error;
-        return data;
-      } else {
-        const { data, error } = await supabase
-          .from('platform_domains')
-          .insert({ ...updates, updated_at: new Date().toISOString() })
-          .select()
-          .single();
-        if (error) throw error;
-        return data;
-      }
+      const { domains } = await adminFetch<{ domains: PlatformDomains }>(
+        '/api/admin/management/platform-domains',
+        { method: 'PUT', body: JSON.stringify(updates) },
+      );
+      return domains;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['platform_domains'] }),
   });

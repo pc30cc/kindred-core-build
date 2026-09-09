@@ -628,18 +628,18 @@ function EventPropertiesView({ workspaceId, range }: { workspaceId: string; rang
             ) : (breakdownData?.rows.length || 0) === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData' as any)}</p>
             ) : (
-              <Table>
+              <Table dir="ltr">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{t('seo.webAnalytics.eventProperties.value' as any)}</TableHead>
-                    <TableHead className="text-end">{t('seo.webAnalytics.column.count' as any)}</TableHead>
+                    <TableHead className="text-left">{t('seo.webAnalytics.eventProperties.value' as any)}</TableHead>
+                    <TableHead className="text-right">{t('seo.webAnalytics.column.count' as any)}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {(breakdownData?.rows || []).map((r) => (
                     <TableRow key={r.value}>
-                      <TableCell className="font-medium">{r.value}</TableCell>
-                      <TableCell className="text-end tabular-nums">{formatCompact(r.count)}</TableCell>
+                      <TableCell className="text-left font-medium">{r.value}</TableCell>
+                      <TableCell className="text-right tabular-nums">{formatCompact(r.count)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

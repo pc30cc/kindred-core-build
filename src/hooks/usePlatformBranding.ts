@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { adminFetch } from '@/hooks/useAdmin';
 
 // ── Platform Branding (visual identity) ──
 

@@ -484,8 +484,8 @@ function Possible404View({ workspaceId, range }: { workspaceId: string; range: {
               {data.rows.map((r) => (
                 <TableRow key={r.path}>
                   <TableCell className="max-w-[360px] truncate text-left font-medium" title={r.path}>{r.path}</TableCell>
-                  <TableCell className="text-end"><Badge variant="destructive" className="text-[10px]">{r.httpStatus}</Badge></TableCell>
-                  <TableCell className="text-end tabular-nums">{formatCompact(r.views)}</TableCell>
+                  <TableCell className="text-right"><Badge variant="destructive" className="text-[10px]">{r.httpStatus}</Badge></TableCell>
+                  <TableCell className="text-right tabular-nums">{formatCompact(r.views)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

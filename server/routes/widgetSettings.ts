@@ -164,7 +164,26 @@ widgetSettingsRouter.put('/:workspaceId/prechat', async (req, res) => {
   return res.json({ settings: data });
 });
 
+// ── Public (non-admin) projection of the platform singleton ───────
+// Workspace owners need the platform-owned embed URLs, embed comments and
+// "Powered by" wording to render their Install snippet. Only a safe subset is
+// exposed — never admin notes, limits or feature locks.
+widgetSettingsRouter.get('/platform/public', async (req, res) => {
+  const config = serverConfigOf(req);
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('widget_platform_settings')
+    .select(
+      'id, widget_loader_base_url, widget_asset_base_url, widget_public_base_url, widget_api_base_url, embed_header_comment, embed_footer_comment, powered_by_enabled, powered_by_text, powered_by_brand_text, powered_by_url',
+    )
+    .limit(1)
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ settings: data ?? null });
+});
+
 // ── widget_platform_settings (global singleton, platform admin only) ──
+
 
 widgetSettingsRouter.get('/platform/config', async (req, res) => {
   const config = serverConfigOf(req);

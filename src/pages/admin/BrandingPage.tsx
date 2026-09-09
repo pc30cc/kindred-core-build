@@ -8,13 +8,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
 } from '@/components/ui/dialog';
 import { toast } from '@/hooks/use-toast';
-import { Loader2, Palette, Type, Link2, Save, Eye, Mail, Plus, Pencil, Trash2, Settings2 } from 'lucide-react';
+import { Loader2, Palette, Type, Link2, Save, Eye, Mail, Plus, Pencil, Trash2, Settings2, Smartphone } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminFetch } from '@/hooks/useAdmin';
 import {
@@ -65,7 +66,7 @@ function VisualIdentitySection() {
 
   useEffect(() => { if (branding) { setForm(branding); setDirty(false); } }, [branding]);
 
-  const set = (key: keyof PlatformBranding, val: string) => { setForm((p) => ({ ...p, [key]: val })); setDirty(true); };
+  const set = (key: keyof PlatformBranding, val: string | boolean) => { setForm((p) => ({ ...p, [key]: val })); setDirty(true); };
 
   const handleSave = () => {
     const { id, created_at, updated_at, ...rest } = form as any;
@@ -96,6 +97,24 @@ function VisualIdentitySection() {
           <FieldRow label={t('admin.brandingPage.identity.secondaryColor' as any)} type="color" value={form.secondary_color ?? '#6366F1'} onChange={(v) => set('secondary_color', v)} />
           <FieldRow label={t('admin.brandingPage.identity.pwaIconUrl' as any)} desc={t('admin.brandingPage.identity.pwaIconHint' as any)} value={form.pwa_icon_url ?? ''} onChange={(v) => set('pwa_icon_url', v)} placeholder="https://cdn.example.com/pwa-icon.png" />
         </div>
+
+        <Separator />
+        <div className="space-y-4">
+          <div className="flex items-center gap-2"><Smartphone className="h-4 w-4 text-primary" /><p className="text-sm font-semibold text-foreground">{t('admin.brandingPage.identity.pwaSectionTitle' as any)}</p></div>
+          <p className="text-xs text-muted-foreground -mt-2">{t('admin.brandingPage.identity.pwaSectionDesc' as any)}</p>
+          <div className="flex items-center justify-between rounded-lg border border-border p-3">
+            <div>
+              <p className="text-sm font-medium text-foreground">{t('admin.brandingPage.identity.pwaEnabled' as any)}</p>
+              <p className="text-xs text-muted-foreground">{t('admin.brandingPage.identity.pwaEnabledDesc' as any)}</p>
+            </div>
+            <Switch checked={form.pwa_enabled !== false} onCheckedChange={(v) => set('pwa_enabled', v)} />
+          </div>
+          <div className="grid gap-5 md:grid-cols-2">
+            <FieldRow label={t('admin.brandingPage.identity.pwaShortName' as any)} desc={t('admin.brandingPage.identity.pwaShortNameHint' as any)} value={form.pwa_short_name ?? ''} onChange={(v) => set('pwa_short_name', v)} placeholder="Webyar" />
+            <FieldRow label={t('admin.brandingPage.identity.pwaBackgroundColor' as any)} type="color" value={form.pwa_background_color ?? '#ffffff'} onChange={(v) => set('pwa_background_color', v)} />
+          </div>
+        </div>
+
         {(form.logo_url || form.primary_color) && (
           <>
             <Separator />

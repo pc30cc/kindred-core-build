@@ -11,6 +11,9 @@ export interface PlatformBranding {
   primary_color: string | null;
   secondary_color: string | null;
   pwa_icon_url: string | null;
+  pwa_enabled: boolean;
+  pwa_short_name: string | null;
+  pwa_background_color: string | null;
   created_at: string | null;
   updated_at: string | null;
 }

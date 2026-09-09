@@ -9,6 +9,7 @@ import { loadConfig } from './config.js';
 import { widgetRouter } from './routes/widget.js';
 import { visitorRouter, visitorsAdminRouter } from './routes/visitors.js';
 import { healthRouter } from './routes/health.js';
+import { manifestRouter } from './routes/manifest.js';
 import { metricsExportRouter } from './routes/metricsExport.js';
 import { emailRouter } from './routes/email.js';
 import { authSecurityRouter } from './routes/auth.js';
@@ -307,6 +308,9 @@ app.use('/api/', abuseDetectionMiddleware());
 
 // Health (no rate limit)
 app.use('/api/health', healthRouter);
+
+// PWA web app manifest — public, unauthenticated, reflects live platform_branding.
+app.use('/api/manifest.webmanifest', manifestRouter);
 
 // Prometheus/OpenTelemetry readiness stub — off by default (404) unless
 // OBSERVABILITY_PROMETHEUS_ENABLED=1, and token-gated even when enabled.

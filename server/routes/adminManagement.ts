@@ -542,6 +542,9 @@ const platformBrandingSchema = z.object({
   primary_color: z.string().max(50).nullable().optional(),
   secondary_color: z.string().max(50).nullable().optional(),
   pwa_icon_url: z.string().max(2000).nullable().optional(),
+  pwa_enabled: z.boolean().optional(),
+  pwa_short_name: z.string().max(30).nullable().optional(),
+  pwa_background_color: z.string().max(50).nullable().optional(),
 });
 
 adminManagementRouter.put('/platform-branding', async (req, res) => {

@@ -195,18 +195,39 @@ async function getAccessToken(config: ServerConfig, workspaceId: string, row: St
   const cached = accessTokenCache.get(workspaceId);
   if (cached && cached.expiresAt > Date.now() + 30_000) return cached.accessToken;
 
-  const refreshToken = decryptPluginSecret(row.refresh_token_envelope, config.pluginSecretsMasterKey);
   const ga = adapter();
   try {
+    // Decrypting is inside the try now too — it used to throw straight past
+    // this function's error handling (a raw, unclassified, unlogged 500),
+    // most commonly when PLUGIN_SECRETS_MASTER_KEY has changed since this
+    // refresh token was encrypted.
+    const refreshToken = decryptPluginSecret(row.refresh_token_envelope, config.pluginSecretsMasterKey);
     const tokens = await ga.refreshAccessToken(refreshToken);
     accessTokenCache.set(workspaceId, {
       accessToken: tokens.accessToken,
       expiresAt: Date.now() + tokens.expiresInSeconds * 1000,
     });
+    // Heal a previously-recorded `error`/`last_error` now that a refresh
+    // actually succeeded (e.g. an operator fixed a bad client secret after
+    // the first attempt) — otherwise getConnectionInfo's `connected` flag
+    // would stay stuck false forever despite refreshes now working.
+    if (row.status !== 'active' || row.last_error) {
+      const sb = getServiceClient(config);
+      await sb
+        .from('seo_gsc_connections')
+        .update({ status: 'active', last_error: null, updated_at: new Date().toISOString() })
+        .eq('workspace_id', workspaceId);
+    }
     return tokens.accessToken;
   } catch (err) {
     const sb = getServiceClient(config);
     const revoked = err instanceof GscError && err.code === 'gsc_token_revoked';
+    // Every user-facing "authentication failed" toast on an ALREADY-connected
+    // workspace traces back to this one refresh call — logging it here (code
+    // only, or the raw message for a non-GscError like a decrypt failure;
+    // never the refresh token itself) is what makes that debuggable instead
+    // of guesswork from the generic error a browser sees.
+    console.error(`[gsc] token refresh failed for workspace ${workspaceId}: ${err instanceof GscError ? err.code : `unknown_error (${(err as Error)?.message || 'no message'})`}`);
     await sb
       .from('seo_gsc_connections')
       .update({
@@ -222,8 +243,22 @@ async function getAccessToken(config: ServerConfig, workspaceId: string, row: St
 async function resolveActiveConnection(config: ServerConfig, workspaceId: string): Promise<{ row: StoredConnectionRow; accessToken: string }> {
   const row = await loadConnectionRow(config, workspaceId);
   if (!row) throw new GscError('gsc_not_connected');
+  // `revoked` is Google's own explicit signal (invalid_grant on refresh) —
+  // that grant is gone for good until the user reconnects, so failing
+  // closed without retrying is correct.
+  //
+  // `error` is NOT the same kind of terminal state: getAccessToken sets it
+  // on ANY refresh failure, including a platform misconfiguration (e.g. a
+  // wrong GOOGLE_OAUTH_CLIENT_SECRET) that an operator may have since
+  // fixed, or a transient network blip. Short-circuiting here without
+  // retrying used to permanently brick the connection — a stale `error`
+  // status from one bad attempt kept every future call failing with the
+  // exact same code forever, even after the real cause was fixed, with no
+  // way out short of disconnecting and redoing the whole consent flow.
+  // Let getAccessToken attempt a fresh refresh instead; it re-classifies
+  // and re-persists the outcome (including flipping back to a working
+  // state) on every call.
   if (row.status === 'revoked') throw new GscError('gsc_token_revoked');
-  if (row.status === 'error') throw new GscError('gsc_auth_failed');
   const accessToken = await getAccessToken(config, workspaceId, row);
   return { row, accessToken };
 }

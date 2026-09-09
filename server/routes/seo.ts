@@ -677,10 +677,16 @@ function gscErrorStatus(code: string): number {
 
 function sendGscError(res: any, err: unknown) {
   if (isGscError(err)) {
-    return res.status(gscErrorStatus(err.code)).json({ error: err.code, message: err.message, upgrade_required: err.code === 'gsc_limit_reached' });
+    return res.status(gscErrorStatus(err.code)).json({
+      error: err.code,
+      message: err.message,
+      detail: err.detail,
+      upgrade_required: err.code === 'gsc_limit_reached',
+    });
   }
   res.status(500).json({ error: 'gsc_unexpected_error', detail: (err as Error)?.message });
 }
+
 
 seoRouter.get('/:workspaceId/gsc/limits', async (req, res) => {
   const { workspaceId } = req.params;

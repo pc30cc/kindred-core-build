@@ -5094,6 +5094,7 @@ const fa: TranslationKeys = {
         route: 'مسیردهی گفتگو',
         trigger_workflow: 'اجرای فرآیند خودکار',
         suggest_reply: 'پیشنهاد پاسخ',
+        decline: 'رد قطعی (هرگز به هوش مصنوعی نمی‌رود)',
       },
       card: {
         default: 'پیش‌فرض',

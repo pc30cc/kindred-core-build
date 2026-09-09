@@ -5098,6 +5098,7 @@ const tr: TranslationKeys = {
         route: 'Görüşmeyi yönlendir',
         trigger_workflow: 'İş akışını tetikle',
         suggest_reply: 'Yanıt öner',
+        decline: 'Reddet (yapay zekaya asla gitmez)',
       },
       card: {
         default: 'varsayılan',

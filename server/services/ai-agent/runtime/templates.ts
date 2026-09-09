@@ -7,7 +7,8 @@ export type TemplateKey =
   | 'handoff'
   | 'no_answer_handoff'
   | 'pricing_safe_guidance'
-  | 'trigger_fallback';
+  | 'trigger_fallback'
+  | 'off_topic_decline';
 
 const T: Record<TemplateKey, Record<string, string>> = {
   greeting: {
@@ -34,6 +35,11 @@ const T: Record<TemplateKey, Record<string, string>> = {
     fa: 'سلام، چطور می‌توانم کمک کنم؟',
     tr: 'Merhaba, nasıl yardımcı olabilirim?',
     en: 'Hi — how can I help?',
+  },
+  off_topic_decline: {
+    fa: 'این موضوع خارج از حوزه‌ایه که می‌تونم دربارش کمک کنم. من فقط برای پاسخ به سوالات مرتبط با محصولات و خدمات این کسب‌وکار اینجام — اگه سوالی در همین زمینه دارید خوشحال می‌شم کمک کنم.',
+    tr: 'Bu konu yardımcı olabileceğim alanın dışında. Yalnızca bu işletmenin ürün ve hizmetleriyle ilgili sorularınıza yardımcı olabilirim — bu konuda bir sorunuz varsa memnuniyetle yardımcı olurum.',
+    en: "That's outside what I can help with here. I'm only able to help with questions about this business's products and services — happy to help if you have one of those.",
   },
 };
 

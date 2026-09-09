@@ -5110,6 +5110,7 @@ const en = {
         route: 'Route conversation',
         trigger_workflow: 'Trigger workflow',
         suggest_reply: 'Suggest reply',
+        decline: 'Decline (never asks the AI)',
       },
       card: {
         default: 'default',

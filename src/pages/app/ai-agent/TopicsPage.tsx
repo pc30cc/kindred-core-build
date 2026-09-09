@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { toast } from '@/hooks/use-toast';
 import { Tags, Plus, Pencil, Trash2, Loader2, Beaker, Sparkles } from 'lucide-react';
 
-const ACTION_VALUES: TopicAction[] = ['label_only', 'route', 'trigger_workflow', 'suggest_reply'];
+const ACTION_VALUES: TopicAction[] = ['label_only', 'route', 'trigger_workflow', 'suggest_reply', 'decline'];
 
 /** The topic detector (server/services/ai-agent/topics/detector.ts) always
  * explains its result in English, regardless of workspace locale. Map the

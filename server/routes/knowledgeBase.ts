@@ -154,49 +154,13 @@ async function enforceArticleQuota(
   g: { config: ServerConfig; workspaceId: string },
   res: Response,
 ): Promise<boolean> {
-  if (g.config.selfHostBillingUnlimited === true) return true;
-
-  const { getWorkspacePlanInfoDetailed } = await import('../middleware/featureGating.js');
-  const info = await getWorkspacePlanInfoDetailed(
-    g.config.supabaseUrl,
-    g.config.supabaseServiceRoleKey,
-    g.workspaceId,
-  );
-  if (!info.ok) {
-    res.status(503).json({ error: 'entitlement_status_unavailable', feature: 'max_kb_articles', retryable: true });
-    return false;
-  }
-
-  const limits = (info.value.limits || {}) as Record<string, unknown>;
-  let limit: number | null = null;
-  for (const key of ['max_kb_articles', 'ai_kb_max_articles', 'kb_articles']) {
-    const raw = limits[key];
-    const n = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() ? Number(raw) : NaN;
-    if (Number.isFinite(n)) { limit = n; break; }
-  }
-  if (limit === null || limit < 0) return true; // unlimited
-
-  const { count, error } = await getServiceClient(g.config)
-    .from('knowledge_base_articles')
-    .select('id', { count: 'exact', head: true })
-    .eq('workspace_id', g.workspaceId);
-  if (error || typeof count !== 'number') {
-    res.status(503).json({ error: 'usage_status_unavailable', feature: 'max_kb_articles', retryable: true });
-    return false;
-  }
-  if (count >= limit) {
-    res.status(403).json({
-      error: 'Limit reached: max_kb_articles',
-      feature: 'max_kb_articles',
-      plan: info.value.plan?.slug ?? null,
-      limit,
-      used: count,
-      upgrade_required: true,
-    });
-    return false;
-  }
-  return true;
+  const { resolveKbArticleQuota } = await import('../services/billing/kbArticleQuota.js');
+  const quota = await resolveKbArticleQuota(g.config, g.workspaceId);
+  if (quota.ok) return true;
+  res.status(quota.status).json(quota.body);
+  return false;
 }
+
 
 // ─── Articles ───
 

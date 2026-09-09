@@ -5100,8 +5100,6 @@ const en = {
       subtitle: 'Workspace-level instructions that shape every AI reply — brand voice, what to do, what to avoid, and how to handle pricing, support and handoffs.',
       brandVoice: {
         title: 'Brand voice',
-        tone: 'Tone',
-        tonePlaceholder: 'friendly, professional, concise…',
         voiceDesc: 'Brand voice description',
         voiceDescPlaceholder: 'How should the assistant sound? (e.g. warm, modern, plainspoken)',
         businessDesc: 'Business description',

@@ -5088,8 +5088,6 @@ const tr: TranslationKeys = {
       subtitle: 'Her AI yanıtını şekillendiren çalışma alanı düzeyindeki talimatlar — marka sesi, ne yapılmalı, ne yapılmamalı ve fiyatlandırma, destek ile devretme nasıl ele alınmalı.',
       brandVoice: {
         title: 'Marka sesi',
-        tone: 'Ton',
-        tonePlaceholder: 'samimi, profesyonel, öz…',
         voiceDesc: 'Marka sesi açıklaması',
         voiceDescPlaceholder: 'Asistan nasıl konuşmalı? (ör. sıcak, modern, sade)',
         businessDesc: 'İşletme açıklaması',

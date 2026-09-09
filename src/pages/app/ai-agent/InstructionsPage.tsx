@@ -3,7 +3,6 @@ import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useAiAgentSettings, useUpdateAiAgentSettings } from '@/hooks/useAiAgent';
 import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,7 +19,7 @@ export default function InstructionsPage() {
 
   const i = (data?.settings?.instructions ?? {}) as any;
   const [form, setForm] = useState({
-    brand_voice: '', business_description: '', tone: 'friendly',
+    brand_voice: '', business_description: '',
     do_list: '' as string,
     dont_list: '' as string,
     pricing_instructions: '', handoff_instructions: '', support_instructions: '',
@@ -29,11 +28,13 @@ export default function InstructionsPage() {
   // Every nested `instructions` key on this page is only written when the
   // operator actually edited its control this session -- the backend
   // replaces the ENTIRE `instructions` JSON column on write (no server-side
-  // per-key merge), so unconditionally resending all 9 keys on every save
-  // (as before) could silently revert a key changed elsewhere (e.g.
-  // `tone`/`max_answer_length`, both owned by BehaviorPage) back to whatever
-  // this page had loaded, even when the operator only touched an unrelated
-  // field here. Same dirty-tracking discipline as BehaviorPage.
+  // per-key merge), so unconditionally resending all keys on every save
+  // (as before) could silently revert a key changed elsewhere (e.g. `tone`/
+  // `max_answer_length`, both owned exclusively by BehaviorPage -- this page
+  // no longer has a tone control at all, to avoid the two pages fighting
+  // over the same instructions.tone field) back to whatever this page had
+  // loaded, even when the operator only touched an unrelated field here.
+  // Same dirty-tracking discipline as BehaviorPage.
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   const markDirty = (key: string) => setDirty((prev) => {
     const next = new Set(prev);
@@ -51,7 +52,6 @@ export default function InstructionsPage() {
       // legacy persisted key, shown ONLY as a display fallback when the
       // canonical field is empty -- never given write precedence here.
       business_description: data.settings.business_description || i.business_description || '',
-      tone: i.tone || 'friendly',
       do_list: (i.do_list || []).join('\n'),
       dont_list: (i.dont_list || []).join('\n'),
       pricing_instructions: i.pricing_instructions || '',
@@ -80,7 +80,7 @@ export default function InstructionsPage() {
     // ONLY dirty field -- there is no reason to rewrite the whole nested JSON
     // object (the backend replaces it wholesale on write) for a change that
     // is fully captured by the top-level business_description patch above.
-    const nestedDirty = ['brand_voice', 'tone', 'do_list', 'dont_list',
+    const nestedDirty = ['brand_voice', 'do_list', 'dont_list',
       'pricing_instructions', 'handoff_instructions', 'support_instructions',
       'custom_system_instruction'].some((k) => dirty.has(k));
     if (!(businessDescriptionDirty && !nestedDirty)) {
@@ -93,7 +93,6 @@ export default function InstructionsPage() {
       const fresh = (data?.settings?.instructions || {}) as Record<string, unknown>;
       const instructions: Record<string, unknown> = { ...fresh };
       if (dirty.has('brand_voice')) instructions.brand_voice = form.brand_voice.trim() || undefined;
-      if (dirty.has('tone')) instructions.tone = form.tone.trim() || undefined;
       if (dirty.has('do_list')) instructions.do_list = form.do_list.split('\n').map((s) => s.trim()).filter(Boolean);
       if (dirty.has('dont_list')) instructions.dont_list = form.dont_list.split('\n').map((s) => s.trim()).filter(Boolean);
       if (dirty.has('pricing_instructions')) instructions.pricing_instructions = form.pricing_instructions.trim() || undefined;
@@ -132,11 +131,6 @@ export default function InstructionsPage() {
           <Card>
             <CardHeader><CardTitle className="text-base">{tr('brandVoice.title')}</CardTitle></CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-1.5">
-                <Label>{tr('brandVoice.tone')}</Label>
-                <Input value={form.tone} onChange={(e) => { setForm((f) => ({ ...f, tone: e.target.value })); markDirty('tone'); }}
-                  placeholder={tr('brandVoice.tonePlaceholder')} />
-              </div>
               <div className="space-y-1.5">
                 <Label>{tr('brandVoice.voiceDesc')}</Label>
                 <Textarea rows={3} value={form.brand_voice}

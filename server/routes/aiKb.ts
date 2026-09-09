@@ -35,7 +35,7 @@ import { resolveSourceDomainDetailed } from '../services/ai-kb/sourceDomain.js';
 import { resolveAiKbLimitsDetailed, countJobsThisMonthDetailed } from '../services/ai-kb/limits.js';
 import { readAiCreditStateDetailed, logAiKbUsage } from '../services/ai-kb/credits.js';
 import { firstReadFailure } from '../services/ai-kb/readResult.js';
-import { resolveKbArticleQuota } from '../services/billing/kbArticleQuota.js';
+import { resolveKbArticleQuota, isKbQuotaDenied } from '../services/billing/kbArticleQuota.js';
 
 import { slugifyTitle, type PlanSnapshot } from '../services/ai-kb/types.js';
 import { normalizeArticleHtml } from '../services/ai-kb/htmlNormalize.js';
@@ -613,7 +613,7 @@ async function enforceKbArticleQuotaForDraft(
 ): Promise<boolean> {
   if (gen.kb_article_id) return true;
   const quota = await resolveKbArticleQuota(config, gen.workspace_id);
-  if (quota.ok) return true;
+  if (!isKbQuotaDenied(quota)) return true;
   res.status(quota.status).json(quota.body);
   return false;
 }
@@ -720,7 +720,7 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
   // Plan cap is evaluated ONCE for the batch and then decremented locally,
   // so a bulk publish can never push the workspace past `max_kb_articles`.
   const quota = await resolveKbArticleQuota(config, job.workspace_id);
-  if (!quota.ok && quota.status === 503) return res.status(503).json(quota.body);
+  if (isKbQuotaDenied(quota) && quota.status === 503) return res.status(503).json(quota.body);
   let remaining = quota.ok
     ? quota.remaining
     : 0;

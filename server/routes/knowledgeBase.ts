@@ -154,9 +154,9 @@ async function enforceArticleQuota(
   g: { config: ServerConfig; workspaceId: string },
   res: Response,
 ): Promise<boolean> {
-  const { resolveKbArticleQuota } = await import('../services/billing/kbArticleQuota.js');
+  const { resolveKbArticleQuota, isKbQuotaDenied } = await import('../services/billing/kbArticleQuota.js');
   const quota = await resolveKbArticleQuota(g.config, g.workspaceId);
-  if (quota.ok) return true;
+  if (!isKbQuotaDenied(quota)) return true;
   res.status(quota.status).json(quota.body);
   return false;
 }

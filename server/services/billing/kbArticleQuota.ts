@@ -89,3 +89,7 @@ export async function resolveKbArticleQuota(
 
   return { ok: true, unlimited: false, limit, used: count, remaining: limit - count };
 }
+
+export function isKbQuotaDenied(q: KbArticleQuota): q is KbQuotaDenial {
+  return q.ok === false;
+}

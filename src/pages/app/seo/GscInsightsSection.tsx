@@ -59,10 +59,12 @@ function gscErrorMessage(err: unknown, t: (k: any) => string): string {
   if (err instanceof SeoApiError) {
     const key = `seo.gsc.errors.${err.code}`;
     const translated = t(key as any);
-    if (translated !== key) return translated;
+    const base = translated !== key ? translated : `${t('seo.gsc.errors.generic' as any)} (${err.code})`;
+    return err.detail ? `${base} — ${err.detail}` : base;
   }
   return t('seo.gsc.errors.generic' as any);
 }
+
 
 function formatCtr(v: number): string {
   return `${(v * 100).toFixed(1)}%`;

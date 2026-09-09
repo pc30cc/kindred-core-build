@@ -501,6 +501,110 @@ adminManagementRouter.put('/platform-settings', async (req, res) => {
   return res.json({ success: true });
 });
 
+// ── Platform domains / branding ────────────────────────────────────────
+// RLS on these tables requires a Supabase-auth admin JWT (auth.uid()), which
+// this first-party-session app never has in the browser — writes silently
+// matched zero rows there. Writes must go through this admin-gated route.
+const platformDomainsSchema = z.object({
+  primary_domain: z.string().max(255).nullable().optional(),
+  canonical_base_url: z.string().max(2000).nullable().optional(),
+  app_base_url: z.string().max(2000).nullable().optional(),
+  api_base_url: z.string().max(2000).nullable().optional(),
+  widget_base_url: z.string().max(2000).nullable().optional(),
+  asset_base_url: z.string().max(2000).nullable().optional(),
+  public_base_url: z.string().max(2000).nullable().optional(),
+  help_center_base_url: z.string().max(2000).nullable().optional(),
+  email_base_url: z.string().max(2000).nullable().optional(),
+});
+
+adminManagementRouter.put('/platform-domains', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const parsed = platformDomainsSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const sb = getServiceClient(serverConfigOf(req));
+  const payload = { ...parsed.data, updated_at: new Date().toISOString() };
+  const { data: existing } = await sb.from('platform_domains').select('id').limit(1).maybeSingle();
+  const { data, error } = existing
+    ? await sb
+        .from('platform_domains')
+        .update(payload)
+        .eq('id', (existing as { id: string }).id)
+        .select()
+        .maybeSingle()
+    : await sb.from('platform_domains').insert(payload as any).select().maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ domains: data });
+});
+
+const platformBrandingSchema = z.object({
+  logo_url: z.string().max(2000).nullable().optional(),
+  favicon_url: z.string().max(2000).nullable().optional(),
+  primary_color: z.string().max(50).nullable().optional(),
+  secondary_color: z.string().max(50).nullable().optional(),
+  pwa_icon_url: z.string().max(2000).nullable().optional(),
+});
+
+adminManagementRouter.put('/platform-branding', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const parsed = platformBrandingSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const sb = getServiceClient(serverConfigOf(req));
+  const payload = { ...parsed.data, updated_at: new Date().toISOString() };
+  const { data: existing } = await sb.from('platform_branding').select('id').limit(1).maybeSingle();
+  const { data, error } = existing
+    ? await sb
+        .from('platform_branding')
+        .update(payload)
+        .eq('id', (existing as { id: string }).id)
+        .select()
+        .maybeSingle()
+    : await sb.from('platform_branding').insert(payload as any).select().maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ branding: data });
+});
+
+const platformBrandingLocalizedSchema = z
+  .object({
+    locale: z.string().min(2).max(10),
+    platform_name: z.string().max(255).optional(),
+    meta_title: z.string().max(500).nullable().optional(),
+    meta_description: z.string().max(2000).nullable().optional(),
+    social_share_title: z.string().max(500).nullable().optional(),
+    social_share_description: z.string().max(2000).nullable().optional(),
+    browser_title_format: z.string().max(255).nullable().optional(),
+    public_site_title: z.string().max(255).nullable().optional(),
+    widget_display_name: z.string().max(255).nullable().optional(),
+    knowledge_base_title: z.string().max(255).nullable().optional(),
+    legal_company_display_name: z.string().max(255).nullable().optional(),
+    footer_company_text: z.string().max(1000).nullable().optional(),
+    support_label: z.string().max(255).nullable().optional(),
+  })
+  .strip();
+
+adminManagementRouter.put('/platform-branding-localized', async (req, res) => {
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const parsed = platformBrandingLocalizedSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const sb = getServiceClient(serverConfigOf(req));
+  const payload = { ...parsed.data, updated_at: new Date().toISOString() };
+  const { data: existing } = await sb
+    .from('platform_branding_localized')
+    .select('id')
+    .eq('locale', parsed.data.locale)
+    .maybeSingle();
+  const { data, error } = existing
+    ? await sb
+        .from('platform_branding_localized')
+        .update(payload)
+        .eq('id', (existing as { id: string }).id)
+        .select()
+        .maybeSingle()
+    : await sb.from('platform_branding_localized').insert(payload as any).select().maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ branding: data });
+});
+
+
 // ── Global email settings (workspace_id IS NULL) ───────────────────────
 adminManagementRouter.get('/email-settings', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;

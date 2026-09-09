@@ -646,6 +646,9 @@ aiKbRouter.post('/generated/:id/publish', async (req: Request, res: Response) =>
   ]);
   if (!ctx) return;
   const { gen, sb, userId } = ctx;
+  if (!(await enforceKbArticleQuotaForDraft(res, config, gen as any))) return;
+
+
 
   const { result, transportError } = await applyGeneratedDraft(sb, gen, userId, 'publish');
   if (transportError) {

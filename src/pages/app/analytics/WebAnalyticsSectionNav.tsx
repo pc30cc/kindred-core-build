@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BarChart3, ChevronDown } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { cn } from '@/lib/utils';
@@ -52,9 +52,9 @@ function SubNavGroup({ group, activeSubsectionKey }: { group: WebAnalyticsNavGro
 }
 
 export function WebAnalyticsSectionNav({ activeSubsectionKey }: { activeSubsectionKey: string | undefined }) {
-  const { t } = useTranslation();
   return (
     <div className="flex h-full w-60 shrink-0 flex-col gap-0.5 overflow-y-auto border-e border-border/60 bg-card p-3">
+
 
       {WEB_ANALYTICS_NAV.map((item) => (
         item.type === 'leaf'

@@ -131,6 +131,7 @@ export function buildSystemPrompt(
 
   lines.push('If the sources disagree about a business-specific fact, do not pick one: say the information is inconsistent and offer to confirm with a human.');
   lines.push('KNOWLEDGE BASE: the sources are supporting context, not permission to speak. A missing knowledge-base result never means the conversation must be handed off.');
+  lines.push('COMMERCE: a tool result named commerce.* is real store data (products, stock, orders) — never invent product names, prices, or order status beyond it. If a commerce result has error_code=identity_required or order_access_denied, do NOT reveal any order details; ask the visitor to verify their identity instead. If error_code=catalog_syncing, say the store catalog is still being set up. If error_code=commerce_not_connected or commerce_live_unavailable, say you cannot check that right now rather than guessing.');
 
   // ── HANDOFF ──────────────────────────────────────────────────────────
   lines.push('HANDOFF:');

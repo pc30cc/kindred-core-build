@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { adminFetch } from '@/hooks/useAdmin';
 
 // ── Platform Branding (visual identity) ──
 
@@ -33,31 +34,11 @@ export function useUpdatePlatformBranding() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (updates: Partial<PlatformBranding>) => {
-      // Check if row exists
-      const { data: existing } = await supabase
-        .from('platform_branding')
-        .select('id')
-        .limit(1)
-        .maybeSingle();
-
-      if (existing) {
-        const { data, error } = await supabase
-          .from('platform_branding')
-          .update({ ...updates, updated_at: new Date().toISOString() })
-          .eq('id', existing.id)
-          .select()
-          .single();
-        if (error) throw error;
-        return data;
-      } else {
-        const { data, error } = await supabase
-          .from('platform_branding')
-          .insert({ ...updates, updated_at: new Date().toISOString() })
-          .select()
-          .single();
-        if (error) throw error;
-        return data;
-      }
+      const { branding } = await adminFetch<{ branding: PlatformBranding }>(
+        '/api/admin/management/platform-branding',
+        { method: 'PUT', body: JSON.stringify(updates) },
+      );
+      return branding;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['platform_branding'] }),
   });
@@ -102,31 +83,12 @@ export function useUpsertPlatformBrandingLocalized() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (row: Partial<PlatformBrandingLocalized> & { locale: string }) => {
-      // Check if locale row exists
-      const { data: existing } = await supabase
-        .from('platform_branding_localized')
-        .select('id')
-        .eq('locale', row.locale)
-        .maybeSingle();
-
-      if (existing) {
-        const { data, error } = await supabase
-          .from('platform_branding_localized')
-          .update({ ...row, updated_at: new Date().toISOString() })
-          .eq('id', existing.id)
-          .select()
-          .single();
-        if (error) throw error;
-        return data;
-      } else {
-        const { data, error } = await supabase
-          .from('platform_branding_localized')
-          .insert({ ...row, updated_at: new Date().toISOString() })
-          .select()
-          .single();
-        if (error) throw error;
-        return data;
-      }
+      const { id: _id, created_at: _c, updated_at: _u, ...rest } = row as any;
+      const { branding } = await adminFetch<{ branding: PlatformBrandingLocalized }>(
+        '/api/admin/management/platform-branding-localized',
+        { method: 'PUT', body: JSON.stringify(rest) },
+      );
+      return branding;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['platform_branding_localized'] }),
   });
@@ -168,30 +130,11 @@ export function useUpdatePlatformDomains() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (updates: Partial<PlatformDomains>) => {
-      const { data: existing } = await supabase
-        .from('platform_domains')
-        .select('id')
-        .limit(1)
-        .maybeSingle();
-
-      if (existing) {
-        const { data, error } = await supabase
-          .from('platform_domains')
-          .update({ ...updates, updated_at: new Date().toISOString() })
-          .eq('id', existing.id)
-          .select()
-          .single();
-        if (error) throw error;
-        return data;
-      } else {
-        const { data, error } = await supabase
-          .from('platform_domains')
-          .insert({ ...updates, updated_at: new Date().toISOString() })
-          .select()
-          .single();
-        if (error) throw error;
-        return data;
-      }
+      const { domains } = await adminFetch<{ domains: PlatformDomains }>(
+        '/api/admin/management/platform-domains',
+        { method: 'PUT', body: JSON.stringify(updates) },
+      );
+      return domains;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['platform_domains'] }),
   });

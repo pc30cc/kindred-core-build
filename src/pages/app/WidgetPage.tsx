@@ -3,7 +3,7 @@ import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useWidgetSettings, useUpdateWidgetSettings } from '@/hooks/useWidgetSettings';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
-import { useWidgetPlatformSettings } from '@/hooks/useWidgetPlatformSettings';
+import { useWidgetPlatformPublicSettings } from '@/hooks/useWidgetPlatformSettings';
 import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import { resolveWidgetUrls, buildWidgetEmbedSnippet } from '@/lib/widgetEmbed';
 import { Button } from '@/components/ui/button';
@@ -68,7 +68,7 @@ function WidgetPageContent() {
   const previewOperator = (workspaceMembers || []).find((m) => m.avatar_url) || (workspaceMembers || [])[0];
   const { branding, platformName } = useBrandingContext();
   // Single source of truth — widget URLs come from platform widget settings only.
-  const { data: platformWidget } = useWidgetPlatformSettings();
+  const { data: platformWidget } = useWidgetPlatformPublicSettings();
   // Powered-by footer is platform-owned + plan-gated; the preview must show
   // exactly what production renders.
   const { data: effectiveEnts, loading: entsLoading, error: entsError } = useWorkspaceEffectiveEntitlements(workspace?.id || null);

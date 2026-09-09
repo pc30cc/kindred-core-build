@@ -122,6 +122,58 @@ export function useWidgetPlatformSettings() {
 }
 
 
+/**
+ * Non-admin projection of the platform singleton (embed URLs, embed header /
+ * footer comments and the platform "Powered by" wording). Workspace owners are
+ * not platform admins, so they must NOT call `/platform/config` — that route is
+ * admin-only and returns 403, which previously left their Install snippet
+ * without the platform-authored comments.
+ */
+export type PublicWidgetPlatformSettings = Pick<
+  WidgetPlatformSettings,
+  | 'id'
+  | 'widget_loader_base_url'
+  | 'widget_asset_base_url'
+  | 'widget_public_base_url'
+  | 'widget_api_base_url'
+  | 'embed_header_comment'
+  | 'embed_footer_comment'
+  | 'powered_by_enabled'
+  | 'powered_by_text'
+  | 'powered_by_brand_text'
+  | 'powered_by_url'
+>;
+
+export function useWidgetPlatformPublicSettings() {
+  return useQuery({
+    queryKey: ['widget-platform-settings', 'public'] as const,
+    retry: 1,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const bases = API_BASE ? [API_BASE, ''] : [''];
+      let last: Response | null = null;
+      for (const base of bases) {
+        try {
+          const res = await fetch(`${base}/api/widget-settings/platform/public`, {
+            credentials: 'include',
+          });
+          last = res;
+          if (res.status !== 404 || base === bases[bases.length - 1]) {
+            if (!res.ok) throw new Error(`Load failed: HTTP ${res.status}`);
+            const json = await res.json();
+            return (json?.settings ?? null) as PublicWidgetPlatformSettings | null;
+          }
+        } catch {
+          /* try next base */
+        }
+      }
+      if (last && !last.ok) throw new Error(`Load failed: HTTP ${last.status}`);
+      return null;
+    },
+  });
+}
+
+
 export function useUpdateWidgetPlatformSettings() {
   const qc = useQueryClient();
   return useMutation({

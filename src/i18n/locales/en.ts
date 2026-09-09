@@ -6813,6 +6813,15 @@ const en = {
       affectedUrls: 'Affected URLs',
       empty: 'No issues match the current filters.',
       backToList: 'Back to issues',
+      searchUrls: 'Search URLs',
+      copyAll: 'Copy all',
+      copyUrl: 'Copy URL',
+      openUrl: 'Open in new tab',
+      urlCopied: 'URL copied',
+      urlsCopied: 'URLs copied',
+      urlsShown: 'showing {{shown}} of {{total}}',
+      loadMoreUrls: 'Load more URLs',
+      noUrls: 'No URLs to show.',
       types: {
         http_5xx: {
           title: 'Pages returning server errors (5xx)',

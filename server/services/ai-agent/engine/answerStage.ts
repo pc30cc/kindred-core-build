@@ -105,6 +105,37 @@ export async function runAnswerStage(
     page_context: pageContextMetaRef,
   } as Record<string, unknown>);
 
+  // ─── Deterministic off-topic decline — NEVER calls the model ───────────
+  // A topic configured with action: 'decline' (see topics/defaults.ts —
+  // the built-in "Off-topic" topic for politics/war/religion) is the one
+  // server-enforced gate in the topic system: every other TopicAction is
+  // advisory metadata that still lets the LLM see and answer the turn.
+  // This check runs BEFORE decideStrategy/retrieval-driven answer logic so
+  // a matching turn never reaches the generation stage's provider call.
+  if (ctxStage.topTopicAction === 'decline' && decision.canAutoReply) {
+    const body = pickTemplate('off_topic_decline', locale);
+    const runId = await logRun(config, {
+      workspaceId, conversationId, visitorMessageId,
+      runType: 'auto_reply', mode: settings.mode, status: 'replied',
+      inputText: question, outputText: body,
+      kbArticleIds: [], confidence: 1,
+      metadata: {
+        ...baseRuntimeMeta(),
+        answer_strategy: { decision_type: 'declined', reason: 'topic_decline' },
+        locale, language: languageMeta, retrieval: queryMeta,
+      },
+    });
+    const display = deriveAgentDisplay(settings);
+    const inserted = await insertAiMessage(config, {
+      workspaceId, conversationId, body, source: 'ai_agent', runId,
+      mode: settings.mode, kbArticleIds: [], qnaIds: [],
+      confidence: 1, provider: null, model: null, handoff: false,
+      agentName: display.agentName, agentLogoUrl: display.agentLogoUrl,
+    });
+    await markAiManaged(config, { workspaceId, conversationId }).catch(() => {});
+    return { terminal: { ran: true, action: 'replied', runId, messageId: inserted.id } };
+  }
+
   const clarificationAttemptCount = await countClarificationAttempts(sb, conversationId);
   const strategy = decideStrategy({
     settings,

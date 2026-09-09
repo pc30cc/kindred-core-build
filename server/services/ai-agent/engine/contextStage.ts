@@ -19,6 +19,7 @@ import { getConversationState } from '../conversationState.js';
 import { getOperatorAvailability } from '../availability.js';
 import { decideResponseLanguage, detectInputLanguage } from '../language.js';
 import { detectTopics } from '../topics/detector.js';
+import type { TopicAction } from '../topics/types.js';
 import { buildRoutingMetadata } from '../runtime/routingRuntime.js';
 import { buildTriggerMetadata } from '../runtime/triggerRuntime.js';
 import { buildToolMetadata } from '../runtime/toolRuntime.js';
@@ -41,6 +42,12 @@ export interface ContextStageResult {
   languageMeta: Record<string, unknown>;
   detectedTopicsMeta: Record<string, unknown>;
   topTopicSlug: string | null;
+  /**
+   * Action of the top-detected topic. The ONLY value the engine treats as a
+   * deterministic, server-enforced instruction is 'decline' (see
+   * engine/answerStage.ts) — everything else is advisory metadata.
+   */
+  topTopicAction: TopicAction | null;
   /** Supporting-only topic evidence. NOT authority to hand off. */
   humanRequestFromTopics: boolean;
   /** Canonical, authoritative explicit-human-request signal (P0-5). */
@@ -144,12 +151,14 @@ export async function runContextStage(
   // Pass C1 — deterministic topic detection from configured ai_agent_topics.
   let detectedTopicsMeta: Record<string, unknown> = { detectedTopics: [] };
   let topTopicSlug: string | null = null;
+  let topTopicAction: TopicAction | null = null;
   let humanRequestFromTopics = false;
   if (runtimeCfg && runtimeCfg.topics.length) {
     try {
       const det = detectTopics(question, runtimeCfg.topics);
       const top = det.detectedTopics[0] || null;
       topTopicSlug = top?.slug || null;
+      topTopicAction = top?.action || null;
       humanRequestFromTopics = top?.slug === 'human-request';
       detectedTopicsMeta = {
         detectedTopics: det.detectedTopics.map((t) => ({
@@ -279,7 +288,7 @@ export async function runContextStage(
   else if (humanRequest.supporting.topicHumanRequest) decisionTimeline.push('human_request_topic_support_only');
 
   return {
-    sb, locale, workspaceName, inputLanguage, languageMeta, detectedTopicsMeta, topTopicSlug,
+    sb, locale, workspaceName, inputLanguage, languageMeta, detectedTopicsMeta, topTopicSlug, topTopicAction,
     humanRequestFromTopics, humanRequest, guidanceMeta, routingMeta, triggerMeta, workflowMeta,
     toolMeta, pageContextMetaRef, state, availability,
     operatorGuidance, memory, memoryTurnPatch, memoryBlock, memoryMetaBundle,

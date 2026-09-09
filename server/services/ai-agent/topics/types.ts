@@ -3,7 +3,14 @@
  * Self-host. Pure data types, no runtime deps.
  */
 
-export type TopicAction = 'label_only' | 'route' | 'trigger_workflow' | 'suggest_reply';
+/**
+ * 'decline' is the one deterministic, server-enforced action: when the
+ * top-detected topic for a turn carries it, the engine returns a fixed
+ * refusal WITHOUT ever calling the model (see engine/answerStage.ts). Every
+ * other action is advisory only — it labels/routes the turn but still lets
+ * the LLM see and answer the message.
+ */
+export type TopicAction = 'label_only' | 'route' | 'trigger_workflow' | 'suggest_reply' | 'decline';
 
 export interface TopicRecord {
   id: string;

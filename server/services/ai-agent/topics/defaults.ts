@@ -176,4 +176,21 @@ export const DEFAULT_TOPICS: DefaultTopic[] = [
     ],
     action: 'route',
   },
+  {
+    name: 'Off-topic',
+    slug: 'off-topic',
+    description: 'Politics, war, religion or other subjects unrelated to the business. When matched, the assistant declines with a fixed reply instead of answering — see action: "decline".',
+    keywords: [
+      'war','politics','political','election','president','government','religion','religious',
+      'savaş','siyaset','siyasi','seçim','başkan','hükümet','din','dini','mezhep',
+      'جنگ','سیاست','سیاسی','انتخابات','رئیس‌جمهور','دولت','مذهب','دینی','مذهبی','جنگی',
+    ],
+    examples: [
+      'who do you support in the election', 'what do you think about the war', 'is god real',
+      'savaş ne zaman biter', 'kimi destekliyorsun', 'hangi partiye oy vermeliyim',
+      'جنگ ایران و آمریکا کی تموم میشه', 'نظرت راجب سیاست چیه', 'به کی رای بدم', 'دین بهتر کدومه',
+    ],
+    action: 'decline',
+    confidence_threshold: 0.5,
+  },
 ];

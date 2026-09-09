@@ -98,8 +98,11 @@ function WebAnalyticsInner({ workspaceId, subsectionKey }: { workspaceId: string
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">{t('seo.webAnalytics.dataSourceNote' as any)}</p>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold">{t('nav.webAnalytics' as any)}</h1>
+          <p className="mt-1 text-xs text-muted-foreground">{t('seo.webAnalytics.dataSourceNote' as any)}</p>
+        </div>
         <Select value={preset} onValueChange={(v) => setPreset(v as RangePreset)}>
           <SelectTrigger className="h-8 w-[160px] text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>

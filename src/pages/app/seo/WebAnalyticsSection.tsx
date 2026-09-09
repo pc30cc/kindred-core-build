@@ -373,27 +373,28 @@ function PagesView({ workspaceId, range, kind }: { workspaceId: string; range: {
       ) : (data?.rows.length || 0) === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData' as any)}</p>
       ) : (
-        <Table>
+        <Table dir="ltr">
           <TableHeader>
             <TableRow>
-              <TableHead>{t('seo.webAnalytics.column.page' as any)}</TableHead>
-              <TableHead className="text-end">{t('seo.webAnalytics.column.views' as any)}</TableHead>
+              <TableHead className="text-left">{t('seo.webAnalytics.column.page' as any)}</TableHead>
+              <TableHead className="text-right">{t('seo.webAnalytics.column.views' as any)}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {(data?.rows || []).map((r) => (
               <TableRow key={r.path}>
-                <TableCell className="max-w-[420px]">
+                <TableCell className="max-w-[420px] text-left">
                   <div className="flex items-center gap-2">
                     <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     <span className="truncate font-medium" title={r.path}>{r.path}</span>
                   </div>
                 </TableCell>
-                <TableCell className="text-end tabular-nums">{formatCompact(r.views)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatCompact(r.views)}</TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
+
       )}
     </ReportCard>
   );
@@ -418,20 +419,21 @@ function ClonedPagesView({ workspaceId, range }: { workspaceId: string; range: {
           <div className="space-y-4">
             {(data?.rows || []).map((group) => (
               <div key={group.normalizedPath} className="rounded-lg border border-border/60 p-3">
-                <div className="mb-2 flex items-center gap-2">
+                <div dir="ltr" className="mb-2 flex items-center gap-2 text-left">
                   <Copy className="h-3.5 w-3.5 text-amber-500" />
                   <span className="font-medium">{group.normalizedPath}</span>
                   <Badge variant="outline" className="ms-auto text-[10px]">{formatCompact(group.totalViews)} {t('seo.webAnalytics.column.views' as any)}</Badge>
                 </div>
                 <div className="space-y-1">
                   {group.variants.map((v) => (
-                    <div key={v.url} className="flex items-center justify-between ps-5 text-xs text-muted-foreground">
+                    <div key={v.url} dir="ltr" className="flex items-center justify-between gap-3 ps-5 text-left text-xs text-muted-foreground">
                       <span className="truncate font-mono">{v.url}</span>
                       <span className="tabular-nums">{formatCompact(v.views)}</span>
                     </div>
                   ))}
                 </div>
               </div>
+
             ))}
           </div>
         )}

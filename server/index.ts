@@ -30,6 +30,11 @@ import { workspaceAlertsRouter } from './routes/workspaceAlerts.js';
 import { availabilityRouter } from './routes/availability.js';
 import { operatorActivityRouter } from './routes/operatorActivity.js';
 import { billingRouter, billingWebhookRouter } from './routes/billing.js';
+import { commercePairingRouter } from './routes/commerce/pairing.js';
+import { commerceConnectionsRouter } from './routes/commerce/connections.js';
+import { commerceEventsRouter } from './routes/commerce/events.js';
+import { commerceGuestVerificationRouter } from './routes/commerce/guestVerification.js';
+import { commerceIdentityRouter } from './routes/commerce/identity.js';
 import { internalTestGatewayRouter } from './routes/internalTestGateway.js';
 import { billingCustomerRouter } from './routes/billingCustomer.js';
 import { adminBillingV2Router } from './routes/adminBillingV2.js';
@@ -289,11 +294,17 @@ app.use('/api/calls/livekit/webhook', livekitWebhookRouter);
 // exact raw bytes, so this mounts before express.json with its own raw parser.
 app.use('/api/billing/webhook', billingWebhookRouter);
 
+// Commerce event ingestion (webyar-woocommerce plugin) — HMAC signature
+// verification needs the exact raw bytes; the router applies its own
+// express.raw() parser. See docs/commerce/SECURITY.md §Request signing.
+app.use('/api/commerce/events', commerceEventsRouter);
+
 // JSON / cookies for everything else. Skip the webhook path explicitly so
 // a future re-order can't accidentally consume the raw body.
 app.use((req, res, next) => {
   if (req.path === '/api/calls/livekit/webhook') return next();
   if (req.path.startsWith('/api/billing/webhook')) return next();
+  if (req.path.startsWith('/api/commerce/events')) return next();
   return (express.json({ limit: '50mb' }) as any)(req, res, next);
 });
 app.use(cookieParser()); // Parse signed visitor cookies (HttpOnly dvsid)
@@ -383,6 +394,16 @@ app.use('/api/workspace-members', workspaceMembersRouter);
 app.use('/api/workspace-invitations', workspaceInvitationsRouter);
 app.use('/api/widget-settings', widgetSettingsRouter);
 app.use('/api/workspace-integrations', workspaceIntegrationsRouter);
+// Commerce Integration Platform — pairing (state/PKCE, no workspace in the
+// URL yet) and workspace-scoped connection management. Event ingestion is
+// mounted separately above, before express.json(). See
+// docs/commerce/ARCHITECTURE.md.
+app.use('/api/commerce/pairing', commercePairingRouter);
+app.use('/api/workspaces', commerceConnectionsRouter);
+// Widget-facing guest order verification — anonymous visitor, no workspace
+// session, so it gets the widget CORS policy rather than appCors.
+app.use('/api/widget/commerce/guest-verification', widgetCorsMiddleware(), commerceGuestVerificationRouter);
+app.use('/api/widget/commerce/identity', widgetCorsMiddleware(), commerceIdentityRouter);
 
 // Self-service notification preferences
 app.use('/api/notifications', notificationsRouter);

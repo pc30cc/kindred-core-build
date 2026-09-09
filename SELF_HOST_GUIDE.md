@@ -153,9 +153,38 @@ CMD ["npm", "start"]
 2. In Coolify, create two services:
    - **Frontend**: Static site from `Dockerfile.frontend`
    - **Backend**: Node app from `Dockerfile.server`
-3. Set environment variables in Coolify dashboard
+3. Set environment variables in Coolify dashboard **on the Backend service**
+   (not the Frontend one — these are all server-side secrets read via
+   `process.env`, never bundled into the frontend build). If you instead
+   deploy via `docker-compose.yml` as a Coolify "Docker Compose" resource,
+   the project-level env vars you set there only reach a container if that
+   compose file's `environment:` block forwards them with `${VAR}` — this
+   repo's `docker-compose.yml` already does that for every var below.
 4. Configure reverse proxy to route `/api/*` to backend
 5. Serve `/widget/loader.js` from frontend static build
+
+#### Optional: SEO → GSC Insights (Google Search Console)
+
+Only needed if you want the SEO suite's Google Search Console integration
+to work — without it, that module shows the user "not configured" instead
+of erroring. On the **Backend** service, set:
+
+- `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` — from a Google
+  Cloud OAuth Client (type **Web application**) with the Search Console API
+  enabled and the `.../auth/webmasters.readonly` scope added to the consent
+  screen.
+- `GOOGLE_OAUTH_REDIRECT_URI` — must be byte-for-byte identical to an
+  Authorised redirect URI on that same OAuth client, and must resolve to
+  this **Backend** service's own public origin — e.g.
+  `https://api.yourdomain.com/api/seo/gsc/oauth/callback`. In a split
+  Coolify deployment this is your `api.*` subdomain, not the frontend's
+  `app.*` one. The client's "Authorised JavaScript origins" field is not
+  used by this flow (the OAuth exchange happens server-side) and can be
+  left empty.
+- `PLUGIN_SECRETS_MASTER_KEY` (see above) must also be set — Search
+  Console refresh tokens are encrypted with it before being stored.
+
+See `server/.env.example` for the full step-by-step.
 
 ### Reverse Proxy (nginx example)
 

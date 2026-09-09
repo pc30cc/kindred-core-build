@@ -350,6 +350,14 @@
   .card-elevated:hover {
     box-shadow: var(--shadow-glow);
   }
+
+  /* AppTopBar's page-owned toolbar slot (see AppTopBar.tsx): on mobile it
+     renders as its own row below the icon cluster, but most pages never
+     portal anything into it — collapse to zero height so they don't show
+     an empty strip. */
+  #topbar-page-slot:empty {
+    display: none;
+  }
 }
 
 @layer utilities {

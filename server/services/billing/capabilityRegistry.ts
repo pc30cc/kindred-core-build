@@ -275,6 +275,16 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   // access log; this module gates both the reporting UI and log uploads. ───
   { key: 'bot_analytics', type: 'module', label: 'SEO — Bot Analytics', group: 'modules', description: 'Upload web-server/CDN access logs to see which search-engine and AI/LLM crawlers (Googlebot, GPTBot, ClaudeBot, PerplexityBot, ...) visited the site, and which pages they hit.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 138 },
   { key: 'bot_analytics_max_log_lines', type: 'limit', label: 'SEO — Max log lines per import', group: 'seo', description: 'Maximum number of lines from one uploaded access log a workspace may process per import.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 211 },
+
+  // Brand Radar (Phase 6) — reuses the workspace's existing AI provider
+  // (billed through the existing AI credit/wallet system, not a new billing
+  // path), the existing rank-tracking provider (called directly, not through
+  // seo_tracked_keywords, so it never competes with the Rank Tracker quota),
+  // and the existing GSC connection. No new vendor. ───
+  { key: 'brand_radar', type: 'module', label: 'SEO — Brand Radar', group: 'modules', description: 'Tracks brand visibility across AI assistants (does ChatGPT mention you?), organic search rankings, and real Search Console demand for your brand name vs. tracked competitors.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 139 },
+  { key: 'brand_radar_max_topics', type: 'limit', label: 'SEO — Max Brand Radar AI topics', group: 'seo', description: 'Maximum number of tracked AI-visibility topics/prompts a workspace may define.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 212 },
+  { key: 'brand_radar_max_competitors', type: 'limit', label: 'SEO — Max Brand Radar competitors', group: 'seo', description: 'Maximum number of competitor brand names a workspace may track in Brand Radar.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 213 },
+  { key: 'brand_radar_check_frequency_hours', type: 'limit', label: 'SEO — Brand Radar check frequency (hours)', group: 'seo', description: 'Minimum hours a workspace must wait between triggering a full Brand Radar check run (bounds AI-credit and rank-tracking-provider spend).', defaultValue: -1, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'hours', sortOrder: 214 },
 ];
 
 

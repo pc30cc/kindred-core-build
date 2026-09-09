@@ -9,6 +9,7 @@ import { GscInsightsSection } from './GscInsightsSection';
 import { SiteExplorerSection } from './SiteExplorerSection';
 import { WebAnalyticsSection } from './WebAnalyticsSection';
 import { BotAnalyticsSection } from './BotAnalyticsSection';
+import { BrandRadarSection } from './BrandRadarSection';
 import {
   useSeoSites, useSeoLimits, useLatestCrawl, useCrawlHistory, useStartCrawl, useCancelCrawl,
   useCrawl, useCrawlPages, useCrawlIssues, useIssueAffectedUrls, useCrawlLinks, useCrawlSitemaps,
@@ -187,6 +188,8 @@ export default function SeoPage() {
             <WebAnalyticsSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
           ) : activeSection.key === 'bot-analytics' ? (
             <BotAnalyticsSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
+          ) : activeSection.key === 'brand-radar' ? (
+            <BrandRadarSection workspaceId={workspaceId} subsectionKey={subsectionKey} />
           ) : (
             <SeoRoadmapPlaceholder label={t(findLeaf(activeSection, subsectionKey)?.labelKey as any || activeSection.labelKey as any)} />
           )}

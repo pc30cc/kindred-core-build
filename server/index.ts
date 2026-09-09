@@ -37,6 +37,7 @@ import { adminBillingRouter } from './routes/adminBilling.js';
 import { seoRouter } from './routes/seo.js';
 import { webAnalyticsRouter } from './routes/webAnalytics.js';
 import { botAnalyticsRouter } from './routes/botAnalytics.js';
+import { brandRadarRouter } from './routes/brandRadar.js';
 import { plansRouter } from './routes/plans.js';
 import { pluginsRouter, adminPluginsRouter } from './routes/plugins.js';
 import { internalChannelsRouter } from './routes/internalChannels.js';
@@ -400,6 +401,7 @@ app.use('/api/billing', billingRouter);
 app.use('/api/seo', seoRouter);
 app.use('/api/web-analytics', webAnalyticsRouter);
 app.use('/api/bot-analytics', botAnalyticsRouter);
+app.use('/api/brand-radar', brandRadarRouter);
 
 // Billing Engine V2 rollout control — Platform Admin only (authorized in-router).
 app.use('/api/admin/billing-v2', adminBillingV2Router);

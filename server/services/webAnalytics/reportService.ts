@@ -49,6 +49,7 @@ interface SessionRow {
   geo_country_name: string | null;
   geo_city: string | null;
   started_at: string;
+  last_seen_at: string;
 }
 
 interface PageViewRow {
@@ -71,7 +72,7 @@ async function loadRangeData(config: ServerConfig, workspaceId: string, range: D
 
   const [sessionsRes, pageViewsRes] = await Promise.all([
     sb.from('visitor_sessions')
-      .select('id, referrer, utm_source, utm_medium, utm_campaign, browser, os, device, language, country, city, geo_country_code, geo_country_name, geo_city, started_at')
+      .select('id, referrer, utm_source, utm_medium, utm_campaign, browser, os, device, language, country, city, geo_country_code, geo_country_name, geo_city, started_at, last_seen_at')
       .eq('workspace_id', workspaceId)
       .gte('started_at', startIso)
       .lte('started_at', endIso)
@@ -155,6 +156,10 @@ export interface OverviewStats {
   pageviews: number;
   avgPagesPerSession: number;
   uniqueVisitors: number;
+  /** Percentage (0-100) of sessions with a single pageview. */
+  bounceRate: number;
+  /** Average time between a session's first and most recent tracked activity. */
+  avgVisitDurationSeconds: number;
   trend: Array<{ date: string; sessions: number; pageviews: number }>;
   topChannels: BreakdownRow[];
   topPages: Array<{ path: string; views: number }>;
@@ -195,16 +200,56 @@ export async function getOverview(config: ServerConfig, workspaceId: string, ran
     .sort((a, b) => b.views - a.views)
     .slice(0, 5);
 
+  let bouncedSessions = 0;
+  let totalDurationSeconds = 0;
+  for (const s of sessions) {
+    if ((pvBySession.get(s.id) || 0) <= 1) bouncedSessions += 1;
+    const start = new Date(s.started_at).getTime();
+    const end = new Date(s.last_seen_at).getTime();
+    if (Number.isFinite(start) && Number.isFinite(end)) totalDurationSeconds += Math.max(0, (end - start) / 1000);
+  }
+
   return {
     sessions: sessions.length,
     pageviews: pageViews.length,
     avgPagesPerSession: sessions.length > 0 ? Math.round((pageViews.length / sessions.length) * 10) / 10 : 0,
     uniqueVisitors,
+    bounceRate: sessions.length > 0 ? Math.round((bouncedSessions / sessions.length) * 1000) / 10 : 0,
+    avgVisitDurationSeconds: sessions.length > 0 ? Math.round(totalDurationSeconds / sessions.length) : 0,
     trend,
     topChannels: channelRows.slice(0, 5),
     topPages,
     truncated: truncatedSessions || truncatedPageViews,
   };
+}
+
+/** Cheap count-only query — total sessions started within `range`, used to compute event conversion rates. */
+export async function getSessionCount(config: ServerConfig, workspaceId: string, range: DateRange): Promise<number> {
+  const sb = getServiceClient(config);
+  const { startIso, endIso } = rangeToTimestamps(range);
+  const { count, error } = await sb
+    .from('visitor_sessions')
+    .select('id', { count: 'exact', head: true })
+    .eq('workspace_id', workspaceId)
+    .gte('started_at', startIso)
+    .lte('started_at', endIso);
+  if (error) throw new Error(`web_analytics_session_count_failed: ${error.message}`);
+  return count || 0;
+}
+
+const LIVE_VISITOR_WINDOW_MS = 5 * 60 * 1000;
+
+/** Distinct sessions with tracking activity in the last 5 minutes — the same "active now" signal the Visitors page uses (visitor_sessions.last_seen_at, bumped on every /track hit). */
+export async function getLiveVisitorCount(config: ServerConfig, workspaceId: string): Promise<number> {
+  const sb = getServiceClient(config);
+  const since = new Date(Date.now() - LIVE_VISITOR_WINDOW_MS).toISOString();
+  const { count, error } = await sb
+    .from('visitor_sessions')
+    .select('id', { count: 'exact', head: true })
+    .eq('workspace_id', workspaceId)
+    .gte('last_seen_at', since);
+  if (error) throw new Error(`web_analytics_live_visitor_count_failed: ${error.message}`);
+  return count || 0;
 }
 
 // ─── Traffic sources ────────────────────────────────────────────────────

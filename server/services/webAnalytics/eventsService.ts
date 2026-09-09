@@ -14,7 +14,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { normalizePath, type DateRange } from './reportService.js';
+import { normalizePath, getSessionCount, type DateRange } from './reportService.js';
 
 const ROW_CAP = 20_000;
 
@@ -101,10 +101,15 @@ export interface TrackedEventRow {
   eventName: string;
   count: number;
   uniqueSessions: number;
+  /** Fraction (0-1) of the range's sessions in which this event fired at least once. */
+  conversionRate: number;
 }
 
 export async function getTrackedEvents(config: ServerConfig, workspaceId: string, range: DateRange): Promise<{ rows: TrackedEventRow[]; truncated: boolean }> {
-  const { events, truncated } = await loadEvents(config, workspaceId, range);
+  const [{ events, truncated }, totalSessions] = await Promise.all([
+    loadEvents(config, workspaceId, range),
+    getSessionCount(config, workspaceId, range),
+  ]);
   const byName = new Map<string, { count: number; sessions: Set<string> }>();
   for (const e of events) {
     const bucket = byName.get(e.event_name) || { count: 0, sessions: new Set<string>() };
@@ -113,7 +118,12 @@ export async function getTrackedEvents(config: ServerConfig, workspaceId: string
     byName.set(e.event_name, bucket);
   }
   const rows = Array.from(byName.entries())
-    .map(([eventName, v]) => ({ eventName, count: v.count, uniqueSessions: v.sessions.size }))
+    .map(([eventName, v]) => ({
+      eventName,
+      count: v.count,
+      uniqueSessions: v.sessions.size,
+      conversionRate: totalSessions > 0 ? v.sessions.size / totalSessions : 0,
+    }))
     .sort((a, b) => b.count - a.count);
   return { rows, truncated };
 }

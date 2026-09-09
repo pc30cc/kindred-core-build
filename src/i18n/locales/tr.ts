@@ -6534,6 +6534,8 @@ const tr: TranslationKeys = {
     webAnalytics: {
       pageSubtitle: 'Trafik, kitle ve davranış raporlaması — kaynaklar, sayfalar, coğrafya, cihazlar, özel etkinlikler ve huniler.',
       dataSourceNote: 'Sohbet widget kodunuzun zaten topladığı ziyaretçi verileri üzerine kuruludur — ayrı bir izleme kodu gerekmez.',
+      liveVisitors: '{{count}} canlı ziyaretçi',
+      viewMore: 'Daha fazla göster',
       range: {
         last7: 'Son 7 gün',
         last28: 'Son 28 gün',
@@ -6562,12 +6564,15 @@ const tr: TranslationKeys = {
         event: 'Etkinlik',
         count: 'Sayı',
         uniqueSessions: 'Benzersiz Oturumlar',
+        conversionRate: 'Dönüşüm Oranı',
       },
       stat: {
-        sessions: 'Oturumlar',
-        pageviews: 'Sayfa Görüntülemeleri',
-        avgPagesPerSession: 'Ort. Sayfa / Oturum',
+        sessions: 'Toplam Ziyaret',
+        pageviews: 'Toplam Görüntüleme',
+        avgPagesPerSession: 'Ziyaret Başına Görüntüleme',
         uniqueVisitors: 'Benzersiz Ziyaretçiler',
+        bounceRate: 'Hemen Çıkma Oranı',
+        visitDuration: 'Ziyaret Süresi',
       },
       overview: {
         trendTitle: 'Oturumlar ve sayfa görüntülemeleri',

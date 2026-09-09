@@ -15,7 +15,7 @@ import { requireModule } from '../middleware/featureGating.js';
 import { resolveWebAnalyticsLimits } from '../services/webAnalytics/limits.js';
 import {
   getOverview, getTrafficSources, getGeography, getBrowsersSystems, getPages,
-  getClonedPages, getSiteStructure, getPossible404s,
+  getClonedPages, getSiteStructure, getPossible404s, getLiveVisitorCount,
   type DateRange, type TrafficSourceDimension, type GeographyDimension, type BrowsersSystemsDimension, type PagesKind,
 } from '../services/webAnalytics/reportService.js';
 import {
@@ -56,6 +56,14 @@ webAnalyticsRouter.get('/:workspaceId/limits', async (req, res) => {
   if (!auth) return;
   const resolved = await resolveWebAnalyticsLimits(configOf(req), workspaceId);
   res.json(resolved);
+});
+
+webAnalyticsRouter.get('/:workspaceId/live-visitors', requireModule('web_analytics'), async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  const count = await getLiveVisitorCount(configOf(req), workspaceId);
+  res.json({ count });
 });
 
 webAnalyticsRouter.get('/:workspaceId/overview', requireModule('web_analytics'), async (req, res) => {

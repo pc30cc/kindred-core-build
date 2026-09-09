@@ -6530,6 +6530,8 @@ const fa: TranslationKeys = {
     webAnalytics: {
       pageSubtitle: 'گزارش ترافیک، مخاطبان و رفتار کاربران — منابع ورودی، صفحات، جغرافیا، دستگاه‌ها، ایونت‌های سفارشی و فانل‌ها.',
       dataSourceNote: 'بر پایه داده‌ی بازدیدکنندگانی که ابزارک چت شما همین حالا جمع‌آوری می‌کند — بدون نیاز به کد ردیابی جداگانه.',
+      liveVisitors: '{{count}} بازدیدکننده آنلاین',
+      viewMore: 'مشاهده بیشتر',
       range: {
         last7: '۷ روز گذشته',
         last28: '۲۸ روز گذشته',
@@ -6558,12 +6560,15 @@ const fa: TranslationKeys = {
         event: 'رویداد',
         count: 'تعداد',
         uniqueSessions: 'نشست‌های یکتا',
+        conversionRate: 'نرخ تبدیل',
       },
       stat: {
-        sessions: 'نشست‌ها',
-        pageviews: 'بازدید صفحه',
-        avgPagesPerSession: 'میانگین صفحه در هر نشست',
+        sessions: 'کل بازدیدها (نشست)',
+        pageviews: 'کل نمایش‌ها',
+        avgPagesPerSession: 'نمایش به ازای هر بازدید',
         uniqueVisitors: 'بازدیدکنندگان یکتا',
+        bounceRate: 'نرخ پرش',
+        visitDuration: 'مدت زمان بازدید',
       },
       overview: {
         trendTitle: 'نشست‌ها و بازدید صفحه',

@@ -6546,6 +6546,8 @@ const en = {
     webAnalytics: {
       pageSubtitle: 'Traffic, audience and behavior reporting — sources, pages, geography, devices, custom events and funnels.',
       dataSourceNote: 'Built on the visitor data your chat widget snippet already collects — no separate tracking code needed.',
+      liveVisitors: '{{count}} live visitors',
+      viewMore: 'View more',
       range: {
         last7: 'Last 7 days',
         last28: 'Last 28 days',
@@ -6574,12 +6576,15 @@ const en = {
         event: 'Event',
         count: 'Count',
         uniqueSessions: 'Unique Sessions',
+        conversionRate: 'Conversion rate',
       },
       stat: {
-        sessions: 'Sessions',
-        pageviews: 'Pageviews',
-        avgPagesPerSession: 'Avg. Pages / Session',
-        uniqueVisitors: 'Unique Visitors',
+        sessions: 'Total visits',
+        pageviews: 'Total views',
+        avgPagesPerSession: 'Views per visit',
+        uniqueVisitors: 'Unique visitors',
+        bounceRate: 'Bounce rate',
+        visitDuration: 'Visit duration',
       },
       overview: {
         trendTitle: 'Sessions & pageviews',

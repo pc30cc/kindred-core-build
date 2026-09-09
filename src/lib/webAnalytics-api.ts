@@ -62,6 +62,8 @@ export interface OverviewStats {
   pageviews: number;
   avgPagesPerSession: number;
   uniqueVisitors: number;
+  bounceRate: number;
+  avgVisitDurationSeconds: number;
   trend: Array<{ date: string; sessions: number; pageviews: number }>;
   topChannels: BreakdownRow[];
   topPages: Array<{ path: string; views: number }>;
@@ -70,6 +72,10 @@ export interface OverviewStats {
 
 export function getOverview(workspaceId: string, range: DateRangeParams) {
   return api<OverviewStats>(`/api/web-analytics/${workspaceId}/overview${qs({ ...range })}`);
+}
+
+export function getLiveVisitorCount(workspaceId: string) {
+  return api<{ count: number }>(`/api/web-analytics/${workspaceId}/live-visitors`);
 }
 
 export interface BreakdownRow {
@@ -139,6 +145,7 @@ export interface TrackedEventRow {
   eventName: string;
   count: number;
   uniqueSessions: number;
+  conversionRate: number;
 }
 
 export function getTrackedEvents(workspaceId: string, range: DateRangeParams) {

@@ -3,13 +3,23 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  getWebAnalyticsLimits, getOverview, getTrafficSources, getGeography, getBrowsersSystems,
+  getWebAnalyticsLimits, getOverview, getLiveVisitorCount, getTrafficSources, getGeography, getBrowsersSystems,
   getPages, getClonedPages, getSiteStructure, getPossible404s,
   getTrackedEvents, getEventPropertyKeys, getEventPropertyBreakdown,
   listFunnels, createFunnel, deleteFunnel, getFunnelResults,
   type DateRangeParams, type TrafficSourceDimension, type GeographyDimension, type BrowsersSystemsDimension, type PagesKind,
   type FunnelStep,
 } from '@/lib/webAnalytics-api';
+
+/** Polls every 30s — mirrors the "N live visitors" real-time indicator on the Visitors page. */
+export function useWebAnalyticsLiveVisitors(workspaceId: string | undefined) {
+  return useQuery({
+    queryKey: ['web-analytics-live-visitors', workspaceId],
+    queryFn: () => getLiveVisitorCount(workspaceId!),
+    enabled: !!workspaceId,
+    refetchInterval: 30_000,
+  });
+}
 
 export function useWebAnalyticsLimits(workspaceId?: string) {
   return useQuery({

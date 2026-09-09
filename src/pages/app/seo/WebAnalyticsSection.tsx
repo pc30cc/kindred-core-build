@@ -14,12 +14,14 @@
  * PagesTable for every URL-keyed report).
  */
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Users, Eye, Layers, TrendingUp, Globe2, Link2, Megaphone, FileText, LogIn, LogOut,
   Copy, AlertTriangle, Network, Sparkles, Flag, Building2, Languages, Chrome, Monitor,
-  Smartphone, Zap, Filter, Plus, Trash2, ChevronRight, ChevronDown,
+  Smartphone, Zap, Filter, Plus, Trash2, ChevronRight, ChevronDown, Clock, MousePointerClick,
 } from 'lucide-react';
 import { useTranslation } from '@/i18n';
+import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -38,14 +40,14 @@ import { SkeletonStats, SkeletonTable } from '@/components/common/Skeletons';
 import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
 import { toast } from '@/lib/toast';
 import {
-  useWebAnalyticsOverview, useWebAnalyticsTrafficSources, useWebAnalyticsGeography,
+  useWebAnalyticsOverview, useWebAnalyticsLiveVisitors, useWebAnalyticsTrafficSources, useWebAnalyticsGeography,
   useWebAnalyticsBrowsersSystems, useWebAnalyticsPages, useWebAnalyticsClonedPages,
   useWebAnalyticsSiteStructure, useWebAnalyticsPossible404s, useWebAnalyticsTrackedEvents,
   useWebAnalyticsEventPropertyKeys, useWebAnalyticsEventPropertyBreakdown,
   useFunnels, useCreateFunnel, useDeleteFunnel, useFunnelResults, useWebAnalyticsLimits,
 } from '@/hooks/useWebAnalytics';
 import {
-  WebAnalyticsApiError, type BreakdownRow, type SiteStructureNode, type FunnelStep,
+  WebAnalyticsApiError, type BreakdownRow, type SiteStructureNode, type FunnelStep, type TrackedEventRow,
   type TrafficSourceDimension, type GeographyDimension, type BrowsersSystemsDimension,
 } from '@/lib/webAnalytics-api';
 import { GradientStatCard } from './SeoPage';
@@ -71,6 +73,14 @@ function formatCompact(v: number): string {
   return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(v);
 }
 
+function formatDuration(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.round(totalSeconds));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return `${minutes}m ${rest}s`;
+}
+
 function webAnalyticsErrorMessage(err: unknown, t: (k: any) => string): string {
   if (err instanceof WebAnalyticsApiError) {
     if (err.upgradeRequired) return t('seo.webAnalytics.errors.limit_reached' as any);
@@ -91,6 +101,21 @@ export function WebAnalyticsSection({ workspaceId, subsectionKey }: { workspaceI
   );
 }
 
+function LiveVisitorsBadge({ workspaceId }: { workspaceId: string }) {
+  const { t } = useTranslation();
+  const { data } = useWebAnalyticsLiveVisitors(workspaceId);
+  const count = data?.count ?? 0;
+  return (
+    <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+      <span className="relative flex h-2 w-2">
+        {count > 0 && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />}
+        <span className={`relative inline-flex h-2 w-2 rounded-full ${count > 0 ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`} />
+      </span>
+      {t('seo.webAnalytics.liveVisitors' as any, { count })}
+    </span>
+  );
+}
+
 function WebAnalyticsInner({ workspaceId, subsectionKey }: { workspaceId: string; subsectionKey: string }) {
   const { t } = useTranslation();
   const [preset, setPreset] = useState<RangePreset>('28d');
@@ -98,8 +123,11 @@ function WebAnalyticsInner({ workspaceId, subsectionKey }: { workspaceId: string
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">{t('seo.webAnalytics.dataSourceNote' as any)}</p>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <p className="text-xs text-muted-foreground">{t('seo.webAnalytics.dataSourceNote' as any)}</p>
+          <LiveVisitorsBadge workspaceId={workspaceId} />
+        </div>
         <Select value={preset} onValueChange={(v) => setPreset(v as RangePreset)}>
           <SelectTrigger className="h-8 w-[160px] text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -144,10 +172,11 @@ function WebAnalyticsDataView({ workspaceId, subsectionKey, range }: { workspace
 
 // ─── Shared: breakdown table (key/label + sessions + pageviews, bar chart) ─
 
-function BreakdownTable({ rows, isLoading, keyLabel, icon: Icon }: { rows: BreakdownRow[]; isLoading: boolean; keyLabel: string; icon: React.ComponentType<{ className?: string }> }) {
+function BreakdownTable({ rows, isLoading, keyLabel, icon: Icon, limit }: { rows: BreakdownRow[]; isLoading: boolean; keyLabel: string; icon: React.ComponentType<{ className?: string }>; limit?: number }) {
   const { t } = useTranslation();
   if (isLoading) return <SkeletonTable rows={8} columns={3} />;
   if (rows.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData' as any)}</p>;
+  const visibleRows = limit ? rows.slice(0, limit) : rows;
   const max = Math.max(...rows.map((r) => r.sessions), 1);
   return (
     <Table>
@@ -159,7 +188,7 @@ function BreakdownTable({ rows, isLoading, keyLabel, icon: Icon }: { rows: Break
         </TableRow>
       </TableHeader>
       <TableBody>
-        {rows.map((r) => (
+        {visibleRows.map((r) => (
           <TableRow key={r.key}>
             <TableCell className="max-w-[280px]">
               <div className="flex items-center gap-2">
@@ -221,11 +250,13 @@ function OverviewView({ workspaceId, range }: { workspaceId: string; range: { st
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <GradientStatCard icon={Users} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(data.sessions)} label={t('seo.webAnalytics.stat.sessions' as any)} />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <GradientStatCard icon={Eye} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={formatCompact(data.pageviews)} label={t('seo.webAnalytics.stat.pageviews' as any)} />
-        <GradientStatCard icon={Layers} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={data.avgPagesPerSession} label={t('seo.webAnalytics.stat.avgPagesPerSession' as any)} />
         <GradientStatCard icon={TrendingUp} iconGradient="from-amber-500 to-orange-500" blobColor="bg-amber-500/15" value={formatCompact(data.uniqueVisitors)} label={t('seo.webAnalytics.stat.uniqueVisitors' as any)} />
+        <GradientStatCard icon={Users} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(data.sessions)} label={t('seo.webAnalytics.stat.sessions' as any)} />
+        <GradientStatCard icon={Layers} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={data.avgPagesPerSession} label={t('seo.webAnalytics.stat.avgPagesPerSession' as any)} />
+        <GradientStatCard icon={MousePointerClick} iconGradient="from-rose-500 to-pink-500" blobColor="bg-rose-500/15" value={`${data.bounceRate}%`} label={t('seo.webAnalytics.stat.bounceRate' as any)} />
+        <GradientStatCard icon={Clock} iconGradient="from-slate-500 to-slate-700" blobColor="bg-slate-500/15" value={formatDuration(data.avgVisitDurationSeconds)} label={t('seo.webAnalytics.stat.visitDuration' as any)} />
       </div>
 
       <Card>
@@ -263,42 +294,154 @@ function OverviewView({ workspaceId, range }: { workspaceId: string; range: { st
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader><CardTitle className="text-base">{t('seo.nav.item.trafficSources' as any)}</CardTitle></CardHeader>
-          <CardContent>
-            {data.topChannels.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData' as any)}</p>
-            ) : (
-              <div className="space-y-1.5">
-                {data.topChannels.map((c) => (
-                  <div key={c.key} className="flex items-center justify-between text-sm">
-                    <span className="truncate text-foreground">{c.label}</span>
-                    <span className="tabular-nums text-muted-foreground">{formatCompact(c.sessions)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle className="text-base">{t('seo.nav.item.topPages' as any)}</CardTitle></CardHeader>
-          <CardContent>
-            {data.topPages.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData' as any)}</p>
-            ) : (
-              <div className="space-y-1.5">
-                {data.topPages.map((p) => (
-                  <div key={p.path} className="flex items-center justify-between text-sm">
-                    <span className="truncate text-foreground" title={p.path}>{p.path}</span>
-                    <span className="tabular-nums text-muted-foreground">{formatCompact(p.views)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <OverviewTrafficSourcesCard workspaceId={workspaceId} range={range} />
+        <OverviewPagesCard workspaceId={workspaceId} range={range} />
+        <OverviewGeographyCard workspaceId={workspaceId} range={range} />
+        <OverviewBrowsersSystemsCard workspaceId={workspaceId} range={range} />
       </div>
+      <OverviewTrackedEventsCard workspaceId={workspaceId} range={range} />
     </div>
+  );
+}
+
+/** Shared shell for an Overview mini-card: title + optional dimension tabs + a capped table + "View more" link to the full report. */
+function OverviewMiniCard({
+  title, tabs, activeTab, onTabChange, viewMoreHref, children,
+}: {
+  title: string;
+  tabs?: Array<{ value: string; label: string }>;
+  activeTab?: string;
+  onTabChange?: (value: string) => void;
+  viewMoreHref: string;
+  children: React.ReactNode;
+}) {
+  const { t } = useTranslation();
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">{title}</CardTitle>
+        {tabs && tabs.length > 1 && (
+          <Tabs value={activeTab} onValueChange={onTabChange}>
+            <TabsList className="h-8 bg-muted/60">
+              {tabs.map((tb) => (
+                <TabsTrigger key={tb.value} value={tb.value} className="px-2.5 py-1 text-xs">{tb.label}</TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        )}
+      </CardHeader>
+      <CardContent className="pt-0">
+        {children}
+        <div className="mt-3 text-end">
+          <Link to={viewMoreHref} className="text-xs font-medium text-primary hover:underline">{t('seo.webAnalytics.viewMore' as any)}</Link>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const OVERVIEW_MINI_ROW_LIMIT = 5;
+
+function OverviewTrafficSourcesCard({ workspaceId, range }: { workspaceId: string; range: { startDate: string; endDate: string } }) {
+  const { t } = useTranslation();
+  const wsPath = useWorkspacePath();
+  const [dimension, setDimension] = useState<TrafficSourceDimension>('channel');
+  const { data, isLoading } = useWebAnalyticsTrafficSources(workspaceId, dimension, range);
+  const leafKey = dimension === 'channel' ? 'channels' : dimension === 'source' ? 'sources' : 'campaigns';
+  return (
+    <OverviewMiniCard
+      title={t('seo.nav.item.trafficSources' as any)}
+      tabs={[
+        { value: 'channel', label: t('seo.nav.item.channels' as any) },
+        { value: 'source', label: t('seo.nav.item.sources' as any) },
+        { value: 'campaign', label: t('seo.nav.item.campaigns' as any) },
+      ]}
+      activeTab={dimension}
+      onTabChange={(v) => setDimension(v as TrafficSourceDimension)}
+      viewMoreHref={wsPath(`/analytics/${leafKey}`)}
+    >
+      <BreakdownTable rows={data?.rows || []} isLoading={isLoading} keyLabel={t(TRAFFIC_SOURCE_COLUMN_KEY[dimension] as any)} icon={DIMENSION_ICON[dimension]} limit={OVERVIEW_MINI_ROW_LIMIT} />
+    </OverviewMiniCard>
+  );
+}
+
+function OverviewPagesCard({ workspaceId, range }: { workspaceId: string; range: { startDate: string; endDate: string } }) {
+  const { t } = useTranslation();
+  const wsPath = useWorkspacePath();
+  const [kind, setKind] = useState<'top' | 'entry' | 'exit'>('top');
+  const { data, isLoading } = useWebAnalyticsPages(workspaceId, kind, range);
+  const leafKey = kind === 'top' ? 'topPages' : kind === 'entry' ? 'entryPages' : 'exitPages';
+  return (
+    <OverviewMiniCard
+      title={t('seo.nav.item.pages' as any)}
+      tabs={[
+        { value: 'top', label: t('seo.nav.item.topPages' as any) },
+        { value: 'entry', label: t('seo.nav.item.entryPages' as any) },
+        { value: 'exit', label: t('seo.nav.item.exitPages' as any) },
+      ]}
+      activeTab={kind}
+      onTabChange={(v) => setKind(v as 'top' | 'entry' | 'exit')}
+      viewMoreHref={wsPath(`/analytics/${leafKey}`)}
+    >
+      <PagesTable rows={data?.rows || []} isLoading={isLoading} icon={pagesIcon(kind)} limit={OVERVIEW_MINI_ROW_LIMIT} />
+    </OverviewMiniCard>
+  );
+}
+
+function OverviewGeographyCard({ workspaceId, range }: { workspaceId: string; range: { startDate: string; endDate: string } }) {
+  const { t } = useTranslation();
+  const wsPath = useWorkspacePath();
+  const [dimension, setDimension] = useState<'country' | 'language'>('country');
+  const { data, isLoading } = useWebAnalyticsGeography(workspaceId, dimension, range);
+  const labelKey = `seo.webAnalytics.column.${dimension}`;
+  return (
+    <OverviewMiniCard
+      title={t('seo.nav.item.geography' as any)}
+      tabs={[
+        { value: 'country', label: t('seo.nav.item.countries' as any) },
+        { value: 'language', label: t('seo.nav.item.languages' as any) },
+      ]}
+      activeTab={dimension}
+      onTabChange={(v) => setDimension(v as 'country' | 'language')}
+      viewMoreHref={wsPath(`/analytics/${dimension === 'country' ? 'countries' : 'languages'}`)}
+    >
+      <BreakdownTable rows={data?.rows || []} isLoading={isLoading} keyLabel={t(labelKey as any)} icon={DIMENSION_ICON[dimension]} limit={OVERVIEW_MINI_ROW_LIMIT} />
+    </OverviewMiniCard>
+  );
+}
+
+function OverviewBrowsersSystemsCard({ workspaceId, range }: { workspaceId: string; range: { startDate: string; endDate: string } }) {
+  const { t } = useTranslation();
+  const wsPath = useWorkspacePath();
+  const [dimension, setDimension] = useState<BrowsersSystemsDimension>('browser');
+  const { data, isLoading } = useWebAnalyticsBrowsersSystems(workspaceId, dimension, range);
+  const labelKey = dimension === 'browser' ? 'seo.webAnalytics.column.browser' : dimension === 'os' ? 'seo.webAnalytics.column.os' : 'seo.webAnalytics.column.device';
+  const leafKey = dimension === 'browser' ? 'browsers' : dimension === 'os' ? 'operatingSystems' : 'devices';
+  return (
+    <OverviewMiniCard
+      title={t('seo.nav.item.browsersSystems' as any)}
+      tabs={[
+        { value: 'browser', label: t('seo.nav.item.browsers' as any) },
+        { value: 'os', label: t('seo.nav.item.operatingSystems' as any) },
+        { value: 'device', label: t('seo.nav.item.devices' as any) },
+      ]}
+      activeTab={dimension}
+      onTabChange={(v) => setDimension(v as BrowsersSystemsDimension)}
+      viewMoreHref={wsPath(`/analytics/${leafKey}`)}
+    >
+      <BreakdownTable rows={data?.rows || []} isLoading={isLoading} keyLabel={t(labelKey as any)} icon={DIMENSION_ICON[dimension]} limit={OVERVIEW_MINI_ROW_LIMIT} />
+    </OverviewMiniCard>
+  );
+}
+
+function OverviewTrackedEventsCard({ workspaceId, range }: { workspaceId: string; range: { startDate: string; endDate: string } }) {
+  const { t } = useTranslation();
+  const wsPath = useWorkspacePath();
+  const { data, isLoading } = useWebAnalyticsTrackedEvents(workspaceId, range);
+  return (
+    <OverviewMiniCard title={t('seo.nav.item.trackedEvents' as any)} viewMoreHref={wsPath('/analytics/trackedEvents')}>
+      <TrackedEventsTable rows={data?.rows || []} isLoading={isLoading} limit={OVERVIEW_MINI_ROW_LIMIT} />
+    </OverviewMiniCard>
   );
 }
 
@@ -355,41 +498,47 @@ function BrowsersSystemsView({ workspaceId, range, dimension }: { workspaceId: s
 
 // ─── Pages ────────────────────────────────────────────────────────────
 
+function PagesTable({ rows, isLoading, icon: Icon, limit }: { rows: Array<{ path: string; views: number }>; isLoading: boolean; icon: React.ComponentType<{ className?: string }>; limit?: number }) {
+  const { t } = useTranslation();
+  if (isLoading) return <SkeletonTable rows={8} columns={2} />;
+  if (rows.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData' as any)}</p>;
+  const visibleRows = limit ? rows.slice(0, limit) : rows;
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>{t('seo.webAnalytics.column.page' as any)}</TableHead>
+          <TableHead className="text-end">{t('seo.webAnalytics.column.views' as any)}</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {visibleRows.map((r) => (
+          <TableRow key={r.path}>
+            <TableCell className="max-w-[420px]">
+              <div className="flex items-center gap-2">
+                <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate font-medium" title={r.path}>{r.path}</span>
+              </div>
+            </TableCell>
+            <TableCell className="text-end tabular-nums">{formatCompact(r.views)}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+function pagesIcon(kind: 'top' | 'entry' | 'exit' | 'new'): React.ComponentType<{ className?: string }> {
+  return kind === 'entry' ? LogIn : kind === 'exit' ? LogOut : kind === 'new' ? Sparkles : FileText;
+}
+
 function PagesView({ workspaceId, range, kind }: { workspaceId: string; range: { startDate: string; endDate: string }; kind: 'top' | 'entry' | 'exit' | 'new' }) {
   const { t } = useTranslation();
   const { data, isLoading } = useWebAnalyticsPages(workspaceId, kind, range);
-  const icon = kind === 'entry' ? LogIn : kind === 'exit' ? LogOut : kind === 'new' ? Sparkles : FileText;
-  const Icon = icon;
 
   return (
     <ReportCard title={t(`seo.nav.item.${kind === 'top' ? 'topPages' : kind === 'entry' ? 'entryPages' : kind === 'exit' ? 'exitPages' : 'new'}` as any)} truncated={data?.truncated}>
-      {isLoading ? (
-        <SkeletonTable rows={8} columns={2} />
-      ) : (data?.rows.length || 0) === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.empty.noData' as any)}</p>
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('seo.webAnalytics.column.page' as any)}</TableHead>
-              <TableHead className="text-end">{t('seo.webAnalytics.column.views' as any)}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(data?.rows || []).map((r) => (
-              <TableRow key={r.path}>
-                <TableCell className="max-w-[420px]">
-                  <div className="flex items-center gap-2">
-                    <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate font-medium" title={r.path}>{r.path}</span>
-                  </div>
-                </TableCell>
-                <TableCell className="text-end tabular-nums">{formatCompact(r.views)}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      )}
+      <PagesTable rows={data?.rows || []} isLoading={isLoading} icon={pagesIcon(kind)} />
     </ReportCard>
   );
 }
@@ -538,38 +687,44 @@ function SiteStructureView({ workspaceId, range }: { workspaceId: string; range:
 
 // ─── Events ───────────────────────────────────────────────────────────
 
+function TrackedEventsTable({ rows, isLoading, limit }: { rows: TrackedEventRow[]; isLoading: boolean; limit?: number }) {
+  const { t } = useTranslation();
+  if (isLoading) return <SkeletonTable rows={6} columns={4} />;
+  if (rows.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.trackedEvents.empty' as any)}</p>;
+  const visibleRows = limit ? rows.slice(0, limit) : rows;
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>{t('seo.webAnalytics.column.event' as any)}</TableHead>
+          <TableHead className="text-end">{t('seo.webAnalytics.column.uniqueSessions' as any)}</TableHead>
+          <TableHead className="text-end">{t('seo.webAnalytics.column.count' as any)}</TableHead>
+          <TableHead className="text-end">{t('seo.webAnalytics.column.conversionRate' as any)}</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {visibleRows.map((r) => (
+          <TableRow key={r.eventName}>
+            <TableCell className="font-medium">
+              <span className="flex items-center gap-2"><Zap className="h-3.5 w-3.5 text-amber-500" />{r.eventName}</span>
+            </TableCell>
+            <TableCell className="text-end tabular-nums text-muted-foreground">{formatCompact(r.uniqueSessions)}</TableCell>
+            <TableCell className="text-end tabular-nums text-muted-foreground">{formatCompact(r.count)}</TableCell>
+            <TableCell className="text-end tabular-nums">{Math.round(r.conversionRate * 1000) / 10}%</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
 function TrackedEventsView({ workspaceId, range }: { workspaceId: string; range: { startDate: string; endDate: string } }) {
   const { t } = useTranslation();
   const { data, isLoading } = useWebAnalyticsTrackedEvents(workspaceId, range);
 
   return (
     <ReportCard title={t('seo.nav.item.trackedEvents' as any)} description={t('seo.webAnalytics.trackedEvents.description' as any)} truncated={data?.truncated}>
-      {isLoading ? (
-        <SkeletonTable rows={6} columns={3} />
-      ) : (data?.rows.length || 0) === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.webAnalytics.trackedEvents.empty' as any)}</p>
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('seo.webAnalytics.column.event' as any)}</TableHead>
-              <TableHead className="text-end">{t('seo.webAnalytics.column.count' as any)}</TableHead>
-              <TableHead className="text-end">{t('seo.webAnalytics.column.uniqueSessions' as any)}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(data?.rows || []).map((r) => (
-              <TableRow key={r.eventName}>
-                <TableCell className="font-medium">
-                  <span className="flex items-center gap-2"><Zap className="h-3.5 w-3.5 text-amber-500" />{r.eventName}</span>
-                </TableCell>
-                <TableCell className="text-end tabular-nums">{formatCompact(r.count)}</TableCell>
-                <TableCell className="text-end tabular-nums text-muted-foreground">{formatCompact(r.uniqueSessions)}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      )}
+      <TrackedEventsTable rows={data?.rows || []} isLoading={isLoading} />
     </ReportCard>
   );
 }

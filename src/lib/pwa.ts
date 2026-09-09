@@ -33,7 +33,7 @@ function promptForUpdate(registration: ServiceWorkerRegistration) {
     // No auto-dismiss — this app can stay open in the inbox for a full
     // shift, so a self-dismissing toast could easily be missed.
     duration: Infinity,
-    action: createElement(ToastAction, { altText: 'تازه‌سازی', onClick: applyUpdate }, 'تازه‌سازی'),
+    action: createElement(ToastAction, { altText: 'تازه‌سازی', onClick: applyUpdate }, 'تازه‌سازی') as never,
   });
 }
 

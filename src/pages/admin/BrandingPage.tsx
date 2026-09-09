@@ -314,7 +314,6 @@ const LOCALIZED_FIELDS: { key: keyof PlatformBrandingLocalized; hasDescription?:
   { key: 'support_label', hasDescription: true },
 ];
 
-import { Switch } from '@/components/ui/switch';
 import { Globe, Wrench, CreditCard, Languages, Flag } from 'lucide-react';
 import { REGION_MODES, REGION_LOCALES, REGION_CURRENCY, isRegionMode, setCachedRegionMode, type RegionMode } from '@/lib/region';
 

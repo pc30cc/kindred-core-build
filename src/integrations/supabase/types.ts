@@ -9059,7 +9059,10 @@ export type Database = {
           id: string
           logo_url: string | null
           primary_color: string | null
+          pwa_background_color: string | null
+          pwa_enabled: boolean
           pwa_icon_url: string | null
+          pwa_short_name: string | null
           secondary_color: string | null
           updated_at: string | null
         }
@@ -9073,7 +9076,10 @@ export type Database = {
           id?: string
           logo_url?: string | null
           primary_color?: string | null
+          pwa_background_color?: string | null
+          pwa_enabled?: boolean
           pwa_icon_url?: string | null
+          pwa_short_name?: string | null
           secondary_color?: string | null
           updated_at?: string | null
         }
@@ -9087,7 +9093,10 @@ export type Database = {
           id?: string
           logo_url?: string | null
           primary_color?: string | null
+          pwa_background_color?: string | null
+          pwa_enabled?: boolean
           pwa_icon_url?: string | null
+          pwa_short_name?: string | null
           secondary_color?: string | null
           updated_at?: string | null
         }

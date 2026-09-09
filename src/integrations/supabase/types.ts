@@ -5646,6 +5646,297 @@ export type Database = {
           },
         ]
       }
+      bot_log_imports: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          date_range_end: string | null
+          date_range_start: string | null
+          filename: string
+          format: string
+          id: string
+          matched_bot_lines: number
+          total_lines: number
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          date_range_end?: string | null
+          date_range_start?: string | null
+          filename: string
+          format: string
+          id?: string
+          matched_bot_lines?: number
+          total_lines?: number
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          date_range_end?: string | null
+          date_range_start?: string | null
+          filename?: string
+          format?: string
+          id?: string
+          matched_bot_lines?: number
+          total_lines?: number
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bot_log_imports_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bot_visits: {
+        Row: {
+          bot_category: string
+          bot_name: string
+          id: number
+          import_id: string
+          ip: string | null
+          method: string | null
+          path: string
+          status_code: number | null
+          user_agent: string
+          visited_at: string
+          workspace_id: string
+        }
+        Insert: {
+          bot_category: string
+          bot_name: string
+          id?: number
+          import_id: string
+          ip?: string | null
+          method?: string | null
+          path: string
+          status_code?: number | null
+          user_agent: string
+          visited_at: string
+          workspace_id: string
+        }
+        Update: {
+          bot_category?: string
+          bot_name?: string
+          id?: number
+          import_id?: string
+          ip?: string | null
+          method?: string | null
+          path?: string
+          status_code?: number | null
+          user_agent?: string
+          visited_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bot_visits_import_id_fkey"
+            columns: ["import_id"]
+            isOneToOne: false
+            referencedRelation: "bot_log_imports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bot_visits_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      brand_radar_ai_checks: {
+        Row: {
+          brand_mention_position: number | null
+          brand_mentioned: boolean
+          checked_by: string | null
+          competitors_mentioned: string[]
+          created_at: string
+          id: string
+          model: string
+          prompt: string
+          provider: string
+          response_text: string
+          topic_id: string | null
+          topic_label: string
+          workspace_id: string
+        }
+        Insert: {
+          brand_mention_position?: number | null
+          brand_mentioned: boolean
+          checked_by?: string | null
+          competitors_mentioned?: string[]
+          created_at?: string
+          id?: string
+          model: string
+          prompt: string
+          provider: string
+          response_text: string
+          topic_id?: string | null
+          topic_label: string
+          workspace_id: string
+        }
+        Update: {
+          brand_mention_position?: number | null
+          brand_mentioned?: boolean
+          checked_by?: string | null
+          competitors_mentioned?: string[]
+          created_at?: string
+          id?: string
+          model?: string
+          prompt?: string
+          provider?: string
+          response_text?: string
+          topic_id?: string | null
+          topic_label?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brand_radar_ai_checks_topic_id_fkey"
+            columns: ["topic_id"]
+            isOneToOne: false
+            referencedRelation: "brand_radar_topics"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "brand_radar_ai_checks_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      brand_radar_settings: {
+        Row: {
+          brand_name: string
+          competitor_names: string[]
+          created_at: string
+          id: string
+          site_id: string | null
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          brand_name: string
+          competitor_names?: string[]
+          created_at?: string
+          id?: string
+          site_id?: string | null
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          brand_name?: string
+          competitor_names?: string[]
+          created_at?: string
+          id?: string
+          site_id?: string | null
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brand_radar_settings_site_id_fkey"
+            columns: ["site_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_domains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "brand_radar_settings_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      brand_radar_topics: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          label: string
+          prompt: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          label: string
+          prompt: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          label?: string
+          prompt?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brand_radar_topics_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      brand_radar_web_checks: {
+        Row: {
+          checked_by: string | null
+          created_at: string
+          device: string
+          id: string
+          is_own_brand: boolean
+          position: number | null
+          ranking_url: string | null
+          term: string
+          workspace_id: string
+        }
+        Insert: {
+          checked_by?: string | null
+          created_at?: string
+          device?: string
+          id?: string
+          is_own_brand: boolean
+          position?: number | null
+          ranking_url?: string | null
+          term: string
+          workspace_id: string
+        }
+        Update: {
+          checked_by?: string | null
+          created_at?: string
+          device?: string
+          id?: string
+          is_own_brand?: boolean
+          position?: number | null
+          ranking_url?: string | null
+          term?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brand_radar_web_checks_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       business_metrics_hourly: {
         Row: {
           active_conversations: number
@@ -12547,11 +12838,17 @@ export type Database = {
           identity_state: string
           ip_hash: string | null
           ip_raw: string | null
+          language: string | null
           last_seen_at: string | null
           metadata: Json
           os: string | null
           referrer: string | null
           started_at: string | null
+          utm_campaign: string | null
+          utm_content: string | null
+          utm_medium: string | null
+          utm_source: string | null
+          utm_term: string | null
           visitor_id: string
           workspace_id: string
         }
@@ -12577,11 +12874,17 @@ export type Database = {
           identity_state?: string
           ip_hash?: string | null
           ip_raw?: string | null
+          language?: string | null
           last_seen_at?: string | null
           metadata?: Json
           os?: string | null
           referrer?: string | null
           started_at?: string | null
+          utm_campaign?: string | null
+          utm_content?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+          utm_term?: string | null
           visitor_id: string
           workspace_id: string
         }
@@ -12607,11 +12910,17 @@ export type Database = {
           identity_state?: string
           ip_hash?: string | null
           ip_raw?: string | null
+          language?: string | null
           last_seen_at?: string | null
           metadata?: Json
           os?: string | null
           referrer?: string | null
           started_at?: string | null
+          utm_campaign?: string | null
+          utm_content?: string | null
+          utm_medium?: string | null
+          utm_source?: string | null
+          utm_term?: string | null
           visitor_id?: string
           workspace_id?: string
         }
@@ -12625,6 +12934,89 @@ export type Database = {
           },
           {
             foreignKeyName: "visitor_sessions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      web_analytics_events: {
+        Row: {
+          created_at: string
+          event_name: string
+          id: string
+          page_url: string | null
+          properties: Json
+          visitor_session_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_name: string
+          id?: string
+          page_url?: string | null
+          properties?: Json
+          visitor_session_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          event_name?: string
+          id?: string
+          page_url?: string | null
+          properties?: Json
+          visitor_session_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "web_analytics_events_visitor_session_id_fkey"
+            columns: ["visitor_session_id"]
+            isOneToOne: false
+            referencedRelation: "visitor_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "web_analytics_events_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      web_analytics_funnels: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          steps: Json
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          steps: Json
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          steps?: Json
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "web_analytics_funnels_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"

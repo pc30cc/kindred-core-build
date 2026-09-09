@@ -236,7 +236,10 @@ async function getAccessToken(config: ServerConfig, workspaceId: string, row: St
         updated_at: new Date().toISOString(),
       })
       .eq('workspace_id', workspaceId);
-    throw err instanceof GscError ? err : new GscError('gsc_auth_failed');
+    throw err instanceof GscError
+      ? err
+      : new GscError('gsc_auth_failed', undefined, `Stored Google refresh token could not be used: ${(err as Error)?.message || 'unknown error'} (most often PLUGIN_SECRETS_MASTER_KEY changed since this account was connected — reconnect the Google account)`);
+
   }
 }
 

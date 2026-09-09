@@ -116,6 +116,8 @@ export class SeoApiError extends Error {
    * plan can't use this module," so callers should treat them the same way.
    */
   upgradeRequired?: boolean;
+  /** Credential-free technical explanation from the server, when available. */
+  detail?: string;
   constructor(status: number, body: any) {
     const code = typeof body?.error === 'string' ? body.error : 'seo_request_failed';
     super(code);
@@ -124,7 +126,9 @@ export class SeoApiError extends Error {
     this.code = code;
     this.retryAfterSeconds = body?.retryAfterSeconds;
     this.upgradeRequired = body?.upgrade_required === true;
+    this.detail = typeof body?.detail === 'string' ? body.detail : undefined;
   }
+
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {

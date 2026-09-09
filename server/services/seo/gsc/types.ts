@@ -46,12 +46,20 @@ export const GSC_ERROR_MESSAGES: Record<GscErrorCode, string> = {
 
 export class GscError extends Error {
   readonly code: GscErrorCode;
-  constructor(code: GscErrorCode, message?: string) {
+  /**
+   * Human-readable, credential-free explanation of what actually failed
+   * (e.g. Google's own 403 message). Surfaced to admins so a generic
+   * "authentication failed" toast is never the only signal.
+   */
+  readonly detail?: string;
+  constructor(code: GscErrorCode, message?: string, detail?: string) {
     super(message || GSC_ERROR_MESSAGES[code]);
     this.name = 'GscError';
     this.code = code;
+    this.detail = detail;
   }
 }
+
 
 export function isGscError(value: unknown): value is GscError {
   return value instanceof GscError;

@@ -76,25 +76,37 @@ async function requestJson(
       //     gsc_auth_failed with nothing logged, indistinguishable from an
       //     actually-bad token.
       const flatReason = typeof body?.error === 'string' ? body.error : '';
+      const flatDescription = typeof body?.error_description === 'string' ? body.error_description : '';
       const structuredMessage = typeof body?.error?.message === 'string' ? body.error.message : null;
       const structuredStatus = typeof body?.error?.status === 'string' ? body.error.status : null;
-      if (flatReason === 'invalid_grant') throw new GscError('gsc_token_revoked');
-      console.error(
-        `[gsc] ${url} returned ${res.status}: ${structuredMessage || structuredStatus || flatReason || '(no error detail in response body)'}`,
-      );
-      throw new GscError('gsc_auth_failed');
+      const reasonText =
+        structuredMessage || structuredStatus ||
+        [flatReason, flatDescription].filter(Boolean).join(': ') ||
+        '(no error detail in response body)';
+      const endpoint = url.replace(/\?.*$/, '');
+      const detail = `Google ${res.status} @ ${endpoint} — ${reasonText}`;
+      if (flatReason === 'invalid_grant') throw new GscError('gsc_token_revoked', undefined, detail);
+      console.error(`[gsc] ${endpoint} returned ${res.status}: ${reasonText}`);
+      throw new GscError('gsc_auth_failed', undefined, detail);
     }
     if (res.status === 429) throw new GscError('gsc_rate_limited');
-    if (!res.ok) throw new GscError('gsc_provider_error');
+    if (!res.ok) {
+      let bodyText = '';
+      try { bodyText = (await res.text()).slice(0, 300); } catch { /* ignore */ }
+      const endpoint = url.replace(/\?.*$/, '');
+      console.error(`[gsc] ${endpoint} returned ${res.status}: ${bodyText || '(empty body)'}`);
+      throw new GscError('gsc_provider_error', undefined, `Google ${res.status} @ ${endpoint} — ${bodyText || '(empty body)'}`);
+    }
     try {
       return await res.json();
     } catch {
-      throw new GscError('gsc_provider_error');
+      throw new GscError('gsc_provider_error', undefined, 'Google returned a response that could not be parsed as JSON');
     }
+
   } catch (err) {
     if (err instanceof GscError) throw err;
     if ((err as { name?: string })?.name === 'AbortError') throw new GscError('gsc_timeout');
-    throw new GscError('gsc_network_error');
+    throw new GscError('gsc_network_error', undefined, `Could not reach ${url.replace(/\?.*$/, '')}: ${(err as Error)?.message || 'unknown network error'}`);
   } finally {
     clearTimeout(timer);
   }

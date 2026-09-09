@@ -61,8 +61,27 @@ async function requestJson(
     if (res.status === 401 || res.status === 403) {
       let body: any = null;
       try { body = await res.json(); } catch { /* ignore */ }
-      const reason = typeof body?.error === 'string' ? body.error : '';
-      if (reason === 'invalid_grant') throw new GscError('gsc_token_revoked');
+      // Two different Google error envelopes share this 401/403 branch:
+      //   - OAuth token endpoint (oauth2.googleapis.com/token): flat
+      //     { error: "invalid_grant", error_description: "..." }.
+      //   - Every resource API (Search Console, userinfo, ...) — including
+      //     the case that actually reaches here most often, an access token
+      //     that's technically valid but the call is rejected anyway (the
+      //     Search Console API not enabled on the Cloud project, the
+      //     connected account lacking a verified property, a scope the
+      //     consent screen never actually granted): a structured
+      //     { error: { code, message, status, errors: [...] } } object,
+      //     which the flat check below can never match — so this whole
+      //     class of failure always fell through to the same generic
+      //     gsc_auth_failed with nothing logged, indistinguishable from an
+      //     actually-bad token.
+      const flatReason = typeof body?.error === 'string' ? body.error : '';
+      const structuredMessage = typeof body?.error?.message === 'string' ? body.error.message : null;
+      const structuredStatus = typeof body?.error?.status === 'string' ? body.error.status : null;
+      if (flatReason === 'invalid_grant') throw new GscError('gsc_token_revoked');
+      console.error(
+        `[gsc] ${url} returned ${res.status}: ${structuredMessage || structuredStatus || flatReason || '(no error detail in response body)'}`,
+      );
       throw new GscError('gsc_auth_failed');
     }
     if (res.status === 429) throw new GscError('gsc_rate_limited');

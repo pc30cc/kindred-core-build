@@ -274,10 +274,11 @@ function OverviewView({ workspaceId, range }: { workspaceId: string; range: { st
             ) : (
               <div className="space-y-1.5">
                 {data.topChannels.map((c) => (
-                  <div key={c.key} className="flex items-center justify-between text-sm">
-                    <span className="truncate text-foreground">{c.label}</span>
+                  <div key={c.key} dir="ltr" className="flex items-center justify-between gap-3 text-sm">
+                    <span className="truncate text-left text-foreground">{c.label}</span>
                     <span className="tabular-nums text-muted-foreground">{formatCompact(c.sessions)}</span>
                   </div>
+
                 ))}
               </div>
             )}
@@ -291,10 +292,11 @@ function OverviewView({ workspaceId, range }: { workspaceId: string; range: { st
             ) : (
               <div className="space-y-1.5">
                 {data.topPages.map((p) => (
-                  <div key={p.path} className="flex items-center justify-between text-sm">
-                    <span className="truncate text-foreground" title={p.path}>{p.path}</span>
+                  <div key={p.path} dir="ltr" className="flex items-center justify-between gap-3 text-sm">
+                    <span className="truncate text-left text-foreground" title={p.path}>{p.path}</span>
                     <span className="tabular-nums text-muted-foreground">{formatCompact(p.views)}</span>
                   </div>
+
                 ))}
               </div>
             )}

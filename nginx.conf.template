@@ -174,8 +174,13 @@ server {
     # ─────────────────────────────────────────────────────────────────
     location ^~ /widget/ {
         root /usr/share/nginx/html;
-        add_header Access-Control-Allow-Origin "*" always;
-        add_header Cross-Origin-Resource-Policy "cross-origin" always;
+        # NOTE: do NOT add CORS headers here. nginx `add_header` APPENDS, and
+        # this block already sets them below for the unhashed branch — having
+        # them in both places emitted `Access-Control-Allow-Origin: *, *`,
+        # which browsers reject ("contains multiple values"). That is exactly
+        # what blocked /widget/fonts/*.woff2 on customer pages. Each leaf
+        # branch owns its own CORS headers.
+
 
 
         # ─────────────────────────────────────────────────────────────

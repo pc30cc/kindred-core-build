@@ -27,6 +27,7 @@ import { deleteFile } from '../services/storage/index.js';
 import { parseWorkspaceDomainInput, type DomainInputResult } from '../utils/workspaceDomainInput.js';
 import { invalidateOriginHostCache, invalidateWorkspaceOriginCache } from '../services/widget/public.js';
 import { invalidateSignupPolicyCache } from '../services/auth/signupPolicy.js';
+import { invalidateSignupPlanCache } from '../services/billing/signupPlan.js';
 
 
 export const adminManagementRouter = Router();
@@ -522,6 +523,7 @@ adminManagementRouter.put('/platform-settings', async (req, res) => {
   // The signup policy is memoised for 30s in the auth path — drop it now so
   // an operator's change takes effect on the very next signup.
   invalidateSignupPolicyCache();
+  invalidateSignupPlanCache();
   return res.json({ success: true, settings: savedSettings });
 });
 

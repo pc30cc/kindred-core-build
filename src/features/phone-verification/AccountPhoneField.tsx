@@ -78,9 +78,11 @@ export function AccountPhoneField({ fallback }: Props) {
             {verified ? <CheckCircle2 className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <p className="truncate font-mono text-sm text-foreground" dir="ltr">
-              {data?.phoneMasked || t('phoneVerification.statusNoPhone')}
-            </p>
+            {data?.phoneMasked ? (
+              <p className="truncate font-mono text-sm text-foreground" dir="ltr">
+                {data.phoneMasked}
+              </p>
+            ) : null}
             <Badge variant="outline" className="h-5 shrink-0 px-1.5 text-[10px]">
               {t(PHONE_STATUS_LABEL_KEY[status] as never)}
             </Badge>

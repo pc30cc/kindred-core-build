@@ -9,6 +9,7 @@ import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
 import { CommerceError } from '../../../shared/commerce/types.js';
 import { startGuestOrderVerification, confirmGuestOrderVerification } from '../../services/commerce/guestVerification.js';
+import { getClientIp } from '../../utils/clientIp.js';
 
 export const commerceGuestVerificationRouter = Router();
 
@@ -37,7 +38,7 @@ commerceGuestVerificationRouter.post('/start', strictLimiter, async (req, res) =
       channel: parsed.data.channel,
       destination: parsed.data.destination,
       idempotencyKey: `${req.ip}-${parsed.data.orderNumber}-${Date.now()}`,
-      ipAddress: req.ip,
+      ipAddress: getClientIp(req) || undefined,
     });
     // Never echo back matched/unmatched contact details — only the OTP
     // dispatch handle, exactly like every other OTP-request endpoint.

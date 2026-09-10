@@ -23,6 +23,7 @@ import {
   EmailOtpUnavailableError,
   EmailOtpRateLimitedError,
 } from '../services/auth/emailOtp.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 
 export const authEmailRouter = Router();
@@ -83,7 +84,7 @@ authEmailRouter.post('/send-verification', async (req, res) => {
       email: authUser.email || email.trim().toLowerCase(),
       fullName: authUser.fullName,
       locale: locale || 'en',
-      ipAddress: req.ip || null,
+      ipAddress: getClientIp(req) || null,
     });
 
     if (!result.success) {
@@ -272,7 +273,7 @@ authEmailRouter.post('/resend-verification', async (req, res) => {
       email: authUser.email || email.trim().toLowerCase(),
       fullName: authUser.fullName,
       locale: locale || 'en',
-      ipAddress: req.ip || null,
+      ipAddress: getClientIp(req) || null,
     });
 
     if (!result.success) {
@@ -347,7 +348,7 @@ authEmailRouter.post('/otp/start', async (req, res) => {
       userId: ctx.userId,
       email: ctx.identity.email as string,
       locale: parsed.data.locale ?? null,
-      ipAddress: req.ip || null,
+      ipAddress: getClientIp(req) || null,
       idempotencyKey: crypto.randomUUID(),
     });
     return res.json(challenge);
@@ -372,7 +373,7 @@ authEmailRouter.post('/otp/resend', async (req, res) => {
       userId: ctx.userId,
       handle: parsed.data.handle,
       locale: parsed.data.locale ?? null,
-      ipAddress: req.ip || null,
+      ipAddress: getClientIp(req) || null,
       idempotencyKey: crypto.randomUUID(),
     });
     return res.json(challenge);
@@ -400,7 +401,7 @@ authEmailRouter.post('/otp/verify', async (req, res) => {
       // Client-supplied when present so a retried submit replays the same
       // committed outcome instead of burning a second attempt.
       requestId: parsed.data.requestId || crypto.randomUUID(),
-      ipAddress: req.ip || null,
+      ipAddress: getClientIp(req) || null,
     });
     if (!result.ok) {
       await logSecurityEvent(req, 'email_otp_failed', 'warn', { userId: ctx.userId, reason: result.reason });

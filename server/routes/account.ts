@@ -18,7 +18,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { uploadFile, deleteFile } from '../services/storage/index.js';
 import { resolveVisitorGeo } from '../services/geo/index.js';
-import { hashIp, maskIp } from '../utils/clientIp.js';
+import { hashIp, getClientIp } from '../utils/clientIp.js';
 import { issueVerificationEmail } from '../services/auth-email.js';
 import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
 import { findIdentityById } from '../services/auth/identity.js';
@@ -467,7 +467,7 @@ accountRouter.post('/resend-verification', async (req, res) => {
       email,
       fullName: user?.user_metadata?.full_name || null,
       locale,
-      ipAddress: (req as any).ip || null,
+      ipAddress: getClientIp(req) || null,
     });
 
     if (!result.success) {
@@ -526,14 +526,16 @@ async function enrichIpForDisplay(config: ServerConfig, rawIp: string | null) {
       ip_hash: hashIp(rawIp),
     });
     return {
-      ip_display: maskIp(rawIp),
+      // Own-account security page: show the real address, not a masked one,
+      // so the operator can match it with the resolved location.
+      ip_display: rawIp,
       country: geo.country,
       country_code: geo.country_code,
       city: geo.city,
       region: geo.region,
     };
   } catch {
-    return { ip_display: maskIp(rawIp), country: null, country_code: null, city: null, region: null };
+    return { ip_display: rawIp, country: null, country_code: null, city: null, region: null };
   }
 }
 

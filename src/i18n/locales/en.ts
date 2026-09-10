@@ -5550,6 +5550,14 @@ const en = {
         title: 'Email address not verified',
         desc: 'Verify your email to keep every feature available.',
       },
+      phone_unverified: {
+        title: 'Phone number not verified',
+        desc: '{{phone}} is not verified yet. Open profile settings to receive a code.',
+      },
+      phone_missing: {
+        title: 'No phone number on file',
+        desc: 'Add and verify a mobile number to secure and recover your account.',
+      },
       trial_ending: {
         title: 'Trial ending soon',
         desc: '{{days}} day(s) left before you move to the Free plan.',

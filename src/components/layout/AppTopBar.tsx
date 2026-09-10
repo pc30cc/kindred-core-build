@@ -109,7 +109,7 @@ export function AppTopBar() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-10 w-10 rounded-2xl [&_svg]:size-7 border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground"
+                className="h-10 w-10 rounded-2xl [&_svg]:size-7 text-muted-foreground hover:bg-transparent hover:text-foreground"
                 onClick={() => setTheme(isDark ? 'light' : 'dark')}
                 aria-label={isDark ? t('nav.lightMode') : t('nav.darkMode')}
               >
@@ -132,7 +132,7 @@ export function AppTopBar() {
                 asChild
                 variant="ghost"
                 size="icon"
-                className="hidden h-10 w-10 rounded-2xl [&_svg]:size-7 border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground md:inline-flex"
+                className="hidden h-10 w-10 rounded-2xl [&_svg]:size-7 text-muted-foreground hover:bg-transparent hover:text-foreground md:inline-flex"
               >
                 <Link to={wsPath('/settings')} aria-label="settings">
                    <Settings2 />
@@ -150,7 +150,7 @@ export function AppTopBar() {
                 asChild
                 variant="ghost"
                 size="icon"
-                className="hidden h-10 w-10 rounded-2xl [&_svg]:size-7 border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground md:inline-flex"
+                className="hidden h-10 w-10 rounded-2xl [&_svg]:size-7 text-muted-foreground hover:bg-transparent hover:text-foreground md:inline-flex"
               >
                 <Link to={wsPath('/knowledge-base')} aria-label="help">
                    <LifeBuoy />

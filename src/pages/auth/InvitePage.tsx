@@ -346,18 +346,51 @@ export default function InvitePage() {
     setTimeout(() => { window.location.href = '/app'; }, 1200);
   };
 
-  const card = (icon: React.ReactNode, title: string, description: string, action?: React.ReactNode) => (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-background">
-      <Card className="w-full max-w-md">
+  const isRtl = dir === 'rtl';
+
+  /** Same split-screen shell as the login page, so the invite feels like the site. */
+  const shell = (children: React.ReactNode) => (
+    <div className="min-h-screen flex" dir={dir}>
+      <div className={`flex-1 flex items-center justify-center bg-background px-6 py-12 ${isRtl ? 'order-2' : 'order-1'}`}>
+        <div className="w-full max-w-xl">{children}</div>
+      </div>
+
+      <div
+        className={`hidden lg:flex w-[42%] xl:w-[45%] relative overflow-hidden ${isRtl ? 'order-1' : 'order-2'}`}
+        style={{ background: 'var(--gradient-auth-hero, var(--gradient-primary))' }}
+      >
+        <div className="absolute -top-24 -right-24 w-80 h-80 rounded-full bg-white/10 blur-3xl" />
+        <div className="absolute bottom-0 -left-20 w-[500px] h-[500px] rounded-full bg-white/5 blur-2xl" />
+        <div
+          className="absolute inset-0 opacity-[0.03]"
+          style={{
+            backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)',
+            backgroundSize: '24px 24px',
+          }}
+        />
+        <div className="relative z-10 flex flex-col justify-center items-center p-12 text-center w-full">
+          <div className="space-y-5 max-w-md">
+            <h2 className="text-3xl xl:text-4xl font-bold text-white leading-tight">
+              {preview?.workspace_name || t('invite.acceptedTitle')}
+            </h2>
+            <p className="text-white/70 text-base leading-relaxed">{t('auth.loginPromoSubtitle')}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const card = (icon: React.ReactNode, title: string, description: string, action?: React.ReactNode) =>
+    shell(
+      <Card className="w-full">
         <CardHeader className="text-center space-y-3">
           <div className="flex justify-center">{icon}</div>
           <CardTitle>{title}</CardTitle>
           <CardDescription>{description}</CardDescription>
         </CardHeader>
         {action ? <CardContent className="space-y-3">{action}</CardContent> : null}
-      </Card>
-    </div>
-  );
+      </Card>,
+    );
 
   if (state === 'loading') {
     return card(<Loader2 className="h-8 w-8 animate-spin text-primary" />,

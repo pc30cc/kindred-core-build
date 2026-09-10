@@ -24,9 +24,11 @@ export function WorkspaceRedirect() {
   const { data: profile } = useProfile();
   const { signOut, user } = useAuth();
   const createWorkspace = useCreateWorkspace();
-  const { t, dir } = useTranslation();
+  const { t, dir, locale } = useTranslation();
   const [provisioning, setProvisioning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resending, setResending] = useState(false);
   const attempted = useRef(false);
   const location = useLocation();
 

@@ -154,6 +154,21 @@ workspacesRouter.post('/provision-account', async (req, res) => {
   const sb = getServiceClient(config);
   const { error } = await sb.rpc('provision_account_on_signup', { _user_id: userId });
   if (error) return res.status(500).json({ error: error.message });
+
+  // NEW signups only: give the freshly created workspace its starting plan
+  // (trial or free) per the platform policy. Never touches a workspace that
+  // already has a subscription, so changing the setting is not retroactive.
+  const { data: ownWs } = await sb
+    .from('workspaces')
+    .select('id')
+    .eq('owner_id', userId)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (ownWs?.id) {
+    try { await applySignupPlanToWorkspace(config, (ownWs as { id: string }).id); }
+    catch (e) { console.error('[provision-account] signup plan failed:', e); }
+  }
   return res.json({ ok: true });
 });
 

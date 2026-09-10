@@ -313,10 +313,10 @@ export default function SettingsGeneralPage() {
           <ContactField
             icon={<MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />}
             label={t('workspaceInfo.whatsapp')}
-            placeholder="+16281234567"
+            placeholder="۰۹۱۲۳۴۵۶۷۸۹"
             defaultValue={contactInfo.whatsapp}
             onSave={v => saveContact('whatsapp', v)}
-            type="tel"
+            iranPhone
           />
           <ContactField
             icon={<Instagram className="h-3.5 w-3.5 text-muted-foreground" />}

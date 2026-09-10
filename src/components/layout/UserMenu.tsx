@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  AlertCircle, Bell, EyeOff, Check, Clock, UserCog, Building2,
+  Bell, EyeOff, Check, Clock, UserCog, Building2,
   UserPlus, HelpCircle, Sparkles, LogOut, ChevronDown, ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -63,7 +63,6 @@ export function UserMenu() {
     '';
   const userEmail = (user?.email as string | undefined) || '';
   const userName = fullName || userEmail.split('@')[0] || '';
-  const emailVerified = !!(user as any)?.emailVerified;
   const userAvatarUrl = ((profile as any)?.avatar_url as string | null | undefined) || '';
 
   const itemCls =

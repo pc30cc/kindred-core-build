@@ -56,6 +56,19 @@ final class SettingsPage {
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 					<?php wp_nonce_field( 'webyar_wc_connect' ); ?>
 					<input type="hidden" name="action" value="webyar_wc_connect" />
+					<table class="form-table" role="presentation">
+						<tr>
+							<th scope="row"><label for="webyar_wc_app_url"><?php esc_html_e( 'Web Yar URL', 'webyar-woocommerce' ); ?></label></th>
+							<td>
+								<input
+									type="url" id="webyar_wc_app_url" name="app_url" class="regular-text" required
+									placeholder="https://app.yourdomain.com"
+									value="<?php echo esc_attr( $settings['app_url'] ?? '' ); ?>"
+								/>
+								<p class="description"><?php esc_html_e( 'The address of your Web Yar dashboard (there is no single shared Web Yar server — enter the one you use to log in).', 'webyar-woocommerce' ); ?></p>
+							</td>
+						</tr>
+					</table>
 					<button type="submit" class="button button-primary button-hero"><?php esc_html_e( 'Connect to Web Yar', 'webyar-woocommerce' ); ?></button>
 				</form>
 			<?php else : ?>

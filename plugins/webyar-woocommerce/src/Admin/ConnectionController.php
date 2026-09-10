@@ -37,11 +37,30 @@ final class ConnectionController {
 		$this->require_manage_capability();
 		check_admin_referer( 'webyar_wc_connect' );
 
+		// The Web Yar URL is entered on the SAME form as the Connect button
+		// (there is no single fixed Web Yar domain — this is a self-hostable
+		// platform) — save it here, before starting pairing, so one click
+		// both configures and connects.
+		$raw_app_url = isset( $_POST['app_url'] ) ? esc_url_raw( wp_unslash( $_POST['app_url'] ) ) : ''; // phpcs:ignore
+		if ( '' === $raw_app_url || false === filter_var( $raw_app_url, FILTER_VALIDATE_URL ) ) {
+			$this->redirect_with_notice( 'error', __( 'Enter a valid Web Yar URL (e.g. https://app.yourdomain.com) before connecting.', 'webyar-woocommerce' ) );
+			return;
+		}
+		$settings = get_option( 'webyar_wc_settings', array() );
+		if ( ! is_array( $settings ) ) {
+			$settings = array();
+		}
+		$settings['app_url'] = untrailingslashit( $raw_app_url );
+		update_option( 'webyar_wc_settings', $settings, false );
+
 		try {
 			$url = PairingService::start();
 		} catch ( \Throwable $e ) {
 			Logger::error( 'connect failed', array( 'message' => $e->getMessage() ) );
-			$this->redirect_with_notice( 'error', __( 'Could not start the connection. Please try again.', 'webyar-woocommerce' ) );
+			// The exception message here never contains a secret (see
+			// PairingService::start()) — surfacing it is what turns "the
+			// button doesn't work" into an actionable error for the admin.
+			$this->redirect_with_notice( 'error', $e->getMessage() );
 			return;
 		}
 		wp_redirect( $url ); // phpcs:ignore
@@ -77,7 +96,7 @@ final class ConnectionController {
 			$this->redirect_with_notice( 'success', __( 'Connected to Web Yar.', 'webyar-woocommerce' ) );
 		} catch ( \Throwable $e ) {
 			Logger::error( 'pairing exchange failed', array( 'message' => $e->getMessage() ) );
-			$this->redirect_with_notice( 'error', __( 'Could not complete the connection to Web Yar.', 'webyar-woocommerce' ) );
+			$this->redirect_with_notice( 'error', $e->getMessage() );
 		}
 	}
 
@@ -140,12 +159,15 @@ final class ConnectionController {
 		$this->require_manage_capability();
 		check_admin_referer( 'webyar_wc_save_settings' );
 
-		update_option(
-			'webyar_wc_settings',
-			array(
-				'auto_widget' => ! empty( $_POST['auto_widget'] ), // phpcs:ignore
-			)
-		);
+		// Merge, never replace — this form only carries `auto_widget`, and
+		// a bare overwrite here would silently erase the saved `app_url`
+		// (and any future setting) every time the widget toggle is saved.
+		$settings = get_option( 'webyar_wc_settings', array() );
+		if ( ! is_array( $settings ) ) {
+			$settings = array();
+		}
+		$settings['auto_widget'] = ! empty( $_POST['auto_widget'] ); // phpcs:ignore
+		update_option( 'webyar_wc_settings', $settings, false );
 		$this->redirect_with_notice( 'success', __( 'Settings saved.', 'webyar-woocommerce' ) );
 	}
 

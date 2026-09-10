@@ -130,7 +130,7 @@ export default function SignupPage() {
     : t('auth.signupStep2Title');
 
   const stepSubtitle = step === 1
-    ? t('auth.signupStep1Subtitle', { brand: brandName })
+    ? t('auth.signupStep1Subtitle')
     : t('auth.signupStep2Subtitle');
 
   return (

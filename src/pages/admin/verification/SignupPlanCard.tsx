@@ -1,8 +1,8 @@
 /**
  * Default plan for NEW signups — Super Admin → Core settings → Signup.
  *
- * Operator picks whether a brand-new workspace starts on a trial of a paid
- * plan or straight on the free plan. Stored on `platform_settings` and
+ * Operator picks whether a brand-new workspace starts on the existing Trial
+ * plan or the existing Free plan. Stored on `platform_settings` and
  * resolved server-side by server/services/billing/signupPlan.ts. Applies to
  * new signups only; existing workspaces are never changed.
  */
@@ -16,15 +16,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Rocket } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { adminFetch } from '@/hooks/useAdmin';
-import { usePlans } from '@/hooks/usePlans';
 import { useTranslation } from '@/i18n';
 
-const FREE = '__free__';
+type SignupPlanChoice = 'trial' | 'free';
 
 export default function SignupPlanCard() {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const [choice, setChoice] = useState<string>(FREE);
+  const [choice, setChoice] = useState<SignupPlanChoice>('free');
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -36,13 +35,9 @@ export default function SignupPlanCard() {
     },
   });
 
-  const { data: plans } = usePlans();
-  const paidPlans = (plans ?? []).filter((p: any) => !p.is_free && p.is_active !== false);
-
   useEffect(() => {
     if (!settings) return;
-    const trial = settings.signup_default_plan_mode === 'trial' && settings.signup_trial_plan_id;
-    setChoice(trial ? String(settings.signup_trial_plan_id) : FREE);
+    setChoice(settings.signup_default_plan_mode === 'trial' ? 'trial' : 'free');
     setDirty(false);
   }, [settings]);
 
@@ -52,8 +47,7 @@ export default function SignupPlanCard() {
       const body = await adminFetch<{ success: boolean; settings: any }>('/api/admin/management/platform-settings', {
         method: 'PUT',
         body: JSON.stringify({
-          signup_default_plan_mode: choice === FREE ? 'free' : 'trial',
-          signup_trial_plan_id: choice === FREE ? null : choice,
+          signup_default_plan_mode: choice,
         }),
       });
       const saved = body.settings ?? {};
@@ -94,16 +88,11 @@ export default function SignupPlanCard() {
         ) : (
           <div className="grid max-w-sm gap-1.5">
             <Label>{t('admin.coreSettings.signupPlan.plan' as any)}</Label>
-            <Select value={choice} onValueChange={(v) => { setChoice(v); setDirty(true); }}>
+            <Select value={choice} onValueChange={(v: SignupPlanChoice) => { setChoice(v); setDirty(true); }}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value={FREE}>{t('admin.coreSettings.signupPlan.modeFree' as any)}</SelectItem>
-                {paidPlans.map((p: any) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.name}
-                    {Number(p.trial_days) > 0 ? ` — ${p.trial_days}` : ''}
-                  </SelectItem>
-                ))}
+                <SelectItem value="trial">{t('admin.coreSettings.signupPlan.modeTrial' as any)}</SelectItem>
+                <SelectItem value="free">{t('admin.coreSettings.signupPlan.modeFree' as any)}</SelectItem>
               </SelectContent>
             </Select>
           </div>

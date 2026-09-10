@@ -218,10 +218,12 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/auth/check-email" element={<CheckEmailPage />} />
                 <Route path="/auth/email-confirmed" element={<EmailConfirmedPage />} />
                 <Route path="/auth/verify-otp" element={<VerifyOtpPage />} />
-
-                <Route path="/auth/invite" element={<InvitePage />} />
-                <Route path="/invite" element={<InvitePage />} />
               </Route>
+
+              {/* Invitation acceptance uses its own full-width split-screen shell */}
+              <Route path="/auth/invite" element={<InvitePage />} />
+              <Route path="/invite" element={<InvitePage />} />
+
 
               {/* Admin Bootstrap */}
               <Route path="/admin/bootstrap" element={

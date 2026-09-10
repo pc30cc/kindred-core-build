@@ -22,6 +22,7 @@ import { CheckCircle2, Loader2, ShieldAlert, Smartphone } from 'lucide-react';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { PhoneVerificationFlow } from './PhoneVerificationFlow';
 import { usePhoneVerificationStatus } from './hooks';
+import { PHONE_STATUS_LABEL_KEY, resolvePhoneStatus } from './status';
 
 interface Props {
   /** Rendered when verification is not available for this user/context. */
@@ -51,7 +52,13 @@ export function AccountPhoneField({ fallback }: Props) {
     );
   }
 
-  const verified = Boolean(data?.satisfied);
+  // A missing number is never "verified": `satisfied` can be true simply
+  // because this purpose isn't enforced. Only a real, verified number counts.
+  const status = resolvePhoneStatus({
+    phoneMasked: data?.phoneMasked,
+    verified: Boolean(data?.satisfied || data?.verifiedAt),
+  });
+  const verified = status === 'verified';
 
   return (
     <div className="space-y-2">
@@ -71,14 +78,17 @@ export function AccountPhoneField({ fallback }: Props) {
             {verified ? <CheckCircle2 className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <p className="truncate font-mono text-sm text-foreground" dir="ltr">
-              {data?.phoneMasked || t('phoneVerification.statusNoPhone')}
-            </p>
+            {data?.phoneMasked ? (
+              <p className="truncate font-mono text-sm text-foreground" dir="ltr">
+                {data.phoneMasked}
+              </p>
+            ) : null}
             <Badge variant="outline" className="h-5 shrink-0 px-1.5 text-[10px]">
-              {verified ? t('phoneVerification.statusVerified') : t('phoneVerification.statusUnverified')}
+              {t(PHONE_STATUS_LABEL_KEY[status] as never)}
             </Badge>
           </div>
         </div>
+
 
         {!verified && (
           <Button size="sm" className="h-7 shrink-0 px-2.5 text-xs" onClick={() => setOpen(true)}>

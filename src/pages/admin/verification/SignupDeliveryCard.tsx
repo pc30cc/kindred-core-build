@@ -53,7 +53,7 @@ export default function SignupDeliveryCard() {
       });
       qc.invalidateQueries({ queryKey: ['platform_settings'] });
       setDirty(false);
-      toast({ title: t('admin.brandingPage.settings.general.saved' as any) });
+      toast({ title: t('admin.brandingPage.settings.saved' as any) });
     } catch (e) {
       toast({
         title: t('admin.brandingPage.common.error' as any),

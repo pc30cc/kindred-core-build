@@ -127,15 +127,11 @@ export default function SignupPage() {
 
   const stepTitle = step === 1
     ? t('auth.signupStep1Title')
-    : step === 2
-    ? t('auth.signupStep2Title')
-    : t('auth.signupStep3Title');
+    : t('auth.signupStep2Title');
 
   const stepSubtitle = step === 1
     ? t('auth.signupStep1Subtitle', { brand: brandName })
-    : step === 2
-    ? t('auth.signupStep2Subtitle')
-    : t('auth.step3Subtitle');
+    : t('auth.signupStep2Subtitle');
 
   return (
     <div className="fixed inset-0 flex" dir={dir}>

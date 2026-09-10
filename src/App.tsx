@@ -36,6 +36,8 @@ import ResetPasswordPage from "@/pages/auth/ResetPasswordPage";
 import VerifyEmailPage from "@/pages/auth/VerifyEmailPage";
 import CheckEmailPage from "@/pages/auth/CheckEmailPage";
 import EmailConfirmedPage from "@/pages/auth/EmailConfirmedPage";
+import VerifyOtpPage from "@/pages/auth/VerifyOtpPage";
+
 import InvitePage from "@/pages/auth/InvitePage";
 
 import OverviewPage from "@/pages/app/OverviewPage";
@@ -215,6 +217,8 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/auth/verify-email" element={<VerifyEmailPage />} />
                 <Route path="/auth/check-email" element={<CheckEmailPage />} />
                 <Route path="/auth/email-confirmed" element={<EmailConfirmedPage />} />
+                <Route path="/auth/verify-otp" element={<VerifyOtpPage />} />
+
                 <Route path="/auth/invite" element={<InvitePage />} />
                 <Route path="/invite" element={<InvitePage />} />
               </Route>

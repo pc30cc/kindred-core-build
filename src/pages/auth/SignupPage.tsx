@@ -9,6 +9,8 @@ import SignupStepAccount from '@/components/auth/SignupStepAccount';
 import SignupStepCompany from '@/components/auth/SignupStepCompany';
 import SignupStepAI from '@/components/auth/SignupStepAI';
 import signupIllustration from '@/assets/signup-illustration.jpg';
+import { fetchSignupPolicy } from '@/lib/emailOtp';
+
 
 const TOTAL_STEPS = 3;
 
@@ -107,9 +109,23 @@ export default function SignupPage() {
       }
 
       toast.success(t('auth.signupSuccess'));
-      // Email must be verified before a workspace can be created, so send the
-      // new user to the "check your inbox" screen instead of the app shell.
-      navigate(`/auth/check-email?email=${encodeURIComponent(trimmedEmail)}`);
+
+      // WHERE the new user lands is the operator's choice, resolved
+      // server-side (Super Admin → Branding → Settings):
+      //   otp    → the 6-digit code screen (no link is ever mailed).
+      //   after  → straight into the app; the existing bottom banner
+      //            keeps asking them to verify.
+      //   before → the classic "check your inbox" screen, because no
+      //            workspace can exist until the link is clicked.
+      const policy = await fetchSignupPolicy();
+      if (policy.method === 'otp') {
+        navigate('/auth/verify-otp');
+      } else if (policy.gate === 'after') {
+        navigate('/app');
+      } else {
+        navigate(`/auth/check-email?email=${encodeURIComponent(trimmedEmail)}`);
+      }
+
     } catch (err: any) {
       toast.error(t('auth.signupFailed'), { description: err?.message });
     } finally {

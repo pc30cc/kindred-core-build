@@ -975,9 +975,16 @@ function WidgetTextsEditor({
         </Select>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {visibleKeys.map(({ key, label, placeholder }) => (
+        {visibleKeys.map(({ key, label, placeholder }) => {
+          // Translated field name when the locale bundle has one; the English
+          // constant stays as the fallback so a missing key never shows a path.
+          const tk = `callCenter.settingsPage.widgetTextKeys.${key}`;
+          const translated = t(tk);
+          const fieldLabel = translated === tk ? label : translated;
+          return (
           <div key={key} className="space-y-1">
-            <Label className="text-xs">{label}</Label>
+            <Label className="text-xs">{fieldLabel}</Label>
+
             <Input
               value={current[key] || ''}
               onChange={(e) => setField(key, e.target.value)}

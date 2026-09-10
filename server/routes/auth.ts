@@ -38,6 +38,8 @@ import {
 } from '../services/auth/sessions.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
 import { allowsMobileTokenIssuance } from '../services/platformOrigins.js';
+import { getSignupVerificationPolicy } from '../services/auth/signupPolicy.js';
+
 
 
 export const authSecurityRouter = Router();
@@ -381,16 +383,28 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
       return res.status(500).json({ error: 'Failed to create account' });
     }
 
-    const verificationResult = await issueVerificationEmail(config, {
-      userId: newUserId,
-      email: normalizedEmail,
-      fullName,
-      locale,
-      ipAddress: req.ip || null,
-    });
-    if (!verificationResult.success) {
-      // Account exists and is usable — user can resend from the panel banner.
-      console.warn('[auth] Signup succeeded but verification email failed:', verificationResult.error);
+    // DELIVERY IS POLICY-DRIVEN (platform_settings, see
+    // server/services/auth/signupPolicy.ts):
+    //   method 'link' — mail a verification URL, exactly as before.
+    //   method 'otp'  — mail NOTHING here: the client, which signs in
+    //                   immediately after this call, requests a 6-digit
+    //                   code from /api/auth-email/otp/start (self-hosted
+    //                   Generic Verification Core). No link is ever sent
+    //                   in this mode.
+    const policy = await getSignupVerificationPolicy(config);
+
+    if (policy.method === 'link') {
+      const verificationResult = await issueVerificationEmail(config, {
+        userId: newUserId,
+        email: normalizedEmail,
+        fullName,
+        locale,
+        ipAddress: req.ip || null,
+      });
+      if (!verificationResult.success) {
+        // Account exists and is usable — user can resend from the panel banner.
+        console.warn('[auth] Signup succeeded but verification email failed:', verificationResult.error);
+      }
     }
 
     return res.json({
@@ -401,7 +415,9 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
         created_at: new Date().toISOString(),
       },
       needsEmailVerification: true,
+      verification: { method: policy.method, gate: policy.gate },
     });
+
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[auth] Signup error:', message, err);
@@ -585,5 +601,23 @@ authSecurityRouter.post('/verify-captcha', authRateLimiter, async (req, res) => 
     return res.json(result);
   } catch {
     return res.status(500).json({ error: 'Captcha verification error' });
+  }
+});
+
+/**
+ * GET /api/auth/signup-policy
+ * PUBLIC (no session): the signup page needs to know, before an account
+ * exists, whether verification is delivered as a link or a code and
+ * whether the new user may enter their workspace right away. Exposes
+ * nothing beyond those two operator-chosen, non-sensitive values.
+ */
+authSecurityRouter.get('/signup-policy', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const policy = await getSignupVerificationPolicy(config);
+    return res.json(policy);
+  } catch (err) {
+    console.error('[auth] signup-policy error:', err);
+    return res.json({ method: 'link', gate: 'before' });
   }
 });

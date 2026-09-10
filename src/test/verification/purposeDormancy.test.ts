@@ -46,22 +46,42 @@ import {
 } from '../../../server/services/verification/crypto';
 import { renderOtpEmail, renderOtpSms, SUPPORTED_TEMPLATE_LOCALES } from '../../../server/services/verification/templates';
 
+/**
+ * The registry is dormant-by-default: a purpose is live ONLY when a real
+ * consumer has been built and reviewed for it. Enumerating the live set
+ * here means enabling anything else silently fails this test.
+ */
+const LIVE_PURPOSES = new Set(['commerce_order_lookup', 'signup_email']);
+
 describe('Generic Verification Core — purpose registry is disabled by default', () => {
-  it('every registered purpose ships enabled:false', () => {
+  it('only the reviewed live purposes are enabled; every other one ships enabled:false', () => {
     for (const purpose of ALL_VERIFICATION_PURPOSES) {
-      expect(PURPOSE_POLICIES[purpose].enabled).toBe(false);
+      expect(PURPOSE_POLICIES[purpose].enabled).toBe(LIVE_PURPOSES.has(purpose));
     }
   });
 
-  it('assertPurposeEnabled throws for every purpose (nothing is quietly enabled)', () => {
+  it('assertPurposeEnabled throws for every non-live purpose (nothing is quietly enabled)', () => {
     for (const purpose of ALL_VERIFICATION_PURPOSES) {
-      expect(() => assertPurposeEnabled(purpose)).toThrow(VerificationPurposeDisabledError);
+      if (LIVE_PURPOSES.has(purpose)) {
+        expect(() => assertPurposeEnabled(purpose)).not.toThrow();
+      } else {
+        expect(() => assertPurposeEnabled(purpose)).toThrow(VerificationPurposeDisabledError);
+      }
     }
   });
 
   it('assertChannelAllowed also fails closed for a disabled purpose, before the channel check', () => {
-    expect(() => assertChannelAllowed('signup_email', 'email')).toThrow(VerificationPurposeDisabledError);
+    expect(() => assertChannelAllowed('password_reset', 'email')).toThrow(VerificationPurposeDisabledError);
   });
+
+  it('the live signup_email purpose is bound to an authenticated user subject', () => {
+    // The OTP is requested by, and redeemable only by, the signed-in
+    // account it belongs to — never an anonymous caller.
+    expect(PURPOSE_POLICIES.signup_email.requiresAuth).toBe(true);
+    expect(PURPOSE_POLICIES.signup_email.subjectBinding).toBe('user');
+    expect(() => assertChannelAllowed('signup_email', 'email')).not.toThrow();
+  });
+
 
   it('rejects an unknown purpose distinctly from a disabled one', () => {
     expect(() => getPurposePolicy('not_a_real_purpose')).toThrow(UnknownVerificationPurposeError);

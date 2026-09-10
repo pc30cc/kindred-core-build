@@ -21,6 +21,8 @@ import { OperatorCallProvider } from '@/features/calls/OperatorCallContext';
 import { FloatingOperatorCallWindow } from '@/features/calls/FloatingOperatorCallWindow';
 import { useOperatorHeartbeat } from '@/hooks/useOperatorHeartbeat';
 import { useOperatorPresenceChannel } from '@/hooks/useOperatorPresenceChannel';
+import { fetchSignupPolicy } from '@/lib/emailOtp';
+
 
 // Cooldown between two resend attempts. The authoritative cooldown lives on
 // the server (`/api/account/resend-verification` answers 429 with
@@ -55,6 +57,18 @@ function EmailVerificationBar() {
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [cooldownMs, setCooldownMs] = useState(() => remainingMs(RESEND_LS_KEY));
   const [hiddenMs, setHiddenMs] = useState(() => remainingMs(BANNER_DISMISS_KEY));
+  const [otpMode, setOtpMode] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void fetchSignupPolicy().then((p) => {
+      if (alive) setOtpMode(p.method === 'otp');
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -138,14 +152,26 @@ function EmailVerificationBar() {
             </>
           )}
         </p>
-        <button
-          onClick={handleResend}
-          disabled={sending || isCoolingDown}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-500/90 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-          {buttonLabel}
-        </button>
+        {/* In OTP mode no link is ever mailed, so the bar must send the
+            user to the code screen instead of re-sending a link. */}
+        {otpMode ? (
+          <a
+            href="/auth/verify-otp"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-500/90"
+          >
+            {t('auth.otpVerifyNow')}
+          </a>
+        ) : (
+          <button
+            onClick={handleResend}
+            disabled={sending || isCoolingDown}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-500/90 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            {buttonLabel}
+          </button>
+        )}
+
         <button
           onClick={dismiss}
           aria-label="dismiss"

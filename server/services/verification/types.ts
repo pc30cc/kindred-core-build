@@ -145,16 +145,26 @@ function clampPolicy(p: PurposePolicy): PurposePolicy {
 }
 
 /**
- * EVERY policy below ships `enabled: false`. This is not a placeholder to
- * be flipped on later by editing a boolean in isolation — enabling a
- * purpose for real use requires: (1) flipping this flag, (2) building and
- * wiring the actual consumer (signup route, password-reset route, etc.)
- * per docs/GENERIC_VERIFICATION_CONSUMER_GUIDE.md, and (3) a deliberate,
- * reviewed deploy. Nothing in this pass does any of that.
+ * Most policies below ship `enabled: false`. A flag is not flipped in
+ * isolation — enabling a purpose for real use requires: (1) flipping this
+ * flag, (2) building and wiring the actual consumer per
+ * docs/GENERIC_VERIFICATION_CONSUMER_GUIDE.md, and (3) a deliberate,
+ * reviewed deploy. The LIVE purposes today are `commerce_order_lookup`
+ * (guest order verification) and `signup_email` (the self-hosted signup
+ * email OTP — server/services/auth/emailOtp.ts, reachable only when the
+ * platform's signup verification method is set to 'otp').
  */
 const RAW_POLICIES: Record<VerificationPurpose, PurposePolicy> = {
   signup_email: {
-    enabled: false,
+    // LIVE consumer: server/services/auth/emailOtp.ts (routes in
+    // server/routes/auth-email.ts). The identity always EXISTS by the time
+    // a code is requested — /api/auth/signup creates profile +
+    // user_credentials first and the client is signed in — so this binds
+    // to a real `user` subject and requires the caller's own session,
+    // rather than the looser 'pending_account'/unauthenticated shape.
+    // That means a code can only ever be requested for, and redeemed by,
+    // the signed-in account it belongs to.
+    enabled: true,
     allowedChannels: ['email'],
     otpLength: 6,
     otpTtlSeconds: 600,
@@ -164,13 +174,14 @@ const RAW_POLICIES: Record<VerificationPurpose, PurposePolicy> = {
     rateWindowSeconds: 3600,
     maxVerificationAttempts: 5,
     proofTtlSeconds: 600,
-    requiresAuth: false,
-    subjectBinding: 'pending_account',
+    requiresAuth: true,
+    subjectBinding: 'user',
     tenantBinding: 'none',
     invalidatesPreviousGeneration: true,
     issuesProof: true,
     globalRateLimit: null,
   },
+
   signup_phone: {
     enabled: false,
     allowedChannels: ['sms'],

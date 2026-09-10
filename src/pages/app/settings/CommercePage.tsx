@@ -18,7 +18,9 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { toast } from '@/hooks/use-toast';
-import { Loader2, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, RefreshCw, Download } from 'lucide-react';
+
+const PLUGIN_DOWNLOAD_PATH = '/downloads/webyar-woocommerce.zip';
 
 interface CommerceConnection {
   id: string;
@@ -122,6 +124,7 @@ export default function CommercePage() {
   }
 
   if (!connection) {
+    const webYarUrl = typeof window !== 'undefined' ? window.location.origin : '';
     return (
       <div className="max-w-2xl mx-auto p-6 space-y-4">
         <h1 className="text-2xl font-semibold">Commerce</h1>
@@ -129,13 +132,51 @@ export default function CommercePage() {
           <CardHeader>
             <CardTitle>Connect a WooCommerce store</CardTitle>
             <CardDescription>
-              Install the "Web Yar Connector for WooCommerce" plugin on your WordPress site, then click
-              "Connect to Web Yar" inside wp-admin. You'll be brought back here automatically once the
-              store is paired — there's no API key to copy or paste.
+              Download the plugin, install it on your WordPress site, then connect it to this workspace.
+              There's no API key to copy or paste — the plugin walks you through a one-click authorization.
             </CardDescription>
           </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            No store is connected to this workspace yet.
+          <CardContent className="space-y-6">
+            <Button asChild size="lg">
+              <a href={PLUGIN_DOWNLOAD_PATH} download>
+                <Download className="h-4 w-4 mr-2" />
+                Download WordPress plugin (.zip)
+              </a>
+            </Button>
+
+            <div>
+              <h3 className="text-sm font-semibold mb-2">Installation steps</h3>
+              <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
+                <li>
+                  In WordPress: go to <strong>Plugins → Add New → Upload Plugin</strong>, choose the
+                  downloaded file, then click <strong>Install Now</strong> and <strong>Activate</strong>.
+                </li>
+                <li>
+                  Requires WordPress 6.0+, WooCommerce 8.0+ (active), and PHP 7.4+. If any requirement is
+                  missing, the plugin stays inactive and shows a notice — your store keeps working normally.
+                </li>
+                <li>
+                  In wp-admin, open the new <strong>Web Yar</strong> menu item.
+                </li>
+                <li>
+                  In the <strong>Web Yar URL</strong> field, enter:{' '}
+                  {webYarUrl && <code className="bg-muted px-1.5 py-0.5 rounded">{webYarUrl}</code>}
+                </li>
+                <li>
+                  Click <strong>Connect to Web Yar</strong>, log in if asked, select this workspace, and
+                  approve the permissions you want to grant.
+                </li>
+                <li>
+                  You'll land back in wp-admin with a <strong>Connected</strong> status, and this page will
+                  show the connection automatically once catalog sync begins.
+                </li>
+              </ol>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              If "Connect to Web Yar" shows an error, it now tells you exactly why (unreachable URL, wrong
+              address, etc.) — double-check the Web Yar URL above matches this workspace's address exactly.
+            </p>
           </CardContent>
         </Card>
       </div>

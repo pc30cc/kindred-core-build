@@ -307,8 +307,18 @@
     "position:fixed;z-index:2147483646;width:0;height:0;}",
     ".shell.pos-bottom-right{bottom:24px;right:24px;left:auto;top:auto;}",
     ".shell.pos-bottom-left{bottom:24px;left:24px;right:auto;top:auto;}",
-    "@media(max-width:440px){.shell.pos-bottom-right{bottom:12px;right:12px;}",
+    "@media(max-width:640px){.shell.pos-bottom-right{bottom:12px;right:12px;}",
     ".shell.pos-bottom-left{bottom:12px;left:12px;}}",
+    /* ── Mobile full-screen shell ──
+       While the panel is open on a phone the shell stops being a zero-size
+       corner anchor and becomes the whole (visual) viewport, so the panel is
+       pinned to the screen and the keyboard cannot push it around. The height
+       comes from visualViewport (--gs-vvh) with a 100dvh fallback. */
+    "@media(max-width:640px){",
+    ".shell.gs-mobile-open{top:0;left:0;right:0;bottom:auto;",
+    "width:100vw;height:var(--gs-vvh,100dvh);}",
+    ".shell.gs-mobile-open .launcher,.shell.gs-mobile-open .fab-label,",
+    ".shell.gs-mobile-open .smart-nudge{display:none!important;}}",
     ".launcher{position:absolute;bottom:0;z-index:2;display:flex;align-items:center;justify-content:center;",
     "--gs-fab-exit:calc(var(--gs-fab-size,56px) + 56px);",
     "width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:50%;border:none;cursor:pointer;",

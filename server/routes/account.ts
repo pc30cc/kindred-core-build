@@ -18,7 +18,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { uploadFile, deleteFile } from '../services/storage/index.js';
 import { resolveVisitorGeo } from '../services/geo/index.js';
-import { hashIp, maskIp, getClientIp } from '../utils/clientIp.js';
+import { hashIp, getClientIp } from '../utils/clientIp.js';
 import { issueVerificationEmail } from '../services/auth-email.js';
 import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
 import { findIdentityById } from '../services/auth/identity.js';

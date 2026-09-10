@@ -69,10 +69,6 @@ const settingsGroupsDef: SettingsGroup[] = [
     items: [{ key: 'providers', labelKey: 'providers', subPath: '/settings/providers' }],
   },
   {
-    key: 'email', icon: Mail, accent: 'sky',
-    items: [{ key: 'email', labelKey: 'email', subPath: '/email' }],
-  },
-  {
     key: 'knowledgeBase', icon: BookOpen, accent: 'cyan',
     items: [
       { key: 'translations', labelKey: 'translations', subPath: '/settings/translations' },

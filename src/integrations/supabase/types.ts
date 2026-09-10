@@ -16006,7 +16006,7 @@ export type Database = {
           updated_at: string
           user_id: string
           work_email_normalized: string
-          work_phone_e164: string
+          work_phone_e164: string | null
           workspace_id: string
         }
         Insert: {
@@ -16021,7 +16021,7 @@ export type Database = {
           updated_at?: string
           user_id: string
           work_email_normalized: string
-          work_phone_e164: string
+          work_phone_e164?: string | null
           workspace_id: string
         }
         Update: {
@@ -16036,7 +16036,7 @@ export type Database = {
           updated_at?: string
           user_id?: string
           work_email_normalized?: string
-          work_phone_e164?: string
+          work_phone_e164?: string | null
           workspace_id?: string
         }
         Relationships: [

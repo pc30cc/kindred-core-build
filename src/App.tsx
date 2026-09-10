@@ -87,7 +87,6 @@ import AiAgentBehaviorPage from "@/pages/app/ai-agent/BehaviorPage";
 import AiAgentOperatorAssistPage from "@/pages/app/ai-agent/OperatorAssistPage";
 import AiAgentActivityPage from "@/pages/app/ai-agent/ActivityPage";
 import { AdvancedAiAgentGuard } from "@/features/ai-agent/AdvancedAiAgentGuard";
-import EmailPage from "@/pages/app/EmailPage";
 import BillingPage from "@/pages/app/BillingPage";
 import BillingPaymentPage from "@/pages/app/billing/PaymentPage";
 import SeoPage from "@/pages/app/seo/SeoPage";
@@ -297,7 +296,6 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="widget" element={<RequireWorkspaceAdmin><WidgetPage /></RequireWorkspaceAdmin>} />
                 <Route path="plugins" element={<RequireWorkspaceAdmin><PluginsPage /></RequireWorkspaceAdmin>} />
                 <Route path="plugins/:pluginId" element={<RequireWorkspaceAdmin><PluginDetailPage /></RequireWorkspaceAdmin>} />
-                <Route path="email" element={<RequireWorkspaceAdmin><EmailPage /></RequireWorkspaceAdmin>} />
                 <Route path="billing" element={<RequireWorkspaceAdmin><BillingPage /></RequireWorkspaceAdmin>} />
                 <Route path="billing/pay/:kind/:id" element={<RequireWorkspaceAdmin><BillingPaymentPage /></RequireWorkspaceAdmin>} />
                 <Route path="seo" element={<RequireWorkspaceAdmin><SeoPage /></RequireWorkspaceAdmin>} />

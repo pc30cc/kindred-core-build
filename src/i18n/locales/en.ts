@@ -3792,6 +3792,8 @@ const en = {
       title: 'Core settings',
       subtitle: 'Platform-wide behaviour switches in one place.',
       tabSignup: 'Signup settings',
+      signupNotSupported: 'The current API build does not support this setting yet; it will save once the new server version is deployed.',
+
     },
     verification: {
       title: 'Verification & OTP',

@@ -162,7 +162,16 @@
         headers: { 'Content-Type': 'application/json', 'X-Widget-Token': token },
         body: JSON.stringify({ workspace_id: cfg.workspaceId || undefined }),
       })
-        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (r) {
+          // A rejected refresh means the token is past any grace window:
+          // throw it away so nothing keeps replaying a dead credential.
+          if (!r.ok) {
+            if (r.status === 401 || r.status === 403) { try { bus.discard(); } catch (_) {} }
+            return null;
+          }
+          return r.json();
+        })
+
         .then(adopt)
         .catch(function () { return null; })
         .then(clearRefresh, function () { return clearRefresh(null); });
@@ -2400,16 +2409,30 @@
     }
 
     /** Fetch a fresh presence config (tokens + lease). Resolves null on failure. */
-    function fetchConfig() {
+    function fetchConfig(isRetry) {
       return fetch(apiBase + '/api/realtime/visitor-presence', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json', 'X-Widget-Token': tokenNow() },
         body: JSON.stringify({ workspace_id: workspaceId, session_id: sessionId }),
       })
-        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (r) {
+          if (r.ok) return r.json();
+          // The widget session died while the page sat open (tab left open
+          // overnight). Rebuild the session ONCE instead of hammering the
+          // endpoint with a credential the server will never accept again.
+          if ((r.status === 401 || r.status === 403) && !isRetry) {
+            var mgr = window.__gs_token;
+            if (mgr && typeof mgr.recover === 'function') {
+              return mgr.recover({ discardToken: r.status === 403 })
+                .then(function (t) { return t ? fetchConfig(true) : null; });
+            }
+          }
+          return null;
+        })
         .catch(function () { return null; });
     }
+
 
     function usable(cfg) {
       return !!(cfg && cfg.vendor === 'centrifugo' && cfg.presence && cfg.ws_url && cfg.token);

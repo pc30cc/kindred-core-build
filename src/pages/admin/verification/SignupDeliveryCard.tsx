@@ -51,11 +51,21 @@ export default function SignupDeliveryCard() {
         method: 'PUT',
         body: JSON.stringify({ signup_verification_method: method, signup_verification_gate: gate }),
       });
-      const savedMethod: Method = body.settings?.signup_verification_method === 'otp' ? 'otp' : 'link';
-      const savedGate: Gate = body.settings?.signup_verification_gate === 'after' ? 'after' : 'before';
+      const settings = body.settings ?? {};
+      // An API build that predates this feature silently strips the two
+      // fields (zod drops unknown keys), so the row comes back without them.
+      // Say that plainly instead of a generic "save failed".
+      const supported =
+        'signup_verification_method' in settings && 'signup_verification_gate' in settings;
+      if (!supported) {
+        throw new Error(t('admin.coreSettings.signupNotSupported' as any));
+      }
+      const savedMethod: Method = settings.signup_verification_method === 'otp' ? 'otp' : 'link';
+      const savedGate: Gate = settings.signup_verification_gate === 'after' ? 'after' : 'before';
       if (savedMethod !== method || savedGate !== gate) {
         throw new Error(t('admin.brandingPage.common.saveFailed' as any));
       }
+
       qc.setQueryData(['platform_settings'], body.settings);
       setDirty(false);
       toast({ title: t('admin.brandingPage.settings.saved' as any) });

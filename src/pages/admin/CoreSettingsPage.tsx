@@ -35,6 +35,7 @@ export default function CoreSettingsPage() {
 
         <TabsContent value="signup" className="space-y-4">
           <SignupDeliveryCard />
+          <SignupPlanCard />
         </TabsContent>
       </Tabs>
     </div>

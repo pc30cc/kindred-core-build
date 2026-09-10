@@ -3676,6 +3676,7 @@ const tr: TranslationKeys = {
       backToApp: 'Uygulamaya Dön',
       controlCenter: 'Platform Kontrol Merkezi',
       verification: 'Doğrulama ve OTP',
+      coreSettings: 'Temel ayarlar',
       controlCenterSubtitle: 'Altyapı, güvenlik ve ürün operasyonları',
       superAdmin: 'Süper Yönetici',
       platformManagement: 'Platform yönetimi',
@@ -3775,6 +3776,11 @@ const tr: TranslationKeys = {
       columnResults: 'Sonuçlar',
       kindBacklinks: 'Geri Bağlantılar',
       kindKeywords: 'Anahtar Kelimeler',
+    },
+    coreSettings: {
+      title: 'Temel ayarlar',
+      subtitle: 'Platform genelindeki davranış ayarları tek yerde.',
+      tabSignup: 'Kayıt ayarları',
     },
     verification: {
       title: 'Doğrulama ve OTP',

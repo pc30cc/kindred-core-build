@@ -3687,6 +3687,7 @@ const en = {
       backToApp: 'Back to App',
       controlCenter: 'Platform Control Center',
       verification: 'Verification & OTP',
+      coreSettings: 'Core settings',
       controlCenterSubtitle: 'Infrastructure, security and product operations',
       superAdmin: 'Super Admin',
       platformManagement: 'Platform management',
@@ -3786,6 +3787,11 @@ const en = {
       columnResults: 'Results',
       kindBacklinks: 'Backlinks',
       kindKeywords: 'Keywords',
+    },
+    coreSettings: {
+      title: 'Core settings',
+      subtitle: 'Platform-wide behaviour switches in one place.',
+      tabSignup: 'Signup settings',
     },
     verification: {
       title: 'Verification & OTP',

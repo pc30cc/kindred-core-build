@@ -3672,6 +3672,7 @@ const fa: TranslationKeys = {
       backToApp: 'بازگشت به پنل',
       controlCenter: 'مرکز کنترل پلتفرم',
       verification: 'تأیید هویت و کد یکبارمصرف',
+      coreSettings: 'تنظیمات اصلی',
       controlCenterSubtitle: 'زیرساخت، امنیت و عملیات محصول',
       superAdmin: 'مدیر ارشد',
       platformManagement: 'مدیریت پلتفرم',
@@ -3771,6 +3772,11 @@ const fa: TranslationKeys = {
       columnResults: 'نتایج',
       kindBacklinks: 'بک‌لینک‌ها',
       kindKeywords: 'کلمات کلیدی',
+    },
+    coreSettings: {
+      title: 'تنظیمات اصلی',
+      subtitle: 'کلیدهای رفتاری سراسری پلتفرم در یک جا.',
+      tabSignup: 'تنظیمات ثبت‌نام',
     },
     verification: {
       title: 'تأیید هویت و کد یکبارمصرف',

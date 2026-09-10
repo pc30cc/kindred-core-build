@@ -449,6 +449,7 @@ export function AppSidebar({
               );
             })}
 
+            {isWsAdmin && (
             <div className="border-t border-border mt-1.5 pt-1.5">
               {wsLimitNotice ? (
                 <div className="mx-1 my-1 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 space-y-2">

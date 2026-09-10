@@ -90,7 +90,7 @@ export function UserMenu() {
           </p>
           <p className="max-w-[150px] truncate text-[11px] text-muted-foreground">{userName}</p>
         </div>
-        <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} />
+        <ChevronDown strokeWidth={3} className={cn('h-6 w-6 text-foreground transition-transform', open && 'rotate-180')} />
       </button>
 
       {open && (

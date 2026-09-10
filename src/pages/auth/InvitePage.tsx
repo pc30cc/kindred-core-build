@@ -108,7 +108,7 @@ async function postJson(path: string, body: unknown, timeoutMs = 30_000) {
 }
 
 export default function InvitePage() {
-  const { t, locale } = useTranslation();
+  const { t, locale, dir } = useTranslation();
   const navigate = useNavigate();
   const { user, isLoading: authLoading, signOut } = useAuth();
   /**

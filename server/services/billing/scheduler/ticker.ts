@@ -51,6 +51,7 @@ let lastRun: {
   activation: unknown;
   dunning: unknown;
   grace: unknown;
+  trials?: unknown;
   notifications: unknown;
 } | null = null;
 let lastError: { at: string; message: string } | null = null;
@@ -86,6 +87,9 @@ export async function tick(config: ServerConfig): Promise<void> {
     const activation = await runPeriodActivation(config);
     const dunning = await runDunning(config);
     const grace = await runGraceExpiry(config);
+    const trials = await runTrialLifecycle(config).catch((err: any) => ({
+      error: String(err?.message || err),
+    }));
     // Delivery last, and isolated: a dead SMS provider must not make the tick
     // look like the financial workers failed.
     let notifications: unknown;
@@ -104,6 +108,7 @@ export async function tick(config: ServerConfig): Promise<void> {
       activation,
       dunning,
       grace,
+      trials,
       notifications,
     };
     lastError = null;

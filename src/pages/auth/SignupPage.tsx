@@ -7,12 +7,11 @@ import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
 import SignupStepAccount from '@/components/auth/SignupStepAccount';
 import SignupStepCompany from '@/components/auth/SignupStepCompany';
-import SignupStepAI from '@/components/auth/SignupStepAI';
 import signupIllustration from '@/assets/signup-illustration.jpg';
 import { fetchSignupPolicy } from '@/lib/emailOtp';
 
 
-const TOTAL_STEPS = 3;
+const TOTAL_STEPS = 2;
 
 export default function SignupPage() {
   const [params] = useSearchParams();

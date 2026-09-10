@@ -14,7 +14,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ShieldOff, Database, Mail, MessageSquare, KeyRound, RotateCcw } from 'lucide-react';
+import { ShieldOff, ShieldCheck, Database, Mail, MessageSquare, KeyRound, RotateCcw } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { formatPattern as format } from '@/lib/date';
 import {
@@ -69,6 +69,11 @@ export default function AdminVerificationPage() {
   const purposeDesc = (p: string) => t(`admin.verification.purposeDescriptions.${p}` as any);
   const channelLabel = (p: VerificationPurpose) => t(`admin.verification.channel.${CHANNELS[p]}` as any);
 
+  const activePurposes = useMemo(
+    () => (overview.data?.readiness.purposes ?? []).filter((p) => p.effectiveEnabled).map((p) => p.purpose),
+    [overview.data],
+  );
+
   return (
     <div className="space-y-6" dir={dir}>
       <div>
@@ -76,11 +81,22 @@ export default function AdminVerificationPage() {
         <p className="text-muted-foreground text-sm mt-1">{t('admin.verification.subtitle' as any)}</p>
       </div>
 
-      <Alert className="border-amber-500/40 bg-amber-500/10">
-        <ShieldOff className="h-4 w-4 text-amber-500" />
-        <AlertTitle className="text-amber-600">{t('admin.verification.banner.title' as any)}</AlertTitle>
-        <AlertDescription>{t('admin.verification.banner.description' as any)}</AlertDescription>
-      </Alert>
+      {activePurposes.length > 0 ? (
+        <Alert className="border-emerald-500/40 bg-emerald-500/10">
+          <ShieldCheck className="h-4 w-4 text-emerald-500" />
+          <AlertTitle className="text-emerald-600">{t('admin.verification.bannerActive.title' as any)}</AlertTitle>
+          <AlertDescription>
+            {t('admin.verification.bannerActive.description' as any)}{' '}
+            {activePurposes.map((p) => purposeName(p)).join('، ')}
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <Alert className="border-amber-500/40 bg-amber-500/10">
+          <ShieldOff className="h-4 w-4 text-amber-500" />
+          <AlertTitle className="text-amber-600">{t('admin.verification.banner.title' as any)}</AlertTitle>
+          <AlertDescription>{t('admin.verification.banner.description' as any)}</AlertDescription>
+        </Alert>
+      )}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>

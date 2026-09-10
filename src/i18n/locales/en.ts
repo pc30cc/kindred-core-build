@@ -3789,10 +3789,14 @@ const en = {
     },
     verification: {
       title: 'Verification & OTP',
-      subtitle: 'Manage the dormant Generic Verification Core — every purpose stays disabled until a real consumer is built and deployed.',
+      subtitle: 'Manage the Generic Verification Core — a purpose goes live only when its consumer is built and allowlisted in this deployment.',
       tabOverview: 'Overview',
       tabPurposes: 'Purposes',
       tabAudit: 'Audit history',
+      bannerActive: {
+        title: 'Active — verification is live in production',
+        description: 'Enabled purposes:',
+      },
       banner: {
         title: 'Dormant — no consumer enabled',
         description: 'This subsystem sends nothing in production. Settings here can only tighten policy values ahead of a future integration; they cannot turn a purpose on by themselves.',

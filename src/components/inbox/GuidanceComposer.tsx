@@ -77,6 +77,17 @@ export function GuidanceComposer({
     setBody('');
     idempotencyRef.current = randomKey();
     void loadEligibility();
+    // Eligibility changes as soon as the visitor writes again or a handoff
+    // resolves; without re-checking, the button stays stuck in its first state.
+    const timer = window.setInterval(() => void loadEligibility(), 10_000);
+    const onFocus = () => void loadEligibility();
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
   }, [conversationId, loadEligibility]);
 
   const blockedReason = useMemo(() => {

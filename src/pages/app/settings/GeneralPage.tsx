@@ -284,10 +284,10 @@ export default function SettingsGeneralPage() {
           <ContactField
             icon={<Phone className="h-3.5 w-3.5 text-muted-foreground" />}
             label={t('workspaceInfo.phone')}
-            placeholder="+1 (628) 123-4567"
+            placeholder="۰۲۱۱۲۳۴۵۶۷۸"
             defaultValue={contactInfo.phone}
             onSave={v => saveContact('phone', v)}
-            type="tel"
+            iranPhone
           />
           <ContactField
             icon={<MessageCircle className="h-3.5 w-3.5 text-muted-foreground" />}

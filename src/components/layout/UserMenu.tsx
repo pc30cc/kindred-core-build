@@ -73,7 +73,7 @@ export function UserMenu() {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2.5 rounded-2xl border border-border/60 bg-muted/40 px-2.5 py-2 transition-colors hover:bg-muted"
+        className="flex items-center gap-2.5 rounded-2xl px-1 py-1 transition-colors"
       >
         <div className="relative">
           <Avatar className="h-10 w-10 shrink-0">

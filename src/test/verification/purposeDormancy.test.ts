@@ -79,7 +79,7 @@ describe('Generic Verification Core — purpose registry is disabled by default'
     // account it belongs to — never an anonymous caller.
     expect(PURPOSE_POLICIES.signup_email.requiresAuth).toBe(true);
     expect(PURPOSE_POLICIES.signup_email.subjectBinding).toBe('user');
-    expect(assertChannelAllowed('signup_email', 'email')).toBeUndefined();
+    expect(() => assertChannelAllowed('signup_email', 'email')).not.toThrow();
   });
 
 

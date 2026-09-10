@@ -51,24 +51,46 @@ manifestRouter.get('/', async (req, res) => {
   const themeColor = (b.primary_color as string | null) || '#3B82F6';
   const backgroundColor = (b.pwa_background_color as string | null) || '#ffffff';
 
+  // The app may be served from a different host than this API
+  // (app.example.com vs api.example.com). A manifest is only usable when its
+  // start_url/scope are same-origin with the document, so the caller's origin
+  // is honoured when it is a well-formed absolute http(s) origin.
+  let base = '/';
+  const rawOrigin = typeof req.query.origin === 'string' ? req.query.origin : '';
+  if (rawOrigin) {
+    try {
+      const u = new URL(rawOrigin);
+      if ((u.protocol === 'https:' || u.protocol === 'http:') && u.origin === rawOrigin.replace(/\/+$/, '')) {
+        base = `${u.origin}/`;
+      }
+    } catch { /* ignore malformed origin */ }
+  }
+
+  // Relative icon paths belong to the APP origin, not this API host.
+  const icon = iconUrl.startsWith('/') && base !== '/' ? base.replace(/\/$/, '') + iconUrl : iconUrl;
+
   const manifest = {
     name,
     short_name: shortName,
     description: locRow?.meta_description || undefined,
-    start_url: '/',
-    scope: '/',
+    start_url: base,
+    scope: base,
     display: 'standalone',
     lang: effectiveLocale,
     dir: RTL_LOCALES.has(effectiveLocale) ? 'rtl' : 'ltr',
     theme_color: themeColor,
     background_color: backgroundColor,
     icons: [
-      { src: iconUrl, sizes: '192x192', type: guessMimeType(iconUrl), purpose: 'any' },
-      { src: iconUrl, sizes: '512x512', type: guessMimeType(iconUrl), purpose: 'any' },
-      { src: iconUrl, sizes: '512x512', type: guessMimeType(iconUrl), purpose: 'maskable' },
+      { src: icon, sizes: '192x192', type: guessMimeType(iconUrl), purpose: 'any' },
+      { src: icon, sizes: '512x512', type: guessMimeType(iconUrl), purpose: 'any' },
+      { src: icon, sizes: '512x512', type: guessMimeType(iconUrl), purpose: 'maskable' },
     ],
   };
 
+  // Cross-origin manifests are fetched with CORS (the <link> carries
+  // crossorigin="anonymous"), so the response must opt in explicitly.
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Vary', 'Origin');
   res.set('Content-Type', 'application/manifest+json; charset=utf-8');
   // Branding edits should propagate quickly without hammering the DB on
   // every page load — 5 minutes mirrors PlatformBrandingGate's own

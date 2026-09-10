@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useI18n } from '@/i18n';
 import { isNativePlatform } from '@/lib/native';
+import { API_BASE } from '@/lib/apiBase';
 
 interface PlatformBrandingRow {
   id: string;
@@ -96,7 +97,14 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
     // `pwa_enabled` is the operator's own kill switch (Super Admin →
     // Branding) for the installable-web-app feature on this deployment.
     const pwaOn = branding?.pwa_enabled !== false && !isNativePlatform();
-    const manifestHref = pwaOn ? `/api/manifest.webmanifest?locale=${encodeURIComponent(locale)}` : null;
+    // The API can live on a different host than the app (api.example.com vs
+    // app.example.com), so the manifest URL is built from the SAME base every
+    // other API call uses — a bare `/api/...` 404s on deployments whose app
+    // host does not proxy the API. `origin` lets the server emit a
+    // same-origin start_url/scope, which browsers require.
+    const manifestHref = pwaOn
+      ? `${API_BASE}/api/manifest.webmanifest?locale=${encodeURIComponent(locale)}&origin=${encodeURIComponent(window.location.origin)}`
+      : null;
     let manifestLink = document.querySelector('link[rel="manifest"]') as HTMLLinkElement | null;
     if (manifestHref) {
       if (!manifestLink) {
@@ -104,10 +112,12 @@ export function PlatformBrandingGate({ children }: { children: React.ReactNode }
         manifestLink.rel = 'manifest';
         document.head.appendChild(manifestLink);
       }
+      manifestLink.crossOrigin = 'anonymous';
       manifestLink.href = manifestHref;
     } else if (manifestLink) {
       manifestLink.remove();
     }
+
 
     const setMeta = (name: string, content: string | null, attr: 'name' | 'property' = 'name') => {
       let tag = document.querySelector(`meta[${attr}="${name}"]`) as HTMLMetaElement | null;

@@ -23,6 +23,10 @@ import { useOperatorHeartbeat } from '@/hooks/useOperatorHeartbeat';
 import { useOperatorPresenceChannel } from '@/hooks/useOperatorPresenceChannel';
 import { fetchSignupPolicy } from '@/lib/emailOtp';
 import { EmailOtpDialog } from '@/components/auth/EmailOtpDialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { PhoneVerificationFlow } from '@/features/phone-verification/PhoneVerificationFlow';
+import { usePhoneVerificationStatus } from '@/features/phone-verification/hooks';
+import { resolvePhoneStatus } from '@/features/phone-verification/status';
 
 
 // Cooldown between two resend attempts. The authoritative cooldown lives on

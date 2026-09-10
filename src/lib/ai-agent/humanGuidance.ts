@@ -70,6 +70,16 @@ export interface ReplyNowResponse {
 }
 
 
+/** Whose voice the AI uses when delivering an operator dictation. */
+export type SayNowAttribution = 'specialist' | 'assistant';
+
+export interface SayNowResponse {
+  ok: true;
+  messageId: string;
+  text: string;
+  runId: string | null;
+}
+
 export const humanGuidanceApi = {
   /** Active guidance + pending AI questions for a conversation. */
   getConversationGuidance(conversationId: string): Promise<ConversationGuidanceResponse> {

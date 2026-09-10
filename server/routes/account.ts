@@ -535,7 +535,7 @@ async function enrichIpForDisplay(config: ServerConfig, rawIp: string | null) {
       region: geo.region,
     };
   } catch {
-    return { ip_display: maskIp(rawIp), country: null, country_code: null, city: null, region: null };
+    return { ip_display: rawIp, country: null, country_code: null, city: null, region: null };
   }
 }
 

@@ -99,6 +99,20 @@ async function deriveAlerts(req: any, workspaceId: string, userId: string) {
     alerts.push({ id: 'email_unverified', kind: 'email_unverified', severity: 'warning' });
   }
 
+  // Phone verification — the number is the account's recovery/identity channel,
+  // so both "no number yet" and "number present but unverified" are surfaced.
+  const phoneState = await getPhoneVerificationState(config, userId).catch(() => null);
+  if (phoneState && !phoneState.verified) {
+    alerts.push({
+      id: 'phone_unverified',
+      kind: phoneState.phoneMasked || phoneState.phone ? 'phone_unverified' : 'phone_missing',
+      severity: 'warning',
+      params: phoneState.phoneMasked ? { phone: phoneState.phoneMasked } : undefined,
+      action: '/settings/profile',
+    });
+  }
+
+
   // ── 2. Subscription / trial lifecycle ────────────────────
   const sub = (planInfo as any)?.subscription ?? null;
   const plan = (planInfo as any)?.plan ?? null;

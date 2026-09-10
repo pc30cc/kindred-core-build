@@ -22,6 +22,7 @@ import {
   type GuidanceKind,
   type GuidanceScope,
   type ReplyNowEligibility,
+  type SayNowAttribution,
 } from '@/lib/ai-agent-api';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';

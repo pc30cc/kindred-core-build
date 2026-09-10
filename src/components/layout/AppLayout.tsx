@@ -21,6 +21,8 @@ import { OperatorCallProvider } from '@/features/calls/OperatorCallContext';
 import { FloatingOperatorCallWindow } from '@/features/calls/FloatingOperatorCallWindow';
 import { useOperatorHeartbeat } from '@/hooks/useOperatorHeartbeat';
 import { useOperatorPresenceChannel } from '@/hooks/useOperatorPresenceChannel';
+import { fetchSignupPolicy } from '@/lib/emailOtp';
+
 
 // Cooldown between two resend attempts. The authoritative cooldown lives on
 // the server (`/api/account/resend-verification` answers 429 with

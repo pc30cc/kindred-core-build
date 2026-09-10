@@ -37,6 +37,38 @@ function promptForUpdate(registration: ServiceWorkerRegistration) {
   });
 }
 
+/**
+ * Preview/dev/iframe contexts rebuild assets constantly, so a caching worker
+ * there only produces an endless "new version available" prompt. In those
+ * contexts we actively unregister any worker instead of registering one.
+ */
+function isDisallowedContext(): boolean {
+  if (!import.meta.env.PROD) return true;
+  try { if (window.self !== window.top) return true; } catch { return true; }
+  const h = window.location.hostname;
+  if (h.startsWith('id-preview--') || h.startsWith('preview--')) return true;
+  if (h === 'lovableproject.com' || h.endsWith('.lovableproject.com')) return true;
+  if (h === 'lovableproject-dev.com' || h.endsWith('.lovableproject-dev.com')) return true;
+  if (h === 'beta.lovable.dev' || h.endsWith('.beta.lovable.dev')) return true;
+  if (h === 'localhost' || h === '127.0.0.1') return true;
+  if (new URLSearchParams(window.location.search).has('sw') && new URLSearchParams(window.location.search).get('sw') === 'off') return true;
+  return false;
+}
+
+async function unregisterAppWorkers(): Promise<void> {
+  try {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(
+      regs
+        .filter((r) => {
+          const url = r.active?.scriptURL || r.waiting?.scriptURL || r.installing?.scriptURL || '';
+          return url.endsWith('/sw.js');
+        })
+        .map((r) => r.unregister()),
+    );
+  } catch { /* best effort */ }
+}
+
 export function registerServiceWorker(): void {
   if (typeof window === 'undefined') return;
   if (!('serviceWorker' in navigator)) return;
@@ -44,6 +76,8 @@ export function registerServiceWorker(): void {
   // directly (capacitor.config.ts webDir), not this page over the network —
   // a caching worker there would only risk fighting the native bundle.
   if (isNativePlatform()) return;
+  if (isDisallowedContext()) { void unregisterAppWorkers(); return; }
+
 
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then((registration) => {

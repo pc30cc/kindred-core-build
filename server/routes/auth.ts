@@ -603,3 +603,21 @@ authSecurityRouter.post('/verify-captcha', authRateLimiter, async (req, res) => 
     return res.status(500).json({ error: 'Captcha verification error' });
   }
 });
+
+/**
+ * GET /api/auth/signup-policy
+ * PUBLIC (no session): the signup page needs to know, before an account
+ * exists, whether verification is delivered as a link or a code and
+ * whether the new user may enter their workspace right away. Exposes
+ * nothing beyond those two operator-chosen, non-sensitive values.
+ */
+authSecurityRouter.get('/signup-policy', async (req, res) => {
+  try {
+    const config: ServerConfig = (req as any).serverConfig;
+    const policy = await getSignupVerificationPolicy(config);
+    return res.json(policy);
+  } catch (err) {
+    console.error('[auth] signup-policy error:', err);
+    return res.json({ method: 'link', gate: 'before' });
+  }
+});

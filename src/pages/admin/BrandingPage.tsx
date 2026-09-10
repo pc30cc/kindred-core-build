@@ -363,10 +363,9 @@ function SettingsSection() {
   const [maintenanceMode, setMaintenanceMode] = useState(false);
   const [maintenanceMessage, setMaintenanceMessage] = useState('');
   const [localeBillingProviders, setLocaleBillingProviders] = useState<Record<string, string>>({});
-  // Signup verification: how the code/link is delivered, and whether a
-  // workspace exists before the email is verified. Independent choices.
-  const [signupMethod, setSignupMethod] = useState<'link' | 'otp'>('link');
-  const [signupGate, setSignupGate] = useState<'before' | 'after'>('before');
+  // Signup verification (method/gate) now lives in Super Admin →
+  // Verification & OTP (SignupDeliveryCard) — never written from here, so
+  // saving general settings can't overwrite it with a stale value.
   const [settingsDirty, setSettingsDirty] = useState(false);
 
 
@@ -380,8 +379,6 @@ function SettingsSection() {
       setMaintenanceMode((settings as any).maintenance_mode ?? false);
       setMaintenanceMessage((settings as any).maintenance_message ?? '');
       setLocaleBillingProviders((settings as any).locale_billing_providers ?? {});
-      setSignupMethod((settings as any).signup_verification_method === 'otp' ? 'otp' : 'link');
-      setSignupGate((settings as any).signup_verification_gate === 'after' ? 'after' : 'before');
       setSettingsDirty(false);
 
     }
@@ -422,8 +419,6 @@ function SettingsSection() {
       maintenance_mode: maintenanceMode,
       maintenance_message: maintenanceMessage || null,
       locale_billing_providers: localeBillingProviders,
-      signup_verification_method: signupMethod,
-      signup_verification_gate: signupGate,
     };
 
     try {
@@ -528,47 +523,6 @@ function SettingsSection() {
 
               <Separator />
 
-              {/* ── Signup email verification ── */}
-              <div className="space-y-4">
-                <div>
-                  <Label className="text-sm font-medium">{t('admin.brandingPage.settings.general.signupVerification' as any)}</Label>
-                  <p className="text-xs text-muted-foreground">{t('admin.brandingPage.settings.general.signupVerificationHint' as any)}</p>
-                </div>
-                <div className="grid gap-5 md:grid-cols-2">
-                  <div className="grid gap-1.5">
-                    <Label>{t('admin.brandingPage.settings.general.signupMethod' as any)}</Label>
-                    <Select value={signupMethod} onValueChange={(v) => { setSignupMethod(v as 'link' | 'otp'); setSettingsDirty(true); }}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="link">{t('admin.brandingPage.settings.general.signupMethodLink' as any)}</SelectItem>
-                        <SelectItem value="otp">{t('admin.brandingPage.settings.general.signupMethodOtp' as any)}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      {signupMethod === 'otp'
-                        ? t('admin.brandingPage.settings.general.signupMethodOtpHint' as any)
-                        : t('admin.brandingPage.settings.general.signupMethodLinkHint' as any)}
-                    </p>
-                  </div>
-                  <div className="grid gap-1.5">
-                    <Label>{t('admin.brandingPage.settings.general.signupGate' as any)}</Label>
-                    <Select value={signupGate} onValueChange={(v) => { setSignupGate(v as 'before' | 'after'); setSettingsDirty(true); }}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="before">{t('admin.brandingPage.settings.general.signupGateBefore' as any)}</SelectItem>
-                        <SelectItem value="after">{t('admin.brandingPage.settings.general.signupGateAfter' as any)}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      {signupGate === 'after'
-                        ? t('admin.brandingPage.settings.general.signupGateAfterHint' as any)
-                        : t('admin.brandingPage.settings.general.signupGateBeforeHint' as any)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
 
 
               <div className="space-y-4">

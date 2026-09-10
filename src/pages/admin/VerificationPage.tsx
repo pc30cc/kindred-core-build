@@ -24,6 +24,7 @@ import {
   type PurposeBaseline,
 } from '@/hooks/useVerificationAdmin';
 import type { Locale } from '@/i18n/config';
+import SignupDeliveryCard from './verification/SignupDeliveryCard';
 
 const CHANNELS: Record<VerificationPurpose, 'email' | 'sms' | 'emailAndSms'> = {
   signup_email: 'email',
@@ -90,6 +91,7 @@ export default function AdminVerificationPage() {
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
+          <SignupDeliveryCard />
           <Card>
             <CardHeader><CardTitle className="text-base">{t('admin.verification.readiness.title' as any)}</CardTitle></CardHeader>
             <CardContent className="grid gap-3 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">

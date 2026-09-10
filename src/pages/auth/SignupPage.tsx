@@ -33,8 +33,6 @@ export default function SignupPage() {
   // Step 2 fields
   const [companyName, setCompanyName] = useState('');
   const [websiteDomain, setWebsiteDomain] = useState('');
-  const [mainGoal, setMainGoal] = useState('');
-  const [aiMode, setAiMode] = useState<'ai_first' | 'human_first' | ''>('');
 
   const [loading, setLoading] = useState(false);
 

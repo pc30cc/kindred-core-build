@@ -124,8 +124,6 @@ export default function SignupPage() {
         navigate('/app');
       } else if (policy.method === 'otp') {
         navigate('/auth/verify-otp');
-      } else if (policy.gate === 'after') {
-        navigate('/app');
       } else {
         navigate(`/auth/check-email?email=${encodeURIComponent(trimmedEmail)}`);
       }

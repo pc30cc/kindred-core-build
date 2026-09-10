@@ -87,7 +87,7 @@ export function WorkspaceRedirect() {
           console.error('Auto-provision failed:', err);
           const raw = String(err?.message || '');
           if (raw === 'email_verification_required') {
-            setError(t('workspaceRedirect.emailVerificationRequired'));
+            setNeedsVerification(true);
           } else if (err instanceof TypeError || /failed to fetch|network/i.test(raw)) {
             setError(t('workspaceRedirect.connectionFailed'));
           } else {

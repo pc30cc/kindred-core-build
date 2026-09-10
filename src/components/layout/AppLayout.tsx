@@ -322,6 +322,7 @@ export function AppLayout() {
           {/* Verification notice sits at the BOTTOM so it never pushes the
               page header down; resend is wired to the self-hosted mailer. */}
           {showVerificationBanner && <EmailVerificationBar />}
+          <PhoneVerificationBar />
           {isMobile && (
             <div
               aria-hidden

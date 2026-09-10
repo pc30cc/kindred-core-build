@@ -9,6 +9,7 @@ import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
 import { CommerceError } from '../../../shared/commerce/types.js';
 import { startGuestOrderVerification, confirmGuestOrderVerification } from '../../services/commerce/guestVerification.js';
+import { getClientIp } from '../../utils/clientIp.js';
 
 export const commerceGuestVerificationRouter = Router();
 

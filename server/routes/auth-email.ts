@@ -23,6 +23,7 @@ import {
   EmailOtpUnavailableError,
   EmailOtpRateLimitedError,
 } from '../services/auth/emailOtp.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 
 export const authEmailRouter = Router();

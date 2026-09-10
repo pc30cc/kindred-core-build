@@ -122,6 +122,65 @@ export function WorkspaceRedirect() {
     return <Navigate to={`/${workspaces[0].slug}${legacySuffix}${location.search}`} replace />;
   }
 
+  if (needsVerification) {
+    const handleResend = async () => {
+      setResending(true);
+      try {
+        await resendMyVerificationEmail(locale);
+        toast.success(t('auth.verificationResent'));
+      } catch {
+        toast.error(t('auth.error'));
+      }
+      setResending(false);
+    };
+
+    return (
+      <div dir={dir} className="flex min-h-screen items-center justify-center bg-background p-4">
+        <div className="w-full max-w-md text-center space-y-6">
+          <div className="mx-auto w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
+            <Mail className="h-10 w-10 text-primary" />
+          </div>
+
+          <div className="space-y-2">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              {t('auth.checkEmailTitle')}
+            </h1>
+            <p className="text-muted-foreground text-sm leading-relaxed max-w-sm mx-auto">
+              {t('workspaceRedirect.emailVerificationRequired')}
+            </p>
+            {user?.email && (
+              <p className="text-sm font-medium text-foreground" dir="ltr">{user.email}</p>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <Button
+              variant="default"
+              onClick={() => {
+                attempted.current = false;
+                setNeedsVerification(false);
+                setError(null);
+                refetch();
+              }}
+              className="w-full sm:w-auto gap-2"
+            >
+              <RefreshCw className="h-4 w-4" />
+              {t('workspaceRedirect.tryAgain')}
+            </Button>
+            <Button variant="outline" onClick={handleResend} disabled={resending} className="w-full sm:w-auto gap-2">
+              <RefreshCw className={`h-4 w-4 ${resending ? 'animate-spin' : ''}`} />
+              {t('auth.resendEmail')}
+            </Button>
+            <Button variant="ghost" onClick={() => signOut()} className="w-full sm:w-auto gap-2">
+              <LogOut className="h-4 w-4" />
+              {t('workspaceRedirect.signOut')}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div dir={dir} className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-md text-center space-y-6">

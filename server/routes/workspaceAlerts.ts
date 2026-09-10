@@ -16,6 +16,7 @@ import { getServiceClient } from '../supabase.js';
 import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { getWorkspacePlanInfo } from '../middleware/featureGating.js';
 import { findIdentityById } from '../services/auth/identity.js';
+import { getPhoneVerificationState } from '../services/phoneVerification/index.js';
 
 export const workspaceAlertsRouter = Router();
 

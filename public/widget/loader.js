@@ -2395,15 +2395,20 @@
           }
         }
       };
-      ws.onclose = function () {
+      ws.onclose = function (ev) {
         ws = null;
         pending = {};
         clearRefresh();
         setOwns(false);
         // Re-negotiate rather than reusing the old tokens: they may have
         // expired, and in app-routed mode another node may now be the right
-        // endpoint.
-        scheduleRetry('closed');
+        // endpoint. The close code is logged because a repeating presence
+        // retry is almost always a server-side rejection (bad token: 3500,
+        // unknown channel / namespace misconfiguration: 3501+), and without
+        // it the log says only "closed".
+        scheduleRetry(
+          'closed code=' + (ev && ev.code) + (ev && ev.reason ? ' ' + ev.reason : ''),
+        );
       };
       ws.onerror = function () { setOwns(false); };
     }

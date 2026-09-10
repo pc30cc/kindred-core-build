@@ -29,6 +29,18 @@
       "allow_presence_for_client": true,
       "allow_history_for_client": true,
       "subscribe_for_anonymous": false
+    },
+    {
+      "_comment": "Visitor live presence (vp:v2:{workspace_id}:{session_id}). Membership IS the presence signal; only the backend may read it with the API key, so allow_presence_for_client MUST stay false. Must match CENTRIFUGO_NAMESPACES in the compose files.",
+      "name": "vp",
+      "presence": true,
+      "join_leave": false,
+      "history_size": 0,
+      "allow_subscribe_for_client": false,
+      "allow_publish_for_client": false,
+      "allow_presence_for_client": false,
+      "allow_history_for_client": false,
+      "subscribe_for_anonymous": false
     }
   ],
 

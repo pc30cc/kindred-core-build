@@ -3781,6 +3781,8 @@ const tr: TranslationKeys = {
       title: 'Temel ayarlar',
       subtitle: 'Platform genelindeki davranış ayarları tek yerde.',
       tabSignup: 'Kayıt ayarları',
+      signupNotSupported: 'Mevcut sunucu sürümü bu ayarı henüz desteklemiyor; yeni sürüm yayınlandığında kaydedilecek.',
+
     },
     verification: {
       title: 'Doğrulama ve OTP',

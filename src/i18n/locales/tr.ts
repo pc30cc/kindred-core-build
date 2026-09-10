@@ -179,6 +179,13 @@ const tr: TranslationKeys = {
       FORBIDDEN: 'Bu işlem için yetkiniz yok.',
     },
   },
+  planBanner: {
+    trialTitle: 'Deneme planındasınız',
+    trialDesc: '{{days}} gün sonra sona erecek ve Ücretsiz plana geçecek.',
+    freeTitle: 'Ücretsiz plandasınız',
+    freeDesc: 'Tüm özellikleri kullanmak için planınızı yükseltin.',
+    upgradeCta: 'Planı yükselt',
+  },
   billingIran: {
     pageTitle: 'Plan ve Ödeme', pageSubtitle: 'Çalışma alanı planınızı, kredinizi ve ödemelerinizi yönetin.',
     tabs: { overview: 'Genel Bakış', plans: 'Planlar', aiCredit: 'AI Kredisi', transactions: 'İşlemler' },

@@ -179,6 +179,13 @@ const fa: TranslationKeys = {
       FORBIDDEN: 'شما اجازه انجام این عملیات را ندارید.',
     },
   },
+  planBanner: {
+    trialTitle: 'پلن شما آزمایشی است',
+    trialDesc: '{{days}} روز دیگر تمام می‌شود و به نسخه رایگان تبدیل می‌شود.',
+    freeTitle: 'نسخه شما رایگان است',
+    freeDesc: 'برای استفاده از همه امکانات سایت، پلن خود را ارتقا دهید.',
+    upgradeCta: 'ارتقای پلن',
+  },
   billingIran: {
     pageTitle: 'پلن و پرداخت', pageSubtitle: 'پلن، اعتبار و پرداخت‌های فضای کاری خود را مدیریت کنید.',
     tabs: { overview: 'نمای کلی', plans: 'پلن‌ها', aiCredit: 'اعتبار هوش مصنوعی', transactions: 'تراکنش‌ها' },

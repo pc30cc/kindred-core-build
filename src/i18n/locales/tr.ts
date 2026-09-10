@@ -708,7 +708,7 @@ const tr: TranslationKeys = {
       replyNowHandoff: 'Yapay zekâ görüşmeyi operatöre aktardı',
       replyNowNoReply: 'Yapay zekâ yanıt göndermedi',
       replyNowFailed: 'Yapay zekâ yanıtı oluşturulamadı',
-      modeGuide: 'Özel yönlendirme',
+      tabGuide: 'Özel yönlendirme',
       modeSayNow: 'Şimdi söyle',
       sayNowBadge: 'Ziyaretçiye gönderilir',
       sayNowAction: 'Yapay zekâ ile gönder',

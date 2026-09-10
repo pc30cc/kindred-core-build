@@ -245,7 +245,7 @@ export function GuidanceComposer({
               mode === m ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            {m === 'guide' ? t('inbox.guidance.modeGuide') : t('inbox.guidance.modeSayNow')}
+            {m === 'guide' ? t('inbox.guidance.tabGuide') : t('inbox.guidance.modeSayNow')}
           </button>
         ))}
       </div>

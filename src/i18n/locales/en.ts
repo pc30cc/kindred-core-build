@@ -706,7 +706,7 @@ const en = {
       replyNowHandoff: 'The AI escalated this to a human',
       replyNowNoReply: 'The AI did not send a reply',
       replyNowFailed: 'AI reply failed',
-      modeGuide: 'Private guidance',
+      tabGuide: 'Private guidance',
       modeSayNow: 'Say this now',
       sayNowBadge: 'Sent to visitor',
       sayNowAction: 'Send via AI',

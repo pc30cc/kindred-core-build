@@ -708,7 +708,7 @@ const fa: TranslationKeys = {
       replyNowHandoff: 'هوش مصنوعی گفتگو را به اپراتور ارجاع داد',
       replyNowNoReply: 'هوش مصنوعی پاسخی ارسال نکرد',
       replyNowFailed: 'تولید پاسخ هوش مصنوعی ناموفق بود',
-      modeGuide: 'راهنمایی خصوصی',
+      tabGuide: 'راهنمایی خصوصی',
       modeSayNow: 'همین حالا بگو',
       sayNowBadge: 'ارسال به بازدیدکننده',
       sayNowAction: 'ارسال با هوش مصنوعی',

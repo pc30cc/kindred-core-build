@@ -162,7 +162,16 @@
         headers: { 'Content-Type': 'application/json', 'X-Widget-Token': token },
         body: JSON.stringify({ workspace_id: cfg.workspaceId || undefined }),
       })
-        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (r) {
+          // A rejected refresh means the token is past any grace window:
+          // throw it away so nothing keeps replaying a dead credential.
+          if (!r.ok) {
+            if (r.status === 401 || r.status === 403) { try { bus.discard(); } catch (_) {} }
+            return null;
+          }
+          return r.json();
+        })
+
         .then(adopt)
         .catch(function () { return null; })
         .then(clearRefresh, function () { return clearRefresh(null); });

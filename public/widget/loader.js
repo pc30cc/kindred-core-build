@@ -969,7 +969,74 @@
     }
     if (launcherEl) launcherEl.classList.toggle("open", !!isOpen);
     if (fabLabelEl) fabLabelEl.classList.toggle("open", !!isOpen);
+    applyMobileFullScreen(!!isOpen);
     return isOpen;
+  }
+
+  // ─── Mobile: panel is pinned to the visitor's screen ─────────────────
+  // On phones an open panel must behave like a native sheet: it covers the
+  // visual viewport, follows the on-screen keyboard (visualViewport) and the
+  // host page behind it must not scroll. Desktop is untouched.
+  var mobileLockState = null;
+  function isPhoneViewport() {
+    try { return window.matchMedia("(max-width:640px)").matches; } catch (_) { return false; }
+  }
+  function syncVisualViewport() {
+    if (!shellContentEl) return;
+    var vv = window.visualViewport;
+    var h = vv ? vv.height : window.innerHeight;
+    shellContentEl.style.setProperty("--gs-vvh", Math.round(h) + "px");
+    // Keep the shell glued to the top of the *visual* viewport while the
+    // keyboard or the mobile URL bar shifts it.
+    shellContentEl.style.setProperty("--gs-vvo", Math.round((vv && vv.offsetTop) || 0) + "px");
+    if (mobileLockState) shellContentEl.style.transform = "translateY(" + Math.round((vv && vv.offsetTop) || 0) + "px)";
+  }
+  function applyMobileFullScreen(open) {
+    if (!shellContentEl) return;
+    var want = open && isPhoneViewport();
+    if (want === !!mobileLockState) { if (want) syncVisualViewport(); return; }
+    if (want) {
+      var body = document.body;
+      var docEl = document.documentElement;
+      mobileLockState = {
+        scrollY: window.scrollY || window.pageYOffset || 0,
+        bodyOverflow: body.style.overflow,
+        bodyPosition: body.style.position,
+        bodyTop: body.style.top,
+        bodyWidth: body.style.width,
+        docOverscroll: docEl.style.overscrollBehavior,
+      };
+      shellContentEl.classList.add("gs-mobile-open");
+      body.style.position = "fixed";
+      body.style.top = "-" + mobileLockState.scrollY + "px";
+      body.style.width = "100%";
+      body.style.overflow = "hidden";
+      docEl.style.overscrollBehavior = "none";
+      syncVisualViewport();
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", syncVisualViewport);
+        window.visualViewport.addEventListener("scroll", syncVisualViewport);
+      }
+      window.addEventListener("orientationchange", syncVisualViewport);
+    } else {
+      var st = mobileLockState;
+      mobileLockState = null;
+      shellContentEl.classList.remove("gs-mobile-open");
+      shellContentEl.style.transform = "";
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", syncVisualViewport);
+        window.visualViewport.removeEventListener("scroll", syncVisualViewport);
+      }
+      window.removeEventListener("orientationchange", syncVisualViewport);
+      if (st) {
+        document.body.style.position = st.bodyPosition;
+        document.body.style.top = st.bodyTop;
+        document.body.style.width = st.bodyWidth;
+        document.body.style.overflow = st.bodyOverflow;
+        document.documentElement.style.overscrollBehavior = st.docOverscroll;
+        window.scrollTo(0, st.scrollY);
+      }
+    }
   }
 
   function triggerOpen() {

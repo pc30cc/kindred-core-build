@@ -526,7 +526,9 @@ async function enrichIpForDisplay(config: ServerConfig, rawIp: string | null) {
       ip_hash: hashIp(rawIp),
     });
     return {
-      ip_display: maskIp(rawIp),
+      // Own-account security page: show the real address, not a masked one,
+      // so the operator can match it with the resolved location.
+      ip_display: rawIp,
       country: geo.country,
       country_code: geo.country_code,
       city: geo.city,

@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/hooks/use-toast';
 import { pluginsApi } from '@/lib/plugins-api';
 import { TelegramConfigPanel } from '@/components/plugins/TelegramConfigPanel';
+import { WooCommerceConfigPanel } from '@/components/plugins/WooCommerceConfigPanel';
 import { PluginLogo } from '@/components/plugins/PluginLogo';
 import { findBotProvider } from '../../../shared/channels/botProviders';
 
@@ -182,6 +183,8 @@ export default function PluginDetailPage() {
 
 
         </Tabs>
+      ) : pluginId === 'woocommerce' && !blocked ? (
+        <WooCommerceConfigPanel workspaceId={workspaceId} />
       ) : (
         !blocked && (
           <Card className="p-10 text-center text-sm text-muted-foreground">

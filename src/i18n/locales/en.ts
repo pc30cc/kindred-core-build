@@ -101,7 +101,7 @@ const en = {
       },
       feat: {
         chat_widget: 'Website chat widget',
-        telegram: 'Telegram', whatsapp: 'WhatsApp', instagram: 'Instagram', bale: 'Bale', sms: 'SMS', email: 'Email',
+        telegram: 'Telegram', whatsapp: 'WhatsApp', instagram: 'Instagram', x: 'X (Twitter)', bale: 'Bale', sms: 'SMS', email: 'Email',
         omnichannel: 'Omnichannel inbox',
         ai_assistant: 'AI assistant',
         advanced_ai_agent: 'Advanced AI agent',
@@ -6254,6 +6254,16 @@ const en = {
       pageIdHint: 'Optional — the Facebook Page connected to this Instagram account.',
       webhookSetupTitle: 'Configure the webhook in the Meta dashboard',
       webhookSetupHint: 'Paste this callback URL and verify token into your Meta app Webhooks section and subscribe to the Instagram messages event.',
+    },
+    x: {
+      name: 'X (Twitter)',
+      description: 'Receive and reply to X Direct Messages right in your Inbox.',
+      apiKey: 'API key',
+      apiKeyHint: 'From your app in the X Developer Portal. Direct Message access requires at least the Basic API tier.',
+      apiSecret: 'API key secret',
+      accessToken: 'Access token',
+      accessTokenHint: "The connected X account's access token (OAuth 1.0a User Context), generated in the Developer Portal.",
+      accessTokenSecret: 'Access token secret',
     },
     whatsapp: {
       phoneNumberId: "Phone Number ID",

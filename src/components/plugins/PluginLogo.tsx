@@ -11,6 +11,7 @@ import {
   siTelegram,
   siWhatsapp,
   siInstagram,
+  siX,
   siMessenger,
   siDiscord,
   siShopify,
@@ -61,6 +62,7 @@ const MARKS: Record<string, Mark> = {
   },
   whatsapp: si(siWhatsapp),
   instagram: si(siInstagram, 'E1306C'),
+  x: si(siX),
   messenger: si(siMessenger),
   discord: si(siDiscord),
   // Slack's official mark is four-colour; simple-icons doesn't ship it.

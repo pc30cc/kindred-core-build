@@ -103,7 +103,7 @@ const fa: TranslationKeys = {
       },
       feat: {
         chat_widget: 'ویجت گفتگوی سایت',
-        telegram: 'تلگرام', whatsapp: 'واتساپ', instagram: 'اینستاگرام', bale: 'بله', sms: 'پیامک', email: 'ایمیل',
+        telegram: 'تلگرام', whatsapp: 'واتساپ', instagram: 'اینستاگرام', x: 'ایکس (توییتر)', bale: 'بله', sms: 'پیامک', email: 'ایمیل',
         omnichannel: 'صندوق ورودی چندکاناله',
         ai_assistant: 'دستیار هوش مصنوعی',
         advanced_ai_agent: 'عامل هوشمند پیشرفته',
@@ -6238,6 +6238,16 @@ const fa: TranslationKeys = {
       pageIdHint: 'اختیاری — صفحه فیسبوکی که به این حساب اینستاگرام متصل است.',
       webhookSetupTitle: 'تنظیم وب‌هوک در داشبورد Meta',
       webhookSetupHint: 'این آدرس و توکن تأیید را در بخش Webhooks اپلیکیشن Meta وارد کنید و رویداد پیام‌های اینستاگرام را فعال کنید.',
+    },
+    x: {
+      name: 'ایکس (توییتر)',
+      description: 'پیام‌های دایرکت ایکس را مستقیماً در صندوق ورودی دریافت کنید و پاسخ دهید.',
+      apiKey: 'کلید API',
+      apiKeyHint: 'از اپلیکیشن شما در X Developer Portal. دسترسی به پیام مستقیم حداقل به سطح Basic از API نیاز دارد.',
+      apiSecret: 'رمز کلید API',
+      accessToken: 'توکن دسترسی',
+      accessTokenHint: 'توکن دسترسی حساب ایکس متصل (OAuth 1.0a User Context)، ساخته‌شده در Developer Portal.',
+      accessTokenSecret: 'رمز توکن دسترسی',
     },
     whatsapp: {
       phoneNumberId: "شناسه شماره تلفن (Phone Number ID)",

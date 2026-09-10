@@ -12,7 +12,7 @@
  * provider id in feature code, read the capability flag instead.
  */
 
-export const BOT_PROVIDER_IDS = ['telegram', 'bale', 'whatsapp', 'instagram'] as const;
+export const BOT_PROVIDER_IDS = ['telegram', 'bale', 'whatsapp', 'instagram', 'x'] as const;
 export type BotProviderId = (typeof BOT_PROVIDER_IDS)[number];
 
 /**
@@ -20,7 +20,7 @@ export type BotProviderId = (typeof BOT_PROVIDER_IDS)[number];
  * neutral (text + a keyboard description); the Worker translates it into the
  * dialect right before the socket, so no feature code ever branches on ids.
  */
-export type BotApiDialect = 'telegram-bot' | 'whatsapp-cloud' | 'instagram-graph';
+export type BotApiDialect = 'telegram-bot' | 'whatsapp-cloud' | 'instagram-graph' | 'x-dm';
 
 /** Markup a provider actually renders in a chat bubble. */
 export type BotTextFormat = 'html' | 'whatsapp' | 'plain';
@@ -69,15 +69,24 @@ export type BotProviderDescriptor = {
    */
   supportsWebhookRegistration: boolean;
   /** Inline/reply keyboards vs. WhatsApp interactive buttons + list rows. */
-  keyboardStyle: 'telegram' | 'whatsapp-interactive' | 'instagram-quick-reply';
+  keyboardStyle: 'telegram' | 'whatsapp-interactive' | 'instagram-quick-reply' | 'none';
   /** Max buttons a single screen may carry (WhatsApp caps hard). */
   maxButtonsPerScreen: number;
   /** Credential shape accepted by the connect endpoint. */
-  credentialKind: 'bot_token' | 'whatsapp_cloud' | 'instagram_graph';
+  credentialKind: 'bot_token' | 'whatsapp_cloud' | 'instagram_graph' | 'x_dm';
   /** Plan channel entitlement key in the capability registry. */
   planChannelKey: string;
   /** Encrypted credential slots in `plugin_secrets`. */
   secretKeys: { live: string; pending: string; previous: string };
+  /**
+   * X has no broadly-available real-time DM webhook (Account Activity API
+   * replay requires Enterprise access), so its inbox is kept fresh by the
+   * Channels Worker polling `GET /2/dm_events` on a self-rescheduling job
+   * instead of a provider-pushed callback. Every other provider is pure
+   * webhook push, so this defaults to false and is never read outside the
+   * worker's poll-job seeding/loop.
+   */
+  supportsPolling?: boolean;
 };
 
 function secretKeys(provider: BotProviderId) {
@@ -199,6 +208,40 @@ const DESCRIPTORS: Record<BotProviderId, BotProviderDescriptor> = {
     credentialKind: 'instagram_graph',
     planChannelKey: 'instagram',
     secretKeys: secretKeys('instagram'),
+  },
+  x: {
+    id: 'x',
+    label: 'X (Twitter)',
+    // X Direct Messages, API v2. No push webhook on accessible API tiers, so
+    // the Worker polls instead — see `supportsPolling` below.
+    dialect: 'x-dm',
+    apiRoot: 'https://api.twitter.com',
+    apiVersion: '2',
+    // Credential envelope: OAuth 1.0a User Context, the only auth mode X's DM
+    // endpoints reliably accept and the one that never silently expires like
+    // an OAuth2 user-context bearer token would.
+    // { api_key, api_secret, access_token, access_token_secret }.
+    tokenPattern: /^\{[\s\S]*"access_token_secret"[\s\S]*\}$/,
+    webhookSecretHeader: null,
+    supportsSecretToken: false,
+    supportsAllowedUpdates: false,
+    // Display name/bio are edited in the X app, never through this API.
+    supportsBotProfile: false,
+    supportsCommands: false,
+    // No typing-indicator endpoint on the DM API.
+    supportsChatAction: false,
+    // `GET /2/users/:id?user.fields=profile_image_url` returns an avatar URL.
+    supportsUserProfilePhotos: true,
+    supportsHtmlFormatting: false,
+    textFormat: 'plain',
+    supportsWebhookRegistration: false,
+    // No quick replies / buttons on the DM API — plain text only.
+    keyboardStyle: 'none',
+    maxButtonsPerScreen: 0,
+    credentialKind: 'x_dm',
+    planChannelKey: 'x',
+    secretKeys: secretKeys('x'),
+    supportsPolling: true,
   },
 };
 

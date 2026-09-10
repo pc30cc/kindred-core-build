@@ -103,7 +103,7 @@ const tr: TranslationKeys = {
       },
       feat: {
         chat_widget: 'Web sitesi sohbet widget’ı',
-        telegram: 'Telegram', whatsapp: 'WhatsApp', instagram: 'Instagram', bale: 'Bale', sms: 'SMS', email: 'E-posta',
+        telegram: 'Telegram', whatsapp: 'WhatsApp', instagram: 'Instagram', x: 'X (Twitter)', bale: 'Bale', sms: 'SMS', email: 'E-posta',
         omnichannel: 'Çok kanallı gelen kutusu',
         ai_assistant: 'YZ asistanı',
         advanced_ai_agent: 'Gelişmiş YZ ajanı',
@@ -6174,6 +6174,16 @@ const tr: TranslationKeys = {
       pageIdHint: 'İsteğe bağlı — bu Instagram hesabına bağlı Facebook Sayfası.',
       webhookSetupTitle: 'Webhook’u Meta panosunda yapılandırın',
       webhookSetupHint: 'Bu geri arama adresini ve doğrulama belirtecini Meta uygulamanızın Webhooks bölümüne girin ve Instagram mesaj olayına abone olun.',
+    },
+    x: {
+      name: 'X (Twitter)',
+      description: 'X Direkt Mesajlarını doğrudan Gelen Kutusu’nda alın ve yanıtlayın.',
+      apiKey: 'API anahtarı',
+      apiKeyHint: 'X Developer Portal’daki uygulamanızdan. Direkt Mesaj erişimi en az Basic API katmanını gerektirir.',
+      apiSecret: 'API anahtarı sırrı',
+      accessToken: 'Erişim belirteci',
+      accessTokenHint: 'Bağlı X hesabının erişim belirteci (OAuth 1.0a User Context), Developer Portal’da oluşturulur.',
+      accessTokenSecret: 'Erişim belirteci sırrı',
     },
     whatsapp: {
       phoneNumberId: "Telefon Numarası Kimliği",

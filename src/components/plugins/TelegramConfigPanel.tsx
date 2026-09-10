@@ -120,7 +120,7 @@ export function TelegramConfigPanel({
 }: {
   workspaceId: string;
   section: TelegramPanelSection;
-  provider?: 'telegram' | 'bale' | 'whatsapp' | 'instagram';
+  provider?: 'telegram' | 'bale' | 'whatsapp' | 'instagram' | 'x';
 }) {
 
   const { t } = useTranslation();
@@ -145,6 +145,12 @@ export function TelegramConfigPanel({
    * token, callback URL subscribed once in the Meta app dashboard.
    */
   const isInstagram = descriptor?.credentialKind === 'instagram_graph';
+  /**
+   * X (Twitter) DMs: OAuth 1.0a User Context — an app key/secret plus a
+   * per-account access token/secret. No callback URL applies at all (the
+   * Worker polls instead of receiving a webhook — `supportsPolling`).
+   */
+  const isX = descriptor?.credentialKind === 'x_dm';
   const managesWebhook = descriptor?.supportsWebhookRegistration !== false;
   const wsPath = useWorkspacePath();
   const [token, setToken] = useState('');
@@ -152,6 +158,9 @@ export function TelegramConfigPanel({
   const [businessAccountId, setBusinessAccountId] = useState('');
   const [igAccountId, setIgAccountId] = useState('');
   const [igPageId, setIgPageId] = useState('');
+  const [xApiKey, setXApiKey] = useState('');
+  const [xApiSecret, setXApiSecret] = useState('');
+  const [xAccessTokenSecret, setXAccessTokenSecret] = useState('');
   const [diagnostics, setDiagnostics] = useState<Record<string, unknown> | null>(null);
   const [botName, setBotName] = useState('');
   const [shortDescription, setShortDescription] = useState('');
@@ -268,7 +277,14 @@ export function TelegramConfigPanel({
 
   const connect = useMutation({
     mutationFn: () =>
-      isInstagram
+      isX
+        ? pluginsApi.xConnect(workspaceId, {
+            apiKey: xApiKey.trim(),
+            apiSecret: xApiSecret.trim(),
+            accessToken: token.trim(),
+            accessTokenSecret: xAccessTokenSecret.trim(),
+          })
+        : isInstagram
         ? pluginsApi.instagramConnect(workspaceId, {
             igAccountId: igAccountId.trim(),
             accessToken: token.trim(),
@@ -283,6 +299,9 @@ export function TelegramConfigPanel({
         : pluginsApi.telegramConnect(workspaceId, token.trim(), provider),
     onSuccess: () => {
       setToken('');
+      setXApiKey('');
+      setXApiSecret('');
+      setXAccessTokenSecret('');
       toast({ title: t('plugins.telegram.connectSuccess', { provider: providerLabel }) });
       refresh();
     },
@@ -403,7 +422,58 @@ export function TelegramConfigPanel({
             </div>
           )}
 
-          {isInstagram ? (
+          {isX ? (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="x-api-key">{t('plugins.x.apiKey')}</Label>
+                <Input
+                  id="x-api-key"
+                  dir="ltr"
+                  autoComplete="off"
+                  value={xApiKey}
+                  onChange={(e) => setXApiKey(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">{t('plugins.x.apiKeyHint')}</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="x-api-secret">{t('plugins.x.apiSecret')}</Label>
+                <Input
+                  id="x-api-secret"
+                  dir="ltr"
+                  type="password"
+                  autoComplete="off"
+                  value={xApiSecret}
+                  onChange={(e) => setXApiSecret(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="x-access-token">{t('plugins.x.accessToken')}</Label>
+                <Input
+                  id="x-access-token"
+                  dir="ltr"
+                  type="password"
+                  autoComplete="off"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">{t('plugins.x.accessTokenHint')}</p>
+                {hasToken && !token && (
+                  <p className="text-xs text-emerald-600">{t('plugins.telegram.tokenStored')}</p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="x-access-token-secret">{t('plugins.x.accessTokenSecret')}</Label>
+                <Input
+                  id="x-access-token-secret"
+                  dir="ltr"
+                  type="password"
+                  autoComplete="off"
+                  value={xAccessTokenSecret}
+                  onChange={(e) => setXAccessTokenSecret(e.target.value)}
+                />
+              </div>
+            </div>
+          ) : isInstagram ? (
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <Label htmlFor="ig-account-id">{t('plugins.instagram.accountId')}</Label>

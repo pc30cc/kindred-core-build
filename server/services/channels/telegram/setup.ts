@@ -29,9 +29,10 @@
  */
 
 import type { ServerConfig } from '../../../config.js';
+import { getServiceClient } from '../../../supabase.js';
 import { redactToken } from '../../../../shared/channels/redact.js';
 import { deriveChannelWebhookSecret } from '../../../../shared/channels/webhookSecret.js';
-import { BOT_PROVIDER_IDS, botProvider } from '../../../../shared/channels/botProviders.js';
+import { BOT_PROVIDER_IDS, botProvider, findBotProvider } from '../../../../shared/channels/botProviders.js';
 import {
   copyPluginSecret,
   deletePluginSecret,
@@ -55,6 +56,7 @@ import {
   requestProviderOperation,
   type ProviderOperation,
 } from '../operations.js';
+import { enqueueChannelJob } from '../jobs.js';
 
 /**
  * Credential slot names for a provider. Telegram and Bale keep SEPARATE
@@ -333,6 +335,22 @@ export async function applyConnectSuccess(
 
   await deletePluginSecret(config, installationId, slots.pending).catch(() => {});
   await deletePluginSecret(config, installationId, slots.previous).catch(() => {});
+
+  // X has no push webhook on accessible API tiers, so a freshly connected
+  // integration needs its inbox kept fresh by the Worker's self-rescheduling
+  // poll loop (see `worker/channels/index.ts`, job type `x_poll_dm_events`)
+  // — seed the first tick here, once, right after the credential is live.
+  if (findBotProvider(integration.provider)?.supportsPolling) {
+    await enqueueChannelJob(getServiceClient(config), {
+      provider: integration.provider,
+      jobType: 'x_poll_dm_events',
+      workspaceId: integration.workspace_id,
+      integrationId: integration.id,
+      payload: { self_user_id: String(report.botId) },
+    }).catch((err) => {
+      console.error('[channels] failed to seed x poll job:', err instanceof Error ? err.message : err);
+    });
+  }
 
   await completeOperation(config, operation.id, {
     status: 'succeeded',

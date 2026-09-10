@@ -1,8 +1,8 @@
 /**
  * Default plan for NEW signups — Super Admin → Core settings → Signup.
  *
- * Operator picks whether a brand-new workspace starts on a trial of a paid
- * plan or straight on the free plan. Stored on `platform_settings` and
+ * Operator picks whether a brand-new workspace starts on the existing Trial
+ * plan or the existing Free plan. Stored on `platform_settings` and
  * resolved server-side by server/services/billing/signupPlan.ts. Applies to
  * new signups only; existing workspaces are never changed.
  */

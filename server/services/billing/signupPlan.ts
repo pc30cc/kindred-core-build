@@ -2,8 +2,8 @@
  * SIGNUP DEFAULT PLAN — what a brand-new workspace starts on.
  *
  * The operator picks, in Super Admin → Core settings → Signup settings,
- * whether new signups start on a trial of a paid plan or go straight to the
- * free plan. Stored on the `platform_settings` singleton
+ * whether new signups start on the existing Trial plan or the existing Free
+ * plan. Stored on the `platform_settings` singleton
  * (database/migrations/153_signup_default_plan.sql) and resolved here.
  *
  * Applies to NEW signups only: this module only ever INSERTS a subscription

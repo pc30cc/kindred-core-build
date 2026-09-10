@@ -8,7 +8,9 @@ import { useAuth } from '@/features/auth/AuthContext';
 import { useProfile } from '@/hooks/useProfile';
 import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
-import { Building2, LogOut, RefreshCw, HeadsetIcon } from 'lucide-react';
+import { Building2, LogOut, RefreshCw, HeadsetIcon, Mail } from 'lucide-react';
+import { resendMyVerificationEmail } from '@/lib/api';
+import { toast } from '@/lib/toast';
 import { useEffect, useRef, useState } from 'react';
 // Same-origin in dev/preview (Vite proxy), configured origin in production.
 // Using import.meta.env directly here bypassed that and produced blocked

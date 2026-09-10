@@ -22,6 +22,7 @@ import { FloatingOperatorCallWindow } from '@/features/calls/FloatingOperatorCal
 import { useOperatorHeartbeat } from '@/hooks/useOperatorHeartbeat';
 import { useOperatorPresenceChannel } from '@/hooks/useOperatorPresenceChannel';
 import { fetchSignupPolicy } from '@/lib/emailOtp';
+import { EmailOtpDialog } from '@/components/auth/EmailOtpDialog';
 
 
 // Cooldown between two resend attempts. The authoritative cooldown lives on
@@ -58,6 +59,7 @@ function EmailVerificationBar() {
   const [cooldownMs, setCooldownMs] = useState(() => remainingMs(RESEND_LS_KEY));
   const [hiddenMs, setHiddenMs] = useState(() => remainingMs(BANNER_DISMISS_KEY));
   const [otpMode, setOtpMode] = useState(false);
+  const [otpOpen, setOtpOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;

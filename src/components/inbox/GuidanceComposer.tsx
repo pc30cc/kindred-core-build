@@ -12,7 +12,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n';
-import { Bot, Loader2, Lock, Save, Sparkles, X } from 'lucide-react';
+import { Bot, Loader2, Lock, Save, Send, Sparkles, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
@@ -22,6 +22,7 @@ import {
   type GuidanceKind,
   type GuidanceScope,
   type ReplyNowEligibility,
+  type SayNowAttribution,
 } from '@/lib/ai-agent-api';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -60,6 +61,10 @@ export function GuidanceComposer({
   const [scope, setScope] = useState<GuidanceScope>('next_turn');
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
+  /** 'guide' = private steering, 'say' = AI delivers the operator's dictation now. */
+  const [mode, setMode] = useState<'guide' | 'say'>('guide');
+  const [attribution, setAttribution] = useState<SayNowAttribution>('specialist');
+  const [sending, setSending] = useState(false);
   const [eligibility, setEligibility] = useState<ReplyNowEligibility | null>(null);
   /** Stable per-attempt token so a double click can never double-answer. */
   const idempotencyRef = useRef<string>(randomKey());
@@ -103,7 +108,28 @@ export function GuidanceComposer({
     }
   }, [eligibility, t]);
 
-  const busy = saving || generating;
+  const busy = saving || generating || sending;
+
+  /** Operator dictation → AI-authored visitor-facing message, sent now. */
+  const sayNow = async () => {
+    const text = body.trim();
+    if (!text || busy) return;
+    setSending(true);
+    try {
+      await aiAgentApi.aiSayNow(conversationId, { body: text, attribution });
+      setBody('');
+      toast({ title: t('inbox.guidance.sayNowSent') });
+      onChanged?.();
+    } catch (e: any) {
+      toast({
+        title: t('inbox.guidance.sayNowFailed'),
+        description: e?.message || 'unknown',
+        variant: 'destructive',
+      });
+    } finally {
+      setSending(false);
+    }
+  };
 
   const saveGuidance = async () => {
     const text = body.trim();
@@ -181,10 +207,17 @@ export function GuidanceComposer({
       <div className="flex items-center gap-2">
         <Bot className="h-4 w-4 text-primary" />
         <span className="text-[12px] font-medium">{t('inbox.guidance.composerTitle')}</span>
-        <Badge variant="secondary" className="gap-1 text-[10px]">
-          <Lock className="h-3 w-3" />
-          {t('inbox.guidance.private')}
-        </Badge>
+        {mode === 'guide' ? (
+          <Badge variant="secondary" className="gap-1 text-[10px]">
+            <Lock className="h-3 w-3" />
+            {t('inbox.guidance.private')}
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="gap-1 border-primary/40 text-[10px] text-primary">
+            <Send className="h-3 w-3" />
+            {t('inbox.guidance.sayNowBadge')}
+          </Badge>
+        )}
         {answeringRequestId && (
           <Badge variant="outline" className="gap-1 text-[10px]">
             {t('inbox.guidance.answeringRequest')}
@@ -200,63 +233,109 @@ export function GuidanceComposer({
         )}
       </div>
 
+      {/* Mode switch: private steering vs. "AI, say this to the visitor now". */}
+      <div className="inline-flex rounded-lg border bg-background p-0.5">
+        {(['guide', 'say'] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setMode(m)}
+            className={cn(
+              'rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors',
+              mode === m ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {m === 'guide' ? t('inbox.guidance.tabGuide') : t('inbox.guidance.modeSayNow')}
+          </button>
+        ))}
+      </div>
+
       <Textarea
         value={body}
         onChange={(e) => setBody(e.target.value.slice(0, 2000))}
         rows={2}
         dir={dir}
         placeholder={
-          answeringRequestId
-            ? (t('inbox.guidance.answerPlaceholder') as string)
-            : (t('inbox.guidance.placeholder') as string)
+          mode === 'say'
+            ? (t('inbox.guidance.sayNowPlaceholder') as string)
+            : answeringRequestId
+              ? (t('inbox.guidance.answerPlaceholder') as string)
+              : (t('inbox.guidance.placeholder') as string)
         }
         className="resize-none bg-background text-[14px]"
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={kind} onValueChange={(v) => setKind(v as GuidanceKind)}>
-          <SelectTrigger className="h-8 w-[7.5rem] text-xs"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="direction">{t('inbox.guidance.kindDirection')}</SelectItem>
-            <SelectItem value="fact">{t('inbox.guidance.kindFact')}</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={scope} onValueChange={(v) => setScope(v as GuidanceScope)}>
-          <SelectTrigger className="h-8 w-[9.5rem] text-xs"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="next_turn">{t('inbox.guidance.scopeNextTurn')}</SelectItem>
-            <SelectItem value="conversation">{t('inbox.guidance.scopeConversation')}</SelectItem>
-          </SelectContent>
-        </Select>
+        {mode === 'guide' ? (
+          <>
+            <Select value={kind} onValueChange={(v) => setKind(v as GuidanceKind)}>
+              <SelectTrigger className="h-8 w-[7.5rem] text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="direction">{t('inbox.guidance.kindDirection')}</SelectItem>
+                <SelectItem value="fact">{t('inbox.guidance.kindFact')}</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={scope} onValueChange={(v) => setScope(v as GuidanceScope)}>
+              <SelectTrigger className="h-8 w-[9.5rem] text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="next_turn">{t('inbox.guidance.scopeNextTurn')}</SelectItem>
+                <SelectItem value="conversation">{t('inbox.guidance.scopeConversation')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </>
+        ) : (
+          <Select value={attribution} onValueChange={(v) => setAttribution(v as SayNowAttribution)}>
+            <SelectTrigger className="h-8 w-[11rem] text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="specialist">{t('inbox.guidance.voiceSpecialist')}</SelectItem>
+              <SelectItem value="assistant">{t('inbox.guidance.voiceAssistant')}</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
 
         <div className="ms-auto flex items-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-8 gap-1.5 text-xs"
-            disabled={!body.trim() || busy}
-            onClick={() => void saveGuidance()}
-          >
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-            {t('inbox.guidance.save')}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            className="h-8 gap-1.5 text-xs"
-            disabled={busy || (eligibility ? !eligibility.eligible : false)}
-            onClick={() => void replyNow()}
-            title={blockedReason || undefined}
-          >
-            {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            {generating ? t('inbox.guidance.generating') : t('inbox.guidance.replyNow')}
-          </Button>
+          {mode === 'guide' ? (
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5 text-xs"
+                disabled={!body.trim() || busy}
+                onClick={() => void saveGuidance()}
+              >
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                {t('inbox.guidance.save')}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 gap-1.5 text-xs"
+                disabled={busy || (eligibility ? !eligibility.eligible : false)}
+                onClick={() => void replyNow()}
+                title={blockedReason || undefined}
+              >
+                {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                {generating ? t('inbox.guidance.generating') : t('inbox.guidance.replyNow')}
+              </Button>
+            </>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 gap-1.5 text-xs"
+              disabled={!body.trim() || busy}
+              onClick={() => void sayNow()}
+            >
+              {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              {sending ? t('inbox.guidance.sayNowSending') : t('inbox.guidance.sayNowAction')}
+            </Button>
+          )}
         </div>
       </div>
 
       <p className="text-[11px] leading-relaxed text-muted-foreground">
-        {blockedReason || t('inbox.guidance.hint')}
+        {mode === 'say' ? t('inbox.guidance.sayNowHint') : blockedReason || t('inbox.guidance.hint')}
       </p>
     </div>
   );

@@ -70,6 +70,16 @@ export interface ReplyNowResponse {
 }
 
 
+/** Whose voice the AI uses when delivering an operator dictation. */
+export type SayNowAttribution = 'specialist' | 'assistant';
+
+export interface SayNowResponse {
+  ok: true;
+  messageId: string;
+  text: string;
+  runId: string | null;
+}
+
 export const humanGuidanceApi = {
   /** Active guidance + pending AI questions for a conversation. */
   getConversationGuidance(conversationId: string): Promise<ConversationGuidanceResponse> {
@@ -98,6 +108,20 @@ export const humanGuidanceApi = {
 
   dismissGuidanceRequest(requestId: string): Promise<{ ok: boolean }> {
     return jsonFetch<{ ok: boolean }>(`/api/ai-agent/guidance-requests/${requestId}/dismiss`, { method: 'POST' });
+  },
+
+  /**
+   * Operator dictation → the AI rewrites it and sends it to the visitor NOW.
+   * Not stored as guidance, and no pending visitor message is required.
+   */
+  aiSayNow(
+    conversationId: string,
+    body: { body: string; attribution?: SayNowAttribution; locale?: string },
+  ): Promise<SayNowResponse> {
+    return jsonFetch<SayNowResponse>(`/api/ai-agent/conversations/${conversationId}/ai-say-now`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
   },
 
   /** Can the AI answer right now (latest visitor message, no takeover)? */

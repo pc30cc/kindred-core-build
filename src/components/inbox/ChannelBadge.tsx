@@ -5,10 +5,10 @@
  * Channel is stored by the canonical inbound pipeline on both
  * `conversations.metadata.channel` and `contacts.metadata.channel`.
  */
-import { MessageSquare, Send, Mail, Phone, MessageCircle, Instagram } from 'lucide-react';
+import { MessageSquare, Send, Mail, Phone, MessageCircle, Instagram, AtSign } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type ChannelKey = 'telegram' | 'bale' | 'whatsapp' | 'instagram' | 'email' | 'phone' | 'widget';
+export type ChannelKey = 'telegram' | 'bale' | 'whatsapp' | 'instagram' | 'x' | 'email' | 'phone' | 'widget';
 
 const META: Record<ChannelKey, { icon: typeof Send; label: string; className: string }> = {
   telegram: {
@@ -30,6 +30,11 @@ const META: Record<ChannelKey, { icon: typeof Send; label: string; className: st
     icon: Instagram,
     label: 'Instagram',
     className: 'bg-[hsl(330_75%_55%/0.12)] text-[hsl(330_75%_45%)] border-[hsl(330_75%_55%/0.25)]',
+  },
+  x: {
+    icon: AtSign,
+    label: 'X (Twitter)',
+    className: 'bg-[hsl(0_0%_9%/0.08)] text-[hsl(0_0%_9%)] border-[hsl(0_0%_9%/0.2)] dark:bg-white/10 dark:text-white dark:border-white/20',
   },
   email: { icon: Mail, label: 'Email', className: 'bg-secondary text-muted-foreground border-border' },
 

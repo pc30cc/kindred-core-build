@@ -20,6 +20,7 @@ export const INTERNAL_CHANNEL_ROUTES = [
   'POST /webhook-contract',
   'POST /operation-result',
   'POST /media-ingest',
+  'POST /x/reschedule-poll',
   'GET /health',
   'GET /ready',
 ] as const;
@@ -37,6 +38,7 @@ export const CHANNELS_WORKER_REQUIRED_CORE_ROUTES = [
   'POST /webhook-contract',
   'POST /operation-result',
   'POST /media-ingest',
+  'POST /x/reschedule-poll',
 ] as const;
 
 export type CoreReadinessPayload = {

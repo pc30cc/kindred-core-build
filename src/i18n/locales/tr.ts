@@ -5538,6 +5538,14 @@ const tr: TranslationKeys = {
         title: 'E-posta adresi doğrulanmadı',
         desc: 'Tüm özelliklerin açık kalması için e-postanızı doğrulayın.',
       },
+      phone_unverified: {
+        title: 'Telefon numarası doğrulanmadı',
+        desc: '{{phone}} henüz doğrulanmadı. Kod almak için profil ayarlarını açın.',
+      },
+      phone_missing: {
+        title: 'Kayıtlı telefon numarası yok',
+        desc: 'Hesabınızı güvence altına almak için bir cep telefonu numarası ekleyip doğrulayın.',
+      },
       trial_ending: {
         title: 'Deneme süresi bitmek üzere',
         desc: 'Ücretsiz plana geçmenize {{days}} gün kaldı.',

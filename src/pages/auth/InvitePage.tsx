@@ -573,6 +573,6 @@ export default function InvitePage() {
           </Button>
         </CardContent>
       </Card>
-    </div>
+    </>,
   );
 }

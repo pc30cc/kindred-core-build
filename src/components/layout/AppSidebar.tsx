@@ -514,6 +514,7 @@ export function AppSidebar({
                 </div>
               </RouterLink>
             </div>
+            )}
 
             {workspaceDomain && (
               <div className="border-t border-border mt-1.5 pt-1.5">

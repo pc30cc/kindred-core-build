@@ -155,6 +155,21 @@ export default function CallCenterSettingsPage() {
     }
   }
 
+  async function onRemoveAvatar() {
+    if (!workspace) return;
+    try {
+      await callCenterApi.removeAvatar(workspace.id);
+      setS((p: any) => ({ ...p, avatar_url: null }));
+      setOriginal((p: any) => ({ ...p, avatar_url: null }));
+      if (fileRef.current) fileRef.current.value = '';
+      qc.invalidateQueries({ queryKey: ['call-center', 'settings'] });
+      toast({ title: t('callCenter.settingsPage.avatarRemoved') });
+    } catch (err: any) {
+      toast({ title: t('callCenter.settingsPage.uploadFailed'), description: err.message, variant: 'destructive' });
+    }
+  }
+
+
   return (
     <div className={cn('space-y-6 pb-24', (tab === 'presentation' || tab === 'general') ? 'max-w-6xl' : 'max-w-3xl')} dir={dir}>
       {platformOff && (

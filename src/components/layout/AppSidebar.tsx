@@ -397,14 +397,11 @@ export function AppSidebar({
       <div className="relative px-3 pt-3 pb-2" ref={wsMenuRef}>
         <button
           onClick={() =>
-            collapsed ? toggleCollapsed() : isWsAdmin && setWsMenuOpen(!wsMenuOpen)
+            collapsed ? toggleCollapsed() : setWsMenuOpen(!wsMenuOpen)
           }
-          disabled={!collapsed && !isWsAdmin}
           className={cn(
             'flex items-center gap-2.5 w-full rounded-lg px-2 py-2 transition-colors',
-            !collapsed && !isWsAdmin
-              ? 'cursor-default'
-              : 'hover:bg-sidebar-accent/50',
+            'hover:bg-sidebar-accent/50',
           )}
         >
           <div className="relative w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shrink-0 overflow-hidden ring-1 ring-primary/20 shadow-sm">
@@ -420,15 +417,13 @@ export function AppSidebar({
                 <p className="text-sm font-semibold text-sidebar-foreground truncate">{companyName}</p>
                 <p className="text-[11px] text-sidebar-muted-foreground truncate">{workspaceDomain}</p>
               </div>
-              {isWsAdmin && (
-                <ChevronDown className={cn('h-3.5 w-3.5 text-sidebar-muted-foreground shrink-0 transition-transform', wsMenuOpen && 'rotate-180')} />
-              )}
+              <ChevronDown className={cn('h-3.5 w-3.5 text-sidebar-muted-foreground shrink-0 transition-transform', wsMenuOpen && 'rotate-180')} />
             </>
           )}
         </button>
 
         {/* Dropdown menu */}
-        {wsMenuOpen && !collapsed && isWsAdmin && (
+        {wsMenuOpen && !collapsed && (
           <div className="absolute start-3 end-3 top-full mt-1 z-50 bg-popover border border-border rounded-xl shadow-xl py-2 animate-fade-in max-h-[60vh] overflow-y-auto">
             {/* Workspace list */}
             {workspaces.map(ws => {

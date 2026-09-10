@@ -568,7 +568,7 @@ const en = {
     theme: 'Theme',
     lightMode: 'Switch to light mode',
     darkMode: 'Switch to dark mode',
-    viewAlerts: 'View alerts',
+    viewAlerts: 'Notification settings',
     invisibleMode: 'Enable invisible mode',
     availability: 'Availability settings',
     userProfile: 'User profile',

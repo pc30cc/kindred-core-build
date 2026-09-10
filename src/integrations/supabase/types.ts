@@ -17237,6 +17237,7 @@ export type Database = {
         Args: { p_workspace_id: string }
         Returns: boolean
       }
+      billing_notify_trial_ending: { Args: never; Returns: number }
       billing_purge_active: { Args: never; Returns: boolean }
       billing_recover_unapplied_invoices: {
         Args: { p_limit?: number }

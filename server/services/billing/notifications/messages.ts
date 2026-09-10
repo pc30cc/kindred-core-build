@@ -18,7 +18,13 @@ export type BillingNotificationType =
   | 'invoice_past_due'
   | 'payment_received'
   | 'subscription_restored'
-  | 'subscription_free_fallback';
+  | 'subscription_free_fallback'
+  | 'subscription_activated'
+  | 'subscription_renewed'
+  | 'wallet_deposit_received'
+  | 'ai_credit_purchased'
+  | 'trial_ending_soon'
+  | 'trial_expired';
 
 export type BillingLocale = 'fa' | 'en' | 'tr';
 
@@ -60,6 +66,9 @@ interface Ctx {
   dueAt: string;
   graceEndsAt: string;
   planName: string;
+  periodEnd: string;
+  trialEnd: string;
+  daysLeft: string;
 }
 
 type Copy = Record<BillingNotificationType, (c: Ctx) => RenderedMessage>;
@@ -97,6 +106,30 @@ const FA: Copy = {
     subject: 'اشتراک شما به پلن رایگان منتقل شد',
     text: `به دلیل پرداخت نشدن صورتحساب در مهلت تعیین‌شده، فضای کاری شما به پلن «${c.planName}» منتقل شد. هیچ داده‌ای حذف نشده است و با ارتقای پلن، سرویس دوباره در دسترس قرار می‌گیرد.`,
   }),
+  subscription_activated: (c) => ({
+    subject: `پلن «${c.planName}» فعال شد`,
+    text: `پلن «${c.planName}» برای فضای کاری شما فعال شد و تا ${c.periodEnd} اعتبار دارد.`,
+  }),
+  subscription_renewed: (c) => ({
+    subject: `پلن «${c.planName}» تمدید شد`,
+    text: `اشتراک شما تمدید شد. پلن «${c.planName}» تا ${c.periodEnd} فعال است.`,
+  }),
+  wallet_deposit_received: (c) => ({
+    subject: 'کیف پول شما شارژ شد',
+    text: `مبلغ ${c.amount} با موفقیت به کیف پول فضای کاری شما اضافه شد.`,
+  }),
+  ai_credit_purchased: (c) => ({
+    subject: 'اعتبار هوش مصنوعی شما افزایش یافت',
+    text: `خرید اعتبار هوش مصنوعی به مبلغ ${c.amount} با موفقیت ثبت و اعتبار شما شارژ شد.`,
+  }),
+  trial_ending_soon: (c) => ({
+    subject: `${c.daysLeft} روز تا پایان دوره آزمایشی`,
+    text: `دوره آزمایشی شما در ${c.trialEnd} به پایان می‌رسد (${c.daysLeft} روز دیگر). برای ادامه استفاده از همه امکانات، پلن خود را ارتقا دهید.`,
+  }),
+  trial_expired: () => ({
+    subject: 'دوره آزمایشی شما به پایان رسید',
+    text: 'دوره آزمایشی شما تمام شد و فضای کاری به نسخه رایگان منتقل شد. هیچ داده‌ای حذف نشده است؛ با ارتقای پلن همه امکانات دوباره فعال می‌شود.',
+  }),
 };
 
 const EN: Copy = {
@@ -131,6 +164,30 @@ const EN: Copy = {
   subscription_free_fallback: (c) => ({
     subject: 'Your workspace moved to the free plan',
     text: `Because the invoice was not paid within the grace period, your workspace moved to the "${c.planName}" plan. No data has been deleted, and upgrading restores full service.`,
+  }),
+  subscription_activated: (c) => ({
+    subject: `Your "${c.planName}" plan is active`,
+    text: `The "${c.planName}" plan is now active for your workspace and is paid through ${c.periodEnd}.`,
+  }),
+  subscription_renewed: (c) => ({
+    subject: `Your "${c.planName}" plan was renewed`,
+    text: `Your subscription renewed. The "${c.planName}" plan is active through ${c.periodEnd}.`,
+  }),
+  wallet_deposit_received: (c) => ({
+    subject: 'Wallet topped up',
+    text: `${c.amount} was added to your workspace wallet.`,
+  }),
+  ai_credit_purchased: (c) => ({
+    subject: 'AI credit added',
+    text: `Your AI credit purchase of ${c.amount} was completed and the balance is available now.`,
+  }),
+  trial_ending_soon: (c) => ({
+    subject: `Your trial ends in ${c.daysLeft} day(s)`,
+    text: `Your trial ends on ${c.trialEnd} (${c.daysLeft} day(s) left). Upgrade to keep every feature available.`,
+  }),
+  trial_expired: () => ({
+    subject: 'Your trial has ended',
+    text: 'Your trial has ended and the workspace moved to the free plan. No data was deleted — upgrading restores full access.',
   }),
 };
 
@@ -167,6 +224,30 @@ const TR: Copy = {
     subject: 'Çalışma alanınız ücretsiz plana geçti',
     text: `Fatura ek süre içinde ödenmediği için çalışma alanınız "${c.planName}" planına geçti. Hiçbir veri silinmedi; planı yükselttiğinizde hizmet geri gelir.`,
   }),
+  subscription_activated: (c) => ({
+    subject: `"${c.planName}" planınız etkin`,
+    text: `"${c.planName}" planı çalışma alanınız için etkinleştirildi ve ${c.periodEnd} tarihine kadar geçerli.`,
+  }),
+  subscription_renewed: (c) => ({
+    subject: `"${c.planName}" planınız yenilendi`,
+    text: `Aboneliğiniz yenilendi. "${c.planName}" planı ${c.periodEnd} tarihine kadar etkin.`,
+  }),
+  wallet_deposit_received: (c) => ({
+    subject: 'Cüzdanınıza bakiye yüklendi',
+    text: `Çalışma alanı cüzdanınıza ${c.amount} eklendi.`,
+  }),
+  ai_credit_purchased: (c) => ({
+    subject: 'AI kredisi eklendi',
+    text: `${c.amount} tutarındaki AI kredi satın alımınız tamamlandı ve bakiyeniz kullanıma hazır.`,
+  }),
+  trial_ending_soon: (c) => ({
+    subject: `Deneme süreniz ${c.daysLeft} gün içinde bitiyor`,
+    text: `Deneme süreniz ${c.trialEnd} tarihinde sona eriyor (${c.daysLeft} gün kaldı). Tüm özellikleri korumak için planınızı yükseltin.`,
+  }),
+  trial_expired: () => ({
+    subject: 'Deneme süreniz sona erdi',
+    text: 'Deneme süreniz sona erdi ve çalışma alanı ücretsiz plana geçti. Hiçbir veri silinmedi; planı yükselttiğinizde tüm erişim geri gelir.',
+  }),
 };
 
 const COPY: Record<BillingLocale, Copy> = { fa: FA, en: EN, tr: TR };
@@ -188,6 +269,9 @@ export function buildBillingTemplateData(
     due_at: formatDate(payload.due_at, loc),
     grace_ends_at: formatDate(payload.grace_period_ends_at, loc),
     plan_name: String(payload.plan_name ?? (loc === 'fa' ? 'رایگان' : 'Free')),
+    period_end: formatDate(payload.period_end, loc),
+    trial_end: formatDate(payload.trial_end, loc),
+    days_left: String(payload.days_left ?? ''),
     action_url: String(payload.action_url ?? ''),
   };
 }
@@ -204,6 +288,9 @@ export function renderBillingNotification(
     dueAt: formatDate(payload.due_at, loc),
     graceEndsAt: formatDate(payload.grace_period_ends_at, loc),
     planName: String(payload.plan_name ?? (loc === 'fa' ? 'رایگان' : 'Free')),
+    periodEnd: formatDate(payload.period_end, loc),
+    trialEnd: formatDate(payload.trial_end, loc),
+    daysLeft: String(payload.days_left ?? ''),
   };
   return COPY[loc][type](ctx);
 }

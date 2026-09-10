@@ -1,0 +1,1 @@
+ALTER TABLE public.profiles ALTER COLUMN preferred_locale DROP DEFAULT;

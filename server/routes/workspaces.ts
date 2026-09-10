@@ -34,6 +34,7 @@ import { assertPhoneVerificationSatisfied } from '../services/phoneVerification/
 import { PhoneVerificationError } from '../services/phoneVerification/types.js';
 import { isEmailVerified } from '../services/auth/identity.js';
 import { getSignupVerificationPolicy } from '../services/auth/signupPolicy.js';
+import { applySignupPlanToWorkspace } from '../services/billing/signupPlan.js';
 
 import { checkEntitlementFromDB } from '../middleware/featureGating.js';
 import { getCapability } from '../services/billing/capabilityRegistry.js';

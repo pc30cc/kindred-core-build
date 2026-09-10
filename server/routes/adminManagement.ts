@@ -494,6 +494,10 @@ const platformSettingsSchema = z.object({
   // Signup verification policy — see server/services/auth/signupPolicy.ts.
   signup_verification_method: z.enum(['link', 'otp']).optional(),
   signup_verification_gate: z.enum(['before', 'after']).optional(),
+  // Default plan for NEW signups — see server/services/billing/signupPlan.ts.
+  signup_default_plan_mode: z.enum(['free', 'trial']).optional(),
+  signup_trial_plan_id: z.string().uuid().nullable().optional(),
+  signup_trial_days: z.number().int().min(0).max(365).optional(),
 });
 
 

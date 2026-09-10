@@ -107,7 +107,9 @@ export default function SignupPage() {
       }
 
       toast.success(t('auth.signupSuccess'));
-      navigate(params.get('redirect') || '/app');
+      // Email must be verified before a workspace can be created, so send the
+      // new user to the "check your inbox" screen instead of the app shell.
+      navigate(`/auth/check-email?email=${encodeURIComponent(trimmedEmail)}`);
     } catch (err: any) {
       toast.error(t('auth.signupFailed'), { description: err?.message });
     } finally {

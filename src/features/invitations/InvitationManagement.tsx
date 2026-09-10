@@ -685,7 +685,6 @@ export function InvitationFormDialog({
   const [firstName, setFirstName] = useState(invitation?.first_name ?? '');
   const [lastName, setLastName] = useState(invitation?.last_name ?? '');
   const [email, setEmail] = useState(invitation?.invited_email_normalized ?? '');
-  const [phone, setPhone] = useState(invitation?.invited_phone_e164 ?? '');
   const [role, setRole] = useState<string>(invitation?.role ?? roles[0]);
   const [jobTitle, setJobTitle] = useState(invitation?.job_title ?? '');
   const [staffCode, setStaffCode] = useState(invitation?.staff_code ?? '');
@@ -707,7 +706,6 @@ export function InvitationFormDialog({
     firstName: firstName.trim() ? '' : 'invitations.validationFirstName',
     lastName: lastName.trim() ? '' : 'invitations.validationLastName',
     email: EMAIL.test(email.trim()) ? '' : 'invitations.validationEmail',
-    phone: E164.test(phone.trim()) ? '' : 'invitations.validationPhone',
     role: role ? '' : 'invitations.validationRole',
     departments: mode === 'customer_facing' && departmentIds.length === 0
       ? 'invitations.validationDepartments'
@@ -721,7 +719,6 @@ export function InvitationFormDialog({
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         email: email.trim().toLowerCase(),
-        phone: phone.trim(),
         memberType: mode,
         role,
         departmentIds: mode === 'customer_facing' ? [...departmentIds].sort() : [],
@@ -824,18 +821,6 @@ export function InvitationFormDialog({
               onChange={(e) => setEmail(e.target.value)}
             />
             {err('email')}
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="inv-phone" className="text-xs">{t('invitations.fieldPhone')}</Label>
-            <Input
-              id="inv-phone" data-testid="invitation-phone" type="tel" dir="ltr"
-              className="text-start text-xs" value={phone}
-              placeholder={t('invitations.placeholderPhone')}
-              onChange={(e) => setPhone(e.target.value)}
-            />
-            <p className="text-[11px] text-muted-foreground">{t('invitations.phoneHint')}</p>
-            {err('phone')}
           </div>
 
           <div className="space-y-1.5">

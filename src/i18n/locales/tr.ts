@@ -570,7 +570,7 @@ const tr: TranslationKeys = {
     theme: 'Tema',
     lightMode: 'Açık moda geç',
     darkMode: 'Koyu moda geç',
-    viewAlerts: 'Uyarıları görüntüle',
+    viewAlerts: 'Bildirim ayarları',
     invisibleMode: 'Görünmez modu etkinleştir',
     availability: 'Müsaitlik ayarları',
     userProfile: 'Kullanıcı profili',

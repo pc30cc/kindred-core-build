@@ -570,7 +570,7 @@ const fa: TranslationKeys = {
     theme: 'پوسته',
     lightMode: 'تغییر به حالت روشن',
     darkMode: 'تغییر به حالت تاریک',
-    viewAlerts: 'مشاهده هشدارها',
+    viewAlerts: 'تنظیم اعلان‌ها',
     invisibleMode: 'فعال‌سازی حالت نامرئی',
     availability: 'تنظیمات دسترسی',
     userProfile: 'پروفایل کاربری',

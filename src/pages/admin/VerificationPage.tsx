@@ -24,6 +24,7 @@ import {
   type PurposeBaseline,
 } from '@/hooks/useVerificationAdmin';
 import type { Locale } from '@/i18n/config';
+import SignupDeliveryCard from './verification/SignupDeliveryCard';
 
 const CHANNELS: Record<VerificationPurpose, 'email' | 'sms' | 'emailAndSms'> = {
   signup_email: 'email',

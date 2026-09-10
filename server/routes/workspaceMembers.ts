@@ -485,6 +485,7 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
     }
     return res.status(500).json({ error: outcome.error.message });
   }
+  await purgeAcceptedInvitation().catch(() => undefined);
   return res.json({
     ok: true,
     replayed: outcome.replayed,

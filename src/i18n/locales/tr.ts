@@ -3789,6 +3789,20 @@ const tr: TranslationKeys = {
       subtitle: 'Platform genelindeki davranış ayarları tek yerde.',
       tabSignup: 'Kayıt ayarları',
       signupNotSupported: 'Mevcut sunucu sürümü bu ayarı henüz desteklemiyor; yeni sürüm yayınlandığında kaydedilecek.',
+      signupPlan: {
+        title: 'Yeni kayıtlar için varsayılan plan',
+        hint: 'Yalnızca yeni kayıtlara uygulanır; mevcut çalışma alanları değişmez.',
+        mode: 'Başlangıç modu',
+        modeFree: 'Ücretsiz plan',
+        modeTrial: 'Deneme planı',
+        modeFreeHint: 'Yeni kullanıcılar doğrudan ücretsiz planla başlar.',
+        modeTrialHint: 'Yeni kullanıcılar deneme alır, süre bitince ücretsiz plana düşer.',
+        plan: 'Deneme planı',
+        planAuto: 'Otomatik (en uygun etkin plan)',
+        days: 'Deneme süresi (gün)',
+        daysHint: 'Örneğin 14 gün.',
+      },
+
 
     },
     verification: {

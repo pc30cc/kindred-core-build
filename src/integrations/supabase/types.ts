@@ -16935,6 +16935,7 @@ export type Database = {
         Args: { _actor_user_id: string; _scope?: string }
         Returns: Json
       }
+      admin_purge_workspaces: { Args: { _ws: string[] }; Returns: number }
       admin_reset_billing_data: { Args: { p_confirm: string }; Returns: Json }
       admin_reset_identity_tables: { Args: never; Returns: string[] }
       admin_reset_preserved_tables: {

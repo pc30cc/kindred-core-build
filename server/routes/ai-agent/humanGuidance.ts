@@ -23,6 +23,7 @@ import {
   MAX_GUIDANCE_BODY,
 } from '../../services/ai-agent/guidance.js';
 import { replyNowWithGuidance, checkReplyNowEligibility } from '../../services/ai-agent/replyNow.js';
+import { operatorSayNow, MAX_SAY_NOW_BODY } from '../../services/ai-agent/sayNow.js';
 import { authorizeMember } from './shared.js';
 
 

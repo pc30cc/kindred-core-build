@@ -155,6 +155,21 @@ export default function CallCenterSettingsPage() {
     }
   }
 
+  async function onRemoveAvatar() {
+    if (!workspace) return;
+    try {
+      await callCenterApi.removeAvatar(workspace.id);
+      setS((p: any) => ({ ...p, avatar_url: null }));
+      setOriginal((p: any) => ({ ...p, avatar_url: null }));
+      if (fileRef.current) fileRef.current.value = '';
+      qc.invalidateQueries({ queryKey: ['call-center', 'settings'] });
+      toast({ title: t('callCenter.settingsPage.avatarRemoved') });
+    } catch (err: any) {
+      toast({ title: t('callCenter.settingsPage.uploadFailed'), description: err.message, variant: 'destructive' });
+    }
+  }
+
+
   return (
     <div className={cn('space-y-6 pb-24', (tab === 'presentation' || tab === 'general') ? 'max-w-6xl' : 'max-w-3xl')} dir={dir}>
       {platformOff && (
@@ -189,7 +204,13 @@ export default function CallCenterSettingsPage() {
             : <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center text-muted-foreground text-xs">{t('callCenter.settingsPage.noAvatar')}</div>}
           <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={onAvatar} />
           <Button variant="outline" onClick={() => fileRef.current?.click()}>{t('callCenter.settingsPage.upload')}</Button>
+          {s.avatar_url && (
+            <Button variant="ghost" className="text-destructive" onClick={onRemoveAvatar}>
+              {t('callCenter.settingsPage.removeAvatar')}
+            </Button>
+          )}
           <span className="text-xs text-muted-foreground">{t('callCenter.settingsPage.avatarHint')}</span>
+
         </div>
         <Row label={t('callCenter.settingsPage.widgetPosition')}>
           <Select value={s.widget_position || 'right'} onValueChange={(v) => setS({ ...s, widget_position: v })}>
@@ -975,9 +996,16 @@ function WidgetTextsEditor({
         </Select>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {visibleKeys.map(({ key, label, placeholder }) => (
+        {visibleKeys.map(({ key, label, placeholder }) => {
+          // Translated field name when the locale bundle has one; the English
+          // constant stays as the fallback so a missing key never shows a path.
+          const tk = `callCenter.settingsPage.widgetTextKeys.${key}`;
+          const translated = (t as unknown as (k: string) => string)(tk);
+          const fieldLabel = translated === tk ? label : translated;
+          return (
           <div key={key} className="space-y-1">
-            <Label className="text-xs">{label}</Label>
+            <Label className="text-xs">{fieldLabel}</Label>
+
             <Input
               value={current[key] || ''}
               onChange={(e) => setField(key, e.target.value)}
@@ -985,7 +1013,9 @@ function WidgetTextsEditor({
               dir={isRtl ? 'rtl' : 'ltr'}
             />
           </div>
-        ))}
+          );
+        })}
+
       </div>
     </div>
   );

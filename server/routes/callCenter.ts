@@ -374,6 +374,30 @@ callCenterRouter.post('/settings/avatar', async (req, res) => {
   res.json({ avatar_url: updated.avatar_url });
 });
 
+// Remove the current avatar: clears both the public URL and the storage path,
+// and best-effort deletes the stored file through the active provider.
+callCenterRouter.delete('/settings/avatar', async (req, res) => {
+  const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireWorkspaceAdmin(req, res, wid);
+  if (!ctx) return;
+  const sb0 = getServiceClient(ctx.config);
+  const { data: prevRow } = await sb0
+    .from('call_center_settings')
+    .select('avatar_storage_path')
+    .eq('workspace_id', wid)
+    .maybeSingle();
+  const previousPath = (prevRow as any)?.avatar_storage_path as string | null;
+  await updateWorkspaceSettings(ctx.config, wid, {
+    avatar_url: null, avatar_storage_path: null,
+  } as any);
+  if (previousPath) {
+    try { await deleteFile(ctx.config, wid, previousPath); } catch { /* best-effort */ }
+  }
+  res.json({ avatar_url: null });
+});
+
+
 // ── Overview / metrics ────────────────────────────────────────────────────
 callCenterRouter.get('/overview', async (req, res) => {
   const wid = String(req.query.workspaceId || '');

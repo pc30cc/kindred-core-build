@@ -284,10 +284,10 @@ export default function SettingsGeneralPage() {
           <ContactField
             icon={<Phone className="h-3.5 w-3.5 text-muted-foreground" />}
             label={t('workspaceInfo.phone')}
-            placeholder="+1 (628) 123-4567"
+            placeholder="۰۲۱۱۲۳۴۵۶۷۸"
             defaultValue={contactInfo.phone}
             onSave={v => saveContact('phone', v)}
-            type="tel"
+            iranPhone
           />
           <ContactField
             icon={<MessageCircle className="h-3.5 w-3.5 text-muted-foreground" />}
@@ -313,10 +313,10 @@ export default function SettingsGeneralPage() {
           <ContactField
             icon={<MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />}
             label={t('workspaceInfo.whatsapp')}
-            placeholder="+16281234567"
+            placeholder="۰۹۱۲۳۴۵۶۷۸۹"
             defaultValue={contactInfo.whatsapp}
             onSave={v => saveContact('whatsapp', v)}
-            type="tel"
+            iranPhone
           />
           <ContactField
             icon={<Instagram className="h-3.5 w-3.5 text-muted-foreground" />}
@@ -331,6 +331,41 @@ export default function SettingsGeneralPage() {
   );
 }
 
+/* ── Iranian phone helpers ───────────────────────────────────
+ * Accepts what Iranian users actually type (Persian/Arabic digits,
+ * spaces, dashes, 0098 / +98 / 98 prefixes) and stores one canonical
+ * national form: 09xxxxxxxxx for mobiles, 0XXXXXXXXXX for landlines.
+ */
+const FA_AR_DIGITS: Record<string, string> = {
+  '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4', '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
+  '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4', '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+};
+
+function toLatinDigits(input: string) {
+  return input.replace(/[۰-۹٠-٩]/g, d => FA_AR_DIGITS[d] ?? d);
+}
+
+/** Keeps only digits while typing (Iranian numbers never need symbols). */
+function sanitizeIranInput(input: string) {
+  let v = toLatinDigits(input).replace(/[^\d]/g, '');
+  if (v.startsWith('0098')) v = '0' + v.slice(4);
+  else if (v.startsWith('98') && v.length > 10) v = '0' + v.slice(2);
+  return v.slice(0, 11);
+}
+
+/** Final canonical value on blur; empty string when clearly invalid. */
+function normalizeIranPhone(input: string) {
+  const v = sanitizeIranInput(input);
+  if (!v) return '';
+  if (/^9\d{9}$/.test(v)) return '0' + v;          // typed without the leading 0
+  return v;
+}
+
+function isValidIranPhone(v: string) {
+  if (!v) return true;
+  return /^09\d{9}$/.test(v) || /^0[1-8]\d{9}$/.test(v);
+}
+
 /* ── Inline contact field with autosave on blur ─────────────── */
 function ContactField({
   icon,
@@ -339,6 +374,7 @@ function ContactField({
   placeholder,
   onSave,
   type = 'text',
+  iranPhone = false,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -346,11 +382,14 @@ function ContactField({
   placeholder?: string;
   onSave: (value: string) => void;
   type?: string;
+  iranPhone?: boolean;
 }) {
   const [value, setValue] = useState(defaultValue || '');
+  const [error, setError] = useState(false);
   // Sync external changes (e.g., another tab) without clobbering edits.
   useEffect(() => {
     setValue(defaultValue || '');
+    setError(false);
   }, [defaultValue]);
 
   return (
@@ -361,17 +400,33 @@ function ContactField({
           {icon}
         </span>
         <Input
-          type={type}
+          type={iranPhone ? 'tel' : type}
           value={value}
           placeholder={placeholder}
-          onChange={e => setValue(e.target.value)}
+          dir={iranPhone ? 'ltr' : undefined}
+          inputMode={iranPhone ? 'numeric' : undefined}
+          autoComplete={iranPhone ? 'tel-national' : undefined}
+          maxLength={iranPhone ? 11 : undefined}
+          onChange={e => {
+            const next = iranPhone ? sanitizeIranInput(e.target.value) : e.target.value;
+            setValue(next);
+            if (error) setError(false);
+          }}
           onBlur={() => {
-            const v = value.trim();
+            const v = iranPhone ? normalizeIranPhone(value) : value.trim();
+            if (iranPhone) {
+              setValue(v);
+              if (!isValidIranPhone(v)) { setError(true); return; }
+            }
             if (v !== (defaultValue || '').trim()) onSave(v);
           }}
-          className="ps-9"
+          className={`ps-9${iranPhone ? ' text-start' : ''}${error ? ' border-destructive' : ''}`}
         />
       </div>
+      {error && (
+        <p className="text-[11px] text-destructive">۰۹۱۲۳۴۵۶۷۸۹ — شماره را به‌صورت ایران وارد کنید</p>
+      )}
     </div>
   );
 }
+

@@ -118,7 +118,11 @@ export default function SignupPage() {
       //   before → the classic "check your inbox" screen, because no
       //            workspace can exist until the link is clicked.
       const policy = await fetchSignupPolicy();
-      if (policy.method === 'otp') {
+      if (policy.gate === 'after') {
+        // Gate `after` always lands in the workspace; the bottom banner
+        // drives verification (code dialog in OTP mode, resend in link mode).
+        navigate('/app');
+      } else if (policy.method === 'otp') {
         navigate('/auth/verify-otp');
       } else if (policy.gate === 'after') {
         navigate('/app');

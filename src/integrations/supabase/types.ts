@@ -10079,6 +10079,8 @@ export type Database = {
           panel_default_locale: string
           region_currency: string | null
           region_mode: string
+          signup_verification_gate: string
+          signup_verification_method: string
           site_mode: string
           timezone: string
           updated_at: string | null
@@ -10096,6 +10098,8 @@ export type Database = {
           panel_default_locale?: string
           region_currency?: string | null
           region_mode?: string
+          signup_verification_gate?: string
+          signup_verification_method?: string
           site_mode?: string
           timezone?: string
           updated_at?: string | null
@@ -10113,6 +10117,8 @@ export type Database = {
           panel_default_locale?: string
           region_currency?: string | null
           region_mode?: string
+          signup_verification_gate?: string
+          signup_verification_method?: string
           site_mode?: string
           timezone?: string
           updated_at?: string | null

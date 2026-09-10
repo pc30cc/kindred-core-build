@@ -141,7 +141,6 @@ export async function copyWithVerification(text: string): Promise<boolean> {
   }
 }
 
-const E164 = /^\+[1-9]\d{6,14}$/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 /* ──────────────────────────── main component ───────────────────────────── */
@@ -332,7 +331,7 @@ export function InvitationManagement({
                     <StatusBadge status={inv.status} archived={!!inv.archived_at} />
                   </div>
                   <p className="truncate text-xs text-muted-foreground" dir="ltr">
-                    {maskEmail(inv.invited_email_normalized)} · {maskPhone(inv.invited_phone_e164)}
+                    {maskEmail(inv.invited_email_normalized)}{inv.invited_phone_e164 ? ` · ${maskPhone(inv.invited_phone_e164)}` : ''}
                   </p>
                 </div>
 
@@ -542,7 +541,9 @@ function InvitationDetail({ invitationId, invitation }: { invitationId: string; 
     <div className="mt-3 grid gap-3 rounded-md border border-border/60 bg-muted/20 p-3 text-xs sm:grid-cols-2"
          data-testid="invitation-detail">
       <DetailRow label={t('invitations.fieldEmail')} value={maskEmail(invitation.invited_email_normalized)} ltr />
-      <DetailRow label={t('invitations.fieldPhone')} value={maskPhone(invitation.invited_phone_e164)} ltr />
+      {invitation.invited_phone_e164
+        ? <DetailRow label={t('invitations.fieldPhone')} value={maskPhone(invitation.invited_phone_e164)} ltr />
+        : null}
       <DetailRow
         label={t('invitations.fieldRole')}
         value={t(`invitations.roles.${invitation.role}` as TranslationKey)}

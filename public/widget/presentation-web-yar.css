@@ -113,14 +113,36 @@
 .panel.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
 .shell.no-anim .panel { transition: none; }
 
-@media (max-width: 440px) {
-  .panel {
+/* ─── Phones: the panel IS the screen ────────────────────────────────
+   The loader turns the shell into a full visual-viewport box while the
+   panel is open (`.shell.gs-mobile-open`, height driven by visualViewport),
+   so here the panel simply fills it: no rounded corners, no page peeking
+   through, no reflow when the keyboard opens. */
+@media (max-width: 640px) {
+  .shell.gs-mobile-open .panel,
+  .shell.gs-mobile-open .panel.bottom-right,
+  .shell.gs-mobile-open .panel.bottom-left {
+    inset: 0;
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    max-height: 100%;
+    border-radius: 0;
+    box-shadow: none;
+    transform-origin: bottom center;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .shell.gs-mobile-open .panel.visible { transform: none; }
+  /* Fallback while the shell is still the corner anchor (e.g. first frame). */
+  .shell:not(.gs-mobile-open) .panel {
     width: calc(100vw - 24px);
     max-width: calc(100vw - 24px);
     height: calc(100dvh - 120px);
   }
   .panel.bottom-right { right: 0; left: auto; }
   .panel.bottom-left { left: 0; right: auto; }
+  .shell.gs-mobile-open .panel-close { top: calc(env(safe-area-inset-top, 0px) + 10px); }
 }
 
 

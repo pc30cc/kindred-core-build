@@ -207,10 +207,17 @@ export function GuidanceComposer({
       <div className="flex items-center gap-2">
         <Bot className="h-4 w-4 text-primary" />
         <span className="text-[12px] font-medium">{t('inbox.guidance.composerTitle')}</span>
-        <Badge variant="secondary" className="gap-1 text-[10px]">
-          <Lock className="h-3 w-3" />
-          {t('inbox.guidance.private')}
-        </Badge>
+        {mode === 'guide' ? (
+          <Badge variant="secondary" className="gap-1 text-[10px]">
+            <Lock className="h-3 w-3" />
+            {t('inbox.guidance.private')}
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="gap-1 border-primary/40 text-[10px] text-primary">
+            <Send className="h-3 w-3" />
+            {t('inbox.guidance.sayNowBadge')}
+          </Badge>
+        )}
         {answeringRequestId && (
           <Badge variant="outline" className="gap-1 text-[10px]">
             {t('inbox.guidance.answeringRequest')}

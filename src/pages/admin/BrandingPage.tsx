@@ -363,10 +363,9 @@ function SettingsSection() {
   const [maintenanceMode, setMaintenanceMode] = useState(false);
   const [maintenanceMessage, setMaintenanceMessage] = useState('');
   const [localeBillingProviders, setLocaleBillingProviders] = useState<Record<string, string>>({});
-  // Signup verification: how the code/link is delivered, and whether a
-  // workspace exists before the email is verified. Independent choices.
-  const [signupMethod, setSignupMethod] = useState<'link' | 'otp'>('link');
-  const [signupGate, setSignupGate] = useState<'before' | 'after'>('before');
+  // Signup verification (method/gate) now lives in Super Admin →
+  // Verification & OTP (SignupDeliveryCard) — never written from here, so
+  // saving general settings can't overwrite it with a stale value.
   const [settingsDirty, setSettingsDirty] = useState(false);
 
 
@@ -380,8 +379,6 @@ function SettingsSection() {
       setMaintenanceMode((settings as any).maintenance_mode ?? false);
       setMaintenanceMessage((settings as any).maintenance_message ?? '');
       setLocaleBillingProviders((settings as any).locale_billing_providers ?? {});
-      setSignupMethod((settings as any).signup_verification_method === 'otp' ? 'otp' : 'link');
-      setSignupGate((settings as any).signup_verification_gate === 'after' ? 'after' : 'before');
       setSettingsDirty(false);
 
     }
@@ -422,8 +419,6 @@ function SettingsSection() {
       maintenance_mode: maintenanceMode,
       maintenance_message: maintenanceMessage || null,
       locale_billing_providers: localeBillingProviders,
-      signup_verification_method: signupMethod,
-      signup_verification_gate: signupGate,
     };
 
     try {

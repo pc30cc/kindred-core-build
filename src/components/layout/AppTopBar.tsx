@@ -88,7 +88,7 @@ export function AppTopBar() {
         {isMobile ? <div className="min-w-0 flex-1" /> : pageSlot}
 
         {/* Group 2 — Preferences: language + theme */}
-        <div className="flex items-center gap-2">
+        <div className="ms-auto flex items-center gap-2">
           {canSwitchLanguage && (
             <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
               <SelectTrigger className="h-10 w-[126px] rounded-2xl border-border/60 bg-muted/40 text-sm shadow-sm focus:ring-0">

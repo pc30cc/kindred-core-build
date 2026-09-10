@@ -26,6 +26,8 @@ import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { deleteFile } from '../services/storage/index.js';
 import { parseWorkspaceDomainInput, type DomainInputResult } from '../utils/workspaceDomainInput.js';
 import { invalidateOriginHostCache, invalidateWorkspaceOriginCache } from '../services/widget/public.js';
+import { invalidateSignupPolicyCache } from '../services/auth/signupPolicy.js';
+
 
 export const adminManagementRouter = Router();
 
@@ -484,7 +486,11 @@ const platformSettingsSchema = z.object({
   maintenance_mode: z.boolean().optional(),
   maintenance_message: z.string().max(2000).nullable().optional(),
   locale_billing_providers: z.record(z.string()).optional(),
+  // Signup verification policy — see server/services/auth/signupPolicy.ts.
+  signup_verification_method: z.enum(['link', 'otp']).optional(),
+  signup_verification_gate: z.enum(['before', 'after']).optional(),
 });
+
 
 adminManagementRouter.put('/platform-settings', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
@@ -498,8 +504,12 @@ adminManagementRouter.put('/platform-settings', async (req, res) => {
     : sb.from('platform_settings').insert(payload as any);
   const { error } = await q;
   if (error) return res.status(500).json({ error: error.message });
+  // The signup policy is memoised for 30s in the auth path — drop it now so
+  // an operator's change takes effect on the very next signup.
+  invalidateSignupPolicyCache();
   return res.json({ success: true });
 });
+
 
 // ── Platform domains / branding ────────────────────────────────────────
 // RLS on these tables requires a Supabase-auth admin JWT (auth.uid()), which

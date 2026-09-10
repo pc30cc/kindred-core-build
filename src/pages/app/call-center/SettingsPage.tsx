@@ -201,7 +201,7 @@ export default function CallCenterSettingsPage() {
         <div className="flex items-center gap-3">
           {s.avatar_url
             ? <img src={s.avatar_url} alt="" className="h-12 w-12 rounded-full object-cover border" />
-            : <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center text-muted-foreground text-xs">{t('callCenter.settingsPage.noAvatar')}</div>}
+            : <div className="h-12 w-12 shrink-0 rounded-full border bg-muted flex items-center justify-center text-center px-1 text-muted-foreground text-[9px] leading-tight break-words">{t('callCenter.settingsPage.noAvatar')}</div>}
           <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={onAvatar} />
           <Button variant="outline" onClick={() => fileRef.current?.click()}>{t('callCenter.settingsPage.upload')}</Button>
           {s.avatar_url && (

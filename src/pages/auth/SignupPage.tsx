@@ -53,17 +53,10 @@ export default function SignupPage() {
     setStep(2);
   };
 
-  // Step 2: validate & go to step 3
-  const handleStep2 = (e: React.FormEvent) => {
+  // Step 2: register + create workspace
+  const handleStep2 = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!companyName.trim()) return;
-    setStep(3);
-  };
-
-  // Step 3: register + create workspace
-  const handleStep3 = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!aiMode) return;
 
     setLoading(true);
     const trimmedEmail = email.trim().toLowerCase();

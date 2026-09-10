@@ -528,6 +528,49 @@ function SettingsSection() {
 
               <Separator />
 
+              {/* ── Signup email verification ── */}
+              <div className="space-y-4">
+                <div>
+                  <Label className="text-sm font-medium">{t('admin.brandingPage.settings.general.signupVerification' as any)}</Label>
+                  <p className="text-xs text-muted-foreground">{t('admin.brandingPage.settings.general.signupVerificationHint' as any)}</p>
+                </div>
+                <div className="grid gap-5 md:grid-cols-2">
+                  <div className="grid gap-1.5">
+                    <Label>{t('admin.brandingPage.settings.general.signupMethod' as any)}</Label>
+                    <Select value={signupMethod} onValueChange={(v) => { setSignupMethod(v as 'link' | 'otp'); setSettingsDirty(true); }}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="link">{t('admin.brandingPage.settings.general.signupMethodLink' as any)}</SelectItem>
+                        <SelectItem value="otp">{t('admin.brandingPage.settings.general.signupMethodOtp' as any)}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {signupMethod === 'otp'
+                        ? t('admin.brandingPage.settings.general.signupMethodOtpHint' as any)
+                        : t('admin.brandingPage.settings.general.signupMethodLinkHint' as any)}
+                    </p>
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label>{t('admin.brandingPage.settings.general.signupGate' as any)}</Label>
+                    <Select value={signupGate} onValueChange={(v) => { setSignupGate(v as 'before' | 'after'); setSettingsDirty(true); }}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="before">{t('admin.brandingPage.settings.general.signupGateBefore' as any)}</SelectItem>
+                        <SelectItem value="after">{t('admin.brandingPage.settings.general.signupGateAfter' as any)}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {signupGate === 'after'
+                        ? t('admin.brandingPage.settings.general.signupGateAfterHint' as any)
+                        : t('admin.brandingPage.settings.general.signupGateBeforeHint' as any)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>

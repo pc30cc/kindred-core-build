@@ -243,7 +243,9 @@ const createSchema = z.object({
   firstName: z.string().trim().min(1).max(80),
   lastName: z.string().trim().min(1).max(80),
   email: z.string().trim().email().max(254),
-  phone: z.string().trim().regex(/^\+[1-9]\d{6,14}$/),
+  // Phone is no longer collected in the invite form; kept optional for
+  // backward compatibility with older clients that still send it.
+  phone: z.string().trim().regex(/^\+[1-9]\d{6,14}$/).optional().nullable(),
   memberType: z.enum(['staff', 'customer_facing']),
   role: z.string().trim().min(1).max(40),
   departmentIds: z.array(z.string().uuid()).max(50).optional(),

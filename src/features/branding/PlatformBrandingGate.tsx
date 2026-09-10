@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useI18n } from '@/i18n';
 import { isNativePlatform } from '@/lib/native';
+import { API_BASE } from '@/lib/apiBase';
 
 interface PlatformBrandingRow {
   id: string;

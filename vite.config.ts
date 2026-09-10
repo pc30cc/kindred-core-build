@@ -34,8 +34,8 @@ function pwaBuild(): Plugin {
       const template = fs.readFileSync(templatePath, "utf8");
       const buildId = createHash("sha256").update(urls.join(",")).digest("hex").slice(0, 12);
       const source = template
-        .replace("__BUILD_ID__", buildId)
-        .replace("__PRECACHE_URLS__", JSON.stringify(urls));
+        .replace(/__BUILD_ID__/g, buildId)
+        .replace(/__PRECACHE_URLS__/g, JSON.stringify(urls));
 
       this.emitFile({ type: "asset", fileName: "sw.js", source });
     },

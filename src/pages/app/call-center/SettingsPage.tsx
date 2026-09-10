@@ -189,7 +189,13 @@ export default function CallCenterSettingsPage() {
             : <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center text-muted-foreground text-xs">{t('callCenter.settingsPage.noAvatar')}</div>}
           <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={onAvatar} />
           <Button variant="outline" onClick={() => fileRef.current?.click()}>{t('callCenter.settingsPage.upload')}</Button>
+          {s.avatar_url && (
+            <Button variant="ghost" className="text-destructive" onClick={onRemoveAvatar}>
+              {t('callCenter.settingsPage.removeAvatar')}
+            </Button>
+          )}
           <span className="text-xs text-muted-foreground">{t('callCenter.settingsPage.avatarHint')}</span>
+
         </div>
         <Row label={t('callCenter.settingsPage.widgetPosition')}>
           <Select value={s.widget_position || 'right'} onValueChange={(v) => setS({ ...s, widget_position: v })}>

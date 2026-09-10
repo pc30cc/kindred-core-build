@@ -831,11 +831,17 @@ adminPluginsRouter.get('/', async (req: any, res) => {
     const states = await listPlatformState(serverConfigOf(req));
     const stateById = new Map(states.map((s) => [s.plugin_id, s]));
     res.json({
+      // Super Admin edits the RAW platform state, so the switches must mirror
+      // the stored row — not the effective value the marketplace computes
+      // (which also folds in `workspaceInstallable` and `enabled`, making a
+      // coming-soon plugin's switch look permanently off).
       items: PLUGIN_REGISTRY.map((def) => ({
         ...toCatalogEntry(def, stateById.get(def.id)!),
+        installable: stateById.get(def.id)!.installable,
         policy: stateById.get(def.id)!.policy,
       })),
     });
+
   } catch (err) {
     console.error('[plugins] admin list failed:', err);
     res.status(500).json({ error: 'Failed to load plugins' });

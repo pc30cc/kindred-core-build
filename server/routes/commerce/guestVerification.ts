@@ -37,7 +37,7 @@ commerceGuestVerificationRouter.post('/start', strictLimiter, async (req, res) =
       channel: parsed.data.channel,
       destination: parsed.data.destination,
       idempotencyKey: `${req.ip}-${parsed.data.orderNumber}-${Date.now()}`,
-      ipAddress: req.ip,
+      ipAddress: getClientIp(req) || undefined,
     });
     // Never echo back matched/unmatched contact details — only the OTP
     // dispatch handle, exactly like every other OTP-request endpoint.

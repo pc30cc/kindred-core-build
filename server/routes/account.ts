@@ -467,7 +467,7 @@ accountRouter.post('/resend-verification', async (req, res) => {
       email,
       fullName: user?.user_metadata?.full_name || null,
       locale,
-      ipAddress: (req as any).ip || null,
+      ipAddress: getClientIp(req) || null,
     });
 
     if (!result.success) {

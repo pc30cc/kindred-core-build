@@ -153,7 +153,7 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
     const genericInvalid = async () => {
       recordLoginAttempt(req, normalizedEmail, false);
       await logSecurityEvent(req, 'login_failed', 'warn', { email: normalizedEmail });
-      await sb.from('login_attempts').insert({ ip_address: req.ip || 'unknown', email: normalizedEmail, success: false });
+      await sb.from('login_attempts').insert({ ip_address: getClientIp(req) || 'unknown', email: normalizedEmail, success: false });
       return res.status(401).json({ error: 'Invalid email or password' });
     };
 
@@ -208,7 +208,7 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
     // (`emailVerified` in the response) so the UI can still nudge toward
     // verification.
     recordLoginAttempt(req, normalizedEmail, true);
-    await sb.from('login_attempts').insert({ ip_address: req.ip || 'unknown', email: normalizedEmail, success: true });
+    await sb.from('login_attempts').insert({ ip_address: getClientIp(req) || 'unknown', email: normalizedEmail, success: true });
 
     // Silent rehash-on-login when stored params are weaker than current policy.
     if (needsRehash(identity.passwordHash)) {
@@ -254,7 +254,7 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
     const session = await createSession(config, {
       userId: identity.id,
       email: identity.email,
-      ipAddress: req.ip || null,
+      ipAddress: getClientIp(req) || null,
       userAgent: (req.headers['user-agent'] as string | undefined) || null,
       clientType: isMobileClient ? 'mobile' : 'web',
     });
@@ -359,7 +359,7 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
       website_domain: metadata?.websiteDomain || normalizedWebsite || null,
       main_goal: metadata?.mainGoal || null,
       ai_mode: metadata?.aiMode || null,
-      signup_ip: req.ip || null,
+      signup_ip: getClientIp(req) || null,
       signup_locale: locale || null,
     };
 
@@ -399,7 +399,7 @@ authSecurityRouter.post('/signup', authRateLimiter, async (req, res) => {
         email: normalizedEmail,
         fullName,
         locale,
-        ipAddress: req.ip || null,
+        ipAddress: getClientIp(req) || null,
       });
       if (!verificationResult.success) {
         // Account exists and is usable — user can resend from the panel banner.
@@ -556,7 +556,7 @@ authSecurityRouter.get('/impersonate', authRateLimiter, async (req, res) => {
   const session = await createSession(config, {
     userId: identity.id,
     email: identity.email,
-    ipAddress: req.ip || null,
+    ipAddress: getClientIp(req) || null,
     userAgent: (req.headers['user-agent'] as string | undefined) || null,
   });
   setSessionCookie(res, session.token, session.expiresAt);

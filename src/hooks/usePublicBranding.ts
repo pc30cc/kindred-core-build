@@ -24,7 +24,7 @@ export function usePublicBranding() {
 
   return {
     branding: branding ?? null,
-    platformName: branding?.platform_name || 'Platform',
+    platformName: (branding?.platform_name || '').trim(),
     isLoading,
   };
 }

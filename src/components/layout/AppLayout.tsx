@@ -22,6 +22,7 @@ import { FloatingOperatorCallWindow } from '@/features/calls/FloatingOperatorCal
 import { useOperatorHeartbeat } from '@/hooks/useOperatorHeartbeat';
 import { useOperatorPresenceChannel } from '@/hooks/useOperatorPresenceChannel';
 import { fetchSignupPolicy } from '@/lib/emailOtp';
+import { EmailOtpDialog } from '@/components/auth/EmailOtpDialog';
 
 
 // Cooldown between two resend attempts. The authoritative cooldown lives on
@@ -58,6 +59,7 @@ function EmailVerificationBar() {
   const [cooldownMs, setCooldownMs] = useState(() => remainingMs(RESEND_LS_KEY));
   const [hiddenMs, setHiddenMs] = useState(() => remainingMs(BANNER_DISMISS_KEY));
   const [otpMode, setOtpMode] = useState(false);
+  const [otpOpen, setOtpOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -155,12 +157,15 @@ function EmailVerificationBar() {
         {/* In OTP mode no link is ever mailed, so the bar must send the
             user to the code screen instead of re-sending a link. */}
         {otpMode ? (
-          <a
-            href="/auth/verify-otp"
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-500/90"
-          >
-            {t('auth.otpVerifyNow')}
-          </a>
+          <>
+            <button
+              onClick={() => setOtpOpen(true)}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-500/90"
+            >
+              {t('auth.otpVerifyNow')}
+            </button>
+            <EmailOtpDialog open={otpOpen} onOpenChange={setOtpOpen} />
+          </>
         ) : (
           <button
             onClick={handleResend}

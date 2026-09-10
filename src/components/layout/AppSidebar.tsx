@@ -38,6 +38,7 @@ import { useInboxCounts } from '@/hooks/useConversations';
 import { useCallCenterCapabilities } from '@/hooks/useCallCenter';
 import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
+import { PlanStatusBanner } from '@/components/layout/PlanStatusBanner';
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
@@ -388,6 +389,9 @@ export function AppSidebar({
           {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
         </button>
       )}
+
+      {/* Plan status notice — trial countdown / free-plan upgrade prompt. */}
+      {!collapsed && <PlanStatusBanner workspaceId={workspace?.id} />}
 
       {/* Workspace header with dropdown */}
       <div className="relative px-3 pt-3 pb-2" ref={wsMenuRef}>

@@ -177,6 +177,13 @@ const en = {
       FORBIDDEN: 'You do not have permission for this action.',
     },
   },
+  planBanner: {
+    trialTitle: 'You are on a trial plan',
+    trialDesc: 'It ends in {{days}} days and then switches to the Free plan.',
+    freeTitle: 'You are on the Free plan',
+    freeDesc: 'Upgrade your plan to unlock every feature.',
+    upgradeCta: 'Upgrade plan',
+  },
   billingIran: {
     pageTitle: 'Plan & Payments', pageSubtitle: 'Manage your workspace plan, credit and payments.',
     tabs: { overview: 'Overview', plans: 'Plans', aiCredit: 'AI Credit', transactions: 'Transactions' },

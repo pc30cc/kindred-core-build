@@ -14,7 +14,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ShieldOff, Database, Mail, MessageSquare, KeyRound, RotateCcw } from 'lucide-react';
+import { ShieldOff, ShieldCheck, Database, Mail, MessageSquare, KeyRound, RotateCcw } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { formatPattern as format } from '@/lib/date';
 import {
@@ -68,6 +68,11 @@ export default function AdminVerificationPage() {
   const purposeName = (p: string) => t(`admin.verification.purposeNames.${p}` as any);
   const purposeDesc = (p: string) => t(`admin.verification.purposeDescriptions.${p}` as any);
   const channelLabel = (p: VerificationPurpose) => t(`admin.verification.channel.${CHANNELS[p]}` as any);
+
+  const activePurposes = useMemo(
+    () => (overview.data?.readiness.purposes ?? []).filter((p) => p.effectiveEnabled).map((p) => p.purpose),
+    [overview.data],
+  );
 
   return (
     <div className="space-y-6" dir={dir}>

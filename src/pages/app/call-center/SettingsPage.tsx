@@ -992,7 +992,9 @@ function WidgetTextsEditor({
               dir={isRtl ? 'rtl' : 'ltr'}
             />
           </div>
-        ))}
+          );
+        })}
+
       </div>
     </div>
   );

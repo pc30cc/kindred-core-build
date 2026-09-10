@@ -4,7 +4,7 @@ import {
   Flag, Palette, Globe, FileText, CreditCard, Shield,
   Database, Crown, MessageSquare, MapPin, PhoneCall,
   ChevronLeft, ChevronRight, LogOut, ArrowLeft, ArrowRight, Activity, Video, Sparkles,
-  KeyRound, X, ShieldCheck, Radar,
+  KeyRound, X, ShieldCheck, Radar, SlidersHorizontal,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/features/auth/AuthContext';
@@ -34,6 +34,7 @@ const adminNav = [
   { group: 'governance', key: 'database', path: '/admin/database', icon: Database },
   { group: 'governance', key: 'security', path: '/admin/security', icon: Shield },
   { group: 'governance', key: 'verification', path: '/admin/verification', icon: KeyRound },
+  { group: 'governance', key: 'coreSettings', path: '/admin/core-settings', icon: SlidersHorizontal },
 ] as const;
 
 export function AdminSidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: boolean; onMobileClose?: () => void }) {

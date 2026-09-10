@@ -8,12 +8,22 @@
 
 import { Router, type Response } from 'express';
 import crypto from 'crypto';
+import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { issueRecoveryEmail, issueVerificationEmail } from '../services/auth-email.js';
-import { findIdentityByEmail } from '../services/auth/identity.js';
+import { findIdentityByEmail, findIdentityById } from '../services/auth/identity.js';
 import { hashPassword, InvalidPasswordError } from '../services/auth/password.js';
 import { logSecurityEvent } from '../middleware/security.js';
+import { requireUser } from '../lib/workspaceAuth.js';
+import {
+  startEmailVerificationOtp,
+  resendEmailVerificationOtp,
+  confirmEmailVerificationOtp,
+  EmailOtpUnavailableError,
+  EmailOtpRateLimitedError,
+} from '../services/auth/emailOtp.js';
+
 
 export const authEmailRouter = Router();
 

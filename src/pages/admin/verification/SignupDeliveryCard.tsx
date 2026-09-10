@@ -47,11 +47,16 @@ export default function SignupDeliveryCard() {
   const save = async () => {
     setSaving(true);
     try {
-      await adminFetch('/api/admin/management/platform-settings', {
+      const body = await adminFetch<{ success: boolean; settings: any }>('/api/admin/management/platform-settings', {
         method: 'PUT',
         body: JSON.stringify({ signup_verification_method: method, signup_verification_gate: gate }),
       });
-      qc.invalidateQueries({ queryKey: ['platform_settings'] });
+      const savedMethod: Method = body.settings?.signup_verification_method === 'otp' ? 'otp' : 'link';
+      const savedGate: Gate = body.settings?.signup_verification_gate === 'after' ? 'after' : 'before';
+      if (savedMethod !== method || savedGate !== gate) {
+        throw new Error(t('admin.brandingPage.common.saveFailed' as any));
+      }
+      qc.setQueryData(['platform_settings'], body.settings);
       setDirty(false);
       toast({ title: t('admin.brandingPage.settings.saved' as any) });
     } catch (e) {

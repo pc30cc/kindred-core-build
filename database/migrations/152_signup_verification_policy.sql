@@ -37,3 +37,9 @@ BEGIN
       CHECK (signup_verification_gate IN ('before', 'after'));
   END IF;
 END $$;
+
+-- `platform_settings` is a platform-wide singleton. Enforce that invariant
+-- in the database so concurrent admin saves cannot create two competing rows
+-- whose unordered reads make settings appear to revert.
+CREATE UNIQUE INDEX IF NOT EXISTS platform_settings_singleton_idx
+  ON public.platform_settings ((true));

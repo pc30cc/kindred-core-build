@@ -22,6 +22,7 @@ import { CheckCircle2, Loader2, ShieldAlert, Smartphone } from 'lucide-react';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { PhoneVerificationFlow } from './PhoneVerificationFlow';
 import { usePhoneVerificationStatus } from './hooks';
+import { PHONE_STATUS_LABEL_KEY, resolvePhoneStatus } from './status';
 
 interface Props {
   /** Rendered when verification is not available for this user/context. */
@@ -81,10 +82,11 @@ export function AccountPhoneField({ fallback }: Props) {
               {data?.phoneMasked || t('phoneVerification.statusNoPhone')}
             </p>
             <Badge variant="outline" className="h-5 shrink-0 px-1.5 text-[10px]">
-              {verified ? t('phoneVerification.statusVerified') : t('phoneVerification.statusUnverified')}
+              {t(PHONE_STATUS_LABEL_KEY[status] as never)}
             </Badge>
           </div>
         </div>
+
 
         {!verified && (
           <Button size="sm" className="h-7 shrink-0 px-2.5 text-xs" onClick={() => setOpen(true)}>

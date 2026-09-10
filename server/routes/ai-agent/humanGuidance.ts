@@ -200,6 +200,48 @@ humanGuidanceRouter.get('/conversations/:id/ai-reply-now/eligibility', async (re
   });
 });
 
+// ─── POST /api/ai-agent/conversations/:id/ai-say-now ───────────────────
+// Operator dictation → the AI rewrites it in the assistant's voice and
+// delivers it to the visitor immediately. Unlike guidance this is NOT stored
+// as an instruction, and unlike "AI Reply Now" it does not need a pending
+// visitor message: the operator decides the content of this very message.
+const sayNowSchema = z.object({
+  body: z.string().min(1).max(MAX_SAY_NOW_BODY),
+  attribution: z.enum(['specialist', 'assistant']).optional(),
+  locale: z.string().max(10).optional(),
+});
+
+humanGuidanceRouter.post('/conversations/:id/ai-say-now', async (req: Request, res: Response) => {
+  const config = (req as any).serverConfig as ServerConfig;
+  const parsedId = idSchema.safeParse(req.params.id);
+  if (!parsedId.success) return res.status(400).json({ error: 'invalid_conversation_id' });
+  const ctx = await authorizeConversation(req, res, parsedId.data);
+  if (!ctx) return;
+
+  const parsed = sayNowSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
+
+  const sb = getServiceClient(config);
+  const { data: profile } = await sb
+    .from('profiles')
+    .select('full_name')
+    .eq('id', ctx.userId)
+    .maybeSingle();
+
+  const result = await operatorSayNow(config, {
+    workspaceId: ctx.workspaceId,
+    conversationId: parsedId.data,
+    operatorId: ctx.userId,
+    operatorName: (profile as any)?.full_name || null,
+    body: parsed.data.body,
+    attribution: parsed.data.attribution,
+    locale: parsed.data.locale || null,
+  });
+  if (result.ok !== true) {
+    return res.status(result.httpStatus || 400).json({ error: result.reason, detail: result.detail });
+  }
+  return res.json({ ok: true, messageId: result.messageId, text: result.text, runId: result.runId });
+});
 
 // ─── DELETE /api/ai-agent/guidance/:guidanceId ─────────────────────────
 humanGuidanceRouter.delete('/guidance/:guidanceId', async (req: Request, res: Response) => {

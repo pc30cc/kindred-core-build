@@ -1,8 +1,8 @@
 <?php
 /**
- * Plugin Name:       Web Yar Connector for WooCommerce
- * Plugin URI:        https://webyar.io
- * Description:       A lightweight, secure bridge between your WooCommerce store and Web Yar's AI Agent. No AI runtime, no prompt logic, no product index — just typed, signed data for products, stock, orders and tracking. All AI intelligence lives on Web Yar's servers.
+ * Plugin Name:       اتصال‌دهنده‌ی وب‌یار برای ووکامرس
+ * Plugin URI:        https://webyar.ai
+ * Description:       پل ارتباطی سبک و امن میان فروشگاه ووکامرس شما و دستیار هوش مصنوعی وب‌یار. بدون موتور هوش مصنوعی، بدون ساخت پرامپت، بدون نمایه‌سازی محصولات — فقط داده‌ی نوع‌دار و امضاشده برای محصولات، موجودی، سفارش‌ها و رهگیری مرسوله. تمام هوش مصنوعی روی سرورهای وب‌یار اجرا می‌شود.
  * Version:           1.0.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
@@ -75,7 +75,7 @@ function webyar_wc_environment_notice(): void {
 	}
 	echo '<div class="notice notice-error"><p>' .
 		esc_html__(
-			'Web Yar Connector for WooCommerce requires PHP 7.4+, WordPress 6.0+, and WooCommerce 8.0+ (active). The plugin is inactive until these requirements are met — your store is unaffected.',
+			'افزونه‌ی اتصال‌دهنده‌ی وب‌یار برای ووکامرس نیاز به PHP نسخه‌ی ۷.۴ به بالا، وردپرس ۶.۰ به بالا و ووکامرس ۸.۰ به بالا (فعال) دارد. تا زمانی که این پیش‌نیازها فراهم نشوند، افزونه غیرفعال می‌ماند — فروشگاه شما تحت تأثیر قرار نمی‌گیرد.',
 			'webyar-woocommerce'
 		) .
 		'</p></div>';
@@ -118,7 +118,7 @@ register_activation_hook(
 				deactivate_plugins( plugin_basename( WEBYAR_WC_FILE ) );
 				wp_die(
 					esc_html__(
-						'Web Yar Connector for WooCommerce does not support network activation. Please activate it individually on each site.',
+						'افزونه‌ی اتصال‌دهنده‌ی وب‌یار برای ووکامرس از فعال‌سازی شبکه‌ای پشتیبانی نمی‌کند. لطفاً آن را به‌صورت جداگانه در هر سایت فعال کنید.',
 						'webyar-woocommerce'
 					)
 				);

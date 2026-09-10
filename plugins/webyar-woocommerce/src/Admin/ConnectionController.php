@@ -29,7 +29,7 @@ final class ConnectionController {
 
 	private function require_manage_capability(): void {
 		if ( ! Capabilities::current_user_can_manage() ) {
-			wp_die( esc_html__( 'You do not have permission to manage the Web Yar connection.', 'webyar-woocommerce' ), 403 );
+			wp_die( esc_html__( 'شما اجازه‌ی مدیریت اتصال وب‌یار را ندارید.', 'webyar-woocommerce' ), 403 );
 		}
 	}
 
@@ -43,7 +43,7 @@ final class ConnectionController {
 		// both configures and connects.
 		$raw_app_url = isset( $_POST['app_url'] ) ? esc_url_raw( wp_unslash( $_POST['app_url'] ) ) : ''; // phpcs:ignore
 		if ( '' === $raw_app_url || false === filter_var( $raw_app_url, FILTER_VALIDATE_URL ) ) {
-			$this->redirect_with_notice( 'error', __( 'Enter a valid Web Yar URL (e.g. https://app.yourdomain.com) before connecting.', 'webyar-woocommerce' ) );
+			$this->redirect_with_notice( 'error', __( 'پیش از اتصال، یک آدرس معتبر وب‌یار وارد کنید (مثلاً https://app.webyar.ai).', 'webyar-woocommerce' ) );
 			return;
 		}
 		$settings = get_option( 'webyar_wc_settings', array() );
@@ -74,7 +74,7 @@ final class ConnectionController {
 		$state = isset( $_GET['state'] ) ? sanitize_text_field( wp_unslash( $_GET['state'] ) ) : ''; // phpcs:ignore
 
 		if ( '' === $code || '' === $state ) {
-			$this->redirect_with_notice( 'error', __( 'Invalid pairing callback.', 'webyar-woocommerce' ) );
+			$this->redirect_with_notice( 'error', __( 'بازگشت نامعتبر از فرآیند اتصال.', 'webyar-woocommerce' ) );
 			return;
 		}
 
@@ -93,7 +93,7 @@ final class ConnectionController {
 					'rotated_at'          => null,
 				)
 			);
-			$this->redirect_with_notice( 'success', __( 'Connected to Web Yar.', 'webyar-woocommerce' ) );
+			$this->redirect_with_notice( 'success', __( 'به وب‌یار متصل شدید.', 'webyar-woocommerce' ) );
 		} catch ( \Throwable $e ) {
 			Logger::error( 'pairing exchange failed', array( 'message' => $e->getMessage() ) );
 			$this->redirect_with_notice( 'error', $e->getMessage() );
@@ -113,7 +113,7 @@ final class ConnectionController {
 		CredentialStore::clear();
 		\WebYar\WooCommerce\Events\EventQueue::cancel_all();
 
-		$this->redirect_with_notice( 'success', __( 'Disconnected from Web Yar.', 'webyar-woocommerce' ) );
+		$this->redirect_with_notice( 'success', __( 'اتصال به وب‌یار قطع شد.', 'webyar-woocommerce' ) );
 	}
 
 	private function notify_disconnect( array $credential ): void {
@@ -139,7 +139,7 @@ final class ConnectionController {
 				array( 'timeout' => 10 )
 			);
 		}
-		$this->redirect_with_notice( 'success', __( 'Connection test requested.', 'webyar-woocommerce' ) );
+		$this->redirect_with_notice( 'success', __( 'درخواست تست اتصال ارسال شد.', 'webyar-woocommerce' ) );
 	}
 
 	public function sync_now(): void {
@@ -152,7 +152,7 @@ final class ConnectionController {
 				array( 'timeout' => 10 )
 			);
 		}
-		$this->redirect_with_notice( 'success', __( 'Sync requested.', 'webyar-woocommerce' ) );
+		$this->redirect_with_notice( 'success', __( 'درخواست همگام‌سازی ارسال شد.', 'webyar-woocommerce' ) );
 	}
 
 	public function save_settings(): void {
@@ -168,7 +168,7 @@ final class ConnectionController {
 		}
 		$settings['auto_widget'] = ! empty( $_POST['auto_widget'] ); // phpcs:ignore
 		update_option( 'webyar_wc_settings', $settings, false );
-		$this->redirect_with_notice( 'success', __( 'Settings saved.', 'webyar-woocommerce' ) );
+		$this->redirect_with_notice( 'success', __( 'تنظیمات ذخیره شد.', 'webyar-woocommerce' ) );
 	}
 
 	private function redirect_with_notice( string $type, string $message ): void {

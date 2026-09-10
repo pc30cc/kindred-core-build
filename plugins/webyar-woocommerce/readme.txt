@@ -1,4 +1,4 @@
-=== Web Yar Connector for WooCommerce ===
+=== اتصال‌دهنده‌ی وب‌یار برای ووکامرس ===
 Contributors: webyar
 Tags: woocommerce, ai, chat, customer support, commerce
 Requires at least: 6.0
@@ -10,42 +10,42 @@ Stable tag: 1.0.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-A lightweight, secure bridge between your WooCommerce store and the Web Yar AI Assistant.
+پل ارتباطی سبک و امن میان فروشگاه ووکامرس شما و دستیار هوش مصنوعی وب‌یار.
 
-== Description ==
+== توضیحات ==
 
-This plugin does NOT run an AI model, does NOT build a prompt, does NOT create embeddings or a vector index, and does NOT run background AI processing. All of that lives on Web Yar's own infrastructure. This plugin's job is narrow and secure:
+این افزونه هیچ مدل هوش مصنوعی اجرا نمی‌کند، پرامپتی نمی‌سازد، embedding یا نمایه‌ی برداری تولید نمی‌کند و هیچ پردازش هوش مصنوعی در پس‌زمینه انجام نمی‌دهد. تمام این موارد روی زیرساخت خود وب‌یار اجرا می‌شوند. وظیفه‌ی این افزونه محدود و امن است:
 
-* Answer signed, authenticated requests from Web Yar about your products, stock, orders, and tracking
-* Push bounded product/order change events to Web Yar in the background via WooCommerce's own Action Scheduler
-* Pair with your Web Yar workspace using a one-click, OAuth-style authorization flow (no API keys to copy/paste)
+* پاسخ‌دهی به درخواست‌های امضاشده و احرازهویت‌شده‌ی وب‌یار درباره‌ی محصولات، موجودی، سفارش‌ها و رهگیری مرسوله
+* ارسال رویدادهای محدود تغییر محصول/سفارش به وب‌یار در پس‌زمینه، از طریق Action Scheduler خود ووکامرس
+* اتصال به ورک‌اسپیس وب‌یار شما با یک فرآیند احرازهویت شبیه OAuth و تنها با یک کلیک (بدون نیاز به کپی/پیست کلید API)
 
-Your storefront and checkout are never slowed down by Web Yar: connecting this plugin adds zero synchronous network calls to a normal page load, and checkout never waits on Web Yar. If Web Yar is unreachable, your store keeps working exactly as before — cart, checkout, payment, and order creation are completely unaffected.
+فروشگاه و فرآیند پرداخت شما هرگز توسط وب‌یار کند نمی‌شود: نصب این افزونه هیچ درخواست شبکه‌ای هم‌زمان (synchronous) به بارگذاری صفحات معمولی اضافه نمی‌کند و فرآیند تسویه‌حساب هرگز منتظر وب‌یار نمی‌ماند. اگر وب‌یار در دسترس نباشد، فروشگاه شما دقیقاً مثل قبل کار می‌کند — سبد خرید، تسویه‌حساب، پرداخت و ثبت سفارش کاملاً بدون تأثیر باقی می‌مانند.
 
-= Requirements =
+= پیش‌نیازها =
 
-* PHP 7.4+
-* WordPress 6.0+
-* WooCommerce 8.0+ (active)
-* HPOS (High-Performance Order Storage) compatible — tested with HPOS enabled and with legacy post-based order storage
+* PHP نسخه‌ی ۷.۴ به بالا
+* وردپرس نسخه‌ی ۶.۰ به بالا
+* ووکامرس نسخه‌ی ۸.۰ به بالا (فعال)
+* سازگار با HPOS (ذخیره‌سازی سفارش با کارایی بالا) — هم با HPOS فعال و هم با ذخیره‌سازی سنتی مبتنی بر پست تست شده است
 
-= Security =
+= امنیت =
 
-* No Consumer Key/Secret copy-paste — pairing uses an OAuth-style authorization-code flow with PKCE
-* All machine requests are HMAC-SHA256 signed, with replay protection and bounded clock skew
-* Installation credentials are encrypted at rest and never returned through any REST response, logged, or embedded in HTML/JS
-* Order and customer data are never exposed without verified identity — an order number alone is never sufficient
+* بدون کپی/پیست Consumer Key/Secret — اتصال از طریق فرآیند authorization-code شبیه OAuth همراه با PKCE انجام می‌شود
+* تمام درخواست‌های ماشینی با HMAC-SHA256 امضا می‌شوند، همراه با محافظت در برابر تکرار درخواست (replay) و بازه‌ی زمانی محدود
+* اطلاعات اتصال به‌صورت رمزنگاری‌شده ذخیره می‌شوند و هرگز از طریق REST بازگردانده، لاگ یا در HTML/JS جاسازی نمی‌شوند
+* اطلاعات سفارش و مشتری هرگز بدون احراز هویت تأییدشده نمایش داده نمی‌شوند — صرفاً داشتن شماره‌ی سفارش کافی نیست
 
-See docs/commerce/ in the Web Yar repository for the full architecture and security documentation.
+برای مستندات کامل معماری و امنیت، به پوشه‌ی docs/commerce/ در مخزن وب‌یار مراجعه کنید.
 
-== Installation ==
+== نصب ==
 
-1. Install and activate the plugin.
-2. Go to WooCommerce → Web Yar (or the "Web Yar" menu item).
-3. Click "Connect to Web Yar" and follow the authorization flow.
-4. Choose your Web Yar workspace and approve the permissions you want to grant.
+۱. افزونه را نصب و فعال کنید.
+۲. در وردپرس به بخش «ووکامرس ← وب‌یار» (یا آیتم منوی «وب‌یار») بروید.
+۳. آدرس داشبورد وب‌یار خود را (مثلاً https://app.webyar.ai) وارد کرده و روی «اتصال به وب‌یار» کلیک کنید.
+۴. وارد حساب کاربری خود شوید، ورک‌اسپیس مدنظر را انتخاب کنید و سطوح دسترسی را تأیید کنید.
 
 == Changelog ==
 
 = 1.0.0 =
-* Initial release — WooCommerce connector for the Web Yar Commerce Integration Platform.
+* نسخه‌ی اولیه — اتصال‌دهنده‌ی ووکامرس برای پلتفرم یکپارچه‌سازی تجارت وب‌یار.

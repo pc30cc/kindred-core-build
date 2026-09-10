@@ -9,7 +9,7 @@ interface BrandingContextValue {
 
 const BrandingContext = createContext<BrandingContextValue>({
   branding: null,
-  platformName: 'Platform',
+  platformName: '',
   isLoading: true,
 });
 
@@ -22,7 +22,7 @@ export function BrandingProvider({
   branding: WorkspaceBranding | null;
   isLoading?: boolean;
 }) {
-  const platformName = branding?.platform_name || 'Platform';
+  const platformName = (branding?.platform_name || '').trim();
 
   // NOTE: the browser title is owned exclusively by PlatformBrandingGate
   // (platform_branding_localized). Workspace branding must not overwrite it.

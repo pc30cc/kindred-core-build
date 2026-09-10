@@ -493,9 +493,9 @@ export default function InvitePage() {
   );
 
   if (state === 'otp_required') {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-background">
-        <Card className="w-full max-w-md">
+    return shell(
+      <>
+        <Card className="w-full">
           {header}
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">

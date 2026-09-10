@@ -68,7 +68,7 @@ export default function SignupPage() {
         fullName: fullName || undefined,
         website: websiteDomain.trim(),
         locale,
-        metadata: { locale, companyName: companyName.trim(), websiteDomain: websiteDomain.trim(), mainGoal, aiMode },
+        metadata: { locale, companyName: companyName.trim(), websiteDomain: websiteDomain.trim() },
       });
       if (error) {
         // Generic by design: the backend never reveals whether an existing

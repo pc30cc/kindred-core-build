@@ -418,7 +418,9 @@ workspaceInvitationsRouter.get('/', rejectTokenInUrl, requireUser, async (req: a
     .eq('invitation_flow_version', 2)
     .order('created_at', { ascending: false })
     .limit(200);
-  if (!includeArchived) query = query.is('archived_at', null);
+  // An accepted invitation is spent: the person is now a workspace member and
+  // belongs in the member list, not in the pending-invitation ledger.
+  if (!includeArchived) query = query.is('archived_at', null).neq('status', 'accepted');
 
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: 'INTERNAL_ERROR' });

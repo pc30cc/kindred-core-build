@@ -38,6 +38,7 @@ import { useInboxCounts } from '@/hooks/useConversations';
 import { useCallCenterCapabilities } from '@/hooks/useCallCenter';
 import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
+import { PlanStatusBanner } from '@/components/layout/PlanStatusBanner';
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';

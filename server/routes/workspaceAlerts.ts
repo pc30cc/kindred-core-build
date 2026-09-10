@@ -199,8 +199,11 @@ async function deriveAlerts(req: any, workspaceId: string, userId: string) {
   // Critical conditions demand action, so they are never dismissible. The
   // signature encodes the *state* of the alert: when it worsens (e.g. quota
   // 80% -> 95%) the signature changes and a previous dismissal stops applying.
+  // Account-verification alerts (email/phone) are never dismissible either:
+  // they must stay visible until the user actually verifies.
+  const NEVER_DISMISSIBLE = new Set(['email_unverified', 'phone_unverified', 'phone_missing']);
   for (const a of alerts) {
-    a.dismissible = a.severity !== 'critical';
+    a.dismissible = a.severity !== 'critical' && !NEVER_DISMISSIBLE.has(a.kind);
     a.signature = `${a.kind}:${a.severity}:${a.params?.percent ?? ''}`;
   }
 

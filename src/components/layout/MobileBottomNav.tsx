@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Inbox, Search, Menu as MenuIcon } from 'lucide-react';
+import { LayoutDashboard, Inbox, Radar, Menu as MenuIcon } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { useActiveWorkspace, useWorkspacePath } from '@/hooks/useWorkspace';
 import { useInboxCounts } from '@/hooks/useConversations';
@@ -32,12 +32,7 @@ export function MobileBottomNav({ onMenuClick }: { onMenuClick: () => void }) {
   const tabs: { key: string; icon: React.ElementType; onClick?: () => void; to?: string; active: boolean; badge?: number }[] = [
     { key: 'dashboard', icon: LayoutDashboard, to: wsPath(''), active: isActive('') },
     { key: 'inbox', icon: Inbox, to: wsPath('/inbox'), active: isActive('/inbox'), badge: needsHuman },
-    {
-      key: 'search',
-      icon: Search,
-      active: false,
-      onClick: () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })),
-    },
+    { key: 'visitors', icon: Radar, to: wsPath('/visitors'), active: isActive('/visitors') },
     { key: 'menu', icon: MenuIcon, active: false, onClick: onMenuClick },
   ];
 

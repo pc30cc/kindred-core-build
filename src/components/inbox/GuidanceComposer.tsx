@@ -61,6 +61,10 @@ export function GuidanceComposer({
   const [scope, setScope] = useState<GuidanceScope>('next_turn');
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
+  /** 'guide' = private steering, 'say' = AI delivers the operator's dictation now. */
+  const [mode, setMode] = useState<'guide' | 'say'>('guide');
+  const [attribution, setAttribution] = useState<SayNowAttribution>('specialist');
+  const [sending, setSending] = useState(false);
   const [eligibility, setEligibility] = useState<ReplyNowEligibility | null>(null);
   /** Stable per-attempt token so a double click can never double-answer. */
   const idempotencyRef = useRef<string>(randomKey());

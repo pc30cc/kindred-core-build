@@ -389,6 +389,9 @@ export function AppSidebar({
         </button>
       )}
 
+      {/* Plan status notice — trial countdown / free-plan upgrade prompt. */}
+      {!collapsed && <PlanStatusBanner workspaceId={workspace?.id} />}
+
       {/* Workspace header with dropdown */}
       <div className="relative px-3 pt-3 pb-2" ref={wsMenuRef}>
         <button

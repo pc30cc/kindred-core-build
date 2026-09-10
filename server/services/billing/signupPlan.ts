@@ -88,7 +88,11 @@ export async function applySignupPlanToWorkspace(
   if (!plan) return;
 
   // Trial length always comes from the plan's own card (Plans page).
-  const days = Number(plan.trial_days) || 14;
+  const days = Number(plan.trial_days);
+  if (!Number.isFinite(days) || days <= 0) {
+    console.error('[signup-plan] Trial plan has no valid trial_days value');
+    return;
+  }
   const now = new Date();
   const end = new Date(now.getTime() + days * 86_400_000);
 

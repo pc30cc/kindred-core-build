@@ -111,7 +111,7 @@ authEmailRouter.post('/send-verification', async (req, res) => {
 authEmailRouter.post('/verify-email', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
-    const { token } = req.body;
+    const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
 
     if (!token) return res.status(400).json({ error: 'token is required' });
 
@@ -126,6 +126,22 @@ authEmailRouter.post('/verify-email', async (req, res) => {
 
     const redeemed = Array.isArray(data) ? data[0] : data;
     if (!redeemed?.redeemed_user_id) {
+      // A verification URL may be opened twice by browser prefetch/link
+      // scanners or by a user refreshing the success page. Treat the same
+      // already-consumed token as an idempotent success when it belongs to
+      // an identity that is now verified; invalid, expired, revoked, or
+      // never-issued tokens still fail closed.
+      const { data: consumed } = await sb
+        .from('auth_verify_tokens')
+        .select('user_id, email, used_at, revoked_at, expires_at')
+        .eq('token_hash', tokenHash)
+        .maybeSingle();
+      if (consumed?.used_at && !consumed.revoked_at) {
+        const identity = await findIdentityById(config, consumed.user_id);
+        if (identity?.emailVerifiedAt) {
+          return res.json({ success: true, email: consumed.email, already_verified: true });
+        }
+      }
       return res.status(400).json({ error: 'Invalid or expired token' });
     }
 

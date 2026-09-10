@@ -471,7 +471,12 @@ adminManagementRouter.delete('/email-templates/:id', async (req, res) => {
 adminManagementRouter.get('/platform-settings', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   const sb = getServiceClient(serverConfigOf(req));
-  const { data, error } = await sb.from('platform_settings').select('*').limit(1).maybeSingle();
+  const { data, error } = await sb
+    .from('platform_settings')
+    .select('*')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ settings: data });
 });
@@ -498,16 +503,22 @@ adminManagementRouter.put('/platform-settings', async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
   const sb = getServiceClient(serverConfigOf(req));
   const payload = { ...parsed.data, updated_at: new Date().toISOString() };
-  const { data: existing } = await sb.from('platform_settings').select('id').limit(1).maybeSingle();
+  const { data: existing, error: lookupError } = await sb
+    .from('platform_settings')
+    .select('id')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (lookupError) return res.status(500).json({ error: lookupError.message });
   const q = existing
-    ? sb.from('platform_settings').update(payload).eq('id', (existing as { id: string }).id)
-    : sb.from('platform_settings').insert(payload as any);
-  const { error } = await q;
+    ? sb.from('platform_settings').update(payload).eq('id', (existing as { id: string }).id).select('*').single()
+    : sb.from('platform_settings').insert(payload as any).select('*').single();
+  const { data: savedSettings, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
   // The signup policy is memoised for 30s in the auth path — drop it now so
   // an operator's change takes effect on the very next signup.
   invalidateSignupPolicyCache();
-  return res.json({ success: true });
+  return res.json({ success: true, settings: savedSettings });
 });
 
 

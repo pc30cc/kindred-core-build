@@ -15,7 +15,16 @@ export type VerificationChannel = 'email' | 'sms';
 
 export type VerificationLocale = 'fa' | 'tr' | 'en';
 
-export type VerificationSubjectKind = 'user' | 'pending_account' | 'anonymous';
+/**
+ * 'commerce_order' — added for the Commerce Integration Platform's guest
+ * order verification (docs/commerce/SECURITY.md §Guest order verification).
+ * Purely additive: existing purposes keep their original subjectBinding
+ * values, and assertPolicyBindings has no exhaustive switch over this type
+ * to update (see its doc comment — only 'user' gets special subjectRef
+ * enforcement; every other kind relies on the destination/subjectRef-hash
+ * consistency the DB layer already enforces across request/resend/verify).
+ */
+export type VerificationSubjectKind = 'user' | 'pending_account' | 'anonymous' | 'commerce_order';
 
 /**
  * Every purpose this core could ever serve. NONE of these are integrated
@@ -36,7 +45,8 @@ export type VerificationPurpose =
   | 'change_email'
   | 'change_phone'
   | 'sensitive_action'
-  | 'workspace_invitation';
+  | 'workspace_invitation'
+  | 'commerce_order_lookup';
 
 export const ALL_VERIFICATION_PURPOSES: readonly VerificationPurpose[] = [
   'signup_email',
@@ -47,6 +57,7 @@ export const ALL_VERIFICATION_PURPOSES: readonly VerificationPurpose[] = [
   'change_phone',
   'sensitive_action',
   'workspace_invitation',
+  'commerce_order_lookup',
 ];
 
 export interface PurposePolicy {
@@ -283,6 +294,31 @@ const RAW_POLICIES: Record<VerificationPurpose, PurposePolicy> = {
     proofTtlSeconds: 600,
     requiresAuth: false,
     subjectBinding: 'anonymous',
+    tenantBinding: 'required',
+    invalidatesPreviousGeneration: true,
+    issuesProof: true,
+    globalRateLimit: null,
+  },
+  commerce_order_lookup: {
+    // The Commerce Integration Platform's ONE real, active consumer of this
+    // core (docs/commerce/SECURITY.md §Guest order verification) — every
+    // other purpose above remains a dormant registry placeholder. The
+    // visitor is anonymous; contact-match is verified against the live
+    // WooCommerce order BEFORE this challenge is ever issued (see
+    // CommerceConnector.verifyOrderContactMatch) — order number alone is
+    // never sufficient (spec §29).
+    enabled: true,
+    allowedChannels: ['email', 'sms'],
+    otpLength: 6,
+    otpTtlSeconds: 300,
+    deliveryRetryWindowSeconds: 600,
+    resendCooldownSeconds: 60,
+    maxSendsPerWindow: 3,
+    rateWindowSeconds: 1800,
+    maxVerificationAttempts: 5,
+    proofTtlSeconds: 900,
+    requiresAuth: false,
+    subjectBinding: 'commerce_order',
     tenantBinding: 'required',
     invalidatesPreviousGeneration: true,
     issuesProof: true,

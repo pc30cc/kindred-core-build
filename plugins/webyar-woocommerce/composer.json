@@ -1,0 +1,14 @@
+{
+  "name": "webyar/webyar-woocommerce",
+  "description": "Dev tooling only — the plugin itself has zero runtime Composer dependencies (spec: avoid dependency bloat).",
+  "type": "wordpress-plugin",
+  "license": "GPL-2.0-or-later",
+  "require-dev": {
+    "phpunit/phpunit": "^9.6"
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "WebYar\\WooCommerce\\": "src/"
+    }
+  }
+}

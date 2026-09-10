@@ -92,6 +92,8 @@ import SeoPage from "@/pages/app/seo/SeoPage";
 import WebAnalyticsPage from "@/pages/app/analytics/WebAnalyticsPage";
 import SettingsGeneralPage from "@/pages/app/settings/GeneralPage";
 import SettingsIntegrationsPage from "@/pages/app/settings/IntegrationsPage";
+import SettingsCommercePage from "@/pages/app/settings/CommercePage";
+import CommerceAuthorizePage from "@/pages/CommerceAuthorizePage";
 import SettingsDomainsPage from "@/pages/app/settings/DomainsPage";
 import SettingsProvidersPage from "@/pages/app/settings/ProvidersPage";
 import SettingsTranslationsPage from "@/pages/app/settings/TranslationsPage";
@@ -222,6 +224,11 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <RequireAuth><AdminBootstrapPage /></RequireAuth>
               } />
 
+              {/* Commerce pairing consent screen (docs/commerce/SECURITY.md §Pairing) */}
+              <Route path="/commerce/authorize" element={
+                <RequireAuth><CommerceAuthorizePage /></RequireAuth>
+              } />
+
               {/* Global Super Admin */}
               <Route element={<RequireAdmin><AdminLayout /></RequireAdmin>}>
                 <Route path="/admin" element={<AdminDashboardPage />} />
@@ -329,6 +336,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route index element={<Navigate to="general" replace />} />
                   <Route path="general" element={<RequireWorkspaceAdmin><SettingsGeneralPage /></RequireWorkspaceAdmin>} />
                   <Route path="integrations" element={<RequireWorkspaceAdmin><SettingsIntegrationsPage /></RequireWorkspaceAdmin>} />
+                  <Route path="commerce" element={<RequireWorkspaceAdmin><SettingsCommercePage /></RequireWorkspaceAdmin>} />
                   <Route path="branding" element={<Navigate to="../general" replace />} />
                   <Route path="domains" element={<RequireWorkspaceAdmin><SettingsDomainsPage /></RequireWorkspaceAdmin>} />
                   <Route path="providers" element={<RequireWorkspaceAdmin><SettingsProvidersPage /></RequireWorkspaceAdmin>} />

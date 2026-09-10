@@ -31,6 +31,7 @@ import {
   wantsBusinessHours, renderToolResults, type GateContext,
 } from '../actions/index.js';
 import { resolveHandoffAckMessage, pickHandoffAck } from './helpers.js';
+import { runCommerceToolStage } from '../commerce-tools/runner.js';
 import { checkGenerationFreshness, freshnessMeta } from '../freshness.js';
 import { parseAiControl, buildAiControlContract, type AiControl } from '../aiControl.js';
 import { createGuidanceRequest, hasPendingGuidanceRequest } from '../guidance.js';
@@ -200,6 +201,19 @@ export async function runGenerationStage(
       data: { operators_online: availability.state === 'online', availability_reason: availability.reason },
     }]);
     readOnlyToolResults.push({ name: 'get_business_hours', ok: true });
+  }
+  // Commerce Integration Platform (docs/commerce/ARCHITECTURE.md) — a
+  // bounded, deterministic pre-generation stage, never a model-driven tool
+  // loop. Never throws; a workspace with no commerce connection pays only
+  // the cost of a regex intent check. Merged into the SAME sanitized
+  // "factual data only" tool-results block get_business_hours already uses.
+  const commerceStage = await runCommerceToolStage(config, {
+    workspaceId, conversationId: conversationId || null, question,
+  }).catch(() => ({ toolResults: [], toolsUsed: [] }));
+  if (commerceStage.toolResults.length) {
+    const commerceBlock = renderToolResults(commerceStage.toolResults);
+    toolResultsBlock = [toolResultsBlock, commerceBlock].filter(Boolean).join('\n');
+    for (const t of commerceStage.toolsUsed) readOnlyToolResults.push({ name: t, ok: true });
   }
   // A guidance request only makes sense when a human could actually answer
   // it soon: operators reachable, AI still owns the conversation, and no

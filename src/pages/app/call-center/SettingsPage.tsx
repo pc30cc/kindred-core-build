@@ -1000,7 +1000,7 @@ function WidgetTextsEditor({
           // Translated field name when the locale bundle has one; the English
           // constant stays as the fallback so a missing key never shows a path.
           const tk = `callCenter.settingsPage.widgetTextKeys.${key}`;
-          const translated = t(tk);
+          const translated = (t as unknown as (k: string) => string)(tk);
           const fieldLabel = translated === tk ? label : translated;
           return (
           <div key={key} className="space-y-1">

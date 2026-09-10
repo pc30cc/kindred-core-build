@@ -377,6 +377,38 @@ suite('Part A — self-host chain: create_workspace_atomic ACL + provision_accou
     expect(workspaces.rows[0].n).toBe(1);
   });
 
+  it('repairs an existing account whose first workspace provisioning never completed', async () => {
+    const profile = await db.query(
+      `INSERT INTO public.profiles (id, email, full_name) VALUES (gen_random_uuid(), 'partial@idempotency.test', 'Partial User') RETURNING id`,
+    );
+    const userId = profile.rows[0].id;
+    const account = await db.query(
+      `INSERT INTO public.accounts (name, slug, owner_id) VALUES ('Partial User', public.generate_short_id('acc_'), $1) RETURNING id`,
+      [userId],
+    );
+    await db.query(
+      `INSERT INTO public.account_members (account_id, user_id, role) VALUES ($1, $2, 'owner')`,
+      [account.rows[0].id, userId],
+    );
+
+    await db.query(`SELECT public.provision_account_on_signup($1)`, [userId]);
+    await db.query(`SELECT public.provision_account_on_signup($1)`, [userId]);
+
+    const workspaces = await db.query(
+      `SELECT id FROM public.workspaces WHERE account_id = $1`,
+      [account.rows[0].id],
+    );
+    expect(workspaces.rowCount).toBe(1);
+    const defaults = await db.query(
+      `SELECT
+         EXISTS (SELECT 1 FROM public.workspace_members WHERE workspace_id = $1 AND user_id = $2) AS has_member,
+         EXISTS (SELECT 1 FROM public.workspace_branding WHERE workspace_id = $1) AS has_branding,
+         EXISTS (SELECT 1 FROM public.widget_settings WHERE workspace_id = $1) AS has_widget`,
+      [workspaces.rows[0].id, userId],
+    );
+    expect(defaults.rows[0]).toMatchObject({ has_member: true, has_branding: true, has_widget: true });
+  });
+
   it('TWO real concurrent connections calling provision_account_on_signup for the SAME user create exactly one account/workspace', async () => {
     const { Client } = await import('pg');
     const profile = await db.query(

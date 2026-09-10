@@ -3,9 +3,8 @@
  * If user has no workspaces, auto-provisions one.
  */
 import { Navigate, useLocation } from 'react-router-dom';
-import { useWorkspaces, useAccount, useCreateWorkspace } from '@/hooks/useWorkspace';
+import { useWorkspaces } from '@/hooks/useWorkspace';
 import { useAuth } from '@/features/auth/AuthContext';
-import { useProfile } from '@/hooks/useProfile';
 import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Building2, LogOut, RefreshCw, HeadsetIcon, Mail } from 'lucide-react';
@@ -20,10 +19,7 @@ import { API_BASE } from '@/lib/apiBase';
 
 export function WorkspaceRedirect() {
   const { data: workspaces, isLoading, refetch } = useWorkspaces();
-  const { data: account, isLoading: accountLoading } = useAccount();
-  const { data: profile } = useProfile();
   const { signOut, user } = useAuth();
-  const createWorkspace = useCreateWorkspace();
   const { t, dir, locale } = useTranslation();
   const [provisioning, setProvisioning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,42 +42,23 @@ export function WorkspaceRedirect() {
 
   // Auto-provision workspace if user has account but no workspaces
   useEffect(() => {
-    if (isLoading || accountLoading || attempted.current || provisioning) return;
+    if (isLoading || attempted.current || provisioning) return;
     if (workspaces && workspaces.length === 0 && user) {
       attempted.current = true;
       setProvisioning(true);
 
       (async () => {
         try {
-          let accountId = account?.id;
-
-          // If no account exists, provision one. Routed through the backend
-          // (POST /api/workspaces/provision-account) rather than a direct
-          // supabase.rpc call — see server/routes/workspaces.ts for why:
-          // the RPC takes _user_id with no internal check that it matches
-          // the caller, so it must only ever be invoked with a
-          // session-derived id, never a client-supplied one.
-          if (!accountId) {
-            const res = await fetch(`${API_BASE}/api/workspaces/provision-account`, {
-              method: 'POST',
-              credentials: 'include',
-            });
-            if (!res.ok) {
-              const body = await res.json().catch(() => ({ error: res.statusText }));
-              throw new Error(body.error || `API error: ${res.status}`);
-            }
-            // Refetch to pick up the new workspace
-            await refetch();
-            setProvisioning(false);
-            return;
-          }
-
-          // Account exists but no workspace — create one
-          const name = profile?.company_name || user.metadata?.full_name || 'My Workspace';
-          await createWorkspace.mutateAsync({
-            accountId,
-            name: typeof name === 'string' ? name : 'My Workspace',
+          // One server-owned operation handles both a fresh signup and any
+          // account/workspace that was only partially provisioned earlier.
+          const res = await fetch(`${API_BASE}/api/workspaces/provision-account`, {
+            method: 'POST',
+            credentials: 'include',
           });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({ error: res.statusText }));
+            throw new Error(body.error || `API error: ${res.status}`);
+          }
           await refetch();
         } catch (err: any) {
           console.error('Auto-provision failed:', err);
@@ -99,9 +76,9 @@ export function WorkspaceRedirect() {
         }
       })();
     }
-  }, [isLoading, accountLoading, workspaces, account, user]);
+  }, [isLoading, workspaces, user, provisioning, refetch, t]);
 
-  if (isLoading || accountLoading || provisioning) {
+  if (isLoading || provisioning) {
     return (
       <div dir={dir} className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">

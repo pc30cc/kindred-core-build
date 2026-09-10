@@ -155,12 +155,15 @@ function EmailVerificationBar() {
         {/* In OTP mode no link is ever mailed, so the bar must send the
             user to the code screen instead of re-sending a link. */}
         {otpMode ? (
-          <a
-            href="/auth/verify-otp"
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-500/90"
-          >
-            {t('auth.otpVerifyNow')}
-          </a>
+          <>
+            <button
+              onClick={() => setOtpOpen(true)}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-500/90"
+            >
+              {t('auth.otpVerifyNow')}
+            </button>
+            <EmailOtpDialog open={otpOpen} onOpenChange={setOtpOpen} />
+          </>
         ) : (
           <button
             onClick={handleResend}

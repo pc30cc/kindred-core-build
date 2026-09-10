@@ -19,15 +19,11 @@ export type SignupPlanMode = 'free' | 'trial';
 
 export interface SignupPlanPolicy {
   mode: SignupPlanMode;
-  trialPlanId: string | null;
-  trialDays: number;
 }
 
 /** Historical behaviour: no subscription row, free-plan fallback. */
 export const DEFAULT_SIGNUP_PLAN_POLICY: SignupPlanPolicy = {
   mode: 'free',
-  trialPlanId: null,
-  trialDays: 14,
 };
 
 const CACHE_TTL_MS = 30_000;
@@ -43,17 +39,14 @@ export async function getSignupPlanPolicy(config: ServerConfig): Promise<SignupP
     const sb = getServiceClient(config);
     const { data, error } = await sb
       .from('platform_settings')
-      .select('signup_default_plan_mode, signup_trial_plan_id, signup_trial_days')
+      .select('signup_default_plan_mode')
       .limit(1)
       .maybeSingle();
     if (error) throw new Error(error.message);
 
     const row = (data || {}) as Record<string, unknown>;
-    const days = Number(row.signup_trial_days);
     const value: SignupPlanPolicy = {
       mode: row.signup_default_plan_mode === 'trial' ? 'trial' : 'free',
-      trialPlanId: typeof row.signup_trial_plan_id === 'string' ? row.signup_trial_plan_id : null,
-      trialDays: Number.isFinite(days) && days > 0 ? Math.floor(days) : 0,
     };
     cached = { value, at: Date.now() };
     return value;
@@ -84,26 +77,14 @@ export async function applySignupPlanToWorkspace(
     .maybeSingle();
   if (existing) return;
 
-  let plan: { id: string; trial_days: number | null } | null = null;
-  if (policy.trialPlanId) {
-    const { data } = await sb
-      .from('billing_plans')
-      .select('id, trial_days')
-      .eq('id', policy.trialPlanId)
-      .maybeSingle();
-    plan = (data as any) || null;
-  }
-  if (!plan) {
-    const { data } = await sb
-      .from('billing_plans')
-      .select('id, trial_days')
-      .eq('is_active', true)
-      .eq('is_free', false)
-      .order('sort_order', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    plan = (data as any) || null;
-  }
+  const { data } = await sb
+    .from('billing_plans')
+    .select('id, trial_days')
+    .eq('slug', 'trial')
+    .eq('is_active', true)
+    .eq('is_free', false)
+    .maybeSingle();
+  const plan = (data as { id: string; trial_days: number | null } | null) || null;
   if (!plan) return;
 
   // Trial length always comes from the plan's own card (Plans page).

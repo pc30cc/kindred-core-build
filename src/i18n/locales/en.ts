@@ -3800,6 +3800,20 @@ const en = {
       subtitle: 'Platform-wide behaviour switches in one place.',
       tabSignup: 'Signup settings',
       signupNotSupported: 'The current API build does not support this setting yet; it will save once the new server version is deployed.',
+      signupPlan: {
+        title: 'Default plan for new signups',
+        hint: 'Applies to new signups only; existing workspaces are untouched.',
+        mode: 'Starting mode',
+        modeFree: 'Free plan',
+        modeTrial: 'Trial plan',
+        modeFreeHint: 'New users start directly on the free plan.',
+        modeTrialHint: 'New users get a trial, then drop to the free plan when it ends.',
+        plan: 'Trial plan',
+        planAuto: 'Automatic (cheapest active plan)',
+        days: 'Trial length (days)',
+        daysHint: 'For example 14 days.',
+      },
+
 
     },
     verification: {

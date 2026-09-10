@@ -27,6 +27,7 @@ import { deleteFile } from '../services/storage/index.js';
 import { parseWorkspaceDomainInput, type DomainInputResult } from '../utils/workspaceDomainInput.js';
 import { invalidateOriginHostCache, invalidateWorkspaceOriginCache } from '../services/widget/public.js';
 import { invalidateSignupPolicyCache } from '../services/auth/signupPolicy.js';
+import { invalidateSignupPlanCache } from '../services/billing/signupPlan.js';
 
 
 export const adminManagementRouter = Router();
@@ -494,6 +495,10 @@ const platformSettingsSchema = z.object({
   // Signup verification policy — see server/services/auth/signupPolicy.ts.
   signup_verification_method: z.enum(['link', 'otp']).optional(),
   signup_verification_gate: z.enum(['before', 'after']).optional(),
+  // Default plan for NEW signups — see server/services/billing/signupPlan.ts.
+  signup_default_plan_mode: z.enum(['free', 'trial']).optional(),
+  signup_trial_plan_id: z.string().uuid().nullable().optional(),
+  signup_trial_days: z.number().int().min(0).max(365).optional(),
 });
 
 
@@ -518,6 +523,7 @@ adminManagementRouter.put('/platform-settings', async (req, res) => {
   // The signup policy is memoised for 30s in the auth path — drop it now so
   // an operator's change takes effect on the very next signup.
   invalidateSignupPolicyCache();
+  invalidateSignupPlanCache();
   return res.json({ success: true, settings: savedSettings });
 });
 

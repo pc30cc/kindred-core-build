@@ -108,7 +108,28 @@ export function GuidanceComposer({
     }
   }, [eligibility, t]);
 
-  const busy = saving || generating;
+  const busy = saving || generating || sending;
+
+  /** Operator dictation → AI-authored visitor-facing message, sent now. */
+  const sayNow = async () => {
+    const text = body.trim();
+    if (!text || busy) return;
+    setSending(true);
+    try {
+      await aiAgentApi.aiSayNow(conversationId, { body: text, attribution });
+      setBody('');
+      toast({ title: t('inbox.guidance.sayNowSent') });
+      onChanged?.();
+    } catch (e: any) {
+      toast({
+        title: t('inbox.guidance.sayNowFailed'),
+        description: e?.message || 'unknown',
+        variant: 'destructive',
+      });
+    } finally {
+      setSending(false);
+    }
+  };
 
   const saveGuidance = async () => {
     const text = body.trim();

@@ -10,7 +10,6 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -20,15 +19,12 @@ import { adminFetch } from '@/hooks/useAdmin';
 import { usePlans } from '@/hooks/usePlans';
 import { useTranslation } from '@/i18n';
 
-type Mode = 'free' | 'trial';
-const AUTO = '__auto__';
+const FREE = '__free__';
 
 export default function SignupPlanCard() {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const [mode, setMode] = useState<Mode>('free');
-  const [planId, setPlanId] = useState<string>(AUTO);
-  const [days, setDays] = useState<number>(14);
+  const [choice, setChoice] = useState<string>(FREE);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -41,13 +37,12 @@ export default function SignupPlanCard() {
   });
 
   const { data: plans } = usePlans();
-  const paidPlans = (plans ?? []).filter((p: any) => !p.is_free);
+  const paidPlans = (plans ?? []).filter((p: any) => !p.is_free && p.is_active !== false);
 
   useEffect(() => {
     if (!settings) return;
-    setMode(settings.signup_default_plan_mode === 'trial' ? 'trial' : 'free');
-    setPlanId(settings.signup_trial_plan_id || AUTO);
-    setDays(Number.isFinite(Number(settings.signup_trial_days)) ? Number(settings.signup_trial_days) : 14);
+    const trial = settings.signup_default_plan_mode === 'trial' && settings.signup_trial_plan_id;
+    setChoice(trial ? String(settings.signup_trial_plan_id) : FREE);
     setDirty(false);
   }, [settings]);
 
@@ -57,9 +52,8 @@ export default function SignupPlanCard() {
       const body = await adminFetch<{ success: boolean; settings: any }>('/api/admin/management/platform-settings', {
         method: 'PUT',
         body: JSON.stringify({
-          signup_default_plan_mode: mode,
-          signup_trial_plan_id: planId === AUTO ? null : planId,
-          signup_trial_days: Math.max(0, Math.min(365, Math.floor(days || 0))),
+          signup_default_plan_mode: choice === FREE ? 'free' : 'trial',
+          signup_trial_plan_id: choice === FREE ? null : choice,
         }),
       });
       const saved = body.settings ?? {};
@@ -96,58 +90,22 @@ export default function SignupPlanCard() {
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <div className="grid gap-5 md:grid-cols-3">
-            <Skeleton className="h-16 w-full" />
-            <Skeleton className="h-16 w-full" />
-            <Skeleton className="h-16 w-full" />
-          </div>
+          <Skeleton className="h-16 w-full max-w-sm" />
         ) : (
-          <div className="grid gap-5 md:grid-cols-3">
-            <div className="grid gap-1.5">
-              <Label>{t('admin.coreSettings.signupPlan.mode' as any)}</Label>
-              <Select value={mode} onValueChange={(v) => { setMode(v as Mode); setDirty(true); }}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="free">{t('admin.coreSettings.signupPlan.modeFree' as any)}</SelectItem>
-                  <SelectItem value="trial">{t('admin.coreSettings.signupPlan.modeTrial' as any)}</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                {mode === 'trial'
-                  ? t('admin.coreSettings.signupPlan.modeTrialHint' as any)
-                  : t('admin.coreSettings.signupPlan.modeFreeHint' as any)}
-              </p>
-            </div>
-
-            <div className="grid gap-1.5">
-              <Label>{t('admin.coreSettings.signupPlan.plan' as any)}</Label>
-              <Select
-                value={planId}
-                onValueChange={(v) => { setPlanId(v); setDirty(true); }}
-                disabled={mode !== 'trial'}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={AUTO}>{t('admin.coreSettings.signupPlan.planAuto' as any)}</SelectItem>
-                  {paidPlans.map((p: any) => (
-                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid gap-1.5">
-              <Label>{t('admin.coreSettings.signupPlan.days' as any)}</Label>
-              <Input
-                type="number"
-                min={1}
-                max={365}
-                value={days}
-                disabled={mode !== 'trial'}
-                onChange={(e) => { setDays(Number(e.target.value)); setDirty(true); }}
-              />
-              <p className="text-xs text-muted-foreground">{t('admin.coreSettings.signupPlan.daysHint' as any)}</p>
-            </div>
+          <div className="grid max-w-sm gap-1.5">
+            <Label>{t('admin.coreSettings.signupPlan.plan' as any)}</Label>
+            <Select value={choice} onValueChange={(v) => { setChoice(v); setDirty(true); }}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={FREE}>{t('admin.coreSettings.signupPlan.modeFree' as any)}</SelectItem>
+                {paidPlans.map((p: any) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                    {Number(p.trial_days) > 0 ? ` — ${p.trial_days}` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
       </CardContent>

@@ -106,7 +106,8 @@ export async function applySignupPlanToWorkspace(
   }
   if (!plan) return;
 
-  const days = policy.trialDays || Number(plan.trial_days) || 14;
+  // Trial length always comes from the plan's own card (Plans page).
+  const days = Number(plan.trial_days) || 14;
   const now = new Date();
   const end = new Date(now.getTime() + days * 86_400_000);
 

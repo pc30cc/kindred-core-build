@@ -58,35 +58,36 @@ export function AccountPhoneField({ fallback }: Props) {
       <Label className="text-xs font-medium text-muted-foreground">{t('account.phone')}</Label>
 
       <div
-        className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 ${
+        className={`flex min-h-10 w-full flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-md border px-3 py-2 ${
           verified ? 'border-success/40 bg-success/5' : 'border-warning/40 bg-warning/5'
         }`}
       >
-        <div className="flex min-w-0 items-center gap-2.5">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <div
-            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
               verified ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'
             }`}
           >
             {verified ? <CheckCircle2 className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
           </div>
-          <div className="min-w-0">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <p className="truncate font-mono text-sm text-foreground" dir="ltr">
               {data?.phoneMasked || t('phoneVerification.statusNoPhone')}
             </p>
-            <Badge variant="outline" className="mt-1 h-5 px-1.5 text-[10px]">
+            <Badge variant="outline" className="h-5 shrink-0 px-1.5 text-[10px]">
               {verified ? t('phoneVerification.statusVerified') : t('phoneVerification.statusUnverified')}
             </Badge>
           </div>
         </div>
 
         {!verified && (
-          <Button size="sm" onClick={() => setOpen(true)}>
-            <Smartphone className="h-4 w-4 me-1.5" />
+          <Button size="sm" className="h-7 shrink-0 px-2.5 text-xs" onClick={() => setOpen(true)}>
+            <Smartphone className="h-3.5 w-3.5 me-1.5" />
             {t('phoneVerification.accountVerifyCta')}
           </Button>
         )}
       </div>
+
 
       <p className="text-xs text-muted-foreground">
         {verified ? t('phoneVerification.accountVerifiedNote') : t('phoneVerification.accountUnverifiedNote')}

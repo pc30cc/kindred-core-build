@@ -430,11 +430,17 @@ billingCustomerRouter.get('/workspaces/:workspaceId/plans', async (req, res) => 
     const plans = plansRes.data;
     const sub = subRes.data;
 
-    // Hidden plans (e.g. trial) are admin-only; the customer only ever sees
-    // them when they are the plan they are currently subscribed to.
+    // The plans tab is an upgrade catalogue: it lists only the paid plans a
+    // customer can move to. Hidden plans stay admin-only, and the free/trial
+    // tiers are never offered here — a trial or free workspace sees the paid
+    // plans it can upgrade to, and its current tier is reported by the
+    // overview tab instead.
     const currentPlanId = (sub as any)?.plan_id ?? null;
+    const isPaidPlan = (p: any) =>
+      Number(p.prices?.IRR?.monthly ?? p.price_monthly ?? 0) > 0 ||
+      Number(p.prices?.IRR?.yearly ?? p.price_yearly ?? 0) > 0;
     const visiblePlans = (plans || []).filter(
-      (p: any) => p.is_hidden !== true || p.id === currentPlanId,
+      (p: any) => p.is_hidden !== true && p.slug !== 'trial' && p.slug !== 'free' && isPaidPlan(p),
     );
 
     res.json({

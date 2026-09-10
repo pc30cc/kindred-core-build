@@ -66,6 +66,9 @@ manifestRouter.get('/', async (req, res) => {
     } catch { /* ignore malformed origin */ }
   }
 
+  // Relative icon paths belong to the APP origin, not this API host.
+  const icon = iconUrl.startsWith('/') && base !== '/' ? base.replace(/\/$/, '') + iconUrl : iconUrl;
+
   const manifest = {
     name,
     short_name: shortName,
@@ -78,9 +81,9 @@ manifestRouter.get('/', async (req, res) => {
     theme_color: themeColor,
     background_color: backgroundColor,
     icons: [
-      { src: iconUrl, sizes: '192x192', type: guessMimeType(iconUrl), purpose: 'any' },
-      { src: iconUrl, sizes: '512x512', type: guessMimeType(iconUrl), purpose: 'any' },
-      { src: iconUrl, sizes: '512x512', type: guessMimeType(iconUrl), purpose: 'maskable' },
+      { src: icon, sizes: '192x192', type: guessMimeType(iconUrl), purpose: 'any' },
+      { src: icon, sizes: '512x512', type: guessMimeType(iconUrl), purpose: 'any' },
+      { src: icon, sizes: '512x512', type: guessMimeType(iconUrl), purpose: 'maskable' },
     ],
   };
 

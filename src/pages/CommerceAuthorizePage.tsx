@@ -12,6 +12,7 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useWorkspaces } from '@/hooks/useWorkspace';
+import { useTranslation } from '@/i18n';
 import { API_BASE } from '@/lib/apiBase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -39,6 +40,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export default function CommerceAuthorizePage() {
+  const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const state = searchParams.get('state') || '';
   const { data: workspaces } = useWorkspaces();
@@ -56,10 +58,10 @@ export default function CommerceAuthorizePage() {
 
   const activeWorkspaceId = useMemo(() => workspaceId || workspaces?.[0]?.id || '', [workspaceId, workspaces]);
 
-  if (!state) return <div className="p-8 text-center text-muted-foreground">Missing pairing request.</div>;
+  if (!state) return <div className="p-8 text-center text-muted-foreground">{t('commerceAuthorize.missing')}</div>;
   if (isLoading) return <div className="p-8 flex justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div>;
-  if (loadError || !pairing) return <div className="p-8 text-center text-destructive">This pairing link is invalid.</div>;
-  if (pairing.expired) return <div className="p-8 text-center text-destructive">This pairing link has expired — go back to your WordPress admin and click "Connect to Web Yar" again.</div>;
+  if (loadError || !pairing) return <div className="p-8 text-center text-destructive">{t('commerceAuthorize.invalid')}</div>;
+  if (pairing.expired) return <div className="p-8 text-center text-destructive">{t('commerceAuthorize.expired')}</div>;
 
   const submit = async () => {
     setSubmitting(true);
@@ -72,7 +74,7 @@ export default function CommerceAuthorizePage() {
       });
       window.location.href = result.redirectUrl;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not authorize this connection.');
+      setError(err instanceof Error ? err.message : t('commerceAuthorize.genericError'));
       setSubmitting(false);
     }
   };
@@ -81,17 +83,16 @@ export default function CommerceAuthorizePage() {
     <div className="max-w-lg mx-auto p-6 pt-16">
       <Card>
         <CardHeader>
-          <CardTitle>Connect WooCommerce store</CardTitle>
+          <CardTitle>{t('commerceAuthorize.title')}</CardTitle>
           <CardDescription>
-            <strong>{pairing.requestedOrigin}</strong> wants to connect to a Web Yar workspace. Choose which
-            workspace and what the AI Assistant may access.
+            {t('commerceAuthorize.description', { origin: pairing.requestedOrigin })}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <label className="text-sm font-medium mb-1 block">Workspace</label>
+            <label className="text-sm font-medium mb-1 block">{t('commerceAuthorize.workspace')}</label>
             <Select value={activeWorkspaceId} onValueChange={setWorkspaceId}>
-              <SelectTrigger><SelectValue placeholder="Select a workspace" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder={t('commerceAuthorize.workspacePlaceholder')} /></SelectTrigger>
               <SelectContent>
                 {(workspaces ?? []).map((w) => (
                   <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
@@ -101,7 +102,7 @@ export default function CommerceAuthorizePage() {
           </div>
 
           <div>
-            <label className="text-sm font-medium mb-1 block">Permissions</label>
+            <label className="text-sm font-medium mb-1 block">{t('commerceAuthorize.permissions')}</label>
             <div className="grid grid-cols-2 gap-2 text-sm">
               {Object.entries(permissions).map(([key, value]) => (
                 <label key={key} className="flex items-center gap-2">
@@ -110,7 +111,7 @@ export default function CommerceAuthorizePage() {
                     checked={value}
                     onChange={(e) => setPermissions((p) => ({ ...p, [key]: e.target.checked }))}
                   />
-                  {key.replace('_', ' ')}
+                  {t(`commerceAuthorize.permission.${key}` as never)}
                 </label>
               ))}
             </div>
@@ -120,7 +121,7 @@ export default function CommerceAuthorizePage() {
 
           <Button className="w-full" disabled={!activeWorkspaceId || submitting} onClick={submit}>
             {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-            Approve and connect
+            {t('commerceAuthorize.approve')}
           </Button>
         </CardContent>
       </Card>

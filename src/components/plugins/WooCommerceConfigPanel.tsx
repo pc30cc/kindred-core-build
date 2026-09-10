@@ -14,9 +14,14 @@
  * capabilities, owner permissions, sync status, and diagnostics. No AI
  * prompt/model/handoff settings live here — those stay in the AI Agent
  * settings (docs/commerce/ARCHITECTURE.md).
+ *
+ * All strings go through useTranslation() (plugins.woocommerce.* in
+ * src/i18n/locales/{en,fa}.ts) so this reads correctly for Web Yar's
+ * Persian-speaking workspace owners, not just hard-coded English.
  */
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from '@/i18n';
 import { API_BASE } from '@/lib/apiBase';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -47,27 +52,26 @@ interface CommerceConnection {
   last_error_code: string | null;
 }
 
-const PERMISSION_LABELS: Record<string, string> = {
-  products: 'Products',
-  prices: 'Prices',
-  stock: 'Stock',
-  orders: 'Orders',
-  order_status: 'Order status',
-  tracking: 'Tracking',
-  customer_history: 'Customer order history',
-  coupons: 'Coupons',
-};
+const PERMISSION_KEYS = [
+  'products', 'prices', 'stock', 'orders',
+  'order_status', 'tracking', 'customer_history', 'coupons',
+] as const;
 
-const HEALTH_LABELS: Record<string, { label: string; tone: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
-  connected: { label: 'Healthy', tone: 'default' },
-  degraded: { label: 'Degraded', tone: 'secondary' },
-  reconnecting: { label: 'Connecting…', tone: 'secondary' },
-  authentication_error: { label: 'Authentication error', tone: 'destructive' },
-  plugin_outdated: { label: 'Plugin outdated', tone: 'destructive' },
-  protocol_mismatch: { label: 'Protocol mismatch', tone: 'destructive' },
-  stale_origin: { label: 'Store origin changed', tone: 'destructive' },
-  offline: { label: 'Offline', tone: 'destructive' },
-  disconnected: { label: 'Disconnected', tone: 'outline' },
+const HEALTH_KEYS = [
+  'connected', 'degraded', 'reconnecting', 'authentication_error',
+  'plugin_outdated', 'protocol_mismatch', 'stale_origin', 'offline', 'disconnected',
+] as const;
+
+const HEALTH_TONES: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+  connected: 'default',
+  degraded: 'secondary',
+  reconnecting: 'secondary',
+  authentication_error: 'destructive',
+  plugin_outdated: 'destructive',
+  protocol_mismatch: 'destructive',
+  stale_origin: 'destructive',
+  offline: 'destructive',
+  disconnected: 'outline',
 };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -80,6 +84,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function WooCommerceConfigPanel({ workspaceId }: { workspaceId: string }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [busyAction, setBusyAction] = useState<string | null>(null);
 
@@ -94,15 +99,19 @@ export function WooCommerceConfigPanel({ workspaceId }: { workspaceId: string })
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['commerce-connections', workspaceId] });
 
-  const runAction = async (action: string, path: string) => {
+  const runAction = async (actionLabel: string, path: string) => {
     if (!workspaceId || !connection) return;
-    setBusyAction(action);
+    setBusyAction(actionLabel);
     try {
       await api(`/api/workspaces/${workspaceId}/commerce/connections/${connection.id}/${path}`, { method: 'POST' });
-      toast({ title: 'Done', description: `${action} requested.` });
+      toast({ title: t('plugins.woocommerce.toast.doneTitle'), description: t('plugins.woocommerce.toast.requested', { action: actionLabel }) });
       invalidate();
     } catch (err) {
-      toast({ title: 'Failed', description: err instanceof Error ? err.message : 'Something went wrong', variant: 'destructive' });
+      toast({
+        title: t('plugins.woocommerce.toast.failedTitle'),
+        description: err instanceof Error ? err.message : t('plugins.woocommerce.toast.genericError'),
+        variant: 'destructive',
+      });
     } finally {
       setBusyAction(null);
     }
@@ -116,7 +125,7 @@ export function WooCommerceConfigPanel({ workspaceId }: { workspaceId: string })
         body: JSON.stringify(permissions),
       }),
     onSuccess: invalidate,
-    onError: (err: Error) => toast({ title: 'Could not update permission', description: err.message, variant: 'destructive' }),
+    onError: (err: Error) => toast({ title: t('plugins.woocommerce.toast.permissionFailedTitle'), description: err.message, variant: 'destructive' }),
   });
 
   if (isLoading) {
@@ -133,87 +142,93 @@ export function WooCommerceConfigPanel({ workspaceId }: { workspaceId: string })
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Connect a WooCommerce store</CardTitle>
-          <CardDescription>
-            Download the plugin, install it on your WordPress site, then connect it to this workspace.
-            There's no API key to copy or paste — the plugin walks you through a one-click authorization.
-          </CardDescription>
+          <CardTitle>{t('plugins.woocommerce.connect.title')}</CardTitle>
+          <CardDescription>{t('plugins.woocommerce.connect.description')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <Button asChild size="lg">
             <a href={PLUGIN_DOWNLOAD_PATH} download>
               <Download className="h-4 w-4 mr-2" />
-              Download WordPress plugin (.zip)
+              {t('plugins.woocommerce.connect.download')}
             </a>
           </Button>
 
           <div>
-            <h3 className="text-sm font-semibold mb-2">Installation steps</h3>
+            <h3 className="text-sm font-semibold mb-2">{t('plugins.woocommerce.connect.stepsTitle')}</h3>
             <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
+              <li>{t('plugins.woocommerce.connect.step1')}</li>
+              <li>{t('plugins.woocommerce.connect.step2')}</li>
+              <li>{t('plugins.woocommerce.connect.step3')}</li>
               <li>
-                In WordPress: go to <strong>Plugins → Add New → Upload Plugin</strong>, choose the
-                downloaded file, then click <strong>Install Now</strong> and <strong>Activate</strong>.
+                {t('plugins.woocommerce.connect.step4')}{' '}
+                {webYarUrl && <code className="bg-muted px-1.5 py-0.5 rounded" dir="ltr">{webYarUrl}</code>}
               </li>
-              <li>
-                Requires WordPress 6.0+, WooCommerce 8.0+ (active), and PHP 7.4+. If any requirement is
-                missing, the plugin stays inactive and shows a notice — your store keeps working normally.
-              </li>
-              <li>
-                In wp-admin, open the new <strong>Web Yar</strong> menu item.
-              </li>
-              <li>
-                In the <strong>Web Yar URL</strong> field, enter:{' '}
-                {webYarUrl && <code className="bg-muted px-1.5 py-0.5 rounded">{webYarUrl}</code>}
-              </li>
-              <li>
-                Click <strong>Connect to Web Yar</strong>, log in if asked, select this workspace, and
-                approve the permissions you want to grant.
-              </li>
-              <li>
-                You'll land back in wp-admin with a <strong>Connected</strong> status, and this panel will
-                show the connection automatically once catalog sync begins.
-              </li>
+              <li>{t('plugins.woocommerce.connect.step5')}</li>
+              <li>{t('plugins.woocommerce.connect.step6')}</li>
             </ol>
           </div>
 
-          <p className="text-xs text-muted-foreground">
-            If "Connect to Web Yar" shows an error, it now tells you exactly why (unreachable URL, wrong
-            address, etc.) — double-check the Web Yar URL above matches this workspace's address exactly.
-          </p>
+          <p className="text-xs text-muted-foreground">{t('plugins.woocommerce.connect.troubleshoot')}</p>
         </CardContent>
       </Card>
     );
   }
 
-  const health = HEALTH_LABELS[connection.health] ?? { label: connection.health, tone: 'outline' as const };
+  const healthTone = HEALTH_TONES[connection.health] ?? 'outline';
+  const healthLabel = HEALTH_KEYS.includes(connection.health as typeof HEALTH_KEYS[number])
+    ? t(`plugins.woocommerce.health.${connection.health}` as never)
+    : connection.health;
 
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-sm text-muted-foreground">{connection.approved_origin}</p>
+        <p className="text-sm text-muted-foreground" dir="ltr">{connection.approved_origin}</p>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            Connection
-            <Badge variant={health.tone}>{health.label}</Badge>
+            {t('plugins.woocommerce.connection.title')}
+            <Badge variant={healthTone}>{healthLabel}</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
-          <div>Protocol: <code>{connection.protocol_version}</code></div>
-          <div>WooCommerce: {connection.woocommerce_version ?? '—'} · WordPress: {connection.wordpress_version ?? '—'}</div>
-          <div>HPOS: {connection.hpos_enabled === null ? '—' : connection.hpos_enabled ? 'enabled' : 'disabled'}</div>
-          <div>Catalog: {connection.catalog_ready ? 'Ready' : 'Syncing…'}</div>
-          {connection.last_error_code && <div className="text-destructive">Last error: {connection.last_error_code}</div>}
+          <div>{t('plugins.woocommerce.connection.protocol')}: <code dir="ltr">{connection.protocol_version}</code></div>
+          <div dir="auto">
+            {t('plugins.woocommerce.connection.versions', {
+              woo: connection.woocommerce_version ?? '—',
+              wp: connection.wordpress_version ?? '—',
+            })}
+          </div>
+          <div>
+            {t('plugins.woocommerce.connection.hpos')}: {
+              connection.hpos_enabled === null
+                ? '—'
+                : connection.hpos_enabled
+                  ? t('plugins.woocommerce.connection.enabled')
+                  : t('plugins.woocommerce.connection.disabled')
+            }
+          </div>
+          <div>
+            {t('plugins.woocommerce.connection.catalog')}: {
+              connection.catalog_ready
+                ? t('plugins.woocommerce.connection.catalogReady')
+                : t('plugins.woocommerce.connection.catalogSyncing')
+            }
+          </div>
+          {connection.last_error_code && (
+            <div className="text-destructive">
+              {t('plugins.woocommerce.connection.lastError', { code: connection.last_error_code })}
+            </div>
+          )}
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Capabilities</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t('plugins.woocommerce.capabilitiesTitle')}</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-2 gap-2 text-sm">
           {['products.read', 'availability.read', 'orders.read', 'tracking.read', 'customer_context'].map((cap) => (
-            <div key={cap} className="flex items-center gap-2">
+            <div key={cap} className="flex items-center gap-2" dir="ltr">
               {connection.capabilities.includes(cap)
                 ? <CheckCircle2 className="h-4 w-4 text-green-600" />
                 : <XCircle className="h-4 w-4 text-muted-foreground" />}
@@ -225,13 +240,13 @@ export function WooCommerceConfigPanel({ workspaceId }: { workspaceId: string })
 
       <Card>
         <CardHeader>
-          <CardTitle>Permissions</CardTitle>
-          <CardDescription>Changes take effect immediately for the AI Assistant's commerce tools.</CardDescription>
+          <CardTitle>{t('plugins.woocommerce.permissions.title')}</CardTitle>
+          <CardDescription>{t('plugins.woocommerce.permissions.description')}</CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-3">
-          {Object.entries(PERMISSION_LABELS).map(([key, label]) => (
+          {PERMISSION_KEYS.map((key) => (
             <label key={key} className="flex items-center justify-between gap-2 text-sm">
-              {label}
+              {t(`plugins.woocommerce.permissions.${key}` as never)}
               <Switch
                 checked={!!connection.permissions?.[key]}
                 onCheckedChange={(checked) => permissionMutation.mutate({ ...connection.permissions, [key]: checked })}
@@ -242,24 +257,24 @@ export function WooCommerceConfigPanel({ workspaceId }: { workspaceId: string })
       </Card>
 
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" disabled={!!busyAction} onClick={() => runAction('Test connection', 'test')}>
-          {busyAction === 'Test connection' ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-          Test connection
+        <Button variant="outline" disabled={!!busyAction} onClick={() => runAction(t('plugins.woocommerce.actions.test'), 'test')}>
+          {busyAction === t('plugins.woocommerce.actions.test') ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+          {t('plugins.woocommerce.actions.test')}
         </Button>
-        <Button variant="outline" disabled={!!busyAction} onClick={() => runAction('Sync now', 'sync')}>
-          Sync now
+        <Button variant="outline" disabled={!!busyAction} onClick={() => runAction(t('plugins.woocommerce.actions.sync'), 'sync')}>
+          {t('plugins.woocommerce.actions.sync')}
         </Button>
-        <Button variant="outline" disabled={!!busyAction} onClick={() => runAction('Rotate credentials', 'rotate')}>
-          Rotate credentials
+        <Button variant="outline" disabled={!!busyAction} onClick={() => runAction(t('plugins.woocommerce.actions.rotate'), 'rotate')}>
+          {t('plugins.woocommerce.actions.rotate')}
         </Button>
         <Button
           variant="destructive"
           disabled={!!busyAction}
           onClick={() => {
-            if (confirm('Disconnect this store from Web Yar?')) runAction('Disconnect', 'disconnect');
+            if (confirm(t('plugins.woocommerce.actions.disconnectConfirm'))) runAction(t('plugins.woocommerce.actions.disconnect'), 'disconnect');
           }}
         >
-          Disconnect
+          {t('plugins.woocommerce.actions.disconnect')}
         </Button>
       </div>
     </div>

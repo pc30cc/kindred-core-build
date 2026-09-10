@@ -141,7 +141,6 @@ export async function copyWithVerification(text: string): Promise<boolean> {
   }
 }
 
-const E164 = /^\+[1-9]\d{6,14}$/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 /* ──────────────────────────── main component ───────────────────────────── */
@@ -332,7 +331,7 @@ export function InvitationManagement({
                     <StatusBadge status={inv.status} archived={!!inv.archived_at} />
                   </div>
                   <p className="truncate text-xs text-muted-foreground" dir="ltr">
-                    {maskEmail(inv.invited_email_normalized)} · {maskPhone(inv.invited_phone_e164)}
+                    {maskEmail(inv.invited_email_normalized)}{inv.invited_phone_e164 ? ` · ${maskPhone(inv.invited_phone_e164)}` : ''}
                   </p>
                 </div>
 
@@ -542,7 +541,9 @@ function InvitationDetail({ invitationId, invitation }: { invitationId: string; 
     <div className="mt-3 grid gap-3 rounded-md border border-border/60 bg-muted/20 p-3 text-xs sm:grid-cols-2"
          data-testid="invitation-detail">
       <DetailRow label={t('invitations.fieldEmail')} value={maskEmail(invitation.invited_email_normalized)} ltr />
-      <DetailRow label={t('invitations.fieldPhone')} value={maskPhone(invitation.invited_phone_e164)} ltr />
+      {invitation.invited_phone_e164
+        ? <DetailRow label={t('invitations.fieldPhone')} value={maskPhone(invitation.invited_phone_e164)} ltr />
+        : null}
       <DetailRow
         label={t('invitations.fieldRole')}
         value={t(`invitations.roles.${invitation.role}` as TranslationKey)}
@@ -685,7 +686,6 @@ export function InvitationFormDialog({
   const [firstName, setFirstName] = useState(invitation?.first_name ?? '');
   const [lastName, setLastName] = useState(invitation?.last_name ?? '');
   const [email, setEmail] = useState(invitation?.invited_email_normalized ?? '');
-  const [phone, setPhone] = useState(invitation?.invited_phone_e164 ?? '');
   const [role, setRole] = useState<string>(invitation?.role ?? roles[0]);
   const [jobTitle, setJobTitle] = useState(invitation?.job_title ?? '');
   const [staffCode, setStaffCode] = useState(invitation?.staff_code ?? '');
@@ -707,7 +707,6 @@ export function InvitationFormDialog({
     firstName: firstName.trim() ? '' : 'invitations.validationFirstName',
     lastName: lastName.trim() ? '' : 'invitations.validationLastName',
     email: EMAIL.test(email.trim()) ? '' : 'invitations.validationEmail',
-    phone: E164.test(phone.trim()) ? '' : 'invitations.validationPhone',
     role: role ? '' : 'invitations.validationRole',
     departments: mode === 'customer_facing' && departmentIds.length === 0
       ? 'invitations.validationDepartments'
@@ -721,7 +720,6 @@ export function InvitationFormDialog({
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         email: email.trim().toLowerCase(),
-        phone: phone.trim(),
         memberType: mode,
         role,
         departmentIds: mode === 'customer_facing' ? [...departmentIds].sort() : [],
@@ -824,18 +822,6 @@ export function InvitationFormDialog({
               onChange={(e) => setEmail(e.target.value)}
             />
             {err('email')}
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="inv-phone" className="text-xs">{t('invitations.fieldPhone')}</Label>
-            <Input
-              id="inv-phone" data-testid="invitation-phone" type="tel" dir="ltr"
-              className="text-start text-xs" value={phone}
-              placeholder={t('invitations.placeholderPhone')}
-              onChange={(e) => setPhone(e.target.value)}
-            />
-            <p className="text-[11px] text-muted-foreground">{t('invitations.phoneHint')}</p>
-            {err('phone')}
           </div>
 
           <div className="space-y-1.5">

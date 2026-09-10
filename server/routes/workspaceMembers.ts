@@ -441,6 +441,25 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
     });
   }
 
+  // Removing a member must also clear the invitation that seated them:
+  // an already-accepted invitation is a spent record, and leaving it behind
+  // both clutters the invitation list and collides with a fresh re-invite.
+  const purgeAcceptedInvitation = async () => {
+    const { data: profile } = await sb
+      .from('profiles')
+      .select('email')
+      .eq('id', (member as { user_id: string }).user_id)
+      .maybeSingle();
+    const email = String((profile as any)?.email || '').trim().toLowerCase();
+    if (!email) return;
+    await sb
+      .from('workspace_invitations')
+      .delete()
+      .eq('workspace_id', workspaceId)
+      .eq('invited_email_normalized', email)
+      .eq('status', 'accepted');
+  };
+
   if (!requestId) {
     const { data, error } = await sb.rpc('offboard_workspace_member', {
       _workspace_id: workspaceId,
@@ -449,6 +468,7 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
       _reason: reason,
     });
     if (error) return res.status(500).json({ error: error.message });
+    await purgeAcceptedInvitation().catch(() => undefined);
     return res.json({ ok: true, replayed: false, offboarding: data });
   }
 
@@ -465,6 +485,7 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
     }
     return res.status(500).json({ error: outcome.error.message });
   }
+  await purgeAcceptedInvitation().catch(() => undefined);
   return res.json({
     ok: true,
     replayed: outcome.replayed,

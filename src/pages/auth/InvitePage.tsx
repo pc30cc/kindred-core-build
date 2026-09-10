@@ -519,9 +519,9 @@ export default function InvitePage() {
   }
 
 
-  return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-background">
-      <Card className="w-full max-w-md">
+  return shell(
+    <>
+      <Card className="w-full">
         {header}
         <CardContent className="space-y-4">
           {!existingContinuation ? <><div className="space-y-2">

@@ -3778,10 +3778,14 @@ const tr: TranslationKeys = {
     },
     verification: {
       title: 'Doğrulama ve OTP',
-      subtitle: 'Hâlâ etkin olmayan Genel Doğrulama Çekirdeğini yönetin — gerçek bir tüketici oluşturulup devreye alınana kadar her amaç devre dışı kalır.',
+      subtitle: 'Genel Doğrulama Çekirdeğini yönetin — bir amaç yalnızca tüketicisi oluşturulup bu dağıtımda izin verildiğinde devreye girer.',
       tabOverview: 'Genel Bakış',
       tabPurposes: 'Amaçlar',
       tabAudit: 'Denetim geçmişi',
+      bannerActive: {
+        title: 'Etkin — doğrulama üretimde çalışıyor',
+        description: 'Etkin amaçlar:',
+      },
       banner: {
         title: 'Etkin değil — hiçbir tüketici bağlı değil',
         description: 'Bu alt sistem üretimde hiçbir şey göndermez. Buradaki ayarlar yalnızca gelecekteki bir entegrasyon öncesinde politika değerlerini sıkılaştırabilir; tek başına bir amacı etkinleştiremez.',

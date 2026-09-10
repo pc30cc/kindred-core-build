@@ -8,7 +8,9 @@ import { useAuth } from '@/features/auth/AuthContext';
 import { useProfile } from '@/hooks/useProfile';
 import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
-import { Building2, LogOut, RefreshCw, HeadsetIcon } from 'lucide-react';
+import { Building2, LogOut, RefreshCw, HeadsetIcon, Mail } from 'lucide-react';
+import { resendMyVerificationEmail } from '@/lib/api';
+import { toast } from '@/lib/toast';
 import { useEffect, useRef, useState } from 'react';
 // Same-origin in dev/preview (Vite proxy), configured origin in production.
 // Using import.meta.env directly here bypassed that and produced blocked
@@ -22,9 +24,11 @@ export function WorkspaceRedirect() {
   const { data: profile } = useProfile();
   const { signOut, user } = useAuth();
   const createWorkspace = useCreateWorkspace();
-  const { t, dir } = useTranslation();
+  const { t, dir, locale } = useTranslation();
   const [provisioning, setProvisioning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resending, setResending] = useState(false);
   const attempted = useRef(false);
   const location = useLocation();
 
@@ -83,7 +87,7 @@ export function WorkspaceRedirect() {
           console.error('Auto-provision failed:', err);
           const raw = String(err?.message || '');
           if (raw === 'email_verification_required') {
-            setError(t('workspaceRedirect.emailVerificationRequired'));
+            setNeedsVerification(true);
           } else if (err instanceof TypeError || /failed to fetch|network/i.test(raw)) {
             setError(t('workspaceRedirect.connectionFailed'));
           } else {
@@ -116,6 +120,65 @@ export function WorkspaceRedirect() {
 
   if (workspaces?.length) {
     return <Navigate to={`/${workspaces[0].slug}${legacySuffix}${location.search}`} replace />;
+  }
+
+  if (needsVerification) {
+    const handleResend = async () => {
+      setResending(true);
+      try {
+        await resendMyVerificationEmail(locale);
+        toast.success(t('auth.verificationResent'));
+      } catch {
+        toast.error(t('auth.error'));
+      }
+      setResending(false);
+    };
+
+    return (
+      <div dir={dir} className="flex min-h-screen items-center justify-center bg-background p-4">
+        <div className="w-full max-w-md text-center space-y-6">
+          <div className="mx-auto w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
+            <Mail className="h-10 w-10 text-primary" />
+          </div>
+
+          <div className="space-y-2">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              {t('auth.checkEmailTitle')}
+            </h1>
+            <p className="text-muted-foreground text-sm leading-relaxed max-w-sm mx-auto">
+              {t('workspaceRedirect.emailVerificationRequired')}
+            </p>
+            {user?.email && (
+              <p className="text-sm font-medium text-foreground" dir="ltr">{user.email}</p>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <Button
+              variant="default"
+              onClick={() => {
+                attempted.current = false;
+                setNeedsVerification(false);
+                setError(null);
+                refetch();
+              }}
+              className="w-full sm:w-auto gap-2"
+            >
+              <RefreshCw className="h-4 w-4" />
+              {t('workspaceRedirect.tryAgain')}
+            </Button>
+            <Button variant="outline" onClick={handleResend} disabled={resending} className="w-full sm:w-auto gap-2">
+              <RefreshCw className={`h-4 w-4 ${resending ? 'animate-spin' : ''}`} />
+              {t('auth.resendEmail')}
+            </Button>
+            <Button variant="ghost" onClick={() => signOut()} className="w-full sm:w-auto gap-2">
+              <LogOut className="h-4 w-4" />
+              {t('workspaceRedirect.signOut')}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

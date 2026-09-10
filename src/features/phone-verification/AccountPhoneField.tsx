@@ -51,7 +51,13 @@ export function AccountPhoneField({ fallback }: Props) {
     );
   }
 
-  const verified = Boolean(data?.satisfied);
+  // A missing number is never "verified": `satisfied` can be true simply
+  // because this purpose isn't enforced. Only a real, verified number counts.
+  const status = resolvePhoneStatus({
+    phoneMasked: data?.phoneMasked,
+    verified: Boolean(data?.satisfied || data?.verifiedAt),
+  });
+  const verified = status === 'verified';
 
   return (
     <div className="space-y-2">

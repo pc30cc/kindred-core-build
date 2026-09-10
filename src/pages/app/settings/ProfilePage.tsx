@@ -81,7 +81,6 @@ const SUPPORTED_AVATAR_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/
 export default function SettingsProfilePage() {
   const { t } = useTranslation();
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
-  const { platformName } = useBrandingContext();
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -262,7 +261,7 @@ export default function SettingsProfilePage() {
             {t('account.title')}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {t('account.subtitle', { brand: platformName })}
+            {t('account.subtitle')}
           </p>
         </div>
         <div

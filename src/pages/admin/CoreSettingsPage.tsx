@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SlidersHorizontal } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import SignupDeliveryCard from './verification/SignupDeliveryCard';
+import SignupPlanCard from './verification/SignupPlanCard';
 
 export default function CoreSettingsPage() {
   const { t } = useTranslation();

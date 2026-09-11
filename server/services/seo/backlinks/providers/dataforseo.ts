@@ -118,6 +118,18 @@ function readString(source: Record<string, unknown>, key: string): string | null
   return typeof v === 'string' && v.trim() !== '' ? v : null;
 }
 
+/**
+ * Maps a DataForSEO status_code to a normalized error. Only 401xx means bad
+ * credentials; 402xx is billing, 404xx/405xx are request/field problems.
+ */
+function throwBacklinksStatus(status: number, message: string | null): never {
+  if (status >= 40100 && status < 40200) throw new BacklinksError('backlinks_auth_failed', message);
+  if (status === 40200 || status === 40201 || status === 40202) throw new BacklinksError('backlinks_insufficient_credit', message);
+  if (status === 40429 || status === 42900) throw new BacklinksError('backlinks_rate_limited', message);
+  if (status >= 40400 && status < 40600) throw new BacklinksError('backlinks_invalid_target', message);
+  throw new BacklinksError('backlinks_provider_error', message);
+}
+
 function readNumber(source: Record<string, unknown>, key: string): number | null {
   const v = source[key];
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
@@ -175,18 +187,16 @@ export function createDataForSeoAdapter(
         timeoutMs,
       );
       const envelope = body as Record<string, unknown>;
-      if (readNumber(envelope, 'status_code') !== 20000 && envelope.status_code !== undefined) {
-        // Non-20000 top-level status without an HTTP-level error already thrown.
-        throw new BacklinksError('backlinks_provider_error');
+      const topStatus = readNumber(envelope, 'status_code');
+      if (topStatus !== null && topStatus !== 20000) {
+        throwBacklinksStatus(topStatus, readString(envelope, 'status_message'));
       }
       const tasks = Array.isArray(envelope.tasks) ? envelope.tasks : [];
       const task = tasks[0] as Record<string, unknown> | undefined;
       if (!task) throw new BacklinksError('backlinks_provider_error');
       const taskStatus = readNumber(task, 'status_code');
       if (taskStatus !== null && taskStatus !== 20000) {
-        if (taskStatus === 40501 || taskStatus === 40201) throw new BacklinksError('backlinks_auth_failed');
-        if (taskStatus === 40202) throw new BacklinksError('backlinks_insufficient_credit');
-        throw new BacklinksError('backlinks_provider_error');
+        throwBacklinksStatus(taskStatus, readString(task, 'status_message'));
       }
       const results = Array.isArray(task.result) ? task.result : [];
       const first = results[0] as Record<string, unknown> | undefined;
@@ -223,19 +233,13 @@ export function createDataForSeoAdapter(
       const envelope = body as Record<string, unknown>;
       const envelopeStatus = readNumber(envelope, 'status_code');
       if (envelopeStatus !== null && envelopeStatus !== 20000) {
-        if (envelopeStatus === 40100 || envelopeStatus === 40200 || envelopeStatus === 40201 || envelopeStatus === 40501) {
-          throw new BacklinksError('backlinks_auth_failed');
-        }
-        throw new BacklinksError('backlinks_provider_error');
+        throwBacklinksStatus(envelopeStatus, readString(envelope, 'status_message'));
       }
       const tasks = Array.isArray(envelope.tasks) ? envelope.tasks : [];
       const task = tasks[0] as Record<string, unknown> | undefined;
       const taskStatus = task ? readNumber(task, 'status_code') : null;
-      if (taskStatus !== null && taskStatus !== 20000) {
-        if (taskStatus === 40100 || taskStatus === 40200 || taskStatus === 40201 || taskStatus === 40501) {
-          throw new BacklinksError('backlinks_auth_failed');
-        }
-        throw new BacklinksError('backlinks_provider_error');
+      if (taskStatus !== null && taskStatus !== 20000 && task) {
+        throwBacklinksStatus(taskStatus, readString(task, 'status_message'));
       }
       const results = task && Array.isArray(task.result) ? task.result : [];
       const first = results[0] as Record<string, unknown> | undefined;

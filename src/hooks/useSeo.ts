@@ -314,6 +314,17 @@ export function useRemoveTrackedKeyword(workspaceId: string) {
   });
 }
 
+export function useCheckTrackedKeywordNow(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (keywordId: string) => checkTrackedKeywordNow(workspaceId, keywordId),
+    onSuccess: (_data, keywordId) => {
+      qc.invalidateQueries({ queryKey: ['seo-tracked-keywords', workspaceId] });
+      qc.invalidateQueries({ queryKey: ['seo-rank-checks', workspaceId, keywordId] });
+    },
+  });
+}
+
 export function useRankChecks(workspaceId?: string, keywordId?: string) {
   return useQuery({
     queryKey: ['seo-rank-checks', workspaceId, keywordId],

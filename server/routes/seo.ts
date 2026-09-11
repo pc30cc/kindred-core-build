@@ -88,6 +88,7 @@ import {
   removeTrackedKeyword,
   listTrackedKeywordsForSite,
   listRankChecksForKeyword,
+  checkTrackedKeywordNow,
   TrackedKeywordLimitError,
 } from '../services/seo/rankTrackingService.js';
 import {

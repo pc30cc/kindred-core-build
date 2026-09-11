@@ -37,10 +37,14 @@ export const BACKLINKS_ERROR_MESSAGES: Record<BacklinksErrorCode, string> = {
 
 export class BacklinksError extends Error {
   readonly code: BacklinksErrorCode;
-  constructor(code: BacklinksErrorCode) {
-    super(BACKLINKS_ERROR_MESSAGES[code]);
+  /** Optional provider-side explanation (status message). Never contains credentials. */
+  readonly detail: string | null;
+  constructor(code: BacklinksErrorCode, detail?: string | null) {
+    const base = BACKLINKS_ERROR_MESSAGES[code];
+    super(detail ? `${base}: ${detail}` : base);
     this.name = 'BacklinksError';
     this.code = code;
+    this.detail = detail ?? null;
   }
 }
 

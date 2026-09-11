@@ -13,7 +13,7 @@ import {
   getBacklinkScan, cancelBacklinkScan, listBacklinks, type SeoBacklinkScan,
   getKeywordsLimits, getLatestKeywordRun, listKeywordRunHistory, startKeywordRun,
   getKeywordRun, listKeywordResults, type SeoKeywordRun,
-  getRankTrackingLimits, listTrackedKeywords, addTrackedKeyword, removeTrackedKeyword, listRankChecks,
+  getRankTrackingLimits, listTrackedKeywords, addTrackedKeyword, removeTrackedKeyword, listRankChecks, checkTrackedKeywordNow,
   getPerformanceLimits, getLatestPerformanceAudit, startPerformanceAudit, listPerformanceResults,
   type SeoPerformanceAudit,
   getGscLimits, getGscConnection, startGscOAuth, disconnectGsc, listGscProperties,

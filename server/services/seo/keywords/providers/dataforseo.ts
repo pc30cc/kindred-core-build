@@ -80,6 +80,34 @@ async function postJson(
   }
 }
 
+/** DataForSEO's `appendix/user_data` endpoint is GET-only; POSTing to it returns an error envelope. */
+async function getJson(
+  url: string,
+  headers: Record<string, string>,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<unknown> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(url, { method: 'GET', headers, signal: controller.signal });
+    if (res.status === 401 || res.status === 403) throw new KeywordsError('keywords_auth_failed');
+    if (res.status === 429) throw new KeywordsError('keywords_rate_limited');
+    if (!res.ok) throw new KeywordsError('keywords_provider_error');
+    try {
+      return await res.json();
+    } catch {
+      throw new KeywordsError('keywords_provider_error');
+    }
+  } catch (err) {
+    if (err instanceof KeywordsError) throw err;
+    if ((err as { name?: string })?.name === 'AbortError') throw new KeywordsError('keywords_timeout');
+    throw new KeywordsError('keywords_network_error');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function readString(source: Record<string, unknown>, key: string): string | null {
   const v = source[key];
   return typeof v === 'string' && v.trim() !== '' ? v : null;
@@ -220,15 +248,31 @@ export function createDataForSeoKeywordsAdapter(
     },
 
     async getAccountInfo() {
-      const body = await postJson(`${apiBase}/appendix/user_data`, {}, headers, fetchImpl, timeoutMs);
+      const body = await getJson(`${apiBase}/appendix/user_data`, headers, fetchImpl, timeoutMs);
       const envelope = body as Record<string, unknown>;
+      const envelopeStatus = readNumber(envelope, 'status_code');
+      if (envelopeStatus !== null && envelopeStatus !== 20000) {
+        if (envelopeStatus === 40100 || envelopeStatus === 40200 || envelopeStatus === 40201 || envelopeStatus === 40501) {
+          throw new KeywordsError('keywords_auth_failed');
+        }
+        throw new KeywordsError('keywords_provider_error');
+      }
       const tasks = Array.isArray(envelope.tasks) ? envelope.tasks : [];
       const task = tasks[0] as Record<string, unknown> | undefined;
+      const taskStatus = task ? readNumber(task, 'status_code') : null;
+      if (taskStatus !== null && taskStatus !== 20000) {
+        if (taskStatus === 40100 || taskStatus === 40200 || taskStatus === 40201 || taskStatus === 40501) {
+          throw new KeywordsError('keywords_auth_failed');
+        }
+        throw new KeywordsError('keywords_provider_error');
+      }
       const results = task && Array.isArray(task.result) ? task.result : [];
       const first = results[0] as Record<string, unknown> | undefined;
       if (!first) throw new KeywordsError('keywords_provider_error');
-      const balance = readNumber(first, 'money_balance') ?? readNumber(first, 'balance');
-      return { balance, currency: readString(first, 'currency') || 'USD' };
+      const money = (first.money && typeof first.money === 'object' ? first.money : {}) as Record<string, unknown>;
+      const balance = readNumber(money, 'balance') ?? readNumber(first, 'money_balance') ?? readNumber(first, 'balance');
+      const currency = readString(money, 'currency') || readString(first, 'currency') || 'USD';
+      return { balance, currency };
     },
   };
 }

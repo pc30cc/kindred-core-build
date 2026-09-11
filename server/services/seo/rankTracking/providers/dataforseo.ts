@@ -116,6 +116,21 @@ function bareHost(host: string): string {
   return host.toLowerCase().replace(/^www\./, '');
 }
 
+/**
+ * Maps a DataForSEO status_code to a normalized error, per
+ * https://docs.dataforseo.com/v3/appendix/errors/
+ */
+function throwRankTrackingStatus(status: number, message: string | null): never {
+  if (status === 40100 || status === 40104 || status === 40204 || status === 40207) {
+    throw new RankTrackingError('rank_tracking_auth_failed', message);
+  }
+  if (status === 40200 || status === 40203 || status === 40210) throw new RankTrackingError('rank_tracking_insufficient_credit', message);
+  if (status === 40202 || status === 40209 || status === 42900) throw new RankTrackingError('rank_tracking_rate_limited', message);
+  if (status >= 40400 && status < 40600) throw new RankTrackingError('rank_tracking_invalid_input', message);
+  throw new RankTrackingError('rank_tracking_provider_error', message);
+}
+
+
 export function createDataForSeoRankTrackingAdapter(
   config: DataForSeoRankTrackingConfig,
   options: DataForSeoRankTrackingAdapterOptions = {},

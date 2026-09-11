@@ -248,15 +248,31 @@ export function createDataForSeoKeywordsAdapter(
     },
 
     async getAccountInfo() {
-      const body = await postJson(`${apiBase}/appendix/user_data`, {}, headers, fetchImpl, timeoutMs);
+      const body = await getJson(`${apiBase}/appendix/user_data`, headers, fetchImpl, timeoutMs);
       const envelope = body as Record<string, unknown>;
+      const envelopeStatus = readNumber(envelope, 'status_code');
+      if (envelopeStatus !== null && envelopeStatus !== 20000) {
+        if (envelopeStatus === 40100 || envelopeStatus === 40200 || envelopeStatus === 40201 || envelopeStatus === 40501) {
+          throw new KeywordsError('keywords_auth_failed');
+        }
+        throw new KeywordsError('keywords_provider_error');
+      }
       const tasks = Array.isArray(envelope.tasks) ? envelope.tasks : [];
       const task = tasks[0] as Record<string, unknown> | undefined;
+      const taskStatus = task ? readNumber(task, 'status_code') : null;
+      if (taskStatus !== null && taskStatus !== 20000) {
+        if (taskStatus === 40100 || taskStatus === 40200 || taskStatus === 40201 || taskStatus === 40501) {
+          throw new KeywordsError('keywords_auth_failed');
+        }
+        throw new KeywordsError('keywords_provider_error');
+      }
       const results = task && Array.isArray(task.result) ? task.result : [];
       const first = results[0] as Record<string, unknown> | undefined;
       if (!first) throw new KeywordsError('keywords_provider_error');
-      const balance = readNumber(first, 'money_balance') ?? readNumber(first, 'balance');
-      return { balance, currency: readString(first, 'currency') || 'USD' };
+      const money = (first.money && typeof first.money === 'object' ? first.money : {}) as Record<string, unknown>;
+      const balance = readNumber(money, 'balance') ?? readNumber(first, 'money_balance') ?? readNumber(first, 'balance');
+      const currency = readString(money, 'currency') || readString(first, 'currency') || 'USD';
+      return { balance, currency };
     },
   };
 }

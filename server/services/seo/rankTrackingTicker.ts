@@ -43,7 +43,7 @@ export function __stopRankTrackingTickerForTests(): void {
   timer = null;
 }
 
-interface DueKeywordRow {
+export interface DueKeywordRow {
   id: string;
   workspace_id: string;
   website_id: string;

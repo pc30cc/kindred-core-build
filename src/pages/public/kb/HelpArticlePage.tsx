@@ -3,24 +3,13 @@ import { Link, useParams, Navigate } from 'react-router-dom';
 import { applySeoHead } from '@/lib/seoHead';
 import { fetchKbArticle, type KbArticle } from '@/lib/kb-api';
 import { SUPPORTED_LOCALES, type Locale, isRtl } from '@/i18n/config';
+import { sanitizeKbHtml } from '@/lib/sanitizeKbHtml';
 
 const HELP_LABEL: Record<Locale, string> = {
   en: 'Help center',
   fa: 'مرکز راهنما',
   tr: 'Yardım merkezi',
 };
-
-function sanitize(html: string): string {
-  if (!html) return '';
-  return html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
-    .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, '')
-    .replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '')
-    .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '')
-    .replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, '')
-    .replace(/javascript:/gi, '');
-}
 
 export default function HelpArticlePage() {
   const { locale, slug } = useParams<{ locale: string; slug: string }>();
@@ -95,7 +84,7 @@ export default function HelpArticlePage() {
         <article
           className="prose prose-neutral max-w-none [&_a]:text-primary [&_img]:rounded-md [&_h2]:mt-8 [&_h3]:mt-6"
           // eslint-disable-next-line react/no-danger
-          dangerouslySetInnerHTML={{ __html: sanitize(article.content) }}
+          dangerouslySetInnerHTML={{ __html: sanitizeKbHtml(article.content) }}
         />
       ) : null}
     </div>

@@ -1672,6 +1672,7 @@ function RankTrackingTab({ workspaceId, siteId }: { workspaceId: string; siteId:
   const { data: keywordsData, isLoading } = useTrackedKeywords(workspaceId, siteId);
   const addKeyword = useAddTrackedKeyword(workspaceId);
   const removeKeyword = useRemoveTrackedKeyword(workspaceId);
+  const checkNow = useCheckTrackedKeywordNow(workspaceId);
   const keywords = keywordsData?.keywords || [];
 
   const [newKeyword, setNewKeyword] = useState('');

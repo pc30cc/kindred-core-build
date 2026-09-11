@@ -87,15 +87,6 @@ export async function createPerformanceAudit(
     throw new PerformanceAuditLimitError('module_not_available', 'Performance auditing is not available on this plan');
   }
 
-  const lastStart = await getMostRecentPerformanceAuditStart(config, args.crawlId);
-  if (lastStart) {
-    const elapsedHours = (Date.now() - new Date(lastStart).getTime()) / 3_600_000;
-    if (elapsedHours < limits.seo_performance_audit_frequency_hours) {
-      const retryAfterSeconds = Math.max(0, Math.round((limits.seo_performance_audit_frequency_hours - elapsedHours) * 3600));
-      throw new PerformanceAuditLimitError('frequency_limit', 'This crawl was audited too recently', retryAfterSeconds);
-    }
-  }
-
   const sb = getServiceClient(config);
   const candidates = await selectCandidatePages(sb, args.crawlId, limits.seo_performance_max_pages_per_audit);
 

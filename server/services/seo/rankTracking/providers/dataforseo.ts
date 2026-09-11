@@ -200,8 +200,10 @@ export function createDataForSeoRankTrackingAdapter(
       if (taskStatus !== null && taskStatus !== 20000) {
         throwRankTrackingStatus(taskStatus, task ? readString(task, 'status_message') : null);
       }
-
+      const results = task && Array.isArray(task.result) ? task.result : [];
+      const first = results[0] as Record<string, unknown> | undefined;
       if (!first) throw new RankTrackingError('rank_tracking_provider_error');
+
       const money = (first.money && typeof first.money === 'object' ? first.money : {}) as Record<string, unknown>;
       const balance = readNumber(money, 'balance') ?? readNumber(first, 'money_balance') ?? readNumber(first, 'balance');
       const currency = readString(money, 'currency') || readString(first, 'currency') || 'USD';

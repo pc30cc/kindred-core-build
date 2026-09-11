@@ -15,7 +15,7 @@ import {
   useCrawlComparison,
   useBacklinksLimits, useLatestBacklinkScan, useStartBacklinkScan, useBacklinks,
   useKeywordsLimits, useLatestKeywordRun, useStartKeywordRun, useKeywordResults,
-  useRankTrackingLimits, useTrackedKeywords, useAddTrackedKeyword, useRemoveTrackedKeyword, useRankChecks,
+  useRankTrackingLimits, useTrackedKeywords, useAddTrackedKeyword, useRemoveTrackedKeyword, useRankChecks, useCheckTrackedKeywordNow,
   usePerformanceLimits, useLatestPerformanceAudit, useStartPerformanceAudit, usePerformanceResults,
 } from '@/hooks/useSeo';
 import { SeoApiError, TERMINAL_SEO_STATUSES, type SeoCrawl, type SeoIssue } from '@/lib/seo-api';

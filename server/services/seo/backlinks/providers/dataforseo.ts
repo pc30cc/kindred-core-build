@@ -52,6 +52,17 @@ function authHeader(config: DataForSeoBacklinksConfig): string {
   return `Basic ${token}`;
 }
 
+async function readErrorEnvelope(res: Response): Promise<{ status: number | null; message: string | null }> {
+  try {
+    const body = await res.json() as Record<string, unknown>;
+    const status = readNumber(body, 'status_code');
+    const message = readString(body, 'status_message');
+    return { status, message };
+  } catch {
+    return { status: null, message: null };
+  }
+}
+
 async function postJson(
   url: string,
   body: unknown,
@@ -68,7 +79,12 @@ async function postJson(
       body: JSON.stringify(body),
       signal: controller.signal,
     });
-    if (res.status === 401 || res.status === 403) throw new BacklinksError('backlinks_auth_failed');
+    if (!res.ok) {
+      const vendor = await readErrorEnvelope(res);
+      if (vendor.status !== null) throwBacklinksStatus(vendor.status, vendor.message);
+      if (res.status === 401) throw new BacklinksError('backlinks_auth_failed');
+      if (res.status === 403) throw new BacklinksError('backlinks_ip_not_allowed');
+    }
     if (res.status === 429) throw new BacklinksError('backlinks_rate_limited');
     if (!res.ok) throw new BacklinksError('backlinks_provider_error');
     try {
@@ -96,7 +112,12 @@ async function getJson(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetchImpl(url, { method: 'GET', headers, signal: controller.signal });
-    if (res.status === 401 || res.status === 403) throw new BacklinksError('backlinks_auth_failed');
+    if (!res.ok) {
+      const vendor = await readErrorEnvelope(res);
+      if (vendor.status !== null) throwBacklinksStatus(vendor.status, vendor.message);
+      if (res.status === 401) throw new BacklinksError('backlinks_auth_failed');
+      if (res.status === 403) throw new BacklinksError('backlinks_ip_not_allowed');
+    }
     if (res.status === 429) throw new BacklinksError('backlinks_rate_limited');
     if (!res.ok) throw new BacklinksError('backlinks_provider_error');
     try {
@@ -121,16 +142,18 @@ function readString(source: Record<string, unknown>, key: string): string | null
 /**
  * Maps a DataForSEO status_code to a normalized error, per
  * https://docs.dataforseo.com/v3/appendix/errors/
- *  - 40100 bad credentials, 40104 account not verified,
- *    40204 Backlinks API subscription required, 40207 IP not whitelisted
+ *  - 40100 bad credentials, 40104 account not verified
+ *  - 40204 Backlinks API subscription required, 40207 IP not whitelisted
  *  - 40200/40203/40210 balance or cost limit
  *  - 40202/40209/42900 rate limits
  *  - 404xx/405xx invalid request fields
  */
 function throwBacklinksStatus(status: number, message: string | null): never {
-  if (status === 40100 || status === 40104 || status === 40204 || status === 40207) {
+  if (status === 40100 || status === 40104) {
     throw new BacklinksError('backlinks_auth_failed', message);
   }
+  if (status === 40204) throw new BacklinksError('backlinks_subscription_required', message);
+  if (status === 40207) throw new BacklinksError('backlinks_ip_not_allowed', message);
   if (status === 40200 || status === 40203 || status === 40210) throw new BacklinksError('backlinks_insufficient_credit', message);
   if (status === 40202 || status === 40209 || status === 42900) throw new BacklinksError('backlinks_rate_limited', message);
   if (status >= 40400 && status < 40600) throw new BacklinksError('backlinks_invalid_target', message);

@@ -63,6 +63,20 @@ function fakeFetchAuthFailed() {
   return vi.fn(async () => jsonResponse(401, {})) as unknown as typeof fetch;
 }
 
+function fakeFetchProviderStatus(statusCode: number, statusMessage: string) {
+  return vi.fn(async () => jsonResponse(200, {
+    status_code: 20000,
+    tasks: [{ status_code: statusCode, status_message: statusMessage, result: null }],
+  })) as unknown as typeof fetch;
+}
+
+function fakeFetchHttpError(status: number, statusCode: number, statusMessage: string) {
+  return vi.fn(async () => jsonResponse(status, {
+    status_code: statusCode,
+    status_message: statusMessage,
+  })) as unknown as typeof fetch;
+}
+
 function runtimeOptions(fetchImpl: typeof fetch) {
   return { dataForSeoAdapterOptions: { fetchImpl, timeoutMs: 200 } };
 }
@@ -199,5 +213,31 @@ describe('fetchBacklinksForTarget', () => {
     );
     expect(result.items).toHaveLength(1);
     expect(result.items[0].sourceUrl).toBe('https://ok.example/');
+  });
+
+  it('reports a missing Backlinks API subscription instead of an authentication failure', async () => {
+    row = configured();
+    await expect(svc.fetchBacklinksForTarget(
+      CONFIG,
+      'https://target.example/',
+      100,
+      runtimeOptions(fakeFetchProviderStatus(40204, 'Backlinks API subscription required')),
+    )).rejects.toMatchObject({
+      code: 'backlinks_subscription_required',
+      detail: 'Backlinks API subscription required',
+    });
+  });
+
+  it('reports an IP allowlist restriction from an HTTP error response', async () => {
+    row = configured();
+    await expect(svc.fetchBacklinksForTarget(
+      CONFIG,
+      'https://target.example/',
+      100,
+      runtimeOptions(fakeFetchHttpError(403, 40207, 'IP address is not allowed')),
+    )).rejects.toMatchObject({
+      code: 'backlinks_ip_not_allowed',
+      detail: 'IP address is not allowed',
+    });
   });
 });

@@ -4,7 +4,7 @@ import { ChevronDown } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { cn } from '@/lib/utils';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Badge } from '@/components/ui/badge';
 import { SEO_SECTIONS, findSection, firstLeafKey, type SeoNavGroup, type SeoNavLeaf } from './seoNavTree';

@@ -1765,7 +1765,19 @@ function RankTrackingTab({ workspaceId, siteId }: { workspaceId: string; siteId:
                     </Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{k.last_checked_at ? new Date(k.last_checked_at).toLocaleDateString() : t('seo.rankTracking.pendingFirstCheck')}</TableCell>
-                  <TableCell>
+                  <TableCell className="text-end">
+                    <Button
+                      size="sm" variant="ghost"
+                      disabled={checkNow.isPending}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        checkNow.mutate(k.id, {
+                          onError: () => toast.error(t('seo.rankTracking.errors.checkFailed' as any)),
+                        });
+                      }}
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${checkNow.isPending ? 'animate-spin' : ''}`} />
+                    </Button>
                     <Button
                       size="sm" variant="ghost" className="text-destructive"
                       onClick={(e) => { e.stopPropagation(); removeKeyword.mutate(k.id); }}

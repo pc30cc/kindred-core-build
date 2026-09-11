@@ -20,7 +20,6 @@ import { enqueueJob, requestJobCancel, cancelQueuedJob, getJob } from '../jobs/q
 import { normalizeExplorerDomain } from './siteResolver.js';
 import {
   resolveExplorerLimits, countActiveWorkspaceExplorerScans,
-  getMostRecentCompletedExplorerBacklinkScan, getMostRecentCompletedExplorerKeywordScan,
 } from './explorerLimits.js';
 
 export type ExplorerScanLimitReason = 'invalid_domain' | 'workspace_concurrency_limit' | 'frequency_limit' | 'module_not_available';
@@ -101,15 +100,6 @@ export async function createExplorerBacklinkScan(
   const workspaceActive = await countActiveWorkspaceExplorerScans(config, args.workspaceId);
   if (workspaceActive >= limits.seo_explorer_workspace_concurrent_scans) {
     throw new ExplorerScanLimitError('workspace_concurrency_limit', 'Workspace has reached its concurrent Site Explorer lookup limit');
-  }
-
-  const lastCompletion = await getMostRecentCompletedExplorerBacklinkScan(config, args.workspaceId, resolved.canonicalHost);
-  if (lastCompletion) {
-    const elapsedHours = (Date.now() - new Date(lastCompletion).getTime()) / 3_600_000;
-    if (elapsedHours < limits.seo_explorer_scan_frequency_hours) {
-      const retryAfterSeconds = Math.max(0, Math.round((limits.seo_explorer_scan_frequency_hours - elapsedHours) * 3600));
-      throw new ExplorerScanLimitError('frequency_limit', 'This domain was looked up too recently', retryAfterSeconds);
-    }
   }
 
   const sb = getServiceClient(config);
@@ -213,15 +203,6 @@ export async function createExplorerKeywordScan(
   const workspaceActive = await countActiveWorkspaceExplorerScans(config, args.workspaceId);
   if (workspaceActive >= limits.seo_explorer_workspace_concurrent_scans) {
     throw new ExplorerScanLimitError('workspace_concurrency_limit', 'Workspace has reached its concurrent Site Explorer lookup limit');
-  }
-
-  const lastCompletion = await getMostRecentCompletedExplorerKeywordScan(config, args.workspaceId, resolved.canonicalHost);
-  if (lastCompletion) {
-    const elapsedHours = (Date.now() - new Date(lastCompletion).getTime()) / 3_600_000;
-    if (elapsedHours < limits.seo_explorer_scan_frequency_hours) {
-      const retryAfterSeconds = Math.max(0, Math.round((limits.seo_explorer_scan_frequency_hours - elapsedHours) * 3600));
-      throw new ExplorerScanLimitError('frequency_limit', 'This domain was looked up too recently', retryAfterSeconds);
-    }
   }
 
   const sb = getServiceClient(config);

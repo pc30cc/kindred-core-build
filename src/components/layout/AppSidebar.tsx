@@ -178,7 +178,8 @@ export function AppSidebar({
   // Settings is a dense two-pane workspace: collapse the nav rail while it is
   // open, then restore the user's own preference on leaving. The Inbox keeps
   // the sidebar exactly as the user left it (its sub-inboxes live there).
-  const onInbox = /\/settings(\/|$)/.test(location.pathname);
+  // The SEO suite has its own two-column nav, so the main rail collapses there too.
+  const onInbox = /\/(settings|seo)(\/|$)/.test(location.pathname);
   useEffect(() => {
     if (onInbox) setCollapsedPref(true);
     else setCollapsedPref(localStorage.getItem('sidebar_collapsed') === '1');

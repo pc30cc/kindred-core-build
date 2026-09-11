@@ -4,7 +4,7 @@ import { ChevronDown } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
 import { cn } from '@/lib/utils';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Badge } from '@/components/ui/badge';
 import { SEO_SECTIONS, findSection, firstLeafKey, type SeoNavGroup, type SeoNavLeaf } from './seoNavTree';
@@ -59,28 +59,24 @@ export function SeoSectionNav({
 
   return (
     <div className="flex h-full shrink-0">
-      {/* Tool switcher — icon rail */}
+      {/* Tool switcher — icons + labels */}
       <TooltipProvider delayDuration={150}>
-        <nav className="flex w-16 flex-col items-center gap-1.5 border-e border-border/60 bg-muted/30 py-3">
-
+        <nav className="flex w-48 flex-col gap-1 border-e border-border/60 bg-muted/30 p-2 py-3">
           {SEO_SECTIONS.map((s) => {
             const active = s.key === activeSectionKey;
             const Icon = s.icon;
             return (
-              <Tooltip key={s.key}>
-                <TooltipTrigger asChild>
-                  <Link
-                    to={wsPath(`/seo/${s.key}/${firstLeafKey(s)}`)}
-                    className={cn(
-                      'flex h-11 w-11 items-center justify-center rounded-xl transition-colors',
-                      active ? 'bg-primary text-primary-foreground shadow-md' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                    )}
-                  >
-                    <Icon className="h-5 w-5" />
-                  </Link>
-                </TooltipTrigger>
-                <TooltipContent side="right" className="text-xs font-medium">{t(s.labelKey as any)}</TooltipContent>
-              </Tooltip>
+              <Link
+                key={s.key}
+                to={wsPath(`/seo/${s.key}/${firstLeafKey(s)}`)}
+                className={cn(
+                  'flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm font-medium transition-colors',
+                  active ? 'bg-primary text-primary-foreground shadow-md' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                )}
+              >
+                <Icon className="h-5 w-5 shrink-0" />
+                <span className="truncate">{t(s.labelKey as any)}</span>
+              </Link>
             );
           })}
         </nav>

@@ -113,6 +113,19 @@ function readString(source: Record<string, unknown>, key: string): string | null
   return typeof v === 'string' && v.trim() !== '' ? v : null;
 }
 
+/**
+ * Maps a DataForSEO status_code to a normalized error. Only 401xx means bad
+ * credentials; 402xx is billing, 404xx/405xx are request/field problems.
+ * The provider's own status_message is attached so operators see the cause.
+ */
+function throwKeywordsStatus(status: number, message: string | null): never {
+  if (status >= 40100 && status < 40200) throw new KeywordsError('keywords_auth_failed', message);
+  if (status === 40200 || status === 40201 || status === 40202) throw new KeywordsError('keywords_insufficient_credit', message);
+  if (status === 40429 || status === 42900) throw new KeywordsError('keywords_rate_limited', message);
+  if (status >= 40400 && status < 40600) throw new KeywordsError('keywords_invalid_input', message);
+  throw new KeywordsError('keywords_provider_error', message);
+}
+
 function readNumber(source: Record<string, unknown>, key: string): number | null {
   const v = source[key];
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
@@ -197,9 +210,7 @@ export function createDataForSeoKeywordsAdapter(
       if (!task) throw new KeywordsError('keywords_provider_error');
       const taskStatus = readNumber(task, 'status_code');
       if (taskStatus !== null && taskStatus !== 20000) {
-        if (taskStatus === 40501 || taskStatus === 40201) throw new KeywordsError('keywords_auth_failed');
-        if (taskStatus === 40202) throw new KeywordsError('keywords_insufficient_credit');
-        throw new KeywordsError('keywords_provider_error');
+        throwKeywordsStatus(taskStatus, readString(task, 'status_message'));
       }
       const results = Array.isArray(task.result) ? task.result : [];
       const items: KeywordResultItem[] = [];
@@ -231,9 +242,7 @@ export function createDataForSeoKeywordsAdapter(
       if (!task) throw new KeywordsError('keywords_provider_error');
       const taskStatus = readNumber(task, 'status_code');
       if (taskStatus !== null && taskStatus !== 20000) {
-        if (taskStatus === 40501 || taskStatus === 40201) throw new KeywordsError('keywords_auth_failed');
-        if (taskStatus === 40202) throw new KeywordsError('keywords_insufficient_credit');
-        throw new KeywordsError('keywords_provider_error');
+        throwKeywordsStatus(taskStatus, readString(task, 'status_message'));
       }
       const results = Array.isArray(task.result) ? task.result : [];
       const first = results[0] as Record<string, unknown> | undefined;
@@ -252,19 +261,13 @@ export function createDataForSeoKeywordsAdapter(
       const envelope = body as Record<string, unknown>;
       const envelopeStatus = readNumber(envelope, 'status_code');
       if (envelopeStatus !== null && envelopeStatus !== 20000) {
-        if (envelopeStatus === 40100 || envelopeStatus === 40200 || envelopeStatus === 40201 || envelopeStatus === 40501) {
-          throw new KeywordsError('keywords_auth_failed');
-        }
-        throw new KeywordsError('keywords_provider_error');
+        throwKeywordsStatus(envelopeStatus, readString(envelope, 'status_message'));
       }
       const tasks = Array.isArray(envelope.tasks) ? envelope.tasks : [];
       const task = tasks[0] as Record<string, unknown> | undefined;
       const taskStatus = task ? readNumber(task, 'status_code') : null;
-      if (taskStatus !== null && taskStatus !== 20000) {
-        if (taskStatus === 40100 || taskStatus === 40200 || taskStatus === 40201 || taskStatus === 40501) {
-          throw new KeywordsError('keywords_auth_failed');
-        }
-        throw new KeywordsError('keywords_provider_error');
+      if (taskStatus !== null && taskStatus !== 20000 && task) {
+        throwKeywordsStatus(taskStatus, readString(task, 'status_message'));
       }
       const results = task && Array.isArray(task.result) ? task.result : [];
       const first = results[0] as Record<string, unknown> | undefined;

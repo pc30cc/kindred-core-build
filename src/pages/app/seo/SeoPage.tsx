@@ -369,7 +369,10 @@ function PageHeader({ section, subsectionKey }: { section?: ReturnType<typeof fi
   const leaf = subsectionKey ? findLeaf(section, subsectionKey) : undefined;
   return (
     <div className="mb-4 flex items-center gap-2 text-sm">
+      <span className="font-semibold text-foreground">{t('seo.title' as any)}</span>
+      <span className="text-muted-foreground">/</span>
       <span className="font-semibold text-foreground">{t(section.labelKey as any)}</span>
+
       {leaf && (
         <>
           <span className="text-muted-foreground">/</span>

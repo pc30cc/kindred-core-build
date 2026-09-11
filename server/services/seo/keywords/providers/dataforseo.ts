@@ -114,17 +114,24 @@ function readString(source: Record<string, unknown>, key: string): string | null
 }
 
 /**
- * Maps a DataForSEO status_code to a normalized error. Only 401xx means bad
- * credentials; 402xx is billing, 404xx/405xx are request/field problems.
- * The provider's own status_message is attached so operators see the cause.
+ * Maps a DataForSEO status_code to a normalized error, per
+ * https://docs.dataforseo.com/v3/appendix/errors/
+ *  - 40100/40104/40204/40207 → credentials, verification or access problems
+ *  - 40200/40203/40210      → balance / cost limit
+ *  - 40202/40209/42900      → rate limits
+ *  - 40201                  → account paused by DataForSEO (surface message)
+ *  - 404xx/405xx            → invalid request fields
  */
 function throwKeywordsStatus(status: number, message: string | null): never {
-  if (status >= 40100 && status < 40200) throw new KeywordsError('keywords_auth_failed', message);
-  if (status === 40200 || status === 40201 || status === 40202) throw new KeywordsError('keywords_insufficient_credit', message);
-  if (status === 40429 || status === 42900) throw new KeywordsError('keywords_rate_limited', message);
+  if (status === 40100 || status === 40104 || status === 40204 || status === 40207) {
+    throw new KeywordsError('keywords_auth_failed', message);
+  }
+  if (status === 40200 || status === 40203 || status === 40210) throw new KeywordsError('keywords_insufficient_credit', message);
+  if (status === 40202 || status === 40209 || status === 42900) throw new KeywordsError('keywords_rate_limited', message);
   if (status >= 40400 && status < 40600) throw new KeywordsError('keywords_invalid_input', message);
   throw new KeywordsError('keywords_provider_error', message);
 }
+
 
 function readNumber(source: Record<string, unknown>, key: string): number | null {
   const v = source[key];

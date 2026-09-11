@@ -156,15 +156,18 @@ export function createDataForSeoRankTrackingAdapter(
         timeoutMs,
       );
       const envelope = body as Record<string, unknown>;
+      const envelopeStatus = readNumber(envelope, 'status_code');
+      if (envelopeStatus !== null && envelopeStatus !== 20000) {
+        throwRankTrackingStatus(envelopeStatus, readString(envelope, 'status_message'));
+      }
       const tasks = Array.isArray(envelope.tasks) ? envelope.tasks : [];
       const task = tasks[0] as Record<string, unknown> | undefined;
       if (!task) throw new RankTrackingError('rank_tracking_provider_error');
       const taskStatus = readNumber(task, 'status_code');
       if (taskStatus !== null && taskStatus !== 20000) {
-        if (taskStatus === 40501 || taskStatus === 40201) throw new RankTrackingError('rank_tracking_auth_failed');
-        if (taskStatus === 40202) throw new RankTrackingError('rank_tracking_insufficient_credit');
-        throw new RankTrackingError('rank_tracking_provider_error');
+        throwRankTrackingStatus(taskStatus, readString(task, 'status_message'));
       }
+
       const results = Array.isArray(task.result) ? task.result : [];
       const first = results[0] as Record<string, unknown> | undefined;
       const rawItems = first && Array.isArray(first.items) ? first.items : [];

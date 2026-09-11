@@ -153,7 +153,8 @@ export default function SeoPage() {
   if (activeSection.needsSite && sites.length === 0) {
     return (
       <div className="p-6">
-        <PageHeader />
+        <PageHeader section={activeSection} />
+
         <Card className="mt-6">
           <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
             <Radar className="h-10 w-10 text-muted-foreground" />

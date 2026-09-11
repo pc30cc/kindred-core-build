@@ -119,16 +119,24 @@ function readString(source: Record<string, unknown>, key: string): string | null
 }
 
 /**
- * Maps a DataForSEO status_code to a normalized error. Only 401xx means bad
- * credentials; 402xx is billing, 404xx/405xx are request/field problems.
+ * Maps a DataForSEO status_code to a normalized error, per
+ * https://docs.dataforseo.com/v3/appendix/errors/
+ *  - 40100 bad credentials, 40104 account not verified,
+ *    40204 Backlinks API subscription required, 40207 IP not whitelisted
+ *  - 40200/40203/40210 balance or cost limit
+ *  - 40202/40209/42900 rate limits
+ *  - 404xx/405xx invalid request fields
  */
 function throwBacklinksStatus(status: number, message: string | null): never {
-  if (status >= 40100 && status < 40200) throw new BacklinksError('backlinks_auth_failed', message);
-  if (status === 40200 || status === 40201 || status === 40202) throw new BacklinksError('backlinks_insufficient_credit', message);
-  if (status === 40429 || status === 42900) throw new BacklinksError('backlinks_rate_limited', message);
+  if (status === 40100 || status === 40104 || status === 40204 || status === 40207) {
+    throw new BacklinksError('backlinks_auth_failed', message);
+  }
+  if (status === 40200 || status === 40203 || status === 40210) throw new BacklinksError('backlinks_insufficient_credit', message);
+  if (status === 40202 || status === 40209 || status === 42900) throw new BacklinksError('backlinks_rate_limited', message);
   if (status >= 40400 && status < 40600) throw new BacklinksError('backlinks_invalid_target', message);
   throw new BacklinksError('backlinks_provider_error', message);
 }
+
 
 function readNumber(source: Record<string, unknown>, key: string): number | null {
   const v = source[key];
@@ -181,7 +189,15 @@ export function createDataForSeoAdapter(
     async fetchBacklinks({ target, limit }) {
       const body = await postJson(
         `${apiBase}/backlinks/backlinks/live`,
-        [{ target, mode: 'as_is', limit: Math.max(1, Math.min(limit, 1000)), backlinks_status_type: 'live' }],
+        [{
+          target,
+          mode: 'as_is',
+          limit: Math.max(1, Math.min(limit, 1000)),
+          backlinks_status_type: 'live',
+          // API default is a 0-1000 scale; the UI shows 0-100 rank values
+          rank_scale: 'one_hundred',
+        }],
+
         headers,
         fetchImpl,
         timeoutMs,

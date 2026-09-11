@@ -116,6 +116,21 @@ function bareHost(host: string): string {
   return host.toLowerCase().replace(/^www\./, '');
 }
 
+/**
+ * Maps a DataForSEO status_code to a normalized error, per
+ * https://docs.dataforseo.com/v3/appendix/errors/
+ */
+function throwRankTrackingStatus(status: number, message: string | null): never {
+  if (status === 40100 || status === 40104 || status === 40204 || status === 40207) {
+    throw new RankTrackingError('rank_tracking_auth_failed', message);
+  }
+  if (status === 40200 || status === 40203 || status === 40210) throw new RankTrackingError('rank_tracking_insufficient_credit', message);
+  if (status === 40202 || status === 40209 || status === 42900) throw new RankTrackingError('rank_tracking_rate_limited', message);
+  if (status >= 40400 && status < 40600) throw new RankTrackingError('rank_tracking_invalid_input', message);
+  throw new RankTrackingError('rank_tracking_provider_error', message);
+}
+
+
 export function createDataForSeoRankTrackingAdapter(
   config: DataForSeoRankTrackingConfig,
   options: DataForSeoRankTrackingAdapterOptions = {},
@@ -141,15 +156,18 @@ export function createDataForSeoRankTrackingAdapter(
         timeoutMs,
       );
       const envelope = body as Record<string, unknown>;
+      const envelopeStatus = readNumber(envelope, 'status_code');
+      if (envelopeStatus !== null && envelopeStatus !== 20000) {
+        throwRankTrackingStatus(envelopeStatus, readString(envelope, 'status_message'));
+      }
       const tasks = Array.isArray(envelope.tasks) ? envelope.tasks : [];
       const task = tasks[0] as Record<string, unknown> | undefined;
       if (!task) throw new RankTrackingError('rank_tracking_provider_error');
       const taskStatus = readNumber(task, 'status_code');
       if (taskStatus !== null && taskStatus !== 20000) {
-        if (taskStatus === 40501 || taskStatus === 40201) throw new RankTrackingError('rank_tracking_auth_failed');
-        if (taskStatus === 40202) throw new RankTrackingError('rank_tracking_insufficient_credit');
-        throw new RankTrackingError('rank_tracking_provider_error');
+        throwRankTrackingStatus(taskStatus, readString(task, 'status_message'));
       }
+
       const results = Array.isArray(task.result) ? task.result : [];
       const first = results[0] as Record<string, unknown> | undefined;
       const rawItems = first && Array.isArray(first.items) ? first.items : [];
@@ -174,23 +192,18 @@ export function createDataForSeoRankTrackingAdapter(
       const envelope = body as Record<string, unknown>;
       const envelopeStatus = readNumber(envelope, 'status_code');
       if (envelopeStatus !== null && envelopeStatus !== 20000) {
-        if (envelopeStatus === 40100 || envelopeStatus === 40200 || envelopeStatus === 40201 || envelopeStatus === 40501) {
-          throw new RankTrackingError('rank_tracking_auth_failed');
-        }
-        throw new RankTrackingError('rank_tracking_provider_error');
+        throwRankTrackingStatus(envelopeStatus, readString(envelope, 'status_message'));
       }
       const tasks = Array.isArray(envelope.tasks) ? envelope.tasks : [];
       const task = tasks[0] as Record<string, unknown> | undefined;
       const taskStatus = task ? readNumber(task, 'status_code') : null;
       if (taskStatus !== null && taskStatus !== 20000) {
-        if (taskStatus === 40100 || taskStatus === 40200 || taskStatus === 40201 || taskStatus === 40501) {
-          throw new RankTrackingError('rank_tracking_auth_failed');
-        }
-        throw new RankTrackingError('rank_tracking_provider_error');
+        throwRankTrackingStatus(taskStatus, task ? readString(task, 'status_message') : null);
       }
       const results = task && Array.isArray(task.result) ? task.result : [];
       const first = results[0] as Record<string, unknown> | undefined;
       if (!first) throw new RankTrackingError('rank_tracking_provider_error');
+
       const money = (first.money && typeof first.money === 'object' ? first.money : {}) as Record<string, unknown>;
       const balance = readNumber(money, 'balance') ?? readNumber(first, 'money_balance') ?? readNumber(first, 'balance');
       const currency = readString(money, 'currency') || readString(first, 'currency') || 'USD';

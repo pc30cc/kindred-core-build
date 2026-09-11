@@ -69,15 +69,6 @@ export async function createBacklinkScan(
     throw new BacklinkScanLimitError('workspace_concurrency_limit', 'Workspace has reached its concurrent backlink scan limit');
   }
 
-  const lastStart = await getMostRecentBacklinkScanStart(config, site.id);
-  if (lastStart) {
-    const elapsedHours = (Date.now() - new Date(lastStart).getTime()) / 3_600_000;
-    if (elapsedHours < limits.seo_backlinks_scan_frequency_hours) {
-      const retryAfterSeconds = Math.max(0, Math.round((limits.seo_backlinks_scan_frequency_hours - elapsedHours) * 3600));
-      throw new BacklinkScanLimitError('frequency_limit', 'This site was scanned too recently', retryAfterSeconds);
-    }
-  }
-
   const sb = getServiceClient(config);
 
   // job_id is NOT NULL + FK'd on seo_backlink_scans, so the background_jobs

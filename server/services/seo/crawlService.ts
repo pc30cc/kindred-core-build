@@ -84,15 +84,6 @@ export async function createCrawl(
     throw new CrawlLimitError('site_concurrency_limit', 'This site already has a crawl in progress');
   }
 
-  const lastStart = await getMostRecentCrawlStart(config, site.id);
-  if (lastStart) {
-    const elapsedHours = (Date.now() - new Date(lastStart).getTime()) / 3_600_000;
-    if (elapsedHours < limits.seo_crawl_frequency_hours) {
-      const retryAfterSeconds = Math.max(0, Math.round((limits.seo_crawl_frequency_hours - elapsedHours) * 3600));
-      throw new CrawlLimitError('frequency_limit', 'This site was audited too recently', retryAfterSeconds);
-    }
-  }
-
   const job = await enqueueJob(config, {
     workspaceId: args.workspaceId,
     jobType: 'seo_crawl',

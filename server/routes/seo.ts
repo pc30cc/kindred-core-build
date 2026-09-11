@@ -88,6 +88,7 @@ import {
   removeTrackedKeyword,
   listTrackedKeywordsForSite,
   listRankChecksForKeyword,
+  checkTrackedKeywordNow,
   TrackedKeywordLimitError,
 } from '../services/seo/rankTrackingService.js';
 import {
@@ -553,6 +554,20 @@ seoRouter.delete('/:workspaceId/tracked-keywords/:keywordId', requireModule('seo
   if (!isUuid(keywordId)) return res.status(400).json({ error: 'invalid_keyword_id' });
   const result = await removeTrackedKeyword(configOf(req), workspaceId, keywordId);
   res.json(result);
+});
+
+seoRouter.post('/:workspaceId/tracked-keywords/:keywordId/check', requireModule('seo_rank_tracking'), async (req, res) => {
+  const { workspaceId, keywordId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  if (!isUuid(keywordId)) return res.status(400).json({ error: 'invalid_keyword_id' });
+  try {
+    const keyword = await checkTrackedKeywordNow(configOf(req), workspaceId, keywordId);
+    res.json({ keyword });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'rank_check_failed';
+    res.status(502).json({ error: 'rank_check_failed', detail: message });
+  }
 });
 
 seoRouter.get('/:workspaceId/tracked-keywords/:keywordId/checks', requireModule('seo_rank_tracking'), async (req, res) => {

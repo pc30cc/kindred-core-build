@@ -15,7 +15,7 @@ import {
   useCrawlComparison,
   useBacklinksLimits, useLatestBacklinkScan, useStartBacklinkScan, useBacklinks,
   useKeywordsLimits, useLatestKeywordRun, useStartKeywordRun, useKeywordResults,
-  useRankTrackingLimits, useTrackedKeywords, useAddTrackedKeyword, useRemoveTrackedKeyword, useRankChecks,
+  useRankTrackingLimits, useTrackedKeywords, useAddTrackedKeyword, useRemoveTrackedKeyword, useRankChecks, useCheckTrackedKeywordNow,
   usePerformanceLimits, useLatestPerformanceAudit, useStartPerformanceAudit, usePerformanceResults,
 } from '@/hooks/useSeo';
 import { SeoApiError, TERMINAL_SEO_STATUSES, type SeoCrawl, type SeoIssue } from '@/lib/seo-api';
@@ -1672,6 +1672,7 @@ function RankTrackingTab({ workspaceId, siteId }: { workspaceId: string; siteId:
   const { data: keywordsData, isLoading } = useTrackedKeywords(workspaceId, siteId);
   const addKeyword = useAddTrackedKeyword(workspaceId);
   const removeKeyword = useRemoveTrackedKeyword(workspaceId);
+  const checkNow = useCheckTrackedKeywordNow(workspaceId);
   const keywords = keywordsData?.keywords || [];
 
   const [newKeyword, setNewKeyword] = useState('');
@@ -1765,7 +1766,19 @@ function RankTrackingTab({ workspaceId, siteId }: { workspaceId: string; siteId:
                     </Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{k.last_checked_at ? new Date(k.last_checked_at).toLocaleDateString() : t('seo.rankTracking.pendingFirstCheck')}</TableCell>
-                  <TableCell>
+                  <TableCell className="text-end">
+                    <Button
+                      size="sm" variant="ghost"
+                      disabled={checkNow.isPending}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        checkNow.mutate(k.id, {
+                          onError: () => toast.error(t('seo.rankTracking.errors.checkFailed' as any)),
+                        });
+                      }}
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${checkNow.isPending ? 'animate-spin' : ''}`} />
+                    </Button>
                     <Button
                       size="sm" variant="ghost" className="text-destructive"
                       onClick={(e) => { e.stopPropagation(); removeKeyword.mutate(k.id); }}

@@ -23,6 +23,8 @@ export const DATAFORSEO_TIMEOUT_MS = 45_000;
 export const DATAFORSEO_API_BASE = 'https://api.dataforseo.com/v3';
 const DEFAULT_LOCATION_CODE = 2840; // United States
 const DEFAULT_LANGUAGE_CODE = 'en';
+const PERSIAN_LOCATION_CODE = 2364; // Iran
+const PERSIAN_LANGUAGE_CODE = 'fa';
 
 export interface DataForSeoRankTrackingAdapter {
   checkRank(input: { keyword: string; targetHost: string; device: 'desktop' | 'mobile'; locationCode?: number | null }): Promise<RankCheckResult>;
@@ -142,12 +144,16 @@ export function createDataForSeoRankTrackingAdapter(
 
   return {
     async checkRank({ keyword, targetHost, device, locationCode }) {
+      // A Persian/Arabic-script keyword searched in the US/en locale returns a
+      // SERP the site can never rank in, so infer the Iran/fa locale from the
+      // keyword's script unless an explicit location was stored.
+      const persian = /[\u0600-\u06FF]/.test(keyword);
       const body = await postJson(
         `${apiBase}/serp/google/organic/live/regular`,
         [{
           keyword,
-          location_code: locationCode ?? DEFAULT_LOCATION_CODE,
-          language_code: DEFAULT_LANGUAGE_CODE,
+          location_code: locationCode ?? (persian ? PERSIAN_LOCATION_CODE : DEFAULT_LOCATION_CODE),
+          language_code: persian ? PERSIAN_LANGUAGE_CODE : DEFAULT_LANGUAGE_CODE,
           device,
           depth: 100,
         }],

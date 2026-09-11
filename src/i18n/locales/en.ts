@@ -7434,6 +7434,7 @@ const en = {
       },
       errors: {
         addFailed: 'Could not add this keyword to tracking. Please try again in a moment.',
+        checkFailed: 'Rank check failed. Please try again in a moment.',
       },
       empty: {
         notAvailableTitle: 'Rank tracking is not on your plan',

@@ -7422,6 +7422,7 @@ const tr: TranslationKeys = {
       },
       errors: {
         addFailed: 'Bu anahtar kelime takibe eklenemedi. Lütfen biraz sonra tekrar deneyin.',
+        checkFailed: 'Sıra kontrolü başarısız oldu. Lütfen biraz sonra tekrar deneyin.',
       },
       empty: {
         notAvailableTitle: 'Sıralama takibi planınızda yok',

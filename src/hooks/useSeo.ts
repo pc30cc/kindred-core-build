@@ -13,7 +13,7 @@ import {
   getBacklinkScan, cancelBacklinkScan, listBacklinks, type SeoBacklinkScan,
   getKeywordsLimits, getLatestKeywordRun, listKeywordRunHistory, startKeywordRun,
   getKeywordRun, listKeywordResults, type SeoKeywordRun,
-  getRankTrackingLimits, listTrackedKeywords, addTrackedKeyword, removeTrackedKeyword, listRankChecks,
+  getRankTrackingLimits, listTrackedKeywords, addTrackedKeyword, removeTrackedKeyword, listRankChecks, checkTrackedKeywordNow,
   getPerformanceLimits, getLatestPerformanceAudit, startPerformanceAudit, listPerformanceResults,
   type SeoPerformanceAudit,
   getGscLimits, getGscConnection, startGscOAuth, disconnectGsc, listGscProperties,
@@ -310,6 +310,17 @@ export function useRemoveTrackedKeyword(workspaceId: string) {
     mutationFn: (keywordId: string) => removeTrackedKeyword(workspaceId, keywordId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['seo-tracked-keywords', workspaceId] });
+    },
+  });
+}
+
+export function useCheckTrackedKeywordNow(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (keywordId: string) => checkTrackedKeywordNow(workspaceId, keywordId),
+    onSuccess: (_data, keywordId) => {
+      qc.invalidateQueries({ queryKey: ['seo-tracked-keywords', workspaceId] });
+      qc.invalidateQueries({ queryKey: ['seo-rank-checks', workspaceId, keywordId] });
     },
   });
 }

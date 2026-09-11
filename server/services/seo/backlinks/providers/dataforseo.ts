@@ -85,6 +85,34 @@ async function postJson(
   }
 }
 
+/** DataForSEO's `appendix/user_data` endpoint is GET-only; POSTing to it returns an error envelope. */
+async function getJson(
+  url: string,
+  headers: Record<string, string>,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<unknown> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(url, { method: 'GET', headers, signal: controller.signal });
+    if (res.status === 401 || res.status === 403) throw new BacklinksError('backlinks_auth_failed');
+    if (res.status === 429) throw new BacklinksError('backlinks_rate_limited');
+    if (!res.ok) throw new BacklinksError('backlinks_provider_error');
+    try {
+      return await res.json();
+    } catch {
+      throw new BacklinksError('backlinks_provider_error');
+    }
+  } catch (err) {
+    if (err instanceof BacklinksError) throw err;
+    if ((err as { name?: string })?.name === 'AbortError') throw new BacklinksError('backlinks_timeout');
+    throw new BacklinksError('backlinks_network_error');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function readString(source: Record<string, unknown>, key: string): string | null {
   const v = source[key];
   return typeof v === 'string' && v.trim() !== '' ? v : null;

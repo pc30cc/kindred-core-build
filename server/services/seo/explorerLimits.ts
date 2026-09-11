@@ -91,32 +91,34 @@ export async function countActiveWorkspaceExplorerScans(config: ServerConfig, wo
   return (backlinkCount || 0) + (keywordCount || 0);
 }
 
-/** Most recent Explorer backlink scan (any status) for this exact domain, for the frequency-limit check. */
-export async function getMostRecentExplorerBacklinkScanStart(config: ServerConfig, workspaceId: string, domain: string): Promise<string | null> {
+/** Most recent successfully completed Explorer backlink scan for this exact domain. Failed or in-progress attempts never start the cooldown. */
+export async function getMostRecentCompletedExplorerBacklinkScan(config: ServerConfig, workspaceId: string, domain: string): Promise<string | null> {
   const sb = getServiceClient(config);
   const { data } = await sb
     .from('seo_explorer_backlink_scans')
-    .select('created_at')
+    .select('finished_at')
     .eq('workspace_id', workspaceId)
     .eq('target_domain', domain)
-    .not('status', 'in', '(failed,cancelled)')
-    .order('created_at', { ascending: false })
+    .eq('status', 'completed')
+    .not('finished_at', 'is', null)
+    .order('finished_at', { ascending: false })
     .limit(1)
     .maybeSingle();
-  return (data as { created_at: string } | null)?.created_at ?? null;
+  return (data as { finished_at: string | null } | null)?.finished_at ?? null;
 }
 
-/** Most recent Explorer keyword scan (any status) for this exact domain, for the frequency-limit check. */
-export async function getMostRecentExplorerKeywordScanStart(config: ServerConfig, workspaceId: string, domain: string): Promise<string | null> {
+/** Most recent successfully completed Explorer keyword scan for this exact domain. Failed or in-progress attempts never start the cooldown. */
+export async function getMostRecentCompletedExplorerKeywordScan(config: ServerConfig, workspaceId: string, domain: string): Promise<string | null> {
   const sb = getServiceClient(config);
   const { data } = await sb
     .from('seo_explorer_keyword_scans')
-    .select('created_at')
+    .select('finished_at')
     .eq('workspace_id', workspaceId)
     .eq('target_domain', domain)
-    .not('status', 'in', '(failed,cancelled)')
-    .order('created_at', { ascending: false })
+    .eq('status', 'completed')
+    .not('finished_at', 'is', null)
+    .order('finished_at', { ascending: false })
     .limit(1)
     .maybeSingle();
-  return (data as { created_at: string } | null)?.created_at ?? null;
+  return (data as { finished_at: string | null } | null)?.finished_at ?? null;
 }

@@ -31,10 +31,14 @@ export const KEYWORDS_ERROR_MESSAGES: Record<KeywordsErrorCode, string> = {
 
 export class KeywordsError extends Error {
   readonly code: KeywordsErrorCode;
-  constructor(code: KeywordsErrorCode) {
-    super(KEYWORDS_ERROR_MESSAGES[code]);
+  /** Optional provider-side explanation (status message). Never contains credentials. */
+  readonly detail: string | null;
+  constructor(code: KeywordsErrorCode, detail?: string | null) {
+    const base = KEYWORDS_ERROR_MESSAGES[code];
+    super(detail ? `${base}: ${detail}` : base);
     this.name = 'KeywordsError';
     this.code = code;
+    this.detail = detail ?? null;
   }
 }
 

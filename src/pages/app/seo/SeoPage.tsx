@@ -172,6 +172,8 @@ export default function SeoPage() {
     <div className="flex h-full min-h-0 items-stretch">
       <SeoSectionNav activeSectionKey={activeSection.key} activeSubsectionKey={subsectionKey} />
       <div className="flex-1 overflow-y-auto bg-background p-6">
+        <PageHeader section={activeSection} subsectionKey={subsectionKey} />
+
         {activeSection.needsSite ? (
           <SiteScopedSection
             workspaceId={workspaceId}

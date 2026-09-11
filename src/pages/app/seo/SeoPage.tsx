@@ -360,15 +360,23 @@ function SiteAuditSection({ workspaceId, siteId, subsectionKey }: { workspaceId:
   );
 }
 
-function PageHeader() {
+function PageHeader({ section, subsectionKey }: { section?: ReturnType<typeof findSection>; subsectionKey?: string }) {
   const { t } = useTranslation();
+  if (!section) return null;
+  const leaf = subsectionKey ? findLeaf(section, subsectionKey) : undefined;
   return (
-    <div>
-      <h1 className="flex items-center gap-2 text-2xl font-bold"><Radar className="h-6 w-6" /> {t('seo.title')}</h1>
-      <p className="text-sm text-muted-foreground">{t('seo.subtitle')}</p>
+    <div className="mb-4 flex items-center gap-2 text-sm">
+      <span className="font-semibold text-foreground">{t(section.labelKey as any)}</span>
+      {leaf && (
+        <>
+          <span className="text-muted-foreground">/</span>
+          <span className="text-muted-foreground">{t(leaf.labelKey as any)}</span>
+        </>
+      )}
     </div>
   );
 }
+
 
 function SeoDashboard({
   workspaceId, siteId, crawl, onRunAgain, runPending, history, subsectionKey,

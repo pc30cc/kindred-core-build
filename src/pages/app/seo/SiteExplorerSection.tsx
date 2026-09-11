@@ -27,7 +27,7 @@ import { SeoRoadmapPlaceholder } from './SeoRoadmapPlaceholder';
 import { toast } from '@/lib/toast';
 import {
   useSeoSites,
-  useExplorerHistory, useExplorerLimits,
+  
   useLatestExplorerBacklinkScan, useStartExplorerBacklinkScan, useExplorerBacklinks,
   useLatestExplorerKeywordScan, useStartExplorerKeywordScan, useExplorerKeywords,
 } from '@/hooks/useSeo';
@@ -62,19 +62,9 @@ export function SiteExplorerSection({ workspaceId, subsectionKey }: { workspaceI
 
 function SiteExplorerInner({ workspaceId, subsectionKey }: { workspaceId: string; subsectionKey: string }) {
   const { t } = useTranslation();
-  const [inputValue, setInputValue] = useState('');
   const [activeDomain, setActiveDomain] = useState<string | undefined>(undefined);
-  const { data: historyData } = useExplorerHistory(workspaceId);
-  const history = historyData?.history || [];
-  const { data: sitesData } = useSeoSites(workspaceId);
+  const { data: sitesData, isLoading: sitesLoading } = useSeoSites(workspaceId);
   const ownDomain = (sitesData?.sites || []).find((s) => s.is_primary)?.domain || sitesData?.sites?.[0]?.domain;
-  const ownDomainAlreadyRecent = !!ownDomain && history.some((h) => h.domain === ownDomain);
-
-  const handleExplore = (raw: string) => {
-    const trimmed = raw.trim();
-    if (!trimmed) return;
-    setActiveDomain(trimmed);
-  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -82,47 +72,25 @@ function SiteExplorerInner({ workspaceId, subsectionKey }: { workspaceId: string
         <CardContent className="flex flex-col gap-3 p-4">
           <form
             className="flex items-center gap-2"
-            onSubmit={(e) => { e.preventDefault(); handleExplore(inputValue); }}
+            onSubmit={(e) => { e.preventDefault(); if (ownDomain) setActiveDomain(ownDomain); }}
           >
             <div className="relative flex-1">
-              <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Globe2 className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
+                value={ownDomain || ''}
+                readOnly
+                dir="ltr"
                 placeholder={t('seo.explorer.search.placeholder' as any)}
-                className="ps-9"
+                className="ps-9 text-start"
               />
             </div>
-            <Button type="submit" className="gap-2">
+            <Button type="submit" className="gap-2" disabled={!ownDomain || sitesLoading}>
               <Search className="h-4 w-4" />{t('seo.explorer.search.cta' as any)}
             </Button>
           </form>
-          {(ownDomain && !ownDomainAlreadyRecent) || history.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">{t('seo.explorer.search.recent' as any)}</span>
-              {ownDomain && !ownDomainAlreadyRecent && (
-                <button
-                  type="button"
-                  onClick={() => { setInputValue(ownDomain); handleExplore(ownDomain); }}
-                  className="flex items-center gap-1 rounded-full border border-primary/40 bg-primary/5 px-2.5 py-0.5 text-xs text-primary transition-colors hover:bg-primary/10"
-                >
-                  <Globe2 className="h-3 w-3" />{ownDomain} · {t('seo.explorer.search.yourSite' as any)}
-                </button>
-              )}
-              {history.map((h) => (
-                <button
-                  key={h.domain}
-                  type="button"
-                  onClick={() => { setInputValue(h.domain); handleExplore(h.domain); }}
-                  className="rounded-full border border-border/60 px-2.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  {h.domain}
-                </button>
-              ))}
-            </div>
-          ) : null}
         </CardContent>
       </Card>
+
 
       {!activeDomain ? (
         <Card className="overflow-hidden">

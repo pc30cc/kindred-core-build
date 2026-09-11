@@ -23,6 +23,8 @@ export const DATAFORSEO_TIMEOUT_MS = 45_000;
 export const DATAFORSEO_API_BASE = 'https://api.dataforseo.com/v3';
 const DEFAULT_LOCATION_CODE = 2840; // United States
 const DEFAULT_LANGUAGE_CODE = 'en';
+const PERSIAN_LOCATION_CODE = 2364; // Iran
+const PERSIAN_LANGUAGE_CODE = 'fa';
 
 export interface DataForSeoRankTrackingAdapter {
   checkRank(input: { keyword: string; targetHost: string; device: 'desktop' | 'mobile'; locationCode?: number | null }): Promise<RankCheckResult>;

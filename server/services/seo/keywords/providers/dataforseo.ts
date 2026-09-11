@@ -259,7 +259,8 @@ export function createDataForSeoKeywordsAdapter(
           location_code: DEFAULT_LOCATION_CODE,
           language_code: DEFAULT_LANGUAGE_CODE,
           limit: Math.max(1, Math.min(limit, 1000)),
-          load_rank_absolute: true,
+          // default is ["organic","paid"]; we only report organic rankings
+          item_types: ['organic'],
           order_by: ['keyword_data.keyword_info.search_volume,desc'],
         }],
         headers,
@@ -267,6 +268,10 @@ export function createDataForSeoKeywordsAdapter(
         timeoutMs,
       );
       const envelope = body as Record<string, unknown>;
+      const envelopeStatus = readNumber(envelope, 'status_code');
+      if (envelopeStatus !== null && envelopeStatus !== 20000) {
+        throwKeywordsStatus(envelopeStatus, readString(envelope, 'status_message'));
+      }
       const tasks = Array.isArray(envelope.tasks) ? envelope.tasks : [];
       const task = tasks[0] as Record<string, unknown> | undefined;
       if (!task) throw new KeywordsError('keywords_provider_error');
@@ -274,6 +279,7 @@ export function createDataForSeoKeywordsAdapter(
       if (taskStatus !== null && taskStatus !== 20000) {
         throwKeywordsStatus(taskStatus, readString(task, 'status_message'));
       }
+
       const results = Array.isArray(task.result) ? task.result : [];
       const first = results[0] as Record<string, unknown> | undefined;
       const rawItems = first && Array.isArray(first.items) ? first.items : [];

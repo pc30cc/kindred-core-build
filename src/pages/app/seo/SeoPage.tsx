@@ -153,7 +153,8 @@ export default function SeoPage() {
   if (activeSection.needsSite && sites.length === 0) {
     return (
       <div className="p-6">
-        <PageHeader />
+        <PageHeader section={activeSection} />
+
         <Card className="mt-6">
           <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
             <Radar className="h-10 w-10 text-muted-foreground" />
@@ -171,6 +172,8 @@ export default function SeoPage() {
     <div className="flex h-full min-h-0 items-stretch">
       <SeoSectionNav activeSectionKey={activeSection.key} activeSubsectionKey={subsectionKey} />
       <div className="flex-1 overflow-y-auto bg-background p-6">
+        <PageHeader section={activeSection} subsectionKey={subsectionKey} />
+
         {activeSection.needsSite ? (
           <SiteScopedSection
             workspaceId={workspaceId}
@@ -360,15 +363,23 @@ function SiteAuditSection({ workspaceId, siteId, subsectionKey }: { workspaceId:
   );
 }
 
-function PageHeader() {
+function PageHeader({ section, subsectionKey }: { section?: ReturnType<typeof findSection>; subsectionKey?: string }) {
   const { t } = useTranslation();
+  if (!section) return null;
+  const leaf = subsectionKey ? findLeaf(section, subsectionKey) : undefined;
   return (
-    <div>
-      <h1 className="flex items-center gap-2 text-2xl font-bold"><Radar className="h-6 w-6" /> {t('seo.title')}</h1>
-      <p className="text-sm text-muted-foreground">{t('seo.subtitle')}</p>
+    <div className="mb-4 flex items-center gap-2 text-sm">
+      <span className="font-semibold text-foreground">{t(section.labelKey as any)}</span>
+      {leaf && (
+        <>
+          <span className="text-muted-foreground">/</span>
+          <span className="text-muted-foreground">{t(leaf.labelKey as any)}</span>
+        </>
+      )}
     </div>
   );
 }
+
 
 function SeoDashboard({
   workspaceId, siteId, crawl, onRunAgain, runPending, history, subsectionKey,

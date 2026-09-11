@@ -84,11 +84,8 @@ export function SeoSectionNav({
 
       {/* Active tool's report list */}
       <div className="flex w-56 flex-col gap-0.5 overflow-y-auto border-e border-border/60 bg-card p-3">
-        <div className="px-2 pb-3">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('seo.title' as any)}</p>
-          <p className="mt-1 text-[11px] leading-snug text-muted-foreground/80">{t('seo.subtitle' as any)}</p>
-        </div>
-        <h3 className="truncate px-2 pb-2 text-sm font-semibold text-foreground">{t(activeSection.labelKey as any)}</h3>
+        <h3 className="truncate px-2 pb-2 pt-1 text-sm font-semibold text-foreground">{t(activeSection.labelKey as any)}</h3>
+
 
         {activeSection.items.map((item) => (
           item.type === 'leaf'

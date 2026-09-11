@@ -189,7 +189,15 @@ export function createDataForSeoAdapter(
     async fetchBacklinks({ target, limit }) {
       const body = await postJson(
         `${apiBase}/backlinks/backlinks/live`,
-        [{ target, mode: 'as_is', limit: Math.max(1, Math.min(limit, 1000)), backlinks_status_type: 'live' }],
+        [{
+          target,
+          mode: 'as_is',
+          limit: Math.max(1, Math.min(limit, 1000)),
+          backlinks_status_type: 'live',
+          // API default is a 0-1000 scale; the UI shows 0-100 rank values
+          rank_scale: 'one_hundred',
+        }],
+
         headers,
         fetchImpl,
         timeoutMs,

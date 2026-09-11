@@ -99,6 +99,7 @@ export async function getMostRecentExplorerBacklinkScanStart(config: ServerConfi
     .select('created_at')
     .eq('workspace_id', workspaceId)
     .eq('target_domain', domain)
+    .not('status', 'in', '(failed,cancelled)')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -113,6 +114,7 @@ export async function getMostRecentExplorerKeywordScanStart(config: ServerConfig
     .select('created_at')
     .eq('workspace_id', workspaceId)
     .eq('target_domain', domain)
+    .not('status', 'in', '(failed,cancelled)')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();

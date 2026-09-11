@@ -149,9 +149,8 @@ function readString(source: Record<string, unknown>, key: string): string | null
  *  - 404xx/405xx invalid request fields
  */
 function throwBacklinksStatus(status: number, message: string | null): never {
-  if (status === 40100 || status === 40104) {
-    throw new BacklinksError('backlinks_auth_failed', message);
-  }
+  if (status === 40104) throw new BacklinksError('backlinks_account_unverified', message);
+  if (status === 40100) throw new BacklinksError('backlinks_auth_failed', message);
   if (status === 40204) throw new BacklinksError('backlinks_subscription_required', message);
   if (status === 40207) throw new BacklinksError('backlinks_ip_not_allowed', message);
   if (status === 40200 || status === 40203 || status === 40210) throw new BacklinksError('backlinks_insufficient_credit', message);

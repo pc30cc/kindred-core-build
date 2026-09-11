@@ -230,6 +230,10 @@ export function createDataForSeoKeywordsAdapter(
         timeoutMs,
       );
       const envelope = body as Record<string, unknown>;
+      const envelopeStatus = readNumber(envelope, 'status_code');
+      if (envelopeStatus !== null && envelopeStatus !== 20000) {
+        throwKeywordsStatus(envelopeStatus, readString(envelope, 'status_message'));
+      }
       const tasks = Array.isArray(envelope.tasks) ? envelope.tasks : [];
       const task = tasks[0] as Record<string, unknown> | undefined;
       if (!task) throw new KeywordsError('keywords_provider_error');
@@ -237,6 +241,7 @@ export function createDataForSeoKeywordsAdapter(
       if (taskStatus !== null && taskStatus !== 20000) {
         throwKeywordsStatus(taskStatus, readString(task, 'status_message'));
       }
+
       const results = Array.isArray(task.result) ? task.result : [];
       const items: KeywordResultItem[] = [];
       for (const raw of results) {

@@ -27,7 +27,7 @@ import { SeoRoadmapPlaceholder } from './SeoRoadmapPlaceholder';
 import { toast } from '@/lib/toast';
 import {
   useSeoSites,
-  useExplorerHistory, useExplorerLimits,
+  useSeoSites as _unusedSeoSitesAlias,
   useLatestExplorerBacklinkScan, useStartExplorerBacklinkScan, useExplorerBacklinks,
   useLatestExplorerKeywordScan, useStartExplorerKeywordScan, useExplorerKeywords,
 } from '@/hooks/useSeo';

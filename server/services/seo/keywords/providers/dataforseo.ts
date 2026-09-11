@@ -145,20 +145,38 @@ function competitionLevel(competition: number | null): 'low' | 'medium' | 'high'
   return 'high';
 }
 
+/**
+ * Google Ads search_volume/live returns `competition` as a LABEL string
+ * ("HIGH" | "MEDIUM" | "LOW") and `competition_index` as 0..100 — it does not
+ * return a 0..1 float. The normalized 0..1 value is derived from
+ * competition_index, with the label falling back to the derived value.
+ */
 function parseItem(raw: unknown): KeywordResultItem | null {
   if (!raw || typeof raw !== 'object') return null;
   const item = raw as Record<string, unknown>;
   const keyword = readString(item, 'keyword');
   if (!keyword) return null;
-  const competition = readNumber(item, 'competition');
+
+  const index = readNumber(item, 'competition_index');
+  const rawCompetition = item.competition;
+  const label = typeof rawCompetition === 'string' ? rawCompetition.trim().toLowerCase() : null;
+  const numericCompetition =
+    index !== null
+      ? Math.max(0, Math.min(1, index / 100))
+      : typeof rawCompetition === 'number' && Number.isFinite(rawCompetition)
+        ? rawCompetition
+        : null;
+
   return {
     keyword,
     searchVolume: readNumber(item, 'search_volume'),
     cpc: readNumber(item, 'cpc'),
-    competition,
-    competitionLevel: competitionLevel(competition),
+    competition: numericCompetition,
+    competitionLevel:
+      label === 'low' || label === 'medium' || label === 'high' ? label : competitionLevel(numericCompetition),
   };
 }
+
 
 /**
  * Parses one item of DataForSEO Labs' Ranked Keywords report

@@ -8,6 +8,11 @@
 FROM node:20.18-alpine AS build
 WORKDIR /app
 
+# zip — used by scripts/build-woocommerce-plugin-zip.mjs (part of `npm run
+# build`) to package plugins/webyar-woocommerce/ into the downloadable
+# public/downloads/webyar-woocommerce.zip served by nginx.
+RUN apk add --no-cache zip
+
 COPY package.json bun.lockb* package-lock.json* ./
 RUN npm install --ignore-scripts
 
@@ -25,6 +30,7 @@ RUN npm run build
 
 RUN test -f /app/dist/widget/widget-manifest.json || (echo "❌ widget-manifest.json missing from build output" && ls -la /app/dist/widget/ && exit 1)
 RUN echo "✅ widget assets:" && ls -la /app/dist/widget/
+RUN test -f /app/dist/downloads/webyar-woocommerce.zip || (echo "❌ webyar-woocommerce.zip missing from build output" && exit 1)
 
 # ── Serve with nginx ───────────────────────────────────────
 FROM nginx:alpine

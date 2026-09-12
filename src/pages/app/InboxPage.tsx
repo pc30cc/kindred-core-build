@@ -1789,8 +1789,9 @@ export default function InboxPage() {
           </div>
         ) : null}
 
-        {/* Search — pinned at the bottom of the conversation list */}
-        <div className="p-3 border-t border-border/60 bg-card/60">
+        {/* Search — pinned at the bottom of the conversation list.
+            Hidden on mobile/PWA: the bottom tab bar owns that space there. */}
+        <div className="hidden md:block p-3 border-t border-border/60 bg-card/60">
           <div className="relative">
             <Search className={cn('absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground', dir === 'rtl' ? 'right-2.5' : 'left-2.5')} />
             <Input
@@ -2444,7 +2445,7 @@ export default function InboxPage() {
               {/* Phase 2 — AI Agent suggestion card (suggest_only mode).
                   Visitor never sees this. "Send now" delivers as a normal
                   operator message, not as an AI message. */}
-              {selectedId && (
+              {selectedId && !aiManagedConversation && (
                 <AiSuggestionCard
                   conversationId={selectedId}
                   dir={dir}
@@ -2477,7 +2478,7 @@ export default function InboxPage() {
 
                 />
               )}
-              {selectedId && (
+              {selectedId && !aiManagedConversation && (
                 <div className="mb-2 flex items-start gap-2 flex-wrap">
                   {workspace?.id && (
                     <div className="[&>div]:mb-0">
@@ -2504,37 +2505,16 @@ export default function InboxPage() {
 
               {/* Human Guidance UX — composer mode switch. Only while the AI
                   still owns the conversation; a human takeover hides it. */}
+              {/* AI-managed conversations are guidance-only: the operator
+                  steers the AI instead of replying or using AI drafts. */}
               {selectedId && aiManagedConversation && (
-                <div className="mb-2 inline-flex items-center rounded-lg border border-border/60 bg-secondary/40 p-0.5 text-[11px] font-medium">
-                  <button
-                    type="button"
-                    onClick={() => setComposerMode('reply')}
-                    className={cn(
-                      'px-2.5 py-1 rounded-md transition-colors',
-                      composerMode === 'reply'
-                        ? 'bg-background text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    {t('inbox.guidance.modeReply')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setComposerMode('guide')}
-                    className={cn(
-                      'px-2.5 py-1 rounded-md transition-colors inline-flex items-center gap-1',
-                      composerMode === 'guide'
-                        ? 'bg-background text-primary shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    <Bot className="w-3.5 h-3.5" />
-                    {t('inbox.guidance.modeGuide')}
-                  </button>
+                <div className="mb-2 inline-flex items-center gap-1 rounded-lg border border-border/60 bg-secondary/40 px-2.5 py-1 text-[11px] font-medium text-primary">
+                  <Bot className="w-3.5 h-3.5" />
+                  {t('inbox.guidance.modeGuide')}
                 </div>
               )}
 
-              {composerMode === 'guide' && selectedId && aiManagedConversation ? (
+              {selectedId && aiManagedConversation ? (
                 <GuidanceComposer
                   conversationId={selectedId}
                   dir={dir as 'ltr' | 'rtl'}

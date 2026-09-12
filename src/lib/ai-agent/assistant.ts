@@ -80,6 +80,7 @@ export interface AgentSettings {
   answer_guidance: AnswerGuidance;
   mode: AgentMode;
   answer_only_from_kb: boolean;
+  strict_topic_scope: boolean;
   welcome_message: string | null;
   fallback_message: string;
   handoff_keywords: string[];

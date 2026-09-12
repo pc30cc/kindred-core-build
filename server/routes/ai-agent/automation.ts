@@ -233,7 +233,7 @@ const topicCreateSchema = z.object({
   examples: z.array(z.string().max(500)).max(100).optional(),
   language: z.string().max(8).nullable().optional(),
   confidence_threshold: z.number().min(0).max(1).optional(),
-  action: z.enum(['label_only','route','trigger_workflow','suggest_reply']).optional(),
+  action: z.enum(['label_only','route','trigger_workflow','suggest_reply','decline']).optional(),
   action_json: z.record(z.any()).optional(),
   enabled: z.boolean().optional(),
 });

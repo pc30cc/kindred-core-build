@@ -24,7 +24,6 @@ import {
   completeChannelJob,
   failChannelJob,
   releaseChannelJob,
-
   isChannelJobType,
   recordAttempt,
   type ChannelJob,
@@ -34,6 +33,8 @@ import {
   TelegramApiError,
   redactToken,
 } from '../../channels/providers/telegram/client.js';
+import { pollDmEvents } from '../../channels/providers/x/client.js';
+import { xDmEventsToBotUpdates } from '../../server/services/channels/x/toBotUpdate.js';
 import { botApiFor } from './botApi.js';
 import {
   CORE_INTERNAL_SERVICE_NAME,
@@ -51,6 +52,11 @@ import {
 
 const WORKER_ID = `channels-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 const POLL_INTERVAL_MS = parseInt(process.env.CHANNELS_POLL_INTERVAL_MS || '1500', 10);
+// X has no push webhook on accessible API tiers (see `shared/channels/botProviders.ts`),
+// so the Worker polls `GET /2/dm_events` on this cadence instead. Kept
+// conservative by default to stay well inside typical per-account DM rate
+// limits; raise it only against a verified quota.
+const X_POLL_INTERVAL_MS = parseInt(process.env.CHANNELS_X_POLL_INTERVAL_MS || '60000', 10);
 const BATCH_SIZE = parseInt(process.env.CHANNELS_BATCH_SIZE || '10', 10);
 const LEASE_SECONDS = parseInt(process.env.CHANNELS_LEASE_SECONDS || '120', 10);
 // 45s (was 15s): the heartbeat row is a single UPSERT per worker, so a 15s
@@ -399,10 +405,52 @@ async function handleJob(job: ChannelJob): Promise<void> {
       return;
     }
 
+    // ── X inbound (self-rescheduling poll, no webhook available) ──────
+    case 'x_poll_dm_events': {
+      if (!job.integration_id) throw Object.assign(new Error('poll job without integration'), { permanent: true });
+
+      // CORE OWNS EVERY CANONICAL WRITE, `channel_jobs` included — the Worker
+      // never inserts its own next job row, it asks Core to.
+      const scheduleNext = (selfUserId: string) =>
+        coreCall('/internal/channels/x/reschedule-poll', {
+          integration_id: job.integration_id,
+          workspace_id: job.workspace_id,
+          self_user_id: selfUserId,
+          delay_ms: X_POLL_INTERVAL_MS,
+        });
+
+      const selfUserId = String(payload.self_user_id ?? '');
+      // Integration disconnected/removed: `credential()` throws a permanent
+      // error here, this case propagates it unmodified, and the loop ends —
+      // no `scheduleNext` call is reached.
+      const token = await credential(job.integration_id);
+
+      try {
+        const events = await pollDmEvents(token);
+        const updates = xDmEventsToBotUpdates(events, selfUserId);
+        for (const update of updates) {
+          await coreCall('/internal/channels/process-inbound', {
+            provider: job.provider,
+            integration_id: job.integration_id,
+            workspace_id: job.workspace_id,
+            update,
+          });
+        }
+      } catch (err) {
+        // A flaky X API call or a momentary Core outage must never end the
+        // poll loop — log it and keep the chain alive; the next tick retries.
+        console.error('[channels-worker] x poll failed:', redactToken(String((err as Error).message)));
+      }
+
+      await scheduleNext(selfUserId);
+      return;
+    }
+
     // ── Outbound text ─────────────────────────────────────────────────
     case 'telegram_outbound_message':
     case 'bale_outbound_message':
     case 'instagram_outbound_message':
+    case 'x_outbound_message':
     case 'whatsapp_outbound_message': {
       if (!job.integration_id) throw Object.assign(new Error('outbound job without integration'), { permanent: true });
       const chatId = payload.chat_id;
@@ -433,6 +481,7 @@ async function handleJob(job: ChannelJob): Promise<void> {
     case 'telegram_outbound_media':
     case 'bale_outbound_media':
     case 'instagram_outbound_media':
+    case 'x_outbound_media':
     case 'whatsapp_outbound_media': {
       if (!job.integration_id) throw Object.assign(new Error('outbound job without integration'), { permanent: true });
       const chatId = payload.chat_id;

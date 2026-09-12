@@ -3,12 +3,13 @@
  * If user has no workspaces, auto-provisions one.
  */
 import { Navigate, useLocation } from 'react-router-dom';
-import { useWorkspaces, useAccount, useCreateWorkspace } from '@/hooks/useWorkspace';
+import { useWorkspaces } from '@/hooks/useWorkspace';
 import { useAuth } from '@/features/auth/AuthContext';
-import { useProfile } from '@/hooks/useProfile';
 import { useTranslation } from '@/i18n';
 import { Button } from '@/components/ui/button';
-import { Building2, LogOut, RefreshCw, HeadsetIcon } from 'lucide-react';
+import { Building2, LogOut, RefreshCw, HeadsetIcon, Mail } from 'lucide-react';
+import { resendMyVerificationEmail } from '@/lib/api';
+import { toast } from '@/lib/toast';
 import { useEffect, useRef, useState } from 'react';
 // Same-origin in dev/preview (Vite proxy), configured origin in production.
 // Using import.meta.env directly here bypassed that and produced blocked
@@ -18,13 +19,12 @@ import { API_BASE } from '@/lib/apiBase';
 
 export function WorkspaceRedirect() {
   const { data: workspaces, isLoading, refetch } = useWorkspaces();
-  const { data: account, isLoading: accountLoading } = useAccount();
-  const { data: profile } = useProfile();
   const { signOut, user } = useAuth();
-  const createWorkspace = useCreateWorkspace();
-  const { t, dir } = useTranslation();
+  const { t, dir, locale } = useTranslation();
   const [provisioning, setProvisioning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resending, setResending] = useState(false);
   const attempted = useRef(false);
   const location = useLocation();
 
@@ -42,48 +42,29 @@ export function WorkspaceRedirect() {
 
   // Auto-provision workspace if user has account but no workspaces
   useEffect(() => {
-    if (isLoading || accountLoading || attempted.current || provisioning) return;
+    if (isLoading || attempted.current || provisioning) return;
     if (workspaces && workspaces.length === 0 && user) {
       attempted.current = true;
       setProvisioning(true);
 
       (async () => {
         try {
-          let accountId = account?.id;
-
-          // If no account exists, provision one. Routed through the backend
-          // (POST /api/workspaces/provision-account) rather than a direct
-          // supabase.rpc call — see server/routes/workspaces.ts for why:
-          // the RPC takes _user_id with no internal check that it matches
-          // the caller, so it must only ever be invoked with a
-          // session-derived id, never a client-supplied one.
-          if (!accountId) {
-            const res = await fetch(`${API_BASE}/api/workspaces/provision-account`, {
-              method: 'POST',
-              credentials: 'include',
-            });
-            if (!res.ok) {
-              const body = await res.json().catch(() => ({ error: res.statusText }));
-              throw new Error(body.error || `API error: ${res.status}`);
-            }
-            // Refetch to pick up the new workspace
-            await refetch();
-            setProvisioning(false);
-            return;
-          }
-
-          // Account exists but no workspace — create one
-          const name = profile?.company_name || user.metadata?.full_name || 'My Workspace';
-          await createWorkspace.mutateAsync({
-            accountId,
-            name: typeof name === 'string' ? name : 'My Workspace',
+          // One server-owned operation handles both a fresh signup and any
+          // account/workspace that was only partially provisioned earlier.
+          const res = await fetch(`${API_BASE}/api/workspaces/provision-account`, {
+            method: 'POST',
+            credentials: 'include',
           });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({ error: res.statusText }));
+            throw new Error(body.error || `API error: ${res.status}`);
+          }
           await refetch();
         } catch (err: any) {
           console.error('Auto-provision failed:', err);
           const raw = String(err?.message || '');
           if (raw === 'email_verification_required') {
-            setError(t('workspaceRedirect.emailVerificationRequired'));
+            setNeedsVerification(true);
           } else if (err instanceof TypeError || /failed to fetch|network/i.test(raw)) {
             setError(t('workspaceRedirect.connectionFailed'));
           } else {
@@ -95,9 +76,9 @@ export function WorkspaceRedirect() {
         }
       })();
     }
-  }, [isLoading, accountLoading, workspaces, account, user]);
+  }, [isLoading, workspaces, user, provisioning, refetch, t]);
 
-  if (isLoading || accountLoading || provisioning) {
+  if (isLoading || provisioning) {
     return (
       <div dir={dir} className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -116,6 +97,65 @@ export function WorkspaceRedirect() {
 
   if (workspaces?.length) {
     return <Navigate to={`/${workspaces[0].slug}${legacySuffix}${location.search}`} replace />;
+  }
+
+  if (needsVerification) {
+    const handleResend = async () => {
+      setResending(true);
+      try {
+        await resendMyVerificationEmail(locale);
+        toast.success(t('auth.verificationResent'));
+      } catch {
+        toast.error(t('auth.error'));
+      }
+      setResending(false);
+    };
+
+    return (
+      <div dir={dir} className="flex min-h-screen items-center justify-center bg-background p-4">
+        <div className="w-full max-w-md text-center space-y-6">
+          <div className="mx-auto w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
+            <Mail className="h-10 w-10 text-primary" />
+          </div>
+
+          <div className="space-y-2">
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              {t('auth.checkEmailTitle')}
+            </h1>
+            <p className="text-muted-foreground text-sm leading-relaxed max-w-sm mx-auto">
+              {t('workspaceRedirect.emailVerificationRequired')}
+            </p>
+            {user?.email && (
+              <p className="text-sm font-medium text-foreground" dir="ltr">{user.email}</p>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <Button
+              variant="default"
+              onClick={() => {
+                attempted.current = false;
+                setNeedsVerification(false);
+                setError(null);
+                refetch();
+              }}
+              className="w-full sm:w-auto gap-2"
+            >
+              <RefreshCw className="h-4 w-4" />
+              {t('workspaceRedirect.tryAgain')}
+            </Button>
+            <Button variant="outline" onClick={handleResend} disabled={resending} className="w-full sm:w-auto gap-2">
+              <RefreshCw className={`h-4 w-4 ${resending ? 'animate-spin' : ''}`} />
+              {t('auth.resendEmail')}
+            </Button>
+            <Button variant="ghost" onClick={() => signOut()} className="w-full sm:w-auto gap-2">
+              <LogOut className="h-4 w-4" />
+              {t('workspaceRedirect.signOut')}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

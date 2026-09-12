@@ -17,6 +17,7 @@ import {
   type WorkspaceCallCenterSettings,
 } from '../services/callCenter/settings.js';
 import { signWidgetSession, verifyWidgetSession } from '../services/callCenter/widgetSession.js';
+import { isWorkspaceOriginAllowed } from '../services/widget/public.js';
 import { resolveEffectiveCallProvider } from '../services/calls/providerResolver.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
 import {
@@ -119,6 +120,30 @@ callWidgetRouter.use(async (req, res, next) => {
 
 function getOrigin(req: any): string | null {
   return (req.headers.origin as string) || null;
+}
+
+/**
+ * ONE canonical origin boundary for the visitor-facing call widget.
+ *
+ * The call widget used to enforce ONLY `call_center_workspace_settings.allowed_domains`
+ * and fail closed when that list was empty — so a site where the chat widget
+ * worked fine got a 403 `origin_denied` from /call-widget/bootstrap.
+ * The canonical widget boundary (verified workspace_domains + widget_settings
+ * allowlist + subdomain rules) is the same one the chat widget uses; the
+ * call-center list stays as an ADDITIONAL allowance.
+ */
+async function callOriginAllowed(
+  config: ServerConfig,
+  ws: WorkspaceCallCenterSettings,
+  origin: string | null,
+): Promise<boolean> {
+  if (!origin) return false;
+  if (originAllowed(ws, origin)) return true;
+  try {
+    return await isWorkspaceOriginAllowed(config, ws.workspace_id, origin);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -510,7 +535,7 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
     return res.json(disabledResponse('workspace_disabled'));
   }
   const origin = getOrigin(req);
-  if (!originAllowed(ws, origin)) {
+  if (!(await callOriginAllowed(config, ws, origin))) {
     return res.status(403).json({ status: 'error', reason: 'origin_denied' });
   }
   const effective = computeEffectiveCallCenterCaps(platform, ws);
@@ -772,7 +797,7 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   } catch {
     return res.status(403).json({ error: 'plan_forbidden', capability: 'voice_video', upgrade_required: true });
   }
-  if (!originAllowed(ws, getOrigin(req))) return res.status(403).json({ error: 'origin_denied' });
+  if (!(await callOriginAllowed(config, ws, getOrigin(req)))) return res.status(403).json({ error: 'origin_denied' });
   // Validate optional visitor-selected department against canonical schema.
   const dbCallTypeForDept = parsed.data.call_type === 'voice' ? 'audio' : 'video';
   let chosenDepartmentId: string | null = parsed.data.department_id || null;
@@ -1172,7 +1197,7 @@ callWidgetRouter.post('/calls/:id/join-token', async (req, res) => {
   // Re-check workspace origin allow-list (in case allowed_domains changed
   // between bootstrap and now).
   const wsForOrigin = await getOrCreateWorkspaceSettings(config, session.workspace_id);
-  if (!originAllowed(wsForOrigin, getOrigin(req))) {
+  if (!(await callOriginAllowed(config, wsForOrigin, getOrigin(req)))) {
     return res.status(403).json({ error: 'origin_denied' });
   }
   const sb = getServiceClient(config);
@@ -1230,7 +1255,7 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
   if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
   const session = guard.session;
   const ws = await getOrCreateWorkspaceSettings(config, session.workspace_id);
-  if (!originAllowed(ws, getOrigin(req))) {
+  if (!(await callOriginAllowed(config, ws, getOrigin(req)))) {
     return res.status(403).json({ error: 'origin_denied' });
   }
   const platform = await getPlatformCallCenterSettings(config);

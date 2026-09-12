@@ -629,6 +629,12 @@ export const callCenterApi = {
       { method: 'POST', body: JSON.stringify({ workspaceId, fileName: file.name, contentType: file.type, data }) },
     );
   },
+  removeAvatar: (workspaceId: string) =>
+    jsonFetch<{ avatar_url: null }>(
+      `/api/call-center/settings/avatar?workspaceId=${encodeURIComponent(workspaceId)}`,
+      { method: 'DELETE' },
+    ),
+
   // ── Departments ───────────────────────────────────────────────
   listDepartments: (workspaceId: string) =>
     jsonFetch<{ departments: CallCenterDepartment[] }>(

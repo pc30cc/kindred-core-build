@@ -86,15 +86,6 @@ export async function createKeywordResearchRun(
     throw new KeywordRunLimitError('workspace_concurrency_limit', 'Workspace has reached its concurrent keyword lookup limit');
   }
 
-  const lastStart = await getMostRecentKeywordRunStart(config, site.id);
-  if (lastStart) {
-    const elapsedHours = (Date.now() - new Date(lastStart).getTime()) / 3_600_000;
-    if (elapsedHours < limits.seo_keywords_lookup_frequency_hours) {
-      const retryAfterSeconds = Math.max(0, Math.round((limits.seo_keywords_lookup_frequency_hours - elapsedHours) * 3600));
-      throw new KeywordRunLimitError('frequency_limit', 'This site had a keyword lookup too recently', retryAfterSeconds);
-    }
-  }
-
   const sb = getServiceClient(config);
   const job = await enqueueJob(config, {
     workspaceId: args.workspaceId,

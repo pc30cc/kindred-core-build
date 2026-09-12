@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <link rel="icon" href="/favicon.png" type="image/png" />
+    <!-- Default PWA head tags, present before hydration; PlatformBrandingGate
+         (src/features/branding/PlatformBrandingGate.tsx) overwrites these
+         live once platform_branding loads (locale-correct manifest URL,
+         branded theme color/icon), and removes them entirely on native
+         (Capacitor) or when an operator disables PWA in Super Admin. -->
+    <meta name="theme-color" content="#3B82F6" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title></title>
     <meta name="description" content="" />
 

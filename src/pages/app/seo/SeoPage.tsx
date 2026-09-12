@@ -15,7 +15,7 @@ import {
   useCrawlComparison,
   useBacklinksLimits, useLatestBacklinkScan, useStartBacklinkScan, useBacklinks,
   useKeywordsLimits, useLatestKeywordRun, useStartKeywordRun, useKeywordResults,
-  useRankTrackingLimits, useTrackedKeywords, useAddTrackedKeyword, useRemoveTrackedKeyword, useRankChecks,
+  useRankTrackingLimits, useTrackedKeywords, useAddTrackedKeyword, useRemoveTrackedKeyword, useRankChecks, useCheckTrackedKeywordNow,
   useRankTrackingOverview, useRankTrackingLandscape, useRankTrackingCompetitors,
   usePerformanceLimits, useLatestPerformanceAudit, useStartPerformanceAudit, usePerformanceResults,
 } from '@/hooks/useSeo';
@@ -31,6 +31,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
 import { SkeletonStats, SkeletonTable } from '@/components/common/Skeletons';
 import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
+import { prettyUrl } from '@/lib/prettyUrl';
 import {
   Radar, RefreshCw, AlertTriangle, CheckCircle2, XCircle, ArrowLeft, ExternalLink, Link2, Lock,
   Globe2, TrendingUp, Sparkles, ShieldCheck, Copy,
@@ -153,7 +154,8 @@ export default function SeoPage() {
   if (activeSection.needsSite && sites.length === 0) {
     return (
       <div className="p-6">
-        <PageHeader />
+        <PageHeader section={activeSection} />
+
         <Card className="mt-6">
           <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
             <Radar className="h-10 w-10 text-muted-foreground" />
@@ -171,6 +173,8 @@ export default function SeoPage() {
     <div className="flex h-full min-h-0 items-stretch">
       <SeoSectionNav activeSectionKey={activeSection.key} activeSubsectionKey={subsectionKey} />
       <div className="flex-1 overflow-y-auto bg-background p-6">
+        <PageHeader section={activeSection} subsectionKey={subsectionKey} />
+
         {activeSection.needsSite ? (
           <SiteScopedSection
             workspaceId={workspaceId}
@@ -369,15 +373,26 @@ function SiteAuditSection({ workspaceId, siteId, subsectionKey }: { workspaceId:
   );
 }
 
-function PageHeader() {
+function PageHeader({ section, subsectionKey }: { section?: ReturnType<typeof findSection>; subsectionKey?: string }) {
   const { t } = useTranslation();
+  if (!section) return null;
+  const leaf = subsectionKey ? findLeaf(section, subsectionKey) : undefined;
   return (
-    <div>
-      <h1 className="flex items-center gap-2 text-2xl font-bold"><Radar className="h-6 w-6" /> {t('seo.title')}</h1>
-      <p className="text-sm text-muted-foreground">{t('seo.subtitle')}</p>
+    <div className="mb-4 flex items-center gap-2 text-sm">
+      <span className="font-semibold text-foreground">{t('seo.title' as any)}</span>
+      <span className="text-muted-foreground">/</span>
+      <span className="font-semibold text-foreground">{t(section.labelKey as any)}</span>
+
+      {leaf && (
+        <>
+          <span className="text-muted-foreground">/</span>
+          <span className="text-muted-foreground">{t(leaf.labelKey as any)}</span>
+        </>
+      )}
     </div>
   );
 }
+
 
 function SeoDashboard({
   workspaceId, siteId, crawl, onRunAgain, runPending, history, subsectionKey,
@@ -614,8 +629,8 @@ function AffectedUrlsPanel({
               <li key={`${u.url}-${idx}`} className="flex items-center gap-2 px-3 py-2 hover:bg-muted/40">
                 <span className="w-6 shrink-0 text-[11px] tabular-nums text-muted-foreground">{idx + 1}</span>
                 <div className="min-w-0 flex-1" dir="ltr">
-                  <div className="truncate font-mono text-xs" title={u.url}>{path}</div>
-                  {origin && <div className="truncate text-[11px] text-muted-foreground">{origin}</div>}
+                  <div className="truncate font-mono text-xs" title={prettyUrl(u.url)}>{prettyUrl(path)}</div>
+                  {origin && <div className="truncate text-[11px] text-muted-foreground">{prettyUrl(origin)}</div>}
                 </div>
                 <Button
                   variant="ghost" size="icon" className="h-7 w-7 shrink-0"
@@ -763,7 +778,7 @@ function PagesTab({ workspaceId, crawlId }: { workspaceId: string; crawlId: stri
               )}
               {pages.map((p) => (
                 <TableRow key={p.id}>
-                  <TableCell className="max-w-xs truncate"><a href={p.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:underline">{p.url}<ExternalLink className="h-3 w-3 shrink-0" /></a></TableCell>
+                  <TableCell className="max-w-xs truncate"><a href={p.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:underline">{prettyUrl(p.url)}<ExternalLink className="h-3 w-3 shrink-0" /></a></TableCell>
                   <TableCell>{p.http_status ?? '—'}</TableCell>
                   <TableCell>{p.is_indexable ? t('seo.pages.indexable') : t('seo.pages.nonIndexable')}</TableCell>
                   <TableCell className="max-w-xs truncate">{p.title || '—'}</TableCell>
@@ -810,7 +825,7 @@ function LinksTab({ workspaceId, crawlId }: { workspaceId: string; crawlId: stri
             )}
             {links.map((l) => (
               <TableRow key={l.id}>
-                <TableCell className="max-w-xs truncate">{l.target_url}</TableCell>
+                <TableCell className="max-w-xs truncate" dir="ltr">{prettyUrl(l.target_url)}</TableCell>
                 <TableCell>{l.http_status ?? '—'}</TableCell>
                 <TableCell className="max-w-xs truncate">{l.source_page?.url || '—'}</TableCell>
               </TableRow>
@@ -850,7 +865,7 @@ function SitemapTab({ workspaceId, crawlId, crawl }: { workspaceId: string; craw
             )}
             {sitemaps.map((s) => (
               <TableRow key={s.id}>
-                <TableCell className="max-w-xs truncate">{s.url}</TableCell>
+                <TableCell className="max-w-xs truncate" dir="ltr">{prettyUrl(s.url)}</TableCell>
                 <TableCell>
                   <Badge className={s.status === 'valid' ? 'bg-emerald-500/15 text-emerald-600' : 'bg-destructive/15 text-destructive'}>
                     {s.status === 'valid' ? t('seo.sitemap.valid') : t('seo.sitemap.invalid')}
@@ -1071,7 +1086,7 @@ function PerformanceTab({ workspaceId, crawlId }: { workspaceId: string; crawlId
               <TableRow key={r.id}>
                 <TableCell className="max-w-xs truncate">
                   <a href={r.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-primary hover:underline">
-                    {r.url} <ExternalLink className="h-3 w-3 shrink-0" />
+                    {prettyUrl(r.url)} <ExternalLink className="h-3 w-3 shrink-0" />
                   </a>
                 </TableCell>
                 <TableCell><Badge variant="outline" className={`text-[10px] ${scoreBadgeClass(r.performance_score)}`}>{r.performance_score ?? '—'}</Badge></TableCell>
@@ -1681,6 +1696,7 @@ function RankTrackingTab({ workspaceId, siteId }: { workspaceId: string; siteId:
   const { data: keywordsData, isLoading } = useTrackedKeywords(workspaceId, siteId);
   const addKeyword = useAddTrackedKeyword(workspaceId);
   const removeKeyword = useRemoveTrackedKeyword(workspaceId);
+  const checkNow = useCheckTrackedKeywordNow(workspaceId);
   const keywords = keywordsData?.keywords || [];
 
   const [newKeyword, setNewKeyword] = useState('');
@@ -1774,7 +1790,19 @@ function RankTrackingTab({ workspaceId, siteId }: { workspaceId: string; siteId:
                     </Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{k.last_checked_at ? new Date(k.last_checked_at).toLocaleDateString() : t('seo.rankTracking.pendingFirstCheck')}</TableCell>
-                  <TableCell>
+                  <TableCell className="text-end">
+                    <Button
+                      size="sm" variant="ghost"
+                      disabled={checkNow.isPending}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        checkNow.mutate(k.id, {
+                          onError: () => toast.error(t('seo.rankTracking.errors.checkFailed' as any)),
+                        });
+                      }}
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${checkNow.isPending ? 'animate-spin' : ''}`} />
+                    </Button>
                     <Button
                       size="sm" variant="ghost" className="text-destructive"
                       onClick={(e) => { e.stopPropagation(); removeKeyword.mutate(k.id); }}

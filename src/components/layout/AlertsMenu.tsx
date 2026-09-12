@@ -91,7 +91,7 @@ export function AlertsMenu() {
               variant="ghost"
               size="icon"
               aria-label={t('nav.viewAlerts')}
-              className="relative h-10 w-10 rounded-2xl [&_svg]:size-7 border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground"
+              className="relative h-10 w-10 rounded-2xl [&_svg]:size-7 text-muted-foreground hover:bg-transparent hover:text-foreground"
             >
               <Bell />
               {total > 0 && (

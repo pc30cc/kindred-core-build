@@ -43,7 +43,7 @@ export function __stopRankTrackingTickerForTests(): void {
   timer = null;
 }
 
-interface DueKeywordRow {
+export interface DueKeywordRow {
   id: string;
   workspace_id: string;
   website_id: string;
@@ -107,7 +107,7 @@ async function runOnce(config: ServerConfig): Promise<void> {
   }
 }
 
-async function checkOneKeyword(config: ServerConfig, row: DueKeywordRow): Promise<void> {
+export async function checkOneKeyword(config: ServerConfig, row: DueKeywordRow): Promise<void> {
   const sb = getServiceClient(config);
 
   const { data: site } = await sb.from('workspace_domains').select('domain').eq('id', row.website_id).maybeSingle();

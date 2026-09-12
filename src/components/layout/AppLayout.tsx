@@ -2,6 +2,9 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { AppSidebar } from './AppSidebar';
 import { AppTopBar } from './AppTopBar';
 import { CommandPalette } from './CommandPalette';
+import { MobileBottomNav } from './MobileBottomNav';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { useI18n } from '@/i18n';
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { WorkspaceNotFound } from '@/features/workspace/WorkspaceNotFound';
@@ -18,6 +21,13 @@ import { OperatorCallProvider } from '@/features/calls/OperatorCallContext';
 import { FloatingOperatorCallWindow } from '@/features/calls/FloatingOperatorCallWindow';
 import { useOperatorHeartbeat } from '@/hooks/useOperatorHeartbeat';
 import { useOperatorPresenceChannel } from '@/hooks/useOperatorPresenceChannel';
+import { fetchSignupPolicy } from '@/lib/emailOtp';
+import { EmailOtpDialog } from '@/components/auth/EmailOtpDialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { PhoneVerificationFlow } from '@/features/phone-verification/PhoneVerificationFlow';
+import { usePhoneVerificationStatus } from '@/features/phone-verification/hooks';
+import { resolvePhoneStatus } from '@/features/phone-verification/status';
+
 
 // Cooldown between two resend attempts. The authoritative cooldown lives on
 // the server (`/api/account/resend-verification` answers 429 with
@@ -52,6 +62,19 @@ function EmailVerificationBar() {
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [cooldownMs, setCooldownMs] = useState(() => remainingMs(RESEND_LS_KEY));
   const [hiddenMs, setHiddenMs] = useState(() => remainingMs(BANNER_DISMISS_KEY));
+  const [otpMode, setOtpMode] = useState(false);
+  const [otpOpen, setOtpOpen] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void fetchSignupPolicy().then((p) => {
+      if (alive) setOtpMode(p.method === 'otp');
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -135,14 +158,29 @@ function EmailVerificationBar() {
             </>
           )}
         </p>
-        <button
-          onClick={handleResend}
-          disabled={sending || isCoolingDown}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-500/90 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-          {buttonLabel}
-        </button>
+        {/* In OTP mode no link is ever mailed, so the bar must send the
+            user to the code screen instead of re-sending a link. */}
+        {otpMode ? (
+          <>
+            <button
+              onClick={() => setOtpOpen(true)}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-500/90"
+            >
+              {t('auth.otpVerifyNow')}
+            </button>
+            <EmailOtpDialog open={otpOpen} onOpenChange={setOtpOpen} />
+          </>
+        ) : (
+          <button
+            onClick={handleResend}
+            disabled={sending || isCoolingDown}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-500/90 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            {buttonLabel}
+          </button>
+        )}
+
         <button
           onClick={dismiss}
           aria-label="dismiss"
@@ -155,8 +193,76 @@ function EmailVerificationBar() {
   );
 }
 
+/**
+ * Sibling notice for an unverified / missing mobile number. Same bar strip as
+ * the email notice so the user sees one consolidated verification area.
+ */
+function PhoneVerificationBar() {
+  const { t } = useI18n();
+  const { workspace } = useActiveWorkspace();
+  const [open, setOpen] = useState(false);
+  const ctx = { purpose: 'widget_access' as const, ...(workspace?.slug ? { workspaceSlug: workspace.slug } : {}) };
+  const { data, isLoading, isError, refetch } = usePhoneVerificationStatus(ctx, Boolean(workspace?.slug));
+
+  if (!workspace?.slug || isLoading || isError || !data?.canVerify) return null;
+
+  const status = resolvePhoneStatus({
+    phoneMasked: data.phoneMasked,
+    verified: Boolean(data.satisfied || data.verifiedAt),
+  });
+  if (status === 'verified') return null;
+
+  return (
+    <div className="shrink-0 border-t border-amber-500/30 bg-amber-500/10 px-4 py-2.5 backdrop-blur-sm">
+      <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400">
+          <AlertTriangle className="h-4 w-4" />
+        </span>
+        <p className="min-w-0 flex-1 text-sm leading-snug text-foreground">
+          <span className="font-medium">
+            {status === 'no_phone' ? t('auth.phoneNotSet') : t('auth.phoneNotVerified')}
+          </span>
+          {data.phoneMasked ? (
+            <span className="ms-1.5 font-mono text-muted-foreground" dir="ltr">
+              ({data.phoneMasked})
+            </span>
+          ) : null}
+        </p>
+        <button
+          onClick={() => setOpen(true)}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm transition-colors hover:bg-amber-500/90"
+        >
+          {t('auth.phoneVerifyNow')}
+        </button>
+      </div>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('phoneVerification.ownerTitle')}</DialogTitle>
+            <DialogDescription>{t('phoneVerification.accountDialogBody')}</DialogDescription>
+          </DialogHeader>
+          <PhoneVerificationFlow
+            key={data.activeChallengeId ?? 'new'}
+            context={ctx}
+            initialPhoneMasked={data.phoneMasked ?? null}
+            initialResendAfterSeconds={data.resendAfterSeconds ?? 0}
+            initialChallengeId={data.activeChallengeId ?? null}
+            initialChallengeExpiresInSeconds={data.challengeExpiresInSeconds ?? null}
+            initialRemainingAttempts={data.remainingAttempts ?? null}
+            onVerified={() => {
+              setOpen(false);
+              void refetch();
+            }}
+          />
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 export function AppLayout() {
-  const { dir } = useI18n();
+  const { t, dir } = useI18n();
   const { user } = useAuth();
   const { workspace, notFound, isLoading } = useActiveWorkspace();
   const showVerificationBanner = user && !user.emailVerified;
@@ -171,7 +277,16 @@ export function AppLayout() {
     /\/settings(\/|$)/.test(pathname) ||
     /\/visitors(\/|$)/.test(pathname) ||
     /\/ai-agent(\/|$)/.test(pathname) ||
-    /\/seo(\/|$)/.test(pathname);
+    /\/seo(\/|$)/.test(pathname) ||
+    /\/analytics(\/|$)/.test(pathname);
+
+  // Mobile web / PWA: the permanent 220px desktop rail (AppSidebar) is
+  // replaced by a bottom tab bar + an on-demand Sheet drawer holding the
+  // exact same AppSidebar content (variant="drawer") — never a second,
+  // divergent copy of the nav/entitlement logic. Native (Capacitor) gets
+  // neither: it has its own MobileRoutes shell (see src/App.tsx).
+  const isMobile = useIsMobile();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // Strict: if slug doesn't match any workspace, show 404
   if (!isLoading && notFound) {
@@ -179,10 +294,19 @@ export function AppLayout() {
   }
 
   return (
-    <div dir={dir} className="app-scope flex h-screen overflow-hidden bg-background text-foreground">
+    <div dir={dir} className="app-scope flex h-screen h-dvh overflow-hidden bg-background text-foreground">
       <OperatorCallProvider>
         <CommandPalette />
-        <AppSidebar />
+        {isMobile ? (
+          <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+            <SheetContent side={dir === 'rtl' ? 'right' : 'left'} className="w-[280px] p-0">
+              <SheetTitle className="sr-only">{t('nav.menu')}</SheetTitle>
+              <AppSidebar variant="drawer" onNavigate={() => setMobileNavOpen(false)} />
+            </SheetContent>
+          </Sheet>
+        ) : (
+          <AppSidebar />
+        )}
         <div className="flex flex-1 flex-col overflow-hidden">
           <AppTopBar />
           <DegradedModeBanner />
@@ -198,7 +322,19 @@ export function AppLayout() {
           {/* Verification notice sits at the BOTTOM so it never pushes the
               page header down; resend is wired to the self-hosted mailer. */}
           {showVerificationBanner && <EmailVerificationBar />}
+          <PhoneVerificationBar />
+          {isMobile && (
+            <div
+              aria-hidden
+              className="shrink-0"
+              style={{ height: 'calc(60px + env(safe-area-inset-bottom))' }}
+            />
+          )}
         </div>
+        {/* `fixed`, so it renders outside this column entirely — see
+            MobileBottomNav.tsx for why. The spacer above keeps page content
+            from ending up underneath it. */}
+        {isMobile && <MobileBottomNav onMenuClick={() => setMobileNavOpen(true)} />}
         {/* Survives route changes — reads the same LiveKit room as the
             sidebar surface so navigation never disconnects the call. */}
         <FloatingOperatorCallWindow />

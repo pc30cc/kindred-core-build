@@ -20,6 +20,22 @@ import { runRenewalInvoiceScheduler, runWalletAutoPay, runPeriodActivation } fro
 import { runDunning, runGraceExpiry } from '../dunning/index.js';
 import { dispatchBillingNotifications } from '../notifications/dispatcher.js';
 import { expireStaleCollections, recoverUnappliedInvoices } from '../worker/recovery.js';
+import { getServiceClient } from '../../../supabase.js';
+
+/**
+ * Trial lifecycle: expire trials whose end date has passed (the subscription
+ * trigger turns that into a "trial ended" message) and enqueue the
+ * "trial ends soon" warning for the last three days. Both calls are idempotent.
+ */
+async function runTrialLifecycle(config: ServerConfig): Promise<unknown> {
+  const supabase = getServiceClient(config);
+  const expired = await supabase.rpc('expire_stale_trials' as any);
+  const ending = await supabase.rpc('billing_notify_trial_ending' as any);
+  return {
+    expired: expired.error ? `error: ${expired.error.message}` : expired.data,
+    endingSoon: ending.error ? `error: ${ending.error.message}` : ending.data,
+  };
+}
 
 const TICK_MS = 5 * 60 * 1000;
 const FIRST_RUN_DELAY_MS = 90_000;
@@ -35,6 +51,7 @@ let lastRun: {
   activation: unknown;
   dunning: unknown;
   grace: unknown;
+  trials?: unknown;
   notifications: unknown;
 } | null = null;
 let lastError: { at: string; message: string } | null = null;
@@ -70,6 +87,9 @@ export async function tick(config: ServerConfig): Promise<void> {
     const activation = await runPeriodActivation(config);
     const dunning = await runDunning(config);
     const grace = await runGraceExpiry(config);
+    const trials = await runTrialLifecycle(config).catch((err: any) => ({
+      error: String(err?.message || err),
+    }));
     // Delivery last, and isolated: a dead SMS provider must not make the tick
     // look like the financial workers failed.
     let notifications: unknown;
@@ -88,6 +108,7 @@ export async function tick(config: ServerConfig): Promise<void> {
       activation,
       dunning,
       grace,
+      trials,
       notifications,
     };
     lastError = null;

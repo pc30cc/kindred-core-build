@@ -1,4 +1,4 @@
--- Migration: 149_seo_explorer_competing_domains.sql
+-- Migration: 162_seo_explorer_competing_domains.sql
 --
 -- SEO Site Explorer — Competing Domains. Distinct from Organic Keywords
 -- (seo_explorer_keywords, "what keywords does this domain rank for") and

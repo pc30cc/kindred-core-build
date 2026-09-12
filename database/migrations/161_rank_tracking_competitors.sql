@@ -1,4 +1,4 @@
--- Migration: 148_rank_tracking_competitors.sql
+-- Migration: 161_rank_tracking_competitors.sql
 --
 -- SEO Rank Tracking — Competitors. The DataForSEO SERP response
 -- (server/services/seo/rankTracking/providers/dataforseo.ts::checkRank)

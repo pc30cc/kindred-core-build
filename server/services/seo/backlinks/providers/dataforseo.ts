@@ -52,6 +52,17 @@ function authHeader(config: DataForSeoBacklinksConfig): string {
   return `Basic ${token}`;
 }
 
+async function readErrorEnvelope(res: Response): Promise<{ status: number | null; message: string | null }> {
+  try {
+    const body = await res.json() as Record<string, unknown>;
+    const status = readNumber(body, 'status_code');
+    const message = readString(body, 'status_message');
+    return { status, message };
+  } catch {
+    return { status: null, message: null };
+  }
+}
+
 async function postJson(
   url: string,
   body: unknown,
@@ -68,7 +79,45 @@ async function postJson(
       body: JSON.stringify(body),
       signal: controller.signal,
     });
-    if (res.status === 401 || res.status === 403) throw new BacklinksError('backlinks_auth_failed');
+    if (!res.ok) {
+      const vendor = await readErrorEnvelope(res);
+      if (vendor.status !== null) throwBacklinksStatus(vendor.status, vendor.message);
+      if (res.status === 401) throw new BacklinksError('backlinks_auth_failed');
+      if (res.status === 403) throw new BacklinksError('backlinks_ip_not_allowed');
+    }
+    if (res.status === 429) throw new BacklinksError('backlinks_rate_limited');
+    if (!res.ok) throw new BacklinksError('backlinks_provider_error');
+    try {
+      return await res.json();
+    } catch {
+      throw new BacklinksError('backlinks_provider_error');
+    }
+  } catch (err) {
+    if (err instanceof BacklinksError) throw err;
+    if ((err as { name?: string })?.name === 'AbortError') throw new BacklinksError('backlinks_timeout');
+    throw new BacklinksError('backlinks_network_error');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** DataForSEO's `appendix/user_data` endpoint is GET-only; POSTing to it returns an error envelope. */
+async function getJson(
+  url: string,
+  headers: Record<string, string>,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<unknown> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(url, { method: 'GET', headers, signal: controller.signal });
+    if (!res.ok) {
+      const vendor = await readErrorEnvelope(res);
+      if (vendor.status !== null) throwBacklinksStatus(vendor.status, vendor.message);
+      if (res.status === 401) throw new BacklinksError('backlinks_auth_failed');
+      if (res.status === 403) throw new BacklinksError('backlinks_ip_not_allowed');
+    }
     if (res.status === 429) throw new BacklinksError('backlinks_rate_limited');
     if (!res.ok) throw new BacklinksError('backlinks_provider_error');
     try {
@@ -89,6 +138,27 @@ function readString(source: Record<string, unknown>, key: string): string | null
   const v = source[key];
   return typeof v === 'string' && v.trim() !== '' ? v : null;
 }
+
+/**
+ * Maps a DataForSEO status_code to a normalized error, per
+ * https://docs.dataforseo.com/v3/appendix/errors/
+ *  - 40100 bad credentials, 40104 account not verified
+ *  - 40204 Backlinks API subscription required, 40207 IP not whitelisted
+ *  - 40200/40203/40210 balance or cost limit
+ *  - 40202/40209/42900 rate limits
+ *  - 404xx/405xx invalid request fields
+ */
+function throwBacklinksStatus(status: number, message: string | null): never {
+  if (status === 40104) throw new BacklinksError('backlinks_account_unverified', message);
+  if (status === 40100) throw new BacklinksError('backlinks_auth_failed', message);
+  if (status === 40204) throw new BacklinksError('backlinks_subscription_required', message);
+  if (status === 40207) throw new BacklinksError('backlinks_ip_not_allowed', message);
+  if (status === 40200 || status === 40203 || status === 40210) throw new BacklinksError('backlinks_insufficient_credit', message);
+  if (status === 40202 || status === 40209 || status === 42900) throw new BacklinksError('backlinks_rate_limited', message);
+  if (status >= 40400 && status < 40600) throw new BacklinksError('backlinks_invalid_target', message);
+  throw new BacklinksError('backlinks_provider_error', message);
+}
+
 
 function readNumber(source: Record<string, unknown>, key: string): number | null {
   const v = source[key];
@@ -141,24 +211,30 @@ export function createDataForSeoAdapter(
     async fetchBacklinks({ target, limit }) {
       const body = await postJson(
         `${apiBase}/backlinks/backlinks/live`,
-        [{ target, mode: 'as_is', limit: Math.max(1, Math.min(limit, 1000)), backlinks_status_type: 'live' }],
+        [{
+          target,
+          mode: 'as_is',
+          limit: Math.max(1, Math.min(limit, 1000)),
+          backlinks_status_type: 'live',
+          // API default is a 0-1000 scale; the UI shows 0-100 rank values
+          rank_scale: 'one_hundred',
+        }],
+
         headers,
         fetchImpl,
         timeoutMs,
       );
       const envelope = body as Record<string, unknown>;
-      if (readNumber(envelope, 'status_code') !== 20000 && envelope.status_code !== undefined) {
-        // Non-20000 top-level status without an HTTP-level error already thrown.
-        throw new BacklinksError('backlinks_provider_error');
+      const topStatus = readNumber(envelope, 'status_code');
+      if (topStatus !== null && topStatus !== 20000) {
+        throwBacklinksStatus(topStatus, readString(envelope, 'status_message'));
       }
       const tasks = Array.isArray(envelope.tasks) ? envelope.tasks : [];
       const task = tasks[0] as Record<string, unknown> | undefined;
       if (!task) throw new BacklinksError('backlinks_provider_error');
       const taskStatus = readNumber(task, 'status_code');
       if (taskStatus !== null && taskStatus !== 20000) {
-        if (taskStatus === 40501 || taskStatus === 40201) throw new BacklinksError('backlinks_auth_failed');
-        if (taskStatus === 40202) throw new BacklinksError('backlinks_insufficient_credit');
-        throw new BacklinksError('backlinks_provider_error');
+        throwBacklinksStatus(taskStatus, readString(task, 'status_message'));
       }
       const results = Array.isArray(task.result) ? task.result : [];
       const first = results[0] as Record<string, unknown> | undefined;
@@ -191,15 +267,25 @@ export function createDataForSeoAdapter(
     },
 
     async getAccountInfo() {
-      const body = await postJson(`${apiBase}/appendix/user_data`, {}, headers, fetchImpl, timeoutMs);
+      const body = await getJson(`${apiBase}/appendix/user_data`, headers, fetchImpl, timeoutMs);
       const envelope = body as Record<string, unknown>;
+      const envelopeStatus = readNumber(envelope, 'status_code');
+      if (envelopeStatus !== null && envelopeStatus !== 20000) {
+        throwBacklinksStatus(envelopeStatus, readString(envelope, 'status_message'));
+      }
       const tasks = Array.isArray(envelope.tasks) ? envelope.tasks : [];
       const task = tasks[0] as Record<string, unknown> | undefined;
+      const taskStatus = task ? readNumber(task, 'status_code') : null;
+      if (taskStatus !== null && taskStatus !== 20000 && task) {
+        throwBacklinksStatus(taskStatus, readString(task, 'status_message'));
+      }
       const results = task && Array.isArray(task.result) ? task.result : [];
       const first = results[0] as Record<string, unknown> | undefined;
       if (!first) throw new BacklinksError('backlinks_provider_error');
-      const balance = readNumber(first, 'money_balance') ?? readNumber(first, 'balance');
-      return { balance, currency: readString(first, 'currency') || 'USD' };
+      const money = (first.money && typeof first.money === 'object' ? first.money : {}) as Record<string, unknown>;
+      const balance = readNumber(money, 'balance') ?? readNumber(first, 'money_balance') ?? readNumber(first, 'balance');
+      const currency = readString(money, 'currency') || readString(first, 'currency') || 'USD';
+      return { balance, currency };
     },
   };
 }

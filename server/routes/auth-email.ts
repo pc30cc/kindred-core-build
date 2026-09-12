@@ -8,12 +8,23 @@
 
 import { Router, type Response } from 'express';
 import crypto from 'crypto';
+import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { issueRecoveryEmail, issueVerificationEmail } from '../services/auth-email.js';
-import { findIdentityByEmail } from '../services/auth/identity.js';
+import { findIdentityByEmail, findIdentityById } from '../services/auth/identity.js';
 import { hashPassword, InvalidPasswordError } from '../services/auth/password.js';
 import { logSecurityEvent } from '../middleware/security.js';
+import { requireUser } from '../lib/workspaceAuth.js';
+import {
+  startEmailVerificationOtp,
+  resendEmailVerificationOtp,
+  confirmEmailVerificationOtp,
+  EmailOtpUnavailableError,
+  EmailOtpRateLimitedError,
+} from '../services/auth/emailOtp.js';
+import { getClientIp } from '../utils/clientIp.js';
+
 
 export const authEmailRouter = Router();
 
@@ -73,7 +84,7 @@ authEmailRouter.post('/send-verification', async (req, res) => {
       email: authUser.email || email.trim().toLowerCase(),
       fullName: authUser.fullName,
       locale: locale || 'en',
-      ipAddress: req.ip || null,
+      ipAddress: getClientIp(req) || null,
     });
 
     if (!result.success) {
@@ -101,7 +112,7 @@ authEmailRouter.post('/send-verification', async (req, res) => {
 authEmailRouter.post('/verify-email', async (req, res) => {
   try {
     const config: ServerConfig = (req as any).serverConfig;
-    const { token } = req.body;
+    const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
 
     if (!token) return res.status(400).json({ error: 'token is required' });
 
@@ -116,6 +127,22 @@ authEmailRouter.post('/verify-email', async (req, res) => {
 
     const redeemed = Array.isArray(data) ? data[0] : data;
     if (!redeemed?.redeemed_user_id) {
+      // A verification URL may be opened twice by browser prefetch/link
+      // scanners or by a user refreshing the success page. Treat the same
+      // already-consumed token as an idempotent success when it belongs to
+      // an identity that is now verified; invalid, expired, revoked, or
+      // never-issued tokens still fail closed.
+      const { data: consumed } = await sb
+        .from('auth_verify_tokens')
+        .select('user_id, email, used_at, revoked_at, expires_at')
+        .eq('token_hash', tokenHash)
+        .maybeSingle();
+      if (consumed?.used_at && !consumed.revoked_at) {
+        const identity = await findIdentityById(config, consumed.user_id);
+        if (identity?.emailVerifiedAt) {
+          return res.json({ success: true, email: consumed.email, already_verified: true });
+        }
+      }
       return res.status(400).json({ error: 'Invalid or expired token' });
     }
 
@@ -246,7 +273,7 @@ authEmailRouter.post('/resend-verification', async (req, res) => {
       email: authUser.email || email.trim().toLowerCase(),
       fullName: authUser.fullName,
       locale: locale || 'en',
-      ipAddress: req.ip || null,
+      ipAddress: getClientIp(req) || null,
     });
 
     if (!result.success) {
@@ -256,5 +283,133 @@ authEmailRouter.post('/resend-verification', async (req, res) => {
     return res.json({ success: true });
   } catch (err) {
     return handleRouteError(res, '[auth-email] resend-verification error:', err);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// SIGNUP EMAIL OTP — the code-based alternative to the verification LINK.
+//
+// Available only to a SIGNED-IN caller acting on their own identity: the
+// account always exists by the time a code is requested (/api/auth/signup
+// creates it and the client signs in immediately), and the underlying
+// Generic Verification Core binds `signup_email` to `subjectKind: 'user'`
+// + `requiresAuth`. All cooldown / rate-limit / attempt-count / atomic
+// redemption behaviour comes from that core — nothing is reimplemented
+// here. Everything runs in this Express server; no edge function.
+// ═══════════════════════════════════════════════════════════════════════
+
+const otpStartSchema = z.object({ locale: z.string().trim().min(2).max(10).optional() });
+const otpResendSchema = z.object({
+  handle: z.string().trim().min(1).max(200),
+  locale: z.string().trim().min(2).max(10).optional(),
+});
+const otpVerifySchema = z.object({
+  handle: z.string().trim().min(1).max(200),
+  code: z.string().trim().min(4).max(10),
+  requestId: z.string().trim().min(1).max(200).optional(),
+});
+
+async function otpCaller(req: any, res: Response) {
+  const config: ServerConfig = req.serverConfig;
+  const userId = await requireUser(req, res);
+  if (!userId) return null;
+  const identity = await findIdentityById(config, userId);
+  if (!identity?.email) {
+    res.status(400).json({ error: 'no_email_on_account' });
+    return null;
+  }
+  return { config, userId, identity };
+}
+
+function otpFailure(res: Response, err: unknown) {
+  if (err instanceof EmailOtpUnavailableError) {
+    return res.status(503).json({ error: 'otp_unavailable' });
+  }
+  if (err instanceof EmailOtpRateLimitedError) {
+    return res.status(429).json({ error: 'too_many_requests' });
+  }
+  console.error('[auth-email] OTP error:', err);
+  return res.status(500).json({ error: 'internal_error' });
+}
+
+/** POST /api/auth-email/otp/start — issue a fresh code for my own email. */
+authEmailRouter.post('/otp/start', async (req, res) => {
+  const ctx = await otpCaller(req, res);
+  if (!ctx) return;
+  const parsed = otpStartSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_request' });
+
+  if (ctx.identity.emailVerifiedAt) {
+    return res.json({ alreadyVerified: true });
+  }
+
+  try {
+    const challenge = await startEmailVerificationOtp(ctx.config, {
+      userId: ctx.userId,
+      email: ctx.identity.email as string,
+      locale: parsed.data.locale ?? null,
+      ipAddress: getClientIp(req) || null,
+      idempotencyKey: crypto.randomUUID(),
+    });
+    return res.json(challenge);
+  } catch (err) {
+    return otpFailure(res, err);
+  }
+});
+
+/** POST /api/auth-email/otp/resend — resend ONE specific challenge. */
+authEmailRouter.post('/otp/resend', async (req, res) => {
+  const ctx = await otpCaller(req, res);
+  if (!ctx) return;
+  const parsed = otpResendSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_request' });
+
+  if (ctx.identity.emailVerifiedAt) {
+    return res.json({ alreadyVerified: true });
+  }
+
+  try {
+    const challenge = await resendEmailVerificationOtp(ctx.config, {
+      userId: ctx.userId,
+      handle: parsed.data.handle,
+      locale: parsed.data.locale ?? null,
+      ipAddress: getClientIp(req) || null,
+      idempotencyKey: crypto.randomUUID(),
+    });
+    return res.json(challenge);
+  } catch (err) {
+    return otpFailure(res, err);
+  }
+});
+
+/** POST /api/auth-email/otp/verify — redeem a code and mark email verified. */
+authEmailRouter.post('/otp/verify', async (req, res) => {
+  const ctx = await otpCaller(req, res);
+  if (!ctx) return;
+  const parsed = otpVerifySchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_request' });
+
+  if (ctx.identity.emailVerifiedAt) {
+    return res.json({ ok: true, alreadyVerified: true });
+  }
+
+  try {
+    const result = await confirmEmailVerificationOtp(ctx.config, {
+      userId: ctx.userId,
+      handle: parsed.data.handle,
+      code: parsed.data.code,
+      // Client-supplied when present so a retried submit replays the same
+      // committed outcome instead of burning a second attempt.
+      requestId: parsed.data.requestId || crypto.randomUUID(),
+      ipAddress: getClientIp(req) || null,
+    });
+    if (!result.ok) {
+      await logSecurityEvent(req, 'email_otp_failed', 'warn', { userId: ctx.userId, reason: result.reason });
+      return res.status(400).json({ ok: false, reason: result.reason || 'invalid_code' });
+    }
+    await logSecurityEvent(req, 'email_verified', 'info', { userId: ctx.userId });
+    return res.json({ ok: true, email: result.verifiedEmail });
+  } catch (err) {
+    return otpFailure(res, err);
   }
 });

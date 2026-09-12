@@ -79,6 +79,29 @@ server {
         try_files /runtime-config.js =404;
     }
 
+    # ─────────────────────────────────────────────────────────────────
+    # PWA service worker — NEVER cache. A stale cached sw.js is one of the
+    # most common PWA bugs: it would keep re-installing an old worker (and
+    # therefore an old precache list) after every deploy. The same rule
+    # applies to Workbox's own generated runtime-registration file.
+    # ─────────────────────────────────────────────────────────────────
+    location = /sw.js {
+        root /usr/share/nginx/html;
+        types { } default_type application/javascript;
+        expires -1;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header CDN-Cache-Control "no-store" always;
+        add_header Cloudflare-CDN-Cache-Control "no-store" always;
+        try_files /sw.js =404;
+    }
+    location = /registerSW.js {
+        root /usr/share/nginx/html;
+        types { } default_type application/javascript;
+        expires -1;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        try_files /registerSW.js =404;
+    }
+
     # ─────────────────────────────────────────────────────────────────────
     # Widget assets — MUST be served as static files. Never fall back to
     # index.html, otherwise the loader receives the SPA HTML instead of
@@ -151,8 +174,13 @@ server {
     # ─────────────────────────────────────────────────────────────────
     location ^~ /widget/ {
         root /usr/share/nginx/html;
-        add_header Access-Control-Allow-Origin "*" always;
-        add_header Cross-Origin-Resource-Policy "cross-origin" always;
+        # NOTE: do NOT add CORS headers here. nginx `add_header` APPENDS, and
+        # this block already sets them below for the unhashed branch — having
+        # them in both places emitted `Access-Control-Allow-Origin: *, *`,
+        # which browsers reject ("contains multiple values"). That is exactly
+        # what blocked /widget/fonts/*.woff2 on customer pages. Each leaf
+        # branch owns its own CORS headers.
+
 
 
         # ─────────────────────────────────────────────────────────────

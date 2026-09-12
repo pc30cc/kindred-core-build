@@ -232,6 +232,43 @@ internalChannelsRouter.post('/process-inbound', async (req: any, res) => {
 });
 
 /**
+ * POST /x/reschedule-poll — the ONLY way the X poll loop advances to its
+ * next tick. X has no push webhook on accessible API tiers (see
+ * `shared/channels/botProviders.ts`, `supportsPolling`), so the Worker polls
+ * `GET /2/dm_events` itself, but — CORE OWNS EVERY CANONICAL WRITE, `channel_jobs`
+ * included — it asks Core to enqueue the next tick rather than writing the
+ * job row itself.
+ */
+const rescheduleXPollSchema = z.object({
+  integration_id: z.string().uuid(),
+  workspace_id: z.string().uuid(),
+  self_user_id: z.string().min(1).max(64),
+  delay_ms: z.number().int().min(1_000).max(600_000).optional(),
+});
+
+internalChannelsRouter.post('/x/reschedule-poll', async (req: any, res) => {
+  const parsed = rescheduleXPollSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
+
+  try {
+    const config = serverConfigOf(req);
+    const sb = getServiceClient(config);
+    await enqueueChannelJob(sb, {
+      provider: 'x',
+      jobType: 'x_poll_dm_events',
+      workspaceId: parsed.data.workspace_id,
+      integrationId: parsed.data.integration_id,
+      payload: { self_user_id: parsed.data.self_user_id },
+      availableAt: new Date(Date.now() + (parsed.data.delay_ms ?? 60_000)),
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[internal-channels] x reschedule-poll failed:', err instanceof Error ? err.message : err);
+    res.status(500).json({ error: 'reschedule_failed' });
+  }
+});
+
+/**
  * POST /outbound-result — the ONLY way a delivery outcome reaches canonical
  * data. The Worker never updates conversation_messages itself.
  */

@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { useState, useMemo } from 'react';
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
 import {
-  User, CreditCard, Settings, MessageSquare, Inbox, Mail,
+  User, CreditCard, Settings, MessageSquare, Inbox,
   BookOpen, BarChart3, ChevronDown, ChevronLeft, ChevronRight,
   Globe, Palette, Languages, Plug, Shield, Users,
   MessageCircleReply, ShieldCheck, Monitor, UserCog,
@@ -67,10 +67,6 @@ const settingsGroupsDef: SettingsGroup[] = [
   {
     key: 'integrations', icon: Plug, accent: 'rose',
     items: [{ key: 'providers', labelKey: 'providers', subPath: '/settings/providers' }],
-  },
-  {
-    key: 'email', icon: Mail, accent: 'sky',
-    items: [{ key: 'email', labelKey: 'email', subPath: '/email' }],
   },
   {
     key: 'knowledgeBase', icon: BookOpen, accent: 'cyan',

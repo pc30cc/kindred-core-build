@@ -162,7 +162,16 @@
         headers: { 'Content-Type': 'application/json', 'X-Widget-Token': token },
         body: JSON.stringify({ workspace_id: cfg.workspaceId || undefined }),
       })
-        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (r) {
+          // A rejected refresh means the token is past any grace window:
+          // throw it away so nothing keeps replaying a dead credential.
+          if (!r.ok) {
+            if (r.status === 401 || r.status === 403) { try { bus.discard(); } catch (_) {} }
+            return null;
+          }
+          return r.json();
+        })
+
         .then(adopt)
         .catch(function () { return null; })
         .then(clearRefresh, function () { return clearRefresh(null); });
@@ -298,8 +307,18 @@
     "position:fixed;z-index:2147483646;width:0;height:0;}",
     ".shell.pos-bottom-right{bottom:24px;right:24px;left:auto;top:auto;}",
     ".shell.pos-bottom-left{bottom:24px;left:24px;right:auto;top:auto;}",
-    "@media(max-width:440px){.shell.pos-bottom-right{bottom:12px;right:12px;}",
+    "@media(max-width:640px){.shell.pos-bottom-right{bottom:12px;right:12px;}",
     ".shell.pos-bottom-left{bottom:12px;left:12px;}}",
+    /* ── Mobile full-screen shell ──
+       While the panel is open on a phone the shell stops being a zero-size
+       corner anchor and becomes the whole (visual) viewport, so the panel is
+       pinned to the screen and the keyboard cannot push it around. The height
+       comes from visualViewport (--gs-vvh) with a 100dvh fallback. */
+    "@media(max-width:640px){",
+    ".shell.gs-mobile-open{top:0;left:0;right:0;bottom:auto;",
+    "width:100vw;height:var(--gs-vvh,100dvh);}",
+    ".shell.gs-mobile-open .launcher,.shell.gs-mobile-open .fab-label,",
+    ".shell.gs-mobile-open .smart-nudge{display:none!important;}}",
     ".launcher{position:absolute;bottom:0;z-index:2;display:flex;align-items:center;justify-content:center;",
     "--gs-fab-exit:calc(var(--gs-fab-size,56px) + 56px);",
     "width:var(--gs-fab-size,56px);height:var(--gs-fab-size,56px);border-radius:50%;border:none;cursor:pointer;",
@@ -950,7 +969,74 @@
     }
     if (launcherEl) launcherEl.classList.toggle("open", !!isOpen);
     if (fabLabelEl) fabLabelEl.classList.toggle("open", !!isOpen);
+    applyMobileFullScreen(!!isOpen);
     return isOpen;
+  }
+
+  // ─── Mobile: panel is pinned to the visitor's screen ─────────────────
+  // On phones an open panel must behave like a native sheet: it covers the
+  // visual viewport, follows the on-screen keyboard (visualViewport) and the
+  // host page behind it must not scroll. Desktop is untouched.
+  var mobileLockState = null;
+  function isPhoneViewport() {
+    try { return window.matchMedia("(max-width:640px)").matches; } catch (_) { return false; }
+  }
+  function syncVisualViewport() {
+    if (!shellContentEl) return;
+    var vv = window.visualViewport;
+    var h = vv ? vv.height : window.innerHeight;
+    shellContentEl.style.setProperty("--gs-vvh", Math.round(h) + "px");
+    // Keep the shell glued to the top of the *visual* viewport while the
+    // keyboard or the mobile URL bar shifts it.
+    shellContentEl.style.setProperty("--gs-vvo", Math.round((vv && vv.offsetTop) || 0) + "px");
+    if (mobileLockState) shellContentEl.style.transform = "translateY(" + Math.round((vv && vv.offsetTop) || 0) + "px)";
+  }
+  function applyMobileFullScreen(open) {
+    if (!shellContentEl) return;
+    var want = open && isPhoneViewport();
+    if (want === !!mobileLockState) { if (want) syncVisualViewport(); return; }
+    if (want) {
+      var body = document.body;
+      var docEl = document.documentElement;
+      mobileLockState = {
+        scrollY: window.scrollY || window.pageYOffset || 0,
+        bodyOverflow: body.style.overflow,
+        bodyPosition: body.style.position,
+        bodyTop: body.style.top,
+        bodyWidth: body.style.width,
+        docOverscroll: docEl.style.overscrollBehavior,
+      };
+      shellContentEl.classList.add("gs-mobile-open");
+      body.style.position = "fixed";
+      body.style.top = "-" + mobileLockState.scrollY + "px";
+      body.style.width = "100%";
+      body.style.overflow = "hidden";
+      docEl.style.overscrollBehavior = "none";
+      syncVisualViewport();
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", syncVisualViewport);
+        window.visualViewport.addEventListener("scroll", syncVisualViewport);
+      }
+      window.addEventListener("orientationchange", syncVisualViewport);
+    } else {
+      var st = mobileLockState;
+      mobileLockState = null;
+      shellContentEl.classList.remove("gs-mobile-open");
+      shellContentEl.style.transform = "";
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", syncVisualViewport);
+        window.visualViewport.removeEventListener("scroll", syncVisualViewport);
+      }
+      window.removeEventListener("orientationchange", syncVisualViewport);
+      if (st) {
+        document.body.style.position = st.bodyPosition;
+        document.body.style.top = st.bodyTop;
+        document.body.style.width = st.bodyWidth;
+        document.body.style.overflow = st.bodyOverflow;
+        document.documentElement.style.overscrollBehavior = st.docOverscroll;
+        window.scrollTo(0, st.scrollY);
+      }
+    }
   }
 
   function triggerOpen() {
@@ -2386,30 +2472,49 @@
           }
         }
       };
-      ws.onclose = function () {
+      ws.onclose = function (ev) {
         ws = null;
         pending = {};
         clearRefresh();
         setOwns(false);
         // Re-negotiate rather than reusing the old tokens: they may have
         // expired, and in app-routed mode another node may now be the right
-        // endpoint.
-        scheduleRetry('closed');
+        // endpoint. The close code is logged because a repeating presence
+        // retry is almost always a server-side rejection (bad token: 3500,
+        // unknown channel / namespace misconfiguration: 3501+), and without
+        // it the log says only "closed".
+        scheduleRetry(
+          'closed code=' + (ev && ev.code) + (ev && ev.reason ? ' ' + ev.reason : ''),
+        );
       };
       ws.onerror = function () { setOwns(false); };
     }
 
     /** Fetch a fresh presence config (tokens + lease). Resolves null on failure. */
-    function fetchConfig() {
+    function fetchConfig(isRetry) {
       return fetch(apiBase + '/api/realtime/visitor-presence', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json', 'X-Widget-Token': tokenNow() },
         body: JSON.stringify({ workspace_id: workspaceId, session_id: sessionId }),
       })
-        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (r) {
+          if (r.ok) return r.json();
+          // The widget session died while the page sat open (tab left open
+          // overnight). Rebuild the session ONCE instead of hammering the
+          // endpoint with a credential the server will never accept again.
+          if ((r.status === 401 || r.status === 403) && !isRetry) {
+            var mgr = window.__gs_token;
+            if (mgr && typeof mgr.recover === 'function') {
+              return mgr.recover({ discardToken: r.status === 403 })
+                .then(function (t) { return t ? fetchConfig(true) : null; });
+            }
+          }
+          return null;
+        })
         .catch(function () { return null; });
     }
+
 
     function usable(cfg) {
       return !!(cfg && cfg.vendor === 'centrifugo' && cfg.presence && cfg.ws_url && cfg.token);
@@ -2747,6 +2852,18 @@
         window.addEventListener("hashchange", onUrlChange);
       })
       .catch(function () {});
+  }
+
+  // Top-level query-param reader. `startSmart` has its own local copy; this
+  // one exists so `startTracking` (a sibling scope) can read UTM params
+  // without throwing "currentQuery is not defined".
+  function currentQuery() {
+    var out = {};
+    try {
+      var sp = new URLSearchParams(window.location.search || "");
+      sp.forEach(function (v, k) { out[k.toLowerCase()] = v; });
+    } catch (_) {}
+    return out;
   }
 
   function detectBrowser() {

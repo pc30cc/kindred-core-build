@@ -79,6 +79,38 @@ export async function addTrackedKeyword(
   return data as SeoTrackedKeywordRow;
 }
 
+/**
+ * On-demand rank check for one tracked keyword. Uses the exact same code
+ * path as the scheduled ticker so a manual refresh and a scheduled refresh
+ * can never diverge.
+ */
+export async function checkTrackedKeywordNow(
+  config: ServerConfig,
+  workspaceId: string,
+  keywordId: string,
+): Promise<SeoTrackedKeywordRow> {
+  const sb = getServiceClient(config);
+  const { data: row } = await sb
+    .from('seo_tracked_keywords')
+    .select('*')
+    .eq('id', keywordId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  if (!row) throw new TrackedKeywordLimitError('duplicate_keyword', 'Tracked keyword not found');
+  const kw = row as SeoTrackedKeywordRow;
+  const { checkOneKeyword } = await import('./rankTrackingTicker.js');
+  await checkOneKeyword(config, {
+    id: kw.id,
+    workspace_id: kw.workspace_id,
+    website_id: kw.website_id,
+    keyword: kw.keyword,
+    device: kw.device,
+    location_code: kw.location_code,
+  });
+  const { data: fresh } = await sb.from('seo_tracked_keywords').select('*').eq('id', keywordId).maybeSingle();
+  return (fresh || kw) as SeoTrackedKeywordRow;
+}
+
 export async function removeTrackedKeyword(config: ServerConfig, workspaceId: string, keywordId: string): Promise<{ ok: boolean }> {
   const sb = getServiceClient(config);
   const { error } = await sb.from('seo_tracked_keywords').delete().eq('id', keywordId).eq('workspace_id', workspaceId);

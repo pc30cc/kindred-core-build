@@ -35,6 +35,8 @@ import { resolveSourceDomainDetailed } from '../services/ai-kb/sourceDomain.js';
 import { resolveAiKbLimitsDetailed, countJobsThisMonthDetailed } from '../services/ai-kb/limits.js';
 import { readAiCreditStateDetailed, logAiKbUsage } from '../services/ai-kb/credits.js';
 import { firstReadFailure } from '../services/ai-kb/readResult.js';
+import { resolveKbArticleQuota, isKbQuotaDenied } from '../services/billing/kbArticleQuota.js';
+
 import { slugifyTitle, type PlanSnapshot } from '../services/ai-kb/types.js';
 import { normalizeArticleHtml } from '../services/ai-kb/htmlNormalize.js';
 import {
@@ -598,11 +600,32 @@ function respondApplyFailure(
   return res.status(500).json({ error: fallback });
 }
 
+/**
+ * The accept/publish transaction INSERTS a knowledge_base_articles row, so it
+ * is subject to the same `max_kb_articles` plan cap as the manual editor.
+ * Drafts already linked to an article update that row instead and therefore
+ * consume no additional capacity. Returns false when the response was sent.
+ */
+async function enforceKbArticleQuotaForDraft(
+  res: Response,
+  config: ServerConfig,
+  gen: { workspace_id: string; kb_article_id?: string | null },
+): Promise<boolean> {
+  if (gen.kb_article_id) return true;
+  const quota = await resolveKbArticleQuota(config, gen.workspace_id);
+  if (!isKbQuotaDenied(quota)) return true;
+  res.status(quota.status).json(quota.body);
+  return false;
+}
+
 aiKbRouter.post('/generated/:id/accept', async (req: Request, res: Response) => {
   const config = (req as any).serverConfig as ServerConfig;
   const ctx = await loadGenerated(req, res, config, ['can_manage_knowledge_base']);
   if (!ctx) return;
   const { gen, sb, userId } = ctx;
+  if (!(await enforceKbArticleQuotaForDraft(res, config, gen as any))) return;
+
+
 
   const { result, transportError } = await applyGeneratedDraft(sb, gen, userId, 'accept');
   if (transportError) {
@@ -623,6 +646,9 @@ aiKbRouter.post('/generated/:id/publish', async (req: Request, res: Response) =>
   ]);
   if (!ctx) return;
   const { gen, sb, userId } = ctx;
+  if (!(await enforceKbArticleQuotaForDraft(res, config, gen as any))) return;
+
+
 
   const { result, transportError } = await applyGeneratedDraft(sb, gen, userId, 'publish');
   if (transportError) {
@@ -691,13 +717,26 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
     return res.status(503).json({ error: 'ai_kb_status_unavailable' });
   }
 
+  // Plan cap is evaluated ONCE for the batch and then decremented locally,
+  // so a bulk publish can never push the workspace past `max_kb_articles`.
+  const quota = await resolveKbArticleQuota(config, job.workspace_id);
+  if (isKbQuotaDenied(quota) && quota.status === 503) return res.status(503).json(quota.body);
+  let remaining = quota.ok
+    ? quota.remaining
+    : 0;
+
   const published: Array<{ generated_id: string; kb_article_id: string }> = [];
   const failed: Array<{
     generated_id: string;
-    error: 'publish_failed' | 'invalid_state';
+    error: 'publish_failed' | 'invalid_state' | 'limit_reached';
     current_status?: string | null;
   }> = [];
   for (const gen of drafts || []) {
+    const consumesCapacity = !(gen as any).kb_article_id;
+    if (consumesCapacity && remaining <= 0) {
+      failed.push({ generated_id: gen.id, error: 'limit_reached' });
+      continue;
+    }
     const { result, transportError } = await applyGeneratedDraft(sb, gen, auth.userId, 'publish');
     if (transportError || !result?.ok || !result.kb_article_id) {
       // A draft another operator already rejected is reported as a conflict,
@@ -718,10 +757,27 @@ aiKbRouter.post('/jobs/:jobId/publish-all', async (req: Request, res: Response) 
       failed.push({ generated_id: gen.id, error: 'publish_failed' });
       continue;
     }
+    if (consumesCapacity) remaining -= 1;
     published.push({ generated_id: gen.id, kb_article_id: result.kb_article_id });
   }
-  return res.json({ ok: true, published_count: published.length, failed_count: failed.length, published, failed });
+  const limitReached = failed.some((f) => f.error === 'limit_reached');
+  return res.json({
+    ok: true,
+    published_count: published.length,
+    failed_count: failed.length,
+    published,
+    failed,
+    ...(limitReached
+      ? {
+          limit_reached: true,
+          feature: 'max_kb_articles',
+          upgrade_required: true,
+          ...(quota.ok && quota.limit !== null ? { limit: quota.limit } : {}),
+        }
+      : {}),
+  });
 });
+
 
 // ──────────────────────────────────────────────────────────────
 //  GET /api/ai-kb/generated/:id/visibility — diagnostics

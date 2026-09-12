@@ -12,6 +12,9 @@ export const BACKLINKS_ERROR_CODES = [
   'backlinks_provider_not_configured',
   'backlinks_provider_disabled',
   'backlinks_auth_failed',
+  'backlinks_account_unverified',
+  'backlinks_subscription_required',
+  'backlinks_ip_not_allowed',
   'backlinks_insufficient_credit',
   'backlinks_invalid_target',
   'backlinks_rate_limited',
@@ -27,6 +30,9 @@ export const BACKLINKS_ERROR_MESSAGES: Record<BacklinksErrorCode, string> = {
   backlinks_provider_not_configured: 'Backlinks data provider is not configured',
   backlinks_provider_disabled: 'Backlinks data provider is disabled',
   backlinks_auth_failed: 'Authentication with the backlinks data provider failed',
+  backlinks_account_unverified: 'The DataForSEO account is not verified yet — complete verification in app.dataforseo.com, then retry',
+  backlinks_subscription_required: 'Backlinks API access is not enabled for this DataForSEO account',
+  backlinks_ip_not_allowed: 'The SEO worker IP address is not allowed by DataForSEO',
   backlinks_insufficient_credit: 'Insufficient provider account credit',
   backlinks_invalid_target: 'Invalid target URL',
   backlinks_rate_limited: 'Backlinks data provider rate limit exceeded',
@@ -37,10 +43,14 @@ export const BACKLINKS_ERROR_MESSAGES: Record<BacklinksErrorCode, string> = {
 
 export class BacklinksError extends Error {
   readonly code: BacklinksErrorCode;
-  constructor(code: BacklinksErrorCode) {
-    super(BACKLINKS_ERROR_MESSAGES[code]);
+  /** Optional provider-side explanation (status message). Never contains credentials. */
+  readonly detail: string | null;
+  constructor(code: BacklinksErrorCode, detail?: string | null) {
+    const base = BACKLINKS_ERROR_MESSAGES[code];
+    super(detail ? `${base}: ${detail}` : base);
     this.name = 'BacklinksError';
     this.code = code;
+    this.detail = detail ?? null;
   }
 }
 

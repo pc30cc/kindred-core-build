@@ -42,6 +42,12 @@ export const CHANNEL_JOB_TYPES = [
   'instagram_outbound_media',
   'instagram_profile_sync',
   'instagram_webhook_repair',
+  // X (Twitter) Direct Messages. No webhook/profile-sync surface (see
+  // `shared/channels/botProviders.ts`) — inbound is a self-rescheduling poll
+  // loop (`x_poll_dm_events`) instead of a pushed `_inbound_event`.
+  'x_poll_dm_events',
+  'x_outbound_message',
+  'x_outbound_media',
   // Provider-network-isolated work. Everything that must touch a provider
   // socket runs through these, executed exclusively by the Channels Worker.
   'provider_operation',

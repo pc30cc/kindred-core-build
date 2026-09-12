@@ -274,6 +274,20 @@ const instagramConnectSchema = z.object({
   page_id: z.string().max(64).optional().nullable(),
 });
 
+/**
+ * X (Twitter) Direct Messages authenticate with OAuth 1.0a User Context: an
+ * app key/secret pair plus a per-account access token/secret pair, which
+ * (unlike an OAuth2 user-context bearer token) never silently expires — the
+ * same reason WhatsApp/Instagram use a long-lived credential pasted once.
+ */
+const xConnectSchema = z.object({
+  workspace_id: z.string().uuid(),
+  api_key: z.string().min(10).max(128),
+  api_secret: z.string().min(10).max(128),
+  access_token: z.string().min(10).max(128),
+  access_token_secret: z.string().min(10).max(128),
+});
+
 /** Normalizes a connect body into the credential string for `provider`. */
 function parseConnectCredential(
   provider: string,
@@ -300,6 +314,19 @@ function parseConnectCredential(
         phone_number_id: parsed.data.phone_number_id,
         access_token: parsed.data.access_token,
         business_account_id: parsed.data.business_account_id || null,
+      }),
+    };
+  }
+  if (botProvider(provider).credentialKind === 'x_dm') {
+    const parsed = xConnectSchema.safeParse(body);
+    if (!parsed.success) return null;
+    return {
+      workspaceId: parsed.data.workspace_id,
+      credential: JSON.stringify({
+        api_key: parsed.data.api_key,
+        api_secret: parsed.data.api_secret,
+        access_token: parsed.data.access_token,
+        access_token_secret: parsed.data.access_token_secret,
       }),
     };
   }
@@ -476,21 +503,26 @@ pluginsRouter.get(botPaths('status'), async (req: any, res) => {
             lastOutboundAt: integration.last_outbound_at,
             lastErrorCode: integration.last_error_code,
             lastErrorAt: integration.last_error_at,
-            webhookUrl: config.publicChannelsBaseUrl
-              ? buildWebhookUrl(config, provider, integration.public_integration_id)
-              : null,
+            // X has no callback URL at all (it is polled, not pushed — see
+            // `supportsPolling`), so neither field applies there.
+            webhookUrl:
+              config.publicChannelsBaseUrl && !botProvider(provider).supportsPolling
+                ? buildWebhookUrl(config, provider, integration.public_integration_id)
+                : null,
             // Providers whose callback URL is registered in their OWN
             // dashboard (WhatsApp Cloud) need the verify token shown once so
             // the operator can paste it into the Meta app configuration.
             verifyToken:
-              !botProvider(provider).supportsWebhookRegistration && config.channelsWebhookSigningKey
+              !botProvider(provider).supportsWebhookRegistration &&
+              !botProvider(provider).supportsPolling &&
+              config.channelsWebhookSigningKey
                 ? deriveChannelWebhookSecret(
                     config.channelsWebhookSigningKey,
                     provider,
                     integration.public_integration_id,
                   )
                 : null,
-            managesWebhookExternally: !botProvider(provider).supportsWebhookRegistration,
+            managesWebhookExternally: !botProvider(provider).supportsWebhookRegistration && !botProvider(provider).supportsPolling,
           }
         : null,
     });
@@ -831,11 +863,17 @@ adminPluginsRouter.get('/', async (req: any, res) => {
     const states = await listPlatformState(serverConfigOf(req));
     const stateById = new Map(states.map((s) => [s.plugin_id, s]));
     res.json({
+      // Super Admin edits the RAW platform state, so the switches must mirror
+      // the stored row — not the effective value the marketplace computes
+      // (which also folds in `workspaceInstallable` and `enabled`, making a
+      // coming-soon plugin's switch look permanently off).
       items: PLUGIN_REGISTRY.map((def) => ({
         ...toCatalogEntry(def, stateById.get(def.id)!),
+        installable: stateById.get(def.id)!.installable,
         policy: stateById.get(def.id)!.policy,
       })),
     });
+
   } catch (err) {
     console.error('[plugins] admin list failed:', err);
     res.status(500).json({ error: 'Failed to load plugins' });

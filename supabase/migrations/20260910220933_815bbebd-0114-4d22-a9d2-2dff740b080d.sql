@@ -1,0 +1,1 @@
+ALTER TABLE public.workspace_member_details ALTER COLUMN work_phone_e164 DROP NOT NULL;

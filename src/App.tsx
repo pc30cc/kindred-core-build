@@ -36,6 +36,8 @@ import ResetPasswordPage from "@/pages/auth/ResetPasswordPage";
 import VerifyEmailPage from "@/pages/auth/VerifyEmailPage";
 import CheckEmailPage from "@/pages/auth/CheckEmailPage";
 import EmailConfirmedPage from "@/pages/auth/EmailConfirmedPage";
+import VerifyOtpPage from "@/pages/auth/VerifyOtpPage";
+
 import InvitePage from "@/pages/auth/InvitePage";
 
 import OverviewPage from "@/pages/app/OverviewPage";
@@ -85,13 +87,14 @@ import AiAgentBehaviorPage from "@/pages/app/ai-agent/BehaviorPage";
 import AiAgentOperatorAssistPage from "@/pages/app/ai-agent/OperatorAssistPage";
 import AiAgentActivityPage from "@/pages/app/ai-agent/ActivityPage";
 import { AdvancedAiAgentGuard } from "@/features/ai-agent/AdvancedAiAgentGuard";
-import EmailPage from "@/pages/app/EmailPage";
 import BillingPage from "@/pages/app/BillingPage";
 import BillingPaymentPage from "@/pages/app/billing/PaymentPage";
 import SeoPage from "@/pages/app/seo/SeoPage";
 import WebAnalyticsPage from "@/pages/app/analytics/WebAnalyticsPage";
 import SettingsGeneralPage from "@/pages/app/settings/GeneralPage";
 import SettingsIntegrationsPage from "@/pages/app/settings/IntegrationsPage";
+import SettingsCommercePage from "@/pages/app/settings/CommercePage";
+import CommerceAuthorizePage from "@/pages/CommerceAuthorizePage";
 import SettingsDomainsPage from "@/pages/app/settings/DomainsPage";
 import SettingsProvidersPage from "@/pages/app/settings/ProvidersPage";
 import SettingsTranslationsPage from "@/pages/app/settings/TranslationsPage";
@@ -121,6 +124,7 @@ import AdminPluginsPage from "@/pages/admin/PluginsPage";
 import AdminPluginDetailPage from "@/pages/admin/PluginDetailPage";
 import AdminSecurityPage from "@/pages/admin/SecurityPage";
 import AdminVerificationPage from "@/pages/admin/VerificationPage";
+import AdminCoreSettingsPage from "@/pages/admin/CoreSettingsPage";
 import AdminDatabasePage from "@/pages/admin/DatabasePage";
 import AdminBootstrapPage from "@/pages/admin/BootstrapPage";
 import AdminWidgetSettingsPage from "@/pages/admin/WidgetSettingsPage";
@@ -213,13 +217,22 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/auth/verify-email" element={<VerifyEmailPage />} />
                 <Route path="/auth/check-email" element={<CheckEmailPage />} />
                 <Route path="/auth/email-confirmed" element={<EmailConfirmedPage />} />
-                <Route path="/auth/invite" element={<InvitePage />} />
-                <Route path="/invite" element={<InvitePage />} />
+                <Route path="/auth/verify-otp" element={<VerifyOtpPage />} />
               </Route>
+
+              {/* Invitation acceptance uses its own full-width split-screen shell */}
+              <Route path="/auth/invite" element={<InvitePage />} />
+              <Route path="/invite" element={<InvitePage />} />
+
 
               {/* Admin Bootstrap */}
               <Route path="/admin/bootstrap" element={
                 <RequireAuth><AdminBootstrapPage /></RequireAuth>
+              } />
+
+              {/* Commerce pairing consent screen (docs/commerce/SECURITY.md §Pairing) */}
+              <Route path="/commerce/authorize" element={
+                <RequireAuth><CommerceAuthorizePage /></RequireAuth>
               } />
 
               {/* Global Super Admin */}
@@ -254,6 +267,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/admin/database" element={<AdminDatabasePage />} />
                 <Route path="/admin/security" element={<AdminSecurityPage />} />
                 <Route path="/admin/verification" element={<AdminVerificationPage />} />
+                <Route path="/admin/core-settings" element={<AdminCoreSettingsPage />} />
               </Route>
 
               {/* /app → redirect to first workspace */}
@@ -284,7 +298,6 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="widget" element={<RequireWorkspaceAdmin><WidgetPage /></RequireWorkspaceAdmin>} />
                 <Route path="plugins" element={<RequireWorkspaceAdmin><PluginsPage /></RequireWorkspaceAdmin>} />
                 <Route path="plugins/:pluginId" element={<RequireWorkspaceAdmin><PluginDetailPage /></RequireWorkspaceAdmin>} />
-                <Route path="email" element={<RequireWorkspaceAdmin><EmailPage /></RequireWorkspaceAdmin>} />
                 <Route path="billing" element={<RequireWorkspaceAdmin><BillingPage /></RequireWorkspaceAdmin>} />
                 <Route path="billing/pay/:kind/:id" element={<RequireWorkspaceAdmin><BillingPaymentPage /></RequireWorkspaceAdmin>} />
                 <Route path="seo" element={<RequireWorkspaceAdmin><SeoPage /></RequireWorkspaceAdmin>} />
@@ -329,6 +342,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route index element={<Navigate to="general" replace />} />
                   <Route path="general" element={<RequireWorkspaceAdmin><SettingsGeneralPage /></RequireWorkspaceAdmin>} />
                   <Route path="integrations" element={<RequireWorkspaceAdmin><SettingsIntegrationsPage /></RequireWorkspaceAdmin>} />
+                  <Route path="commerce" element={<RequireWorkspaceAdmin><SettingsCommercePage /></RequireWorkspaceAdmin>} />
                   <Route path="branding" element={<Navigate to="../general" replace />} />
                   <Route path="domains" element={<RequireWorkspaceAdmin><SettingsDomainsPage /></RequireWorkspaceAdmin>} />
                   <Route path="providers" element={<RequireWorkspaceAdmin><SettingsProvidersPage /></RequireWorkspaceAdmin>} />

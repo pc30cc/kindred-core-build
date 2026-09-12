@@ -961,6 +961,7 @@ export type Database = {
           show_sources_to_operator: boolean
           show_sources_to_visitor: boolean
           stop_on_handoff: boolean
+          strict_topic_scope: boolean
           updated_at: string
           welcome_message: string | null
           workspace_id: string
@@ -1007,6 +1008,7 @@ export type Database = {
           show_sources_to_operator?: boolean
           show_sources_to_visitor?: boolean
           stop_on_handoff?: boolean
+          strict_topic_scope?: boolean
           updated_at?: string
           welcome_message?: string | null
           workspace_id: string
@@ -1053,6 +1055,7 @@ export type Database = {
           show_sources_to_operator?: boolean
           show_sources_to_visitor?: boolean
           stop_on_handoff?: boolean
+          strict_topic_scope?: boolean
           updated_at?: string
           welcome_message?: string | null
           workspace_id?: string
@@ -7307,6 +7310,643 @@ export type Database = {
         }
         Relationships: []
       }
+      commerce_connections: {
+        Row: {
+          approved_origin: string
+          capabilities: Json
+          catalog_ready: boolean
+          connector_version: string | null
+          created_at: string
+          direct_live_read: boolean
+          health: string
+          hpos_enabled: boolean | null
+          id: string
+          installation_id: string
+          last_error_at: string | null
+          last_error_code: string | null
+          last_event_at: string | null
+          last_live_read_at: string | null
+          last_seen_at: string | null
+          last_success_at: string | null
+          last_sync_at: string | null
+          permissions: Json
+          protocol_version: string
+          provider_type: string
+          revoked_at: string | null
+          rotated_at: string | null
+          store_id: string
+          updated_at: string
+          woocommerce_version: string | null
+          wordpress_version: string | null
+          workspace_id: string
+        }
+        Insert: {
+          approved_origin: string
+          capabilities?: Json
+          catalog_ready?: boolean
+          connector_version?: string | null
+          created_at?: string
+          direct_live_read?: boolean
+          health?: string
+          hpos_enabled?: boolean | null
+          id?: string
+          installation_id: string
+          last_error_at?: string | null
+          last_error_code?: string | null
+          last_event_at?: string | null
+          last_live_read_at?: string | null
+          last_seen_at?: string | null
+          last_success_at?: string | null
+          last_sync_at?: string | null
+          permissions?: Json
+          protocol_version?: string
+          provider_type?: string
+          revoked_at?: string | null
+          rotated_at?: string | null
+          store_id: string
+          updated_at?: string
+          woocommerce_version?: string | null
+          wordpress_version?: string | null
+          workspace_id: string
+        }
+        Update: {
+          approved_origin?: string
+          capabilities?: Json
+          catalog_ready?: boolean
+          connector_version?: string | null
+          created_at?: string
+          direct_live_read?: boolean
+          health?: string
+          hpos_enabled?: boolean | null
+          id?: string
+          installation_id?: string
+          last_error_at?: string | null
+          last_error_code?: string | null
+          last_event_at?: string | null
+          last_live_read_at?: string | null
+          last_seen_at?: string | null
+          last_success_at?: string | null
+          last_sync_at?: string | null
+          permissions?: Json
+          protocol_version?: string
+          provider_type?: string
+          revoked_at?: string | null
+          rotated_at?: string | null
+          store_id?: string
+          updated_at?: string
+          woocommerce_version?: string | null
+          wordpress_version?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commerce_connections_installation_id_fkey"
+            columns: ["installation_id"]
+            isOneToOne: true
+            referencedRelation: "workspace_plugin_installations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commerce_connections_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      commerce_customer_links: {
+        Row: {
+          connection_id: string
+          created_at: string
+          expires_at: string
+          external_customer_id: string
+          id: string
+          verified_at: string
+          visitor_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          connection_id: string
+          created_at?: string
+          expires_at: string
+          external_customer_id: string
+          id?: string
+          verified_at?: string
+          visitor_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          connection_id?: string
+          created_at?: string
+          expires_at?: string
+          external_customer_id?: string
+          id?: string
+          verified_at?: string
+          visitor_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commerce_customer_links_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "commerce_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commerce_customer_links_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      commerce_event_receipts: {
+        Row: {
+          connection_id: string | null
+          entity_id: string
+          entity_version: string
+          event_id: string
+          event_type: string
+          id: string
+          installation_id: string
+          received_at: string
+          status: string
+        }
+        Insert: {
+          connection_id?: string | null
+          entity_id: string
+          entity_version: string
+          event_id: string
+          event_type: string
+          id?: string
+          installation_id: string
+          received_at?: string
+          status?: string
+        }
+        Update: {
+          connection_id?: string | null
+          entity_id?: string
+          entity_version?: string
+          event_id?: string
+          event_type?: string
+          id?: string
+          installation_id?: string
+          received_at?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commerce_event_receipts_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "commerce_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commerce_event_receipts_installation_id_fkey"
+            columns: ["installation_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_plugin_installations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      commerce_nonce_cache: {
+        Row: {
+          direction: string
+          installation_id: string
+          nonce: string
+          seen_at: string
+        }
+        Insert: {
+          direction: string
+          installation_id: string
+          nonce: string
+          seen_at?: string
+        }
+        Update: {
+          direction?: string
+          installation_id?: string
+          nonce?: string
+          seen_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commerce_nonce_cache_installation_id_fkey"
+            columns: ["installation_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_plugin_installations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      commerce_pairing_requests: {
+        Row: {
+          authorization_code_hash: string | null
+          authorized_at: string | null
+          authorized_by: string | null
+          code_challenge: string
+          consumed_at: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          provider_type: string
+          redirect_uri: string
+          requested_origin: string
+          state: string
+          workspace_id: string | null
+        }
+        Insert: {
+          authorization_code_hash?: string | null
+          authorized_at?: string | null
+          authorized_by?: string | null
+          code_challenge: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at: string
+          id?: string
+          provider_type?: string
+          redirect_uri: string
+          requested_origin: string
+          state: string
+          workspace_id?: string | null
+        }
+        Update: {
+          authorization_code_hash?: string | null
+          authorized_at?: string | null
+          authorized_by?: string | null
+          code_challenge?: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          provider_type?: string
+          redirect_uri?: string
+          requested_origin?: string
+          state?: string
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commerce_pairing_requests_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      commerce_product_variants: {
+        Row: {
+          attributes: Json
+          connection_id: string
+          created_at: string
+          currency: string
+          deleted_at: string | null
+          effective_price_minor: number | null
+          entity_version: string
+          external_id: string
+          id: string
+          image_url: string | null
+          product_id: string
+          regular_price_minor: number | null
+          sale_price_minor: number | null
+          sku: string | null
+          stock_quantity: number | null
+          stock_state: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          attributes?: Json
+          connection_id: string
+          created_at?: string
+          currency: string
+          deleted_at?: string | null
+          effective_price_minor?: number | null
+          entity_version: string
+          external_id: string
+          id?: string
+          image_url?: string | null
+          product_id: string
+          regular_price_minor?: number | null
+          sale_price_minor?: number | null
+          sku?: string | null
+          stock_quantity?: number | null
+          stock_state?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          attributes?: Json
+          connection_id?: string
+          created_at?: string
+          currency?: string
+          deleted_at?: string | null
+          effective_price_minor?: number | null
+          entity_version?: string
+          external_id?: string
+          id?: string
+          image_url?: string | null
+          product_id?: string
+          regular_price_minor?: number | null
+          sale_price_minor?: number | null
+          sku?: string | null
+          stock_quantity?: number | null
+          stock_state?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commerce_product_variants_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "commerce_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commerce_product_variants_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "commerce_products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commerce_product_variants_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      commerce_products: {
+        Row: {
+          attributes: Json
+          canonical_url: string | null
+          categories: Json
+          connection_id: string
+          created_at: string
+          currency: string
+          deleted_at: string | null
+          effective_price_minor: number | null
+          entity_version: string
+          external_id: string
+          id: string
+          image_url: string | null
+          is_downloadable: boolean
+          is_virtual: boolean
+          product_type: string
+          regular_price_minor: number | null
+          sale_price_minor: number | null
+          search_text: unknown
+          short_description: string | null
+          sku: string | null
+          stock_quantity: number | null
+          stock_state: string
+          tags: Json
+          title: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          attributes?: Json
+          canonical_url?: string | null
+          categories?: Json
+          connection_id: string
+          created_at?: string
+          currency: string
+          deleted_at?: string | null
+          effective_price_minor?: number | null
+          entity_version: string
+          external_id: string
+          id?: string
+          image_url?: string | null
+          is_downloadable?: boolean
+          is_virtual?: boolean
+          product_type?: string
+          regular_price_minor?: number | null
+          sale_price_minor?: number | null
+          search_text?: unknown
+          short_description?: string | null
+          sku?: string | null
+          stock_quantity?: number | null
+          stock_state?: string
+          tags?: Json
+          title: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          attributes?: Json
+          canonical_url?: string | null
+          categories?: Json
+          connection_id?: string
+          created_at?: string
+          currency?: string
+          deleted_at?: string | null
+          effective_price_minor?: number | null
+          entity_version?: string
+          external_id?: string
+          id?: string
+          image_url?: string | null
+          is_downloadable?: boolean
+          is_virtual?: boolean
+          product_type?: string
+          regular_price_minor?: number | null
+          sale_price_minor?: number | null
+          search_text?: unknown
+          short_description?: string | null
+          sku?: string | null
+          stock_quantity?: number | null
+          stock_state?: string
+          tags?: Json
+          title?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commerce_products_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "commerce_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commerce_products_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      commerce_sync_cursors: {
+        Row: {
+          after_cursor: string | null
+          connection_id: string
+          cursor_type: string
+          modified_after: string | null
+          page: number
+          updated_at: string
+        }
+        Insert: {
+          after_cursor?: string | null
+          connection_id: string
+          cursor_type: string
+          modified_after?: string | null
+          page?: number
+          updated_at?: string
+        }
+        Update: {
+          after_cursor?: string | null
+          connection_id?: string
+          cursor_type?: string
+          modified_after?: string | null
+          page?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commerce_sync_cursors_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "commerce_connections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      commerce_sync_jobs: {
+        Row: {
+          attempts: number
+          connection_id: string
+          created_at: string
+          id: string
+          job_type: string
+          last_error_at: string | null
+          last_error_code: string | null
+          leased_by: string | null
+          leased_until: string | null
+          max_attempts: number
+          status: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          attempts?: number
+          connection_id: string
+          created_at?: string
+          id?: string
+          job_type: string
+          last_error_at?: string | null
+          last_error_code?: string | null
+          leased_by?: string | null
+          leased_until?: string | null
+          max_attempts?: number
+          status?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          attempts?: number
+          connection_id?: string
+          created_at?: string
+          id?: string
+          job_type?: string
+          last_error_at?: string | null
+          last_error_code?: string | null
+          leased_by?: string | null
+          leased_until?: string | null
+          max_attempts?: number
+          status?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commerce_sync_jobs_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "commerce_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commerce_sync_jobs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      commerce_tool_audit: {
+        Row: {
+          cache_hit: boolean
+          connection_id: string | null
+          conversation_id: string | null
+          correlation_id: string | null
+          created_at: string
+          duration_ms: number | null
+          id: string
+          live_revalidated: boolean
+          result_count: number | null
+          safe_error_code: string | null
+          success: boolean
+          tool_name: string
+          workspace_id: string
+        }
+        Insert: {
+          cache_hit?: boolean
+          connection_id?: string | null
+          conversation_id?: string | null
+          correlation_id?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          id?: string
+          live_revalidated?: boolean
+          result_count?: number | null
+          safe_error_code?: string | null
+          success: boolean
+          tool_name: string
+          workspace_id: string
+        }
+        Update: {
+          cache_hit?: boolean
+          connection_id?: string | null
+          conversation_id?: string | null
+          correlation_id?: string | null
+          created_at?: string
+          duration_ms?: number | null
+          id?: string
+          live_revalidated?: boolean
+          result_count?: number | null
+          safe_error_code?: string | null
+          success?: boolean
+          tool_name?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commerce_tool_audit_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "commerce_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commerce_tool_audit_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contact_verifications: {
         Row: {
           attempts: number
@@ -9056,7 +9696,10 @@ export type Database = {
           id: string
           logo_url: string | null
           primary_color: string | null
+          pwa_background_color: string | null
+          pwa_enabled: boolean
           pwa_icon_url: string | null
+          pwa_short_name: string | null
           secondary_color: string | null
           updated_at: string | null
         }
@@ -9070,7 +9713,10 @@ export type Database = {
           id?: string
           logo_url?: string | null
           primary_color?: string | null
+          pwa_background_color?: string | null
+          pwa_enabled?: boolean
           pwa_icon_url?: string | null
+          pwa_short_name?: string | null
           secondary_color?: string | null
           updated_at?: string | null
         }
@@ -9084,7 +9730,10 @@ export type Database = {
           id?: string
           logo_url?: string | null
           primary_color?: string | null
+          pwa_background_color?: string | null
+          pwa_enabled?: boolean
           pwa_icon_url?: string | null
+          pwa_short_name?: string | null
           secondary_color?: string | null
           updated_at?: string | null
         }
@@ -9430,6 +10079,11 @@ export type Database = {
           panel_default_locale: string
           region_currency: string | null
           region_mode: string
+          signup_default_plan_mode: string
+          signup_trial_days: number
+          signup_trial_plan_id: string | null
+          signup_verification_gate: string
+          signup_verification_method: string
           site_mode: string
           timezone: string
           updated_at: string | null
@@ -9447,6 +10101,11 @@ export type Database = {
           panel_default_locale?: string
           region_currency?: string | null
           region_mode?: string
+          signup_default_plan_mode?: string
+          signup_trial_days?: number
+          signup_trial_plan_id?: string | null
+          signup_verification_gate?: string
+          signup_verification_method?: string
           site_mode?: string
           timezone?: string
           updated_at?: string | null
@@ -9464,6 +10123,11 @@ export type Database = {
           panel_default_locale?: string
           region_currency?: string | null
           region_mode?: string
+          signup_default_plan_mode?: string
+          signup_trial_days?: number
+          signup_trial_plan_id?: string | null
+          signup_verification_gate?: string
+          signup_verification_method?: string
           site_mode?: string
           timezone?: string
           updated_at?: string | null
@@ -15342,7 +16006,7 @@ export type Database = {
           updated_at: string
           user_id: string
           work_email_normalized: string
-          work_phone_e164: string
+          work_phone_e164: string | null
           workspace_id: string
         }
         Insert: {
@@ -15357,7 +16021,7 @@ export type Database = {
           updated_at?: string
           user_id: string
           work_email_normalized: string
-          work_phone_e164: string
+          work_phone_e164?: string | null
           workspace_id: string
         }
         Update: {
@@ -15372,7 +16036,7 @@ export type Database = {
           updated_at?: string
           user_id?: string
           work_email_normalized?: string
-          work_phone_e164?: string
+          work_phone_e164?: string | null
           workspace_id?: string
         }
         Relationships: [
@@ -16271,6 +16935,7 @@ export type Database = {
         Args: { _actor_user_id: string; _scope?: string }
         Returns: Json
       }
+      admin_purge_workspaces: { Args: { _ws: string[] }; Returns: number }
       admin_reset_billing_data: { Args: { p_confirm: string }; Returns: Json }
       admin_reset_identity_tables: { Args: never; Returns: string[] }
       admin_reset_preserved_tables: {
@@ -16572,6 +17237,8 @@ export type Database = {
         Args: { p_workspace_id: string }
         Returns: boolean
       }
+      billing_notify_trial_ending: { Args: never; Returns: number }
+      billing_purge_active: { Args: never; Returns: boolean }
       billing_recover_unapplied_invoices: {
         Args: { p_limit?: number }
         Returns: Json
@@ -17079,6 +17746,94 @@ export type Database = {
       }
       cleanup_expired_auth_tokens: { Args: never; Returns: undefined }
       cleanup_expired_widget_identity: { Args: never; Returns: undefined }
+      commerce_claim_sync_job: {
+        Args: { p_lease_seconds?: number; p_worker_id: string }
+        Returns: {
+          attempts: number
+          connection_id: string
+          created_at: string
+          id: string
+          job_type: string
+          last_error_at: string | null
+          last_error_code: string | null
+          leased_by: string | null
+          leased_until: string | null
+          max_attempts: number
+          status: string
+          updated_at: string
+          workspace_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "commerce_sync_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      commerce_tombstone_product: {
+        Args: {
+          p_connection_id: string
+          p_entity_version: string
+          p_external_id: string
+        }
+        Returns: boolean
+      }
+      commerce_tombstone_variant: {
+        Args: {
+          p_connection_id: string
+          p_entity_version: string
+          p_external_id: string
+        }
+        Returns: boolean
+      }
+      commerce_upsert_product: {
+        Args: {
+          p_attributes: Json
+          p_canonical_url: string
+          p_categories: Json
+          p_connection_id: string
+          p_currency: string
+          p_effective_price_minor: number
+          p_entity_version: string
+          p_external_id: string
+          p_image_url: string
+          p_is_downloadable: boolean
+          p_is_virtual: boolean
+          p_product_type: string
+          p_regular_price_minor: number
+          p_sale_price_minor: number
+          p_short_description: string
+          p_sku: string
+          p_stock_quantity: number
+          p_stock_state: string
+          p_tags: Json
+          p_title: string
+          p_workspace_id: string
+        }
+        Returns: {
+          product_id: string
+          written: boolean
+        }[]
+      }
+      commerce_upsert_variant: {
+        Args: {
+          p_attributes: Json
+          p_connection_id: string
+          p_currency: string
+          p_effective_price_minor: number
+          p_entity_version: string
+          p_external_id: string
+          p_image_url: string
+          p_product_id: string
+          p_regular_price_minor: number
+          p_sale_price_minor: number
+          p_sku: string
+          p_stock_quantity: number
+          p_stock_state: string
+          p_workspace_id: string
+        }
+        Returns: boolean
+      }
       complete_entitlement_fanout: {
         Args: {
           _claim_token: string

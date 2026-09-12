@@ -31,12 +31,17 @@ export const RANK_TRACKING_ERROR_MESSAGES: Record<RankTrackingErrorCode, string>
 
 export class RankTrackingError extends Error {
   readonly code: RankTrackingErrorCode;
-  constructor(code: RankTrackingErrorCode) {
-    super(RANK_TRACKING_ERROR_MESSAGES[code]);
+  /** Optional provider-side explanation (status message). Never contains credentials. */
+  readonly detail: string | null;
+  constructor(code: RankTrackingErrorCode, detail?: string | null) {
+    const base = RANK_TRACKING_ERROR_MESSAGES[code];
+    super(detail ? `${base}: ${detail}` : base);
     this.name = 'RankTrackingError';
     this.code = code;
+    this.detail = detail ?? null;
   }
 }
+
 
 export function isRankTrackingError(value: unknown): value is RankTrackingError {
   return value instanceof RankTrackingError;

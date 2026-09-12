@@ -3,6 +3,7 @@ import { useTheme } from 'next-themes';
 import { Moon, Sun, LifeBuoy, Settings2, Search } from 'lucide-react';
 import { useI18n } from '@/i18n';
 import { useWorkspacePath } from '@/hooks/useWorkspace';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -16,6 +17,17 @@ import { AlertsMenu } from '@/components/layout/AlertsMenu';
  * Slim, sticky toolbar pinned to the top of the workspace shell.
  * Utilities are grouped into clearly separated clusters:
  * search | preferences | workspace shortcuts | account.
+ *
+ * A page can inject its own toolbar (e.g. Inbox's Open/AI/Colleagues tabs)
+ * via a React portal into #topbar-page-slot (see InboxPage.tsx's
+ * ToolbarPortal). On desktop that slot sits INLINE in the single icon row
+ * (it always did). On mobile there is no room for a page's tabs next to
+ * the icon cluster without both getting crushed -- confirmed broken in
+ * production (Inbox's tabs visually colliding with the app icons) -- so on
+ * mobile the slot becomes its OWN full-width row underneath, horizontally
+ * scrollable. `#topbar-page-slot:empty` collapses to zero height (see
+ * index.css), so pages that never portal anything (Dashboard, Knowledge
+ * Base, ...) show no empty second row.
  */
 export function AppTopBar() {
   const { t: tRaw, locale, setLocale } = useI18n();
@@ -25,19 +37,32 @@ export function AppTopBar() {
   const wsPath = useWorkspacePath();
   const location = useLocation();
   const isInbox = /\/inbox(\/|$|\?)/.test(location.pathname);
+  const isMobile = useIsMobile();
 
   const isDark = theme === 'dark';
 
+  const pageSlot = (
+    <div
+      id="topbar-page-slot"
+      className={
+        isMobile
+          ? 'relative z-10 flex w-full items-stretch overflow-x-auto border-t border-border/40 px-2'
+          : 'relative z-10 flex h-full min-w-0 flex-1 items-stretch'
+      }
+    />
+  );
+
   return (
     <TooltipProvider delayDuration={200}>
-      <header
-        className={`sticky top-0 z-30 flex h-[60px] shrink-0 items-center gap-4 border-b border-border/60 bg-background/70 pe-5 backdrop-blur-xl supports-[backdrop-filter]:bg-background/55 ${
-          isInbox ? 'ps-0' : 'ps-5'
-        }`}
-      >
+      <header className="sticky top-0 z-30 flex flex-col border-b border-border/60 bg-background/70 backdrop-blur-xl supports-[backdrop-filter]:bg-background/55">
         {/* Accent hairline */}
-        <span className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
+        <span className="pointer-events-none absolute inset-x-0 top-[59px] z-20 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
 
+        <div
+          className={`flex h-[60px] shrink-0 items-center gap-4 pe-5 ${
+            isInbox ? 'ps-0' : 'ps-5'
+          }`}
+        >
         {/* Group 1 — Search (hidden on Inbox, where the toolbar hosts filter tabs) */}
         {!isInbox && (
         <button
@@ -57,14 +82,13 @@ export function AppTopBar() {
         </button>
         )}
 
-        {/* Page-owned toolbar slot (e.g. Inbox filter tabs) */}
-        <div
-          id="topbar-page-slot"
-          className="relative z-10 flex h-full min-w-0 flex-1 items-stretch"
-        />
+        {/* Page-owned toolbar slot — inline on desktop; on mobile it moves
+            to its own row below (rendered after this row, see below) so it
+            never has to share horizontal space with the icon cluster. */}
+        {isMobile ? <div className="min-w-0 flex-1" /> : pageSlot}
 
         {/* Group 2 — Preferences: language + theme */}
-        <div className="flex items-center gap-2">
+        <div className="ms-auto flex items-center gap-2">
           {canSwitchLanguage && (
             <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
               <SelectTrigger className="h-10 w-[126px] rounded-2xl border-border/60 bg-muted/40 text-sm shadow-sm focus:ring-0">
@@ -85,7 +109,7 @@ export function AppTopBar() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-10 w-10 rounded-2xl [&_svg]:size-7 border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground"
+                className="h-10 w-10 rounded-2xl [&_svg]:size-7 text-muted-foreground hover:bg-transparent hover:text-foreground"
                 onClick={() => setTheme(isDark ? 'light' : 'dark')}
                 aria-label={isDark ? t('nav.lightMode') : t('nav.darkMode')}
               >
@@ -108,7 +132,7 @@ export function AppTopBar() {
                 asChild
                 variant="ghost"
                 size="icon"
-                className="h-10 w-10 rounded-2xl [&_svg]:size-7 border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground"
+                className="hidden h-10 w-10 rounded-2xl [&_svg]:size-7 text-muted-foreground hover:bg-transparent hover:text-foreground md:inline-flex"
               >
                 <Link to={wsPath('/settings')} aria-label="settings">
                    <Settings2 />
@@ -126,7 +150,7 @@ export function AppTopBar() {
                 asChild
                 variant="ghost"
                 size="icon"
-                className="hidden h-10 w-10 rounded-2xl [&_svg]:size-7 border border-border/60 bg-muted/40 text-muted-foreground shadow-sm hover:border-primary/40 hover:bg-background hover:text-foreground sm:inline-flex"
+                className="hidden h-10 w-10 rounded-2xl [&_svg]:size-7 text-muted-foreground hover:bg-transparent hover:text-foreground md:inline-flex"
               >
                 <Link to={wsPath('/knowledge-base')} aria-label="help">
                    <LifeBuoy />
@@ -139,6 +163,12 @@ export function AppTopBar() {
 
         {/* Group 4 — Account */}
         <UserMenu />
+        </div>
+
+        {/* Row B — mobile-only full-width page toolbar (e.g. Inbox's
+            Open/AI/Colleagues tabs), scrollable, never sharing space with
+            the icon cluster above. Collapses to zero height when empty. */}
+        {isMobile && pageSlot}
       </header>
     </TooltipProvider>
   );

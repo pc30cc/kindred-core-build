@@ -38,6 +38,7 @@ import { useInboxCounts } from '@/hooks/useConversations';
 import { useCallCenterCapabilities } from '@/hooks/useCallCenter';
 import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import { useWorkspaceRole, isWorkspaceAdmin } from '@/hooks/useWorkspaceRole';
+import { PlanStatusBanner } from '@/components/layout/PlanStatusBanner';
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
@@ -80,7 +81,18 @@ function NavTip({ label, enabled, children }: { label: string; enabled: boolean;
   );
 }
 
-export function AppSidebar() {
+export function AppSidebar({
+  variant = 'rail',
+  onNavigate,
+}: {
+  /** 'rail' = the permanent desktop nav column (default, unchanged behavior).
+   *  'drawer' = full-width content for the mobile Sheet drawer: always
+   *  expanded (no collapse toggle), no fixed rail width/height. */
+  variant?: 'rail' | 'drawer';
+  /** Drawer mode only — called once per navigation so the caller can close
+   *  the Sheet. Not used in rail mode. */
+  onNavigate?: () => void;
+}) {
   const { t, dir } = useTranslation();
   const { locale, setLocale } = useI18n();
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
@@ -153,11 +165,11 @@ export function AppSidebar() {
   const [createWsOpen, setCreateWsOpen] = useState(false);
   const [wsLimitNotice, setWsLimitNotice] = useState(false);
   const { data: wsCapacity, isLoading: wsCapacityLoading } = useWorkspaceCapacity(wsMenuOpen);
-  const [collapsed, setCollapsed] = useState<boolean>(
+  const [collapsedPref, setCollapsedPref] = useState<boolean>(
     () => localStorage.getItem('sidebar_collapsed') === '1',
   );
   const toggleCollapsed = () => {
-    setCollapsed((v) => {
+    setCollapsedPref((v) => {
       localStorage.setItem('sidebar_collapsed', v ? '0' : '1');
       return !v;
     });
@@ -166,11 +178,39 @@ export function AppSidebar() {
   // Settings is a dense two-pane workspace: collapse the nav rail while it is
   // open, then restore the user's own preference on leaving. The Inbox keeps
   // the sidebar exactly as the user left it (its sub-inboxes live there).
-  const onInbox = /\/settings(\/|$)/.test(location.pathname);
+  // The SEO suite has its own two-column nav, so the main rail collapses there too.
+  const onInbox = /\/(settings|seo)(\/|$)/.test(location.pathname);
   useEffect(() => {
-    if (onInbox) setCollapsed(true);
-    else setCollapsed(localStorage.getItem('sidebar_collapsed') === '1');
+    if (onInbox) setCollapsedPref(true);
+    else setCollapsedPref(localStorage.getItem('sidebar_collapsed') === '1');
   }, [onInbox]);
+
+  // Drawer variant (mobile Sheet) is always fully expanded -- there is no
+  // narrow-rail state to collapse into, and the toggle button is hidden
+  // below. Every existing `collapsed` reference in the JSX below reads this
+  // derived value, so the rest of the component needs no further changes.
+  const collapsed = variant === 'drawer' ? false : collapsedPref;
+
+  // Drawer variant only: close the Sheet on every navigation. Effect (not a
+  // per-Link onClick) so it works uniformly for the ~20 Link/button
+  // destinations below without touching each one individually. The drawer
+  // remounts this component fresh every time it opens (SheetContent doesn't
+  // forceMount), so the effect's first run on that mount is NOT a
+  // navigation — it must be skipped, or the drawer closes itself the
+  // instant it opens.
+  const drawerLocationKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (variant !== 'drawer') return;
+    const key = `${location.pathname}${location.search}`;
+    if (drawerLocationKey.current === null) {
+      drawerLocationKey.current = key;
+      return;
+    }
+    if (drawerLocationKey.current !== key) {
+      drawerLocationKey.current = key;
+      onNavigate?.();
+    }
+  }, [variant, location.pathname, location.search, onNavigate]);
 
   const wsMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -331,32 +371,38 @@ export function AppSidebar() {
     <>
     <aside
       className={cn(
-        'relative flex h-screen flex-col border-e border-sidebar-border bg-sidebar transition-[width] duration-200',
-        collapsed ? 'w-[68px]' : 'w-[220px]',
+        'relative flex flex-col bg-sidebar',
+        variant === 'drawer'
+          ? 'h-full w-full'
+          : 'h-screen h-dvh border-e border-sidebar-border transition-[width] duration-200',
+        variant === 'rail' && (collapsed ? 'w-[68px]' : 'w-[220px]'),
       )}
       style={{ backgroundImage: 'var(--gradient-sidebar)' }}
     >
-      {/* Collapse toggle — centered on the sidebar divider line */}
-      <button
-        onClick={toggleCollapsed}
-        aria-label="toggle sidebar"
-        className="absolute top-1/2 end-0 z-30 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-sidebar-border bg-sidebar text-sidebar-muted-foreground shadow-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground ltr:translate-x-1/2 rtl:-translate-x-1/2"
-      >
-        {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-      </button>
+      {/* Collapse toggle — centered on the sidebar divider line. Rail only:
+          the drawer variant has no collapsed state to toggle into. */}
+      {variant === 'rail' && (
+        <button
+          onClick={toggleCollapsed}
+          aria-label="toggle sidebar"
+          className="absolute top-1/2 end-0 z-30 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-sidebar-border bg-sidebar text-sidebar-muted-foreground shadow-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground ltr:translate-x-1/2 rtl:-translate-x-1/2"
+        >
+          {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+        </button>
+      )}
+
+      {/* Plan status notice — trial countdown / free-plan upgrade prompt. */}
+      {!collapsed && <PlanStatusBanner workspaceId={workspace?.id} />}
 
       {/* Workspace header with dropdown */}
       <div className="relative px-3 pt-3 pb-2" ref={wsMenuRef}>
         <button
           onClick={() =>
-            collapsed ? toggleCollapsed() : isWsAdmin && setWsMenuOpen(!wsMenuOpen)
+            collapsed ? toggleCollapsed() : setWsMenuOpen(!wsMenuOpen)
           }
-          disabled={!collapsed && !isWsAdmin}
           className={cn(
             'flex items-center gap-2.5 w-full rounded-lg px-2 py-2 transition-colors',
-            !collapsed && !isWsAdmin
-              ? 'cursor-default'
-              : 'hover:bg-sidebar-accent/50',
+            'hover:bg-sidebar-accent/50',
           )}
         >
           <div className="relative w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center shrink-0 overflow-hidden ring-1 ring-primary/20 shadow-sm">
@@ -372,15 +418,13 @@ export function AppSidebar() {
                 <p className="text-sm font-semibold text-sidebar-foreground truncate">{companyName}</p>
                 <p className="text-[11px] text-sidebar-muted-foreground truncate">{workspaceDomain}</p>
               </div>
-              {isWsAdmin && (
-                <ChevronDown className={cn('h-3.5 w-3.5 text-sidebar-muted-foreground shrink-0 transition-transform', wsMenuOpen && 'rotate-180')} />
-              )}
+              <ChevronDown className={cn('h-3.5 w-3.5 text-sidebar-muted-foreground shrink-0 transition-transform', wsMenuOpen && 'rotate-180')} />
             </>
           )}
         </button>
 
         {/* Dropdown menu */}
-        {wsMenuOpen && !collapsed && isWsAdmin && (
+        {wsMenuOpen && !collapsed && (
           <div className="absolute start-3 end-3 top-full mt-1 z-50 bg-popover border border-border rounded-xl shadow-xl py-2 animate-fade-in max-h-[60vh] overflow-y-auto">
             {/* Workspace list */}
             {workspaces.map(ws => {
@@ -406,6 +450,7 @@ export function AppSidebar() {
               );
             })}
 
+            {isWsAdmin && (
             <div className="border-t border-border mt-1.5 pt-1.5">
               {wsLimitNotice ? (
                 <div className="mx-1 my-1 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 space-y-2">
@@ -470,6 +515,7 @@ export function AppSidebar() {
                 </div>
               </RouterLink>
             </div>
+            )}
 
             {workspaceDomain && (
               <div className="border-t border-border mt-1.5 pt-1.5">

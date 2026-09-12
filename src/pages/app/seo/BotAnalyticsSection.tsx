@@ -36,6 +36,7 @@ import {
 } from '@/hooks/useBotAnalytics';
 import { BotAnalyticsApiError } from '@/lib/botAnalytics-api';
 import { GradientStatCard } from './SeoPage';
+import { prettyUrl } from '@/lib/prettyUrl';
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip,
 } from 'recharts';
@@ -335,7 +336,7 @@ function CrawledPagesView({ workspaceId, range }: { workspaceId: string; range: 
           <TableBody>
             {(data?.rows || []).map((r) => (
               <TableRow key={r.path}>
-                <TableCell className="max-w-[320px] truncate font-medium" title={r.path}>{r.path}</TableCell>
+                <TableCell className="max-w-[320px] truncate font-medium" dir="ltr" title={prettyUrl(r.path)}>{prettyUrl(r.path)}</TableCell>
                 <TableCell className="text-muted-foreground">{r.topBot}</TableCell>
                 <TableCell className="text-end tabular-nums text-muted-foreground">{formatCompact(r.uniqueBots)}</TableCell>
                 <TableCell className="text-end tabular-nums">{formatCompact(r.visits)}</TableCell>

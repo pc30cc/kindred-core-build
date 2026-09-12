@@ -167,13 +167,6 @@ brandRadarRouter.post('/:workspaceId/ai-visibility/run', requireModule('brand_ra
   if (!settings) return res.status(400).json({ error: 'brand_radar_settings_required' });
   if (topics.length === 0) return res.status(400).json({ error: 'no_topics_configured' });
 
-  if (limits.brand_radar_check_frequency_hours >= 0) {
-    const last = await lastCheckAt(config, workspaceId, 'brand_radar_ai_checks');
-    if (last && hoursSince(last) < limits.brand_radar_check_frequency_hours) {
-      return res.status(403).json({ error: 'frequency_limit', retryAfterHours: Math.ceil(limits.brand_radar_check_frequency_hours - hoursSince(last)) });
-    }
-  }
-
   try {
     const { results, errors } = await runAllTopicsAiVisibility(config, { workspaceId, topics, settings, userId: auth.userId });
     res.json({ results, errors });
@@ -217,13 +210,6 @@ brandRadarRouter.post('/:workspaceId/web-visibility/run', requireModule('brand_r
   if (!settings) return res.status(400).json({ error: 'brand_radar_settings_required' });
   if (!settings.siteId) return res.status(400).json({ error: 'brand_radar_site_required' });
   if (!available) return res.status(503).json({ error: 'rank_tracking_provider_not_configured' });
-
-  if (limits.brand_radar_check_frequency_hours >= 0) {
-    const last = await lastCheckAt(config, workspaceId, 'brand_radar_web_checks');
-    if (last && hoursSince(last) < limits.brand_radar_check_frequency_hours) {
-      return res.status(403).json({ error: 'frequency_limit', retryAfterHours: Math.ceil(limits.brand_radar_check_frequency_hours - hoursSince(last)) });
-    }
-  }
 
   const sb = getServiceClient(config);
   const { data: site } = await sb.from('workspace_domains').select('domain').eq('id', settings.siteId).maybeSingle();

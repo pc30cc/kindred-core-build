@@ -53,7 +53,10 @@ export interface RoutingRule {
 
 
 // ─── Pass B1 types ───
-export type TopicAction = 'label_only' | 'route' | 'trigger_workflow' | 'suggest_reply';
+// 'decline' is the one deterministic, server-enforced action: the engine
+// returns a fixed refusal without ever calling the model (see the built-in
+// "Off-topic" topic and server/services/ai-agent/engine/answerStage.ts).
+export type TopicAction = 'label_only' | 'route' | 'trigger_workflow' | 'suggest_reply' | 'decline';
 
 export interface TopicRecord {
   id: string;

@@ -15,7 +15,16 @@ export type VerificationChannel = 'email' | 'sms';
 
 export type VerificationLocale = 'fa' | 'tr' | 'en';
 
-export type VerificationSubjectKind = 'user' | 'pending_account' | 'anonymous';
+/**
+ * 'commerce_order' — added for the Commerce Integration Platform's guest
+ * order verification (docs/commerce/SECURITY.md §Guest order verification).
+ * Purely additive: existing purposes keep their original subjectBinding
+ * values, and assertPolicyBindings has no exhaustive switch over this type
+ * to update (see its doc comment — only 'user' gets special subjectRef
+ * enforcement; every other kind relies on the destination/subjectRef-hash
+ * consistency the DB layer already enforces across request/resend/verify).
+ */
+export type VerificationSubjectKind = 'user' | 'pending_account' | 'anonymous' | 'commerce_order';
 
 /**
  * Every purpose this core could ever serve. NONE of these are integrated
@@ -36,7 +45,8 @@ export type VerificationPurpose =
   | 'change_email'
   | 'change_phone'
   | 'sensitive_action'
-  | 'workspace_invitation';
+  | 'workspace_invitation'
+  | 'commerce_order_lookup';
 
 export const ALL_VERIFICATION_PURPOSES: readonly VerificationPurpose[] = [
   'signup_email',
@@ -47,6 +57,7 @@ export const ALL_VERIFICATION_PURPOSES: readonly VerificationPurpose[] = [
   'change_phone',
   'sensitive_action',
   'workspace_invitation',
+  'commerce_order_lookup',
 ];
 
 export interface PurposePolicy {
@@ -134,16 +145,26 @@ function clampPolicy(p: PurposePolicy): PurposePolicy {
 }
 
 /**
- * EVERY policy below ships `enabled: false`. This is not a placeholder to
- * be flipped on later by editing a boolean in isolation — enabling a
- * purpose for real use requires: (1) flipping this flag, (2) building and
- * wiring the actual consumer (signup route, password-reset route, etc.)
- * per docs/GENERIC_VERIFICATION_CONSUMER_GUIDE.md, and (3) a deliberate,
- * reviewed deploy. Nothing in this pass does any of that.
+ * Most policies below ship `enabled: false`. A flag is not flipped in
+ * isolation — enabling a purpose for real use requires: (1) flipping this
+ * flag, (2) building and wiring the actual consumer per
+ * docs/GENERIC_VERIFICATION_CONSUMER_GUIDE.md, and (3) a deliberate,
+ * reviewed deploy. The LIVE purposes today are `commerce_order_lookup`
+ * (guest order verification) and `signup_email` (the self-hosted signup
+ * email OTP — server/services/auth/emailOtp.ts, reachable only when the
+ * platform's signup verification method is set to 'otp').
  */
 const RAW_POLICIES: Record<VerificationPurpose, PurposePolicy> = {
   signup_email: {
-    enabled: false,
+    // LIVE consumer: server/services/auth/emailOtp.ts (routes in
+    // server/routes/auth-email.ts). The identity always EXISTS by the time
+    // a code is requested — /api/auth/signup creates profile +
+    // user_credentials first and the client is signed in — so this binds
+    // to a real `user` subject and requires the caller's own session,
+    // rather than the looser 'pending_account'/unauthenticated shape.
+    // That means a code can only ever be requested for, and redeemed by,
+    // the signed-in account it belongs to.
+    enabled: true,
     allowedChannels: ['email'],
     otpLength: 6,
     otpTtlSeconds: 600,
@@ -153,13 +174,14 @@ const RAW_POLICIES: Record<VerificationPurpose, PurposePolicy> = {
     rateWindowSeconds: 3600,
     maxVerificationAttempts: 5,
     proofTtlSeconds: 600,
-    requiresAuth: false,
-    subjectBinding: 'pending_account',
+    requiresAuth: true,
+    subjectBinding: 'user',
     tenantBinding: 'none',
     invalidatesPreviousGeneration: true,
     issuesProof: true,
     globalRateLimit: null,
   },
+
   signup_phone: {
     enabled: false,
     allowedChannels: ['sms'],
@@ -283,6 +305,31 @@ const RAW_POLICIES: Record<VerificationPurpose, PurposePolicy> = {
     proofTtlSeconds: 600,
     requiresAuth: false,
     subjectBinding: 'anonymous',
+    tenantBinding: 'required',
+    invalidatesPreviousGeneration: true,
+    issuesProof: true,
+    globalRateLimit: null,
+  },
+  commerce_order_lookup: {
+    // The Commerce Integration Platform's ONE real, active consumer of this
+    // core (docs/commerce/SECURITY.md §Guest order verification) — every
+    // other purpose above remains a dormant registry placeholder. The
+    // visitor is anonymous; contact-match is verified against the live
+    // WooCommerce order BEFORE this challenge is ever issued (see
+    // CommerceConnector.verifyOrderContactMatch) — order number alone is
+    // never sufficient (spec §29).
+    enabled: true,
+    allowedChannels: ['email', 'sms'],
+    otpLength: 6,
+    otpTtlSeconds: 300,
+    deliveryRetryWindowSeconds: 600,
+    resendCooldownSeconds: 60,
+    maxSendsPerWindow: 3,
+    rateWindowSeconds: 1800,
+    maxVerificationAttempts: 5,
+    proofTtlSeconds: 900,
+    requiresAuth: false,
+    subjectBinding: 'commerce_order',
     tenantBinding: 'required',
     invalidatesPreviousGeneration: true,
     issuesProof: true,

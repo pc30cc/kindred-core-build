@@ -4,7 +4,7 @@ import { useAiAgentCapabilities } from '@/hooks/useAiAgentCapabilities';
 import { useIsGlobalAdmin } from '@/hooks/useAdmin';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
-import { Bot, LayoutDashboard, BookOpen, Sliders, Sparkles, Activity, Settings as SettingsIcon, Power } from 'lucide-react';
+import { Bot, LayoutDashboard, BookOpen, Sliders, Sparkles, Activity, Settings as SettingsIcon, Power, ScrollText } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import { PlanAccessGate } from '@/components/plan/PlanAccessGate';
 import { AI_ACCENT, type AiAccent } from '@/components/ai-agent/AiPageHeader';
@@ -19,6 +19,7 @@ const groups: NavGroup[] = [
       { key: 'activation', label: 'Activation', subPath: '/ai-agent/activation', icon: Power, accent: 'emerald' },
       { key: 'knowledge', label: 'Knowledge Sources', subPath: '/ai-agent/knowledge', icon: BookOpen, accent: 'cyan' },
       { key: 'behavior', label: 'Behavior', subPath: '/ai-agent/behavior', icon: Sliders, accent: 'violet' },
+      { key: 'instructions', label: 'Instructions', subPath: '/ai-agent/instructions', icon: ScrollText, accent: 'violet' },
       { key: 'operatorAssist', label: 'Operator Assist', subPath: '/ai-agent/operator-assist', icon: Sparkles, accent: 'amber' },
       { key: 'activity', label: 'Activity', subPath: '/ai-agent/activity', icon: Activity, accent: 'sky' },
       { key: 'settings', label: 'Settings', subPath: '/ai-agent/settings', icon: SettingsIcon, accent: 'rose' },

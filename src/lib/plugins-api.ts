@@ -259,6 +259,29 @@ export const pluginsApi = {
       },
     ),
 
+  /**
+   * X (Twitter) Direct Messages connects with OAuth 1.0a User Context: an
+   * app key/secret plus a per-account access token/secret, stored in the
+   * same encrypted slot as every other channel's credential.
+   */
+  xConnect: (
+    workspaceId: string,
+    input: { apiKey: string; apiSecret: string; accessToken: string; accessTokenSecret: string },
+  ) =>
+    jsonFetch<{ ok: true; bot: { id: number; username: string | null; firstName: string | null }; webhookUrl: string }>(
+      '/api/plugins/bot/x/connect',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          workspace_id: workspaceId,
+          api_key: input.apiKey,
+          api_secret: input.apiSecret,
+          access_token: input.accessToken,
+          access_token_secret: input.accessTokenSecret,
+        }),
+      },
+    ),
+
   telegramDiagnostics: (workspaceId: string, provider = 'telegram') =>
     jsonFetch<Record<string, unknown>>(`/api/plugins/bot/${provider}/diagnostics`, {
       method: 'POST',

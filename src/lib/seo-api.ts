@@ -425,6 +425,10 @@ export function removeTrackedKeyword(workspaceId: string, keywordId: string) {
   return api<{ ok: boolean }>(`/api/seo/${workspaceId}/tracked-keywords/${keywordId}`, { method: 'DELETE' });
 }
 
+export function checkTrackedKeywordNow(workspaceId: string, keywordId: string) {
+  return api<{ keyword: SeoTrackedKeyword }>(`/api/seo/${workspaceId}/tracked-keywords/${keywordId}/check`, { method: 'POST' });
+}
+
 export function listRankChecks(workspaceId: string, keywordId: string, opts: { limit?: number } = {}) {
   return api<{ checks: SeoRankCheck[] }>(`/api/seo/${workspaceId}/tracked-keywords/${keywordId}/checks${qs(opts)}`);
 }

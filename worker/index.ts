@@ -8,6 +8,7 @@
  *
  *   intelligence            → AI KB Builder (public.ai_kb_jobs)
  *   source-sync             → Data Hub source sync (public.ai_source_sync_jobs)
+ *   commerce-sync           → Commerce catalog sync (public.commerce_sync_jobs)
  *   seo-crawler,channels    → e.g. these two kinds sharing one container
  *   invitations             → a different kind in another container
  *   all                     → every loop in the same process (dev/small deploys only)
@@ -36,6 +37,7 @@ const ALLOWED = new Set([
   'channels',
   'invitations',
   'seo-crawler',
+  'commerce-sync',
   'all',
 ]);
 
@@ -70,6 +72,10 @@ async function main() {
   if (runs('regression-runner')) {
     const mod = await import('./regression-runner/index.js');
     mod.startRegressionWorker?.();
+  }
+  if (runs('commerce-sync')) {
+    const mod = await import('./commerce-sync/index.js');
+    mod.startCommerceSyncWorker?.();
   }
   if (runs('channels')) {
     const mod = await import('./channels/index.js');

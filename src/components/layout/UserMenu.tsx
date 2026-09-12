@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  AlertCircle, Bell, EyeOff, Check, Clock, UserCog, Building2,
+  Bell, EyeOff, Check, Clock, UserCog, Building2,
   UserPlus, HelpCircle, Sparkles, LogOut, ChevronDown, ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -63,7 +63,6 @@ export function UserMenu() {
     '';
   const userEmail = (user?.email as string | undefined) || '';
   const userName = fullName || userEmail.split('@')[0] || '';
-  const emailVerified = !!(user as any)?.emailVerified;
   const userAvatarUrl = ((profile as any)?.avatar_url as string | null | undefined) || '';
 
   const itemCls =
@@ -73,7 +72,7 @@ export function UserMenu() {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2.5 rounded-2xl border border-border/60 bg-muted/40 px-2.5 py-2 transition-colors hover:bg-muted"
+        className="flex items-center gap-2.5 rounded-2xl px-1 py-1 transition-colors"
       >
         <div className="relative">
           <Avatar className="h-10 w-10 shrink-0">
@@ -90,7 +89,7 @@ export function UserMenu() {
           </p>
           <p className="max-w-[150px] truncate text-[11px] text-muted-foreground">{userName}</p>
         </div>
-        <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', open && 'rotate-180')} />
+        <ChevronDown strokeWidth={3} className={cn('h-6 w-6 text-foreground transition-transform', open && 'rotate-180')} />
       </button>
 
       {open && (
@@ -108,19 +107,8 @@ export function UserMenu() {
             </div>
           </div>
 
-          {!emailVerified && (
-            <>
-              <RouterLink
-                to="/auth/verify-email"
-                onClick={() => setOpen(false)}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-accent"
-              >
-                <AlertCircle className="h-5 w-5 shrink-0 text-warning" />
-                <span className="font-medium text-warning">{t('auth.verifyEmail')}</span>
-              </RouterLink>
-              <div className="my-1 border-t border-border" />
-            </>
-          )}
+
+
 
           <RouterLink to={wsPath('/settings/notifications')} onClick={() => setOpen(false)} className={itemCls}>
             <Bell className="h-5 w-5 text-muted-foreground" />

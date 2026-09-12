@@ -161,13 +161,13 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     hosted: 'supabase/migrations/20260910120000_brand_radar.sql',
   },
   {
-    label: '148 — SEO Rank Tracking Competitors',
-    selfHost: 'database/migrations/148_rank_tracking_competitors.sql',
+    label: '161 — SEO Rank Tracking Competitors',
+    selfHost: 'database/migrations/161_rank_tracking_competitors.sql',
     hosted: 'supabase/migrations/20260912090000_rank_tracking_competitors.sql',
   },
   {
-    label: '149 — SEO Site Explorer Competing Domains',
-    selfHost: 'database/migrations/149_seo_explorer_competing_domains.sql',
+    label: '162 — SEO Site Explorer Competing Domains',
+    selfHost: 'database/migrations/162_seo_explorer_competing_domains.sql',
     hosted: 'supabase/migrations/20260912100000_seo_explorer_competing_domains.sql',
   },
 

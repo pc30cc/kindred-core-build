@@ -23,6 +23,7 @@ import { insertAiMessage, deriveAgentDisplay } from '../responder.js';
 import { markAiManaged, commitNeedsHuman, routeAfterHandoff, type HandoffCommit } from '../handoffState.js';
 import { updateRuntimeFlags } from '../runtime/conversationState.js';
 import { pickTemplate } from '../runtime/templates.js';
+import { runSemanticOffTopicGuard } from '../topics/semanticGuard.js';
 import {
   evaluateRoutingRulesForTriggerTypes, applyStrictKbApplicability, rewriteKeepAiToSkip,
   buildRoutingMetadata, mergeRoutingMetadata, POST_STRATEGY_ROUTING_TRIGGER_TYPES,
@@ -104,6 +105,77 @@ export async function runAnswerStage(
     runtime_warnings: runtimeCfg?.warnings || [],
     page_context: pageContextMetaRef,
   } as Record<string, unknown>);
+
+  // ─── Deterministic + semantic off-topic decline — NEVER calls the main
+  // answer model ───────────────────────────────────────────────────────
+  // A topic configured with action: 'decline' (see topics/defaults.ts —
+  // the built-in "Off-topic" topic for politics/war/religion) is the one
+  // server-enforced gate in the topic system: every other TopicAction is
+  // advisory metadata that still lets the LLM see and answer the turn.
+  // Both layers below converge on the exact same fixed reply and both run
+  // BEFORE decideStrategy/retrieval-driven answer logic, so a matching
+  // turn never reaches the generation stage's answer-model provider call.
+  const sendOffTopicDecline = async (reason: 'topic_decline' | 'topic_decline_semantic', extra?: Record<string, unknown>) => {
+    const body = pickTemplate('off_topic_decline', locale);
+    const runId = await logRun(config, {
+      workspaceId, conversationId, visitorMessageId,
+      runType: 'auto_reply', mode: settings.mode, status: 'replied',
+      inputText: question, outputText: body,
+      kbArticleIds: [], confidence: 1,
+      metadata: {
+        ...baseRuntimeMeta(),
+        answer_strategy: { decision_type: 'declined', reason, ...(extra || {}) },
+        locale, language: languageMeta, retrieval: queryMeta,
+      },
+    });
+    const display = deriveAgentDisplay(settings);
+    const inserted = await insertAiMessage(config, {
+      workspaceId, conversationId, body, source: 'ai_agent', runId,
+      mode: settings.mode, kbArticleIds: [], qnaIds: [],
+      confidence: 1, provider: null, model: null, handoff: false,
+      agentName: display.agentName, agentLogoUrl: display.agentLogoUrl,
+    });
+    await markAiManaged(config, { workspaceId, conversationId }).catch(() => {});
+    return { terminal: { ran: true, action: 'replied' as const, runId, messageId: inserted.id } };
+  };
+
+  // Layer 1 — deterministic keyword/example match (./topics/detector.ts).
+  // Zero cost, zero latency, no network dependency: catches the obvious
+  // cases and is the ONLY layer that still works if the AI provider is
+  // down or the workspace is out of credits.
+  if (ctxStage.topTopicAction === 'decline' && decision.canAutoReply) {
+    return sendOffTopicDecline('topic_decline');
+  }
+
+  // Layer 2 — semantic guard (./topics/semanticGuard.ts), one small
+  // temperature-0 classifier call. Only runs when layer 1 found NO topic
+  // at all for this turn (a message that already matched some other
+  // configured topic, e.g. pricing/support, is clearly on-topic — spending
+  // a second provider call on it would be pure waste) AND the workspace
+  // has at least one 'decline' topic configured (nothing to enforce
+  // otherwise). Paraphrases and multi-turn drift that the keyword layer
+  // cannot see are exactly what this layer exists to catch.
+  if (decision.canAutoReply && !ctxStage.topTopicSlug) {
+    const declineTopics = (runtimeCfg?.topics || [])
+      .filter((t) => t.enabled && t.action === 'decline')
+      .map((t) => ({ name: t.name, description: t.description }));
+    if (declineTopics.length) {
+      const verdict = await runSemanticOffTopicGuard(config, {
+        workspaceId,
+        question,
+        businessName: ctxStage.workspaceName,
+        declineTopics,
+        recentTurns: built.contextTurns || [],
+      });
+      if (verdict?.offTopic) {
+        decisionTimeline.push('topic_decline_semantic');
+        return sendOffTopicDecline('topic_decline_semantic', {
+          semantic_matched_category: verdict.matchedCategory,
+          semantic_confidence: verdict.confidence,
+        });
+      }
+    }
+  }
 
   const clarificationAttemptCount = await countClarificationAttempts(sb, conversationId);
   const strategy = decideStrategy({

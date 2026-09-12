@@ -7,10 +7,11 @@ import { usePlatformBrandingForLocale } from '@/hooks/usePublicBranding';
 import { LanguageSelector } from '@/components/auth/LanguageSelector';
 import SignupStepAccount from '@/components/auth/SignupStepAccount';
 import SignupStepCompany from '@/components/auth/SignupStepCompany';
-import SignupStepAI from '@/components/auth/SignupStepAI';
 import signupIllustration from '@/assets/signup-illustration.jpg';
+import { fetchSignupPolicy } from '@/lib/emailOtp';
 
-const TOTAL_STEPS = 3;
+
+const TOTAL_STEPS = 2;
 
 export default function SignupPage() {
   const [params] = useSearchParams();
@@ -32,8 +33,6 @@ export default function SignupPage() {
   // Step 2 fields
   const [companyName, setCompanyName] = useState('');
   const [websiteDomain, setWebsiteDomain] = useState('');
-  const [mainGoal, setMainGoal] = useState('');
-  const [aiMode, setAiMode] = useState<'ai_first' | 'human_first' | ''>('');
 
   const [loading, setLoading] = useState(false);
 
@@ -54,17 +53,10 @@ export default function SignupPage() {
     setStep(2);
   };
 
-  // Step 2: validate & go to step 3
-  const handleStep2 = (e: React.FormEvent) => {
+  // Step 2: register + create workspace
+  const handleStep2 = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!companyName.trim()) return;
-    setStep(3);
-  };
-
-  // Step 3: register + create workspace
-  const handleStep3 = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!aiMode) return;
 
     setLoading(true);
     const trimmedEmail = email.trim().toLowerCase();
@@ -76,7 +68,7 @@ export default function SignupPage() {
         fullName: fullName || undefined,
         website: websiteDomain.trim(),
         locale,
-        metadata: { locale, companyName: companyName.trim(), websiteDomain: websiteDomain.trim(), mainGoal, aiMode },
+        metadata: { locale, companyName: companyName.trim(), websiteDomain: websiteDomain.trim() },
       });
       if (error) {
         // Generic by design: the backend never reveals whether an existing
@@ -107,7 +99,25 @@ export default function SignupPage() {
       }
 
       toast.success(t('auth.signupSuccess'));
-      navigate(params.get('redirect') || '/app');
+
+      // WHERE the new user lands is the operator's choice, resolved
+      // server-side (Super Admin → Branding → Settings):
+      //   otp    → the 6-digit code screen (no link is ever mailed).
+      //   after  → straight into the app; the existing bottom banner
+      //            keeps asking them to verify.
+      //   before → the classic "check your inbox" screen, because no
+      //            workspace can exist until the link is clicked.
+      const policy = await fetchSignupPolicy();
+      if (policy.gate === 'after') {
+        // Gate `after` always lands in the workspace; the bottom banner
+        // drives verification (code dialog in OTP mode, resend in link mode).
+        navigate('/app');
+      } else if (policy.method === 'otp') {
+        navigate('/auth/verify-otp');
+      } else {
+        navigate(`/auth/check-email?email=${encodeURIComponent(trimmedEmail)}`);
+      }
+
     } catch (err: any) {
       toast.error(t('auth.signupFailed'), { description: err?.message });
     } finally {
@@ -117,15 +127,11 @@ export default function SignupPage() {
 
   const stepTitle = step === 1
     ? t('auth.signupStep1Title')
-    : step === 2
-    ? t('auth.signupStep2Title')
-    : t('auth.signupStep3Title');
+    : t('auth.signupStep2Title');
 
   const stepSubtitle = step === 1
-    ? t('auth.signupStep1Subtitle', { brand: brandName })
-    : step === 2
-    ? t('auth.signupStep2Subtitle')
-    : t('auth.step3Subtitle');
+    ? t('auth.signupStep1Subtitle')
+    : t('auth.signupStep2Subtitle');
 
   return (
     <div className="fixed inset-0 flex" dir={dir}>
@@ -207,15 +213,7 @@ export default function SignupPage() {
               <SignupStepCompany
                 companyName={companyName} setCompanyName={setCompanyName}
                 websiteDomain={websiteDomain} setWebsiteDomain={setWebsiteDomain}
-                mainGoal={mainGoal} setMainGoal={setMainGoal}
-                loading={false} onSubmit={handleStep2} brandName={brandName}
-              />
-            )}
-
-            {step === 3 && (
-              <SignupStepAI
-                aiMode={aiMode} setAiMode={setAiMode}
-                loading={loading} onSubmit={handleStep3} brandName={brandName}
+                loading={loading} onSubmit={handleStep2} brandName={brandName}
               />
             )}
           </div>

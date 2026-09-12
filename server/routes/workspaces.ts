@@ -33,6 +33,9 @@ import { requireUser, authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
 import { assertPhoneVerificationSatisfied } from '../services/phoneVerification/index.js';
 import { PhoneVerificationError } from '../services/phoneVerification/types.js';
 import { isEmailVerified } from '../services/auth/identity.js';
+import { getSignupVerificationPolicy } from '../services/auth/signupPolicy.js';
+import { applySignupPlanToWorkspace } from '../services/billing/signupPlan.js';
+
 import { checkEntitlementFromDB } from '../middleware/featureGating.js';
 import { getCapability } from '../services/billing/capabilityRegistry.js';
 import { invalidateOriginHostCache, invalidateWorkspaceOriginCache } from '../services/widget/public.js';
@@ -137,13 +140,36 @@ workspacesRouter.post('/provision-account', async (req, res) => {
   // Same NEW-signup policy as POST / above: provisioning the first-run
   // account/workspace makes this user its owner, so it must not be
   // reachable as a verification bypass for that same policy.
-  if (!(await isEmailVerified(config, userId))) {
+  //
+  // EXCEPTION — and only here: when the operator has set the signup gate to
+  // 'after', first-run provisioning is exactly the step that is meant to
+  // happen before verification, with the in-app banner driving the user to
+  // verify afterwards. Every OTHER owner-creating path (POST /, extra
+  // workspaces, invitations) keeps the hard gate regardless of this policy.
+  const signupPolicy = await getSignupVerificationPolicy(config);
+  if (signupPolicy.gate !== 'after' && !(await isEmailVerified(config, userId))) {
     return res.status(403).json({ error: 'email_verification_required' });
   }
+
 
   const sb = getServiceClient(config);
   const { error } = await sb.rpc('provision_account_on_signup', { _user_id: userId });
   if (error) return res.status(500).json({ error: error.message });
+
+  // NEW signups only: give the freshly created workspace its starting plan
+  // (trial or free) per the platform policy. Never touches a workspace that
+  // already has a subscription, so changing the setting is not retroactive.
+  const { data: ownWs } = await sb
+    .from('workspaces')
+    .select('id')
+    .eq('owner_id', userId)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (ownWs?.id) {
+    try { await applySignupPlanToWorkspace(config, (ownWs as { id: string }).id); }
+    catch (e) { console.error('[provision-account] signup plan failed:', e); }
+  }
   return res.json({ ok: true });
 });
 

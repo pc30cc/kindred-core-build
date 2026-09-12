@@ -103,6 +103,7 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   // transactional/SMTP sending (server/routes/email.ts) and unrelated to
   // this real inbound+outbound Gmail mailbox.
   { key: 'gmail',       type: 'channel', label: 'Gmail',       group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 66 },
+  { key: 'yahoomail',   type: 'channel', label: 'Yahoo Mail',  group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 67 },
   { key: 'voice',       type: 'channel', label: 'Voice Calls', group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 70 },
   { key: 'video',       type: 'channel', label: 'Video Calls', group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 80 },
 

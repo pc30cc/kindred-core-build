@@ -54,6 +54,11 @@ export const CHANNEL_JOB_TYPES = [
   // never a credential. Outbound is a reply composed in the Email Inbox UI.
   'gmail_sync_inbox',
   'gmail_outbound_message',
+  // Yahoo Mail (Email Inbox, phase 2). Yahoo has no push webhook for
+  // third-party IMAP apps, so inbound is a self-rescheduling poll loop
+  // exactly like `x_poll_dm_events` — see worker/channels/index.ts.
+  'yahoo_poll_inbox',
+  'yahoo_outbound_message',
   // Provider-network-isolated work. Everything that must touch a provider
   // socket runs through these, executed exclusively by the Channels Worker.
   'provider_operation',

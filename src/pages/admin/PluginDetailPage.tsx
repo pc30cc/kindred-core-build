@@ -23,6 +23,7 @@ import { ChannelsRuntimePanel } from '@/components/plugins/ChannelsRuntimePanel'
 import { ChannelsWorkerStatus } from '@/components/plugins/ChannelsWorkerStatus';
 import { PluginLogsTable } from '@/components/plugins/PluginLogsTable';
 import { GmailAdminSetupCard } from '@/components/plugins/GmailAdminSetupCard';
+import { YahooAdminSetupCard } from '@/components/plugins/YahooAdminSetupCard';
 import { ArrowLeft, ArrowRight, Plug } from 'lucide-react';
 
 const ROLLOUT_OPTIONS: PluginRolloutStatus[] = ['hidden', 'coming_soon', 'beta', 'public'];
@@ -105,6 +106,7 @@ export default function AdminPluginDetailPage() {
 
       {item.category === 'channels' && <ChannelsWorkerStatus />}
       {item.id === 'gmail' && <GmailAdminSetupCard />}
+      {item.id === 'yahoomail' && <YahooAdminSetupCard />}
 
       <Tabs defaultValue="policy" className="space-y-4" dir={dir}>
         <TabsList>

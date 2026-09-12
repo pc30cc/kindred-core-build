@@ -227,9 +227,30 @@ export const PLUGIN_REGISTRY: readonly PluginDefinition[] = Object.freeze([
     planModuleKey: null,
     planChannelKey: 'gmail',
   },
-  // Yahoo Mail — phase 2 (IMAP+XOAUTH2 polling + SMTP+XOAUTH2), not built yet.
-  // Feeds the SAME Email Inbox schema/UI as Gmail once it lands.
-  comingSoon('yahoomail', 'channels'),
+  {
+    // Yahoo Mail — feeds the SAME Email Inbox schema/UI as Gmail
+    // (email_threads/email_messages/email_attachments), but via IMAP+SMTP
+    // XOAUTH2 (server/services/channels/yahoo/, channels/providers/yahoo/)
+    // instead of a REST API + Pub/Sub push: Yahoo exposes no equivalent
+    // webhook for third-party apps, so inbound is a self-rescheduling IMAP
+    // poll (worker/channels/index.ts's `yahoo_poll_inbox`, mirroring
+    // `x_poll_dm_events`) rather than a push route.
+    id: 'yahoomail',
+    slug: 'yahoomail',
+    version: '1.0.0',
+    category: 'channels',
+    status: 'available',
+    capabilities: ['inbound_text', 'inbound_media', 'outbound_text', 'outbound_media'],
+    workspaceInstallable: true,
+    hasSettings: false,
+    hasSecrets: true,
+    supportsInbox: false,
+    supportsAI: false,
+    supportsMedia: true,
+    supportsWebhook: false,
+    planModuleKey: null,
+    planChannelKey: 'yahoomail',
+  },
   comingSoon('slack', 'channels'),
   comingSoon('discord', 'channels'),
   comingSoon('sms', 'channels'),

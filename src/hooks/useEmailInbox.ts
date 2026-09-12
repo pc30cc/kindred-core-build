@@ -12,6 +12,9 @@ import {
   getGmailConnection,
   startGmailOAuth,
   disconnectGmail,
+  getYahooConnection,
+  startYahooOAuth,
+  disconnectYahoo,
   type SendEmailInput,
 } from '@/lib/emailInbox-api';
 
@@ -90,6 +93,30 @@ export function useDisconnectGmail(workspaceId?: string) {
     mutationFn: () => disconnectGmail(workspaceId!),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['gmail-connection', workspaceId] });
+    },
+  });
+}
+
+export function useYahooConnection(workspaceId?: string) {
+  return useQuery({
+    queryKey: ['yahoo-connection', workspaceId],
+    queryFn: () => getYahooConnection(workspaceId!),
+    enabled: !!workspaceId,
+  });
+}
+
+export function useStartYahooOAuth(workspaceId?: string) {
+  return useMutation({
+    mutationFn: () => startYahooOAuth(workspaceId!),
+  });
+}
+
+export function useDisconnectYahoo(workspaceId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => disconnectYahoo(workspaceId!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['yahoo-connection', workspaceId] });
     },
   });
 }

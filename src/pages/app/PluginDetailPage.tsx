@@ -21,6 +21,7 @@ import { pluginsApi } from '@/lib/plugins-api';
 import { TelegramConfigPanel } from '@/components/plugins/TelegramConfigPanel';
 import { WooCommerceConfigPanel } from '@/components/plugins/WooCommerceConfigPanel';
 import { GmailConfigPanel } from '@/components/plugins/GmailConfigPanel';
+import { YahooConfigPanel } from '@/components/plugins/YahooConfigPanel';
 import { PluginLogo } from '@/components/plugins/PluginLogo';
 import { findBotProvider } from '../../../shared/channels/botProviders';
 
@@ -188,6 +189,8 @@ export default function PluginDetailPage() {
         <WooCommerceConfigPanel workspaceId={workspaceId} />
       ) : pluginId === 'gmail' && !blocked ? (
         <GmailConfigPanel workspaceId={workspaceId} />
+      ) : pluginId === 'yahoomail' && !blocked ? (
+        <YahooConfigPanel workspaceId={workspaceId} />
       ) : (
         !blocked && (
           <Card className="p-10 text-center text-sm text-muted-foreground">

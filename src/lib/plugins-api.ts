@@ -351,6 +351,13 @@ export const adminPluginsApi = {
       fullyConfigured: boolean;
     }>('/api/plugins/admin/gmail/env-status'),
 
+  yahooEnvStatus: () =>
+    jsonFetch<{
+      yahooOAuthClientConfigured: boolean;
+      yahooRedirectUriConfigured: boolean;
+      fullyConfigured: boolean;
+    }>('/api/plugins/admin/yahoo/env-status'),
+
   channelIntegrations: () =>
     jsonFetch<{ items: ChannelIntegrationRow[] }>('/api/plugins/admin/channels/integrations'),
 

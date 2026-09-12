@@ -43,6 +43,15 @@ import {
 } from '../services/channels/gmail/oauth.js';
 import { isGmailError } from '../services/channels/gmail/types.js';
 import { getGmailPlatformEnvStatus } from '../services/channels/gmail/oauthConfig.js';
+import { getYahooPlatformEnvStatus } from '../services/channels/yahoo/oauthConfig.js';
+import {
+  startYahooOAuth,
+  handleYahooOAuthCallback,
+  getYahooConnectionInfo,
+  disconnectYahoo,
+  isYahooPlatformConfigured,
+} from '../services/channels/yahoo/oauth.js';
+import { isYahooError } from '../services/channels/yahoo/types.js';
 
 import {
   buildWebhookUrl,
@@ -933,6 +942,11 @@ adminPluginsRouter.get('/gmail/env-status', async (req: any, res) => {
   res.json(getGmailPlatformEnvStatus());
 });
 
+/** GET /admin/yahoo/env-status — same secret-free contract as Gmail's. */
+adminPluginsRouter.get('/yahoo/env-status', async (req: any, res) => {
+  res.json(getYahooPlatformEnvStatus());
+});
+
 adminPluginsRouter.get('/channels/integrations', async (req: any, res) => {
   try {
     const sb = getServiceClient(serverConfigOf(req));
@@ -1201,5 +1215,103 @@ pluginsRouter.post('/gmail/disconnect', async (req: any, res) => {
     res.json({ ok: true });
   } catch (err) {
     sendGmailError(res, err);
+  }
+});
+
+// ── Yahoo Mail (OAuth email channel, phase 2) ───────────────────────────
+//
+// Same OAuth2-redirect shape as Gmail above, but its own app/credentials
+// (server/services/channels/yahoo/oauthConfig.ts) — Yahoo has no equivalent
+// of GSC's already-configured Google Client to reuse.
+
+function yahooErrorStatus(code: string): number {
+  switch (code) {
+    case 'yahoo_not_configured':
+    case 'yahoo_not_connected':
+      return 409;
+    case 'yahoo_invalid_state':
+    case 'yahoo_auth_failed':
+    case 'yahoo_token_revoked':
+      return 401;
+    case 'yahoo_account_already_connected':
+      return 409;
+    case 'yahoo_timeout':
+    case 'yahoo_network_error':
+      return 502;
+    default:
+      return 500;
+  }
+}
+
+function sendYahooError(res: any, err: unknown) {
+  if (isYahooError(err)) {
+    return res.status(yahooErrorStatus(err.code)).json({ error: err.code, message: err.message, detail: err.detail });
+  }
+  console.error('[plugins] yahoo unexpected error:', err);
+  res.status(500).json({ error: 'yahoo_unexpected_error', detail: (err as Error)?.message });
+}
+
+pluginsRouter.get('/yahoo/connection', async (req: any, res) => {
+  const workspaceId = String(req.query.workspace_id || '');
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  try {
+    const connection = await getYahooConnectionInfo(serverConfigOf(req), workspaceId);
+    res.json({ connection, platformConfigured: isYahooPlatformConfigured() });
+  } catch (err) {
+    sendYahooError(res, err);
+  }
+});
+
+pluginsRouter.post('/yahoo/oauth/start', async (req: any, res) => {
+  const workspaceId = String(req.body?.workspace_id || '');
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
+  const auth = await requireManager(req, res, workspaceId);
+  if (!auth) return;
+  try {
+    const availability = await resolveAvailability(req, workspaceId, 'yahoomail');
+    if (!availability.ok) return res.status(403).json({ error: 'Plugin unavailable', reason: availability.reason });
+    const result = await startYahooOAuth(serverConfigOf(req), workspaceId, auth.userId);
+    res.json(result);
+  } catch (err) {
+    sendYahooError(res, err);
+  }
+});
+
+// NOT workspace-scoped — same reasoning as Gmail's callback above.
+pluginsRouter.get('/yahoo/oauth/callback', async (req: any, res) => {
+  const config = serverConfigOf(req);
+  const code = typeof req.query.code === 'string' ? req.query.code : '';
+  const state = typeof req.query.state === 'string' ? req.query.state : '';
+  const appBaseUrl = await resolveAppBaseUrl(config);
+
+  if (!code || !state) {
+    return res.redirect(`${appBaseUrl}/app/email?yahoo=error&reason=missing_params`);
+  }
+  try {
+    const { workspaceId } = await handleYahooOAuthCallback(config, code, state);
+    const sb = getServiceClient(config);
+    const { data: ws } = await sb.from('workspaces').select('slug').eq('id', workspaceId).maybeSingle();
+    const slug = (ws as { slug?: string } | null)?.slug;
+    const base = slug ? `${appBaseUrl}/${slug}` : `${appBaseUrl}/app`;
+    return res.redirect(`${base}/email?yahoo=connected`);
+  } catch (err) {
+    const code2 = isYahooError(err) ? err.code : 'yahoo_unexpected_error';
+    console.error(`[yahoo] oauth callback failed: ${code2}${isYahooError(err) ? '' : ` (${(err as Error)?.message || 'no message'})`}`);
+    return res.redirect(`${appBaseUrl}/app/email?yahoo=error&reason=${encodeURIComponent(code2)}`);
+  }
+});
+
+pluginsRouter.post('/yahoo/disconnect', async (req: any, res) => {
+  const workspaceId = String(req.body?.workspace_id || '');
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
+  const auth = await requireManager(req, res, workspaceId);
+  if (!auth) return;
+  try {
+    await disconnectYahoo(serverConfigOf(req), workspaceId);
+    res.json({ ok: true });
+  } catch (err) {
+    sendYahooError(res, err);
   }
 });

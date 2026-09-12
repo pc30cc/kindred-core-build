@@ -40,6 +40,13 @@ import {
   type GmailOutboundMessage,
 } from '../../channels/providers/gmail/client.js';
 import { GMAIL_REFRESH_TOKEN_KEY } from '../../shared/channels/gmailKeys.js';
+import {
+  createYahooAdapter,
+  pollYahooInbox,
+  sendViaYahooSmtp,
+  type YahooOutboundMessage,
+} from '../../channels/providers/yahoo/client.js';
+import { YAHOO_REFRESH_TOKEN_KEY } from '../../shared/channels/yahooKeys.js';
 import { botApiFor } from './botApi.js';
 import {
   CORE_INTERNAL_SERVICE_NAME,
@@ -62,6 +69,10 @@ const POLL_INTERVAL_MS = parseInt(process.env.CHANNELS_POLL_INTERVAL_MS || '1500
 // conservative by default to stay well inside typical per-account DM rate
 // limits; raise it only against a verified quota.
 const X_POLL_INTERVAL_MS = parseInt(process.env.CHANNELS_X_POLL_INTERVAL_MS || '60000', 10);
+// Yahoo Mail has no push webhook for third-party IMAP apps either, so the
+// Worker polls IMAP on this cadence — the user chose 60-90s for this
+// feature; 75s splits the difference.
+const YAHOO_POLL_INTERVAL_MS = parseInt(process.env.CHANNELS_YAHOO_POLL_INTERVAL_MS || '75000', 10);
 const BATCH_SIZE = parseInt(process.env.CHANNELS_BATCH_SIZE || '10', 10);
 const LEASE_SECONDS = parseInt(process.env.CHANNELS_LEASE_SECONDS || '120', 10);
 // 45s (was 15s): the heartbeat row is a single UPSERT per worker, so a 15s
@@ -102,6 +113,25 @@ function gmailOAuthConfigOrThrow(): { clientId: string; clientSecret: string; re
   // Core-side authorization-code exchange needs it) — a placeholder keeps
   // the adapter's config shape satisfied without duplicating the real value.
   return { clientId, clientSecret, redirectUri: 'urn:gmail-worker:not-used' };
+}
+
+/**
+ * Yahoo's token refresh call includes `redirect_uri` in the request body
+ * (per Yahoo's documented OAuth contract — see channels/providers/yahoo/
+ * client.ts's header), so unlike Gmail's helper above the Worker needs the
+ * REAL YAHOO_OAUTH_REDIRECT_URI, not a placeholder.
+ */
+function yahooOAuthConfigOrThrow(): { clientId: string; clientSecret: string; redirectUri: string } {
+  const clientId = process.env.YAHOO_OAUTH_CLIENT_ID?.trim();
+  const clientSecret = process.env.YAHOO_OAUTH_CLIENT_SECRET?.trim();
+  const redirectUri = process.env.YAHOO_OAUTH_REDIRECT_URI?.trim();
+  if (!clientId || !clientSecret || !redirectUri) {
+    throw Object.assign(
+      new Error('YAHOO_OAUTH_CLIENT_ID/YAHOO_OAUTH_CLIENT_SECRET/YAHOO_OAUTH_REDIRECT_URI are not configured on the Channels Worker'),
+      { permanent: true },
+    );
+  }
+  return { clientId, clientSecret, redirectUri };
 }
 
 let sb: SupabaseClient;
@@ -403,11 +433,11 @@ async function handleJob(job: ChannelJob): Promise<void> {
 
   // Every Telegram-compatible bot channel shares these handlers; the API root
   // and capability flags come from the provider descriptor, never from a
-  // branch in the handler body. Gmail (and, in a later phase, Yahoo) is not
-  // a bot-dialect provider at all — `botProvider()` throws for it — so this
-  // whole setup is skipped for its job types and resolved lazily inside
-  // their own case blocks below instead.
-  const isBotDialectJob = job.provider !== 'gmail';
+  // branch in the handler body. Gmail and Yahoo are not bot-dialect
+  // providers at all — `botProvider()` throws for them — so this whole
+  // setup is skipped for their job types and resolved lazily inside their
+  // own case blocks below instead.
+  const isBotDialectJob = job.provider !== 'gmail' && job.provider !== 'yahoo';
   const bot = isBotDialectJob ? findBotProvider(job.provider) : null;
   // Protocol translation lives behind this dispatcher; handlers below stay
   // dialect-agnostic (Telegram Bot API and WhatsApp Cloud alike).
@@ -635,6 +665,164 @@ async function handleJob(job: ChannelJob): Promise<void> {
       } catch (err) {
         console.error('[channels-worker] gmail send failed:', (err as Error)?.message || err);
         await coreCall('/internal/channels/gmail/outbound-result', {
+          email_message_id: emailMessageId,
+          integration_id: job.integration_id,
+          outcome: 'failed',
+          error_message: ((err as Error)?.message || 'unknown error').slice(0, 500),
+        }).catch(() => {});
+        throw err;
+      }
+      return;
+    }
+
+    // ── Yahoo Mail — self-rescheduling IMAP poll, no push webhook
+    // available for third-party apps (mirrors x_poll_dm_events exactly). ──
+    case 'yahoo_poll_inbox': {
+      if (!job.integration_id) throw Object.assign(new Error('yahoo poll without integration'), { permanent: true });
+      const emailAddress = String(payload.email_address || '');
+      if (!emailAddress) throw Object.assign(new Error('yahoo poll job without email_address'), { permanent: true });
+
+      const scheduleNext = (sinceUid: number | null) =>
+        coreCall('/internal/channels/yahoo/reschedule-poll', {
+          integration_id: job.integration_id,
+          workspace_id: job.workspace_id,
+          email_address: emailAddress,
+          since_uid: sinceUid,
+          delay_ms: YAHOO_POLL_INTERVAL_MS,
+        });
+
+      const yahooCfg = yahooOAuthConfigOrThrow();
+      const ya = createYahooAdapter(yahooCfg);
+      // Integration disconnected/removed: resolveIntegrationToken throws a
+      // permanent error here, this case propagates it unmodified, and the
+      // loop ends — no `scheduleNext` call is reached (same contract as the
+      // X poll case above).
+      const refreshToken = await resolveIntegrationToken(job.integration_id, YAHOO_REFRESH_TOKEN_KEY);
+
+      let sinceUid: number | null = typeof payload.since_uid === 'number' ? payload.since_uid : null;
+
+      try {
+        const { accessToken } = await ya.refreshAccessToken(refreshToken);
+        const { messages, lastUid } = await pollYahooInbox(emailAddress, accessToken, { sinceUid, maxMessages: 25 });
+
+        for (const msg of messages) {
+          try {
+            const participants = Array.from(
+              new Set([msg.fromAddress, ...msg.toAddresses, ...msg.ccAddresses].filter(Boolean) as string[]),
+            ).map((email) => ({ email }));
+
+            const upsertResult = await coreCall('/internal/channels/yahoo/upsert-thread-message', {
+              integration_id: job.integration_id,
+              workspace_id: job.workspace_id,
+              subject: msg.subject,
+              participants,
+              message: {
+                external_message_id: msg.messageIdHeader || `yahoo-uid-${msg.uid}`,
+                in_reply_to: msg.inReplyTo,
+                references: msg.references,
+                from_address: msg.fromAddress || 'unknown@unknown',
+                to_addresses: msg.toAddresses,
+                cc_addresses: msg.ccAddresses,
+                bcc_addresses: msg.bccAddresses,
+                text_body: msg.textBody,
+                html_body: msg.htmlBody,
+                snippet: msg.snippet,
+                sent_at: msg.date || new Date().toISOString(),
+              },
+            });
+
+            if (upsertResult?.is_new_message && upsertResult?.message_id && msg.attachments.length) {
+              for (const att of msg.attachments) {
+                try {
+                  const qs = new URLSearchParams({
+                    message_id: String(upsertResult.message_id),
+                    filename: att.filename,
+                    content_type: att.contentType,
+                    ...(att.contentId ? { content_id: att.contentId } : {}),
+                  });
+                  await coreUpload(`/internal/channels/yahoo/attachment-ingest?${qs.toString()}`, att.content, att.contentType);
+                } catch (attErr) {
+                  console.error('[channels-worker] yahoo attachment ingest failed:', (attErr as Error)?.message || attErr);
+                }
+              }
+            }
+          } catch (msgErr) {
+            console.error('[channels-worker] yahoo message sync failed:', (msgErr as Error)?.message || msgErr);
+          }
+        }
+
+        if (lastUid !== null) {
+          sinceUid = lastUid;
+          await coreCall('/internal/channels/yahoo/poll-checkpoint', {
+            integration_id: job.integration_id,
+            last_uid: lastUid,
+          }).catch(() => {});
+        }
+      } catch (err) {
+        // A flaky IMAP connection or a momentary Core outage must never end
+        // the poll loop — log it and keep the chain alive with the same
+        // checkpoint; the next tick retries.
+        console.error('[channels-worker] yahoo poll failed:', (err as Error)?.message || err);
+      }
+
+      await scheduleNext(sinceUid);
+      return;
+    }
+
+    // ── Yahoo outbound — a reply composed in the Email Inbox UI. ───────
+    case 'yahoo_outbound_message': {
+      if (!job.integration_id) throw Object.assign(new Error('yahoo outbound without integration'), { permanent: true });
+      const emailMessageId = String(payload.email_message_id || '');
+      if (!emailMessageId) return;
+
+      const yahooCfg = yahooOAuthConfigOrThrow();
+      const ya = createYahooAdapter(yahooCfg);
+
+      try {
+        const refreshToken = await resolveIntegrationToken(job.integration_id, YAHOO_REFRESH_TOKEN_KEY);
+        const { accessToken } = await ya.refreshAccessToken(refreshToken);
+
+        const rawAttachments: any[] = Array.isArray(payload.attachments) ? payload.attachments : [];
+        const attachments: YahooOutboundMessage['attachments'] = [];
+        for (const att of rawAttachments) {
+          const url = String(att?.url ?? '');
+          if (!/^https?:\/\//i.test(url)) continue;
+          try {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`http_${res.status}`);
+            const bytes = Buffer.from(await res.arrayBuffer());
+            attachments!.push({
+              filename: String(att.filename || 'attachment'),
+              contentType: String(att.content_type || 'application/octet-stream'),
+              content: bytes,
+            });
+          } catch (fetchErr) {
+            console.error('[channels-worker] yahoo outbound attachment fetch failed:', (fetchErr as Error)?.message || fetchErr);
+          }
+        }
+
+        const result = await sendViaYahooSmtp(accessToken, {
+          fromEmail: String(payload.from_email || ''),
+          to: Array.isArray(payload.to) ? payload.to : [],
+          cc: Array.isArray(payload.cc) ? payload.cc : [],
+          bcc: Array.isArray(payload.bcc) ? payload.bcc : [],
+          subject: String(payload.subject || ''),
+          text: String(payload.text_body || ''),
+          html: payload.html_body ? String(payload.html_body) : null,
+          inReplyTo: payload.in_reply_to ? String(payload.in_reply_to) : null,
+          references: Array.isArray(payload.references) ? payload.references.map(String) : [],
+          attachments,
+        });
+        void result;
+
+        await coreCall('/internal/channels/yahoo/outbound-result', {
+          email_message_id: emailMessageId,
+          integration_id: job.integration_id,
+          outcome: 'sent',
+        });
+      } catch (err) {
+        console.error('[channels-worker] yahoo send failed:', (err as Error)?.message || err);
+        await coreCall('/internal/channels/yahoo/outbound-result', {
           email_message_id: emailMessageId,
           integration_id: job.integration_id,
           outcome: 'failed',

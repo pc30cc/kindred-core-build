@@ -23,6 +23,8 @@ import {
   useSendEmail,
   useGmailConnection,
   useStartGmailOAuth,
+  useYahooConnection,
+  useStartYahooOAuth,
 } from '@/hooks/useEmailInbox';
 import { uploadEmailAttachment, type StagedEmailAttachment, type EmailMessageView } from '@/lib/emailInbox-api';
 
@@ -36,14 +38,30 @@ function formatAddresses(list: Array<{ email: string }>): string {
 }
 
 // ─── Connect gate ───────────────────────────────────────────────────────
+//
+// Offers whichever provider(s) the platform has configured — a workspace
+// connects at most one at a time in this feature's current shape (see
+// server/services/email/inbox.ts's resolveConnectedIntegration), so once
+// either succeeds the page re-renders straight into the inbox.
 
-function ConnectGmailCard({ workspaceId }: { workspaceId: string }) {
+function ConnectEmailCard({ workspaceId }: { workspaceId: string }) {
   const { t } = useTranslation();
-  const startOAuth = useStartGmailOAuth(workspaceId);
+  const startGmailOAuth = useStartGmailOAuth(workspaceId);
+  const startYahooOAuth = useStartYahooOAuth(workspaceId);
+  const { data: yahooConnection } = useYahooConnection(workspaceId);
 
-  const handleConnect = async () => {
+  const handleConnectGmail = async () => {
     try {
-      const result = await startOAuth.mutateAsync();
+      const result = await startGmailOAuth.mutateAsync();
+      window.location.href = result.url;
+    } catch {
+      toast({ title: t('emailInbox.connectFailed' as any), variant: 'destructive' });
+    }
+  };
+
+  const handleConnectYahoo = async () => {
+    try {
+      const result = await startYahooOAuth.mutateAsync();
       window.location.href = result.url;
     } catch {
       toast({ title: t('emailInbox.connectFailed' as any), variant: 'destructive' });
@@ -59,10 +77,18 @@ function ConnectGmailCard({ workspaceId }: { workspaceId: string }) {
         <h2 className="text-lg font-semibold text-foreground">{t('emailInbox.connectTitle' as any)}</h2>
         <p className="text-sm text-muted-foreground">{t('emailInbox.connectDescription' as any)}</p>
       </div>
-      <Button onClick={handleConnect} disabled={startOAuth.isPending} size="lg" className="gap-2">
-        {startOAuth.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-        {t('emailInbox.connectGmail' as any)}
-      </Button>
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <Button onClick={handleConnectGmail} disabled={startGmailOAuth.isPending} size="lg" className="gap-2">
+          {startGmailOAuth.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+          {t('emailInbox.connectGmail' as any)}
+        </Button>
+        {yahooConnection?.platformConfigured && (
+          <Button onClick={handleConnectYahoo} disabled={startYahooOAuth.isPending} size="lg" variant="outline" className="gap-2">
+            {startYahooOAuth.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+            {t('emailInbox.connectYahoo' as any)}
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
@@ -426,21 +452,31 @@ export default function EmailInboxPage() {
   const { threadId } = useParams<{ threadId?: string }>();
   const [composeOpen, setComposeOpen] = useState(false);
 
-  const { data: connectionData, isLoading: connectionLoading } = useGmailConnection(workspaceId);
+  const { data: gmailConnectionData, isLoading: gmailConnectionLoading } = useGmailConnection(workspaceId);
+  const { data: yahooConnectionData, isLoading: yahooConnectionLoading } = useYahooConnection(workspaceId);
 
-  if (!workspaceId || connectionLoading) {
+  if (!workspaceId || gmailConnectionLoading || yahooConnectionLoading) {
     return <div className="flex h-full items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
 
-  if (!connectionData?.connection.connected) {
-    return <ConnectGmailCard workspaceId={workspaceId} />;
+  // A workspace connects at most one provider at a time today — whichever
+  // is connected drives the inbox; Gmail wins the (currently impossible,
+  // since disconnecting is required before connecting the other) tie-break.
+  const connectedEmailAddress = gmailConnectionData?.connection.connected
+    ? gmailConnectionData.connection.emailAddress
+    : yahooConnectionData?.connection.connected
+      ? yahooConnectionData.connection.emailAddress
+      : null;
+
+  if (!connectedEmailAddress) {
+    return <ConnectEmailCard workspaceId={workspaceId} />;
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-3 border-b border-border px-4 py-2.5">
         <Mail className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium text-foreground">{connectionData.connection.emailAddress}</span>
+        <span className="text-sm font-medium text-foreground">{connectedEmailAddress}</span>
         <Button size="sm" className="ms-auto gap-1.5" onClick={() => setComposeOpen(true)}>
           <Send className="h-3.5 w-3.5" />
           {t('emailInbox.compose' as any)}

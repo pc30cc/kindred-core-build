@@ -188,3 +188,33 @@ export function disconnectGmail(workspaceId: string) {
     body: JSON.stringify({ workspace_id: workspaceId }),
   });
 }
+
+// ── Yahoo Mail connection (server/routes/plugins.ts) ────────────────────
+
+export interface YahooConnectionInfo {
+  connected: boolean;
+  emailAddress: string | null;
+  status: 'pending' | 'connected' | 'disconnected' | 'error' | null;
+  lastErrorCode: string | null;
+  connectedAt: string | null;
+}
+
+export function getYahooConnection(workspaceId: string) {
+  return api<{ connection: YahooConnectionInfo; platformConfigured: boolean }>(
+    `/api/plugins/yahoo/connection${qs({ workspace_id: workspaceId })}`,
+  );
+}
+
+export function startYahooOAuth(workspaceId: string) {
+  return api<{ url: string }>('/api/plugins/yahoo/oauth/start', {
+    method: 'POST',
+    body: JSON.stringify({ workspace_id: workspaceId }),
+  });
+}
+
+export function disconnectYahoo(workspaceId: string) {
+  return api<{ ok: true }>('/api/plugins/yahoo/disconnect', {
+    method: 'POST',
+    body: JSON.stringify({ workspace_id: workspaceId }),
+  });
+}

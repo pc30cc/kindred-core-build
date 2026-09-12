@@ -221,6 +221,36 @@ Gmail access tokens itself for the sync/send jobs, independent of Core.
 
 See `server/.env.example` for the full inline documentation of each var.
 
+#### Optional: Yahoo Mail channel plugin (Email Inbox)
+
+Only needed if you want to offer the Yahoo Mail plugin — feeds the SAME
+Email Inbox as Gmail once connected. Unlike Gmail, Yahoo has no existing
+platform OAuth Client to reuse: this is its own Yahoo Developer Network app.
+
+On the **Backend** service:
+
+- Create an app at developer.yahoo.com/apps with API Permissions: **Mail**
+  (Read/Write). That single permission is what grants IMAP/SMTP XOAUTH2
+  access — there is no separate "enable an API" step the way Google
+  requires for Gmail.
+- Add a Redirect URI — e.g.
+  `https://api.yourdomain.com/api/plugins/yahoo/oauth/callback` — and set
+  `YAHOO_OAUTH_REDIRECT_URI` to that exact value.
+- Set `YAHOO_OAUTH_CLIENT_ID`/`YAHOO_OAUTH_CLIENT_SECRET` from that app.
+- `PLUGIN_SECRETS_MASTER_KEY` must also be set (shared with every other
+  channel's encrypted credential storage).
+
+On the **Channels Worker** service, also set `YAHOO_OAUTH_CLIENT_ID`/
+`YAHOO_OAUTH_CLIENT_SECRET`/`YAHOO_OAUTH_REDIRECT_URI` — unlike Gmail's
+Worker-side token refresh, Yahoo's token endpoint requires `redirect_uri` on
+every refresh call too, not just the initial code exchange, so the Worker
+needs the same three values Core does. There is no Pub/Sub-equivalent setup:
+Yahoo exposes no push webhook for third-party apps, so the Worker polls
+IMAP on a fixed interval instead (`CHANNELS_YAHOO_POLL_INTERVAL_MS`,
+default 75s).
+
+See `server/.env.example` for the full inline documentation of each var.
+
 ### Reverse Proxy (nginx example)
 
 ```nginx

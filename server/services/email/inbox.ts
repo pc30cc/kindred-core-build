@@ -1,28 +1,30 @@
 /**
- * EMAIL INBOX — Core-side service backing `/api/email/*`.
+ * EMAIL INBOX — Core-side service backing `/api/email-inbox/*`.
  *
  * Reads/writes `email_threads` / `email_messages` / `email_attachments`
  * (163_email_inbox.sql) directly — Core owns every canonical write, same
- * rule as every other channel. Provider-specific work (talking to Gmail)
- * never happens here: composing a reply enqueues a `gmail_outbound_message`
- * channel_job and the Channels Worker executes it, reporting back through
- * `server/routes/internalChannels.ts`'s `/gmail/outbound-result`.
+ * rule as every other channel. Provider-specific work (talking to Gmail or
+ * Yahoo Mail) never happens here: composing a reply enqueues a
+ * `gmail_outbound_message` or `yahoo_outbound_message` channel_job and the
+ * Channels Worker executes it, reporting back through
+ * `server/routes/internalChannels.ts`'s `/gmail/outbound-result` or
+ * `/yahoo/outbound-result`.
  *
  * Deliberately provider-generic where it can be: `listThreads`/`getThread`/
  * `setThreadRead`/`setThreadStarred` don't care whether a thread's messages
- * came from Gmail or (phase 2) Yahoo Mail — only `composeReply` currently
- * assumes a Gmail-connected integration, and is the one function phase 2
- * will branch on `integration.provider`.
+ * came from Gmail or Yahoo Mail — only `resolveConnectedIntegration` (which
+ * of the two, if either, is connected for this workspace) and `composeReply`
+ * (which job type/payload shape to enqueue) branch on `integration.provider`.
  */
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { getInstallation } from '../plugins/state.js';
 import { getIntegrationForInstallation, type ChannelIntegration } from '../channels/integrations.js';
 import { enqueueChannelJob } from '../channels/jobs.js';
 import { uploadFile, getFileUrl } from '../storage/index.js';
-import { generateGmailMessageId } from '../../../channels/providers/gmail/client.js';
 import { GMAIL_PLUGIN_ID } from '../channels/gmail/oauth.js';
+import { YAHOO_PLUGIN_ID } from '../../../shared/channels/yahooKeys.js';
 
 export class EmailInboxError extends Error {
   constructor(readonly code: string, message?: string) {
@@ -70,15 +72,22 @@ export interface EmailMessageView {
   attachments: EmailAttachmentView[];
 }
 
+/**
+ * Resolves whichever of Gmail/Yahoo is connected for this workspace. A
+ * workspace can only meaningfully have one connected mailbox integration at
+ * a time in this feature's current shape (the Email Inbox UI shows one
+ * "connected as <address>" state, not a picker) — Gmail is checked first
+ * only as an arbitrary but stable tie-break; nothing prevents both from
+ * existing, but composeReply only ever targets the one this resolves to.
+ */
 async function resolveConnectedIntegration(config: ServerConfig, workspaceId: string): Promise<ChannelIntegration> {
-  // Only Gmail exists today; phase 2 (Yahoo) will check both plugin ids and
-  // return whichever is connected — the shape of this function's return
-  // value (a plain ChannelIntegration) already generalizes.
-  const installation = await getInstallation(config, workspaceId, GMAIL_PLUGIN_ID);
-  if (!installation) throw new EmailInboxError('email_not_connected');
-  const integration = await getIntegrationForInstallation(config, installation.id);
-  if (!integration || integration.status !== 'connected') throw new EmailInboxError('email_not_connected');
-  return integration;
+  for (const pluginId of [GMAIL_PLUGIN_ID, YAHOO_PLUGIN_ID]) {
+    const installation = await getInstallation(config, workspaceId, pluginId);
+    if (!installation) continue;
+    const integration = await getIntegrationForInstallation(config, installation.id);
+    if (integration && integration.status === 'connected') return integration;
+  }
+  throw new EmailInboxError('email_not_connected');
 }
 
 export async function listThreads(
@@ -290,6 +299,18 @@ function subjectWithReplyPrefix(subject: string): string {
   return /^re:/i.test(subject.trim()) ? subject : `Re: ${subject}`;
 }
 
+/**
+ * Generates the Message-ID Core will store as `external_message_id` BEFORE
+ * the Worker ever runs — both providers' outbound job payload carries this
+ * exact value so the sent message's real header matches the stored row
+ * (Gmail's raw MIME sets it explicitly; Yahoo's nodemailer send is told to
+ * force it via `messageId` rather than auto-generating its own).
+ */
+function generateEmailMessageId(fromEmail: string): string {
+  const domain = fromEmail.split('@')[1] || 'localhost';
+  return `<${randomBytes(16).toString('hex')}.${Date.now()}@${domain}>`;
+}
+
 export async function composeReply(
   config: ServerConfig,
   workspaceId: string,
@@ -333,14 +354,20 @@ export async function composeReply(
     }
   }
 
-  const messageId = generateGmailMessageId(fromEmail);
+  const messageId = generateEmailMessageId(fromEmail);
   const sentAt = new Date().toISOString();
+  const isGmail = integration.provider === 'gmail';
 
   // A brand-new (non-reply) thread has no server-side row yet — one is
   // created here so the outbound message always has a thread_id to attach
-  // to; its external_thread_id is filled in once the Worker's send response
-  // returns Gmail's own threadId (a brand-new send has no Gmail thread until
-  // the first message exists).
+  // to. Gmail assigns its OWN thread id only once the message is actually
+  // sent, so its external_thread_id starts as a `pending-` placeholder the
+  // Worker's send response patches (see /gmail/outbound-result). Yahoo has
+  // no provider-side thread id at all — Core derives one from headers the
+  // same way inbound sync does (deriveYahooThreadId in
+  // internalChannels.ts): a message with no References/In-Reply-To yet is
+  // the root of its own thread, so its own Message-ID IS the thread id,
+  // final from the start — no patch-up needed.
   if (!threadId) {
     const { data: newThread, error: threadError } = await sb
       .from('email_threads')
@@ -348,7 +375,7 @@ export async function composeReply(
         workspace_id: workspaceId,
         integration_id: integration.id,
         provider: integration.provider,
-        external_thread_id: `pending-${messageId}`,
+        external_thread_id: isGmail ? `pending-${messageId}` : messageId,
         subject,
         participants: input.to.map((email) => ({ email })),
         last_message_at: sentAt,
@@ -404,28 +431,40 @@ export async function composeReply(
     });
   }
 
-  await enqueueChannelJob(sb, {
-    provider: 'gmail',
-    jobType: 'gmail_outbound_message',
-    workspaceId,
-    integrationId: integration.id,
-    payload: {
-      email_message_id: messageRow.id,
-      local_thread_id: threadId,
-      gmail_thread_id: externalThreadId,
-      message_id: messageId,
-      from_email: fromEmail,
-      to: input.to,
-      cc: input.cc ?? [],
-      bcc: input.bcc ?? [],
-      subject,
-      text_body: input.textBody,
-      html_body: input.htmlBody ?? null,
-      in_reply_to: inReplyTo,
-      references,
-      attachments: attachmentRefs,
-    },
-  });
+  const commonOutboundPayload = {
+    email_message_id: messageRow.id,
+    message_id: messageId,
+    from_email: fromEmail,
+    to: input.to,
+    cc: input.cc ?? [],
+    bcc: input.bcc ?? [],
+    subject,
+    text_body: input.textBody,
+    html_body: input.htmlBody ?? null,
+    in_reply_to: inReplyTo,
+    references,
+    attachments: attachmentRefs,
+  };
+
+  await enqueueChannelJob(sb, isGmail
+    ? {
+        provider: 'gmail',
+        jobType: 'gmail_outbound_message',
+        workspaceId,
+        integrationId: integration.id,
+        payload: {
+          ...commonOutboundPayload,
+          local_thread_id: threadId,
+          gmail_thread_id: externalThreadId,
+        },
+      }
+    : {
+        provider: 'yahoo',
+        jobType: 'yahoo_outbound_message',
+        workspaceId,
+        integrationId: integration.id,
+        payload: commonOutboundPayload,
+      });
 
   return { messageId: messageRow.id };
 }

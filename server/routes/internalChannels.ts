@@ -653,6 +653,292 @@ internalChannelsRouter.post('/gmail/outbound-result', async (req: any, res) => {
 });
 
 /**
+ * POST /yahoo/reschedule-poll — the ONLY way the Yahoo IMAP poll loop
+ * advances to its next tick, exactly mirroring /x/reschedule-poll above
+ * (self-rescheduling poll, no push webhook available for third-party IMAP
+ * apps) — CORE OWNS EVERY CANONICAL WRITE, `channel_jobs` included, so the
+ * Worker asks Core to enqueue the next tick rather than writing it itself.
+ */
+const rescheduleYahooPollSchema = z.object({
+  integration_id: z.string().uuid(),
+  workspace_id: z.string().uuid(),
+  email_address: z.string().email(),
+  since_uid: z.number().int().positive().nullable().optional(),
+  delay_ms: z.number().int().min(1_000).max(600_000).optional(),
+});
+
+internalChannelsRouter.post('/yahoo/reschedule-poll', async (req: any, res) => {
+  const parsed = rescheduleYahooPollSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
+
+  try {
+    const config = serverConfigOf(req);
+    const sb = getServiceClient(config);
+    await enqueueChannelJob(sb, {
+      provider: 'yahoo',
+      jobType: 'yahoo_poll_inbox',
+      workspaceId: parsed.data.workspace_id,
+      integrationId: parsed.data.integration_id,
+      payload: { email_address: parsed.data.email_address, since_uid: parsed.data.since_uid ?? null },
+      availableAt: new Date(Date.now() + (parsed.data.delay_ms ?? 75_000)),
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[internal-channels] yahoo reschedule-poll failed:', err instanceof Error ? err.message : err);
+    res.status(500).json({ error: 'reschedule_failed' });
+  }
+});
+
+/**
+ * ── Yahoo Mail (Email Inbox, phase 2) ───────────────────────────────────
+ *
+ * Same email_threads/email_messages/email_attachments schema as Gmail, but
+ * IMAP has no native "thread id" the way Gmail's API does — Core derives
+ * one from standard threading headers (References[0] if present, else
+ * In-Reply-To, else the message's own Message-ID — the oldest ancestor in
+ * the References chain per RFC 2822 §3.6.4 is a stable proxy for "the
+ * conversation this belongs to").
+ */
+
+function deriveYahooThreadId(input: { messageIdHeader: string; inReplyTo: string | null; references: string[] }): string {
+  return input.references[0] || input.inReplyTo || input.messageIdHeader;
+}
+
+const yahooUpsertSchema = z.object({
+  integration_id: z.string().uuid(),
+  workspace_id: z.string().uuid(),
+  subject: z.string().nullable().optional(),
+  participants: z.array(z.object({ email: z.string() })).optional(),
+  message: z.object({
+    external_message_id: z.string().min(1),
+    in_reply_to: z.string().nullable().optional(),
+    references: z.array(z.string()).optional(),
+    from_address: z.string().min(1),
+    to_addresses: z.array(z.string()).optional(),
+    cc_addresses: z.array(z.string()).optional(),
+    bcc_addresses: z.array(z.string()).optional(),
+    text_body: z.string().nullable().optional(),
+    html_body: z.string().nullable().optional(),
+    snippet: z.string().nullable().optional(),
+    sent_at: z.string().nullable().optional(),
+  }),
+});
+
+internalChannelsRouter.post('/yahoo/upsert-thread-message', async (req: any, res) => {
+  const parsed = yahooUpsertSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
+  const data = parsed.data;
+
+  try {
+    const config = serverConfigOf(req);
+    const sb = getServiceClient(config);
+    const externalThreadId = deriveYahooThreadId({
+      messageIdHeader: data.message.external_message_id,
+      inReplyTo: data.message.in_reply_to ?? null,
+      references: data.message.references ?? [],
+    });
+
+    const { data: existingThread } = await sb
+      .from('email_threads')
+      .select('id')
+      .eq('integration_id', data.integration_id)
+      .eq('external_thread_id', externalThreadId)
+      .maybeSingle();
+
+    let threadId: string;
+    if (existingThread) {
+      threadId = existingThread.id;
+      await sb
+        .from('email_threads')
+        .update({
+          subject: data.subject ?? undefined,
+          last_message_at: data.message.sent_at ?? new Date().toISOString(),
+          is_read: false,
+        })
+        .eq('id', threadId);
+    } else {
+      const { data: newThread, error: threadError } = await sb
+        .from('email_threads')
+        .insert({
+          workspace_id: data.workspace_id,
+          integration_id: data.integration_id,
+          provider: 'yahoo',
+          external_thread_id: externalThreadId,
+          subject: data.subject ?? null,
+          participants: data.participants ?? [],
+          last_message_at: data.message.sent_at ?? new Date().toISOString(),
+          is_read: false,
+        })
+        .select('id')
+        .single();
+      if (threadError || !newThread) throw new Error(threadError?.message || 'thread insert failed');
+      threadId = newThread.id;
+    }
+
+    const { data: inserted, error: insertError } = await sb
+      .from('email_messages')
+      .insert({
+        thread_id: threadId,
+        workspace_id: data.workspace_id,
+        external_message_id: data.message.external_message_id,
+        in_reply_to: data.message.in_reply_to ?? null,
+        message_references: data.message.references ?? [],
+        direction: 'inbound',
+        from_address: data.message.from_address,
+        to_addresses: (data.message.to_addresses ?? []).map((email) => ({ email })),
+        cc_addresses: (data.message.cc_addresses ?? []).map((email) => ({ email })),
+        bcc_addresses: (data.message.bcc_addresses ?? []).map((email) => ({ email })),
+        text_body: data.message.text_body ?? null,
+        html_body: data.message.html_body ?? null,
+        snippet: data.message.snippet ?? null,
+        is_read: false,
+        sent_at: data.message.sent_at ?? new Date().toISOString(),
+        delivery_status: 'sent',
+      })
+      .select('id')
+      .single();
+
+    if (insertError) {
+      if ((insertError as any).code === '23505') {
+        const { data: existingMessage } = await sb
+          .from('email_messages')
+          .select('id')
+          .eq('thread_id', threadId)
+          .eq('external_message_id', data.message.external_message_id)
+          .maybeSingle();
+        return res.json({ thread_id: threadId, message_id: existingMessage?.id ?? null, is_new_message: false });
+      }
+      throw new Error(insertError.message);
+    }
+
+    await updateIntegration(config, data.integration_id, { last_inbound_at: new Date().toISOString() });
+    res.json({ thread_id: threadId, message_id: inserted!.id, is_new_message: true });
+  } catch (err) {
+    console.error('[internal-channels] yahoo upsert-thread-message failed:', err);
+    res.status(500).json({ error: 'yahoo_upsert_failed' });
+  }
+});
+
+/** POST /yahoo/attachment-ingest — same shape as /gmail/attachment-ingest. */
+internalChannelsRouter.post(
+  '/yahoo/attachment-ingest',
+  raw({ type: '*/*', limit: '25mb' }),
+  async (req: any, res) => {
+    try {
+      const config = serverConfigOf(req);
+      const messageId = String(req.query.message_id || '');
+      const filename = String(req.query.filename || 'attachment').replace(/[^\w.\- ]+/g, '_').slice(0, 150);
+      const contentType = req.query.content_type ? String(req.query.content_type) : 'application/octet-stream';
+      const contentId = req.query.content_id ? String(req.query.content_id) : null;
+      if (!messageId) return res.status(400).json({ error: 'missing_message_id' });
+
+      const sb = getServiceClient(config);
+      const { data: message } = await sb
+        .from('email_messages')
+        .select('id, workspace_id')
+        .eq('id', messageId)
+        .maybeSingle();
+      if (!message) return res.status(404).json({ error: 'unknown_message' });
+
+      const bytes = Buffer.isBuffer(req.body) ? (req.body as Buffer) : Buffer.alloc(0);
+      if (!bytes.byteLength) return res.status(400).json({ error: 'empty_body' });
+
+      const now = new Date();
+      const fileKey = `email-attachments/${message.workspace_id}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${randomUUID()}-${filename}`;
+      const uploadResult = await uploadFile(config, { workspaceId: message.workspace_id, fileKey, data: bytes, contentType });
+      if (!uploadResult.success || !uploadResult.fileKey) {
+        return res.status(502).json({ error: 'attachment_upload_failed', details: uploadResult.error });
+      }
+
+      const { error: insertError } = await sb.from('email_attachments').insert({
+        message_id: messageId,
+        filename,
+        content_type: contentType,
+        size_bytes: bytes.byteLength,
+        storage_key: uploadResult.fileKey,
+        content_id: contentId,
+      });
+      if (insertError) throw new Error(insertError.message);
+
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('[internal-channels] yahoo attachment-ingest failed:', err);
+      res.status(500).json({ error: 'yahoo_attachment_ingest_failed' });
+    }
+  },
+);
+
+/**
+ * POST /yahoo/poll-checkpoint — advances the stored IMAP UID watermark
+ * (channel_integrations.metadata.yahoo_last_uid) the next poll resumes from.
+ */
+const yahooCheckpointSchema = z.object({
+  integration_id: z.string().uuid(),
+  last_uid: z.number().int().positive(),
+});
+
+internalChannelsRouter.post('/yahoo/poll-checkpoint', async (req: any, res) => {
+  const parsed = yahooCheckpointSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
+
+  try {
+    const config = serverConfigOf(req);
+    const integration = await getIntegrationById(config, parsed.data.integration_id);
+    if (!integration) return res.status(404).json({ error: 'unknown_integration' });
+    await updateIntegration(config, integration.id, {
+      metadata: { ...integration.metadata, yahoo_last_uid: parsed.data.last_uid },
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[internal-channels] yahoo poll-checkpoint failed:', err);
+    res.status(500).json({ error: 'yahoo_checkpoint_failed' });
+  }
+});
+
+/** POST /yahoo/outbound-result — same shape as /gmail/outbound-result (no thread-id patch-up needed: Yahoo's thread id is derived from headers already present at compose time, never a provider-assigned id learned only after sending). */
+const yahooOutboundResultSchema = z.object({
+  email_message_id: z.string().uuid(),
+  integration_id: z.string().uuid().nullable().optional(),
+  outcome: z.enum(['sent', 'failed']),
+  error_message: z.string().max(1000).nullable().optional(),
+});
+
+internalChannelsRouter.post('/yahoo/outbound-result', async (req: any, res) => {
+  const parsed = yahooOutboundResultSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
+  const data = parsed.data;
+
+  try {
+    const config = serverConfigOf(req);
+    const sb = getServiceClient(config);
+    const { error } = await sb
+      .from('email_messages')
+      .update({
+        delivery_status: data.outcome,
+        delivery_error: data.outcome === 'failed' ? (data.error_message || 'unknown error').slice(0, 1000) : null,
+      })
+      .eq('id', data.email_message_id);
+    if (error) throw new Error(error.message);
+
+    if (data.integration_id) {
+      if (data.outcome === 'sent') {
+        await updateIntegration(config, data.integration_id, { last_outbound_at: new Date().toISOString() });
+      } else {
+        await updateIntegration(config, data.integration_id, {
+          last_error_code: 'yahoo_send_failed',
+          last_error_at: new Date().toISOString(),
+        });
+      }
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[internal-channels] yahoo outbound-result failed:', err);
+    res.status(500).json({ error: 'yahoo_outbound_result_failed' });
+  }
+});
+
+/**
  * POST /heartbeat — WORKER_KIND=channels liveness, consumed by the Super
  * Admin runtime health panel.
  */

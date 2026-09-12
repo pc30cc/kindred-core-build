@@ -25,6 +25,11 @@ export const INTERNAL_CHANNEL_ROUTES = [
   'POST /gmail/attachment-ingest',
   'POST /gmail/history-checkpoint',
   'POST /gmail/outbound-result',
+  'POST /yahoo/reschedule-poll',
+  'POST /yahoo/upsert-thread-message',
+  'POST /yahoo/attachment-ingest',
+  'POST /yahoo/poll-checkpoint',
+  'POST /yahoo/outbound-result',
   'GET /health',
   'GET /ready',
 ] as const;
@@ -47,6 +52,11 @@ export const CHANNELS_WORKER_REQUIRED_CORE_ROUTES = [
   'POST /gmail/attachment-ingest',
   'POST /gmail/history-checkpoint',
   'POST /gmail/outbound-result',
+  'POST /yahoo/reschedule-poll',
+  'POST /yahoo/upsert-thread-message',
+  'POST /yahoo/attachment-ingest',
+  'POST /yahoo/poll-checkpoint',
+  'POST /yahoo/outbound-result',
 ] as const;
 
 export type CoreReadinessPayload = {

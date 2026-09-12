@@ -18,6 +18,7 @@ import {
   siWoocommerce,
   siHubspot,
   siGmail,
+  siYahoo,
 } from 'simple-icons';
 import { Plug, Webhook, MessageSquare, Mail, Smartphone } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -83,6 +84,7 @@ const MARKS: Record<string, Mark> = {
   // pre-existing outbound-only transactional/SMTP channel and only reuses
   // Gmail's glyph with an overridden brand color.
   gmail: si(siGmail),
+  yahoomail: si(siYahoo),
   sms: { hex: '0EA5E9', fallback: Smartphone },
   shopify: si(siShopify),
   woocommerce: si(siWoocommerce),

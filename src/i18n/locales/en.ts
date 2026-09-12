@@ -6556,6 +6556,31 @@ const en = {
       saved: 'Plugin updated.',
       saveFailed: 'Could not update the plugin.',
       openDetail: 'Open plugin',
+      gmailSetup: {
+        title: 'Gmail deployment setup',
+        intro: 'Gmail connects via Google OAuth and Cloud Pub/Sub — these are deployment-time environment variables, not something set from this screen. Configure them on the Backend service and redeploy; this panel only reports whether each one is present, never the value itself.',
+        configured: 'Configured',
+        missing: 'Missing',
+        allConfigured: 'Everything needed is configured. Workspaces can connect Gmail.',
+        someMissing: 'Gmail cannot be connected by any workspace until every item below is configured.',
+        googleOAuthClient: {
+          label: 'GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET',
+          hint: 'The platform\'s Google Cloud OAuth Client (Web application type). Shared with SEO → GSC Insights — if that already works, this is already set. Otherwise: enable the Gmail API on the project, add scopes .../auth/gmail.modify and .../auth/gmail.send to the OAuth consent screen, and create (or reuse) a Web application OAuth Client.',
+        },
+        gmailRedirectUri: {
+          label: 'GOOGLE_GMAIL_OAUTH_REDIRECT_URI',
+          hint: 'Must exactly match an Authorised redirect URI on that same OAuth Client — e.g. https://api.yourdomain.com/api/plugins/gmail/oauth/callback. Google allows several redirect URIs per Client, so add this one alongside the GSC one rather than replacing it.',
+        },
+        pubsubTopic: {
+          label: 'GMAIL_PUBSUB_TOPIC',
+          hint: 'A Cloud Pub/Sub topic (e.g. projects/<project>/topics/gmail-inbox-push) with Publish rights granted to gmail-api-push@system.gserviceaccount.com — this is Google\'s own fixed service account, not one you create.',
+        },
+        pubsubPushAudience: {
+          label: 'GMAIL_PUBSUB_PUSH_AUDIENCE',
+          hint: 'The OIDC audience configured on that topic\'s push subscription, whose endpoint must be https://api.yourdomain.com/webhooks/gmail/push (a Core route, not the Channels Gateway). Conventionally set to that same endpoint URL.',
+        },
+        guideNote: 'Full step-by-step: SELF_HOST_GUIDE.md → "Gmail channel plugin".',
+      },
     },
   },
   commerceAuthorize: {

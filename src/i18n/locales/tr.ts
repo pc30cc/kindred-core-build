@@ -6541,6 +6541,31 @@ const tr: TranslationKeys = {
       saved: 'Eklenti güncellendi.',
       saveFailed: 'Eklenti güncellenemedi.',
       openDetail: 'Eklentiyi aç',
+      gmailSetup: {
+        title: 'Gmail dağıtım kurulumu',
+        intro: 'Gmail, Google OAuth ve Cloud Pub/Sub üzerinden bağlanır — bunlar bu ekrandan ayarlanan şeyler değil, dağıtım zamanı ortam değişkenleridir. Bunları Backend servisinde yapılandırıp yeniden dağıtın; bu panel yalnızca her birinin mevcut olup olmadığını bildirir, asla değerini göstermez.',
+        configured: 'Yapılandırıldı',
+        missing: 'Eksik',
+        allConfigured: 'Gerekli her şey yapılandırıldı. Çalışma alanları Gmail\'i bağlayabilir.',
+        someMissing: 'Aşağıdaki her öğe yapılandırılana kadar hiçbir çalışma alanı Gmail\'e bağlanamaz.',
+        googleOAuthClient: {
+          label: 'GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET',
+          hint: 'Platformun Google Cloud OAuth İstemcisi (Web uygulaması türü). SEO → GSC İçgörüleri ile paylaşılır — o zaten çalışıyorsa bu da zaten ayarlanmıştır. Değilse: aynı projede Gmail API\'yi etkinleştirin, OAuth onay ekranına .../auth/gmail.modify ve .../auth/gmail.send kapsamlarını ekleyin ve bir Web uygulaması OAuth İstemcisi oluşturun (ya da mevcut olanı kullanın).',
+        },
+        gmailRedirectUri: {
+          label: 'GOOGLE_GMAIL_OAUTH_REDIRECT_URI',
+          hint: 'Aynı OAuth İstemcisindeki Yetkili yönlendirme URI\'lerinden biriyle tam olarak eşleşmelidir — örn. https://api.yourdomain.com/api/plugins/gmail/oauth/callback. Google bir İstemci başına birden çok yönlendirme URI\'sine izin verir, bu yüzden bunu GSC için olanın yerine değil, yanına ekleyin.',
+        },
+        pubsubTopic: {
+          label: 'GMAIL_PUBSUB_TOPIC',
+          hint: 'gmail-api-push@system.gserviceaccount.com hesabına Publish yetkisi verilmiş bir Cloud Pub/Sub konusu (örn. projects/<project>/topics/gmail-inbox-push) — bu Google\'ın kendi sabit hizmet hesabıdır, sizin oluşturduğunuz biri değil.',
+        },
+        pubsubPushAudience: {
+          label: 'GMAIL_PUBSUB_PUSH_AUDIENCE',
+          hint: 'O konunun push aboneliğinde yapılandırılan OIDC hedef kitlesi (audience); bu aboneliğin uç noktası https://api.yourdomain.com/webhooks/gmail/push olmalıdır (Channels Gateway değil, bir Core rotası). Genellikle bu aynı uç nokta URL\'si olarak ayarlanır.',
+        },
+        guideNote: 'Tam adım adım kılavuz: SELF_HOST_GUIDE.md → "Gmail channel plugin".',
+      },
     },
   },
   commerceAuthorize: {

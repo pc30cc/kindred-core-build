@@ -22,6 +22,7 @@ import { adminPluginsApi, type PluginRolloutStatus } from '@/lib/plugins-api';
 import { ChannelsRuntimePanel } from '@/components/plugins/ChannelsRuntimePanel';
 import { ChannelsWorkerStatus } from '@/components/plugins/ChannelsWorkerStatus';
 import { PluginLogsTable } from '@/components/plugins/PluginLogsTable';
+import { GmailAdminSetupCard } from '@/components/plugins/GmailAdminSetupCard';
 import { ArrowLeft, ArrowRight, Plug } from 'lucide-react';
 
 const ROLLOUT_OPTIONS: PluginRolloutStatus[] = ['hidden', 'coming_soon', 'beta', 'public'];
@@ -103,6 +104,7 @@ export default function AdminPluginDetailPage() {
       </header>
 
       {item.category === 'channels' && <ChannelsWorkerStatus />}
+      {item.id === 'gmail' && <GmailAdminSetupCard />}
 
       <Tabs defaultValue="policy" className="space-y-4" dir={dir}>
         <TabsList>

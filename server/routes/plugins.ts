@@ -42,6 +42,7 @@ import {
   isGmailPlatformConfigured,
 } from '../services/channels/gmail/oauth.js';
 import { isGmailError } from '../services/channels/gmail/types.js';
+import { getGmailPlatformEnvStatus } from '../services/channels/gmail/oauthConfig.js';
 
 import {
   buildWebhookUrl,
@@ -923,6 +924,15 @@ adminPluginsRouter.patch('/:pluginId', async (req: any, res) => {
  * Every channel integration across all workspaces, with the operational
  * fields the runtime panel needs. Credentials are never included.
  */
+/**
+ * GET /admin/gmail/env-status — granular, secret-free view of the Gmail
+ * deployment env vars, for the Super Admin plugin page's setup instructions.
+ * Never returns a secret value, only whether each var is present.
+ */
+adminPluginsRouter.get('/gmail/env-status', async (req: any, res) => {
+  res.json(getGmailPlatformEnvStatus());
+});
+
 adminPluginsRouter.get('/channels/integrations', async (req: any, res) => {
   try {
     const sb = getServiceClient(serverConfigOf(req));

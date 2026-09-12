@@ -342,6 +342,15 @@ export const adminPluginsApi = {
       body: JSON.stringify(patch),
     }),
 
+  gmailEnvStatus: () =>
+    jsonFetch<{
+      googleOAuthClientConfigured: boolean;
+      gmailRedirectUriConfigured: boolean;
+      pubsubTopicConfigured: boolean;
+      pubsubPushAudienceConfigured: boolean;
+      fullyConfigured: boolean;
+    }>('/api/plugins/admin/gmail/env-status'),
+
   channelIntegrations: () =>
     jsonFetch<{ items: ChannelIntegrationRow[] }>('/api/plugins/admin/channels/integrations'),
 

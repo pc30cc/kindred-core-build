@@ -6537,6 +6537,31 @@ const fa: TranslationKeys = {
       saved: 'افزونه به‌روزرسانی شد.',
       saveFailed: 'به‌روزرسانی افزونه انجام نشد.',
       openDetail: 'باز کردن افزونه',
+      gmailSetup: {
+        title: 'تنظیمات راه‌اندازی جیمیل',
+        intro: 'جیمیل از طریق OAuth گوگل و Cloud Pub/Sub وصل می‌شود — این‌ها متغیرهای محیطی در زمان دیپلوی هستند، نه چیزی که از همین صفحه تنظیم شود. آن‌ها را روی سرویس Backend تنظیم کنید و دوباره دیپلوی کنید؛ این پنل فقط وضعیت موجود بودن هرکدام را نشان می‌دهد، نه مقدار واقعی‌شان را.',
+        configured: 'تنظیم شده',
+        missing: 'تنظیم نشده',
+        allConfigured: 'همه‌چیز لازم تنظیم شده. فضاهای کاری می‌توانند جیمیل را وصل کنند.',
+        someMissing: 'تا زمانی که تمام موارد زیر تنظیم نشوند، هیچ فضای کاری نمی‌تواند جیمیل را وصل کند.',
+        googleOAuthClient: {
+          label: 'GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET',
+          hint: 'همان OAuth Client گوگل کلاد پلتفرم (نوع Web application). با بخش سئو ▸ بینش‌های سرچ کنسول مشترک است — اگر آن قبلاً کار می‌کند، این هم از قبل تنظیم شده. در غیر این صورت: Gmail API را روی همان پروژه فعال کنید، اسکوپ‌های .../auth/gmail.modify و .../auth/gmail.send را به صفحه رضایت OAuth اضافه کنید، و یک OAuth Client از نوع Web application بسازید (یا همان قبلی را استفاده کنید).',
+        },
+        gmailRedirectUri: {
+          label: 'GOOGLE_GMAIL_OAUTH_REDIRECT_URI',
+          hint: 'باید دقیقاً با یکی از Authorised redirect URIهای همان OAuth Client یکسان باشد — مثلاً https://api.yourdomain.com/api/plugins/gmail/oauth/callback. گوگل اجازه چند redirect URI روی هر Client را می‌دهد، پس این یکی را کنار همان مربوط به GSC اضافه کنید، نه جایگزین آن.',
+        },
+        pubsubTopic: {
+          label: 'GMAIL_PUBSUB_TOPIC',
+          hint: 'یک تاپیک Cloud Pub/Sub (مثلاً projects/<project>/topics/gmail-inbox-push) که به gmail-api-push@system.gserviceaccount.com دسترسی Publish داده شده — این یک سرویس‌اکانت ثابت متعلق به خود گوگل است، نه چیزی که شما بسازید.',
+        },
+        pubsubPushAudience: {
+          label: 'GMAIL_PUBSUB_PUSH_AUDIENCE',
+          hint: 'مقدار audience تنظیم‌شده روی push subscription همان تاپیک، که آدرس endpoint آن باید https://api.yourdomain.com/webhooks/gmail/push باشد (یک مسیر روی Core، نه Channels Gateway). معمولاً همین آدرس endpoint به عنوان audience تنظیم می‌شود.',
+        },
+        guideNote: 'راهنمای کامل مرحله‌به‌مرحله: SELF_HOST_GUIDE.md ← بخش «Gmail channel plugin».',
+      },
     },
   },
   commerceAuthorize: {

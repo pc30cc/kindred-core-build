@@ -182,6 +182,83 @@ export async function listExplorerBacklinks(config: ServerConfig, workspaceId: s
   return { backlinks: data || [], total: count || 0 };
 }
 
+// Referring Domains / Top Pages are pure `GROUP BY` rollups over the same
+// seo_explorer_backlinks rows listExplorerBacklinks reads — one scan's rows
+// are already bounded by max_backlinks at scan time, so a single unfiltered
+// fetch + in-process aggregation (same convention as Web Analytics'
+// reportService.ts) needs no new provider call.
+const EXPLORER_BACKLINKS_ROW_CAP = 20_000;
+
+export interface ExplorerReferringDomainRow {
+  domain: string;
+  backlinkCount: number;
+  dofollowCount: number;
+  topDomainRank: number | null;
+}
+
+export async function listExplorerReferringDomains(
+  config: ServerConfig, workspaceId: string, scanId: string, opts: { limit?: number; offset?: number } = {},
+): Promise<{ rows: ExplorerReferringDomainRow[]; total: number }> {
+  const sb = getServiceClient(config);
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
+  const offset = Math.max(opts.offset ?? 0, 0);
+  const { data, error } = await sb
+    .from('seo_explorer_backlinks')
+    .select('source_domain, domain_rank, is_dofollow')
+    .eq('workspace_id', workspaceId)
+    .eq('scan_id', scanId)
+    .limit(EXPLORER_BACKLINKS_ROW_CAP);
+  if (error) throw new Error(`list_explorer_referring_domains_failed: ${error.message}`);
+
+  const byDomain = new Map<string, ExplorerReferringDomainRow>();
+  for (const row of (data || []) as Array<{ source_domain: string; domain_rank: number | null; is_dofollow: boolean }>) {
+    const bucket = byDomain.get(row.source_domain) || { domain: row.source_domain, backlinkCount: 0, dofollowCount: 0, topDomainRank: null };
+    bucket.backlinkCount += 1;
+    if (row.is_dofollow) bucket.dofollowCount += 1;
+    if (row.domain_rank !== null && (bucket.topDomainRank === null || row.domain_rank > bucket.topDomainRank)) bucket.topDomainRank = row.domain_rank;
+    byDomain.set(row.source_domain, bucket);
+  }
+
+  const all = Array.from(byDomain.values()).sort((a, b) => (b.topDomainRank ?? -1) - (a.topDomainRank ?? -1) || b.backlinkCount - a.backlinkCount);
+  return { rows: all.slice(offset, offset + limit), total: all.length };
+}
+
+export interface ExplorerTopPageRow {
+  url: string;
+  backlinkCount: number;
+  referringDomainCount: number;
+  topPageRank: number | null;
+}
+
+export async function listExplorerTopPages(
+  config: ServerConfig, workspaceId: string, scanId: string, opts: { limit?: number; offset?: number } = {},
+): Promise<{ rows: ExplorerTopPageRow[]; total: number }> {
+  const sb = getServiceClient(config);
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
+  const offset = Math.max(opts.offset ?? 0, 0);
+  const { data, error } = await sb
+    .from('seo_explorer_backlinks')
+    .select('target_url, source_domain, page_rank')
+    .eq('workspace_id', workspaceId)
+    .eq('scan_id', scanId)
+    .limit(EXPLORER_BACKLINKS_ROW_CAP);
+  if (error) throw new Error(`list_explorer_top_pages_failed: ${error.message}`);
+
+  const byUrl = new Map<string, { url: string; backlinkCount: number; referringDomains: Set<string>; topPageRank: number | null }>();
+  for (const row of (data || []) as Array<{ target_url: string; source_domain: string; page_rank: number | null }>) {
+    const bucket = byUrl.get(row.target_url) || { url: row.target_url, backlinkCount: 0, referringDomains: new Set<string>(), topPageRank: null };
+    bucket.backlinkCount += 1;
+    bucket.referringDomains.add(row.source_domain);
+    if (row.page_rank !== null && (bucket.topPageRank === null || row.page_rank > bucket.topPageRank)) bucket.topPageRank = row.page_rank;
+    byUrl.set(row.target_url, bucket);
+  }
+
+  const all = Array.from(byUrl.values())
+    .map((v) => ({ url: v.url, backlinkCount: v.backlinkCount, referringDomainCount: v.referringDomains.size, topPageRank: v.topPageRank }))
+    .sort((a, b) => (b.topPageRank ?? -1) - (a.topPageRank ?? -1) || b.backlinkCount - a.backlinkCount);
+  return { rows: all.slice(offset, offset + limit), total: all.length };
+}
+
 export async function requestExplorerBacklinkScanCancel(config: ServerConfig, workspaceId: string, scanId: string): Promise<{ ok: boolean }> {
   const scan = await getExplorerBacklinkScan(config, workspaceId, scanId);
   if (!scan) return { ok: false };

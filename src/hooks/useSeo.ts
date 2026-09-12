@@ -14,6 +14,7 @@ import {
   getKeywordsLimits, getLatestKeywordRun, listKeywordRunHistory, startKeywordRun,
   getKeywordRun, listKeywordResults, type SeoKeywordRun,
   getRankTrackingLimits, listTrackedKeywords, addTrackedKeyword, removeTrackedKeyword, listRankChecks,
+  getRankTrackingOverview, getRankTrackingLandscape,
   getPerformanceLimits, getLatestPerformanceAudit, startPerformanceAudit, listPerformanceResults,
   type SeoPerformanceAudit,
   getGscLimits, getGscConnection, startGscOAuth, disconnectGsc, listGscProperties,
@@ -21,6 +22,7 @@ import {
   queryGscSearchAnalytics, type SeoGscDimension,
   getExplorerLimits, getExplorerHistory,
   getLatestExplorerBacklinkScan, startExplorerBacklinkScan, listExplorerBacklinks,
+  listExplorerReferringDomains, listExplorerTopPages,
   getLatestExplorerKeywordScan, startExplorerKeywordScan, listExplorerKeywords,
   type SeoExplorerBacklinkScan, type SeoExplorerKeywordScan,
 } from '@/lib/seo-api';
@@ -322,6 +324,22 @@ export function useRankChecks(workspaceId?: string, keywordId?: string) {
   });
 }
 
+export function useRankTrackingOverview(workspaceId?: string, siteId?: string) {
+  return useQuery({
+    queryKey: ['seo-rank-tracking-overview', workspaceId, siteId],
+    queryFn: () => getRankTrackingOverview(workspaceId!, siteId!),
+    enabled: !!workspaceId && !!siteId,
+  });
+}
+
+export function useRankTrackingLandscape(workspaceId?: string, siteId?: string, days?: number) {
+  return useQuery({
+    queryKey: ['seo-rank-tracking-landscape', workspaceId, siteId, days],
+    queryFn: () => getRankTrackingLandscape(workspaceId!, siteId!, { days }),
+    enabled: !!workspaceId && !!siteId,
+  });
+}
+
 // ─── SEO Performance Auditing ────────────────────────────────────────────
 
 export function usePerformanceLimits(workspaceId?: string) {
@@ -490,6 +508,22 @@ export function useExplorerBacklinks(workspaceId?: string, scanId?: string, opts
   return useQuery({
     queryKey: ['seo-explorer-backlinks', workspaceId, scanId, opts.limit, opts.offset],
     queryFn: () => listExplorerBacklinks(workspaceId!, scanId!, opts),
+    enabled: !!workspaceId && !!scanId,
+  });
+}
+
+export function useExplorerReferringDomains(workspaceId?: string, scanId?: string, opts: { limit?: number; offset?: number } = {}) {
+  return useQuery({
+    queryKey: ['seo-explorer-referring-domains', workspaceId, scanId, opts.limit, opts.offset],
+    queryFn: () => listExplorerReferringDomains(workspaceId!, scanId!, opts),
+    enabled: !!workspaceId && !!scanId,
+  });
+}
+
+export function useExplorerTopPages(workspaceId?: string, scanId?: string, opts: { limit?: number; offset?: number } = {}) {
+  return useQuery({
+    queryKey: ['seo-explorer-top-pages', workspaceId, scanId, opts.limit, opts.offset],
+    queryFn: () => listExplorerTopPages(workspaceId!, scanId!, opts),
     enabled: !!workspaceId && !!scanId,
   });
 }

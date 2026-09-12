@@ -80,10 +80,10 @@ export const SEO_SECTIONS: SeoSection[] = [
     needsSite: true,
     built: true,
     items: [
-      leaf('overview', 'seo.nav.item.overview', false),
+      leaf('overview', 'seo.nav.item.overview', true),
       leaf('trackedKeywords', 'seo.nav.item.trackedKeywords', true),
       leaf('competitors', 'seo.nav.item.competitors', false),
-      leaf('landscape', 'seo.nav.item.landscape', false),
+      leaf('landscape', 'seo.nav.item.landscape', true),
     ],
   },
   {
@@ -96,8 +96,8 @@ export const SEO_SECTIONS: SeoSection[] = [
       leaf('overview', 'seo.nav.item.overview', true),
       leaf('organicKeywords', 'seo.nav.item.organicKeywords', true),
       leaf('backlinks', 'seo.nav.item.backlinks', true),
-      leaf('referringDomains', 'seo.nav.item.referringDomains', false),
-      leaf('topPages', 'seo.nav.item.topPages', false),
+      leaf('referringDomains', 'seo.nav.item.referringDomains', true),
+      leaf('topPages', 'seo.nav.item.topPages', true),
       leaf('competingDomains', 'seo.nav.item.competingDomains', false),
     ],
   },

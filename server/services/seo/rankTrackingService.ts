@@ -124,4 +124,173 @@ export async function listRankChecksForKeyword(
   return { checks: (data || []).reverse() };
 }
 
+// ─── Overview ────────────────────────────────────────────────────────────
+// Pure rollup over already-persisted seo_tracked_keywords + seo_rank_checks
+// — no new provider call, mirrors the "bounded query, aggregate in-process"
+// convention used by Web Analytics' reportService.ts.
+
+const RANK_CHECKS_ROW_CAP = 5000;
+
+export interface RankTrackingMover {
+  keywordId: string;
+  keyword: string;
+  previousPosition: number | null;
+  currentPosition: number | null;
+  delta: number | null;
+}
+
+export interface RankTrackingOverviewStats {
+  totalKeywords: number;
+  avgPosition: number | null;
+  distribution: { top3: number; top10: number; top50: number; top100: number; notRanked: number };
+  improved: number;
+  declined: number;
+  unchanged: number;
+  topMovers: RankTrackingMover[];
+}
+
+export async function getRankTrackingOverview(config: ServerConfig, workspaceId: string, siteId: string): Promise<RankTrackingOverviewStats> {
+  const sb = getServiceClient(config);
+  const { data: keywordRows, error: kwError } = await sb
+    .from('seo_tracked_keywords')
+    .select('id, keyword, last_position')
+    .eq('workspace_id', workspaceId)
+    .eq('website_id', siteId)
+    .eq('is_active', true)
+    .limit(1000);
+  if (kwError) throw new Error(`rank_tracking_overview_keywords_failed: ${kwError.message}`);
+  const keywords = (keywordRows || []) as Array<{ id: string; keyword: string; last_position: number | null }>;
+
+  const empty: RankTrackingOverviewStats = {
+    totalKeywords: 0,
+    avgPosition: null,
+    distribution: { top3: 0, top10: 0, top50: 0, top100: 0, notRanked: 0 },
+    improved: 0,
+    declined: 0,
+    unchanged: 0,
+    topMovers: [],
+  };
+  if (keywords.length === 0) return empty;
+
+  const keywordIds = keywords.map((k) => k.id);
+  const { data: checkRows, error: checksError } = await sb
+    .from('seo_rank_checks')
+    .select('tracked_keyword_id, position, checked_at')
+    .eq('website_id', siteId)
+    .in('tracked_keyword_id', keywordIds)
+    .order('checked_at', { ascending: false })
+    .limit(RANK_CHECKS_ROW_CAP);
+  if (checksError) throw new Error(`rank_tracking_overview_checks_failed: ${checksError.message}`);
+
+  // Grouped while iterating an already checked_at-desc-sorted list, so each
+  // group's [0] is the most recent check and [1] the one before it.
+  const checksByKeyword = new Map<string, Array<{ position: number | null }>>();
+  for (const row of (checkRows || []) as Array<{ tracked_keyword_id: string; position: number | null }>) {
+    const list = checksByKeyword.get(row.tracked_keyword_id) || [];
+    list.push(row);
+    checksByKeyword.set(row.tracked_keyword_id, list);
+  }
+
+  const distribution = { top3: 0, top10: 0, top50: 0, top100: 0, notRanked: 0 };
+  let positionSum = 0;
+  let positionCount = 0;
+  let improved = 0;
+  let declined = 0;
+  let unchanged = 0;
+  const movers: RankTrackingMover[] = [];
+
+  for (const kw of keywords) {
+    const current = kw.last_position;
+    if (current === null) distribution.notRanked += 1;
+    else {
+      positionSum += current;
+      positionCount += 1;
+      if (current <= 3) distribution.top3 += 1;
+      else if (current <= 10) distribution.top10 += 1;
+      else if (current <= 50) distribution.top50 += 1;
+      else distribution.top100 += 1;
+    }
+
+    const history = checksByKeyword.get(kw.id) || [];
+    const previous = history.length > 1 ? history[1].position : null;
+
+    if (previous === null && current === null) unchanged += 1;
+    else if (previous === null && current !== null) improved += 1;
+    else if (previous !== null && current === null) declined += 1;
+    else if (previous !== null && current !== null) {
+      if (current < previous) improved += 1;
+      else if (current > previous) declined += 1;
+      else unchanged += 1;
+    }
+
+    if (previous !== null && current !== null && previous !== current) {
+      movers.push({ keywordId: kw.id, keyword: kw.keyword, previousPosition: previous, currentPosition: current, delta: previous - current });
+    }
+  }
+
+  movers.sort((a, b) => Math.abs(b.delta || 0) - Math.abs(a.delta || 0));
+
+  return {
+    totalKeywords: keywords.length,
+    avgPosition: positionCount > 0 ? Math.round((positionSum / positionCount) * 10) / 10 : null,
+    distribution,
+    improved,
+    declined,
+    unchanged,
+    topMovers: movers.slice(0, 10),
+  };
+}
+
+// ─── Landscape ───────────────────────────────────────────────────────────
+
+export interface RankTrackingLandscapePoint {
+  date: string;
+  avgPosition: number | null;
+  keywordsChecked: number;
+  top10Count: number;
+}
+
+export async function getRankTrackingLandscape(
+  config: ServerConfig, workspaceId: string, siteId: string, opts: { days?: number } = {},
+): Promise<{ points: RankTrackingLandscapePoint[] }> {
+  const sb = getServiceClient(config);
+  const days = Math.min(Math.max(opts.days ?? 90, 1), 365);
+  const since = new Date();
+  since.setUTCDate(since.getUTCDate() - (days - 1));
+
+  const { data, error } = await sb
+    .from('seo_rank_checks')
+    .select('position, checked_at')
+    .eq('workspace_id', workspaceId)
+    .eq('website_id', siteId)
+    .gte('checked_at', since.toISOString())
+    .order('checked_at', { ascending: true })
+    .limit(RANK_CHECKS_ROW_CAP);
+  if (error) throw new Error(`rank_tracking_landscape_failed: ${error.message}`);
+
+  const byDate = new Map<string, { sum: number; count: number; top10: number; checked: number }>();
+  for (const row of (data || []) as Array<{ position: number | null; checked_at: string }>) {
+    const day = row.checked_at.slice(0, 10);
+    const bucket = byDate.get(day) || { sum: 0, count: 0, top10: 0, checked: 0 };
+    bucket.checked += 1;
+    if (row.position !== null) {
+      bucket.sum += row.position;
+      bucket.count += 1;
+      if (row.position <= 10) bucket.top10 += 1;
+    }
+    byDate.set(day, bucket);
+  }
+
+  const points = Array.from(byDate.entries())
+    .map(([date, v]) => ({
+      date,
+      avgPosition: v.count > 0 ? Math.round((v.sum / v.count) * 10) / 10 : null,
+      keywordsChecked: v.checked,
+      top10Count: v.top10,
+    }))
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+
+  return { points };
+}
+
 export { SiteResolutionError };

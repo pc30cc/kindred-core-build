@@ -29,9 +29,10 @@ import {
   useSeoSites,
   useExplorerHistory, useExplorerLimits,
   useLatestExplorerBacklinkScan, useStartExplorerBacklinkScan, useExplorerBacklinks,
+  useExplorerReferringDomains, useExplorerTopPages,
   useLatestExplorerKeywordScan, useStartExplorerKeywordScan, useExplorerKeywords,
 } from '@/hooks/useSeo';
-import { SeoApiError } from '@/lib/seo-api';
+import { SeoApiError, type SeoExplorerBacklinkScan } from '@/lib/seo-api';
 import { GradientStatCard } from './SeoPage';
 import { findSection, findLeaf } from './seoNavTree';
 
@@ -150,6 +151,10 @@ function SiteExplorerDataView({ workspaceId, domain, subsectionKey }: { workspac
       return <ExplorerOverview workspaceId={workspaceId} domain={domain} />;
     case 'backlinks':
       return <ExplorerBacklinksView workspaceId={workspaceId} domain={domain} />;
+    case 'referringDomains':
+      return <ExplorerReferringDomainsView workspaceId={workspaceId} domain={domain} />;
+    case 'topPages':
+      return <ExplorerTopPagesView workspaceId={workspaceId} domain={domain} />;
     case 'organicKeywords':
       return <ExplorerKeywordsView workspaceId={workspaceId} domain={domain} />;
     default: {
@@ -482,6 +487,142 @@ function ExplorerBacklinksView({ workspaceId, domain }: { workspaceId: string; d
         </>
       )}
     </div>
+  );
+}
+
+/** Shared shell for Referring Domains / Top Pages — both are rollups of the SAME backlink scan (no separate scan type), so they reuse its lifecycle. */
+function ExplorerBacklinkRollupShell({
+  workspaceId, domain, children,
+}: { workspaceId: string; domain: string; children: (scan: SeoExplorerBacklinkScan) => React.ReactNode }) {
+  const { t } = useTranslation();
+  const scanQuery = useLatestExplorerBacklinkScan(workspaceId, domain);
+  const startScan = useStartExplorerBacklinkScan(workspaceId);
+  const scan = scanQuery.data?.scan ?? null;
+
+  const handleStart = async () => {
+    try { await startScan.mutateAsync(domain); } catch (err) { toast.error(explorerErrorMessage(err, t)); }
+  };
+
+  if (scanQuery.isLoading) return <SkeletonTable rows={8} columns={4} />;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <DomainHeading domain={domain} />
+        <Button size="sm" variant="outline" className="gap-1.5" onClick={handleStart} disabled={startScan.isPending}>
+          <RefreshCw className={startScan.isPending ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
+          {scan ? t('seo.explorer.cta.refresh' as any) : t('seo.explorer.cta.analyze' as any)}
+        </Button>
+      </div>
+
+      {!scan ? (
+        <ExplorerScanCta
+          titleKey="seo.explorer.cta.backlinksTitle"
+          descriptionKey="seo.explorer.cta.backlinksDescription"
+          ctaKey="seo.explorer.cta.analyze"
+          onStart={handleStart}
+          pending={startScan.isPending}
+        />
+      ) : scan.status !== 'completed' && scan.status !== 'failed' && scan.status !== 'cancelled' ? (
+        <ExplorerScanProgress progressStage={scan.progress_stage} />
+      ) : scan.status !== 'completed' ? (
+        <p className="text-sm text-destructive">{scan.error_message || t('seo.explorer.errors.generic' as any)}</p>
+      ) : children(scan)}
+    </div>
+  );
+}
+
+function ExplorerReferringDomainsView({ workspaceId, domain }: { workspaceId: string; domain: string }) {
+  return (
+    <ExplorerBacklinkRollupShell workspaceId={workspaceId} domain={domain}>
+      {(scan) => <ExplorerReferringDomainsTable workspaceId={workspaceId} scanId={scan.id} />}
+    </ExplorerBacklinkRollupShell>
+  );
+}
+
+function ExplorerReferringDomainsTable({ workspaceId, scanId }: { workspaceId: string; scanId: string }) {
+  const { t } = useTranslation();
+  const { data, isLoading } = useExplorerReferringDomains(workspaceId, scanId, { limit: 100 });
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        {isLoading ? (
+          <SkeletonTable rows={8} columns={3} />
+        ) : (data?.rows.length || 0) === 0 ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData' as any)}</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('seo.explorer.column.sourceDomain' as any)}</TableHead>
+                <TableHead className="text-end">{t('seo.explorer.column.backlinks' as any)}</TableHead>
+                <TableHead className="text-end">{t('seo.explorer.column.dofollow' as any)}</TableHead>
+                <TableHead className="text-end">{t('seo.explorer.column.domainRank' as any)}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(data?.rows || []).map((r) => (
+                <TableRow key={r.domain}>
+                  <TableCell className="max-w-[280px] truncate font-medium">
+                    <a href={`https://${r.domain}`} target="_blank" rel="noreferrer" className="hover:underline">{r.domain}</a>
+                  </TableCell>
+                  <TableCell className="text-end tabular-nums">{formatCompact(r.backlinkCount)}</TableCell>
+                  <TableCell className="text-end tabular-nums text-muted-foreground">{formatCompact(r.dofollowCount)}</TableCell>
+                  <TableCell className="text-end tabular-nums">{r.topDomainRank ?? '—'}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ExplorerTopPagesView({ workspaceId, domain }: { workspaceId: string; domain: string }) {
+  return (
+    <ExplorerBacklinkRollupShell workspaceId={workspaceId} domain={domain}>
+      {(scan) => <ExplorerTopPagesTable workspaceId={workspaceId} scanId={scan.id} />}
+    </ExplorerBacklinkRollupShell>
+  );
+}
+
+function ExplorerTopPagesTable({ workspaceId, scanId }: { workspaceId: string; scanId: string }) {
+  const { t } = useTranslation();
+  const { data, isLoading } = useExplorerTopPages(workspaceId, scanId, { limit: 100 });
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        {isLoading ? (
+          <SkeletonTable rows={8} columns={3} />
+        ) : (data?.rows.length || 0) === 0 ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData' as any)}</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('seo.explorer.column.page' as any)}</TableHead>
+                <TableHead className="text-end">{t('seo.explorer.column.backlinks' as any)}</TableHead>
+                <TableHead className="text-end">{t('seo.explorer.stat.referringDomains' as any)}</TableHead>
+                <TableHead className="text-end">{t('seo.explorer.column.pageRank' as any)}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(data?.rows || []).map((r) => (
+                <TableRow key={r.url}>
+                  <TableCell className="max-w-[320px] truncate font-medium" title={r.url}>
+                    <a href={r.url} target="_blank" rel="noreferrer" className="hover:underline">{r.url}</a>
+                  </TableCell>
+                  <TableCell className="text-end tabular-nums">{formatCompact(r.backlinkCount)}</TableCell>
+                  <TableCell className="text-end tabular-nums text-muted-foreground">{formatCompact(r.referringDomainCount)}</TableCell>
+                  <TableCell className="text-end tabular-nums">{r.topPageRank ?? '—'}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

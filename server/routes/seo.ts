@@ -47,6 +47,7 @@ import { resolveExplorerLimits } from '../services/seo/explorerLimits.js';
 import {
   createExplorerBacklinkScan, getExplorerBacklinkScan, getLatestExplorerBacklinkScanForDomain,
   listExplorerBacklinks, requestExplorerBacklinkScanCancel,
+  listExplorerReferringDomains, listExplorerTopPages,
   createExplorerKeywordScan, getExplorerKeywordScan, getLatestExplorerKeywordScanForDomain,
   listExplorerKeywords, requestExplorerKeywordScanCancel,
   listExplorerHistory, ExplorerScanLimitError,
@@ -88,6 +89,8 @@ import {
   removeTrackedKeyword,
   listTrackedKeywordsForSite,
   listRankChecksForKeyword,
+  getRankTrackingOverview,
+  getRankTrackingLandscape,
   TrackedKeywordLimitError,
 } from '../services/seo/rankTrackingService.js';
 import {
@@ -565,6 +568,25 @@ seoRouter.get('/:workspaceId/tracked-keywords/:keywordId/checks', requireModule(
   res.json(result);
 });
 
+seoRouter.get('/:workspaceId/sites/:siteId/rank-tracking/overview', requireModule('seo_rank_tracking'), async (req, res) => {
+  const { workspaceId, siteId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(siteId)) return res.status(400).json({ error: 'invalid_site_id' });
+  const overview = await getRankTrackingOverview(configOf(req), workspaceId, siteId);
+  res.json(overview);
+});
+
+seoRouter.get('/:workspaceId/sites/:siteId/rank-tracking/landscape', requireModule('seo_rank_tracking'), async (req, res) => {
+  const { workspaceId, siteId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(siteId)) return res.status(400).json({ error: 'invalid_site_id' });
+  const days = parseInt(String(req.query.days || '90'), 10) || 90;
+  const result = await getRankTrackingLandscape(configOf(req), workspaceId, siteId, { days });
+  res.json(result);
+});
+
 // ─────────────────────────────────────────────────────────────────────────
 // SEO Performance Auditing — same authorization contract as Backlinks
 // above, but every route is scoped by crawlId (via requireCrawlInWorkspace)
@@ -947,6 +969,36 @@ seoRouter.get('/:workspaceId/explorer/backlink-scans/:scanId/backlinks', require
     dofollowOnly: dofollowOnly === 'true',
     isNew: isNew === undefined ? undefined : isNew === 'true',
     search,
+    limit: limit ? Number(limit) : undefined,
+    offset: offset ? Number(offset) : undefined,
+  });
+  res.json(result);
+});
+
+seoRouter.get('/:workspaceId/explorer/backlink-scans/:scanId/referring-domains', requireModule('seo_site_explorer'), async (req, res) => {
+  const { workspaceId, scanId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(scanId)) return res.status(400).json({ error: 'invalid_scan_id' });
+  const scan = await getExplorerBacklinkScan(configOf(req), workspaceId, scanId);
+  if (!scan) return res.status(404).json({ error: 'scan_not_found' });
+  const { limit, offset } = req.query as Record<string, string | undefined>;
+  const result = await listExplorerReferringDomains(configOf(req), workspaceId, scanId, {
+    limit: limit ? Number(limit) : undefined,
+    offset: offset ? Number(offset) : undefined,
+  });
+  res.json(result);
+});
+
+seoRouter.get('/:workspaceId/explorer/backlink-scans/:scanId/top-pages', requireModule('seo_site_explorer'), async (req, res) => {
+  const { workspaceId, scanId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(scanId)) return res.status(400).json({ error: 'invalid_scan_id' });
+  const scan = await getExplorerBacklinkScan(configOf(req), workspaceId, scanId);
+  if (!scan) return res.status(404).json({ error: 'scan_not_found' });
+  const { limit, offset } = req.query as Record<string, string | undefined>;
+  const result = await listExplorerTopPages(configOf(req), workspaceId, scanId, {
     limit: limit ? Number(limit) : undefined,
     offset: offset ? Number(offset) : undefined,
   });

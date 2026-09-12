@@ -429,6 +429,39 @@ export function listRankChecks(workspaceId: string, keywordId: string, opts: { l
   return api<{ checks: SeoRankCheck[] }>(`/api/seo/${workspaceId}/tracked-keywords/${keywordId}/checks${qs(opts)}`);
 }
 
+export interface RankTrackingMover {
+  keywordId: string;
+  keyword: string;
+  previousPosition: number | null;
+  currentPosition: number | null;
+  delta: number | null;
+}
+
+export interface RankTrackingOverviewStats {
+  totalKeywords: number;
+  avgPosition: number | null;
+  distribution: { top3: number; top10: number; top50: number; top100: number; notRanked: number };
+  improved: number;
+  declined: number;
+  unchanged: number;
+  topMovers: RankTrackingMover[];
+}
+
+export function getRankTrackingOverview(workspaceId: string, siteId: string) {
+  return api<RankTrackingOverviewStats>(`/api/seo/${workspaceId}/sites/${siteId}/rank-tracking/overview`);
+}
+
+export interface RankTrackingLandscapePoint {
+  date: string;
+  avgPosition: number | null;
+  keywordsChecked: number;
+  top10Count: number;
+}
+
+export function getRankTrackingLandscape(workspaceId: string, siteId: string, opts: { days?: number } = {}) {
+  return api<{ points: RankTrackingLandscapePoint[] }>(`/api/seo/${workspaceId}/sites/${siteId}/rank-tracking/landscape${qs(opts)}`);
+}
+
 export interface SeoPerformanceLimits {
   planSlug: string | null;
   planName: string | null;
@@ -695,6 +728,28 @@ export function getExplorerBacklinkScan(workspaceId: string, scanId: string) {
 
 export function listExplorerBacklinks(workspaceId: string, scanId: string, opts: { limit?: number; offset?: number } = {}) {
   return api<{ backlinks: SeoExplorerBacklink[]; total: number }>(`/api/seo/${workspaceId}/explorer/backlink-scans/${scanId}/backlinks${qs(opts)}`);
+}
+
+export interface SeoExplorerReferringDomain {
+  domain: string;
+  backlinkCount: number;
+  dofollowCount: number;
+  topDomainRank: number | null;
+}
+
+export function listExplorerReferringDomains(workspaceId: string, scanId: string, opts: { limit?: number; offset?: number } = {}) {
+  return api<{ rows: SeoExplorerReferringDomain[]; total: number }>(`/api/seo/${workspaceId}/explorer/backlink-scans/${scanId}/referring-domains${qs(opts)}`);
+}
+
+export interface SeoExplorerTopPage {
+  url: string;
+  backlinkCount: number;
+  referringDomainCount: number;
+  topPageRank: number | null;
+}
+
+export function listExplorerTopPages(workspaceId: string, scanId: string, opts: { limit?: number; offset?: number } = {}) {
+  return api<{ rows: SeoExplorerTopPage[]; total: number }>(`/api/seo/${workspaceId}/explorer/backlink-scans/${scanId}/top-pages${qs(opts)}`);
 }
 
 export function getLatestExplorerKeywordScan(workspaceId: string, domain: string) {

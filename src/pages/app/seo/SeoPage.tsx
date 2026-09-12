@@ -16,6 +16,7 @@ import {
   useBacklinksLimits, useLatestBacklinkScan, useStartBacklinkScan, useBacklinks,
   useKeywordsLimits, useLatestKeywordRun, useStartKeywordRun, useKeywordResults,
   useRankTrackingLimits, useTrackedKeywords, useAddTrackedKeyword, useRemoveTrackedKeyword, useRankChecks,
+  useRankTrackingOverview, useRankTrackingLandscape,
   usePerformanceLimits, useLatestPerformanceAudit, useStartPerformanceAudit, usePerformanceResults,
 } from '@/hooks/useSeo';
 import { SeoApiError, TERMINAL_SEO_STATUSES, type SeoCrawl, type SeoIssue } from '@/lib/seo-api';
@@ -33,7 +34,7 @@ import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
 import {
   Radar, RefreshCw, AlertTriangle, CheckCircle2, XCircle, ArrowLeft, ExternalLink, Link2, Lock,
   Globe2, TrendingUp, Sparkles, ShieldCheck, Copy,
-  Search, LineChart, Gauge, Plus, Trash2, Target,
+  Search, LineChart, Gauge, Plus, Trash2, Target, ArrowUp, ArrowDown, Minus,
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -239,8 +240,14 @@ function SiteScopedSection({
 
 function RankTrackerSection({ workspaceId, siteId, subsectionKey }: { workspaceId: string; siteId: string; subsectionKey: string }) {
   const { t } = useTranslation();
+  if (subsectionKey === 'overview') {
+    return <PlanLockedOverlay moduleKey="seo_rank_tracking"><RankTrackingOverviewTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>;
+  }
   if (subsectionKey === 'trackedKeywords') {
     return <PlanLockedOverlay moduleKey="seo_rank_tracking"><RankTrackingTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>;
+  }
+  if (subsectionKey === 'landscape') {
+    return <PlanLockedOverlay moduleKey="seo_rank_tracking"><RankTrackingLandscapeTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>;
   }
   const leaf = findLeaf(findSection('rank-tracker'), subsectionKey);
   return <SeoRoadmapPlaceholder label={t((leaf?.labelKey || 'seo.nav.section.rankTracker') as any)} />;
@@ -1784,6 +1791,190 @@ function RankTrackingTab({ workspaceId, siteId }: { workspaceId: string; siteId:
             ))}
           </TableBody>
         </Table>
+      </Card>
+    </div>
+  );
+}
+
+function moverDeltaIcon(delta: number | null) {
+  if (delta === null || delta === 0) return Minus;
+  return delta > 0 ? ArrowUp : ArrowDown;
+}
+
+function moverDeltaClass(delta: number | null): string {
+  if (delta === null || delta === 0) return 'text-muted-foreground';
+  return delta > 0 ? 'text-emerald-500' : 'text-destructive';
+}
+
+function RankTrackingOverviewTab({ workspaceId, siteId }: { workspaceId: string; siteId: string }) {
+  const { t } = useTranslation();
+  const { data: limitsData } = useRankTrackingLimits(workspaceId);
+  const { data, isLoading } = useRankTrackingOverview(workspaceId, siteId);
+  const maxKeywords = limitsData?.limits.seo_rank_tracking_max_keywords ?? 0;
+  const moduleAvailable = maxKeywords > 0;
+
+  if (isLoading) return <div className="mt-4"><SkeletonStats count={4} /></div>;
+
+  if (!moduleAvailable) {
+    return (
+      <BacklinksEmptyState
+        icon={Lock} iconGradient="from-slate-500 to-slate-700"
+        title={t('seo.rankTracking.empty.notAvailableTitle')}
+        description={t('seo.rankTracking.empty.notAvailableDescription')}
+      />
+    );
+  }
+
+  if (!data || data.totalKeywords === 0) {
+    return (
+      <BacklinksEmptyState
+        icon={Target} iconGradient="from-indigo-500 to-violet-500"
+        title={t('seo.rankTracking.empty.noKeywords')}
+      />
+    );
+  }
+
+  const distributionEntries: Array<{ key: keyof typeof data.distribution; labelKey: string; color: string }> = [
+    { key: 'top3', labelKey: 'seo.rankTracking.overview.top3', color: 'text-emerald-500' },
+    { key: 'top10', labelKey: 'seo.rankTracking.overview.top10', color: 'text-sky-500' },
+    { key: 'top50', labelKey: 'seo.rankTracking.overview.top50', color: 'text-amber-500' },
+    { key: 'top100', labelKey: 'seo.rankTracking.overview.top100', color: 'text-orange-500' },
+    { key: 'notRanked', labelKey: 'seo.rankTracking.overview.notRanked', color: 'text-muted-foreground' },
+  ];
+
+  return (
+    <div className="mt-4 space-y-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <GradientStatCard icon={Target} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={data.totalKeywords} label={t('seo.rankTracking.overview.totalKeywords')} />
+        <GradientStatCard icon={TrendingUp} iconGradient="from-sky-500 to-cyan-500" blobColor="bg-sky-500/15" value={data.avgPosition ?? '—'} label={t('seo.rankTracking.overview.avgPosition')} />
+        <GradientStatCard icon={ArrowUp} iconGradient="from-emerald-500 to-teal-500" blobColor="bg-emerald-500/15" value={data.improved} label={t('seo.rankTracking.overview.improved')} />
+        <GradientStatCard icon={ArrowDown} iconGradient="from-rose-500 to-red-600" blobColor="bg-rose-500/15" value={data.declined} label={t('seo.rankTracking.overview.declined')} />
+      </div>
+
+      <Card>
+        <CardHeader><CardTitle className="text-sm">{t('seo.rankTracking.overview.distributionTitle')}</CardTitle></CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 gap-3 text-center text-sm sm:grid-cols-5">
+            {distributionEntries.map((e) => (
+              <div key={e.key}>
+                <div className={`text-lg font-semibold ${e.color}`}>{data.distribution[e.key]}</div>
+                <div className="text-xs text-muted-foreground">{t(e.labelKey as any)}</div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-sm">{t('seo.rankTracking.overview.topMoversTitle')}</CardTitle></CardHeader>
+        <CardContent className="p-0">
+          {data.topMovers.length === 0 ? (
+            <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.rankTracking.overview.empty')}</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('seo.rankTracking.overview.columnKeyword')}</TableHead>
+                  <TableHead className="text-end">{t('seo.rankTracking.overview.columnPrevious')}</TableHead>
+                  <TableHead className="text-end">{t('seo.rankTracking.overview.columnCurrent')}</TableHead>
+                  <TableHead className="text-end">{t('seo.rankTracking.overview.columnChange')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.topMovers.map((m) => {
+                  const DeltaIcon = moverDeltaIcon(m.delta);
+                  return (
+                    <TableRow key={m.keywordId}>
+                      <TableCell className="font-medium">{m.keyword}</TableCell>
+                      <TableCell className="text-end tabular-nums text-muted-foreground">{m.previousPosition ?? '—'}</TableCell>
+                      <TableCell className="text-end tabular-nums">{m.currentPosition ?? '—'}</TableCell>
+                      <TableCell className={`text-end tabular-nums ${moverDeltaClass(m.delta)}`}>
+                        <span className="inline-flex items-center justify-end gap-1">
+                          <DeltaIcon className="h-3 w-3" />
+                          {m.delta !== null ? Math.abs(m.delta) : '—'}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function RankTrackingLandscapeTab({ workspaceId, siteId }: { workspaceId: string; siteId: string }) {
+  const { t } = useTranslation();
+  const { data: limitsData } = useRankTrackingLimits(workspaceId);
+  const { data, isLoading } = useRankTrackingLandscape(workspaceId, siteId, 90);
+  const maxKeywords = limitsData?.limits.seo_rank_tracking_max_keywords ?? 0;
+  const moduleAvailable = maxKeywords > 0;
+  const points = data?.points || [];
+
+  if (isLoading) return <div className="mt-4"><SkeletonStats count={2} /></div>;
+
+  if (!moduleAvailable) {
+    return (
+      <BacklinksEmptyState
+        icon={Lock} iconGradient="from-slate-500 to-slate-700"
+        title={t('seo.rankTracking.empty.notAvailableTitle')}
+        description={t('seo.rankTracking.empty.notAvailableDescription')}
+      />
+    );
+  }
+
+  if (points.length === 0) {
+    return (
+      <BacklinksEmptyState
+        icon={LineChart} iconGradient="from-indigo-500 to-violet-500"
+        title={t('seo.rankTracking.landscape.empty')}
+      />
+    );
+  }
+
+  const chartPoints = points.map((p) => ({ date: new Date(p.date).toLocaleDateString(), avgPosition: p.avgPosition, top10Count: p.top10Count }));
+  const tooltipStyle = {
+    contentStyle: { background: 'hsl(var(--popover))', border: '1px solid hsl(var(--border))', borderRadius: 12, fontSize: 12, color: 'hsl(var(--popover-foreground))' },
+    labelStyle: { color: 'hsl(var(--muted-foreground))' },
+  };
+
+  return (
+    <div className="mt-4 space-y-4">
+      <p className="text-xs text-muted-foreground">{t('seo.rankTracking.landscape.description')}</p>
+      <Card>
+        <CardHeader><CardTitle className="text-sm">{t('seo.rankTracking.landscape.avgPositionTrend')}</CardTitle></CardHeader>
+        <CardContent>
+          <div className="h-64" dir="ltr">
+            <ResponsiveContainer width="100%" height="100%">
+              <ReLineChart data={chartPoints} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
+                <YAxis reversed allowDecimals={false} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} width={32} />
+                <ReTooltip {...tooltipStyle} />
+                <Line type="monotone" dataKey="avgPosition" stroke="#6366f1" strokeWidth={2.5} dot={false} connectNulls />
+              </ReLineChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle className="text-sm">{t('seo.rankTracking.landscape.top10Trend')}</CardTitle></CardHeader>
+        <CardContent>
+          <div className="h-52" dir="ltr">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartPoints} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickLine={false} axisLine={false} width={28} />
+                <ReTooltip {...tooltipStyle} />
+                <Bar dataKey="top10Count" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={24} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
       </Card>
     </div>
   );

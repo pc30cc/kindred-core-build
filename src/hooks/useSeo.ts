@@ -14,7 +14,7 @@ import {
   getKeywordsLimits, getLatestKeywordRun, listKeywordRunHistory, startKeywordRun,
   getKeywordRun, listKeywordResults, type SeoKeywordRun,
   getRankTrackingLimits, listTrackedKeywords, addTrackedKeyword, removeTrackedKeyword, listRankChecks,
-  getRankTrackingOverview, getRankTrackingLandscape,
+  getRankTrackingOverview, getRankTrackingLandscape, getRankTrackingCompetitors,
   getPerformanceLimits, getLatestPerformanceAudit, startPerformanceAudit, listPerformanceResults,
   type SeoPerformanceAudit,
   getGscLimits, getGscConnection, startGscOAuth, disconnectGsc, listGscProperties,
@@ -336,6 +336,14 @@ export function useRankTrackingLandscape(workspaceId?: string, siteId?: string, 
   return useQuery({
     queryKey: ['seo-rank-tracking-landscape', workspaceId, siteId, days],
     queryFn: () => getRankTrackingLandscape(workspaceId!, siteId!, { days }),
+    enabled: !!workspaceId && !!siteId,
+  });
+}
+
+export function useRankTrackingCompetitors(workspaceId?: string, siteId?: string) {
+  return useQuery({
+    queryKey: ['seo-rank-tracking-competitors', workspaceId, siteId],
+    queryFn: () => getRankTrackingCompetitors(workspaceId!, siteId!),
     enabled: !!workspaceId && !!siteId,
   });
 }

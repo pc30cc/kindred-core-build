@@ -16,7 +16,7 @@ import {
   useBacklinksLimits, useLatestBacklinkScan, useStartBacklinkScan, useBacklinks,
   useKeywordsLimits, useLatestKeywordRun, useStartKeywordRun, useKeywordResults,
   useRankTrackingLimits, useTrackedKeywords, useAddTrackedKeyword, useRemoveTrackedKeyword, useRankChecks,
-  useRankTrackingOverview, useRankTrackingLandscape,
+  useRankTrackingOverview, useRankTrackingLandscape, useRankTrackingCompetitors,
   usePerformanceLimits, useLatestPerformanceAudit, useStartPerformanceAudit, usePerformanceResults,
 } from '@/hooks/useSeo';
 import { SeoApiError, TERMINAL_SEO_STATUSES, type SeoCrawl, type SeoIssue } from '@/lib/seo-api';
@@ -248,6 +248,9 @@ function RankTrackerSection({ workspaceId, siteId, subsectionKey }: { workspaceI
   }
   if (subsectionKey === 'landscape') {
     return <PlanLockedOverlay moduleKey="seo_rank_tracking"><RankTrackingLandscapeTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>;
+  }
+  if (subsectionKey === 'competitors') {
+    return <PlanLockedOverlay moduleKey="seo_rank_tracking"><RankTrackingCompetitorsTab workspaceId={workspaceId} siteId={siteId} /></PlanLockedOverlay>;
   }
   const leaf = findLeaf(findSection('rank-tracker'), subsectionKey);
   return <SeoRoadmapPlaceholder label={t((leaf?.labelKey || 'seo.nav.section.rankTracker') as any)} />;
@@ -1974,6 +1977,67 @@ function RankTrackingLandscapeTab({ workspaceId, siteId }: { workspaceId: string
               </BarChart>
             </ResponsiveContainer>
           </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function RankTrackingCompetitorsTab({ workspaceId, siteId }: { workspaceId: string; siteId: string }) {
+  const { t } = useTranslation();
+  const { data: limitsData } = useRankTrackingLimits(workspaceId);
+  const { data, isLoading } = useRankTrackingCompetitors(workspaceId, siteId);
+  const maxKeywords = limitsData?.limits.seo_rank_tracking_max_keywords ?? 0;
+  const moduleAvailable = maxKeywords > 0;
+  const rows = data?.rows || [];
+
+  if (isLoading) return <div className="mt-4"><SkeletonStats count={4} /></div>;
+
+  if (!moduleAvailable) {
+    return (
+      <BacklinksEmptyState
+        icon={Lock} iconGradient="from-slate-500 to-slate-700"
+        title={t('seo.rankTracking.empty.notAvailableTitle')}
+        description={t('seo.rankTracking.empty.notAvailableDescription')}
+      />
+    );
+  }
+
+  return (
+    <div className="mt-4 space-y-4">
+      <p className="text-xs text-muted-foreground">{t('seo.rankTracking.competitors.description')}</p>
+      <Card>
+        <CardContent className="p-0">
+          {rows.length === 0 ? (
+            <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.rankTracking.competitors.empty')}</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('seo.rankTracking.competitors.columnDomain')}</TableHead>
+                  <TableHead className="text-end">{t('seo.rankTracking.competitors.columnSharedKeywords')}</TableHead>
+                  <TableHead className="text-end">{t('seo.rankTracking.competitors.columnAvgPosition')}</TableHead>
+                  <TableHead className="text-end">{t('seo.rankTracking.competitors.columnBestPosition')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((r) => (
+                  <TableRow key={r.domain}>
+                    <TableCell className="max-w-[280px] truncate font-medium">
+                      <a href={`https://${r.domain}`} target="_blank" rel="noreferrer" className="hover:underline">{r.domain}</a>
+                    </TableCell>
+                    <TableCell className="text-end tabular-nums">{r.sharedKeywordCount}</TableCell>
+                    <TableCell className="text-end tabular-nums">
+                      <Badge variant="outline" className={`text-[10px] ${positionBadgeClass(r.avgPosition)}`}>{r.avgPosition}</Badge>
+                    </TableCell>
+                    <TableCell className="text-end tabular-nums">
+                      <Badge variant="outline" className={`text-[10px] ${positionBadgeClass(r.bestPosition)}`}>{r.bestPosition}</Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -7185,6 +7185,14 @@ const tr: TranslationKeys = {
         top10Trend: 'İlk 10\'daki Anahtar Kelimeler',
         empty: 'Henüz sıralama kontrol geçmişi yok. Bu bölüm, takip edilen anahtar kelimeleriniz en az bir kez kontrol edildikten sonra görünür.',
       },
+      competitors: {
+        description: 'Takip ettiğiniz anahtar kelimeler için de sıralanan alan adları — kendi sıralama kontrollerinizin zaten getirdiği aynı arama sonuçlarından.',
+        columnDomain: 'Alan Adı',
+        columnSharedKeywords: 'Ortak Anahtar Kelimeler',
+        columnAvgPosition: 'Ort. Sıralama',
+        columnBestPosition: 'En İyi Sıralama',
+        empty: 'Henüz rakip verisi yok. Bu bölüm, takip edilen anahtar kelimeleriniz en az bir kez kontrol edildikten sonra görünür.',
+      },
     },
     history: {
       date: 'Tarih',

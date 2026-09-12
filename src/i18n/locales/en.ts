@@ -7197,6 +7197,14 @@ const en = {
         top10Trend: 'Keywords in Top 10',
         empty: 'No rank-check history yet. This appears once your tracked keywords have been checked at least once.',
       },
+      competitors: {
+        description: 'Domains that also rank for your tracked keywords, from the same search results your own rank checks already fetch.',
+        columnDomain: 'Domain',
+        columnSharedKeywords: 'Shared Keywords',
+        columnAvgPosition: 'Avg. Position',
+        columnBestPosition: 'Best Position',
+        empty: 'No competitor data yet. This appears once your tracked keywords have been checked at least once.',
+      },
     },
     history: {
       date: 'Date',

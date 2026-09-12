@@ -15,6 +15,7 @@
 import {
   RankTrackingError,
   type RankCheckResult,
+  type RankCheckCompetitor,
   type RankTrackingAccountInfo,
   type DataForSeoRankTrackingConfig,
 } from '../types.js';
@@ -23,6 +24,8 @@ export const DATAFORSEO_TIMEOUT_MS = 45_000;
 export const DATAFORSEO_API_BASE = 'https://api.dataforseo.com/v3';
 const DEFAULT_LOCATION_CODE = 2840; // United States
 const DEFAULT_LANGUAGE_CODE = 'en';
+/** Top N other organic domains persisted per check — bounds seo_rank_check_competitors growth (15-min ticker × watchlist size). */
+const MAX_COMPETITORS_PER_CHECK = 10;
 
 export interface DataForSeoRankTrackingAdapter {
   checkRank(input: { keyword: string; targetHost: string; device: 'desktop' | 'mobile'; locationCode?: number | null }): Promise<RankCheckResult>;
@@ -127,18 +130,26 @@ export function createDataForSeoRankTrackingAdapter(
       const rawItems = first && Array.isArray(first.items) ? first.items : [];
 
       const target = bareHost(targetHost);
+      let position: number | null = null;
+      let rankingUrl: string | null = null;
+      const competitors: RankCheckCompetitor[] = [];
+
       for (const raw of rawItems) {
         if (!raw || typeof raw !== 'object') continue;
         const item = raw as Record<string, unknown>;
         if (readString(item, 'type') !== 'organic') continue;
         const domain = readString(item, 'domain');
-        if (!domain || bareHost(domain) !== target) continue;
-        return {
-          position: readNumber(item, 'rank_group') ?? readNumber(item, 'rank_absolute'),
-          rankingUrl: readString(item, 'url'),
-        };
+        if (!domain) continue;
+        const itemPosition = readNumber(item, 'rank_group') ?? readNumber(item, 'rank_absolute');
+        if (bareHost(domain) === target) {
+          if (position === null) { position = itemPosition; rankingUrl = readString(item, 'url'); }
+          continue;
+        }
+        if (itemPosition !== null && competitors.length < MAX_COMPETITORS_PER_CHECK) {
+          competitors.push({ domain, url: readString(item, 'url'), position: itemPosition });
+        }
       }
-      return { position: null, rankingUrl: null };
+      return { position, rankingUrl, competitors };
     },
 
     async getAccountInfo() {

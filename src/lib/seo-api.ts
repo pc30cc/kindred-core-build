@@ -462,6 +462,18 @@ export function getRankTrackingLandscape(workspaceId: string, siteId: string, op
   return api<{ points: RankTrackingLandscapePoint[] }>(`/api/seo/${workspaceId}/sites/${siteId}/rank-tracking/landscape${qs(opts)}`);
 }
 
+export interface RankTrackingCompetitorRow {
+  domain: string;
+  sharedKeywordCount: number;
+  avgPosition: number;
+  bestPosition: number;
+  keywords: string[];
+}
+
+export function getRankTrackingCompetitors(workspaceId: string, siteId: string) {
+  return api<{ rows: RankTrackingCompetitorRow[] }>(`/api/seo/${workspaceId}/sites/${siteId}/rank-tracking/competitors`);
+}
+
 export interface SeoPerformanceLimits {
   planSlug: string | null;
   planName: string | null;

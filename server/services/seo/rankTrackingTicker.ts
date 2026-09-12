@@ -124,14 +124,34 @@ async function checkOneKeyword(config: ServerConfig, row: DueKeywordRow): Promis
     locationCode: row.location_code,
   });
 
-  await sb.from('seo_rank_checks').insert({
-    tracked_keyword_id: row.id,
-    workspace_id: row.workspace_id,
-    website_id: row.website_id,
-    position: result.position,
-    ranking_url: result.rankingUrl,
-    provider,
-  });
+  const { data: insertedCheck, error: insertError } = await sb
+    .from('seo_rank_checks')
+    .insert({
+      tracked_keyword_id: row.id,
+      workspace_id: row.workspace_id,
+      website_id: row.website_id,
+      position: result.position,
+      ranking_url: result.rankingUrl,
+      provider,
+    })
+    .select('id')
+    .single();
+  if (insertError) throw new Error(`seo_rank_check_insert_failed: ${insertError.message}`);
+
+  if (result.competitors.length > 0) {
+    const rankCheckId = (insertedCheck as { id: string }).id;
+    await sb.from('seo_rank_check_competitors').insert(
+      result.competitors.map((c) => ({
+        rank_check_id: rankCheckId,
+        tracked_keyword_id: row.id,
+        workspace_id: row.workspace_id,
+        website_id: row.website_id,
+        domain: c.domain,
+        url: c.url,
+        position: c.position,
+      })),
+    );
+  }
 
   await sb
     .from('seo_tracked_keywords')

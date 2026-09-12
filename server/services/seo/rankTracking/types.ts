@@ -56,9 +56,16 @@ export interface DataForSeoRankTrackingConfig {
 
 export type RankTrackingProviderConfig = DataForSeoRankTrackingConfig;
 
+export interface RankCheckCompetitor {
+  domain: string;
+  url: string | null;
+  position: number;
+}
+
 export interface RankCheckResult {
   position: number | null;
   rankingUrl: string | null;
+  competitors: RankCheckCompetitor[];
 }
 
 export interface RankTrackingProviderInfo {

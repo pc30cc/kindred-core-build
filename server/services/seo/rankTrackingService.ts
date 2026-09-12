@@ -293,4 +293,82 @@ export async function getRankTrackingLandscape(
   return { points };
 }
 
+// ─── Competitors ─────────────────────────────────────────────────────────
+// Reads seo_rank_check_competitors (populated by rankTrackingTicker.ts from
+// the SAME DataForSEO SERP response already fetched for each tracked
+// keyword's own position — see providers/dataforseo.ts::checkRank). Uses
+// each keyword's MOST RECENT check only, so "Competitors" always reflects
+// current rankings, not a lifetime accumulation.
+
+const COMPETITOR_ROW_CAP = 5000;
+
+export interface RankTrackingCompetitorRow {
+  domain: string;
+  sharedKeywordCount: number;
+  avgPosition: number;
+  bestPosition: number;
+  keywords: string[];
+}
+
+export async function getRankTrackingCompetitors(config: ServerConfig, workspaceId: string, siteId: string): Promise<{ rows: RankTrackingCompetitorRow[] }> {
+  const sb = getServiceClient(config);
+  const { data: keywordRows, error: kwError } = await sb
+    .from('seo_tracked_keywords')
+    .select('id, keyword')
+    .eq('workspace_id', workspaceId)
+    .eq('website_id', siteId)
+    .eq('is_active', true)
+    .limit(1000);
+  if (kwError) throw new Error(`rank_tracking_competitors_keywords_failed: ${kwError.message}`);
+  const keywords = (keywordRows || []) as Array<{ id: string; keyword: string }>;
+  if (keywords.length === 0) return { rows: [] };
+  const keywordById = new Map(keywords.map((k) => [k.id, k.keyword]));
+
+  const keywordIds = keywords.map((k) => k.id);
+  const { data: checkRows, error: checksError } = await sb
+    .from('seo_rank_checks')
+    .select('id, tracked_keyword_id, checked_at')
+    .eq('website_id', siteId)
+    .in('tracked_keyword_id', keywordIds)
+    .order('checked_at', { ascending: false })
+    .limit(RANK_CHECKS_ROW_CAP);
+  if (checksError) throw new Error(`rank_tracking_competitors_checks_failed: ${checksError.message}`);
+
+  // Grouped while iterating an already checked_at-desc list — first hit per
+  // keyword is its most recent check.
+  const latestCheckIdByKeyword = new Map<string, string>();
+  for (const row of (checkRows || []) as Array<{ id: string; tracked_keyword_id: string }>) {
+    if (!latestCheckIdByKeyword.has(row.tracked_keyword_id)) latestCheckIdByKeyword.set(row.tracked_keyword_id, row.id);
+  }
+  const latestCheckIds = Array.from(latestCheckIdByKeyword.values());
+  if (latestCheckIds.length === 0) return { rows: [] };
+
+  const { data: compRows, error: compError } = await sb
+    .from('seo_rank_check_competitors')
+    .select('tracked_keyword_id, domain, position')
+    .in('rank_check_id', latestCheckIds)
+    .limit(COMPETITOR_ROW_CAP);
+  if (compError) throw new Error(`rank_tracking_competitors_rows_failed: ${compError.message}`);
+
+  const byDomain = new Map<string, { positions: number[]; keywordIds: Set<string> }>();
+  for (const row of (compRows || []) as Array<{ tracked_keyword_id: string; domain: string; position: number }>) {
+    const bucket = byDomain.get(row.domain) || { positions: [], keywordIds: new Set<string>() };
+    bucket.positions.push(row.position);
+    bucket.keywordIds.add(row.tracked_keyword_id);
+    byDomain.set(row.domain, bucket);
+  }
+
+  const rows = Array.from(byDomain.entries())
+    .map(([domain, v]) => ({
+      domain,
+      sharedKeywordCount: v.keywordIds.size,
+      avgPosition: Math.round((v.positions.reduce((a, b) => a + b, 0) / v.positions.length) * 10) / 10,
+      bestPosition: Math.min(...v.positions),
+      keywords: Array.from(v.keywordIds).slice(0, 5).map((id) => keywordById.get(id) || ''),
+    }))
+    .sort((a, b) => b.sharedKeywordCount - a.sharedKeywordCount || a.avgPosition - b.avgPosition);
+
+  return { rows: rows.slice(0, 50) };
+}
+
 export { SiteResolutionError };

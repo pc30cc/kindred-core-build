@@ -91,6 +91,7 @@ import {
   listRankChecksForKeyword,
   getRankTrackingOverview,
   getRankTrackingLandscape,
+  getRankTrackingCompetitors,
   TrackedKeywordLimitError,
 } from '../services/seo/rankTrackingService.js';
 import {
@@ -584,6 +585,15 @@ seoRouter.get('/:workspaceId/sites/:siteId/rank-tracking/landscape', requireModu
   if (!isUuid(siteId)) return res.status(400).json({ error: 'invalid_site_id' });
   const days = parseInt(String(req.query.days || '90'), 10) || 90;
   const result = await getRankTrackingLandscape(configOf(req), workspaceId, siteId, { days });
+  res.json(result);
+});
+
+seoRouter.get('/:workspaceId/sites/:siteId/rank-tracking/competitors', requireModule('seo_rank_tracking'), async (req, res) => {
+  const { workspaceId, siteId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(siteId)) return res.status(400).json({ error: 'invalid_site_id' });
+  const result = await getRankTrackingCompetitors(configOf(req), workspaceId, siteId);
   res.json(result);
 });
 

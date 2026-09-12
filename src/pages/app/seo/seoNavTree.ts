@@ -82,7 +82,7 @@ export const SEO_SECTIONS: SeoSection[] = [
     items: [
       leaf('overview', 'seo.nav.item.overview', true),
       leaf('trackedKeywords', 'seo.nav.item.trackedKeywords', true),
-      leaf('competitors', 'seo.nav.item.competitors', false),
+      leaf('competitors', 'seo.nav.item.competitors', true),
       leaf('landscape', 'seo.nav.item.landscape', true),
     ],
   },

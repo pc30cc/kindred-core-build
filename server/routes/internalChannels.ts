@@ -62,6 +62,8 @@ import { instagramToBotUpdates } from '../services/channels/instagram/toBotUpdat
 import { botProvider } from '../../shared/channels/botProviders.js';
 import { handleTelegramCallbackQuery } from '../services/channels/telegram/runtime.js';
 import { publishOperatorEvent } from '../services/realtime/publish.js';
+import { uploadFile } from '../services/storage/index.js';
+import { randomUUID } from 'node:crypto';
 
 export const internalChannelsRouter = Router();
 
@@ -375,6 +377,278 @@ internalChannelsRouter.post('/outbound-result', async (req: any, res) => {
   } catch (err) {
     console.error('[internal-channels] outbound-result failed:', err);
     res.status(500).json({ error: 'outbound_result_failed' });
+  }
+});
+
+/**
+ * ── Gmail (Email Inbox) ──────────────────────────────────────────────
+ *
+ * Email has its own dedicated schema (email_threads/email_messages/
+ * email_attachments — 163_email_inbox.sql), never conversations, so these
+ * are separate from the bot-shaped routes above rather than reusing
+ * /process-inbound or /outbound-result.
+ */
+
+const gmailUpsertSchema = z.object({
+  integration_id: z.string().uuid(),
+  workspace_id: z.string().uuid(),
+  gmail_thread_id: z.string().min(1),
+  subject: z.string().nullable().optional(),
+  participants: z.array(z.object({ email: z.string() })).optional(),
+  message: z.object({
+    external_message_id: z.string().min(1),
+    in_reply_to: z.string().nullable().optional(),
+    references: z.array(z.string()).optional(),
+    from_address: z.string().min(1),
+    to_addresses: z.array(z.string()).optional(),
+    cc_addresses: z.array(z.string()).optional(),
+    bcc_addresses: z.array(z.string()).optional(),
+    text_body: z.string().nullable().optional(),
+    html_body: z.string().nullable().optional(),
+    snippet: z.string().nullable().optional(),
+    sent_at: z.string().nullable().optional(),
+  }),
+});
+
+/**
+ * POST /gmail/upsert-thread-message — the ONLY way a parsed inbound Gmail
+ * message becomes canonical data. Idempotent on (thread_id,
+ * external_message_id): `history.list` can legitimately hand back the same
+ * message id twice (overlapping pages, a retried job) and this must never
+ * duplicate it.
+ */
+internalChannelsRouter.post('/gmail/upsert-thread-message', async (req: any, res) => {
+  const parsed = gmailUpsertSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
+  const data = parsed.data;
+
+  try {
+    const config = serverConfigOf(req);
+    const sb = getServiceClient(config);
+
+    const { data: existingThread } = await sb
+      .from('email_threads')
+      .select('id, is_read')
+      .eq('integration_id', data.integration_id)
+      .eq('external_thread_id', data.gmail_thread_id)
+      .maybeSingle();
+
+    let threadId: string;
+    if (existingThread) {
+      threadId = existingThread.id;
+      await sb
+        .from('email_threads')
+        .update({
+          subject: data.subject ?? undefined,
+          last_message_at: data.message.sent_at ?? new Date().toISOString(),
+          is_read: false,
+        })
+        .eq('id', threadId);
+    } else {
+      const { data: newThread, error: threadError } = await sb
+        .from('email_threads')
+        .insert({
+          workspace_id: data.workspace_id,
+          integration_id: data.integration_id,
+          provider: 'gmail',
+          external_thread_id: data.gmail_thread_id,
+          subject: data.subject ?? null,
+          participants: data.participants ?? [],
+          last_message_at: data.message.sent_at ?? new Date().toISOString(),
+          is_read: false,
+        })
+        .select('id')
+        .single();
+      if (threadError || !newThread) throw new Error(threadError?.message || 'thread insert failed');
+      threadId = newThread.id;
+    }
+
+    const { data: inserted, error: insertError } = await sb
+      .from('email_messages')
+      .insert({
+        thread_id: threadId,
+        workspace_id: data.workspace_id,
+        external_message_id: data.message.external_message_id,
+        in_reply_to: data.message.in_reply_to ?? null,
+        message_references: data.message.references ?? [],
+        direction: 'inbound',
+        from_address: data.message.from_address,
+        to_addresses: (data.message.to_addresses ?? []).map((email) => ({ email })),
+        cc_addresses: (data.message.cc_addresses ?? []).map((email) => ({ email })),
+        bcc_addresses: (data.message.bcc_addresses ?? []).map((email) => ({ email })),
+        text_body: data.message.text_body ?? null,
+        html_body: data.message.html_body ?? null,
+        snippet: data.message.snippet ?? null,
+        is_read: false,
+        sent_at: data.message.sent_at ?? new Date().toISOString(),
+        delivery_status: 'sent',
+      })
+      .select('id')
+      .single();
+
+    if (insertError) {
+      // 23505 = unique_violation on (thread_id, external_message_id) — this
+      // exact message was already stored by an earlier/overlapping sync.
+      if ((insertError as any).code === '23505') {
+        const { data: existingMessage } = await sb
+          .from('email_messages')
+          .select('id')
+          .eq('thread_id', threadId)
+          .eq('external_message_id', data.message.external_message_id)
+          .maybeSingle();
+        return res.json({ thread_id: threadId, message_id: existingMessage?.id ?? null, is_new_message: false });
+      }
+      throw new Error(insertError.message);
+    }
+
+    await updateIntegration(config, data.integration_id, { last_inbound_at: new Date().toISOString() });
+    res.json({ thread_id: threadId, message_id: inserted!.id, is_new_message: true });
+  } catch (err) {
+    console.error('[internal-channels] gmail upsert-thread-message failed:', err);
+    res.status(500).json({ error: 'gmail_upsert_failed' });
+  }
+});
+
+/**
+ * POST /gmail/attachment-ingest — raw provider bytes crossing the network
+ * boundary, same shape as /media-ingest but writing `email_attachments`
+ * instead of a Telegram-shaped conversation attachment.
+ */
+internalChannelsRouter.post(
+  '/gmail/attachment-ingest',
+  raw({ type: '*/*', limit: '25mb' }),
+  async (req: any, res) => {
+    try {
+      const config = serverConfigOf(req);
+      const messageId = String(req.query.message_id || '');
+      const filename = String(req.query.filename || 'attachment').replace(/[^\w.\- ]+/g, '_').slice(0, 150);
+      const contentType = req.query.content_type ? String(req.query.content_type) : 'application/octet-stream';
+      const contentId = req.query.content_id ? String(req.query.content_id) : null;
+      if (!messageId) return res.status(400).json({ error: 'missing_message_id' });
+
+      const sb = getServiceClient(config);
+      const { data: message } = await sb
+        .from('email_messages')
+        .select('id, workspace_id')
+        .eq('id', messageId)
+        .maybeSingle();
+      if (!message) return res.status(404).json({ error: 'unknown_message' });
+
+      const bytes = Buffer.isBuffer(req.body) ? (req.body as Buffer) : Buffer.alloc(0);
+      if (!bytes.byteLength) return res.status(400).json({ error: 'empty_body' });
+
+      const now = new Date();
+      const fileKey = `email-attachments/${message.workspace_id}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${randomUUID()}-${filename}`;
+      const uploadResult = await uploadFile(config, { workspaceId: message.workspace_id, fileKey, data: bytes, contentType });
+      if (!uploadResult.success || !uploadResult.fileKey) {
+        return res.status(502).json({ error: 'attachment_upload_failed', details: uploadResult.error });
+      }
+
+      const { error: insertError } = await sb.from('email_attachments').insert({
+        message_id: messageId,
+        filename,
+        content_type: contentType,
+        size_bytes: bytes.byteLength,
+        storage_key: uploadResult.fileKey,
+        content_id: contentId,
+      });
+      if (insertError) throw new Error(insertError.message);
+
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('[internal-channels] gmail attachment-ingest failed:', err);
+      res.status(500).json({ error: 'gmail_attachment_ingest_failed' });
+    }
+  },
+);
+
+/**
+ * POST /gmail/history-checkpoint — advances the stored `historyId` an
+ * integration's next `history.list` call resumes from. Merged into
+ * channel_integrations.metadata rather than a dedicated column, matching
+ * how every other channel stores provider-specific runtime state.
+ */
+const gmailCheckpointSchema = z.object({
+  integration_id: z.string().uuid(),
+  history_id: z.string().min(1),
+});
+
+internalChannelsRouter.post('/gmail/history-checkpoint', async (req: any, res) => {
+  const parsed = gmailCheckpointSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
+
+  try {
+    const config = serverConfigOf(req);
+    const integration = await getIntegrationById(config, parsed.data.integration_id);
+    if (!integration) return res.status(404).json({ error: 'unknown_integration' });
+    await updateIntegration(config, integration.id, {
+      metadata: { ...integration.metadata, gmail_history_id: parsed.data.history_id },
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[internal-channels] gmail history-checkpoint failed:', err);
+    res.status(500).json({ error: 'gmail_checkpoint_failed' });
+  }
+});
+
+/**
+ * POST /gmail/outbound-result — the ONLY way a reply's send outcome reaches
+ * `email_messages.delivery_status`. The Worker never writes email_messages
+ * directly.
+ */
+const gmailOutboundResultSchema = z.object({
+  email_message_id: z.string().uuid(),
+  integration_id: z.string().uuid().nullable().optional(),
+  outcome: z.enum(['sent', 'failed']),
+  error_message: z.string().max(1000).nullable().optional(),
+  // Present only for a brand-new (non-reply) thread: composeReply() inserts
+  // the local thread row with a `pending-<messageId>` placeholder before
+  // Gmail has assigned a real threadId (that only exists once the message
+  // is actually sent) — this is how it gets patched to the real one.
+  local_thread_id: z.string().uuid().nullable().optional(),
+  gmail_thread_id: z.string().min(1).nullable().optional(),
+});
+
+internalChannelsRouter.post('/gmail/outbound-result', async (req: any, res) => {
+  const parsed = gmailOutboundResultSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
+  const data = parsed.data;
+
+  try {
+    const config = serverConfigOf(req);
+    const sb = getServiceClient(config);
+    const { error } = await sb
+      .from('email_messages')
+      .update({
+        delivery_status: data.outcome,
+        delivery_error: data.outcome === 'failed' ? (data.error_message || 'unknown error').slice(0, 1000) : null,
+      })
+      .eq('id', data.email_message_id);
+    if (error) throw new Error(error.message);
+
+    if (data.outcome === 'sent' && data.local_thread_id && data.gmail_thread_id) {
+      await sb
+        .from('email_threads')
+        .update({ external_thread_id: data.gmail_thread_id })
+        .eq('id', data.local_thread_id)
+        .like('external_thread_id', 'pending-%');
+    }
+
+    if (data.integration_id) {
+      if (data.outcome === 'sent') {
+        await updateIntegration(config, data.integration_id, { last_outbound_at: new Date().toISOString() });
+      } else {
+        await updateIntegration(config, data.integration_id, {
+          last_error_code: 'gmail_send_failed',
+          last_error_at: new Date().toISOString(),
+        });
+      }
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[internal-channels] gmail outbound-result failed:', err);
+    res.status(500).json({ error: 'gmail_outbound_result_failed' });
   }
 });
 

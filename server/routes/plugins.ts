@@ -33,6 +33,15 @@ import {
 } from '../services/plugins/secrets.js';
 import { botProvider, isBotProvider } from '../../shared/channels/botProviders.js';
 import { deriveChannelWebhookSecret } from '../../shared/channels/webhookSecret.js';
+import { resolveAppBaseUrl } from '../services/invitations/tokens.js';
+import {
+  startGmailOAuth,
+  handleGmailOAuthCallback,
+  getGmailConnectionInfo,
+  disconnectGmail,
+  isGmailPlatformConfigured,
+} from '../services/channels/gmail/oauth.js';
+import { isGmailError } from '../services/channels/gmail/types.js';
 
 import {
   buildWebhookUrl,
@@ -1071,5 +1080,116 @@ adminPluginsRouter.get('/:pluginId/logs', async (req: any, res) => {
   } catch (err) {
     console.error('[plugins] admin logs failed:', err);
     res.status(500).json({ error: 'Failed to load plugin logs' });
+  }
+});
+
+// ── Gmail (OAuth email channel) ─────────────────────────────────────────
+//
+// Gmail (and, in a later phase, Yahoo Mail) connects via an OAuth2 browser
+// redirect instead of a pasted credential, so it doesn't fit the
+// paste-a-token `botPaths('connect')` flow above. Mirrors
+// server/routes/seo.ts's GSC oauth/start + oauth/callback pair (see
+// server/services/channels/gmail/oauth.ts's header comment) but plugs into
+// the channel-plugin installation/integration lifecycle so Gmail shows up
+// in the same Plugins marketplace as every other channel.
+
+function gmailErrorStatus(code: string): number {
+  switch (code) {
+    case 'gmail_not_configured':
+    case 'gmail_not_connected':
+      return 409;
+    case 'gmail_invalid_state':
+    case 'gmail_auth_failed':
+    case 'gmail_token_revoked':
+    case 'gmail_insufficient_scope':
+      return 401;
+    case 'gmail_account_already_connected':
+      return 409;
+    case 'gmail_rate_limited':
+      return 429;
+    case 'gmail_timeout':
+    case 'gmail_network_error':
+      return 502;
+    default:
+      return 500;
+  }
+}
+
+function sendGmailError(res: any, err: unknown) {
+  if (isGmailError(err)) {
+    return res.status(gmailErrorStatus(err.code)).json({ error: err.code, message: err.message, detail: err.detail });
+  }
+  console.error('[plugins] gmail unexpected error:', err);
+  res.status(500).json({ error: 'gmail_unexpected_error', detail: (err as Error)?.message });
+}
+
+pluginsRouter.get('/gmail/connection', async (req: any, res) => {
+  const workspaceId = String(req.query.workspace_id || '');
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  try {
+    const connection = await getGmailConnectionInfo(serverConfigOf(req), workspaceId);
+    res.json({ connection, platformConfigured: isGmailPlatformConfigured() });
+  } catch (err) {
+    sendGmailError(res, err);
+  }
+});
+
+pluginsRouter.post('/gmail/oauth/start', async (req: any, res) => {
+  const workspaceId = String(req.body?.workspace_id || '');
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
+  const auth = await requireManager(req, res, workspaceId);
+  if (!auth) return;
+  try {
+    const availability = await resolveAvailability(req, workspaceId, 'gmail');
+    if (!availability.ok) return res.status(403).json({ error: 'Plugin unavailable', reason: availability.reason });
+    const result = await startGmailOAuth(serverConfigOf(req), workspaceId, auth.userId);
+    res.json(result);
+  } catch (err) {
+    sendGmailError(res, err);
+  }
+});
+
+// NOT workspace-scoped — Google requires one fixed, pre-registered
+// redirect_uri; the workspace travels inside the signed, single-use `state`
+// token instead (see handleGmailOAuthCallback).
+pluginsRouter.get('/gmail/oauth/callback', async (req: any, res) => {
+  const config = serverConfigOf(req);
+  const code = typeof req.query.code === 'string' ? req.query.code : '';
+  const state = typeof req.query.state === 'string' ? req.query.state : '';
+  const appBaseUrl = await resolveAppBaseUrl(config);
+
+  if (!code || !state) {
+    return res.redirect(`${appBaseUrl}/app/email?gmail=error&reason=missing_params`);
+  }
+  try {
+    const { workspaceId } = await handleGmailOAuthCallback(config, code, state);
+    const sb = getServiceClient(config);
+    const { data: ws } = await sb.from('workspaces').select('slug').eq('id', workspaceId).maybeSingle();
+    const slug = (ws as { slug?: string } | null)?.slug;
+    const base = slug ? `${appBaseUrl}/${slug}` : `${appBaseUrl}/app`;
+    return res.redirect(`${base}/email?gmail=connected`);
+  } catch (err) {
+    const code2 = isGmailError(err) ? err.code : 'gmail_unexpected_error';
+    // The redirect only ever carries the normalized code (never a credential
+    // or raw provider payload — see channels/providers/gmail/client.ts's file
+    // header), so this is the ONLY place an operator can see WHY a
+    // connection attempt failed instead of the user's generic toast.
+    console.error(`[gmail] oauth callback failed: ${code2}${isGmailError(err) ? '' : ` (${(err as Error)?.message || 'no message'})`}`);
+    return res.redirect(`${appBaseUrl}/app/email?gmail=error&reason=${encodeURIComponent(code2)}`);
+  }
+});
+
+pluginsRouter.post('/gmail/disconnect', async (req: any, res) => {
+  const workspaceId = String(req.body?.workspace_id || '');
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
+  const auth = await requireManager(req, res, workspaceId);
+  if (!auth) return;
+  try {
+    await disconnectGmail(serverConfigOf(req), workspaceId);
+    res.json({ ok: true });
+  } catch (err) {
+    sendGmailError(res, err);
   }
 });

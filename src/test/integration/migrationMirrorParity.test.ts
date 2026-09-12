@@ -170,6 +170,21 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/162_seo_explorer_competing_domains.sql',
     hosted: 'supabase/migrations/20260912100000_seo_explorer_competing_domains.sql',
   },
+  {
+    label: '163 — Email Inbox',
+    selfHost: 'database/migrations/163_email_inbox.sql',
+    hosted: 'supabase/migrations/20260912110000_email_inbox.sql',
+  },
+  {
+    label: '164 — Channel OAuth States',
+    selfHost: 'database/migrations/164_channel_oauth_states.sql',
+    hosted: 'supabase/migrations/20260912120000_channel_oauth_states.sql',
+  },
+  {
+    label: '165 — Email Messages Delivery Status',
+    selfHost: 'database/migrations/165_email_messages_delivery_status.sql',
+    hosted: 'supabase/migrations/20260912130000_email_messages_delivery_status.sql',
+  },
 
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered

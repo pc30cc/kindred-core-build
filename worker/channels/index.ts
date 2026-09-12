@@ -35,6 +35,11 @@ import {
 } from '../../channels/providers/telegram/client.js';
 import { pollDmEvents } from '../../channels/providers/x/client.js';
 import { xDmEventsToBotUpdates } from '../../server/services/channels/x/toBotUpdate.js';
+import {
+  createGmailAdapter,
+  type GmailOutboundMessage,
+} from '../../channels/providers/gmail/client.js';
+import { GMAIL_REFRESH_TOKEN_KEY } from '../../shared/channels/gmailKeys.js';
 import { botApiFor } from './botApi.js';
 import {
   CORE_INTERNAL_SERVICE_NAME,
@@ -73,6 +78,30 @@ function requireEnv(name: string): string {
     process.exit(1);
   }
   return value;
+}
+
+/**
+ * Gmail reuses the SAME platform Google OAuth Client Core uses for GSC/the
+ * connect flow (`GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET`) — the
+ * Worker never sees a refresh token without also being able to turn it into
+ * an access token, so it needs these two values configured too. Unlike
+ * `requireEnv`, a missing value here only fails Gmail jobs (a permanent
+ * error, so they don't retry-loop), not the whole worker process — Gmail is
+ * an optional plugin, most self-hosted deployments won't have it enabled.
+ */
+function gmailOAuthConfigOrThrow(): { clientId: string; clientSecret: string; redirectUri: string } {
+  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID?.trim();
+  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) {
+    throw Object.assign(
+      new Error('GOOGLE_OAUTH_CLIENT_ID/GOOGLE_OAUTH_CLIENT_SECRET are not configured on the Channels Worker'),
+      { permanent: true },
+    );
+  }
+  // redirectUri is unused by refreshAccessToken/sendMessage/etc. (only the
+  // Core-side authorization-code exchange needs it) — a placeholder keeps
+  // the adapter's config shape satisfied without duplicating the real value.
+  return { clientId, clientSecret, redirectUri: 'urn:gmail-worker:not-used' };
 }
 
 let sb: SupabaseClient;
@@ -374,11 +403,15 @@ async function handleJob(job: ChannelJob): Promise<void> {
 
   // Every Telegram-compatible bot channel shares these handlers; the API root
   // and capability flags come from the provider descriptor, never from a
-  // branch in the handler body.
-  const bot = findBotProvider(job.provider);
+  // branch in the handler body. Gmail (and, in a later phase, Yahoo) is not
+  // a bot-dialect provider at all — `botProvider()` throws for it — so this
+  // whole setup is skipped for its job types and resolved lazily inside
+  // their own case blocks below instead.
+  const isBotDialectJob = job.provider !== 'gmail';
+  const bot = isBotDialectJob ? findBotProvider(job.provider) : null;
   // Protocol translation lives behind this dispatcher; handlers below stay
   // dialect-agnostic (Telegram Bot API and WhatsApp Cloud alike).
-  const api = botApiFor(job.provider);
+  const api = isBotDialectJob ? botApiFor(job.provider) : (null as unknown as ReturnType<typeof botApiFor>);
   const credential = async (integrationId: string) => ({
     token: await resolveIntegrationToken(integrationId, botProvider(job.provider).secretKeys.live),
     apiRoot: botProvider(job.provider).apiRoot,
@@ -443,6 +476,172 @@ async function handleJob(job: ChannelJob): Promise<void> {
       }
 
       await scheduleNext(selfUserId);
+      return;
+    }
+
+    // ── Gmail (Email Inbox) — a Pub/Sub push landed on Core, which
+    // enqueued this job carrying the mailbox's next `history.list` starting
+    // point directly (no separate lookup call needed). ──────────────────
+    case 'gmail_sync_inbox': {
+      if (!job.integration_id) throw Object.assign(new Error('gmail sync without integration'), { permanent: true });
+      const gmailCfg = gmailOAuthConfigOrThrow();
+      const ga = createGmailAdapter(gmailCfg);
+      const refreshToken = await resolveIntegrationToken(job.integration_id, GMAIL_REFRESH_TOKEN_KEY);
+      const { accessToken } = await ga.refreshAccessToken(refreshToken);
+
+      const startHistoryId = String(payload.start_history_id || '');
+      let messageIds: string[] = [];
+      let newHistoryId: string | null = null;
+
+      if (startHistoryId) {
+        const result = await ga.listHistorySince(accessToken, startHistoryId);
+        if (result.expired) {
+          // Retention window (~1 week) elapsed since the last checkpoint —
+          // there is no way to recover the exact delta, so resync the most
+          // recent messages instead of failing the job forever.
+          messageIds = await ga.listRecentInboxMessageIds(accessToken, 25);
+          newHistoryId = await ga.getProfileHistoryId(accessToken);
+        } else {
+          messageIds = result.messageIds;
+          newHistoryId = result.historyId;
+        }
+      } else {
+        messageIds = await ga.listRecentInboxMessageIds(accessToken, 25);
+        newHistoryId = await ga.getProfileHistoryId(accessToken);
+      }
+
+      for (const gmailMessageId of messageIds) {
+        try {
+          const parsed = await ga.getMessage(accessToken, gmailMessageId);
+          const participants = Array.from(
+            new Set([parsed.fromAddress, ...parsed.toAddresses, ...parsed.ccAddresses].filter(Boolean) as string[]),
+          ).map((email) => ({ email }));
+
+          const upsertResult = await coreCall('/internal/channels/gmail/upsert-thread-message', {
+            integration_id: job.integration_id,
+            workspace_id: job.workspace_id,
+            gmail_thread_id: parsed.threadId,
+            subject: parsed.subject,
+            participants,
+            message: {
+              external_message_id: parsed.messageIdHeader || `gmail-${parsed.id}`,
+              in_reply_to: parsed.inReplyTo,
+              references: parsed.references,
+              from_address: parsed.fromAddress || 'unknown@unknown',
+              to_addresses: parsed.toAddresses,
+              cc_addresses: parsed.ccAddresses,
+              bcc_addresses: parsed.bccAddresses,
+              text_body: parsed.textBody,
+              html_body: parsed.htmlBody,
+              snippet: parsed.snippet,
+              sent_at: parsed.internalDate && !Number.isNaN(Number(parsed.internalDate))
+                ? new Date(Number(parsed.internalDate)).toISOString()
+                : new Date().toISOString(),
+            },
+          });
+
+          if (upsertResult?.is_new_message && upsertResult?.message_id && parsed.attachments.length) {
+            for (const att of parsed.attachments) {
+              try {
+                const bytes = await ga.getAttachmentBytes(accessToken, gmailMessageId, att.attachmentId);
+                const qs = new URLSearchParams({
+                  message_id: String(upsertResult.message_id),
+                  filename: att.filename,
+                  content_type: att.mimeType,
+                  ...(att.contentId ? { content_id: att.contentId } : {}),
+                });
+                await coreUpload(`/internal/channels/gmail/attachment-ingest?${qs.toString()}`, bytes, att.mimeType);
+              } catch (attErr) {
+                console.error('[channels-worker] gmail attachment ingest failed:', (attErr as Error)?.message || attErr);
+              }
+            }
+          }
+        } catch (msgErr) {
+          // One malformed/unfetchable message must not sink the whole
+          // batch — the next push (or the next history.list call, since
+          // the checkpoint below only advances past what actually landed)
+          // will pick it up again.
+          console.error('[channels-worker] gmail message sync failed:', (msgErr as Error)?.message || msgErr);
+        }
+      }
+
+      if (newHistoryId) {
+        await coreCall('/internal/channels/gmail/history-checkpoint', {
+          integration_id: job.integration_id,
+          history_id: newHistoryId,
+        });
+      }
+      return;
+    }
+
+    // ── Gmail outbound — a reply composed in the Email Inbox UI. ───────
+    case 'gmail_outbound_message': {
+      if (!job.integration_id) throw Object.assign(new Error('gmail outbound without integration'), { permanent: true });
+      const emailMessageId = String(payload.email_message_id || '');
+      if (!emailMessageId) return;
+
+      const gmailCfg = gmailOAuthConfigOrThrow();
+      const ga = createGmailAdapter(gmailCfg);
+
+      try {
+        const refreshToken = await resolveIntegrationToken(job.integration_id, GMAIL_REFRESH_TOKEN_KEY);
+        const { accessToken } = await ga.refreshAccessToken(refreshToken);
+
+        const rawAttachments: any[] = Array.isArray(payload.attachments) ? payload.attachments : [];
+        const attachments: GmailOutboundMessage['attachments'] = [];
+        for (const att of rawAttachments) {
+          const url = String(att?.url ?? '');
+          if (!/^https?:\/\//i.test(url)) continue;
+          try {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`http_${res.status}`);
+            const bytes = Buffer.from(await res.arrayBuffer());
+            attachments!.push({
+              filename: String(att.filename || 'attachment'),
+              contentType: String(att.content_type || 'application/octet-stream'),
+              bytes,
+            });
+          } catch (fetchErr) {
+            console.error('[channels-worker] gmail outbound attachment fetch failed:', (fetchErr as Error)?.message || fetchErr);
+          }
+        }
+
+        const outbound: GmailOutboundMessage = {
+          from: { email: String(payload.from_email || '') },
+          to: (Array.isArray(payload.to) ? payload.to : []).map((email: string) => ({ email })),
+          cc: (Array.isArray(payload.cc) ? payload.cc : []).map((email: string) => ({ email })),
+          bcc: (Array.isArray(payload.bcc) ? payload.bcc : []).map((email: string) => ({ email })),
+          subject: String(payload.subject || ''),
+          textBody: String(payload.text_body || ''),
+          htmlBody: payload.html_body ? String(payload.html_body) : null,
+          inReplyTo: payload.in_reply_to ? String(payload.in_reply_to) : null,
+          references: Array.isArray(payload.references) ? payload.references.map(String) : [],
+          attachments,
+          messageId: payload.message_id ? String(payload.message_id) : undefined,
+        };
+
+        const gmailThreadId = payload.gmail_thread_id ? String(payload.gmail_thread_id) : undefined;
+        const result = await ga.sendMessage(accessToken, outbound, gmailThreadId);
+
+        await coreCall('/internal/channels/gmail/outbound-result', {
+          email_message_id: emailMessageId,
+          integration_id: job.integration_id,
+          outcome: 'sent',
+          // Only meaningful (and only accepted by Core) for a brand-new
+          // thread that started with a `pending-` placeholder id.
+          local_thread_id: payload.local_thread_id ? String(payload.local_thread_id) : null,
+          gmail_thread_id: result.threadId || null,
+        });
+      } catch (err) {
+        console.error('[channels-worker] gmail send failed:', (err as Error)?.message || err);
+        await coreCall('/internal/channels/gmail/outbound-result', {
+          email_message_id: emailMessageId,
+          integration_id: job.integration_id,
+          outcome: 'failed',
+          error_message: ((err as Error)?.message || 'unknown error').slice(0, 500),
+        }).catch(() => {});
+        throw err;
+      }
       return;
     }
 

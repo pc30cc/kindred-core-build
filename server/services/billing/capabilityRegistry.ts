@@ -98,6 +98,11 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'instagram',   type: 'channel', label: 'Instagram',   group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 50 },
   { key: 'telegram',    type: 'channel', label: 'Telegram',    group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 60 },
   { key: 'bale',        type: 'channel', label: 'Bale',        group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 65 },
+  // Gmail (server/plugins/registry.ts's `gmail` plugin) — distinct from the
+  // pre-existing `email` channel key above, which is outbound-only
+  // transactional/SMTP sending (server/routes/email.ts) and unrelated to
+  // this real inbound+outbound Gmail mailbox.
+  { key: 'gmail',       type: 'channel', label: 'Gmail',       group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 66 },
   { key: 'voice',       type: 'channel', label: 'Voice Calls', group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 70 },
   { key: 'video',       type: 'channel', label: 'Video Calls', group: 'channels', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 80 },
 
@@ -277,6 +282,12 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   // that add real new data: custom event tracking and saved funnels. ───
   { key: 'web_analytics', type: 'module', label: 'SEO — Web Analytics', group: 'modules', description: 'Traffic, audience and behavior reporting (sources, pages, geography, devices, custom events and funnels) built on the workspace\'s visitor-tracking data.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 137 },
   { key: 'web_analytics_max_funnels', type: 'limit', label: 'SEO — Max saved funnels', group: 'seo', description: 'Maximum number of saved Web Analytics funnels a workspace may define.', defaultValue: 0, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 210 },
+
+  // Email Inbox (src/pages/app/email/) — gates the dedicated Gmail/Yahoo
+  // mailbox UI/route, same shape as the web_analytics module above. Separate
+  // from the `gmail`/`email` CHANNEL keys: this module gates the feature
+  // existing at all, the channel key gates connecting a specific provider.
+  { key: 'email_inbox', type: 'module', label: 'Email Inbox', group: 'modules', description: 'A dedicated, real email client inside the platform (Gmail today, Yahoo Mail planned) — separate from the unified chat Inbox.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 138 },
 
   // Bot Analytics (Phase 5) — a log-file analyzer, not a JS beacon: most
   // search/AI crawlers never execute the widget's JS, so there is no

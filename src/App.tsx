@@ -91,6 +91,7 @@ import BillingPage from "@/pages/app/BillingPage";
 import BillingPaymentPage from "@/pages/app/billing/PaymentPage";
 import SeoPage from "@/pages/app/seo/SeoPage";
 import WebAnalyticsPage from "@/pages/app/analytics/WebAnalyticsPage";
+import EmailInboxPage from "@/pages/app/email/EmailInboxPage";
 import SettingsGeneralPage from "@/pages/app/settings/GeneralPage";
 import SettingsIntegrationsPage from "@/pages/app/settings/IntegrationsPage";
 import SettingsCommercePage from "@/pages/app/settings/CommercePage";
@@ -309,6 +310,11 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                     (moduleKey="web_analytics"), same as it was when nested under /seo. */}
                 <Route path="analytics" element={<RequireWorkspaceAdmin><WebAnalyticsPage /></RequireWorkspaceAdmin>} />
                 <Route path="analytics/:subsection" element={<RequireWorkspaceAdmin><WebAnalyticsPage /></RequireWorkspaceAdmin>} />
+                {/* Email Inbox — a dedicated, real email client (Gmail today), NOT
+                    the unified chat Inbox. See server/services/email/inbox.ts's
+                    header comment for why it is intentionally separate. */}
+                <Route path="email" element={<RequireWorkspaceAdmin><EmailInboxPage /></RequireWorkspaceAdmin>} />
+                <Route path="email/:threadId" element={<RequireWorkspaceAdmin><EmailInboxPage /></RequireWorkspaceAdmin>} />
                 {/* Phase 6-S5-R4 — Knowledge Base is a CORE workspace product.
                     It is ALWAYS available: no plan gate, no AI dependency, no
                     upgrade screen. Only authentication + workspace membership

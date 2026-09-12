@@ -186,6 +186,41 @@ of erroring. On the **Backend** service, set:
 
 See `server/.env.example` for the full step-by-step.
 
+#### Optional: Gmail channel plugin (Email Inbox)
+
+Only needed if you want to offer the Gmail plugin / the dedicated Email
+Inbox — without it, Gmail shows as unavailable in the plugin marketplace.
+Reuses the SAME Google Cloud OAuth Client as GSC above (`GOOGLE_OAUTH_
+CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET`) — Google allows several redirect
+URIs on one Client, so this is additive, not a second project.
+
+On the **Backend** service:
+
+- Enable the **Gmail API** on the same Google Cloud project used for GSC.
+- Add scopes `.../auth/gmail.modify` and `.../auth/gmail.send` to the same
+  OAuth consent screen as GSC.
+- On that same OAuth Client, add another Authorised redirect URI — e.g.
+  `https://api.yourdomain.com/api/plugins/gmail/oauth/callback` — and set
+  `GOOGLE_GMAIL_OAUTH_REDIRECT_URI` to that exact value.
+- In **Cloud Pub/Sub**, create a topic (e.g. `gmail-inbox-push`), then grant
+  **Publish** rights on it to `gmail-api-push@system.gserviceaccount.com`
+  (Google's own fixed service account for this — not one you create). Set
+  `GMAIL_PUBSUB_TOPIC` to the topic's fully-qualified name
+  (`projects/<project>/topics/<topic>`).
+- On that topic, create a **push subscription** whose endpoint is
+  `https://api.yourdomain.com/webhooks/gmail/push` — this is a Core route,
+  not the Channels Gateway. Configure the subscription's push authentication
+  with an OIDC token and set its audience to that same URL; set
+  `GMAIL_PUBSUB_PUSH_AUDIENCE` to match.
+- `PLUGIN_SECRETS_MASTER_KEY` must also be set (shared with every other
+  channel's encrypted credential storage).
+
+On the **Channels Worker** service (`Dockerfile.worker`), also set
+`GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET` — the Worker refreshes
+Gmail access tokens itself for the sync/send jobs, independent of Core.
+
+See `server/.env.example` for the full inline documentation of each var.
+
 ### Reverse Proxy (nginx example)
 
 ```nginx

@@ -203,7 +203,33 @@ export const PLUGIN_REGISTRY: readonly PluginDefinition[] = Object.freeze([
     planChannelKey: 'x',
   },
   comingSoon('messenger', 'channels'),
-  comingSoon('email', 'channels'),
+  {
+    // Gmail — a real Email Inbox (server/services/email/, src/pages/app/email/),
+    // deliberately NOT the unified chat Inbox: `supportsInbox: false` because
+    // email never feeds conversations/conversation_messages (see
+    // 163_email_inbox.sql's header comment). Connects via OAuth2 browser
+    // redirect (server/services/channels/gmail/oauth.ts), not a pasted
+    // token, so it has its own /gmail/oauth/start+callback routes instead of
+    // the shared botPaths('connect') flow every other channel uses.
+    id: 'gmail',
+    slug: 'gmail',
+    version: '1.0.0',
+    category: 'channels',
+    status: 'available',
+    capabilities: ['inbound_text', 'inbound_media', 'outbound_text', 'outbound_media'],
+    workspaceInstallable: true,
+    hasSettings: false,
+    hasSecrets: true,
+    supportsInbox: false,
+    supportsAI: false,
+    supportsMedia: true,
+    supportsWebhook: true,
+    planModuleKey: null,
+    planChannelKey: 'gmail',
+  },
+  // Yahoo Mail — phase 2 (IMAP+XOAUTH2 polling + SMTP+XOAUTH2), not built yet.
+  // Feeds the SAME Email Inbox schema/UI as Gmail once it lands.
+  comingSoon('yahoomail', 'channels'),
   comingSoon('slack', 'channels'),
   comingSoon('discord', 'channels'),
   comingSoon('sms', 'channels'),

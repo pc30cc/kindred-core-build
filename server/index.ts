@@ -47,6 +47,8 @@ import { brandRadarRouter } from './routes/brandRadar.js';
 import { plansRouter } from './routes/plans.js';
 import { pluginsRouter, adminPluginsRouter } from './routes/plugins.js';
 import { internalChannelsRouter } from './routes/internalChannels.js';
+import { emailInboxRouter } from './routes/emailInbox.js';
+import { gmailPushRouter } from './routes/gmailPush.js';
 
 import { phoneVerificationRouter } from './routes/phoneVerification.js';
 import { adminRouter } from './routes/admin.js';
@@ -100,6 +102,7 @@ import { startReliabilityRollup } from './services/observability/reliabilityRoll
 import { startEnforcementTicker } from './services/observability/enforcementTicker.js';
 import { startMaxmindUpdateTicker } from './services/geo/maxmindUpdater.js';
 import { startRankTrackingTicker } from './services/seo/rankTrackingTicker.js';
+import { startGmailWatchRenewalTicker } from './services/channels/gmail/watchRenewalTicker.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import { isPublicWidgetApiPath, PUBLIC_WIDGET_REALTIME_ROUTES } from './lib/routePrefix.js';
@@ -444,10 +447,22 @@ app.use('/api/plans', plansRouter);
 app.use('/api/plugins/admin', adminRateLimiter, adminPluginsRouter);
 app.use('/api/plugins', pluginsRouter);
 
+// Email Inbox — dedicated, not the unified chat Inbox, and NOT the same
+// surface as /api/email/* (transactional + outbound SMTP channel email —
+// see server/routes/email.ts's header comment). See
+// server/services/email/inbox.ts's header comment.
+app.use('/api/email-inbox', emailInboxRouter);
+
 // Core ↔ Channels internal API. NOT under /api: it is a server-to-server
 // boundary authenticated with CORE_INTERNAL_SECRET and must never be exposed
 // to browsers or included in the public CORS surface.
 app.use('/internal/channels', internalChannelsRouter);
+
+// Gmail Pub/Sub push. NOT under /api (no CORS/browser auth applies — Google
+// Pub/Sub authenticates with its own OIDC bearer token, verified inside the
+// router) and NOT under /internal/channels (that boundary is
+// CORE_INTERNAL_SECRET-only, which Google cannot present).
+app.use('/webhooks', gmailPushRouter);
 
 
 
@@ -661,6 +676,11 @@ app.listen(config.port, () => {
   // No-ops unless a platform rank-tracking provider is configured and
   // active. See server/services/seo/rankTrackingTicker.ts.
   startRankTrackingTicker(config);
+
+  // Gmail — 7-day Pub/Sub watch renewal (checked every 6h). No-ops unless
+  // GOOGLE_OAUTH_CLIENT_ID/SECRET + GMAIL_PUBSUB_TOPIC are configured. See
+  // server/services/channels/gmail/watchRenewalTicker.ts.
+  startGmailWatchRenewalTicker(config);
 
   // Phase 9 — Call invitation TTL sweeper (every 30s). Flips pending
   // invitations whose CALL_INVITATION_TTL_SECONDS window passed into

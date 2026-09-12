@@ -14,7 +14,7 @@ import {
   AlertCircle, Check, Ban, Lock, Minus,
   PhoneCall, Radar, BarChart3,
   PanelLeftClose, PanelLeftOpen,
-  Plug,
+  Plug, Mail,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -332,6 +332,9 @@ export function AppSidebar({
       : []),
     ...(isWsAdmin && moduleInPlan('web_analytics')
       ? [{ key: 'webAnalytics', path: '/analytics', icon: BarChart3, accent: 'violet', locked: false } as const]
+      : []),
+    ...(isWsAdmin && moduleInPlan('email_inbox')
+      ? [{ key: 'emailInbox', path: '/email', icon: Mail, accent: 'indigo', locked: false } as const]
       : []),
     // Knowledge Base and Team are CORE products — never plan-gated.
     { key: 'knowledgeBase', path: '/knowledge-base', icon: BookOpen, accent: 'cyan', locked: false },

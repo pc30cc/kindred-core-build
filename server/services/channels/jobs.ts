@@ -48,6 +48,12 @@ export const CHANNEL_JOB_TYPES = [
   'x_poll_dm_events',
   'x_outbound_message',
   'x_outbound_media',
+  // Gmail (Email Inbox). Inbound has no poll loop: Google's Pub/Sub push
+  // (server/routes/gmailPush.ts) lands on a Core route which enqueues
+  // `gmail_sync_inbox` directly — the job only ever carries a `historyId`,
+  // never a credential. Outbound is a reply composed in the Email Inbox UI.
+  'gmail_sync_inbox',
+  'gmail_outbound_message',
   // Provider-network-isolated work. Everything that must touch a provider
   // socket runs through these, executed exclusively by the Channels Worker.
   'provider_operation',

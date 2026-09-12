@@ -13,7 +13,11 @@
  * Documented response fields consumed here: `items[].keyword`,
  * `search_volume`, `cpc`, `competition` (0..1), `competition_index`
  * (0..100). `competition_level` is derived locally from `competition`
- * since the live endpoint does not return a label directly.
+ * since the live endpoint does not return a label directly. Also wraps
+ * DataForSEO Labs' Ranked Keywords (`dataforseo_labs/google/ranked_keywords/live`)
+ * and Competitors Domain (`dataforseo_labs/google/competitors_domain/live`)
+ * reports — see parseRankedItem/parseCompetingDomainItem below for their
+ * field-mapping caveats.
  */
 import {
   KeywordsError,
@@ -23,6 +27,8 @@ import {
   type DataForSeoKeywordsConfig,
   type RankedKeywordItem,
   type RankedKeywordsFetchResult,
+  type CompetingDomainItem,
+  type CompetingDomainsFetchResult,
 } from '../types.js';
 
 export const DATAFORSEO_TIMEOUT_MS = 30_000;
@@ -33,6 +39,7 @@ const DEFAULT_LANGUAGE_CODE = 'en';
 export interface DataForSeoKeywordsAdapter {
   fetchKeywordData(input: { keywords: string[] }): Promise<KeywordsFetchResult>;
   fetchRankedKeywords(input: { target: string; limit: number }): Promise<RankedKeywordsFetchResult>;
+  fetchCompetingDomains(input: { target: string; limit: number }): Promise<CompetingDomainsFetchResult>;
   getAccountInfo(): Promise<KeywordsAccountInfo>;
 }
 
@@ -144,6 +151,30 @@ function parseRankedItem(raw: unknown): RankedKeywordItem | null {
   };
 }
 
+/**
+ * Parses one item of DataForSEO Labs' Competitors Domain report
+ * (`dataforseo_labs/google/competitors_domain/live`). FIELD-MAPPING NOTE:
+ * same caveat as parseItem/parseRankedItem above — written against
+ * DataForSEO's documented v3 conventions (`domain`, `avg_position`,
+ * `intersections`, `full_domain_metrics.organic.etv`), not verified against
+ * a live response from this sandboxed environment; re-verify on first live
+ * test. Only `domain` is required per item.
+ */
+function parseCompetingDomainItem(raw: unknown): CompetingDomainItem | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const item = raw as Record<string, unknown>;
+  const domain = readString(item, 'domain');
+  if (!domain) return null;
+  const fullMetrics = (item.full_domain_metrics && typeof item.full_domain_metrics === 'object' ? item.full_domain_metrics : {}) as Record<string, unknown>;
+  const organic = (fullMetrics.organic && typeof fullMetrics.organic === 'object' ? fullMetrics.organic : {}) as Record<string, unknown>;
+  return {
+    domain,
+    avgPosition: readNumber(item, 'avg_position'),
+    intersections: readNumber(item, 'intersections'),
+    trafficEstimate: readNumber(organic, 'etv'),
+  };
+}
+
 export function createDataForSeoKeywordsAdapter(
   config: DataForSeoKeywordsConfig,
   options: DataForSeoKeywordsAdapterOptions = {},
@@ -217,6 +248,42 @@ export function createDataForSeoKeywordsAdapter(
         if (parsed) items.push(parsed);
       }
       return { items, totalCount: readNumber(first || {}, 'total_count') ?? items.length };
+    },
+
+    async fetchCompetingDomains({ target, limit }) {
+      const body = await postJson(
+        `${apiBase}/dataforseo_labs/google/competitors_domain/live`,
+        [{
+          target,
+          location_code: DEFAULT_LOCATION_CODE,
+          language_code: DEFAULT_LANGUAGE_CODE,
+          limit: Math.max(1, Math.min(limit, 100)),
+          exclude_top_domains: true,
+        }],
+        headers,
+        fetchImpl,
+        timeoutMs,
+      );
+      const envelope = body as Record<string, unknown>;
+      const tasks = Array.isArray(envelope.tasks) ? envelope.tasks : [];
+      const task = tasks[0] as Record<string, unknown> | undefined;
+      if (!task) throw new KeywordsError('keywords_provider_error');
+      const taskStatus = readNumber(task, 'status_code');
+      if (taskStatus !== null && taskStatus !== 20000) {
+        if (taskStatus === 40501 || taskStatus === 40201) throw new KeywordsError('keywords_auth_failed');
+        if (taskStatus === 40202) throw new KeywordsError('keywords_insufficient_credit');
+        throw new KeywordsError('keywords_provider_error');
+      }
+      const results = Array.isArray(task.result) ? task.result : [];
+      const first = results[0] as Record<string, unknown> | undefined;
+      const rawItems = first && Array.isArray(first.items) ? first.items : [];
+
+      const items: CompetingDomainItem[] = [];
+      for (const raw of rawItems) {
+        const parsed = parseCompetingDomainItem(raw);
+        if (parsed) items.push(parsed);
+      }
+      return { items };
     },
 
     async getAccountInfo() {

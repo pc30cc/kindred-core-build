@@ -81,14 +81,15 @@ export async function resolveExplorerLimits(config: ServerConfig, workspaceId: s
   return { planSlug: slug, planName: info?.plan?.name || null, limits };
 }
 
-/** Backlink + keyword Explorer scans currently queued/running/processing for the whole workspace — one shared concurrency budget. */
+/** Backlink + keyword + competitor Explorer scans currently queued/running/processing for the whole workspace — one shared concurrency budget. */
 export async function countActiveWorkspaceExplorerScans(config: ServerConfig, workspaceId: string): Promise<number> {
   const sb = getServiceClient(config);
-  const [{ count: backlinkCount }, { count: keywordCount }] = await Promise.all([
+  const [{ count: backlinkCount }, { count: keywordCount }, { count: competitorCount }] = await Promise.all([
     sb.from('seo_explorer_backlink_scans').select('*', { count: 'exact', head: true }).eq('workspace_id', workspaceId).in('status', ['queued', 'running', 'processing']),
     sb.from('seo_explorer_keyword_scans').select('*', { count: 'exact', head: true }).eq('workspace_id', workspaceId).in('status', ['queued', 'running', 'processing']),
+    sb.from('seo_explorer_competitor_scans').select('*', { count: 'exact', head: true }).eq('workspace_id', workspaceId).in('status', ['queued', 'running', 'processing']),
   ]);
-  return (backlinkCount || 0) + (keywordCount || 0);
+  return (backlinkCount || 0) + (keywordCount || 0) + (competitorCount || 0);
 }
 
 /** Most recent Explorer backlink scan (any status) for this exact domain, for the frequency-limit check. */
@@ -110,6 +111,20 @@ export async function getMostRecentExplorerKeywordScanStart(config: ServerConfig
   const sb = getServiceClient(config);
   const { data } = await sb
     .from('seo_explorer_keyword_scans')
+    .select('created_at')
+    .eq('workspace_id', workspaceId)
+    .eq('target_domain', domain)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data as { created_at: string } | null)?.created_at ?? null;
+}
+
+/** Most recent Explorer competitor scan (any status) for this exact domain, for the frequency-limit check. */
+export async function getMostRecentExplorerCompetitorScanStart(config: ServerConfig, workspaceId: string, domain: string): Promise<string | null> {
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('seo_explorer_competitor_scans')
     .select('created_at')
     .eq('workspace_id', workspaceId)
     .eq('target_domain', domain)

@@ -783,6 +783,48 @@ export function listExplorerKeywords(workspaceId: string, scanId: string, opts: 
   return api<{ results: SeoExplorerKeyword[]; total: number }>(`/api/seo/${workspaceId}/explorer/keyword-scans/${scanId}/keywords${qs(opts)}`);
 }
 
+export interface SeoExplorerCompetitorScan {
+  id: string;
+  target_domain: string;
+  provider: string;
+  max_domains: number;
+  status: SeoJobStatus;
+  progress: number;
+  progress_stage: string | null;
+  total_domains: number | null;
+  error_message: string | null;
+  error_category: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export interface SeoExplorerCompetitor {
+  id: string;
+  domain: string;
+  avg_position: number | null;
+  intersections: number | null;
+  traffic_estimate: number | null;
+}
+
+export function getLatestExplorerCompetitorScan(workspaceId: string, domain: string) {
+  return api<{ scan: SeoExplorerCompetitorScan | null }>(`/api/seo/${workspaceId}/explorer/competitor-scans/latest${qs({ domain })}`);
+}
+
+export function startExplorerCompetitorScan(workspaceId: string, domain: string) {
+  return api<{ scan: SeoExplorerCompetitorScan }>(`/api/seo/${workspaceId}/explorer/competitor-scans`, {
+    method: 'POST',
+    body: JSON.stringify({ domain }),
+  });
+}
+
+export function getExplorerCompetitorScan(workspaceId: string, scanId: string) {
+  return api<{ scan: SeoExplorerCompetitorScan }>(`/api/seo/${workspaceId}/explorer/competitor-scans/${scanId}`);
+}
+
+export function listExplorerCompetitors(workspaceId: string, scanId: string, opts: { limit?: number; offset?: number } = {}) {
+  return api<{ results: SeoExplorerCompetitor[]; total: number }>(`/api/seo/${workspaceId}/explorer/competitor-scans/${scanId}/competitors${qs(opts)}`);
+}
+
 export function queryGscSearchAnalytics(
   workspaceId: string,
   propertyId: string,

@@ -91,6 +91,23 @@ export interface RankedKeywordsFetchResult {
   totalCount: number;
 }
 
+/**
+ * One row of DataForSEO Labs' Competitors Domain report: another domain
+ * that ranks for a meaningful share of the TARGET DOMAIN's own keywords —
+ * the "Competing Domains" signal behind Site Explorer's competitor report.
+ */
+export interface CompetingDomainItem {
+  domain: string;
+  avgPosition: number | null;
+  /** Count of keywords this domain shares in the SERP with the target domain. */
+  intersections: number | null;
+  trafficEstimate: number | null;
+}
+
+export interface CompetingDomainsFetchResult {
+  items: CompetingDomainItem[];
+}
+
 export interface KeywordsProviderInfo {
   providerName: KeywordsProviderName;
   configured: boolean;

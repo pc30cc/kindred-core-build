@@ -1,5 +1,5 @@
 /**
- * SEO crawl worker — polls `background_jobs` for FOUR job types and
+ * SEO crawl worker — polls `background_jobs` for SEVEN job types and
  * dispatches each to its own processor, all in one poller/one process:
  *   - `seo_crawl` — runs the crawl, normalizes results, evaluates SEO
  *     rules, computes the score, finalizes `seo_crawls`.
@@ -10,6 +10,9 @@
  *   - `seo_performance_audit` — calls the pluggable performance provider once
  *     per selected page, finalizes `seo_performance_audits`
  *     (worker/seo-performance/processAudit.ts).
+ *   - `seo_explorer_backlink_scan` / `seo_explorer_keyword_scan` /
+ *     `seo_explorer_competitor_scan` — Site Explorer's arbitrary-domain
+ *     lookups (worker/seo-explorer/process{BacklinkScan,KeywordScan,CompetitorScan}.ts).
  * Backlink scans and keyword lookups are a single vendor HTTP call, and a
  * performance audit is a small bounded batch of them — all far lighter than
  * a multi-page crawl, so they share this worker rather than needing their
@@ -44,14 +47,15 @@ import { processPerformanceAudit, classifyPerformanceAuditError } from '../seo-p
 import type { SeoPerformanceAuditRow } from '../../server/services/seo/performanceAuditService.js';
 import { processExplorerBacklinkScan, classifyExplorerBacklinkScanError } from '../seo-explorer/processBacklinkScan.js';
 import { processExplorerKeywordScan, classifyExplorerKeywordScanError } from '../seo-explorer/processKeywordScan.js';
-import type { SeoExplorerBacklinkScanRow, SeoExplorerKeywordScanRow } from '../../server/services/seo/siteExplorerService.js';
+import { processExplorerCompetitorScan, classifyExplorerCompetitorScanError } from '../seo-explorer/processCompetitorScan.js';
+import type { SeoExplorerBacklinkScanRow, SeoExplorerKeywordScanRow, SeoExplorerCompetitorScanRow } from '../../server/services/seo/siteExplorerService.js';
 
 const POLL_INTERVAL_MS = parseInt(process.env.SEO_WORKER_INTERVAL_MS || process.env.WORKER_INTERVAL_MS || '5000', 10);
 const LOCK_TTL_SECONDS = parseInt(process.env.SEO_WORKER_LOCK_TTL_SECONDS || '120', 10);
 const WORKER_ID = process.env.WORKER_ID || `seo-crawler-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 const JOB_TYPES = [
   'seo_crawl', 'seo_backlink_scan', 'seo_keyword_research', 'seo_performance_audit',
-  'seo_explorer_backlink_scan', 'seo_explorer_keyword_scan',
+  'seo_explorer_backlink_scan', 'seo_explorer_keyword_scan', 'seo_explorer_competitor_scan',
 ];
 
 function log(event: string, data: Record<string, unknown> = {}) {
@@ -238,6 +242,22 @@ async function tickExplorerKeywordScan(config: ReturnType<typeof loadConfig>, sb
   }
 }
 
+async function tickExplorerCompetitorScan(config: ReturnType<typeof loadConfig>, sb: ReturnType<typeof getServiceClient>, jobId: string): Promise<void> {
+  const { data: scan } = await sb.from('seo_explorer_competitor_scans').select('*').eq('job_id', jobId).maybeSingle();
+  if (!scan) {
+    await failJob(config, { jobId, errorMessage: 'seo_explorer_competitor_scans_row_missing', errorCategory: 'internal_error', retryable: false });
+    return;
+  }
+  try {
+    await processExplorerCompetitorScan(config, jobId, scan as SeoExplorerCompetitorScanRow, WORKER_ID, LOCK_TTL_SECONDS);
+  } catch (err) {
+    const { category, message, retryable } = classifyExplorerCompetitorScanError(err);
+    log('explorer competitor scan failed', { jobId, category, message });
+    await failJob(config, { jobId, errorMessage: message, errorCategory: category, retryable });
+    await sb.from('seo_explorer_competitor_scans').update({ status: 'failed', error_message: message.slice(0, 1000), error_category: category, finished_at: new Date().toISOString() }).eq('job_id', jobId).in('status', ['queued', 'running', 'processing']);
+  }
+}
+
 async function tick(config: ReturnType<typeof loadConfig>): Promise<void> {
   if (shuttingDown) return;
   const job = await claimNextJob(config, { jobTypes: JOB_TYPES, workerId: WORKER_ID, lockTtlSeconds: LOCK_TTL_SECONDS });
@@ -251,6 +271,7 @@ async function tick(config: ReturnType<typeof loadConfig>): Promise<void> {
     else if (job.job_type === 'seo_performance_audit') await tickPerformanceAudit(config, sb, job.id);
     else if (job.job_type === 'seo_explorer_backlink_scan') await tickExplorerBacklinkScan(config, sb, job.id);
     else if (job.job_type === 'seo_explorer_keyword_scan') await tickExplorerKeywordScan(config, sb, job.id);
+    else if (job.job_type === 'seo_explorer_competitor_scan') await tickExplorerCompetitorScan(config, sb, job.id);
     else await tickCrawl(config, sb, job.id);
   } finally {
     inFlight--;

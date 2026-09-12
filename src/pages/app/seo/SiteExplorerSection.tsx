@@ -31,6 +31,7 @@ import {
   useLatestExplorerBacklinkScan, useStartExplorerBacklinkScan, useExplorerBacklinks,
   useExplorerReferringDomains, useExplorerTopPages,
   useLatestExplorerKeywordScan, useStartExplorerKeywordScan, useExplorerKeywords,
+  useLatestExplorerCompetitorScan, useStartExplorerCompetitorScan, useExplorerCompetitors,
 } from '@/hooks/useSeo';
 import { SeoApiError, type SeoExplorerBacklinkScan } from '@/lib/seo-api';
 import { GradientStatCard } from './SeoPage';
@@ -157,6 +158,8 @@ function SiteExplorerDataView({ workspaceId, domain, subsectionKey }: { workspac
       return <ExplorerTopPagesView workspaceId={workspaceId} domain={domain} />;
     case 'organicKeywords':
       return <ExplorerKeywordsView workspaceId={workspaceId} domain={domain} />;
+    case 'competingDomains':
+      return <ExplorerCompetingDomainsView workspaceId={workspaceId} domain={domain} />;
     default: {
       const leaf = findLeaf(findSection('site-explorer'), subsectionKey);
       return <SeoRoadmapPlaceholder label={t((leaf?.labelKey || 'seo.nav.section.siteExplorer') as any)} />;
@@ -696,6 +699,82 @@ function ExplorerKeywordsView({ workspaceId, domain }: { workspaceId: string; do
                         <TableCell className="max-w-[220px] truncate text-muted-foreground" title={k.ranking_url || undefined}>
                           {k.ranking_url ? <a href={k.ranking_url} target="_blank" rel="noreferrer" className="hover:underline">{k.ranking_url}</a> : '—'}
                         </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ExplorerCompetingDomainsView({ workspaceId, domain }: { workspaceId: string; domain: string }) {
+  const { t } = useTranslation();
+  const scanQuery = useLatestExplorerCompetitorScan(workspaceId, domain);
+  const startScan = useStartExplorerCompetitorScan(workspaceId);
+  const scan = scanQuery.data?.scan ?? null;
+  const resultsQuery = useExplorerCompetitors(workspaceId, scan?.status === 'completed' ? scan.id : undefined, { limit: 100 });
+
+  const handleStart = async () => {
+    try { await startScan.mutateAsync(domain); } catch (err) { toast.error(explorerErrorMessage(err, t)); }
+  };
+
+  if (scanQuery.isLoading) return <SkeletonTable rows={8} columns={4} />;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <DomainHeading domain={domain} />
+        <Button size="sm" variant="outline" className="gap-1.5" onClick={handleStart} disabled={startScan.isPending}>
+          <RefreshCw className={startScan.isPending ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
+          {scan ? t('seo.explorer.cta.refresh' as any) : t('seo.explorer.cta.analyze' as any)}
+        </Button>
+      </div>
+
+      {!scan ? (
+        <ExplorerScanCta
+          titleKey="seo.explorer.cta.competitorsTitle"
+          descriptionKey="seo.explorer.cta.competitorsDescription"
+          ctaKey="seo.explorer.cta.analyze"
+          onStart={handleStart}
+          pending={startScan.isPending}
+        />
+      ) : scan.status !== 'completed' && scan.status !== 'failed' && scan.status !== 'cancelled' ? (
+        <ExplorerScanProgress progressStage={scan.progress_stage} />
+      ) : scan.status !== 'completed' ? (
+        <p className="text-sm text-destructive">{scan.error_message || t('seo.explorer.errors.generic' as any)}</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <GradientStatCard icon={Globe2} iconGradient="from-indigo-500 to-violet-500" blobColor="bg-indigo-500/15" value={formatCompact(scan.total_domains ?? 0)} label={t('seo.explorer.stat.competingDomains' as any)} />
+          </div>
+          <Card>
+            <CardContent className="pt-6">
+              {resultsQuery.isLoading ? (
+                <SkeletonTable rows={8} columns={3} />
+              ) : (resultsQuery.data?.results.length || 0) === 0 ? (
+                <p className="py-10 text-center text-sm text-muted-foreground">{t('seo.gsc.empty.noData' as any)}</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{t('seo.explorer.column.sourceDomain' as any)}</TableHead>
+                      <TableHead className="text-end">{t('seo.explorer.column.intersections' as any)}</TableHead>
+                      <TableHead className="text-end">{t('seo.explorer.column.avgPosition' as any)}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(resultsQuery.data?.results || []).map((c) => (
+                      <TableRow key={c.id}>
+                        <TableCell className="max-w-[280px] truncate font-medium">
+                          <a href={`https://${c.domain}`} target="_blank" rel="noreferrer" className="hover:underline">{c.domain}</a>
+                        </TableCell>
+                        <TableCell className="text-end tabular-nums">{c.intersections ?? '—'}</TableCell>
+                        <TableCell className="text-end tabular-nums">{c.avg_position ?? '—'}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

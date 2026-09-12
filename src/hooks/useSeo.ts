@@ -24,7 +24,8 @@ import {
   getLatestExplorerBacklinkScan, startExplorerBacklinkScan, listExplorerBacklinks,
   listExplorerReferringDomains, listExplorerTopPages,
   getLatestExplorerKeywordScan, startExplorerKeywordScan, listExplorerKeywords,
-  type SeoExplorerBacklinkScan, type SeoExplorerKeywordScan,
+  getLatestExplorerCompetitorScan, startExplorerCompetitorScan, listExplorerCompetitors,
+  type SeoExplorerBacklinkScan, type SeoExplorerKeywordScan, type SeoExplorerCompetitorScan,
 } from '@/lib/seo-api';
 
 export function useSeoSites(workspaceId?: string) {
@@ -564,6 +565,38 @@ export function useExplorerKeywords(workspaceId?: string, scanId?: string, opts:
   return useQuery({
     queryKey: ['seo-explorer-keywords', workspaceId, scanId, opts.limit, opts.offset],
     queryFn: () => listExplorerKeywords(workspaceId!, scanId!, opts),
+    enabled: !!workspaceId && !!scanId,
+  });
+}
+
+export function useLatestExplorerCompetitorScan(workspaceId?: string, domain?: string) {
+  return useQuery({
+    queryKey: ['seo-explorer-latest-competitor-scan', workspaceId, domain],
+    queryFn: () => getLatestExplorerCompetitorScan(workspaceId!, domain!),
+    enabled: !!workspaceId && !!domain,
+    refetchInterval: (q) => {
+      const data = q.state.data as { scan: SeoExplorerCompetitorScan | null } | undefined;
+      if (!data?.scan) return false;
+      return TERMINAL_SEO_STATUSES.has(data.scan.status) ? false : 4000;
+    },
+  });
+}
+
+export function useStartExplorerCompetitorScan(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (domain: string) => startExplorerCompetitorScan(workspaceId, domain),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['seo-explorer-latest-competitor-scan', workspaceId] });
+      qc.invalidateQueries({ queryKey: ['seo-explorer-history', workspaceId] });
+    },
+  });
+}
+
+export function useExplorerCompetitors(workspaceId?: string, scanId?: string, opts: { limit?: number; offset?: number } = {}) {
+  return useQuery({
+    queryKey: ['seo-explorer-competitors', workspaceId, scanId, opts.limit, opts.offset],
+    queryFn: () => listExplorerCompetitors(workspaceId!, scanId!, opts),
     enabled: !!workspaceId && !!scanId,
   });
 }

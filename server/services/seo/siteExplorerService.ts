@@ -21,6 +21,7 @@ import { normalizeExplorerDomain } from './siteResolver.js';
 import {
   resolveExplorerLimits, countActiveWorkspaceExplorerScans,
   getMostRecentExplorerBacklinkScanStart, getMostRecentExplorerKeywordScanStart,
+  getMostRecentExplorerCompetitorScanStart,
 } from './explorerLimits.js';
 
 export type ExplorerScanLimitReason = 'invalid_domain' | 'workspace_concurrency_limit' | 'frequency_limit' | 'module_not_available';
@@ -376,6 +377,140 @@ export async function requestExplorerKeywordScanCancel(config: ServerConfig, wor
   const job = await getJob(config, scan.job_id);
   if (job && job.status === 'cancelled') {
     await sb.from('seo_explorer_keyword_scans').update({ status: 'cancelled', finished_at: new Date().toISOString() }).eq('id', scanId).in('status', ['queued', 'running', 'processing']);
+  }
+  return { ok: true };
+}
+
+// ─── Competing domains ──────────────────────────────────────────────────
+// Reuses the SAME concurrency/frequency budget and the SAME (Keywords)
+// provider config as Organic Keywords above — Site Explorer has no
+// credential of its own (see server/routes/adminSeoExplorerProvider.ts).
+
+export interface SeoExplorerCompetitorScanRow {
+  id: string;
+  job_id: string;
+  workspace_id: string;
+  target_domain: string;
+  provider: string;
+  max_domains: number;
+  status: string;
+  progress: number;
+  progress_stage: string | null;
+  total_domains: number | null;
+  cancel_requested: boolean;
+  error_message: string | null;
+  error_category: string | null;
+  created_by: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function createExplorerCompetitorScan(
+  config: ServerConfig,
+  args: { workspaceId: string; domain: string; userId: string },
+): Promise<SeoExplorerCompetitorScanRow> {
+  const resolved = normalizeExplorerDomain(args.domain);
+  if (!resolved) throw new ExplorerScanLimitError('invalid_domain', 'Enter a valid domain, e.g. example.com');
+
+  const { limits } = await resolveExplorerLimits(config, args.workspaceId);
+  if (limits.seo_explorer_max_keywords_per_scan <= 0) {
+    throw new ExplorerScanLimitError('module_not_available', 'Site Explorer is not available on this plan');
+  }
+
+  const workspaceActive = await countActiveWorkspaceExplorerScans(config, args.workspaceId);
+  if (workspaceActive >= limits.seo_explorer_workspace_concurrent_scans) {
+    throw new ExplorerScanLimitError('workspace_concurrency_limit', 'Workspace has reached its concurrent Site Explorer lookup limit');
+  }
+
+  const lastStart = await getMostRecentExplorerCompetitorScanStart(config, args.workspaceId, resolved.canonicalHost);
+  if (lastStart) {
+    const elapsedHours = (Date.now() - new Date(lastStart).getTime()) / 3_600_000;
+    if (elapsedHours < limits.seo_explorer_scan_frequency_hours) {
+      const retryAfterSeconds = Math.max(0, Math.round((limits.seo_explorer_scan_frequency_hours - elapsedHours) * 3600));
+      throw new ExplorerScanLimitError('frequency_limit', 'This domain was looked up too recently', retryAfterSeconds);
+    }
+  }
+
+  const sb = getServiceClient(config);
+  const job = await enqueueJob(config, {
+    workspaceId: args.workspaceId,
+    jobType: 'seo_explorer_competitor_scan',
+    subjectType: 'seo_explorer_domain',
+    subjectId: randomUUID(),
+    createdBy: args.userId,
+    payload: { domain: resolved.canonicalHost },
+  });
+
+  const { data, error } = await sb
+    .from('seo_explorer_competitor_scans')
+    .insert({
+      job_id: job.id,
+      workspace_id: args.workspaceId,
+      target_domain: resolved.canonicalHost,
+      provider: 'dataforseo',
+      max_domains: limits.seo_explorer_max_keywords_per_scan,
+      created_by: args.userId,
+    })
+    .select('*')
+    .single();
+  if (error || !data) throw new Error(`create_explorer_competitor_scan_failed: ${error?.message}`);
+
+  return data as SeoExplorerCompetitorScanRow;
+}
+
+export async function getExplorerCompetitorScan(config: ServerConfig, workspaceId: string, scanId: string): Promise<SeoExplorerCompetitorScanRow | null> {
+  const sb = getServiceClient(config);
+  const { data } = await sb.from('seo_explorer_competitor_scans').select('*').eq('id', scanId).eq('workspace_id', workspaceId).maybeSingle();
+  return (data as SeoExplorerCompetitorScanRow | null) ?? null;
+}
+
+export async function getLatestExplorerCompetitorScanForDomain(config: ServerConfig, workspaceId: string, domain: string): Promise<SeoExplorerCompetitorScanRow | null> {
+  const resolved = normalizeExplorerDomain(domain);
+  if (!resolved) return null;
+  const sb = getServiceClient(config);
+  const { data } = await sb
+    .from('seo_explorer_competitor_scans')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .eq('target_domain', resolved.canonicalHost)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data as SeoExplorerCompetitorScanRow | null) ?? null;
+}
+
+export interface ExplorerCompetitorResultFilters {
+  limit?: number;
+  offset?: number;
+}
+
+export async function listExplorerCompetitors(config: ServerConfig, workspaceId: string, scanId: string, filters: ExplorerCompetitorResultFilters = {}) {
+  const sb = getServiceClient(config);
+  const limit = Math.min(Math.max(filters.limit ?? 100, 1), 500);
+  const offset = Math.max(filters.offset ?? 0, 0);
+  const { data, count, error } = await sb
+    .from('seo_explorer_competitors')
+    .select('*', { count: 'exact' })
+    .eq('workspace_id', workspaceId)
+    .eq('scan_id', scanId)
+    .order('intersections', { ascending: false, nullsFirst: false })
+    .range(offset, offset + limit - 1);
+  if (error) throw new Error(`list_explorer_competitors_failed: ${error.message}`);
+  return { results: data || [], total: count || 0 };
+}
+
+export async function requestExplorerCompetitorScanCancel(config: ServerConfig, workspaceId: string, scanId: string): Promise<{ ok: boolean }> {
+  const scan = await getExplorerCompetitorScan(config, workspaceId, scanId);
+  if (!scan) return { ok: false };
+  const sb = getServiceClient(config);
+  await sb.from('seo_explorer_competitor_scans').update({ cancel_requested: true }).eq('id', scanId).in('status', ['queued', 'running', 'processing']);
+  await requestJobCancel(config, scan.job_id);
+  await cancelQueuedJob(config, scan.job_id);
+  const job = await getJob(config, scan.job_id);
+  if (job && job.status === 'cancelled') {
+    await sb.from('seo_explorer_competitor_scans').update({ status: 'cancelled', finished_at: new Date().toISOString() }).eq('id', scanId).in('status', ['queued', 'running', 'processing']);
   }
   return { ok: true };
 }

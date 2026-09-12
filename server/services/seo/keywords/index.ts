@@ -17,6 +17,7 @@ import {
   type KeywordsTestResult,
   type DataForSeoKeywordsConfig,
   type RankedKeywordsFetchResult,
+  type CompetingDomainsFetchResult,
 } from './types.js';
 import { createDataForSeoKeywordsAdapter, type DataForSeoKeywordsAdapter, type DataForSeoKeywordsAdapterOptions } from './providers/dataforseo.js';
 
@@ -195,6 +196,18 @@ export async function fetchRankedKeywordsForTarget(
 ): Promise<{ provider: string; result: RankedKeywordsFetchResult }> {
   const resolved = await resolveProvider(serverConfig, options);
   const result = await resolved.adapter.fetchRankedKeywords({ target, limit });
+  return { provider: resolved.providerName, result };
+}
+
+/** Domains competing for the target's own ranked keywords (DataForSEO Labs) — the real data behind Site Explorer's Competing Domains report. */
+export async function fetchCompetingDomainsForTarget(
+  serverConfig: ServerConfig,
+  target: string,
+  limit: number,
+  options: KeywordsRuntimeOptions = {},
+): Promise<{ provider: string; result: CompetingDomainsFetchResult }> {
+  const resolved = await resolveProvider(serverConfig, options);
+  const result = await resolved.adapter.fetchCompetingDomains({ target, limit });
   return { provider: resolved.providerName, result };
 }
 

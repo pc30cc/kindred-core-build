@@ -98,7 +98,7 @@ export const SEO_SECTIONS: SeoSection[] = [
       leaf('backlinks', 'seo.nav.item.backlinks', true),
       leaf('referringDomains', 'seo.nav.item.referringDomains', true),
       leaf('topPages', 'seo.nav.item.topPages', true),
-      leaf('competingDomains', 'seo.nav.item.competingDomains', false),
+      leaf('competingDomains', 'seo.nav.item.competingDomains', true),
     ],
   },
   {

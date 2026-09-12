@@ -50,6 +50,8 @@ import {
   listExplorerReferringDomains, listExplorerTopPages,
   createExplorerKeywordScan, getExplorerKeywordScan, getLatestExplorerKeywordScanForDomain,
   listExplorerKeywords, requestExplorerKeywordScanCancel,
+  createExplorerCompetitorScan, getExplorerCompetitorScan, getLatestExplorerCompetitorScanForDomain,
+  listExplorerCompetitors, requestExplorerCompetitorScanCancel,
   listExplorerHistory, ExplorerScanLimitError,
 } from '../services/seo/siteExplorerService.js';
 import {
@@ -1071,6 +1073,67 @@ seoRouter.get('/:workspaceId/explorer/keyword-scans/:scanId/keywords', requireMo
   const { search, limit, offset } = req.query as Record<string, string | undefined>;
   const result = await listExplorerKeywords(configOf(req), workspaceId, scanId, {
     search,
+    limit: limit ? Number(limit) : undefined,
+    offset: offset ? Number(offset) : undefined,
+  });
+  res.json(result);
+});
+
+// ── Competing domains ──
+seoRouter.get('/:workspaceId/explorer/competitor-scans/latest', requireModule('seo_site_explorer'), async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  const domain = typeof req.query.domain === 'string' ? req.query.domain : '';
+  if (!domain) return res.status(400).json({ error: 'missing_domain' });
+  const scan = await getLatestExplorerCompetitorScanForDomain(configOf(req), workspaceId, domain);
+  res.json({ scan });
+});
+
+seoRouter.post('/:workspaceId/explorer/competitor-scans', requireModule('seo_site_explorer'), async (req, res) => {
+  const { workspaceId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  const domain = typeof req.body?.domain === 'string' ? req.body.domain.trim() : '';
+  if (!domain) return res.status(400).json({ error: 'missing_domain' });
+  try {
+    const scan = await createExplorerCompetitorScan(configOf(req), { workspaceId, domain, userId: auth.userId });
+    res.status(201).json({ scan });
+  } catch (err) {
+    sendExplorerScanError(res, err);
+  }
+});
+
+seoRouter.get('/:workspaceId/explorer/competitor-scans/:scanId', requireModule('seo_site_explorer'), async (req, res) => {
+  const { workspaceId, scanId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(scanId)) return res.status(400).json({ error: 'invalid_scan_id' });
+  const scan = await getExplorerCompetitorScan(configOf(req), workspaceId, scanId);
+  if (!scan) return res.status(404).json({ error: 'scan_not_found' });
+  res.json({ scan });
+});
+
+seoRouter.post('/:workspaceId/explorer/competitor-scans/:scanId/cancel', requireModule('seo_site_explorer'), async (req, res) => {
+  const { workspaceId, scanId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
+  if (!auth) return;
+  if (!isUuid(scanId)) return res.status(400).json({ error: 'invalid_scan_id' });
+  const scan = await getExplorerCompetitorScan(configOf(req), workspaceId, scanId);
+  if (!scan) return res.status(404).json({ error: 'scan_not_found' });
+  const result = await requestExplorerCompetitorScanCancel(configOf(req), workspaceId, scanId);
+  res.json(result);
+});
+
+seoRouter.get('/:workspaceId/explorer/competitor-scans/:scanId/competitors', requireModule('seo_site_explorer'), async (req, res) => {
+  const { workspaceId, scanId } = req.params;
+  const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
+  if (!auth) return;
+  if (!isUuid(scanId)) return res.status(400).json({ error: 'invalid_scan_id' });
+  const scan = await getExplorerCompetitorScan(configOf(req), workspaceId, scanId);
+  if (!scan) return res.status(404).json({ error: 'scan_not_found' });
+  const { limit, offset } = req.query as Record<string, string | undefined>;
+  const result = await listExplorerCompetitors(configOf(req), workspaceId, scanId, {
     limit: limit ? Number(limit) : undefined,
     offset: offset ? Number(offset) : undefined,
   });

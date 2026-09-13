@@ -17285,6 +17285,10 @@ export type Database = {
         Args: { _actor_user_id: string; _workspace_id: string }
         Returns: boolean
       }
+      admin_export_column_meta: {
+        Args: { _actor_user_id: string }
+        Returns: Json
+      }
       admin_export_database: {
         Args: { _actor_user_id: string; _scope?: string }
         Returns: Json

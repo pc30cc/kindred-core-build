@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 import {
   Database, Download, Clock, HardDrive,
   Cloud, Server, FolderSync, CalendarDays, CalendarRange,
-  Calendar, ArrowRightLeft,
+  Calendar, ArrowRightLeft, GitCompare,
   AlertCircle, CheckCircle, Loader2, Trash2, ShieldAlert, Upload, DatabaseBackup,
 } from 'lucide-react';
 import { toast } from '@/lib/toast';

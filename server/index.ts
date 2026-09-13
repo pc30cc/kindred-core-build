@@ -9,6 +9,7 @@ import { loadConfig } from './config.js';
 import { widgetRouter } from './routes/widget.js';
 import { visitorRouter, visitorsAdminRouter } from './routes/visitors.js';
 import { healthRouter } from './routes/health.js';
+import { backupAgentRouter } from './routes/backupAgent.js';
 import { manifestRouter } from './routes/manifest.js';
 import { metricsExportRouter } from './routes/metricsExport.js';
 import { emailRouter } from './routes/email.js';
@@ -322,6 +323,11 @@ app.use('/api/', abuseDetectionMiddleware());
 
 // Health (no rate limit)
 app.use('/api/health', healthRouter);
+
+// Host-side backup agent reporting. Token-authenticated inside the router and
+// disabled entirely unless BACKUP_AGENT_TOKEN is configured. Read/write of
+// backup metadata only — it can never trigger a restore.
+app.use('/api/backup-agent', backupAgentRouter);
 
 // PWA web app manifest — public, unauthenticated, reflects live platform_branding.
 app.use('/api/manifest.webmanifest', manifestRouter);

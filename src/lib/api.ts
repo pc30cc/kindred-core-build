@@ -1673,3 +1673,116 @@ export function previewPartitionRetention(policyKey: string) {
     `/partitions/retention-preview/${encodeURIComponent(policyKey)}`,
   );
 }
+
+// ── Backup & disaster recovery (super admin, read-focused) ─────────────────
+// There is deliberately no restore call here. Production restore is an
+// operational procedure (docs/BACKUP_AND_DISASTER_RECOVERY.md), not a button.
+
+export type BackupKindDto = 'base' | 'wal' | 'logical' | 'object';
+
+export interface BackupHealthRowDto {
+  kind: BackupKindDto;
+  backup_id: string;
+  status: 'running' | 'succeeded' | 'failed';
+  finished_at: string | null;
+  age_seconds: number | null;
+  bytes: number | null;
+  encrypted: boolean;
+  verification_status: 'unverified' | 'verified' | 'failed';
+  verified_at: string | null;
+  last_restore_tested_at: string | null;
+  destination: string | null;
+  lsn: string | null;
+}
+
+export interface BackupRunDto extends BackupHealthRowDto {
+  id: string;
+  started_at: string;
+  checksum: string | null;
+  error: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface WalStatusDto {
+  archive_mode: string;
+  wal_level: string;
+  archive_timeout_seconds: number;
+  archived_count: number;
+  last_archived_wal: string | null;
+  last_archived_time: string | null;
+  archive_lag_seconds: number | null;
+  failed_count: number;
+  last_failed_wal: string | null;
+  last_failed_time: string | null;
+  current_lsn: string | null;
+  database_bytes: number;
+}
+
+export interface RestoreDrillDto {
+  id: string;
+  drill_kind: 'full_restore' | 'pitr' | 'object_storage';
+  environment: string;
+  source_backup_id: string | null;
+  target_time: string | null;
+  started_at: string;
+  finished_at: string | null;
+  status: 'running' | 'passed' | 'failed';
+  findings: Record<string, unknown>;
+  notes: string | null;
+}
+
+export interface BackupOverviewDto {
+  health: 'ok' | 'attention' | 'critical';
+  alerts: { scope: string; severity: 'warning' | 'critical'; code: string; detail?: string }[];
+  latest: BackupHealthRowDto[];
+  wal: WalStatusDto | null;
+  pitr: {
+    window_start: string | null;
+    window_end: string | null;
+    rpo_actual_seconds: number | null;
+    rpo_target_seconds: number;
+    rto_target_seconds: number;
+  };
+  lastDrills: RestoreDrillDto[];
+  destinations: { kind: BackupKindDto; destination: string | null; offsite: boolean }[];
+  schedule: { kind: BackupKindDto; cron: string | null; next_run_at: string | null }[];
+}
+
+async function backupJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await authFetch(`${API_BASE}/api/admin/backup${path}`, init);
+  const body = await res.json().catch(() => ({} as Record<string, unknown>));
+  if (res.status === 404) throw new Error('backup_backend_not_deployed');
+  if (!res.ok) throw new Error(String((body as { error?: string }).error || `API error: ${res.status}`));
+  return body as T;
+}
+
+export function getBackupOverview() {
+  return backupJson<BackupOverviewDto>('/overview');
+}
+
+export function listBackupRuns(kind?: BackupKindDto) {
+  const q = kind ? `?kind=${encodeURIComponent(kind)}` : '';
+  return backupJson<{ runs: BackupRunDto[] }>(`/runs${q}`);
+}
+
+export function listRestoreDrills() {
+  return backupJson<{ drills: RestoreDrillDto[] }>('/drills');
+}
+
+export function listBackupCommands() {
+  return backupJson<{
+    commands: {
+      id: string; command: string; status: string; requested_at: string;
+      completed_at: string | null; error: string | null;
+    }[];
+  }>('/commands');
+}
+
+/** Queues a safe command for the host-side backup agent. Never a restore. */
+export function requestBackupCommand(command: 'run_base_backup' | 'run_logical_backup' | 'verify_latest_backup') {
+  return backupJson<{ id: string }>('/commands', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command }),
+  });
+}

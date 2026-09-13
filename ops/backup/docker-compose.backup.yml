@@ -1,0 +1,50 @@
+# WEBYAR backup sidecar.
+#
+# Runs on the database host, alongside PostgreSQL. It needs the data directory
+# read-only (base backups) and the backup credentials — which is exactly why it
+# is a separate container from the application: the app must never hold a
+# credential that can touch the backup bucket.
+services:
+  webyar-backup:
+    image: webyar/backup-agent:latest   # wal-g + awscli + mc + postgresql-client
+    container_name: webyar-backup
+    restart: unless-stopped
+    env_file: ./backup.env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data:ro
+      - ./:/opt/backup:ro
+      - backup_work:/var/tmp/webyar-logical
+    working_dir: /opt/backup
+    command: ["./agent-loop.sh"]
+    depends_on:
+      - db
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  # Scheduled backups. Kept as a separate service so an operator-triggered run
+  # and the schedule cannot collide inside one process.
+  webyar-backup-cron:
+    image: webyar/backup-agent:latest
+    container_name: webyar-backup-cron
+    restart: unless-stopped
+    env_file: ./backup.env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data:ro
+      - ./:/opt/backup:ro
+      - backup_work:/var/tmp/webyar-logical
+    working_dir: /opt/backup
+    # 01:30 UTC base backup, 03:30 UTC logical backup, 04:30 UTC object mirror,
+    # hourly verification of the newest artefacts. WAL ships continuously via
+    # archive_command, independent of this schedule.
+    command: >
+      sh -c "echo '30 1 * * * cd /opt/backup && ./base-backup.sh' > /etc/crontabs/root &&
+             echo '30 3 * * * cd /opt/backup && ./logical-backup.sh' >> /etc/crontabs/root &&
+             echo '30 4 * * * cd /opt/backup && ./object-backup.sh' >> /etc/crontabs/root &&
+             echo '15 * * * * cd /opt/backup && ./verify-backup.sh' >> /etc/crontabs/root &&
+             crond -f -l 8"
+
+volumes:
+  postgres_data:
+    external: true
+  backup_work:

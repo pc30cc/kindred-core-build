@@ -9,7 +9,7 @@
  * direct `pg` connection. The diff is then computed here, in one place.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { connectTarget } from './selfhostMigration';
+import { connectTarget } from './selfhostMigration.js';
 
 export const INVENTORY_SQL = `
 select jsonb_build_object(

@@ -201,7 +201,16 @@ adminDatabaseRouter.post('/migrate/run', async (req, res) => {
   };
 
   try {
-    await runSelfhostMigration(sb, actorId, parsed.data, emit);
+    await runSelfhostMigration(
+      sb,
+      actorId,
+      {
+        connectionString: parsed.data.connectionString!,
+        includeSchema: parsed.data.includeSchema ?? true,
+        truncateTarget: parsed.data.truncateTarget ?? false,
+      },
+      emit,
+    );
   } catch (err) {
     emit({ type: 'error', message: (err as Error).message });
   } finally {

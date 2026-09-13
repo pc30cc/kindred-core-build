@@ -18,7 +18,6 @@ import {
   siWoocommerce,
   siHubspot,
   siGmail,
-  siYahoo,
 } from 'simple-icons';
 import { Plug, Webhook, MessageSquare, Mail, Smartphone } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -84,7 +83,17 @@ const MARKS: Record<string, Mark> = {
   // pre-existing outbound-only transactional/SMTP channel and only reuses
   // Gmail's glyph with an overridden brand color.
   gmail: si(siGmail),
-  yahoomail: si(siYahoo),
+  // Yahoo — not shipped by the installed simple-icons version (no `siYahoo`
+  // export), so hand-rolled like Bale/Slack above: Yahoo's current brand
+  // purple with a simple "Y!" wordmark rather than a traced glyph.
+  yahoomail: {
+    hex: '6001D2',
+    svg: (
+      <text x="12" y="16.5" textAnchor="middle" fontSize="13" fontWeight="700" fontFamily="Arial, Helvetica, sans-serif" fill="currentColor">
+        Y!
+      </text>
+    ),
+  },
   sms: { hex: '0EA5E9', fallback: Smartphone },
   shopify: si(siShopify),
   woocommerce: si(siWoocommerce),

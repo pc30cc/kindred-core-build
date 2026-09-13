@@ -21,6 +21,8 @@ import {
   runSelfhostMigration,
 } from '../services/database/selfhostMigration.js';
 import { compareWithTarget } from '../services/database/inventoryCompare.js';
+import { generateSqlDump } from '../services/database/sqlDump.js';
+import { createGzip } from 'node:zlib';
 
 export const adminDatabaseRouter = Router();
 
@@ -240,5 +242,37 @@ adminDatabaseRouter.post('/migrate/run', async (req, res) => {
     emit({ type: 'error', message: (err as Error).message });
   } finally {
     res.end();
+  }
+});
+
+// ─── Full SQL dump (.sql.gz) for import into a self-hosted Supabase ──────
+adminDatabaseRouter.get('/dump.sql.gz', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  const sb = getServiceClient(serverConfigOf(req));
+  const includeSchema = req.query.schema !== '0';
+  const includeData = req.query.data !== '0';
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  res.setHeader('Content-Type', 'application/gzip');
+  res.setHeader('Content-Encoding', 'identity');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('Content-Disposition', `attachment; filename="database_${stamp}.sql.gz"`);
+
+  const gzip = createGzip({ level: 6 });
+  gzip.pipe(res);
+
+  try {
+    for await (const chunk of generateSqlDump(sb, actorId, { includeSchema, includeData })) {
+      if (!gzip.write(chunk)) {
+        await new Promise<void>((resolve) => gzip.once('drain', () => resolve()));
+      }
+    }
+    gzip.end();
+  } catch (err) {
+    // Headers are already sent — close the archive with an explicit marker so a
+    // truncated dump can never be mistaken for a complete one.
+    gzip.end(`\n-- DUMP FAILED: ${String((err as Error).message).replace(/\n/g, ' ')}\n`);
   }
 });

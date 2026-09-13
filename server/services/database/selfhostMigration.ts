@@ -15,7 +15,7 @@ const INSERT_BATCH = 200;
 
 // Supabase-managed roles do not exist on a bare PostgreSQL cluster; the dumped
 // GRANT/POLICY statements reference them, so create them first (idempotent).
-const ROLE_BOOTSTRAP = `
+export const ROLE_BOOTSTRAP = `
 DO $bootstrap$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
@@ -159,7 +159,7 @@ const SCHEMA_PAGE = 1000;
  * the export off before the trigger / RLS / policy / grant sections at the end
  * of admin_export_schema_ddl. Page explicitly until a short page arrives.
  */
-async function fetchSchemaStatements(sb: SupabaseClient, actorId: string, emit: Emit): Promise<string[]> {
+export async function fetchSchemaStatements(sb: SupabaseClient, actorId: string, emit: Emit): Promise<string[]> {
   const all: string[] = [];
   for (let offset = 0; ; offset += SCHEMA_PAGE) {
     const { data, error } = await sb

@@ -5,7 +5,7 @@
  * every route behind `requirePlatformAdmin`. Express-only — no edge
  * functions, per the project architecture rules.
  */
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
@@ -23,11 +23,11 @@ import { runCanonicalBackfill, validateCanonicalBackfill } from '../services/seo
 
 export const adminRetentionRouter = Router();
 
-function serverConfigOf(req: { serverConfig?: ServerConfig } & Record<string, unknown>): ServerConfig {
+function serverConfigOf(req: Request): ServerConfig {
   return req.serverConfig as ServerConfig;
 }
 
-function fail(res: { status(code: number): { json(body: unknown): void } }, err: unknown) {
+function fail(res: Response, err: unknown) {
   if (err instanceof RetentionError) {
     const status = err.code === 'policy_not_found' ? 404 : err.code === 'policy_protected' ? 403 : 400;
     return res.status(status).json({ error: err.code, message: err.message });

@@ -9706,6 +9706,141 @@ export type Database = {
         }
         Relationships: []
       }
+      operator_activity_samples_2026_09: {
+        Row: {
+          available: boolean
+          bucket: string
+          created_at: string
+          id: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          available?: boolean
+          bucket: string
+          created_at?: string
+          id?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          available?: boolean
+          bucket?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
+      operator_activity_samples_2026_10: {
+        Row: {
+          available: boolean
+          bucket: string
+          created_at: string
+          id: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          available?: boolean
+          bucket: string
+          created_at?: string
+          id?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          available?: boolean
+          bucket?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
+      operator_activity_samples_2026_11: {
+        Row: {
+          available: boolean
+          bucket: string
+          created_at: string
+          id: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          available?: boolean
+          bucket: string
+          created_at?: string
+          id?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          available?: boolean
+          bucket?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
+      operator_activity_samples_default: {
+        Row: {
+          available: boolean
+          bucket: string
+          created_at: string
+          id: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          available?: boolean
+          bucket: string
+          created_at?: string
+          id?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          available?: boolean
+          bucket?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
+      operator_activity_samples_legacy: {
+        Row: {
+          available: boolean
+          bucket: string
+          created_at: string
+          id: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          available?: boolean
+          bucket: string
+          created_at?: string
+          id?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          available?: boolean
+          bucket?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
       operator_call_availability: {
         Row: {
           active_call_session_id: string | null

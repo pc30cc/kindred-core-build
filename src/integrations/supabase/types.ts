@@ -16343,6 +16343,156 @@ export type Database = {
         }
         Relationships: []
       }
+      workspace_health_snapshots_2026_09: {
+        Row: {
+          captured_at: string
+          components: Json
+          health_score: number
+          id: string
+          inputs: Json
+          state: string
+          workspace_id: string
+        }
+        Insert: {
+          captured_at?: string
+          components?: Json
+          health_score: number
+          id?: string
+          inputs?: Json
+          state: string
+          workspace_id: string
+        }
+        Update: {
+          captured_at?: string
+          components?: Json
+          health_score?: number
+          id?: string
+          inputs?: Json
+          state?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
+      workspace_health_snapshots_2026_10: {
+        Row: {
+          captured_at: string
+          components: Json
+          health_score: number
+          id: string
+          inputs: Json
+          state: string
+          workspace_id: string
+        }
+        Insert: {
+          captured_at?: string
+          components?: Json
+          health_score: number
+          id?: string
+          inputs?: Json
+          state: string
+          workspace_id: string
+        }
+        Update: {
+          captured_at?: string
+          components?: Json
+          health_score?: number
+          id?: string
+          inputs?: Json
+          state?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
+      workspace_health_snapshots_2026_11: {
+        Row: {
+          captured_at: string
+          components: Json
+          health_score: number
+          id: string
+          inputs: Json
+          state: string
+          workspace_id: string
+        }
+        Insert: {
+          captured_at?: string
+          components?: Json
+          health_score: number
+          id?: string
+          inputs?: Json
+          state: string
+          workspace_id: string
+        }
+        Update: {
+          captured_at?: string
+          components?: Json
+          health_score?: number
+          id?: string
+          inputs?: Json
+          state?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
+      workspace_health_snapshots_default: {
+        Row: {
+          captured_at: string
+          components: Json
+          health_score: number
+          id: string
+          inputs: Json
+          state: string
+          workspace_id: string
+        }
+        Insert: {
+          captured_at?: string
+          components?: Json
+          health_score: number
+          id?: string
+          inputs?: Json
+          state: string
+          workspace_id: string
+        }
+        Update: {
+          captured_at?: string
+          components?: Json
+          health_score?: number
+          id?: string
+          inputs?: Json
+          state?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
+      workspace_health_snapshots_legacy: {
+        Row: {
+          captured_at: string
+          components: Json
+          health_score: number
+          id: string
+          inputs: Json
+          state: string
+          workspace_id: string
+        }
+        Insert: {
+          captured_at?: string
+          components?: Json
+          health_score: number
+          id?: string
+          inputs?: Json
+          state: string
+          workspace_id: string
+        }
+        Update: {
+          captured_at?: string
+          components?: Json
+          health_score?: number
+          id?: string
+          inputs?: Json
+          state?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
       workspace_invitation_consents: {
         Row: {
           acceptance_method: string
@@ -19348,6 +19498,73 @@ export type Database = {
           _workspace_id: string
         }
         Returns: Json
+      }
+      partition_ensure_all: {
+        Args: { _months?: number }
+        Returns: {
+          parent_table: string
+          partitions: string[]
+        }[]
+      }
+      partition_ensure_future: {
+        Args: { _months?: number; _parent: string }
+        Returns: string[]
+      }
+      partition_ensure_month: {
+        Args: { _month: string; _parent: string }
+        Returns: string
+      }
+      partition_exact_count: { Args: { _partition: string }; Returns: number }
+      partition_health: {
+        Args: never
+        Returns: {
+          current_partition: string
+          default_rows: number
+          has_default: boolean
+          largest_bytes: number
+          largest_partition: string
+          newest_end: string
+          newest_partition: string
+          next_partition: string
+          next_partition_ready: boolean
+          oldest_partition: string
+          oldest_start: string
+          parent_table: string
+          partition_count: number
+          partition_key: string
+          total_bytes: number
+          total_rows: number
+        }[]
+      }
+      partition_inventory: {
+        Args: never
+        Returns: {
+          est_rows: number
+          is_default: boolean
+          parent_table: string
+          partition_name: string
+          range_end: string
+          range_start: string
+          total_bytes: number
+        }[]
+      }
+      partition_managed_tables: {
+        Args: never
+        Returns: {
+          key_type: string
+          parent_table: string
+          partition_key: string
+        }[]
+      }
+      partition_retention_candidates: {
+        Args: { _cutoff: string; _parent: string }
+        Returns: {
+          est_rows: number
+          partition_name: string
+          range_end: string
+          range_start: string
+          total_bytes: number
+        }[]
       }
       patch_conversation_ai_memory: {
         Args: {

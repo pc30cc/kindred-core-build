@@ -512,7 +512,18 @@ function MigrationTab() {
       setTargetInfo({ database: info.database, tableCount: info.tableCount });
       toast.success(t('admin.database.migrationConnected', { db: info.database, tables: info.tableCount }));
     } catch (e: any) {
-      toast.error(e?.message || t('admin.database.opFailed'));
+      const code = String(e?.message ?? '');
+      const known = [
+        'target_host_not_found',
+        'target_connection_refused',
+        'target_unreachable',
+        'target_auth_failed',
+        'target_database_missing',
+        'target_tls_error',
+        'target_connect_failed',
+        'invalid_connection_string',
+      ];
+      toast.error(known.includes(code) ? t(`admin.database.${code}`) : code || t('admin.database.opFailed'));
     } finally {
       setTesting(false);
     }

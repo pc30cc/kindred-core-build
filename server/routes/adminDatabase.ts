@@ -15,6 +15,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import {
+  describeTargetError,
   inspectTarget,
   isLikelyPostgresUrl,
   runSelfhostMigration,
@@ -178,7 +179,8 @@ adminDatabaseRouter.post('/migrate/test', async (req, res) => {
     const info = await inspectTarget(connectionString);
     res.json({ ok: true, ...info });
   } catch (err) {
-    res.status(502).json({ error: (err as Error).message });
+    const { code, detail } = describeTargetError(err);
+    res.status(502).json({ error: code, detail });
   }
 });
 

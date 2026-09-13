@@ -34,6 +34,28 @@ export function isLikelyPostgresUrl(value: string): boolean {
   return /^postgres(ql)?:\/\/[^\s]+$/i.test(value.trim());
 }
 
+/**
+ * Turns a raw driver/network failure into a stable code the dashboard can
+ * translate, plus the original text for the log. Without this the operator
+ * just sees things like "getaddrinfo ENOTFOUND" or "timeout expired", which
+ * read as a generic "not found" and hide the real cause (most often: the
+ * hostname is behind an HTTP proxy/CDN, so port 5432 never answers).
+ */
+export function describeTargetError(err: unknown): { code: string; detail: string } {
+  const e = err as { code?: string; message?: string };
+  const detail = e?.message ?? String(err);
+  const pgCode = e?.code ?? '';
+  if (pgCode === 'ENOTFOUND' || pgCode === 'EAI_AGAIN') return { code: 'target_host_not_found', detail };
+  if (pgCode === 'ECONNREFUSED') return { code: 'target_connection_refused', detail };
+  if (pgCode === 'ETIMEDOUT' || /timeout expired|timed? ?out/i.test(detail)) {
+    return { code: 'target_unreachable', detail };
+  }
+  if (pgCode === '28P01' || pgCode === '28000') return { code: 'target_auth_failed', detail };
+  if (pgCode === '3D000') return { code: 'target_database_missing', detail };
+  if (/self[- ]signed|certificate|SSL|TLS/i.test(detail)) return { code: 'target_tls_error', detail };
+  return { code: 'target_connect_failed', detail };
+}
+
 export async function connectTarget(connectionString: string): Promise<Client> {
   const trimmed = connectionString.trim();
   const disableSsl = /sslmode=disable/i.test(trimmed);
@@ -47,8 +69,10 @@ export async function connectTarget(connectionString: string): Promise<Client> {
   try {
     await client.connect();
   } catch (err) {
-    if (disableSsl) throw err;
-    // Plain local Postgres without TLS support.
+    const { code } = describeTargetError(err);
+    // Only a TLS negotiation problem is worth a second, plaintext attempt —
+    // retrying an unreachable host just doubles the wait before the error.
+    if (disableSsl || code !== 'target_tls_error') throw err;
     const plain = new Client({
       connectionString: trimmed,
       statement_timeout: 300_000,

@@ -23,7 +23,6 @@ import { getArchiveAdapter } from './archive.js';
 import {
   EDITABLE_FIELDS,
   isProtected,
-  PROTECTED_CATEGORIES,
   type EditableField,
   type RetentionPolicy,
   type RetentionRun,
@@ -157,14 +156,14 @@ export async function runPolicy(config: ServerConfig, policyKey: string, opts: R
   };
 
   // Layer 1 of the permanent guarantee: never even open a run.
-  if (policy.retention_mode === 'permanent' || PROTECTED_CATEGORIES.has(policy.category)) {
+  if (isProtected(policy)) {
     return { ...base, status: 'skipped', metadata: { reason: 'permanent_policy' } };
   }
   if (!policy.enabled) {
     return { ...base, status: 'skipped', metadata: { reason: 'policy_disabled' } };
   }
 
-  const { data: runRow } = await sb
+  const { data: runRow, error: runError } = await sb
     .from('data_retention_runs')
     .insert({
       policy_id: policy.id,
@@ -177,6 +176,7 @@ export async function runPolicy(config: ServerConfig, policyKey: string, opts: R
     .select('id')
     .maybeSingle();
   const runId = (runRow as { id: string } | null)?.id ?? null;
+  if (runError || !runId) throw new RetentionError('run_tracking_failed', runError?.message);
 
   const outcome: RunOutcome = { ...base, runId, status: 'running' };
 
@@ -240,6 +240,8 @@ async function runTimeBased(
   });
   if (countError) throw new RetentionError('count_failed', countError.message);
   outcome.rowsMatched = Number(matched || 0);
+  // A preview must never upload archives or invoke an adapter with side effects.
+  if (dryRun) return;
 
   if (policy.archive_enabled) {
     const adapter = getArchiveAdapter();
@@ -328,7 +330,7 @@ export async function runAllPolicies(config: ServerConfig, opts: RunOptions = {}
   const out: RunOutcome[] = [];
   for (const policy of policies) {
     if (!policy.enabled) continue;
-    if (policy.retention_mode === 'permanent' || PROTECTED_CATEGORIES.has(policy.category)) continue;
+    if (isProtected(policy)) continue;
     out.push(await runPolicy(config, policy.policy_key, { ...opts, triggeredBy: opts.triggeredBy || 'scheduler' }));
   }
   return out;

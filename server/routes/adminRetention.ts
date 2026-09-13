@@ -23,7 +23,7 @@ import { runCanonicalBackfill, validateCanonicalBackfill } from '../services/seo
 
 export const adminRetentionRouter = Router();
 
-function serverConfigOf(req: { app: { get(name: string): unknown } }): ServerConfig {
+function serverConfigOf(req: { serverConfig?: ServerConfig } & Record<string, unknown>): ServerConfig {
   return req.serverConfig as ServerConfig;
 }
 

@@ -20,7 +20,7 @@ async function fetchAllPages(config: ServerConfig, crawlId: string): Promise<(Se
   const canonical = await getCrawlPages(config, crawlId);
   {
     const data = canonical.map((entry) => ({ ...entry.page, id: entry.legacyPageId, url_id: entry.urlId, url: entry.url, normalized_url: entry.normalizedUrl }));
-    for (const row of data as Record<string, unknown>[]) {
+    for (const row of data as SeoPageForRules[] & Record<string, unknown>[]) {
       out.push({
         urlId: row.url_id || '',
         id: row.id,

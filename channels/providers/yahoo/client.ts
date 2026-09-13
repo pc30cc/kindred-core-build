@@ -284,13 +284,17 @@ export async function pollYahooInbox(
     const lock = await client.getMailboxLock('INBOX');
     try {
       let uidsToFetch: number[];
+      // imapflow types search() as `number[] | false` (false when the mailbox
+      // is not selected) — normalise to an array before iterating.
       if (opts.sinceUid) {
-        uidsToFetch = await client.search({ uid: `${opts.sinceUid + 1}:*` }, { uid: true });
+        const found = await client.search({ uid: `${opts.sinceUid + 1}:*` }, { uid: true });
+        uidsToFetch = Array.isArray(found) ? found : [];
       } else {
         const maxMessages = opts.maxMessages ?? 25;
         const exists = client.mailbox && typeof client.mailbox === 'object' ? (client.mailbox as any).exists ?? 0 : 0;
         const startSeq = Math.max(1, exists - maxMessages + 1);
-        uidsToFetch = exists > 0 ? await client.search({ seq: `${startSeq}:*` }, { uid: true }) : [];
+        const found = exists > 0 ? await client.search({ seq: `${startSeq}:*` }, { uid: true }) : [];
+        uidsToFetch = Array.isArray(found) ? found : [];
       }
 
       for (const uid of uidsToFetch) {

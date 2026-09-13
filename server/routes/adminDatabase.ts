@@ -14,6 +14,11 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
+import {
+  inspectTarget,
+  isLikelyPostgresUrl,
+  runSelfhostMigration,
+} from '../services/database/selfhostMigration.js';
 
 export const adminDatabaseRouter = Router();
 
@@ -152,4 +157,63 @@ adminDatabaseRouter.post('/purge', async (req, res) => {
   });
   if (error) return res.status(500).json({ error: error.message });
   res.json({ ok: true, result: data });
+});
+
+
+// ─── One-click migration to a self-hosted Supabase / PostgreSQL target ───
+const migrateSchema = z.object({
+  connectionString: z.string().min(10),
+  includeSchema: z.boolean().default(true),
+  truncateTarget: z.boolean().default(false),
+});
+
+adminDatabaseRouter.post('/migrate/test', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  const connectionString = String(req.body?.connectionString ?? '');
+  if (!isLikelyPostgresUrl(connectionString)) {
+    return res.status(400).json({ error: 'invalid_connection_string' });
+  }
+  try {
+    const info = await inspectTarget(connectionString);
+    res.json({ ok: true, ...info });
+  } catch (err) {
+    res.status(502).json({ error: (err as Error).message });
+  }
+});
+
+adminDatabaseRouter.post('/migrate/run', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  const parsed = migrateSchema.safeParse(req.body ?? {});
+  if (!parsed.success || !isLikelyPostgresUrl(parsed.data.connectionString)) {
+    return res.status(400).json({ error: 'invalid_request' });
+  }
+  const config = serverConfigOf(req);
+  const sb = getServiceClient(config);
+
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  // Long-running stream — keep proxies from buffering it.
+  res.setHeader('X-Accel-Buffering', 'no');
+  const emit = (event: Record<string, unknown>) => {
+    res.write(`${JSON.stringify(event)}\n`);
+  };
+
+  try {
+    await runSelfhostMigration(
+      sb,
+      actorId,
+      {
+        connectionString: parsed.data.connectionString!,
+        includeSchema: parsed.data.includeSchema ?? true,
+        truncateTarget: parsed.data.truncateTarget ?? false,
+      },
+      emit,
+    );
+  } catch (err) {
+    emit({ type: 'error', message: (err as Error).message });
+  } finally {
+    res.end();
+  }
 });

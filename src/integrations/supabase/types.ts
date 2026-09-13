@@ -7229,6 +7229,57 @@ export type Database = {
           },
         ]
       }
+      channel_oauth_states: {
+        Row: {
+          consumed_at: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          initiated_by: string | null
+          installation_id: string
+          provider: string
+          token: string
+          workspace_id: string
+        }
+        Insert: {
+          consumed_at?: string | null
+          created_at?: string
+          expires_at: string
+          id?: string
+          initiated_by?: string | null
+          installation_id: string
+          provider: string
+          token: string
+          workspace_id: string
+        }
+        Update: {
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          initiated_by?: string | null
+          installation_id?: string
+          provider?: string
+          token?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "channel_oauth_states_installation_id_fkey"
+            columns: ["installation_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_plugin_installations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "channel_oauth_states_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       channel_provider_operations: {
         Row: {
           completed_at: string | null
@@ -8327,6 +8378,47 @@ export type Database = {
           },
         ]
       }
+      email_attachments: {
+        Row: {
+          content_id: string | null
+          content_type: string | null
+          created_at: string
+          filename: string
+          id: string
+          message_id: string
+          size_bytes: number | null
+          storage_key: string
+        }
+        Insert: {
+          content_id?: string | null
+          content_type?: string | null
+          created_at?: string
+          filename: string
+          id?: string
+          message_id: string
+          size_bytes?: number | null
+          storage_key: string
+        }
+        Update: {
+          content_id?: string | null
+          content_type?: string | null
+          created_at?: string
+          filename?: string
+          id?: string
+          message_id?: string
+          size_bytes?: number | null
+          storage_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_attachments_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "email_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       email_logs: {
         Row: {
           created_at: string | null
@@ -8370,6 +8462,90 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "email_logs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_messages: {
+        Row: {
+          bcc_addresses: Json
+          cc_addresses: Json
+          created_at: string
+          delivery_error: string | null
+          delivery_status: string
+          direction: string
+          external_message_id: string
+          from_address: string
+          html_body: string | null
+          id: string
+          in_reply_to: string | null
+          is_read: boolean
+          message_references: string[]
+          sent_at: string
+          sent_by: string | null
+          snippet: string | null
+          text_body: string | null
+          thread_id: string
+          to_addresses: Json
+          workspace_id: string
+        }
+        Insert: {
+          bcc_addresses?: Json
+          cc_addresses?: Json
+          created_at?: string
+          delivery_error?: string | null
+          delivery_status?: string
+          direction: string
+          external_message_id: string
+          from_address: string
+          html_body?: string | null
+          id?: string
+          in_reply_to?: string | null
+          is_read?: boolean
+          message_references?: string[]
+          sent_at?: string
+          sent_by?: string | null
+          snippet?: string | null
+          text_body?: string | null
+          thread_id: string
+          to_addresses?: Json
+          workspace_id: string
+        }
+        Update: {
+          bcc_addresses?: Json
+          cc_addresses?: Json
+          created_at?: string
+          delivery_error?: string | null
+          delivery_status?: string
+          direction?: string
+          external_message_id?: string
+          from_address?: string
+          html_body?: string | null
+          id?: string
+          in_reply_to?: string | null
+          is_read?: boolean
+          message_references?: string[]
+          sent_at?: string
+          sent_by?: string | null
+          snippet?: string | null
+          text_body?: string | null
+          thread_id?: string
+          to_addresses?: Json
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_messages_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "email_threads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_messages_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -8493,6 +8669,69 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "email_templates_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_threads: {
+        Row: {
+          created_at: string
+          external_thread_id: string
+          id: string
+          integration_id: string
+          is_read: boolean
+          is_starred: boolean
+          labels: string[]
+          last_message_at: string | null
+          participants: Json
+          provider: string
+          subject: string | null
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          external_thread_id: string
+          id?: string
+          integration_id: string
+          is_read?: boolean
+          is_starred?: boolean
+          labels?: string[]
+          last_message_at?: string | null
+          participants?: Json
+          provider: string
+          subject?: string | null
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          external_thread_id?: string
+          id?: string
+          integration_id?: string
+          is_read?: boolean
+          is_starred?: boolean
+          labels?: string[]
+          last_message_at?: string | null
+          participants?: Json
+          provider?: string
+          subject?: string | null
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_threads_integration_id_fkey"
+            columns: ["integration_id"]
+            isOneToOne: false
+            referencedRelation: "channel_integrations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_threads_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -11119,6 +11358,132 @@ export type Database = {
           },
         ]
       }
+      seo_explorer_competitor_scans: {
+        Row: {
+          cancel_requested: boolean
+          created_at: string
+          created_by: string | null
+          error_category: string | null
+          error_message: string | null
+          finished_at: string | null
+          id: string
+          job_id: string
+          max_domains: number
+          progress: number
+          progress_stage: string | null
+          provider: string
+          started_at: string | null
+          status: string
+          target_domain: string
+          total_domains: number | null
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          cancel_requested?: boolean
+          created_at?: string
+          created_by?: string | null
+          error_category?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          job_id: string
+          max_domains?: number
+          progress?: number
+          progress_stage?: string | null
+          provider: string
+          started_at?: string | null
+          status?: string
+          target_domain: string
+          total_domains?: number | null
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          cancel_requested?: boolean
+          created_at?: string
+          created_by?: string | null
+          error_category?: string | null
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          job_id?: string
+          max_domains?: number
+          progress?: number
+          progress_stage?: string | null
+          provider?: string
+          started_at?: string | null
+          status?: string
+          target_domain?: string
+          total_domains?: number | null
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_explorer_competitor_scans_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "background_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_explorer_competitor_scans_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      seo_explorer_competitors: {
+        Row: {
+          avg_position: number | null
+          created_at: string
+          domain: string
+          id: string
+          intersections: number | null
+          scan_id: string
+          traffic_estimate: number | null
+          workspace_id: string
+        }
+        Insert: {
+          avg_position?: number | null
+          created_at?: string
+          domain: string
+          id?: string
+          intersections?: number | null
+          scan_id: string
+          traffic_estimate?: number | null
+          workspace_id: string
+        }
+        Update: {
+          avg_position?: number | null
+          created_at?: string
+          domain?: string
+          id?: string
+          intersections?: number | null
+          scan_id?: string
+          traffic_estimate?: number | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_explorer_competitors_scan_id_fkey"
+            columns: ["scan_id"]
+            isOneToOne: false
+            referencedRelation: "seo_explorer_competitor_scans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_explorer_competitors_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       seo_explorer_keyword_scans: {
         Row: {
           cancel_requested: boolean
@@ -12118,6 +12483,71 @@ export type Database = {
           },
           {
             foreignKeyName: "seo_performance_results_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      seo_rank_check_competitors: {
+        Row: {
+          created_at: string
+          domain: string
+          id: string
+          position: number
+          rank_check_id: string
+          tracked_keyword_id: string
+          url: string | null
+          website_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          domain: string
+          id?: string
+          position: number
+          rank_check_id: string
+          tracked_keyword_id: string
+          url?: string | null
+          website_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          domain?: string
+          id?: string
+          position?: number
+          rank_check_id?: string
+          tracked_keyword_id?: string
+          url?: string | null
+          website_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_rank_check_competitors_rank_check_id_fkey"
+            columns: ["rank_check_id"]
+            isOneToOne: false
+            referencedRelation: "seo_rank_checks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_rank_check_competitors_tracked_keyword_id_fkey"
+            columns: ["tracked_keyword_id"]
+            isOneToOne: false
+            referencedRelation: "seo_tracked_keywords"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_rank_check_competitors_website_id_fkey"
+            columns: ["website_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_domains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_rank_check_competitors_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"

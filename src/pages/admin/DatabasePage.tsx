@@ -18,7 +18,7 @@ import {
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { downloadDatabaseBackup, restoreDatabaseBackup, purgeDatabase } from '@/lib/api';
+import { downloadDatabaseBackup, restoreDatabaseBackup, purgeDatabase, testSelfhostTarget, streamSelfhostMigration } from '@/lib/api';
 
 interface BackupRecord {
   id: string;
@@ -494,6 +494,59 @@ function MigrationTab() {
   const { t, dir } = useTranslation();
   const isRtl = dir === 'rtl';
 
+  const [connectionString, setConnectionString] = useState('');
+  const [includeSchema, setIncludeSchema] = useState(true);
+  const [truncateTarget, setTruncateTarget] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [targetInfo, setTargetInfo] = useState<{ database: string; tableCount: number } | null>(null);
+  const [log, setLog] = useState<string[]>([]);
+
+  const append = (line: string) => setLog(prev => [...prev.slice(-300), line]);
+
+  const handleTest = async () => {
+    setTesting(true);
+    setTargetInfo(null);
+    try {
+      const info = await testSelfhostTarget(connectionString.trim());
+      setTargetInfo({ database: info.database, tableCount: info.tableCount });
+      toast.success(t('admin.database.migrationConnected', { db: info.database, tables: info.tableCount }));
+    } catch (e: any) {
+      toast.error(e?.message || t('admin.database.opFailed'));
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleRun = async () => {
+    setRunning(true);
+    setLog([]);
+    try {
+      await streamSelfhostMigration(
+        { connectionString: connectionString.trim(), includeSchema, truncateTarget },
+        event => {
+          if (event.type === 'stage') append(`• ${String(event.stage)}`);
+          else if (event.type === 'schemaDone') append(`• schema: ${event.applied}/${event.total} (failed ${event.failed})`);
+          else if (event.type === 'tables') append(`• tables: ${event.total}`);
+          else if (event.type === 'tableDone') append(`✓ ${event.table} — ${event.rows} rows${event.skipped ? ` (${event.skipped})` : ''}`);
+          else if (event.type === 'warn') append(`! ${event.message}`);
+          else if (event.type === 'error') append(`✗ ${event.message}`);
+          else if (event.type === 'done') {
+            append(`✓ ${t('admin.database.migrationDone', { tables: event.tables, rows: event.rows })}`);
+            toast.success(t('admin.database.migrationDone', { tables: event.tables, rows: event.rows }));
+          }
+        },
+      );
+    } catch (e: any) {
+      append(`✗ ${e?.message || 'error'}`);
+      toast.error(e?.message || t('admin.database.migrationFailed'));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const canRun = connectionString.trim().length > 10 && !running && !testing;
+
   return (
     <div dir={dir} className="space-y-6 text-start">
       <Card className="bg-card border-border">
@@ -504,44 +557,70 @@ function MigrationTab() {
           </CardTitle>
           <CardDescription className="text-muted-foreground text-start">{t('admin.database.migrationDesc')}</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="space-y-3 rounded-md border border-border p-4 text-start">
-            <p className="text-xs font-medium text-muted-foreground">{t('admin.database.sourceDb')}</p>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {['Host', 'Port', 'Database', 'User'].map(field => (
-                <div key={field} className="space-y-1">
-                  <Label className="text-xs text-muted-foreground text-start">{field}</Label>
-                  <Input placeholder={field.toLowerCase()} className="bg-input border-border text-foreground text-start" disabled />
-                </div>
-              ))}
+        <CardContent className="space-y-5">
+          <div className="space-y-2 text-start">
+            <Label className="text-xs text-muted-foreground">{t('admin.database.migrationConnLabel')}</Label>
+            <Input
+              dir="ltr"
+              value={connectionString}
+              onChange={e => setConnectionString(e.target.value)}
+              placeholder="postgresql://postgres:PASSWORD@db.example.com:5432/postgres"
+              className="bg-input border-border text-foreground font-mono text-xs text-left"
+              disabled={running}
+            />
+            <p className="text-xs text-muted-foreground">{t('admin.database.migrationConnHint')}</p>
+          </div>
+
+          <div className="space-y-3 rounded-md border border-border p-4">
+            <div className={cn('flex items-center justify-between gap-3', isRtl && 'flex-row-reverse')}>
+              <Label className="text-xs text-foreground">{t('admin.database.migrationIncludeSchema')}</Label>
+              <Switch checked={includeSchema} onCheckedChange={setIncludeSchema} disabled={running} />
+            </div>
+            <Separator />
+            <div className={cn('flex items-center justify-between gap-3', isRtl && 'flex-row-reverse')}>
+              <Label className="text-xs text-foreground">{t('admin.database.migrationTruncate')}</Label>
+              <Switch checked={truncateTarget} onCheckedChange={setTruncateTarget} disabled={running} />
             </div>
           </div>
 
-          <div className="flex justify-center">
-            <ArrowRightLeft className="h-6 w-6 text-muted-foreground" />
-          </div>
-
-          <div className="space-y-3 rounded-md border border-border p-4 text-start">
-            <p className="text-xs font-medium text-muted-foreground">{t('admin.database.targetDb')}</p>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {['Host', 'Port', 'Database', 'User'].map(field => (
-                <div key={field} className="space-y-1">
-                  <Label className="text-xs text-muted-foreground text-start">{field}</Label>
-                  <Input placeholder={field.toLowerCase()} className="bg-input border-border text-foreground text-start" disabled />
-                </div>
-              ))}
+          {targetInfo && (
+            <div className={cn('flex items-center gap-3 rounded-md border border-success/30 bg-success/5 p-3', isRtl && 'flex-row-reverse')}>
+              <CheckCircle className="h-4 w-4 text-success shrink-0" />
+              <p className="text-xs text-success">
+                {t('admin.database.migrationConnected', { db: targetInfo.database, tables: targetInfo.tableCount })}
+              </p>
             </div>
-          </div>
+          )}
 
           <div className={cn('flex items-center gap-3 rounded-md border border-warning/30 bg-warning/5 p-3 text-start', isRtl && 'flex-row-reverse')}>
             <AlertCircle className="h-5 w-5 text-warning shrink-0" />
             <p className="text-xs text-warning">{t('admin.database.migrationPending')}</p>
           </div>
 
-          <Button disabled className={cn('gap-2', isRtl && 'flex-row-reverse')}>
-            <FolderSync className="h-4 w-4" />
-            {t('admin.database.startMigration')}
-          </Button>
+          <div className={cn('flex flex-wrap gap-3', isRtl && 'flex-row-reverse')}>
+            <Button
+              variant="outline"
+              onClick={() => void handleTest()}
+              disabled={!canRun}
+              className={cn('gap-2', isRtl && 'flex-row-reverse')}
+            >
+              {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Server className="h-4 w-4" />}
+              {testing ? t('admin.database.migrationTesting') : t('admin.database.migrationTest')}
+            </Button>
+            <Button onClick={() => void handleRun()} disabled={!canRun} className={cn('gap-2', isRtl && 'flex-row-reverse')}>
+              {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderSync className="h-4 w-4" />}
+              {running ? t('admin.database.migrationRunning') : t('admin.database.startMigration')}
+            </Button>
+          </div>
+
+          {log.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">{t('admin.database.migrationLog')}</p>
+              <pre dir="ltr" className="max-h-72 overflow-auto rounded-md border border-border bg-muted/40 p-3 text-left text-[11px] leading-5 text-foreground">
+                {log.join('\n')}
+              </pre>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

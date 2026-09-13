@@ -280,10 +280,11 @@ export async function runCanonicalBackfill(config: ServerConfig, maxCrawls = 5):
 /** Read-only parity/validation report used before trusting canonical reads. */
 export async function validateCanonicalBackfill(config: ServerConfig): Promise<Record<string, number>> {
   const sb = getServiceClient(config);
-  const count = async (table: string, apply?: (q: any) => any): Promise<number> => {
-    let q = sb.from(table).select('*', { count: 'exact', head: true });
+  type CountQuery = { is(col: string, val: null): CountQuery; not(col: string, op: string, val: null): CountQuery; eq(col: string, val: string): CountQuery; count?: number | null };
+  const count = async (table: string, apply?: (q: CountQuery) => CountQuery): Promise<number> => {
+    let q = sb.from(table).select('*', { count: 'exact', head: true }) as unknown as CountQuery;
     if (apply) q = apply(q);
-    const { count: c } = await q;
+    const { count: c } = await (q as unknown as Promise<{ count: number | null }>);
     return c || 0;
   };
   return {

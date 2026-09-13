@@ -23,11 +23,11 @@ import { runCanonicalBackfill, validateCanonicalBackfill } from '../services/seo
 
 export const adminRetentionRouter = Router();
 
-function serverConfigOf(req: any): ServerConfig {
+function serverConfigOf(req: { app: { get(name: string): unknown } }): ServerConfig {
   return req.serverConfig as ServerConfig;
 }
 
-function fail(res: any, err: unknown) {
+function fail(res: { status(code: number): { json(body: unknown): void } }, err: unknown) {
   if (err instanceof RetentionError) {
     const status = err.code === 'policy_not_found' ? 404 : err.code === 'policy_protected' ? 403 : 400;
     return res.status(status).json({ error: err.code, message: err.message });

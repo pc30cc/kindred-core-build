@@ -20,7 +20,7 @@ async function fetchAllPages(config: ServerConfig, crawlId: string): Promise<(Se
   const canonical = await getCrawlPages(config, crawlId);
   {
     const data = canonical.map((entry) => ({ ...entry.page, id: entry.legacyPageId, url_id: entry.urlId, url: entry.url, normalized_url: entry.normalizedUrl }));
-    for (const row of data as any[]) {
+    for (const row of data as Record<string, unknown>[]) {
       out.push({
         urlId: row.url_id || '',
         id: row.id,
@@ -76,7 +76,7 @@ async function fetchAllLinks(
 
 async function fetchSitemaps(sb: ReturnType<typeof getServiceClient>, crawlId: string): Promise<SeoSitemapForRules[]> {
   const { data } = await sb.from('seo_sitemaps').select('url, status, error_message').eq('crawl_id', crawlId);
-  return ((data || []) as any[]).map((r) => ({ url: r.url, status: r.status, errorMessage: r.error_message }));
+  return ((data || []) as Record<string, unknown>[]).map((r) => ({ url: r.url as string, status: r.status as string, errorMessage: (r.error_message as string | null) ?? null }));
 }
 
 async function previousIssueTypes(sb: ReturnType<typeof getServiceClient>, workspaceId: string, websiteId: string, crawlId: string, crawlCreatedAt: string): Promise<Set<string>> {

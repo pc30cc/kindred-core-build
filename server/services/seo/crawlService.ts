@@ -331,12 +331,12 @@ export async function compareWithPreviousCrawl(config: ServerConfig, workspaceId
     sb.from('seo_issues').select('issue_type, category, severity, title, affected_count').eq('crawl_id', prev.id),
   ]);
 
-  const currentTypes = new Set((currentIssues || []).map((i: any) => i.issue_type));
-  const prevTypes = new Set((prevIssues || []).map((i: any) => i.issue_type));
+  const currentTypes = new Set((currentIssues || []).map((i: { issue_type: string }) => i.issue_type));
+  const prevTypes = new Set((prevIssues || []).map((i: { issue_type: string }) => i.issue_type));
 
-  const newIssues = (currentIssues || []).filter((i: any) => !prevTypes.has(i.issue_type));
-  const resolvedIssues = (prevIssues || []).filter((i: any) => !currentTypes.has(i.issue_type));
-  const persistentIssues = (currentIssues || []).filter((i: any) => prevTypes.has(i.issue_type));
+  const newIssues = (currentIssues || []).filter((i: { issue_type: string }) => !prevTypes.has(i.issue_type));
+  const resolvedIssues = (prevIssues || []).filter((i: { issue_type: string }) => !currentTypes.has(i.issue_type));
+  const persistentIssues = (currentIssues || []).filter((i: { issue_type: string }) => prevTypes.has(i.issue_type));
 
   return {
     hasPrevious: true,

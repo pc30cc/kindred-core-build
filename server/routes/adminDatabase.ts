@@ -21,6 +21,8 @@ import {
   runSelfhostMigration,
 } from '../services/database/selfhostMigration.js';
 import { compareWithTarget } from '../services/database/inventoryCompare.js';
+import { generateSqlDump } from '../services/database/sqlDump.js';
+import { createGzip } from 'node:zlib';
 
 export const adminDatabaseRouter = Router();
 

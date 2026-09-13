@@ -1,7 +1,7 @@
 # Roadmap
 
 - [ ] Audit live SEO storage and publish concrete writer/reader inventory and baseline counts.
-- [ ] Complete authoritative delta storage, normalized links, compatible reads and resumable backfill using migrations 173+ only; migrations 169–172 immutable.
+- [ ] Complete the three remaining SEO blockers: authoritative storage/read compatibility, safe production backfill, and A–E crawl verification; use migrations 174+ only and keep 169–173 immutable.
 - [ ] Verify actual identical crawls, exact row deltas, isolation, history, summaries and retention eligibility; cleanup remains disabled and legacy data intact.
 
 - [x] Fix all active preview typecheck errors in genericVerificationCore integration tests

@@ -8378,6 +8378,155 @@ export type Database = {
           },
         ]
       }
+      data_retention_policies: {
+        Row: {
+          archive_after_days: number | null
+          archive_enabled: boolean
+          batch_size: number
+          category: string
+          created_at: string
+          delete_after_archive: boolean
+          description: string | null
+          enabled: boolean
+          hot_retention_days: number | null
+          id: string
+          keep_last_n: number | null
+          last_error: string | null
+          last_rows_deleted: number | null
+          last_run_at: string | null
+          last_run_status: string | null
+          metadata: Json
+          next_run_at: string | null
+          partition_column: string | null
+          policy_key: string
+          retention_mode: string
+          table_name: string
+          timestamp_column: string
+          updated_at: string
+          workspace_overridable: boolean
+        }
+        Insert: {
+          archive_after_days?: number | null
+          archive_enabled?: boolean
+          batch_size?: number
+          category: string
+          created_at?: string
+          delete_after_archive?: boolean
+          description?: string | null
+          enabled?: boolean
+          hot_retention_days?: number | null
+          id?: string
+          keep_last_n?: number | null
+          last_error?: string | null
+          last_rows_deleted?: number | null
+          last_run_at?: string | null
+          last_run_status?: string | null
+          metadata?: Json
+          next_run_at?: string | null
+          partition_column?: string | null
+          policy_key: string
+          retention_mode: string
+          table_name: string
+          timestamp_column: string
+          updated_at?: string
+          workspace_overridable?: boolean
+        }
+        Update: {
+          archive_after_days?: number | null
+          archive_enabled?: boolean
+          batch_size?: number
+          category?: string
+          created_at?: string
+          delete_after_archive?: boolean
+          description?: string | null
+          enabled?: boolean
+          hot_retention_days?: number | null
+          id?: string
+          keep_last_n?: number | null
+          last_error?: string | null
+          last_rows_deleted?: number | null
+          last_run_at?: string | null
+          last_run_status?: string | null
+          metadata?: Json
+          next_run_at?: string | null
+          partition_column?: string | null
+          policy_key?: string
+          retention_mode?: string
+          table_name?: string
+          timestamp_column?: string
+          updated_at?: string
+          workspace_overridable?: boolean
+        }
+        Relationships: []
+      }
+      data_retention_runs: {
+        Row: {
+          actor_user_id: string | null
+          batches: number
+          bytes_archived: number | null
+          created_at: string
+          dry_run: boolean
+          error: string | null
+          finished_at: string | null
+          id: string
+          metadata: Json
+          policy_id: string
+          policy_key: string
+          rows_archived: number
+          rows_deleted: number
+          rows_matched: number
+          started_at: string
+          status: string
+          triggered_by: string
+        }
+        Insert: {
+          actor_user_id?: string | null
+          batches?: number
+          bytes_archived?: number | null
+          created_at?: string
+          dry_run?: boolean
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          metadata?: Json
+          policy_id: string
+          policy_key: string
+          rows_archived?: number
+          rows_deleted?: number
+          rows_matched?: number
+          started_at?: string
+          status?: string
+          triggered_by?: string
+        }
+        Update: {
+          actor_user_id?: string | null
+          batches?: number
+          bytes_archived?: number | null
+          created_at?: string
+          dry_run?: boolean
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          metadata?: Json
+          policy_id?: string
+          policy_key?: string
+          rows_archived?: number
+          rows_deleted?: number
+          rows_matched?: number
+          started_at?: string
+          status?: string
+          triggered_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "data_retention_runs_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "data_retention_policies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       email_attachments: {
         Row: {
           content_id: string | null
@@ -11075,6 +11224,186 @@ export type Database = {
           },
         ]
       }
+      seo_crawl_observations: {
+        Row: {
+          canonical_status: string | null
+          change_type: string
+          changed: boolean
+          crawl_id: string
+          created_at: string
+          external_links_count: number
+          id: string
+          incoming_internal_links_count: number
+          internal_links_count: number
+          is_indexable: boolean | null
+          issue_flags: Json
+          meta_description: string | null
+          observation_hash: string
+          observed_at: string
+          payload: Json
+          site_id: string
+          status_code: number | null
+          title: string | null
+          url_id: string
+          workspace_id: string
+        }
+        Insert: {
+          canonical_status?: string | null
+          change_type?: string
+          changed?: boolean
+          crawl_id: string
+          created_at?: string
+          external_links_count?: number
+          id?: string
+          incoming_internal_links_count?: number
+          internal_links_count?: number
+          is_indexable?: boolean | null
+          issue_flags?: Json
+          meta_description?: string | null
+          observation_hash: string
+          observed_at?: string
+          payload?: Json
+          site_id: string
+          status_code?: number | null
+          title?: string | null
+          url_id: string
+          workspace_id: string
+        }
+        Update: {
+          canonical_status?: string | null
+          change_type?: string
+          changed?: boolean
+          crawl_id?: string
+          created_at?: string
+          external_links_count?: number
+          id?: string
+          incoming_internal_links_count?: number
+          internal_links_count?: number
+          is_indexable?: boolean | null
+          issue_flags?: Json
+          meta_description?: string | null
+          observation_hash?: string
+          observed_at?: string
+          payload?: Json
+          site_id?: string
+          status_code?: number | null
+          title?: string | null
+          url_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_crawl_observations_crawl_id_fkey"
+            columns: ["crawl_id"]
+            isOneToOne: false
+            referencedRelation: "seo_crawls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_crawl_observations_site_id_fkey"
+            columns: ["site_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_domains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_crawl_observations_url_id_fkey"
+            columns: ["url_id"]
+            isOneToOne: false
+            referencedRelation: "seo_urls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_crawl_observations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      seo_crawl_url_membership: {
+        Row: {
+          changed: boolean
+          crawl_id: string
+          effective_observation_id: string | null
+          observation_id: string | null
+          observed_at: string
+          site_id: string
+          state: string
+          status_code: number | null
+          url_id: string
+          workspace_id: string
+        }
+        Insert: {
+          changed?: boolean
+          crawl_id: string
+          effective_observation_id?: string | null
+          observation_id?: string | null
+          observed_at?: string
+          site_id: string
+          state?: string
+          status_code?: number | null
+          url_id: string
+          workspace_id: string
+        }
+        Update: {
+          changed?: boolean
+          crawl_id?: string
+          effective_observation_id?: string | null
+          observation_id?: string | null
+          observed_at?: string
+          site_id?: string
+          state?: string
+          status_code?: number | null
+          url_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_crawl_url_membership_crawl_id_fkey"
+            columns: ["crawl_id"]
+            isOneToOne: false
+            referencedRelation: "seo_crawls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_crawl_url_membership_effective_observation_id_fkey"
+            columns: ["effective_observation_id"]
+            isOneToOne: false
+            referencedRelation: "seo_crawl_observations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_crawl_url_membership_observation_id_fkey"
+            columns: ["observation_id"]
+            isOneToOne: false
+            referencedRelation: "seo_crawl_observations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_crawl_url_membership_site_id_fkey"
+            columns: ["site_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_domains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_crawl_url_membership_url_id_fkey"
+            columns: ["url_id"]
+            isOneToOne: false
+            referencedRelation: "seo_urls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_crawl_url_membership_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       seo_crawls: {
         Row: {
           cancel_requested: boolean
@@ -12723,6 +13052,76 @@ export type Database = {
           },
           {
             foreignKeyName: "seo_tracked_keywords_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      seo_urls: {
+        Row: {
+          created_at: string
+          disappeared_at: string | null
+          first_seen_at: string
+          id: string
+          is_active: boolean
+          last_seen_at: string
+          last_successful_crawl_id: string | null
+          metadata: Json
+          normalized_url: string
+          site_id: string
+          updated_at: string
+          url_hash: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          disappeared_at?: string | null
+          first_seen_at?: string
+          id?: string
+          is_active?: boolean
+          last_seen_at?: string
+          last_successful_crawl_id?: string | null
+          metadata?: Json
+          normalized_url: string
+          site_id: string
+          updated_at?: string
+          url_hash: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          disappeared_at?: string | null
+          first_seen_at?: string
+          id?: string
+          is_active?: boolean
+          last_seen_at?: string
+          last_successful_crawl_id?: string | null
+          metadata?: Json
+          normalized_url?: string
+          site_id?: string
+          updated_at?: string
+          url_hash?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_urls_last_successful_crawl_id_fkey"
+            columns: ["last_successful_crawl_id"]
+            isOneToOne: false
+            referencedRelation: "seo_crawls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_urls_site_id_fkey"
+            columns: ["site_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_domains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_urls_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -18377,6 +18776,14 @@ export type Database = {
         }
         Returns: Json
       }
+      data_retention_count_expired: {
+        Args: { _cutoff: string; _policy_key: string }
+        Returns: number
+      }
+      data_retention_delete_batch: {
+        Args: { _batch_size: number; _cutoff: string; _policy_key: string }
+        Returns: number
+      }
       deduct_ai_credits: {
         Args: { _credits?: number; _period?: string; _workspace_id: string }
         Returns: Json
@@ -18842,6 +19249,23 @@ export type Database = {
         }
         Returns: Json
       }
+      seo_backfill_url_model: {
+        Args: { _max_crawls?: number }
+        Returns: {
+          crawls_processed: number
+          memberships_created: number
+          urls_created: number
+        }[]
+      }
+      seo_retention_prune_crawl_details: {
+        Args: { _batch_size?: number; _dry_run?: boolean; _keep?: number }
+        Returns: {
+          crawls_matched: number
+          rows_deleted: number
+          rows_matched: number
+        }[]
+      }
+      seo_storage_metrics: { Args: never; Returns: Json }
       set_workspace_seat_entitlement_mode: {
         Args: {
           _mode: string

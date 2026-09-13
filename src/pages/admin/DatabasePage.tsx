@@ -18,7 +18,7 @@ import {
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { downloadDatabaseBackup, restoreDatabaseBackup, purgeDatabase, testSelfhostTarget, streamSelfhostMigration, compareSelfhostTarget, type DbCompareResult } from '@/lib/api';
+import { downloadDatabaseBackup, restoreDatabaseBackup, purgeDatabase, testSelfhostTarget, streamSelfhostMigration, compareSelfhostTarget, downloadSqlDump, type DbCompareResult } from '@/lib/api';
 
 interface BackupRecord {
   id: string;

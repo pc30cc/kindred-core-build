@@ -137,3 +137,47 @@ adminRetentionRouter.get('/seo-storage/validate', async (req, res) => {
     res.json({ validation: await validateCanonicalBackfill(serverConfigOf(req)) });
   } catch (err) { fail(res, err); }
 });
+
+// ─── Partition diagnostics ───────────────────────────────────────────────
+// Read-only + additive only. There is no drop/detach endpoint anywhere: old
+// partitions are removed, later, through the retention workflow — never from
+// a diagnostics screen.
+adminRetentionRouter.get('/partitions', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  try {
+    const config = serverConfigOf(req);
+    const [tables, partitions] = await Promise.all([
+      getPartitionHealth(config),
+      getPartitionInventory(config),
+    ]);
+    res.json({ tables, partitions });
+  } catch (err) { fail(res, err); }
+});
+
+adminRetentionRouter.post('/partitions/ensure', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  const parentTable = typeof (req.body ?? {}).table === 'string' ? (req.body as { table: string }).table : undefined;
+  try {
+    res.json({ created: await ensureFuturePartitions(serverConfigOf(req), parentTable) });
+  } catch (err) { fail(res, err); }
+});
+
+adminRetentionRouter.get('/partitions/validate', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  try {
+    res.json(await validatePartitionLayout(serverConfigOf(req)));
+  } catch (err) { fail(res, err); }
+});
+
+// Dry-run only. Lists the whole months a policy would cover; returns an empty
+// list for protected, permanent and disabled policies.
+adminRetentionRouter.get('/partitions/retention-preview/:policyKey', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  try {
+    res.json({ candidates: await previewPartitionRetention(serverConfigOf(req), req.params.policyKey) });
+  } catch (err) { fail(res, err); }
+});

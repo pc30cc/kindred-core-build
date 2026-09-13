@@ -8378,6 +8378,155 @@ export type Database = {
           },
         ]
       }
+      data_retention_policies: {
+        Row: {
+          archive_after_days: number | null
+          archive_enabled: boolean
+          batch_size: number
+          category: string
+          created_at: string
+          delete_after_archive: boolean
+          description: string | null
+          enabled: boolean
+          hot_retention_days: number | null
+          id: string
+          keep_last_n: number | null
+          last_error: string | null
+          last_rows_deleted: number | null
+          last_run_at: string | null
+          last_run_status: string | null
+          metadata: Json
+          next_run_at: string | null
+          partition_column: string | null
+          policy_key: string
+          retention_mode: string
+          table_name: string
+          timestamp_column: string
+          updated_at: string
+          workspace_overridable: boolean
+        }
+        Insert: {
+          archive_after_days?: number | null
+          archive_enabled?: boolean
+          batch_size?: number
+          category: string
+          created_at?: string
+          delete_after_archive?: boolean
+          description?: string | null
+          enabled?: boolean
+          hot_retention_days?: number | null
+          id?: string
+          keep_last_n?: number | null
+          last_error?: string | null
+          last_rows_deleted?: number | null
+          last_run_at?: string | null
+          last_run_status?: string | null
+          metadata?: Json
+          next_run_at?: string | null
+          partition_column?: string | null
+          policy_key: string
+          retention_mode: string
+          table_name: string
+          timestamp_column: string
+          updated_at?: string
+          workspace_overridable?: boolean
+        }
+        Update: {
+          archive_after_days?: number | null
+          archive_enabled?: boolean
+          batch_size?: number
+          category?: string
+          created_at?: string
+          delete_after_archive?: boolean
+          description?: string | null
+          enabled?: boolean
+          hot_retention_days?: number | null
+          id?: string
+          keep_last_n?: number | null
+          last_error?: string | null
+          last_rows_deleted?: number | null
+          last_run_at?: string | null
+          last_run_status?: string | null
+          metadata?: Json
+          next_run_at?: string | null
+          partition_column?: string | null
+          policy_key?: string
+          retention_mode?: string
+          table_name?: string
+          timestamp_column?: string
+          updated_at?: string
+          workspace_overridable?: boolean
+        }
+        Relationships: []
+      }
+      data_retention_runs: {
+        Row: {
+          actor_user_id: string | null
+          batches: number
+          bytes_archived: number | null
+          created_at: string
+          dry_run: boolean
+          error: string | null
+          finished_at: string | null
+          id: string
+          metadata: Json
+          policy_id: string
+          policy_key: string
+          rows_archived: number
+          rows_deleted: number
+          rows_matched: number
+          started_at: string
+          status: string
+          triggered_by: string
+        }
+        Insert: {
+          actor_user_id?: string | null
+          batches?: number
+          bytes_archived?: number | null
+          created_at?: string
+          dry_run?: boolean
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          metadata?: Json
+          policy_id: string
+          policy_key: string
+          rows_archived?: number
+          rows_deleted?: number
+          rows_matched?: number
+          started_at?: string
+          status?: string
+          triggered_by?: string
+        }
+        Update: {
+          actor_user_id?: string | null
+          batches?: number
+          bytes_archived?: number | null
+          created_at?: string
+          dry_run?: boolean
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          metadata?: Json
+          policy_id?: string
+          policy_key?: string
+          rows_archived?: number
+          rows_deleted?: number
+          rows_matched?: number
+          started_at?: string
+          status?: string
+          triggered_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "data_retention_runs_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "data_retention_policies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       email_attachments: {
         Row: {
           content_id: string | null
@@ -18376,6 +18525,14 @@ export type Database = {
           _workspace_id: string
         }
         Returns: Json
+      }
+      data_retention_count_expired: {
+        Args: { _cutoff: string; _policy_key: string }
+        Returns: number
+      }
+      data_retention_delete_batch: {
+        Args: { _batch_size: number; _cutoff: string; _policy_key: string }
+        Returns: number
       }
       deduct_ai_credits: {
         Args: { _credits?: number; _period?: string; _workspace_id: string }

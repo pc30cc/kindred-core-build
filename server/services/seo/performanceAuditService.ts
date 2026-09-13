@@ -14,6 +14,7 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { enqueueJob, requestJobCancel, cancelQueuedJob, getJob } from '../jobs/queue.js';
 import { getCrawl } from './crawlService.js';
+import { getCrawlPages } from './canonicalRepository.js';
 import { resolvePerformanceLimits, getMostRecentPerformanceAuditStart } from './performanceLimits.js';
 
 export type PerformanceAuditLimitReason = 'crawl_not_found' | 'frequency_limit' | 'module_not_available';
@@ -52,27 +53,30 @@ export interface SeoPerformanceAuditRow {
 
 const CANDIDATE_FETCH_LIMIT = 500;
 
+/**
+ * Candidate pages come from the canonical repository, so an audit never needs
+ * a legacy `seo_pages` row to exist. Results are keyed by canonical `url_id`;
+ * the legacy `page_id` stays null for canonical-era crawls.
+ */
 async function selectCandidatePages(
-  sb: ReturnType<typeof getServiceClient>,
+  config: ServerConfig,
   crawlId: string,
   maxPages: number,
-): Promise<{ id: string; url: string }[]> {
-  const { data } = await sb
-    .from('seo_pages')
-    .select('id, url, discovered_via, incoming_internal_links_count')
-    .eq('crawl_id', crawlId)
-    .eq('is_indexable', true)
-    .lt('http_status', 400)
-    .gte('http_status', 200)
-    .limit(CANDIDATE_FETCH_LIMIT);
-  const rows = (data || []) as { id: string; url: string; discovered_via: string; incoming_internal_links_count: number }[];
+): Promise<{ urlId: string | null; legacyPageId: string | null; url: string }[]> {
+  const pages = await getCrawlPages(config, crawlId);
+  const rows = pages
+    .filter((p) => {
+      const status = p.page.http_status as number | null;
+      return p.page.is_indexable !== false && typeof status === 'number' && status >= 200 && status < 400;
+    })
+    .slice(0, CANDIDATE_FETCH_LIMIT);
   rows.sort((a, b) => {
-    const aStart = a.discovered_via === 'start' ? 1 : 0;
-    const bStart = b.discovered_via === 'start' ? 1 : 0;
+    const aStart = a.page.discovered_via === 'start' ? 1 : 0;
+    const bStart = b.page.discovered_via === 'start' ? 1 : 0;
     if (aStart !== bStart) return bStart - aStart;
-    return (b.incoming_internal_links_count || 0) - (a.incoming_internal_links_count || 0);
+    return ((b.page.incoming_internal_links_count as number) || 0) - ((a.page.incoming_internal_links_count as number) || 0);
   });
-  return rows.slice(0, maxPages).map((r) => ({ id: r.id, url: r.url }));
+  return rows.slice(0, maxPages).map((r) => ({ urlId: r.urlId || null, legacyPageId: r.legacyPageId, url: r.url }));
 }
 
 export async function createPerformanceAudit(
@@ -88,7 +92,7 @@ export async function createPerformanceAudit(
   }
 
   const sb = getServiceClient(config);
-  const candidates = await selectCandidatePages(sb, args.crawlId, limits.seo_performance_max_pages_per_audit);
+  const candidates = await selectCandidatePages(config, args.crawlId, limits.seo_performance_max_pages_per_audit);
 
   // job_id is NOT NULL + FK'd on seo_performance_audits, so the
   // background_jobs row must exist first. Payload stays generic (just
@@ -123,7 +127,8 @@ export async function createPerformanceAudit(
     const rows = candidates.map((p) => ({
       crawl_id: args.crawlId,
       workspace_id: args.workspaceId,
-      page_id: p.id,
+      page_id: p.legacyPageId,
+      url_id: p.urlId,
       url: p.url,
       status: 'pending',
       audit_id: auditRow.id,

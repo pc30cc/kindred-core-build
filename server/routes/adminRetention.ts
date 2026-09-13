@@ -18,7 +18,8 @@ import {
   RetentionError,
 } from '../services/retention/retentionService.js';
 import { getArchiveAdapter } from '../services/retention/archive.js';
-import { backfillUrlModel, getSeoStorageMetrics } from '../services/seo/urlRepository.js';
+import { getSeoStorageMetrics } from '../services/seo/urlRepository.js';
+import { runCanonicalBackfill, validateCanonicalBackfill } from '../services/seo/backfillService.js';
 
 export const adminRetentionRouter = Router();
 
@@ -118,11 +119,21 @@ adminRetentionRouter.get('/seo-storage', async (req, res) => {
   } catch (err) { fail(res, err); }
 });
 
+// Canonical backfill: bounded and resumable — call repeatedly until
+// `crawlsRemaining` reaches 0. Never deletes legacy rows.
 adminRetentionRouter.post('/seo-storage/backfill', async (req, res) => {
   const actorId = await requirePlatformAdmin(req, res);
   if (!actorId) return;
-  const maxCrawls = Math.min(Math.max(parseInt(String((req.body ?? {}).maxCrawls ?? 25), 10) || 25, 1), 200);
+  const maxCrawls = Math.min(Math.max(parseInt(String((req.body ?? {}).maxCrawls ?? 5), 10) || 5, 1), 25);
   try {
-    res.json({ result: await backfillUrlModel(serverConfigOf(req), maxCrawls) });
+    res.json({ result: await runCanonicalBackfill(serverConfigOf(req), maxCrawls) });
+  } catch (err) { fail(res, err); }
+});
+
+adminRetentionRouter.get('/seo-storage/validate', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  try {
+    res.json({ validation: await validateCanonicalBackfill(serverConfigOf(req)) });
   } catch (err) { fail(res, err); }
 });

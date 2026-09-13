@@ -36,6 +36,7 @@ import { getServiceClient } from '../../server/supabase.js';
 import { crawlSite } from '../../server/services/seo/crawler/crawlSite.js';
 import { finalizeLinkGraph } from '../../server/services/seo/crawler/linkGraph.js';
 import { finalizeCrawlUrlModel } from '../../server/services/seo/urlRepository.js';
+import { finalizeCanonicalLinkGraph, persistCrawlSummary, getCrawlLinks, legacyWritesEnabled } from '../../server/services/seo/canonicalRepository.js';
 import { evaluateAndPersistIssues } from '../../server/services/seo/rules/engine.js';
 import { computeSeoScore } from '../../server/services/seo/scoring/score.js';
 import type { SeoCrawlLimits } from '../../server/services/seo/limits.js';
@@ -114,7 +115,10 @@ export async function processCrawl(config: ReturnType<typeof loadConfig>, jobId:
   }
 
   await heartbeatJob(config, { jobId, workerId: WORKER_ID, lockTtlSeconds: LOCK_TTL_SECONDS, progress: 92, progressStage: 'analyzing', status: 'processing' });
-  await finalizeLinkGraph(config, crawl.id);
+  // Canonical link graph is authoritative; the legacy finalizer only runs when
+  // legacy duplicate writes were deliberately re-enabled as a rollback lever.
+  await finalizeCanonicalLinkGraph(config, { crawlId: crawl.id, workspaceId: crawl.workspace_id, siteId: crawl.website_id });
+  if (legacyWritesEnabled()) await finalizeLinkGraph(config, crawl.id);
   // Canonical URL model: flag URLs that were active for this site but absent
   // from this crawl as `removed` (never deletes the canonical seo_urls row).
   try {
@@ -146,6 +150,25 @@ export async function processCrawl(config: ReturnType<typeof loadConfig>, jobId:
     score_breakdown: { totalPenalty: scoreResult.totalPenalty, entries: scoreResult.breakdown },
     finished_at: new Date().toISOString(),
   }).eq('id', crawl.id);
+
+  // Compact per-crawl summary: survives detail pruning and powers history.
+  try {
+    const edges = await getCrawlLinks(config, { crawlId: crawl.id, workspaceId: crawl.workspace_id, siteId: crawl.website_id });
+    await persistCrawlSummary(config, {
+      crawlId: crawl.id,
+      workspaceId: crawl.workspace_id,
+      siteId: crawl.website_id,
+      urlsDiscovered: result.pagesDiscovered,
+      urlsCrawled: result.pagesCrawled,
+      urlsFailed: result.pagesFailed,
+      internalLinks: edges.filter((e) => !e.isExternal).length,
+      externalLinks: edges.filter((e) => e.isExternal).length,
+      issueCounts: { total: evalResult.issueCount },
+      durationMs: crawl.started_at ? Date.now() - new Date(crawl.started_at).getTime() : null,
+    });
+  } catch (err) {
+    log('crawl summary failed', { crawlId: crawl.id, message: (err as Error)?.message });
+  }
 
   await completeJob(config, { jobId });
   log('crawl completed', { crawlId: crawl.id, jobId, score: scoreResult.score, pagesCrawled: result.pagesCrawled, issues: evalResult.issueCount });

@@ -13,6 +13,7 @@
  */
 import { loadConfig } from '../../server/config.js';
 import { runAllPolicies } from '../../server/services/retention/retentionService.js';
+import { ensureFuturePartitions, validatePartitionLayout } from '../../server/services/retention/partitionService.js';
 
 const INTERVAL_MS = parseInt(process.env.RETENTION_INTERVAL_MS || String(6 * 60 * 60 * 1000), 10);
 const DRY_RUN = process.env.RETENTION_DRY_RUN === '1' || process.env.RETENTION_DRY_RUN === 'true';

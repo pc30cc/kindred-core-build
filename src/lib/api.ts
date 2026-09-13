@@ -1604,3 +1604,72 @@ export function runSeoStorageBackfill(maxCrawls = 25) {
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ maxCrawls }) },
   );
 }
+
+// ─── Partition diagnostics ───────────────────────────────────────────────
+export interface PartitionHealthDto {
+  parent_table: string;
+  partition_key: string;
+  partition_count: number;
+  current_partition: string | null;
+  next_partition: string | null;
+  next_partition_ready: boolean;
+  oldest_partition: string | null;
+  oldest_start: string | null;
+  newest_partition: string | null;
+  newest_end: string | null;
+  total_rows: number;
+  total_bytes: number;
+  largest_partition: string | null;
+  largest_bytes: number;
+  has_default: boolean;
+  default_rows: number;
+  health: 'ok' | 'attention' | 'critical';
+  issues: string[];
+}
+
+export interface PartitionInventoryDto {
+  parent_table: string;
+  partition_name: string;
+  is_default: boolean;
+  range_start: string | null;
+  range_end: string | null;
+  est_rows: number;
+  total_bytes: number;
+}
+
+export interface PartitionRetentionCandidateDto {
+  policy_key: string;
+  parent_table: string;
+  partition_name: string;
+  range_start: string;
+  range_end: string;
+  cutoff: string;
+  est_rows: number;
+  est_bytes: number;
+}
+
+export function getPartitionDiagnostics() {
+  return retentionJson<{ tables: PartitionHealthDto[]; partitions: PartitionInventoryDto[] }>('/partitions');
+}
+
+export function ensurePartitions(table?: string) {
+  return retentionJson<{ created: { table: string; partitions: string[] }[] }>('/partitions/ensure', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(table ? { table } : {}),
+  });
+}
+
+export function validatePartitionLayout() {
+  return retentionJson<{
+    ok: boolean;
+    tables: PartitionHealthDto[];
+    alerts: { table: string; severity: 'warning' | 'critical'; code: string }[];
+  }>('/partitions/validate');
+}
+
+export function previewPartitionRetention(policyKey: string) {
+  return retentionJson<{ candidates: PartitionRetentionCandidateDto[] }>(
+    `/partitions/retention-preview/${encodeURIComponent(policyKey)}`,
+  );
+}

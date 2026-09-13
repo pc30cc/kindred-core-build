@@ -3,6 +3,10 @@
 # shellcheck disable=SC2155
 set -Eeuo pipefail
 
+# Fail closed: these drafts have not passed an isolated production restore.
+printf "%s\n" "NOT READY: backup tooling is disabled pending infrastructure validation and restore testing." >&2
+exit 78
+
 BACKUP_LOG_PREFIX="${BACKUP_LOG_PREFIX:-webyar-backup}"
 
 # Logging that can never print a credential: every value that looks like a

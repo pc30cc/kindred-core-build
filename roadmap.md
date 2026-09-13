@@ -13,3 +13,10 @@
 - [ ] Harden mail relay, worker startup, templates, and secrets
 - [ ] Add PostgreSQL/API/UI security and concurrency tests plus CI evidence
 - [ ] Run verification and resolve diagnostics
+
+## Backup and recovery acceptance
+- [ ] Verify actual production host, off-site repository, encryption and object backup access (blocked: infrastructure access unavailable).
+- [ ] Correct and validate disabled operational drafts before enabling any command.
+- [ ] Complete FA/TR/EN admin diagnostics and monitoring.
+- [ ] Execute isolated full restore and timestamp PITR with production backup evidence.
+- [ ] Run focused and baseline regression tests; do not claim zero new failures without results.

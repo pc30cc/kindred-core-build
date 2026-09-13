@@ -32,8 +32,8 @@ const fmtBytes = (n: number | null | undefined) => {
 };
 
 export default function BackupPage() {
-  const { t, i18n } = useTranslation();
-  const locale = i18n.language === 'fa' ? 'fa-IR' : i18n.language === 'tr' ? 'tr-TR' : 'en-GB';
+  const { t, locale: language } = useTranslation();
+  const locale = language === 'fa' ? 'fa-IR' : language === 'tr' ? 'tr-TR' : 'en-GB';
   const fmtTime = (v: string | null | undefined) =>
     v ? new Date(v).toLocaleString(locale, { timeZone: 'Asia/Tehran' }) : '—';
   const fmtDuration = (s: number | null | undefined) => {
@@ -271,7 +271,7 @@ export default function BackupPage() {
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-base">{t('admin.backup.nextScheduled' as never) as string}</CardTitle></CardHeader>
               <CardContent className="space-y-1 text-sm">
-                {overview!.schedule.map((s) => (
+                {(overview?.schedule ?? []).map((s) => (
                   <div key={s.kind} className="flex justify-between">
                     <span className="text-muted-foreground">{kindLabel(s.kind)}</span>
                     <span>{fmtTime(s.next_run_at)}{s.cron ? ` · ${s.cron}` : ''}</span>

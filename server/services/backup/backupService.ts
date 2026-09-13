@@ -69,6 +69,7 @@ export interface BackupRun {
 }
 
 export interface BackupHealthRow {
+  checksum?: string | null;
   kind: BackupKind;
   backup_id: string;
   status: BackupStatus;

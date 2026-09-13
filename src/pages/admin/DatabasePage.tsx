@@ -637,8 +637,49 @@ function MigrationTab() {
         </CardContent>
       </Card>
 
+      <SqlDumpSection />
+
       <CompareSection connectionString={connectionString} />
     </div>
+  );
+}
+
+function SqlDumpSection() {
+  const { t, dir } = useTranslation();
+  const isRtl = dir === 'rtl';
+  const [busy, setBusy] = useState(false);
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      await downloadSqlDump();
+      toast.success(t('admin.database.dumpReady'));
+    } catch (e: any) {
+      toast.error(String(e?.message ?? '') || t('admin.database.opFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader>
+        <CardTitle className={cn('text-foreground text-sm flex items-center gap-2', isRtl && 'flex-row-reverse justify-end')}>
+          <DatabaseBackup className="h-4 w-4" />
+          {t('admin.database.dumpTitle')}
+        </CardTitle>
+        <CardDescription className="text-muted-foreground text-start">{t('admin.database.dumpDesc')}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Button onClick={() => void run()} disabled={busy} className={cn('gap-2', isRtl && 'flex-row-reverse')}>
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          {busy ? t('admin.database.dumpPreparing') : t('admin.database.dumpButton')}
+        </Button>
+        <pre dir="ltr" className="overflow-auto rounded-md border border-border bg-muted/40 p-3 text-left text-[11px] leading-5 text-muted-foreground">
+          {t('admin.database.dumpHint')}
+        </pre>
+      </CardContent>
+    </Card>
   );
 }
 

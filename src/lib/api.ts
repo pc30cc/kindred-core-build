@@ -1449,3 +1449,46 @@ export async function streamSelfhostMigration(
     try { onEvent(JSON.parse(buffer)); } catch { /* ignore */ }
   }
 }
+
+// ─── Admin: exact structure + row-count comparison with a self-hosted target ───
+
+export interface DbCompareResult {
+  ok: boolean;
+  identical: boolean;
+  sourceTables: number;
+  targetTables: number;
+  sections: {
+    key: string;
+    source: number;
+    target: number;
+    missingOnTarget: string[];
+    extraOnTarget: string[];
+  }[];
+  tables: {
+    missingOnTarget: string[];
+    extraOnTarget: string[];
+    sourceRows: number;
+    targetRows: number;
+    mismatched: {
+      table: string;
+      sourceRows: number;
+      targetRows: number;
+      missingColumns: string[];
+      extraColumns: string[];
+      typeMismatches: { column: string; source: string; target: string }[];
+    }[];
+  };
+}
+
+export function compareSelfhostTarget(connectionString: string) {
+  return authFetch(`${API_BASE}/api/admin/database/migrate/compare`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ connectionString }),
+  }).then(async (res) => {
+    const body = await res.json().catch(() => ({} as Record<string, unknown>));
+    if (res.status === 404) throw new Error('migration_backend_not_deployed');
+    if (!res.ok) throw new Error(String(body.error || `API error: ${res.status}`));
+    return body as DbCompareResult;
+  });
+}

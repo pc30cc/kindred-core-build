@@ -20,6 +20,7 @@ import {
   isLikelyPostgresUrl,
   runSelfhostMigration,
 } from '../services/database/selfhostMigration.js';
+import { compareWithTarget } from '../services/database/inventoryCompare.js';
 
 export const adminDatabaseRouter = Router();
 
@@ -179,6 +180,28 @@ adminDatabaseRouter.post('/migrate/test', async (req, res) => {
     const info = await inspectTarget(connectionString);
     res.json({ ok: true, ...info });
   } catch (err) {
+    const { code, detail } = describeTargetError(err);
+    res.status(502).json({ error: code, detail });
+  }
+});
+
+// Exact structure + row-count comparison between source and target.
+adminDatabaseRouter.post('/migrate/compare', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  const connectionString = String(req.body?.connectionString ?? '');
+  if (!isLikelyPostgresUrl(connectionString)) {
+    return res.status(400).json({ error: 'invalid_connection_string' });
+  }
+  const sb = getServiceClient(serverConfigOf(req));
+  try {
+    const result = await compareWithTarget(sb, actorId, connectionString);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    const message = (err as Error).message ?? '';
+    if (message.startsWith('source_inventory_failed')) {
+      return res.status(500).json({ error: 'source_inventory_failed', detail: message });
+    }
     const { code, detail } = describeTargetError(err);
     res.status(502).json({ error: code, detail });
   }

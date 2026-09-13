@@ -12,13 +12,13 @@ import { cn } from '@/lib/utils';
 import {
   Database, Download, Clock, HardDrive,
   Cloud, Server, FolderSync, CalendarDays, CalendarRange,
-  Calendar, ArrowRightLeft,
+  Calendar, ArrowRightLeft, GitCompare,
   AlertCircle, CheckCircle, Loader2, Trash2, ShieldAlert, Upload, DatabaseBackup,
 } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { useTranslation } from '@/i18n';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { downloadDatabaseBackup, restoreDatabaseBackup, purgeDatabase, testSelfhostTarget, streamSelfhostMigration } from '@/lib/api';
+import { downloadDatabaseBackup, restoreDatabaseBackup, purgeDatabase, testSelfhostTarget, streamSelfhostMigration, compareSelfhostTarget, type DbCompareResult } from '@/lib/api';
 
 interface BackupRecord {
   id: string;
@@ -636,9 +636,150 @@ function MigrationTab() {
           )}
         </CardContent>
       </Card>
+
+      <CompareSection connectionString={connectionString} />
     </div>
   );
 }
+
+function DiffList({ title, items }: { title: string; items: string[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="space-y-1">
+      <p className="text-[11px] font-medium text-muted-foreground">{title} ({items.length})</p>
+      <div dir="ltr" className="max-h-40 overflow-auto rounded-md border border-border bg-muted/40 p-2 text-left text-[11px] leading-5 font-mono text-foreground">
+        {items.join('\n')}
+      </div>
+    </div>
+  );
+}
+
+function CompareSection({ connectionString }: { connectionString: string }) {
+  const { t, dir } = useTranslation();
+  const isRtl = dir === 'rtl';
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<DbCompareResult | null>(null);
+
+  const run = async () => {
+    setLoading(true);
+    setResult(null);
+    try {
+      const res = await compareSelfhostTarget(connectionString.trim());
+      setResult(res);
+      if (res.identical) toast.success(t('admin.database.compareIdentical'));
+      else toast.warning(t('admin.database.compareDifferent'));
+    } catch (e: any) {
+      toast.error(String(e?.message ?? '') || t('admin.database.opFailed'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader>
+        <CardTitle className={cn('text-foreground text-sm flex items-center gap-2', isRtl && 'flex-row-reverse justify-end')}>
+          <GitCompare className="h-4 w-4" />
+          {t('admin.database.compareTitle')}
+        </CardTitle>
+        <CardDescription className="text-muted-foreground text-start">{t('admin.database.compareDesc')}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <Button
+          variant="outline"
+          onClick={() => void run()}
+          disabled={loading || connectionString.trim().length < 10}
+          className={cn('gap-2', isRtl && 'flex-row-reverse')}
+        >
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitCompare className="h-4 w-4" />}
+          {loading ? t('admin.database.comparing') : t('admin.database.compareRun')}
+        </Button>
+
+        {result && (
+          <div className="space-y-4">
+            <div
+              className={cn(
+                'flex items-center gap-3 rounded-md border p-3',
+                result.identical ? 'border-success/30 bg-success/5' : 'border-warning/30 bg-warning/5',
+                isRtl && 'flex-row-reverse',
+              )}
+            >
+              {result.identical ? <CheckCircle className="h-4 w-4 text-success shrink-0" /> : <AlertCircle className="h-4 w-4 text-warning shrink-0" />}
+              <p className={cn('text-xs', result.identical ? 'text-success' : 'text-warning')}>
+                {result.identical ? t('admin.database.compareIdentical') : t('admin.database.compareDifferent')}
+              </p>
+            </div>
+
+            <div className="overflow-x-auto rounded-md border border-border">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/50 text-muted-foreground">
+                  <tr>
+                    <th className="p-2 text-start">{t('admin.database.compareSection')}</th>
+                    <th className="p-2 text-start">{t('admin.database.sourceDb')}</th>
+                    <th className="p-2 text-start">{t('admin.database.targetDb')}</th>
+                    <th className="p-2 text-start">{t('admin.database.compareMissing')}</th>
+                    <th className="p-2 text-start">{t('admin.database.compareExtra')}</th>
+                  </tr>
+                </thead>
+                <tbody className="text-foreground">
+                  <tr className="border-t border-border">
+                    <td className="p-2">{t('admin.database.compareTables')}</td>
+                    <td className="p-2">{result.sourceTables}</td>
+                    <td className="p-2">{result.targetTables}</td>
+                    <td className="p-2">{result.tables.missingOnTarget.length}</td>
+                    <td className="p-2">{result.tables.extraOnTarget.length}</td>
+                  </tr>
+                  {result.sections.map(s => (
+                    <tr key={s.key} className="border-t border-border">
+                      <td className="p-2">{t(`admin.database.compareKey_${s.key}` as any)}</td>
+                      <td className="p-2">{s.source}</td>
+                      <td className="p-2">{s.target}</td>
+                      <td className="p-2">{s.missingOnTarget.length}</td>
+                      <td className="p-2">{s.extraOnTarget.length}</td>
+                    </tr>
+                  ))}
+                  <tr className="border-t border-border">
+                    <td className="p-2">{t('admin.database.compareRows')}</td>
+                    <td className="p-2">{result.tables.sourceRows.toLocaleString()}</td>
+                    <td className="p-2">{result.tables.targetRows.toLocaleString()}</td>
+                    <td className="p-2">—</td>
+                    <td className="p-2">—</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <DiffList title={t('admin.database.compareMissingTables')} items={result.tables.missingOnTarget} />
+            <DiffList title={t('admin.database.compareExtraTables')} items={result.tables.extraOnTarget} />
+            {result.sections.map(s => (
+              <div key={`d-${s.key}`} className="space-y-2">
+                <DiffList
+                  title={`${t(`admin.database.compareKey_${s.key}` as any)} — ${t('admin.database.compareMissing')}`}
+                  items={s.missingOnTarget}
+                />
+                <DiffList
+                  title={`${t(`admin.database.compareKey_${s.key}` as any)} — ${t('admin.database.compareExtra')}`}
+                  items={s.extraOnTarget}
+                />
+              </div>
+            ))}
+            <DiffList
+              title={t('admin.database.compareMismatchedTables')}
+              items={result.tables.mismatched.map(m => {
+                const parts: string[] = [`rows ${m.sourceRows} → ${m.targetRows}`];
+                if (m.missingColumns.length) parts.push(`-cols: ${m.missingColumns.join(',')}`);
+                if (m.extraColumns.length) parts.push(`+cols: ${m.extraColumns.join(',')}`);
+                for (const tm of m.typeMismatches) parts.push(`${tm.column}: ${tm.source} → ${tm.target}`);
+                return `${m.table} — ${parts.join(' | ')}`;
+              })}
+            />
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 
 export default function AdminDatabasePage() {
   const { t, dir } = useTranslation();

@@ -389,6 +389,9 @@ async function upsertPage(
         workspaceId: args.workspaceId,
         siteId,
         normalizedUrl: url,
+        // Keep the complete report state; changed observations must be usable
+        // by compatibility readers, not merely a title/status summary.
+        payload: { url, normalized_url: url, final_url: finalUrl !== url ? finalUrl : null, ...patch },
         fields: {
           statusCode: (patch.http_status as number | null) ?? null,
           title: (patch.title as string | null) ?? null,

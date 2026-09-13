@@ -122,8 +122,13 @@ export default function RetentionPage() {
         <TabsList>
           <TabsTrigger value="policies">{t('admin.retention.tabs.policies' as any)}</TabsTrigger>
           <TabsTrigger value="runs">{t('admin.retention.tabs.runs' as any)}</TabsTrigger>
+          <TabsTrigger value="partitions">{t('admin.retention.tabs.partitions' as any)}</TabsTrigger>
           <TabsTrigger value="seo">{t('admin.retention.tabs.seoStorage' as any)}</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="partitions">
+          <PartitionsPanel policies={policies} />
+        </TabsContent>
 
         <TabsContent value="policies" className="space-y-4">
           {loading && <Skeleton className="h-64 w-full rounded-xl" />}

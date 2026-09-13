@@ -154,20 +154,47 @@ export async function runSelfhostMigration(
       const statements = ((data as unknown as (string | { admin_export_schema_ddl: string })[]) ?? []).map((s) =>
         typeof s === 'string' ? s : s.admin_export_schema_ddl,
       );
+      // Dependency order can never be perfect (functions calling views, views
+      // calling functions, FKs across tables). Replay whatever failed until a
+      // pass stops making progress, then report the statements still failing.
       let applied = 0;
-      let failed = 0;
-      for (const stmt of statements) {
-        try {
-          await target.query(stmt);
-          applied += 1;
-        } catch {
-          failed += 1;
+      let pending = statements;
+      const errors = new Map<string, string>();
+
+      for (let pass = 1; pass <= 4 && pending.length > 0; pass += 1) {
+        const stillFailing: string[] = [];
+        let done = 0;
+        for (const stmt of pending) {
+          try {
+            await target.query(stmt);
+            applied += 1;
+            errors.delete(stmt);
+          } catch (e) {
+            stillFailing.push(stmt);
+            errors.set(stmt, (e as Error).message);
+          }
+          done += 1;
+          if (done % 100 === 0) {
+            emit({ type: 'schemaProgress', applied, failed: stillFailing.length, total: statements.length, pass });
+          }
         }
-        if ((applied + failed) % 50 === 0) {
-          emit({ type: 'schemaProgress', applied, failed, total: statements.length });
+        if (stillFailing.length === pending.length) {
+          pending = stillFailing;
+          break;
         }
+        pending = stillFailing;
       }
-      emit({ type: 'schemaDone', applied, failed, total: statements.length });
+
+      let reported = 0;
+      for (const stmt of pending) {
+        if (reported >= 25) break;
+        reported += 1;
+        emit({
+          type: 'warn',
+          message: `schema: ${errors.get(stmt) ?? 'failed'} — ${stmt.slice(0, 160).replace(/\s+/g, ' ')}`,
+        });
+      }
+      emit({ type: 'schemaDone', applied, failed: pending.length, total: statements.length });
     }
 
     const { data: tableData, error: listError } = await sb.rpc('admin_list_export_tables', {

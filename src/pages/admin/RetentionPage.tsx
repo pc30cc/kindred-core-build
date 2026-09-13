@@ -26,6 +26,7 @@ import {
   getSeoStorageMetrics, runSeoStorageBackfill,
   type RetentionPolicyDto, type RetentionRunDto,
 } from '@/lib/api';
+import PartitionsPanel from './PartitionsPanel';
 
 const PROTECTED_CATEGORIES = new Set(['financial', 'core']);
 const isProtected = (p: RetentionPolicyDto) => PROTECTED_CATEGORIES.has(p.category) || p.retention_mode === 'permanent';

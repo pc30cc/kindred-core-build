@@ -17289,6 +17289,10 @@ export type Database = {
         Args: { _actor_user_id: string; _scope?: string }
         Returns: Json
       }
+      admin_export_function_ddl: {
+        Args: { _actor_user_id: string; _name: string }
+        Returns: string[]
+      }
       admin_export_schema_ddl: {
         Args: { _actor_user_id: string }
         Returns: string[]

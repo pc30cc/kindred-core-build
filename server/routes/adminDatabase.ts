@@ -15,6 +15,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import {
+  describeTargetError,
   inspectTarget,
   isLikelyPostgresUrl,
   runSelfhostMigration,

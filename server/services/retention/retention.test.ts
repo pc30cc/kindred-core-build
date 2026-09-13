@@ -7,6 +7,11 @@ function policy(over: Partial<RetentionPolicy>): Pick<RetentionPolicy, 'category
 }
 
 describe('retention policy guardrails', () => {
+  it('protects source and billing tables even when category and mode are mislabeled', () => {
+    for (const table_name of ['billing_payments', 'billing_wallet_ledger', 'profiles', 'contacts', 'conversation_messages', 'knowledge_base_articles', 'ai_source_pages']) {
+      expect(isProtected({ category: 'telemetry', retention_mode: 'rolling', table_name })).toBe(true);
+    }
+  });
   it('protects financial and core categories regardless of mode', () => {
     expect(isProtected(policy({ category: 'financial', retention_mode: 'rolling' }))).toBe(true);
     expect(isProtected(policy({ category: 'core', retention_mode: 'rolling' }))).toBe(true);

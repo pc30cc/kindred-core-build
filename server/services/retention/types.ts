@@ -79,6 +79,14 @@ export const EDITABLE_FIELDS = [
 
 export type EditableField = (typeof EDITABLE_FIELDS)[number];
 
-export function isProtected(policy: Pick<RetentionPolicy, 'category' | 'retention_mode'>): boolean {
-  return PROTECTED_CATEGORIES.has(policy.category) || policy.retention_mode === 'permanent';
+export const PROTECTED_TABLES: ReadonlySet<string> = new Set([
+  'profiles', 'users', 'workspaces', 'accounts', 'account_members',
+  'conversations', 'conversation_messages', 'contacts', 'knowledge_base_articles',
+  'knowledge_base_categories', 'ai_agent_sources', 'ai_source_pages', 'ai_knowledge_chunks',
+  'ai_run_settlements', 'financial_settlements',
+]);
+
+export function isProtected(policy: Pick<RetentionPolicy, 'category' | 'retention_mode'> & { table_name?: string }): boolean {
+  return PROTECTED_CATEGORIES.has(policy.category) || policy.retention_mode === 'permanent'
+    || PROTECTED_TABLES.has(policy.table_name ?? '') || (policy.table_name ?? '').startsWith('billing_');
 }

@@ -135,6 +135,32 @@ function encodeValue(value: unknown, dataType: string | undefined): unknown {
   return value;
 }
 
+const SCHEMA_PAGE = 1000;
+
+/**
+ * PostgREST caps a response at `db-max-rows` (1000 by default), so a single
+ * rpc() call silently returns only the FIRST 1000 DDL statements — which cut
+ * the export off before the trigger / RLS / policy / grant sections at the end
+ * of admin_export_schema_ddl. Page explicitly until a short page arrives.
+ */
+async function fetchSchemaStatements(sb: SupabaseClient, actorId: string, emit: Emit): Promise<string[]> {
+  const all: string[] = [];
+  for (let offset = 0; ; offset += SCHEMA_PAGE) {
+    const { data, error } = await sb
+      .rpc('admin_export_schema_ddl', { _actor_user_id: actorId })
+      .range(offset, offset + SCHEMA_PAGE - 1);
+    if (error) throw new Error(`schema export failed: ${error.message}`);
+    const page = ((data as unknown as (string | { admin_export_schema_ddl: string })[]) ?? []).map((s) =>
+      typeof s === 'string' ? s : s.admin_export_schema_ddl,
+    );
+    all.push(...page);
+    emit({ type: 'schemaFetch', statements: all.length });
+    if (page.length < SCHEMA_PAGE) break;
+    if (offset > 100_000) break;
+  }
+  return all;
+}
+
 export async function runSelfhostMigration(
   sb: SupabaseClient,
   actorId: string,
@@ -149,11 +175,7 @@ export async function runSelfhostMigration(
 
     if (options.includeSchema) {
       emit({ type: 'stage', stage: 'schema' });
-      const { data, error } = await sb.rpc('admin_export_schema_ddl', { _actor_user_id: actorId });
-      if (error) throw new Error(`schema export failed: ${error.message}`);
-      const statements = ((data as unknown as (string | { admin_export_schema_ddl: string })[]) ?? []).map((s) =>
-        typeof s === 'string' ? s : s.admin_export_schema_ddl,
-      );
+      const statements = await fetchSchemaStatements(sb, actorId, emit);
       // Dependency order can never be perfect (functions calling views, views
       // calling functions, FKs across tables). Replay whatever failed until a
       // pass stops making progress, then report the statements still failing.

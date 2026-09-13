@@ -20,6 +20,7 @@ import {
   isLikelyPostgresUrl,
   runSelfhostMigration,
 } from '../services/database/selfhostMigration.js';
+import { compareWithTarget } from '../services/database/inventoryCompare.js';
 
 export const adminDatabaseRouter = Router();
 

@@ -26,6 +26,16 @@ RUN npm install
 # that walk terminates successfully instead of throwing MODULE_NOT_FOUND.
 RUN ln -s /app/node_modules /node_modules
 
+# channels/providers/{gmail,yahoo}/client.ts import back into server code
+# (e.g. `../../../server/services/channels/gmail/types.js`) using the SAME
+# sibling-layout assumption — `channels/` and `server/` sit next to each
+# other at the repo root. But this Dockerfile flattens server/'s contents
+# straight into /app (see `COPY server/ .` below) rather than placing them
+# at /server, so that relative import would otherwise resolve to a
+# directory that doesn't exist. Symlinking /server to /app closes the gap
+# the same way the /node_modules symlink above does.
+RUN ln -s /app /server
+
 # Copy server source code
 COPY server/ .
 
@@ -36,6 +46,16 @@ COPY src/lib/widget/smartRules.ts /src/lib/widget/smartRules.ts
 # copied to /app (WORKDIR), so relative imports like `../shared/...` from
 # /app/config.ts resolve to /shared — same sibling-layout reason as /src above.
 COPY shared /shared
+
+# server/services/channels/gmail/{oauth,watchRenewalTicker}.ts and
+# server/services/channels/yahoo/oauth.ts import
+# channels/providers/{gmail,yahoo}/client.ts via the same sibling-relative
+# path convention (`../../../../channels/...`), so it must land at /channels
+# — same reasoning as /shared above. Its own npm imports (imapflow,
+# mailparser, nodemailer) resolve via the /node_modules symlink created
+# above, since Node's upward module-resolution walk from /channels never
+# reaches /app/node_modules on its own.
+COPY channels /channels
 
 
 # Standalone Call Widget static assets — served by the API origin so

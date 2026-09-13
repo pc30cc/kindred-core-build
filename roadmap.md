@@ -1,5 +1,9 @@
 # Roadmap
 
+- [ ] Audit live post-migration Retention + SEO storage and publish evidence.
+- [ ] Correct verified safety/storage gaps using forward-only migrations 171+; never edit/re-run 169/170.
+- [ ] Verify crawler/read compatibility, resumable backfill and production safety with tests before readiness.
+
 - [x] Fix all active preview typecheck errors in genericVerificationCore integration tests
 - [ ] Complete hosted/self-host v5.1 migration chain and legal policy bootstrap
 - [ ] Retire legacy invitation API and wire atomic offboarding

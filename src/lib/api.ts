@@ -1404,10 +1404,16 @@ export function purgeDatabase(scope: 'data' | 'full') {
 // ─── Admin: one-click migration to a self-hosted Supabase/Postgres target ───
 
 export function testSelfhostTarget(connectionString: string) {
-  return request<{ ok: boolean; version: string; tableCount: number; database: string; user: string }>(
-    '/api/admin/database/migrate/test',
-    { method: 'POST', body: JSON.stringify({ connectionString }) },
-  );
+  return authFetch(`${API_BASE}/api/admin/database/migrate/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ connectionString }),
+  }).then(async (res) => {
+    const body = await res.json().catch(() => ({} as Record<string, unknown>));
+    if (res.status === 404) throw new Error('migration_backend_not_deployed');
+    if (!res.ok) throw new Error(String(body.error || `API error: ${res.status}`));
+    return body as { ok: boolean; version: string; tableCount: number; database: string; user: string };
+  });
 }
 
 export async function streamSelfhostMigration(
@@ -1420,6 +1426,7 @@ export async function streamSelfhostMigration(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(options),
   });
+  if (res.status === 404) throw new Error('migration_backend_not_deployed');
   if (!res.ok || !res.body) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(body.error || `API error: ${res.status}`);

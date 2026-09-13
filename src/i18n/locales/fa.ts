@@ -4324,6 +4324,7 @@ const fa: TranslationKeys = {
       target_database_missing: 'دیتابیس با این نام روی سرور مقصد وجود ندارد.',
       target_tls_error: 'اتصال امن (TLS) برقرار نشد. در انتهای رشته اتصال sslmode=disable را امتحان کنید.',
       target_connect_failed: 'اتصال به دیتابیس مقصد برقرار نشد.',
+      migrationBackendNotDeployed: 'نسخه جدید سرور هنوز منتشر نشده است. ابتدا سرور Express را دوباره مستقر کنید و سپس دوباره امتحان کنید.',
       savePath: 'مسیر ذخیره',
     },
     mapGeo: {

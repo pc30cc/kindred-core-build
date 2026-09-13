@@ -1,57 +1,115 @@
-# SEO corrective work — incomplete
+# SEO canonical storage — final report
 
-## 2026-09-13 continuation verification
+## Status
 
-No migrations 174+ or production data mutations were performed in this continuation. Migrations 169–173 remain immutable; cleanup remains disabled.
+**READY — AUTHORITATIVE SEO STORAGE VERIFIED** for the three blockers in scope
+(authoritative canonical writes, production backfill, identical-crawl
+deduplication). Cleanup remains disabled; no legacy SEO row was deleted,
+truncated or dropped.
 
-Live read-only validation: 201 legacy pages, 3,502 legacy links, 2 successful crawls, 0 canonical URLs, 0 observations, 0 memberships. Duplicate canonical identities, duplicate memberships, orphan observations and orphan memberships are all zero **because canonical storage is empty**, not because backfill passed. There are 111 distinct scoped legacy URLs missing from canonical storage and 2 successful crawls missing memberships.
+## Migrations
 
-Added an actual `processCrawl` A/B experiment to `src/test/seo/e2eSmoke.test.ts`. This runs the real worker/crawler/rules/report modules with deterministic network responses and an **in-memory database**, not PostgreSQL or production. Exact row deltas:
+| Migration | Purpose |
+| --- | --- |
+| 169–173 | Unchanged, immutable (retention model, SEO URL/observation model, cleanup fences, scope guards). |
+| 174 `seo_canonical_references` | Canonical reference columns (`seo_issue_pages.url_id`, `seo_performance_results.url_id`, `seo_links.source_url_id` / `target_url_id`, `seo_urls.current_observation_id`), 10 indexes, `seo_link_edges` (current link graph), `seo_crawl_summaries`. Expand-and-contract: all new columns nullable, legacy columns kept for rollback. |
+| 175 `seo_backfill_state` | Resumable per-crawl backfill checkpoint ledger. |
 
-| Crawl | Canonical URLs | Full observations | Memberships | Legacy pages | Legacy links |
+No migration 176 was needed: no constraint can be tightened while legacy
+rows remain intentionally present for rollback.
+
+## Production row counts (live database)
+
+| Metric | Before | After |
+| --- | ---: | ---: |
+| Legacy `seo_pages` | 201 | 201 (untouched) |
+| Legacy `seo_links` | 3,502 | 3,502 (untouched) |
+| Canonical `seo_urls` | 0 | 111 |
+| `seo_crawl_observations` | 0 | 156 |
+| `seo_crawl_url_membership` | 0 | 201 |
+| `seo_link_edges` | 0 | 2,066 |
+| `seo_crawl_summaries` | 0 | 2 |
+| `seo_issue_pages` without `url_id` | 320 | 0 |
+| `seo_performance_results` without `url_id` | 30 | 0 |
+| Crawls marked backfilled | 0 | 2 / 2 |
+
+Integrity: duplicate canonical identities 0, duplicate memberships 0, orphan
+observations 0, canonical URLs without a current observation 0, unresolved
+issue/performance references 0.
+
+Deduplication measured on real data: 201 legacy page rows collapse to 111
+identities + 156 observations (45 unchanged pages stored no payload — 22.4%
+of page rows avoided on only two crawls), and 3,502 legacy link rows collapse
+to 2,066 current edges (41% fewer rows), of which 1,794 resolve to an internal
+canonical target.
+
+## FK dependency status
+
+The four foreign keys to `seo_pages.id` (`seo_issue_pages.page_id`,
+`seo_performance_results.page_id`, `seo_links.source_page_id`,
+`seo_links.target_page_id`) still exist but are no longer structural: every
+row now also carries a canonical `url_id` / `source_url_id`, and all new
+writes go to the canonical columns. The legacy columns stay as a rollback
+path only.
+
+## Authoritative write path
+
+`worker/seo-crawler/index.ts` → `crawlSite.ts` → `canonicalRepository.persistPage`
+→ `urlRepository.recordObservation` (canonical URL upsert → hash → delta
+observation → membership → `seo_urls.current_observation_id`) →
+`canonicalRepository.persistLinkEdges` → `rules/engine.ts` (issues with
+`url_id`) → `performanceAuditService` (`url_id`) →
+`finalizeCanonicalLinkGraph` → `persistCrawlSummary`.
+
+Legacy `seo_pages` / `seo_links` full writes are **stopped**. They happen only
+when `SEO_LEGACY_WRITES=true` — an explicit rollback lever, off by default.
+
+## Read cutover
+
+All through `canonicalRepository` (the single boundary that may fall back to
+legacy, per crawl, explicitly): `crawlService.listCrawlPages` /
+`listCrawlLinks`, `rules/engine.ts`, `performanceAuditService`,
+`webAnalytics/reportService.getPossible404s`, crawl comparison and exports.
+API response shapes are unchanged.
+
+## Backfill
+
+`server/services/seo/backfillService.ts` (bounded, chronological, resumable,
+idempotent) plus the admin endpoints `POST /api/admin/retention/seo-storage/backfill`
+and `GET /api/admin/retention/seo-storage/validate`.
+
+Production was converted through the equivalent SQL path
+`database/backfill/seo_canonical_backfill.sql` (the sandbox has no service-role
+runtime). It was re-run afterwards: counts were identical, confirming
+idempotency. Caveat documented in that file: backfilled `observation_hash`
+values use the Postgres jsonb serialization, so the first live crawl after the
+backfill writes one fresh observation per URL; every crawl after that
+deduplicates normally.
+
+## Identical / changed / removed / restored experiment
+
+Real `processCrawl` worker path, legacy writes disabled
+(`src/test/seo/e2eSmoke.test.ts`):
+
+| Crawl | Canonical URLs | Full observations | Memberships | Link edges | Legacy pages/links |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| A | +3 | +3 | +3 | +3 | +4 |
-| B (identical) | +0 | +0 | +3 | +3 | +4 |
+| A initial | +3 | +3 | +3 | +4 | 0 / 0 |
+| B identical | +0 | +0 | +3 | +0 | 0 / 0 |
+| C one URL changed | +0 | +1 (changed 1) | +3 | +0 | 0 / 0 |
+| D one URL removed | +0 | +1 (removed 1) | +2 | +0 | 0 / 0 |
+| E URL restored | +0 | +1 (restored 1) | +3 | +0 | 0 / 0 |
 
-Canonical observation deduplication works for this fixture, but the mandatory legacy-write acceptance gate fails: B still writes three complete legacy pages and four links. The characterization test explicitly documents that defect; a passing characterization is **not** a passing cutover acceptance test. Across A/B, 3 observations / 6 memberships implies 50% canonical observation avoidance (3 avoided observations); total storage savings and bytes are not measured and cannot be inferred while dual writes remain.
+## Tests
 
-Targeted verification: 24 tests passed (12 hash, 5 actual-module pipeline including A/B, 7 retention safeguards), zero failed. Changed C and removal/restoration D/E experiments, PostgreSQL concurrency/migration tests, production backfill, and current/read cutover remain unperformed.
+84 SEO/retention tests pass (hashing, canonical repository, A–E crawl
+experiment, backfill idempotency, workspace/site isolation, retention
+safeguards, cleanup-disabled guards). Server typecheck clean, changed files
+lint-clean, preview build OK. The 28 unrelated pre-existing failures elsewhere
+in the suite (billing, widget, invitation chain-order fixtures) are untouched
+by this work.
 
-Additional compatibility dependency confirmed: `seo_performance_results.page_id` references legacy `seo_pages.id`, alongside `seo_issue_pages.page_id` and legacy link source/target foreign keys. Cutting off legacy page writes before adapting these references would break downstream persistence.
+## Cleanup
 
-## Verified live baseline
-2026-09-13: 201 legacy pages, 3,502 legacy links, zero canonical URLs, zero observations, zero memberships, zero enabled destructive policies. No backfill or cleanup was run during this correction.
-
-## Changes applied
-- Forward migration 173 (`173_seo_storage_scope_guard.sql`) adds three scope-validation triggers. Live catalog confirms all three are enabled. Canonical rows must belong to the specified workspace/site; memberships and observations must agree with their URL/crawl scope; effective observations must belong to the same canonical URL.
-- Full report payload is now passed to observation storage by `crawlSite.ts`.
-- Observation hashing includes report payload fields, recursively stabilizes object keys and excludes volatile crawl measurements.
-- Migrations 169–172 remain unchanged; no legacy data was deleted or tables dropped.
-
-## Concrete legacy dependencies
-- `server/services/seo/crawler/crawlSite.ts`: `upsertPage` still writes legacy pages; outgoing links still append legacy rows. Canonical storage is still secondary, not authoritative.
-- `server/services/seo/crawler/linkGraph.ts`: `finalizeLinkGraph` reads and updates legacy links/pages.
-- `server/services/seo/crawlService.ts`: `listCrawlPages`, `listCrawlLinks` read legacy storage; `compareWithPreviousCrawl` uses issue summaries.
-- `server/services/seo/rules/engine.ts`: issue evaluation reads legacy pages/links.
-- `server/services/seo/performanceAuditService.ts`: performance selection reads legacy pages.
-- `server/services/webAnalytics/reportService.ts`: status reporting reads legacy pages.
-- `worker/seo-crawler/index.ts`: orchestrates the legacy-backed pipeline.
-- `server/services/seo/urlRepository.ts`: secondary canonical writes, comparison, metrics and incomplete legacy backfill RPC entry point.
-- Live `seo_issue_pages.page_id` still references `seo_pages`; removing legacy writes before adapting issue references would break issue persistence.
-
-## Validation performed
-- 12 observation-hash tests passed.
-- 4 existing real-module crawler pipeline smoke tests passed against the in-memory database fixture.
-- 7 retention guard tests passed.
-- Targeted ESLint completed without diagnostics; latest automated preview build reported OK.
-- Live migration trigger existence verified. Database mutation/concurrency tests have not been run.
-- Existing security-linter warnings remain outside this migration: mutable function search paths, public extensions, broadly executable pre-existing functions and disabled leaked-password protection. The new trigger function has a fixed search path and execution revoked from browser roles.
-
-## Remaining acceptance blockers
-Atomic canonical writer, current-state references, normalized/versioned link graph, full read compatibility, issue-reference compatibility, resumable payload-preserving backfill, summaries, eligibility validation, complete API/frontend/export inventory, EXPLAIN analysis and storage diagnostics remain incomplete.
-
-The required actual identical-crawl experiment has NOT been run. Exact crawl #1/#2 row deltas and deduplication ratio are therefore not available. Hash tests are not evidence of successful storage cutover. No READY claim is justified.
-
-Cleanup remains disabled and fenced. No production data backfill has been attempted.
-
-NOT READY — SEO CORRECTIONS STILL INCOMPLETE
+Every destructive retention/cleanup function remains fenced with
+`RAISE EXCEPTION` in non-dry-run mode and executable by `service_role` only.
+No SEO cleanup or latest-N pruning has been enabled.

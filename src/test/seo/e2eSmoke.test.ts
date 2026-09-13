@@ -194,6 +194,37 @@ describe('SEO end-to-end backend/worker pipeline', () => {
     expect(tables.seo_sitemaps[0].url_count).toBe(2);
   });
 
+  it('measures identical-crawl storage deltas through the actual worker', async () => {
+    const counts = () => Object.fromEntries(
+      ['seo_urls', 'seo_crawl_observations', 'seo_crawl_url_membership', 'seo_pages', 'seo_links']
+        .map((name) => [name, tables[name]?.length ?? 0]),
+    );
+    const run = async () => {
+      const before = counts();
+      const crawl = await createCrawl(config, { workspaceId: WORKSPACE_A, siteId: SITE_A, userId: USER_ID });
+      const job = await claimNextJob(config, { jobTypes: ['seo_crawl'], workerId: 'worker-1', lockTtlSeconds: 120 });
+      if (!job) throw new Error('fixture_job_not_claimed');
+      const row = tables.seo_crawls.find((entry) => entry.id === crawl.id);
+      if (!row) throw new Error('fixture_crawl_missing');
+      await processCrawl(config, job.id, row);
+      expect((await getCrawl(config, WORKSPACE_A, crawl.id))?.status).toBe('completed');
+      const after = counts();
+      return Object.fromEntries(Object.keys(after).map((name) => [name, after[name] - before[name]]));
+    };
+    const a = await run();
+    const b = await run();
+    console.info('SEO actual-worker in-memory storage baseline', JSON.stringify({ a, b }));
+    expect(a.seo_urls).toBe(3);
+    expect(a.seo_crawl_observations).toBe(3);
+    expect(b.seo_urls).toBe(0);
+    expect(b.seo_crawl_observations).toBe(0);
+    expect(b.seo_crawl_url_membership).toBe(3);
+    // Explicit characterization of the unresolved production-write blocker.
+    // Replace with zero assertions when the compatibility cutover is complete.
+    expect(b.seo_pages).toBe(3);
+    expect(b.seo_links).toBeGreaterThan(0);
+  });
+
   it('honors a cancellation requested mid-crawl', async () => {
     const crawl = await createCrawl(config, { workspaceId: WORKSPACE_A, siteId: SITE_A, userId: USER_ID });
     const job = await claimNextJob(config, { jobTypes: ['seo_crawl'], workerId: 'worker-1', lockTtlSeconds: 120 });

@@ -1,5 +1,24 @@
 # SEO corrective work — incomplete
 
+## 2026-09-13 continuation verification
+
+No migrations 174+ or production data mutations were performed in this continuation. Migrations 169–173 remain immutable; cleanup remains disabled.
+
+Live read-only validation: 201 legacy pages, 3,502 legacy links, 2 successful crawls, 0 canonical URLs, 0 observations, 0 memberships. Duplicate canonical identities, duplicate memberships, orphan observations and orphan memberships are all zero **because canonical storage is empty**, not because backfill passed. There are 111 distinct scoped legacy URLs missing from canonical storage and 2 successful crawls missing memberships.
+
+Added an actual `processCrawl` A/B experiment to `src/test/seo/e2eSmoke.test.ts`. This runs the real worker/crawler/rules/report modules with deterministic network responses and an **in-memory database**, not PostgreSQL or production. Exact row deltas:
+
+| Crawl | Canonical URLs | Full observations | Memberships | Legacy pages | Legacy links |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| A | +3 | +3 | +3 | +3 | +4 |
+| B (identical) | +0 | +0 | +3 | +3 | +4 |
+
+Canonical observation deduplication works for this fixture, but the mandatory legacy-write acceptance gate fails: B still writes three complete legacy pages and four links. The characterization test explicitly documents that defect; a passing characterization is **not** a passing cutover acceptance test. Across A/B, 3 observations / 6 memberships implies 50% canonical observation avoidance (3 avoided observations); total storage savings and bytes are not measured and cannot be inferred while dual writes remain.
+
+Targeted verification: 24 tests passed (12 hash, 5 actual-module pipeline including A/B, 7 retention safeguards), zero failed. Changed C and removal/restoration D/E experiments, PostgreSQL concurrency/migration tests, production backfill, and current/read cutover remain unperformed.
+
+Additional compatibility dependency confirmed: `seo_performance_results.page_id` references legacy `seo_pages.id`, alongside `seo_issue_pages.page_id` and legacy link source/target foreign keys. Cutting off legacy page writes before adapting these references would break downstream persistence.
+
 ## Verified live baseline
 2026-09-13: 201 legacy pages, 3,502 legacy links, zero canonical URLs, zero observations, zero memberships, zero enabled destructive policies. No backfill or cleanup was run during this correction.
 

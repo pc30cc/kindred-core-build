@@ -149,11 +149,7 @@ export async function runSelfhostMigration(
 
     if (options.includeSchema) {
       emit({ type: 'stage', stage: 'schema' });
-      const { data, error } = await sb.rpc('admin_export_schema_ddl', { _actor_user_id: actorId });
-      if (error) throw new Error(`schema export failed: ${error.message}`);
-      const statements = ((data as unknown as (string | { admin_export_schema_ddl: string })[]) ?? []).map((s) =>
-        typeof s === 'string' ? s : s.admin_export_schema_ddl,
-      );
+      const statements = await fetchSchemaStatements(sb, actorId, emit);
       // Dependency order can never be perfect (functions calling views, views
       // calling functions, FKs across tables). Replay whatever failed until a
       // pass stops making progress, then report the statements still failing.

@@ -1511,3 +1511,96 @@ export async function downloadSqlDump(): Promise<void> {
   a.remove();
   URL.revokeObjectURL(url);
 }
+
+// ─── Central Data Retention (Super Admin) ────────────────────────────────
+
+export interface RetentionPolicyDto {
+  id: string;
+  policy_key: string;
+  table_name: string;
+  timestamp_column: string;
+  category: string;
+  retention_mode: 'permanent' | 'rolling' | 'latest_n_runs' | 'archive_then_delete';
+  hot_retention_days: number | null;
+  keep_last_n: number | null;
+  archive_enabled: boolean;
+  archive_after_days: number | null;
+  delete_after_archive: boolean;
+  enabled: boolean;
+  batch_size: number;
+  description: string | null;
+  last_run_at: string | null;
+  last_run_status: string | null;
+  last_rows_deleted: number | null;
+  last_error: string | null;
+  next_run_at: string | null;
+}
+
+export interface RetentionRunDto {
+  id: string;
+  policy_key: string;
+  dry_run: boolean;
+  triggered_by: string;
+  started_at: string;
+  finished_at: string | null;
+  status: string;
+  rows_matched: number;
+  rows_archived: number;
+  rows_deleted: number;
+  batches: number;
+  error: string | null;
+}
+
+export interface RetentionRunOutcome {
+  policyKey: string;
+  status: string;
+  rowsMatched: number;
+  rowsArchived: number;
+  rowsDeleted: number;
+  batches: number;
+  error: string | null;
+}
+
+async function retentionJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await authFetch(`${API_BASE}/api/admin/retention${path}`, init);
+  const body = await res.json().catch(() => ({} as Record<string, unknown>));
+  if (res.status === 404) throw new Error('retention_backend_not_deployed');
+  if (!res.ok) throw new Error(String((body as { error?: string }).error || `API error: ${res.status}`));
+  return body as T;
+}
+
+export function listRetentionPolicies() {
+  return retentionJson<{ policies: RetentionPolicyDto[]; archiveAdapter: string }>('/policies');
+}
+
+export function updateRetentionPolicy(policyKey: string, patch: Record<string, unknown>) {
+  return retentionJson<{ policy: RetentionPolicyDto }>(`/policies/${encodeURIComponent(policyKey)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+}
+
+export function runRetentionPolicy(policyKey: string, dryRun: boolean) {
+  return retentionJson<{ outcome: RetentionRunOutcome }>(`/policies/${encodeURIComponent(policyKey)}/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dryRun }),
+  });
+}
+
+export function listRetentionRuns(policyKey?: string) {
+  const q = policyKey ? `?policyKey=${encodeURIComponent(policyKey)}` : '';
+  return retentionJson<{ runs: RetentionRunDto[] }>(`/runs${q}`);
+}
+
+export function getSeoStorageMetrics() {
+  return retentionJson<{ metrics: Record<string, number> }>('/seo-storage');
+}
+
+export function runSeoStorageBackfill(maxCrawls = 25) {
+  return retentionJson<{ result: { crawlsProcessed: number; urlsCreated: number; membershipsCreated: number } }>(
+    '/seo-storage/backfill',
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ maxCrawls }) },
+  );
+}

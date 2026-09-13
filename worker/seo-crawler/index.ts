@@ -133,12 +133,12 @@ export async function processCrawl(config: ReturnType<typeof loadConfig>, jobId:
     workspaceId: crawl.workspace_id,
     websiteId: crawl.website_id,
     crawlCreatedAt: crawl.created_at,
-    sitemapSampleUrls: (result.sitemapSummary as any).sampleUrls || [],
+    sitemapSampleUrls: (result.sitemapSummary as Record<string, unknown> as { sampleUrls?: string[] }).sampleUrls || [],
     crawledButMissingFromSitemapCount: result.sitemapSummary.crawledButMissingFromSitemap,
     sitemapUrlsNotCrawledCount: result.sitemapSummary.sitemapUrlsNotCrawled,
   });
 
-  const scoreResult = computeSeoScore(evalResult.scoreInputIssues as any, evalResult.totalPages);
+  const scoreResult = computeSeoScore(evalResult.scoreInputIssues as Parameters<typeof computeSeoScore>[0], evalResult.totalPages);
 
   await heartbeatJob(config, { jobId, workerId: WORKER_ID, lockTtlSeconds: LOCK_TTL_SECONDS, progress: 99, progressStage: 'saving', status: 'processing' });
   await sb.from('seo_crawls').update({

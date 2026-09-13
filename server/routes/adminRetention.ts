@@ -20,6 +20,13 @@ import {
 import { getArchiveAdapter } from '../services/retention/archive.js';
 import { getSeoStorageMetrics } from '../services/seo/urlRepository.js';
 import { runCanonicalBackfill, validateCanonicalBackfill } from '../services/seo/backfillService.js';
+import {
+  ensureFuturePartitions,
+  getPartitionHealth,
+  getPartitionInventory,
+  previewPartitionRetention,
+  validatePartitionLayout,
+} from '../services/retention/partitionService.js';
 
 export const adminRetentionRouter = Router();
 

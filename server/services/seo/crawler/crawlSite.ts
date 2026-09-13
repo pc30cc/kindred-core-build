@@ -30,6 +30,7 @@ import { discoverAndFetchSitemaps, type SitemapResult } from './sitemap.js';
 import { getRobotsRules, isPathAllowedByRobots } from '../../ai-agent/crawler/robots.js';
 import { canonicalize, isSameDomain, normalizeHost } from '../../ai-agent/crawler/urlRules.js';
 import { heartbeatJob } from '../../jobs/queue.js';
+import { recordObservation } from '../urlRepository.js';
 
 type DiscoveredVia = 'start' | 'link' | 'sitemap';
 
@@ -37,6 +38,9 @@ export interface CrawlSiteArgs {
   config: ServerConfig;
   crawlId: string;
   workspaceId: string;
+  /** workspace_domains.id — the canonical site this crawl belongs to. Resolved
+   *  from `seo_crawls` when the caller does not supply it. */
+  websiteId?: string;
   canonicalUrl: string;
   userAgent: string;
   respectRobots: boolean;
@@ -85,6 +89,7 @@ export async function crawlSite(args: CrawlSiteArgs): Promise<CrawlSiteResult> {
   const sb = getServiceClient(args.config);
   const limits = args.limits;
   const canonicalHost = normalizeHost(new URL(args.canonicalUrl).hostname);
+  const siteId = args.websiteId || (await resolveWebsiteId(sb, args.crawlId));
   const deadline = Date.now() + limits.seo_max_duration_seconds * 1000;
 
   const robotsSummary = await fetchRobotsInfo(args.canonicalUrl, args.userAgent);
@@ -165,7 +170,7 @@ export async function crawlSite(args: CrawlSiteArgs): Promise<CrawlSiteResult> {
     const batchSize = Math.max(1, Math.min(limits.seo_crawl_concurrency, limits.seo_max_pages_per_crawl - pagesCrawled));
     const batch = queue.splice(0, batchSize);
 
-    const outcomes = await Promise.all(batch.map((item) => processPage(args, item, canonicalHost, robotsRules)));
+    const outcomes = await Promise.all(batch.map((item) => processPage(args, item, canonicalHost, robotsRules, siteId)));
 
     for (let i = 0; i < outcomes.length; i++) {
       const outcome = outcomes[i];
@@ -227,6 +232,7 @@ async function processPage(
   item: QueueItem,
   canonicalHost: string,
   robotsRules: { allow: string[]; disallow: string[] },
+  siteId: string | null,
 ): Promise<PageOutcome> {
   const sb = getServiceClient(args.config);
   const limits = args.limits;
@@ -242,7 +248,7 @@ async function processPage(
   let path = '/';
   try { path = new URL(url).pathname || '/'; } catch { /* keep default */ }
   if (!isPathAllowedByRobots(path, robotsRules)) {
-    await upsertPage(sb, args, url, url, { discovered_via: item.discoveredVia, depth: item.depth, fetch_error: 'robots_blocked', is_indexable: false });
+    await upsertPage(sb, args, url, url, { discovered_via: item.discoveredVia, depth: item.depth, fetch_error: 'robots_blocked', is_indexable: false }, siteId);
     return { status: 'skipped', normalizedUrl: url, responseBytes: 0, internalLinks: [] };
   }
 
@@ -261,7 +267,7 @@ async function processPage(
       response_time_ms: res.responseTimeMs,
       redirect_chain: res.redirectChain,
       fetch_error: res.error || 'fetch_failed',
-    });
+    }, siteId);
     return { status: 'failed', normalizedUrl: url, responseBytes: res.contentLength || 0, internalLinks: [] };
   }
 
@@ -336,7 +342,7 @@ async function processPage(
     is_https: isHttps,
     has_mixed_content: hasMixedContent,
     crawled_at: new Date().toISOString(),
-  });
+  }, siteId);
 
   if (pageId && linkRows.length) {
     const rows = linkRows.map((r) => ({ ...r, crawl_id: args.crawlId, workspace_id: args.workspaceId, source_page_id: pageId }));
@@ -354,6 +360,7 @@ async function upsertPage(
   url: string,
   finalUrl: string,
   patch: Record<string, unknown>,
+  siteId: string | null,
 ): Promise<string | null> {
   const { data, error } = await sb
     .from('seo_pages')
@@ -371,5 +378,39 @@ async function upsertPage(
     .select('id')
     .maybeSingle();
   if (error) return null;
+
+  // Canonical URL/observation model (Phase 2). Written in parallel with the
+  // legacy seo_pages row; deduplication rules live entirely in urlRepository.
+  if (siteId) {
+    try {
+      await recordObservation({
+        config: args.config,
+        crawlId: args.crawlId,
+        workspaceId: args.workspaceId,
+        siteId,
+        normalizedUrl: url,
+        fields: {
+          statusCode: (patch.http_status as number | null) ?? null,
+          title: (patch.title as string | null) ?? null,
+          metaDescription: (patch.meta_description as string | null) ?? null,
+          canonicalStatus: (patch.canonical_status as string | null) ?? null,
+          isIndexable: patch.is_indexable !== false,
+          internalLinksCount: (patch.internal_links_count as number) ?? 0,
+          externalLinksCount: (patch.external_links_count as number) ?? 0,
+          issueFlags: {
+            fetchError: (patch.fetch_error as string | null) ?? null,
+            hasMixedContent: patch.has_mixed_content === true,
+            h1Count: (patch.h1_count as number) ?? 0,
+          },
+        },
+      });
+    } catch { /* the new model must never break an in-flight crawl */ }
+  }
+
   return (data as { id: string } | null)?.id ?? null;
+}
+
+async function resolveWebsiteId(sb: ReturnType<typeof getServiceClient>, crawlId: string): Promise<string | null> {
+  const { data } = await sb.from('seo_crawls').select('website_id').eq('id', crawlId).maybeSingle();
+  return (data as { website_id: string } | null)?.website_id ?? null;
 }

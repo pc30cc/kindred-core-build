@@ -4324,7 +4324,7 @@ const en = {
       dumpPreparing: 'Preparing file…',
       dumpReady: 'Database file downloaded',
       dumpHint: 'Import with: gunzip -c database.sql.gz | psql "postgresql://postgres:PASSWORD@HOST:5432/postgres"',
-      compareTitle:  'Exact database comparison',
+      compareTitle: 'Exact database comparison',
       compareDesc: 'Full structure and row-count comparison between this database and the target',
       compareRun: 'Compare',
       comparing: 'Comparing…',

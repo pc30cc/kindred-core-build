@@ -12,6 +12,40 @@ import { getCrawlLinks, getCrawlPages } from '../canonicalRepository.js';
 import { runAllRules } from './checks.js';
 import type { RawIssue, RuleContext, SeoLinkForRules, SeoPageForRules, SeoSitemapForRules } from './types.js';
 
+/** The snake_case page record shape the observation payload preserves. */
+type LegacyPageRecord = {
+  [K in keyof SeoPageForRules]: SeoPageForRules[K];
+} & {
+  id: string;
+  url_id: string;
+  normalized_url: string;
+  http_status: number;
+  redirect_chain: { url: string; status: number }[] | null;
+  title_length: number;
+  meta_description: string;
+  meta_description_length: number;
+  canonical_url: string;
+  canonical_status: SeoPageForRules['canonicalStatus'];
+  meta_robots: string;
+  is_indexable: boolean;
+  h1_count: number;
+  h2_count: number;
+  word_count: number;
+  images_count: number;
+  images_missing_alt_count: number;
+  has_structured_data: boolean;
+  structured_data_errors: string[] | null;
+  has_open_graph: boolean;
+  has_twitter_card: boolean;
+  is_https: boolean;
+  has_mixed_content: boolean;
+  is_nofollow: boolean;
+  discovered_via: string;
+  incoming_internal_links_count: number;
+  fetch_error: string;
+  response_time_ms: number;
+};
+
 const ISSUE_PAGE_INSERT_CHUNK = 500;
 const MAX_AFFECTED_URLS_STORED = 5000;
 
@@ -20,7 +54,7 @@ async function fetchAllPages(config: ServerConfig, crawlId: string): Promise<(Se
   const canonical = await getCrawlPages(config, crawlId);
   {
     const data = canonical.map((entry) => ({ ...entry.page, id: entry.legacyPageId, url_id: entry.urlId, url: entry.url, normalized_url: entry.normalizedUrl }));
-    for (const row of data as SeoPageForRules[] & Record<string, unknown>[]) {
+    for (const row of data as unknown as LegacyPageRecord[]) {
       out.push({
         urlId: row.url_id || '',
         id: row.id,

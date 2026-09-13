@@ -47,7 +47,7 @@ export function hashUrl(normalizedUrl: string): string {
  * Field order is fixed here (never `JSON.stringify(object)` over an
  * arbitrarily-ordered object) so the hash is stable across releases.
  */
-export function computeObservationHash(f: ObservationFields): string {
+export function computeObservationHash(f: ObservationFields, payload: Record<string, unknown> = {}): string {
   const parts = [
     f.statusCode ?? '',
     f.title ?? '',
@@ -56,13 +56,21 @@ export function computeObservationHash(f: ObservationFields): string {
     f.isIndexable ? '1' : '0',
     String(f.internalLinksCount ?? 0),
     String(f.externalLinksCount ?? 0),
-    JSON.stringify(sortedFlags(f.issueFlags || {})),
+    JSON.stringify(stableValue(f.issueFlags || {})),
+    JSON.stringify(stableValue(Object.fromEntries(Object.entries(payload).filter(([key]) => !VOLATILE_PAGE_FIELDS.has(key))))),
   ];
   return createHash('sha256').update(parts.join('\u0000')).digest('hex');
 }
 
-function sortedFlags(flags: Record<string, unknown>): Array<[string, unknown]> {
-  return Object.keys(flags).sort().map((k) => [k, flags[k]] as [string, unknown]);
+// Timing/discovery metrics belong to the crawl, not the content identity.
+const VOLATILE_PAGE_FIELDS = new Set(['id', 'crawl_id', 'workspace_id', 'created_at', 'updated_at', 'crawled_at', 'response_time_ms', 'response_bytes', 'html_size_bytes', 'depth', 'discovered_via', 'incoming_internal_links_count']);
+
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, stableValue(item)]));
+  }
+  return value;
 }
 
 export interface RecordObservationArgs {
@@ -147,7 +155,7 @@ export async function recordObservation(args: RecordObservationArgs): Promise<Re
   const urlId = await upsertSeoUrl(config, { workspaceId, siteId, normalizedUrl, seenAt: observedAt });
   if (!urlId) return null;
 
-  const hash = computeObservationHash(fields);
+  const hash = computeObservationHash(fields, args.payload);
   const prev = await previousObservation(config, urlId, crawlId);
 
   let changeType: UrlChangeType;

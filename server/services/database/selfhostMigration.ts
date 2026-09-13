@@ -174,8 +174,85 @@ async function fetchSchemaStatements(sb: SupabaseClient, actorId: string, emit: 
     if (page.length < SCHEMA_PAGE) break;
     if (offset > 100_000) break;
   }
+  // admin_export_schema_ddl skips its own definition (it cannot rewrite itself
+  // mid-dump), so the target ended up without it. Append it — and the helper
+  // used to read it — explicitly.
+  for (const name of ['admin_export_schema_ddl', 'admin_export_function_ddl']) {
+    const { data, error } = await sb.rpc('admin_export_function_ddl', {
+      _actor_user_id: actorId,
+      _name: name,
+    });
+    if (error) {
+      emit({ type: 'warn', message: `function ddl ${name}: ${error.message}` });
+      continue;
+    }
+    const defs = ((data as unknown as (string | { admin_export_function_ddl: string })[]) ?? []).map((s) =>
+      typeof s === 'string' ? s : s.admin_export_function_ddl,
+    );
+    all.push(...defs.filter(Boolean));
+  }
   return all;
 }
+
+/**
+ * Replays DDL until a pass stops making progress. Dependency order can never
+ * be perfect (functions calling views, views calling functions, FKs across
+ * tables), so the caller runs this again after the rows land — a FK or unique
+ * index can only be validated once the referenced data exists.
+ */
+async function replaySchema(
+  target: Client,
+  statements: string[],
+  passes: number,
+  emit: Emit,
+  label: string,
+): Promise<{ applied: number; pending: string[]; errors: Map<string, string> }> {
+  let applied = 0;
+  let pending = statements;
+  const errors = new Map<string, string>();
+
+  for (let pass = 1; pass <= passes && pending.length > 0; pass += 1) {
+    const stillFailing: string[] = [];
+    let done = 0;
+    for (const stmt of pending) {
+      try {
+        await target.query(stmt);
+        applied += 1;
+        errors.delete(stmt);
+      } catch (e) {
+        stillFailing.push(stmt);
+        errors.set(stmt, (e as Error).message);
+      }
+      done += 1;
+      if (done % 100 === 0) {
+        emit({ type: 'schemaProgress', applied, failed: stillFailing.length, total: statements.length, pass, label });
+      }
+    }
+    const noProgress = stillFailing.length === pending.length;
+    pending = stillFailing;
+    if (noProgress) break;
+  }
+
+  return { applied, pending, errors };
+}
+
+/**
+ * A foreign key that cannot be validated (stale orphan rows left on the target
+ * from an earlier partial run) would otherwise be missing from the target
+ * schema entirely. Re-add it as NOT VALID so the structure matches; new writes
+ * are still checked.
+ */
+function notValidVariant(stmt: string): string | null {
+  if (!/FOREIGN KEY/i.test(stmt) || /NOT VALID/i.test(stmt)) return null;
+  const idx = stmt.lastIndexOf(';');
+  if (idx < 0) return null;
+  // `DO $do$ BEGIN ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY ...; EXCEPTION ...`
+  const marker = '; EXCEPTION';
+  const at = stmt.indexOf(marker);
+  if (at < 0) return null;
+  return `${stmt.slice(0, at)} NOT VALID${stmt.slice(at)}`;
+}
+
 
 export async function runSelfhostMigration(
   sb: SupabaseClient,

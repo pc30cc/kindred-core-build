@@ -15,7 +15,7 @@ const INSERT_BATCH = 200;
 
 // Supabase-managed roles do not exist on a bare PostgreSQL cluster; the dumped
 // GRANT/POLICY statements reference them, so create them first (idempotent).
-const ROLE_BOOTSTRAP = `
+export const ROLE_BOOTSTRAP = `
 DO $bootstrap$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN

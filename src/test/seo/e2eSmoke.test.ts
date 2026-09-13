@@ -53,7 +53,7 @@ function normalizePath(url: string): string {
 
 // Mutable fixture knobs, driven by the A–E authoritative-crawl experiment:
 // C changes /about's title, D removes /about entirely, E restores it.
-const fixture = { aboutTitle: 'About', aboutPresent: true };
+const fixture = { aboutTitle: 'About', aboutPresent: true, brokenHref: '/missing' };
 
 type FakeFetchResult = Record<string, unknown>;
 
@@ -77,7 +77,7 @@ async function fakeFetchImpl(url: string): Promise<FakeFetchResult> {
       ...base, ok: true, status: 200, contentType: 'text/html',
       html: '<html><head><title>Home</title></head><body>'
         + (fixture.aboutPresent ? '<a href="/about">About</a> ' : '')
-        + '<a href="/missing">Broken</a> <a href="https://external-site.test/page">External</a>'
+        + `<a href="${fixture.brokenHref}">Broken</a> <a href="https://external-site.test/page">External</a>`
         + '<p>Home page body copy with enough visible words to clear the thin-content threshold used by the rules engine in this smoke test.</p>'
         + '</body></html>',
     };
@@ -92,7 +92,7 @@ async function fakeFetchImpl(url: string): Promise<FakeFetchResult> {
         + '</body></html>',
     };
   }
-  if (path === 'https://example.com/missing') {
+  if (path === 'https://example.com/missing' || path === 'https://example.com/missing-2') {
     return { ...base, ok: false, status: 404, error: 'http_404' };
   }
   throw new Error(`unexpected fetch in e2e smoke test: ${url}`);
@@ -133,7 +133,7 @@ const config = {} as unknown as Parameters<typeof createCrawl>[0];
 
 describe('SEO end-to-end backend/worker pipeline', () => {
   beforeEach(() => {
-    fixture.aboutTitle = "About"; fixture.aboutPresent = true;
+    fixture.aboutTitle = 'About'; fixture.aboutPresent = true; fixture.brokenHref = '/missing';
     tables = seedTables();
     fakeSb = makeFakeSupabase(tables);
     fetchedUrls.length = 0;

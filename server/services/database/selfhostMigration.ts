@@ -115,14 +115,30 @@ export interface MigrationOptions {
   truncateTarget: boolean;
 }
 
+/**
+ * Only columns that can actually be written. Generated (STORED) columns and
+ * `GENERATED ALWAYS AS IDENTITY` columns reject an explicit value, and because
+ * the whole multi-row INSERT is one statement a single such column silently
+ * zeroed out entire tables (conversations, workspace_domains, ...).
+ */
 async function targetColumnTypes(client: Client, table: string) {
-  const { rows } = await client.query<{ column_name: string; data_type: string }>(
-    `select column_name, data_type from information_schema.columns
-     where table_schema = 'public' and table_name = $1`,
+  const { rows } = await client.query<{
+    column_name: string;
+    data_type: string;
+    is_generated: string;
+    identity_generation: string | null;
+  }>(
+    `select column_name, data_type, is_generated, identity_generation
+       from information_schema.columns
+      where table_schema = 'public' and table_name = $1`,
     [table],
   );
   const map = new Map<string, string>();
-  for (const r of rows) map.set(r.column_name, r.data_type);
+  for (const r of rows) {
+    if (r.is_generated === 'ALWAYS') continue;
+    if (r.identity_generation === 'ALWAYS') continue;
+    map.set(r.column_name, r.data_type);
+  }
   return map;
 }
 

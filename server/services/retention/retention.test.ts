@@ -35,14 +35,17 @@ describe('archive adapter registry', () => {
     resetArchiveAdapter();
     const adapter = getArchiveAdapter();
     expect(adapter.name).toBe('unavailable');
-    expect(adapter.available).toBe(false);
+    expect(await adapter.isAvailable()).toBe(false);
+    const result = await adapter.archiveBatch({} as never);
+    expect(result.supported).toBe(false);
+    expect(result.reason).toBe('archive_adapter_unavailable');
   });
 
   it('uses a registered adapter once provided', () => {
     registerArchiveAdapter({
       name: 'test-s3',
-      available: true,
-      async archive() { return { bytes: 1, location: 's3://x' }; },
+      async isAvailable() { return true; },
+      async archiveBatch() { return { rowsArchived: 1, bytesArchived: 10, supported: true }; },
     });
     expect(getArchiveAdapter().name).toBe('test-s3');
     resetArchiveAdapter();

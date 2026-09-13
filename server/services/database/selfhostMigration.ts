@@ -159,7 +159,7 @@ const SCHEMA_PAGE = 1000;
  * the export off before the trigger / RLS / policy / grant sections at the end
  * of admin_export_schema_ddl. Page explicitly until a short page arrives.
  */
-async function fetchSchemaStatements(sb: SupabaseClient, actorId: string, emit: Emit): Promise<string[]> {
+export async function fetchSchemaStatements(sb: SupabaseClient, actorId: string, emit: Emit): Promise<string[]> {
   const all: string[] = [];
   for (let offset = 0; ; offset += SCHEMA_PAGE) {
     const { data, error } = await sb

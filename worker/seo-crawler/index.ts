@@ -35,6 +35,7 @@ import { claimNextJob, heartbeatJob, completeJob, failJob, acknowledgeJobCancel 
 import { getServiceClient } from '../../server/supabase.js';
 import { crawlSite } from '../../server/services/seo/crawler/crawlSite.js';
 import { finalizeLinkGraph } from '../../server/services/seo/crawler/linkGraph.js';
+import { finalizeCrawlUrlModel } from '../../server/services/seo/urlRepository.js';
 import { evaluateAndPersistIssues } from '../../server/services/seo/rules/engine.js';
 import { computeSeoScore } from '../../server/services/seo/scoring/score.js';
 import type { SeoCrawlLimits } from '../../server/services/seo/limits.js';
@@ -87,6 +88,7 @@ export async function processCrawl(config: ReturnType<typeof loadConfig>, jobId:
     config,
     crawlId: crawl.id,
     workspaceId: crawl.workspace_id,
+    websiteId: crawl.website_id,
     canonicalUrl: crawl.canonical_url,
     userAgent: crawl.user_agent,
     respectRobots: crawl.respect_robots,
@@ -113,6 +115,13 @@ export async function processCrawl(config: ReturnType<typeof loadConfig>, jobId:
 
   await heartbeatJob(config, { jobId, workerId: WORKER_ID, lockTtlSeconds: LOCK_TTL_SECONDS, progress: 92, progressStage: 'analyzing', status: 'processing' });
   await finalizeLinkGraph(config, crawl.id);
+  // Canonical URL model: flag URLs that were active for this site but absent
+  // from this crawl as `removed` (never deletes the canonical seo_urls row).
+  try {
+    await finalizeCrawlUrlModel(config, { crawlId: crawl.id, workspaceId: crawl.workspace_id, siteId: crawl.website_id });
+  } catch (err) {
+    log('url model finalize failed', { crawlId: crawl.id, message: (err as Error)?.message });
+  }
 
   await heartbeatJob(config, { jobId, workerId: WORKER_ID, lockTtlSeconds: LOCK_TTL_SECONDS, progress: 95, progressStage: 'calculating_score', status: 'processing' });
   const evalResult = await evaluateAndPersistIssues(config, {

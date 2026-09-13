@@ -107,14 +107,16 @@ export default function RetentionPage() {
         <Button variant="outline" size="sm" onClick={() => void load()}><RefreshCw className="me-2 h-4 w-4" />{t('admin.retention.actions.history' as any)}</Button>
       </div>
 
-      <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-sm">
-        <Archive className="h-4 w-4 text-muted-foreground" />
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-sm">
+        <Archive className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="font-medium">{t('admin.retention.archiveAdapter' as any)}:</span>
-        <code className="rounded bg-background px-1.5 py-0.5 text-xs">{archiveAdapter}</code>
-        {archiveAdapter === 'unavailable' && (
-          <span className="text-xs text-muted-foreground">— {t('admin.retention.archiveUnavailable' as any)}</span>
+        {archiveAdapter === 'unavailable' ? (
+          <span className="text-muted-foreground">{t('admin.retention.archiveUnavailable' as any)}</span>
+        ) : (
+          <code className="rounded bg-background px-1.5 py-0.5 text-xs">{archiveAdapter}</code>
         )}
       </div>
+
 
       <Tabs defaultValue="policies" onValueChange={(v) => { if (v === 'runs') void loadRuns(); if (v === 'seo') void loadMetrics(); }}>
         <TabsList>

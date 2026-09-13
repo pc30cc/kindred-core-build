@@ -361,6 +361,37 @@ export async function runSelfhostMigration(
       await target.query("set session_replication_role = 'origin'").catch(() => undefined);
     }
 
+    // Second schema pass: unique indexes and foreign keys that could not be
+    // created while the referenced rows were still missing.
+    if (schemaLeftovers.length > 0) {
+      emit({ type: 'stage', stage: 'schemaRepair' });
+      const repair = await replaySchema(target, schemaLeftovers, 3, emit, 'repair');
+      const stillPending: string[] = [];
+      for (const stmt of repair.pending) {
+        const relaxed = notValidVariant(stmt);
+        if (!relaxed) {
+          stillPending.push(stmt);
+          continue;
+        }
+        try {
+          await target.query(relaxed);
+        } catch {
+          stillPending.push(stmt);
+        }
+      }
+      let reported = 0;
+      for (const stmt of stillPending) {
+        if (reported >= 25) break;
+        reported += 1;
+        emit({
+          type: 'warn',
+          message: `schema: ${repair.errors.get(stmt) ?? 'failed'} — ${stmt.slice(0, 160).replace(/\s+/g, ' ')}`,
+        });
+      }
+      emit({ type: 'schemaRepairDone', applied: repair.applied, failed: stillPending.length });
+    }
+
+
     // Re-align identity/serial sequences with the copied data.
     emit({ type: 'stage', stage: 'sequences' });
     await target

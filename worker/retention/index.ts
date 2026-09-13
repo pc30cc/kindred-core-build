@@ -30,6 +30,19 @@ async function tick() {
   running = true;
   try {
     const config = loadConfig();
+
+    // Partition maintenance runs FIRST and independently: a missing future
+    // partition is an availability problem, so it must not be blocked by a
+    // slow or failing retention sweep. Creation is idempotent and additive.
+    try {
+      const created = await ensureFuturePartitions(config);
+      for (const c of created) log('partitions ensured', { table: c.table, partitions: c.partitions });
+      const layout = await validatePartitionLayout(config);
+      for (const a of layout.alerts) log('partition alert', { table: a.table, severity: a.severity, code: a.code });
+    } catch (err) {
+      log('partition maintenance failed', { message: (err as Error)?.message });
+    }
+
     const outcomes = await runAllPolicies(config, { dryRun: DRY_RUN, triggeredBy: 'scheduler' });
     for (const o of outcomes) {
       log('policy run', {

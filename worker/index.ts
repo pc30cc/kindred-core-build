@@ -38,6 +38,7 @@ const ALLOWED = new Set([
   'invitations',
   'seo-crawler',
   'commerce-sync',
+  'retention',
   'all',
 ]);
 
@@ -99,6 +100,10 @@ async function main() {
   if (runs('seo-crawler')) {
     const mod = await import('./seo-crawler/index.js');
     mod.startSeoCrawlerWorker?.();
+  }
+  if (runs('retention')) {
+    const mod = await import('./retention/index.js');
+    mod.startRetentionWorker?.();
   }
 
   if (runsAll) {

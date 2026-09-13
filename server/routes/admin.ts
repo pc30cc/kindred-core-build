@@ -32,6 +32,7 @@ import { adminVerificationRouter } from './adminVerification.js';
 import { adminSecurityRouter } from './adminSecurity.js';
 import { adminManagementRouter } from './adminManagement.js';
 import { adminDatabaseRouter } from './adminDatabase.js';
+import { adminRetentionRouter } from './adminRetention.js';
 import { normalizePhoneToE164 } from '../services/phoneVerification/phone.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { findIdentityById } from '../services/auth/identity.js';
@@ -94,6 +95,9 @@ adminRouter.use('/management', adminManagementRouter);
 
 // Database maintenance — backup / restore / purge (super admin only)
 adminRouter.use('/database', adminDatabaseRouter);
+
+// Central data retention policies + SEO storage diagnostics (super admin only)
+adminRouter.use('/retention', adminRetentionRouter);
 
 // Widget templates registry (super admin only)
 

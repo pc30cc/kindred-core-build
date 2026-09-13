@@ -45,7 +45,7 @@ export default function PartitionsPanel({ policies }: { policies: RetentionPolic
       setTables(data.tables);
       setPartitions(data.partitions);
     } catch {
-      toast.error(t('admin.retention.partitions.loadFailed' as any));
+      toast.error(t('admin.retention.partitions.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -61,7 +61,7 @@ export default function PartitionsPanel({ policies }: { policies: RetentionPolic
       toast.success(t('admin.retention.partitions.ensured' as any, { count: names.length }));
       await load();
     } catch {
-      toast.error(t('admin.retention.partitions.ensureFailed' as any));
+      toast.error(t('admin.retention.partitions.ensureFailed'));
     } finally { setBusy(null); }
   };
 
@@ -70,23 +70,23 @@ export default function PartitionsPanel({ policies }: { policies: RetentionPolic
     try {
       const result = await validatePartitionLayout();
       setTables(result.tables);
-      if (result.ok) toast.success(t('admin.retention.partitions.layoutOk' as any));
+      if (result.ok) toast.success(t('admin.retention.partitions.layoutOk'));
       else toast.error(t('admin.retention.partitions.layoutIssues' as any, { count: result.alerts.length }));
     } catch {
-      toast.error(t('admin.retention.partitions.loadFailed' as any));
+      toast.error(t('admin.retention.partitions.loadFailed'));
     } finally { setBusy(null); }
   };
 
   const doPreview = async (parentTable: string) => {
     const policy = policies.find((p) => p.table_name === parentTable);
-    if (!policy) { toast.error(t('admin.retention.partitions.noPolicy' as any)); return; }
+    if (!policy) { toast.error(t('admin.retention.partitions.noPolicy')); return; }
     setBusy(`preview:${parentTable}`);
     try {
       const { candidates } = await previewPartitionRetention(policy.policy_key);
       setPreview((prev) => ({ ...prev, [parentTable]: candidates }));
-      if (candidates.length === 0) toast.success(t('admin.retention.partitions.previewEmpty' as any));
+      if (candidates.length === 0) toast.success(t('admin.retention.partitions.previewEmpty'));
     } catch {
-      toast.error(t('admin.retention.partitions.previewFailed' as any));
+      toast.error(t('admin.retention.partitions.previewFailed'));
     } finally { setBusy(null); }
   };
 
@@ -96,7 +96,7 @@ export default function PartitionsPanel({ policies }: { policies: RetentionPolic
     return (
       <Card>
         <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          {t('admin.retention.partitions.none' as any)}
+          {t('admin.retention.partitions.none')}
         </CardContent>
       </Card>
     );
@@ -106,13 +106,13 @@ export default function PartitionsPanel({ policies }: { policies: RetentionPolic
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
         <Button size="sm" variant="outline" disabled={busy === 'all'} onClick={() => void doEnsure()}>
-          <CalendarPlus className="me-2 h-4 w-4" />{t('admin.retention.partitions.ensureAll' as any)}
+          <CalendarPlus className="me-2 h-4 w-4" />{t('admin.retention.partitions.ensureAll')}
         </Button>
         <Button size="sm" variant="outline" disabled={busy === 'validate'} onClick={() => void doValidate()}>
-          <ShieldCheck className="me-2 h-4 w-4" />{t('admin.retention.partitions.validate' as any)}
+          <ShieldCheck className="me-2 h-4 w-4" />{t('admin.retention.partitions.validate')}
         </Button>
         <Button size="sm" variant="ghost" onClick={() => void load()}>
-          <RefreshCw className="me-2 h-4 w-4" />{t('admin.retention.partitions.refresh' as any)}
+          <RefreshCw className="me-2 h-4 w-4" />{t('admin.retention.partitions.refresh')}
         </Button>
       </div>
 
@@ -143,12 +143,12 @@ export default function PartitionsPanel({ policies }: { policies: RetentionPolic
                 <div className="flex gap-1">
                   <Button size="sm" variant="ghost" disabled={busy === tbl.parent_table}
                     onClick={() => void doEnsure(tbl.parent_table)}>
-                    <CalendarPlus className="me-2 h-4 w-4" />{t('admin.retention.partitions.ensureOne' as any)}
+                    <CalendarPlus className="me-2 h-4 w-4" />{t('admin.retention.partitions.ensureOne')}
                   </Button>
                   {policy && (
                     <Button size="sm" variant="ghost" disabled={busy === `preview:${tbl.parent_table}`}
                       onClick={() => void doPreview(tbl.parent_table)}>
-                      <FlaskConical className="me-2 h-4 w-4" />{t('admin.retention.partitions.dryRun' as any)}
+                      <FlaskConical className="me-2 h-4 w-4" />{t('admin.retention.partitions.dryRun')}
                     </Button>
                   )}
                 </div>
@@ -157,45 +157,45 @@ export default function PartitionsPanel({ policies }: { policies: RetentionPolic
             <CardContent className="space-y-4">
               <dl className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
                 <div>
-                  <dt className="text-xs text-muted-foreground">{t('admin.retention.partitions.current' as any)}</dt>
+                  <dt className="text-xs text-muted-foreground">{t('admin.retention.partitions.current')}</dt>
                   <dd className="font-mono text-xs">{tbl.current_partition || '—'}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs text-muted-foreground">{t('admin.retention.partitions.next' as any)}</dt>
+                  <dt className="text-xs text-muted-foreground">{t('admin.retention.partitions.next')}</dt>
                   <dd>
                     <Badge variant={tbl.next_partition_ready ? 'default' : 'destructive'}>
                       {tbl.next_partition_ready
-                        ? t('admin.retention.partitions.ready' as any)
-                        : t('admin.retention.partitions.notReady' as any)}
+                        ? t('admin.retention.partitions.ready')
+                        : t('admin.retention.partitions.notReady')}
                     </Badge>
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-xs text-muted-foreground">{t('admin.retention.partitions.oldest' as any)}</dt>
+                  <dt className="text-xs text-muted-foreground">{t('admin.retention.partitions.oldest')}</dt>
                   <dd className="font-mono text-xs">{tbl.oldest_partition || '—'}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs text-muted-foreground">{t('admin.retention.partitions.newest' as any)}</dt>
+                  <dt className="text-xs text-muted-foreground">{t('admin.retention.partitions.newest')}</dt>
                   <dd className="font-mono text-xs">{tbl.newest_partition || '—'}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs text-muted-foreground">{t('admin.retention.partitions.largest' as any)}</dt>
+                  <dt className="text-xs text-muted-foreground">{t('admin.retention.partitions.largest')}</dt>
                   <dd className="font-mono text-xs">{tbl.largest_partition || '—'} ({formatBytes(tbl.largest_bytes)})</dd>
                 </div>
                 <div>
-                  <dt className="text-xs text-muted-foreground">{t('admin.retention.partitions.defaultRows' as any)}</dt>
+                  <dt className="text-xs text-muted-foreground">{t('admin.retention.partitions.defaultRows')}</dt>
                   <dd className={tbl.default_rows > 0 ? 'font-semibold text-destructive' : ''}>{tbl.default_rows}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs text-muted-foreground">{t('admin.retention.partitions.policy' as any)}</dt>
+                  <dt className="text-xs text-muted-foreground">{t('admin.retention.partitions.policy')}</dt>
                   <dd className="text-xs">{policy ? policy.policy_key : '—'}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs text-muted-foreground">{t('admin.retention.partitions.cleanup' as any)}</dt>
+                  <dt className="text-xs text-muted-foreground">{t('admin.retention.partitions.cleanup')}</dt>
                   <dd className="text-xs">
                     {policy?.enabled
-                      ? t('admin.retention.partitions.cleanupEnabled' as any)
-                      : t('admin.retention.partitions.cleanupDisabled' as any)}
+                      ? t('admin.retention.partitions.cleanupEnabled')
+                      : t('admin.retention.partitions.cleanupDisabled')}
                   </dd>
                 </div>
               </dl>
@@ -210,7 +210,7 @@ export default function PartitionsPanel({ policies }: { policies: RetentionPolic
 
               {candidates && candidates.length > 0 && (
                 <div className="rounded-md border border-border/60 p-3 text-xs">
-                  <div className="mb-2 font-medium">{t('admin.retention.partitions.previewTitle' as any)}</div>
+                  <div className="mb-2 font-medium">{t('admin.retention.partitions.previewTitle')}</div>
                   <ul className="space-y-1">
                     {candidates.map((c) => (
                       <li key={c.partition_name} className="font-mono">
@@ -218,7 +218,7 @@ export default function PartitionsPanel({ policies }: { policies: RetentionPolic
                       </li>
                     ))}
                   </ul>
-                  <p className="mt-2 text-muted-foreground">{t('admin.retention.partitions.previewNote' as any)}</p>
+                  <p className="mt-2 text-muted-foreground">{t('admin.retention.partitions.previewNote')}</p>
                 </div>
               )}
 
@@ -226,10 +226,10 @@ export default function PartitionsPanel({ policies }: { policies: RetentionPolic
                 <table className="w-full text-sm">
                   <thead className="border-b bg-muted/40 text-xs text-muted-foreground">
                     <tr>
-                      <th className="p-2 text-start">{t('admin.retention.partitions.columns.partition' as any)}</th>
-                      <th className="p-2 text-start">{t('admin.retention.partitions.columns.range' as any)}</th>
-                      <th className="p-2 text-start">{t('admin.retention.partitions.columns.rows' as any)}</th>
-                      <th className="p-2 text-start">{t('admin.retention.partitions.columns.size' as any)}</th>
+                      <th className="p-2 text-start">{t('admin.retention.partitions.columns.partition')}</th>
+                      <th className="p-2 text-start">{t('admin.retention.partitions.columns.range')}</th>
+                      <th className="p-2 text-start">{t('admin.retention.partitions.columns.rows')}</th>
+                      <th className="p-2 text-start">{t('admin.retention.partitions.columns.size')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -241,7 +241,7 @@ export default function PartitionsPanel({ policies }: { policies: RetentionPolic
                         </td>
                         <td className="p-2 text-xs text-muted-foreground">
                           {p.is_default
-                            ? t('admin.retention.partitions.catchAll' as any)
+                            ? t('admin.retention.partitions.catchAll')
                             : `${p.range_start?.slice(0, 10)} → ${p.range_end?.slice(0, 10)}`}
                         </td>
                         <td className="p-2">{p.est_rows}</td>

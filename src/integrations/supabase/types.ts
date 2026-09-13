@@ -19871,6 +19871,20 @@ export type Database = {
         }
         Returns: Json
       }
+      retention_partition_preview: {
+        Args: { _policy_key: string }
+        Returns: {
+          cutoff: string
+          est_bytes: number
+          est_rows: number
+          parent_table: string
+          partition_key: string
+          partition_name: string
+          policy_key: string
+          range_end: string
+          range_start: string
+        }[]
+      }
       revoke_invitation_v2: {
         Args: { _actor_id: string; _invitation_id: string; _reason: string }
         Returns: Json

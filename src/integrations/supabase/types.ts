@@ -3638,6 +3638,147 @@ export type Database = {
           },
         ]
       }
+      backup_commands: {
+        Row: {
+          claimed_at: string | null
+          command: string
+          completed_at: string | null
+          error: string | null
+          id: string
+          requested_at: string
+          requested_by: string | null
+          result: Json
+          status: string
+        }
+        Insert: {
+          claimed_at?: string | null
+          command: string
+          completed_at?: string | null
+          error?: string | null
+          id?: string
+          requested_at?: string
+          requested_by?: string | null
+          result?: Json
+          status?: string
+        }
+        Update: {
+          claimed_at?: string | null
+          command?: string
+          completed_at?: string | null
+          error?: string | null
+          id?: string
+          requested_at?: string
+          requested_by?: string | null
+          result?: Json
+          status?: string
+        }
+        Relationships: []
+      }
+      backup_restore_drills: {
+        Row: {
+          created_at: string
+          drill_kind: string
+          environment: string
+          findings: Json
+          finished_at: string | null
+          id: string
+          notes: string | null
+          source_backup_id: string | null
+          started_at: string
+          status: string
+          target_time: string | null
+        }
+        Insert: {
+          created_at?: string
+          drill_kind: string
+          environment: string
+          findings?: Json
+          finished_at?: string | null
+          id?: string
+          notes?: string | null
+          source_backup_id?: string | null
+          started_at?: string
+          status?: string
+          target_time?: string | null
+        }
+        Update: {
+          created_at?: string
+          drill_kind?: string
+          environment?: string
+          findings?: Json
+          finished_at?: string | null
+          id?: string
+          notes?: string | null
+          source_backup_id?: string | null
+          started_at?: string
+          status?: string
+          target_time?: string | null
+        }
+        Relationships: []
+      }
+      backup_runs: {
+        Row: {
+          backup_id: string
+          bytes: number | null
+          checksum: string | null
+          created_at: string
+          destination: string | null
+          encrypted: boolean
+          error: string | null
+          finished_at: string | null
+          id: string
+          kind: string
+          last_restore_tested_at: string | null
+          lsn: string | null
+          metadata: Json
+          started_at: string
+          status: string
+          updated_at: string
+          verification_status: string
+          verified_at: string | null
+        }
+        Insert: {
+          backup_id: string
+          bytes?: number | null
+          checksum?: string | null
+          created_at?: string
+          destination?: string | null
+          encrypted?: boolean
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          kind: string
+          last_restore_tested_at?: string | null
+          lsn?: string | null
+          metadata?: Json
+          started_at?: string
+          status?: string
+          updated_at?: string
+          verification_status?: string
+          verified_at?: string | null
+        }
+        Update: {
+          backup_id?: string
+          bytes?: number | null
+          checksum?: string | null
+          created_at?: string
+          destination?: string | null
+          encrypted?: boolean
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          kind?: string
+          last_restore_tested_at?: string | null
+          lsn?: string | null
+          metadata?: Json
+          started_at?: string
+          status?: string
+          updated_at?: string
+          verification_status?: string
+          verified_at?: string | null
+        }
+        Relationships: []
+      }
       billing_coupon_redemptions: {
         Row: {
           amount_minor: number
@@ -18607,6 +18748,61 @@ export type Database = {
       archive_invitation_v2: {
         Args: { _actor_id: string; _invitation_id: string }
         Returns: Json
+      }
+      backup_claim_command: {
+        Args: never
+        Returns: {
+          claimed_at: string | null
+          command: string
+          completed_at: string | null
+          error: string | null
+          id: string
+          requested_at: string
+          requested_by: string | null
+          result: Json
+          status: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "backup_commands"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      backup_health: {
+        Args: never
+        Returns: {
+          age_seconds: number
+          backup_id: string
+          bytes: number
+          destination: string
+          encrypted: boolean
+          finished_at: string
+          kind: string
+          last_restore_tested_at: string
+          lsn: string
+          status: string
+          verification_status: string
+          verified_at: string
+        }[]
+      }
+      backup_wal_status: {
+        Args: never
+        Returns: {
+          archive_lag_seconds: number
+          archive_mode: string
+          archive_timeout_seconds: number
+          archived_count: number
+          current_lsn: string
+          database_bytes: number
+          failed_count: number
+          last_archived_time: string
+          last_archived_wal: string
+          last_failed_time: string
+          last_failed_wal: string
+          stats_reset: string
+          wal_level: string
+        }[]
       }
       billing_activate_due_periods: {
         Args: { p_limit?: number }

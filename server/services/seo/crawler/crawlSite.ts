@@ -30,7 +30,7 @@ import { discoverAndFetchSitemaps, type SitemapResult } from './sitemap.js';
 import { getRobotsRules, isPathAllowedByRobots } from '../../ai-agent/crawler/robots.js';
 import { canonicalize, isSameDomain, normalizeHost } from '../../ai-agent/crawler/urlRules.js';
 import { heartbeatJob } from '../../jobs/queue.js';
-import { recordObservation } from '../urlRepository.js';
+import { persistPage, type LinkEdgeInput } from '../canonicalRepository.js';
 
 type DiscoveredVia = 'start' | 'link' | 'sitemap';
 
@@ -234,7 +234,6 @@ async function processPage(
   robotsRules: { allow: string[]; disallow: string[] },
   siteId: string | null,
 ): Promise<PageOutcome> {
-  const sb = getServiceClient(args.config);
   const limits = args.limits;
   const normalizedForDefense = canonicalize(item.url);
   const url = normalizedForDefense.ok && normalizedForDefense.url ? normalizedForDefense.url : item.url;
@@ -248,7 +247,7 @@ async function processPage(
   let path = '/';
   try { path = new URL(url).pathname || '/'; } catch { /* keep default */ }
   if (!isPathAllowedByRobots(path, robotsRules)) {
-    await upsertPage(sb, args, url, url, { discovered_via: item.discoveredVia, depth: item.depth, fetch_error: 'robots_blocked', is_indexable: false }, siteId);
+    await persist(args, url, url, { discovered_via: item.discoveredVia, depth: item.depth, fetch_error: 'robots_blocked', is_indexable: false }, siteId, []);
     return { status: 'skipped', normalizedUrl: url, responseBytes: 0, internalLinks: [] };
   }
 
@@ -260,14 +259,14 @@ async function processPage(
   });
 
   if (!res.ok || !res.html) {
-    await upsertPage(sb, args, url, res.finalUrl || url, {
+    await persist(args, url, res.finalUrl || url, {
       discovered_via: item.discoveredVia,
       depth: item.depth,
       http_status: res.status ?? null,
       response_time_ms: res.responseTimeMs,
       redirect_chain: res.redirectChain,
       fetch_error: res.error || 'fetch_failed',
-    }, siteId);
+    }, siteId, []);
     return { status: 'failed', normalizedUrl: url, responseBytes: res.contentLength || 0, internalLinks: [] };
   }
 
@@ -287,7 +286,7 @@ async function processPage(
   }
 
   const internalLinks: string[] = [];
-  const linkRows: Record<string, unknown>[] = [];
+  const linkRows: LinkEdgeInput[] = [];
   const seenTargets = new Set<string>();
   for (const link of parsed.links) {
     const c = canonicalize(link.href);
@@ -298,15 +297,15 @@ async function processPage(
     seenTargets.add(dedupeKey);
     if (!isExternal) internalLinks.push(c.url);
     linkRows.push({
-      target_url: link.href,
-      target_normalized_url: c.url,
-      is_external: isExternal,
-      anchor_text: link.anchorText || null,
+      targetUrl: link.href,
+      targetNormalizedUrl: c.url,
+      isExternal,
+      anchorText: link.anchorText || null,
       rel: link.rel,
     });
   }
 
-  const pageId = await upsertPage(sb, args, url, res.finalUrl || url, {
+  await persist(args, url, res.finalUrl || url, {
     discovered_via: item.discoveredVia,
     depth: item.depth,
     http_status: res.status ?? null,
@@ -329,8 +328,8 @@ async function processPage(
     lang: parsed.lang,
     charset: parsed.charset,
     word_count: parsed.wordCount,
-    internal_links_count: linkRows.filter((l) => !l.is_external).length,
-    external_links_count: linkRows.filter((l) => l.is_external).length,
+    internal_links_count: linkRows.filter((l) => !l.isExternal).length,
+    external_links_count: linkRows.filter((l) => l.isExternal).length,
     images_count: parsed.images.length,
     images_missing_alt_count: parsed.images.filter((i) => !i.hasAlt).length,
     has_open_graph: parsed.hasOpenGraph,
@@ -342,75 +341,36 @@ async function processPage(
     is_https: isHttps,
     has_mixed_content: hasMixedContent,
     crawled_at: new Date().toISOString(),
-  }, siteId);
-
-  if (pageId && linkRows.length) {
-    const rows = linkRows.map((r) => ({ ...r, crawl_id: args.crawlId, workspace_id: args.workspaceId, source_page_id: pageId }));
-    for (let i = 0; i < rows.length; i += 500) {
-      await sb.from('seo_links').insert(rows.slice(i, i + 500));
-    }
-  }
+  }, siteId, linkRows);
 
   return { status: 'crawled', normalizedUrl: url, responseBytes: res.contentLength || 0, internalLinks };
 }
 
-async function upsertPage(
-  sb: ReturnType<typeof getServiceClient>,
+/**
+ * The ONE crawl write. Canonical storage is authoritative: the canonical URL,
+ * its delta observation, the crawl membership, the current-state pointer and
+ * the compact link edges are all written by canonicalRepository.persistPage.
+ * No legacy `seo_pages` row is required for any of it.
+ */
+async function persist(
   args: CrawlSiteArgs,
   url: string,
   finalUrl: string,
   patch: Record<string, unknown>,
   siteId: string | null,
-): Promise<string | null> {
-  const { data, error } = await sb
-    .from('seo_pages')
-    .upsert(
-      {
-        crawl_id: args.crawlId,
-        workspace_id: args.workspaceId,
-        url,
-        normalized_url: url,
-        final_url: finalUrl !== url ? finalUrl : null,
-        ...patch,
-      },
-      { onConflict: 'crawl_id,normalized_url' },
-    )
-    .select('id')
-    .maybeSingle();
-  if (error) return null;
-
-  // Canonical URL/observation model (Phase 2). Written in parallel with the
-  // legacy seo_pages row; deduplication rules live entirely in urlRepository.
-  if (siteId) {
-    try {
-      await recordObservation({
-        config: args.config,
-        crawlId: args.crawlId,
-        workspaceId: args.workspaceId,
-        siteId,
-        normalizedUrl: url,
-        // Keep the complete report state; changed observations must be usable
-        // by compatibility readers, not merely a title/status summary.
-        payload: { url, normalized_url: url, final_url: finalUrl !== url ? finalUrl : null, ...patch },
-        fields: {
-          statusCode: (patch.http_status as number | null) ?? null,
-          title: (patch.title as string | null) ?? null,
-          metaDescription: (patch.meta_description as string | null) ?? null,
-          canonicalStatus: (patch.canonical_status as string | null) ?? null,
-          isIndexable: patch.is_indexable !== false,
-          internalLinksCount: (patch.internal_links_count as number) ?? 0,
-          externalLinksCount: (patch.external_links_count as number) ?? 0,
-          issueFlags: {
-            fetchError: (patch.fetch_error as string | null) ?? null,
-            hasMixedContent: patch.has_mixed_content === true,
-            h1Count: (patch.h1_count as number) ?? 0,
-          },
-        },
-      });
-    } catch { /* the new model must never break an in-flight crawl */ }
-  }
-
-  return (data as { id: string } | null)?.id ?? null;
+  links: LinkEdgeInput[],
+): Promise<void> {
+  if (!siteId) throw new Error('seo_crawl_site_unresolved');
+  await persistPage({
+    config: args.config,
+    crawlId: args.crawlId,
+    workspaceId: args.workspaceId,
+    siteId,
+    normalizedUrl: url,
+    finalUrl: finalUrl !== url ? finalUrl : null,
+    page: { url, normalized_url: url, final_url: finalUrl !== url ? finalUrl : null, ...patch },
+    links,
+  });
 }
 
 async function resolveWebsiteId(sb: ReturnType<typeof getServiceClient>, crawlId: string): Promise<string | null> {

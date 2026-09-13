@@ -8,6 +8,7 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { enqueueJob, requestJobCancel, cancelQueuedJob, getJob } from '../jobs/queue.js';
 import { resolveWorkspaceSite, SiteResolutionError } from './siteResolver.js';
+import { getCrawlPages, getCrawlLinks } from './canonicalRepository.js';
 import {
   resolveSeoLimits,
   countActiveWorkspaceCrawls,
@@ -184,26 +185,37 @@ export interface PageListFilters {
   offset?: number;
 }
 
+/**
+ * Page list — served from the canonical repository (legacy fallback lives
+ * inside that repository, never here). The response shape is unchanged: each
+ * entry is the same page record the legacy table used to return.
+ */
 export async function listCrawlPages(config: ServerConfig, workspaceId: string, crawlId: string, filters: PageListFilters = {}) {
-  const sb = getServiceClient(config);
+  const crawl = await getCrawl(config, workspaceId, crawlId);
+  if (!crawl) return { pages: [], total: 0 };
   const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
   const offset = Math.max(filters.offset ?? 0, 0);
-  let query = sb
-    .from('seo_pages')
-    .select('*', { count: 'exact' })
-    .eq('workspace_id', workspaceId)
-    .eq('crawl_id', crawlId);
+
+  let rows = (await getCrawlPages(config, crawlId)).map((entry) => ({
+    ...entry.page,
+    id: entry.legacyPageId,
+    url_id: entry.urlId,
+    url: entry.url,
+    normalized_url: entry.normalizedUrl,
+  })) as Record<string, unknown>[];
 
   if (filters.httpStatusClass) {
     const base = { '2xx': 200, '3xx': 300, '4xx': 400, '5xx': 500 }[filters.httpStatusClass];
-    query = query.gte('http_status', base).lt('http_status', base + 100);
+    rows = rows.filter((r) => typeof r.http_status === 'number' && (r.http_status as number) >= base && (r.http_status as number) < base + 100);
   }
-  if (typeof filters.indexable === 'boolean') query = query.eq('is_indexable', filters.indexable);
-  if (filters.search) query = query.ilike('url', `%${filters.search}%`);
+  if (typeof filters.indexable === 'boolean') rows = rows.filter((r) => (r.is_indexable !== false) === filters.indexable);
+  if (filters.search) {
+    const needle = filters.search.toLowerCase();
+    rows = rows.filter((r) => String(r.url || '').toLowerCase().includes(needle));
+  }
+  rows.sort((a, b) => ((a.depth as number) ?? 0) - ((b.depth as number) ?? 0));
 
-  const { data, count, error } = await query.order('depth', { ascending: true }).range(offset, offset + limit - 1);
-  if (error) throw new Error(`list_pages_failed: ${error.message}`);
-  return { pages: data || [], total: count || 0 };
+  return { pages: rows.slice(offset, offset + limit), total: rows.length };
 }
 
 export interface IssueListFilters {
@@ -248,19 +260,33 @@ export async function getIssueAffectedUrls(config: ServerConfig, workspaceId: st
 }
 
 export async function listCrawlLinks(config: ServerConfig, workspaceId: string, crawlId: string, opts: { external?: boolean; brokenOnly?: boolean; limit?: number; offset?: number } = {}) {
-  const sb = getServiceClient(config);
+  const crawl = await getCrawl(config, workspaceId, crawlId);
+  if (!crawl) return { links: [], total: 0 };
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
   const offset = Math.max(opts.offset ?? 0, 0);
-  let query = sb
-    .from('seo_links')
-    .select('*, source_page:source_page_id(url)', { count: 'exact' })
-    .eq('workspace_id', workspaceId)
-    .eq('crawl_id', crawlId);
-  if (typeof opts.external === 'boolean') query = query.eq('is_external', opts.external);
-  if (opts.brokenOnly) query = query.eq('is_broken', true);
-  const { data, count, error } = await query.range(offset, offset + limit - 1);
-  if (error) throw new Error(`list_links_failed: ${error.message}`);
-  return { links: data || [], total: count || 0 };
+
+  let edges = await getCrawlLinks(config, {
+    crawlId,
+    workspaceId,
+    siteId: (crawl as { website_id: string }).website_id,
+  });
+  if (typeof opts.external === 'boolean') edges = edges.filter((e) => e.isExternal === opts.external);
+  if (opts.brokenOnly) edges = edges.filter((e) => e.isBroken);
+
+  // Response shape is preserved for existing clients.
+  const links = edges.slice(offset, offset + limit).map((e) => ({
+    crawl_id: crawlId,
+    workspace_id: workspaceId,
+    target_url: e.targetUrl,
+    target_normalized_url: e.targetNormalizedUrl,
+    is_external: e.isExternal,
+    is_broken: e.isBroken,
+    http_status: e.httpStatus,
+    anchor_text: e.anchorText,
+    rel: e.rel,
+    source_page: { url: e.sourceUrl },
+  }));
+  return { links, total: edges.length };
 }
 
 export async function listCrawlSitemaps(config: ServerConfig, workspaceId: string, crawlId: string) {
@@ -305,12 +331,12 @@ export async function compareWithPreviousCrawl(config: ServerConfig, workspaceId
     sb.from('seo_issues').select('issue_type, category, severity, title, affected_count').eq('crawl_id', prev.id),
   ]);
 
-  const currentTypes = new Set((currentIssues || []).map((i: any) => i.issue_type));
-  const prevTypes = new Set((prevIssues || []).map((i: any) => i.issue_type));
+  const currentTypes = new Set((currentIssues || []).map((i: { issue_type: string }) => i.issue_type));
+  const prevTypes = new Set((prevIssues || []).map((i: { issue_type: string }) => i.issue_type));
 
-  const newIssues = (currentIssues || []).filter((i: any) => !prevTypes.has(i.issue_type));
-  const resolvedIssues = (prevIssues || []).filter((i: any) => !currentTypes.has(i.issue_type));
-  const persistentIssues = (currentIssues || []).filter((i: any) => prevTypes.has(i.issue_type));
+  const newIssues = (currentIssues || []).filter((i: { issue_type: string }) => !prevTypes.has(i.issue_type));
+  const resolvedIssues = (prevIssues || []).filter((i: { issue_type: string }) => !currentTypes.has(i.issue_type));
+  const persistentIssues = (currentIssues || []).filter((i: { issue_type: string }) => prevTypes.has(i.issue_type));
 
   return {
     hasPrevious: true,

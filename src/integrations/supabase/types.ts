@@ -11039,6 +11039,74 @@ export type Database = {
         }
         Relationships: []
       }
+      seo_backfill_state: {
+        Row: {
+          crawl_id: string
+          cursor_offset: number
+          duplicates_avoided: number
+          error: string | null
+          finished_at: string | null
+          issue_refs_linked: number
+          link_edges_created: number
+          memberships_created: number
+          observations_created: number
+          pages_processed: number
+          performance_refs_linked: number
+          site_id: string
+          started_at: string | null
+          status: string
+          updated_at: string
+          urls_created: number
+          workspace_id: string
+        }
+        Insert: {
+          crawl_id: string
+          cursor_offset?: number
+          duplicates_avoided?: number
+          error?: string | null
+          finished_at?: string | null
+          issue_refs_linked?: number
+          link_edges_created?: number
+          memberships_created?: number
+          observations_created?: number
+          pages_processed?: number
+          performance_refs_linked?: number
+          site_id: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+          urls_created?: number
+          workspace_id: string
+        }
+        Update: {
+          crawl_id?: string
+          cursor_offset?: number
+          duplicates_avoided?: number
+          error?: string | null
+          finished_at?: string | null
+          issue_refs_linked?: number
+          link_edges_created?: number
+          memberships_created?: number
+          observations_created?: number
+          pages_processed?: number
+          performance_refs_linked?: number
+          site_id?: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+          urls_created?: number
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_backfill_state_crawl_id_fkey"
+            columns: ["crawl_id"]
+            isOneToOne: true
+            referencedRelation: "seo_crawls"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       seo_backlink_scans: {
         Row: {
           cancel_requested: boolean
@@ -11318,6 +11386,80 @@ export type Database = {
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      seo_crawl_summaries: {
+        Row: {
+          crawl_id: string
+          created_at: string
+          duration_ms: number | null
+          external_links: number
+          indexability: Json
+          internal_links: number
+          issue_counts: Json
+          site_id: string
+          status_distribution: Json
+          updated_at: string
+          urls_changed: number
+          urls_crawled: number
+          urls_discovered: number
+          urls_failed: number
+          urls_new: number
+          urls_removed: number
+          urls_restored: number
+          urls_unchanged: number
+          workspace_id: string
+        }
+        Insert: {
+          crawl_id: string
+          created_at?: string
+          duration_ms?: number | null
+          external_links?: number
+          indexability?: Json
+          internal_links?: number
+          issue_counts?: Json
+          site_id: string
+          status_distribution?: Json
+          updated_at?: string
+          urls_changed?: number
+          urls_crawled?: number
+          urls_discovered?: number
+          urls_failed?: number
+          urls_new?: number
+          urls_removed?: number
+          urls_restored?: number
+          urls_unchanged?: number
+          workspace_id: string
+        }
+        Update: {
+          crawl_id?: string
+          created_at?: string
+          duration_ms?: number | null
+          external_links?: number
+          indexability?: Json
+          internal_links?: number
+          issue_counts?: Json
+          site_id?: string
+          status_distribution?: Json
+          updated_at?: string
+          urls_changed?: number
+          urls_crawled?: number
+          urls_discovered?: number
+          urls_failed?: number
+          urls_new?: number
+          urls_removed?: number
+          urls_restored?: number
+          urls_unchanged?: number
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_crawl_summaries_crawl_id_fkey"
+            columns: ["crawl_id"]
+            isOneToOne: true
+            referencedRelation: "seo_crawls"
             referencedColumns: ["id"]
           },
         ]
@@ -12136,6 +12278,7 @@ export type Database = {
           issue_id: string
           page_id: string | null
           url: string
+          url_id: string | null
         }
         Insert: {
           created_at?: string
@@ -12143,6 +12286,7 @@ export type Database = {
           issue_id: string
           page_id?: string | null
           url: string
+          url_id?: string | null
         }
         Update: {
           created_at?: string
@@ -12150,6 +12294,7 @@ export type Database = {
           issue_id?: string
           page_id?: string | null
           url?: string
+          url_id?: string | null
         }
         Relationships: [
           {
@@ -12164,6 +12309,13 @@ export type Database = {
             columns: ["page_id"]
             isOneToOne: false
             referencedRelation: "seo_pages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_issue_pages_url_id_fkey"
+            columns: ["url_id"]
+            isOneToOne: false
+            referencedRelation: "seo_urls"
             referencedColumns: ["id"]
           },
         ]
@@ -12399,6 +12551,98 @@ export type Database = {
           },
         ]
       }
+      seo_link_edges: {
+        Row: {
+          anchor_text: string | null
+          first_seen_at: string
+          first_seen_crawl_id: string | null
+          http_status: number | null
+          id: string
+          is_active: boolean
+          is_broken: boolean
+          is_external: boolean
+          last_seen_at: string
+          last_seen_crawl_id: string | null
+          rel: string | null
+          site_id: string
+          source_url_id: string
+          target_key: string
+          target_normalized_url: string | null
+          target_url: string
+          target_url_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          anchor_text?: string | null
+          first_seen_at?: string
+          first_seen_crawl_id?: string | null
+          http_status?: number | null
+          id?: string
+          is_active?: boolean
+          is_broken?: boolean
+          is_external?: boolean
+          last_seen_at?: string
+          last_seen_crawl_id?: string | null
+          rel?: string | null
+          site_id: string
+          source_url_id: string
+          target_key: string
+          target_normalized_url?: string | null
+          target_url: string
+          target_url_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          anchor_text?: string | null
+          first_seen_at?: string
+          first_seen_crawl_id?: string | null
+          http_status?: number | null
+          id?: string
+          is_active?: boolean
+          is_broken?: boolean
+          is_external?: boolean
+          last_seen_at?: string
+          last_seen_crawl_id?: string | null
+          rel?: string | null
+          site_id?: string
+          source_url_id?: string
+          target_key?: string
+          target_normalized_url?: string | null
+          target_url?: string
+          target_url_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_link_edges_first_seen_crawl_id_fkey"
+            columns: ["first_seen_crawl_id"]
+            isOneToOne: false
+            referencedRelation: "seo_crawls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_link_edges_last_seen_crawl_id_fkey"
+            columns: ["last_seen_crawl_id"]
+            isOneToOne: false
+            referencedRelation: "seo_crawls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_link_edges_source_url_id_fkey"
+            columns: ["source_url_id"]
+            isOneToOne: false
+            referencedRelation: "seo_urls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_link_edges_target_url_id_fkey"
+            columns: ["target_url_id"]
+            isOneToOne: false
+            referencedRelation: "seo_urls"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       seo_links: {
         Row: {
           anchor_text: string | null
@@ -12409,10 +12653,12 @@ export type Database = {
           is_broken: boolean
           is_external: boolean
           rel: string | null
-          source_page_id: string
+          source_page_id: string | null
+          source_url_id: string | null
           target_normalized_url: string | null
           target_page_id: string | null
           target_url: string
+          target_url_id: string | null
           workspace_id: string
         }
         Insert: {
@@ -12424,10 +12670,12 @@ export type Database = {
           is_broken?: boolean
           is_external?: boolean
           rel?: string | null
-          source_page_id: string
+          source_page_id?: string | null
+          source_url_id?: string | null
           target_normalized_url?: string | null
           target_page_id?: string | null
           target_url: string
+          target_url_id?: string | null
           workspace_id: string
         }
         Update: {
@@ -12439,10 +12687,12 @@ export type Database = {
           is_broken?: boolean
           is_external?: boolean
           rel?: string | null
-          source_page_id?: string
+          source_page_id?: string | null
+          source_url_id?: string | null
           target_normalized_url?: string | null
           target_page_id?: string | null
           target_url?: string
+          target_url_id?: string | null
           workspace_id?: string
         }
         Relationships: [
@@ -12461,10 +12711,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "seo_links_source_url_id_fkey"
+            columns: ["source_url_id"]
+            isOneToOne: false
+            referencedRelation: "seo_urls"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "seo_links_target_page_id_fkey"
             columns: ["target_page_id"]
             isOneToOne: false
             referencedRelation: "seo_pages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_links_target_url_id_fkey"
+            columns: ["target_url_id"]
+            isOneToOne: false
+            referencedRelation: "seo_urls"
             referencedColumns: ["id"]
           },
           {
@@ -12746,6 +13010,7 @@ export type Database = {
           status: string
           tbt_ms: number | null
           url: string
+          url_id: string | null
           workspace_id: string
         }
         Insert: {
@@ -12766,6 +13031,7 @@ export type Database = {
           status?: string
           tbt_ms?: number | null
           url: string
+          url_id?: string | null
           workspace_id: string
         }
         Update: {
@@ -12786,6 +13052,7 @@ export type Database = {
           status?: string
           tbt_ms?: number | null
           url?: string
+          url_id?: string | null
           workspace_id?: string
         }
         Relationships: [
@@ -12808,6 +13075,13 @@ export type Database = {
             columns: ["page_id"]
             isOneToOne: false
             referencedRelation: "seo_pages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_performance_results_url_id_fkey"
+            columns: ["url_id"]
+            isOneToOne: false
+            referencedRelation: "seo_urls"
             referencedColumns: ["id"]
           },
           {
@@ -13062,6 +13336,7 @@ export type Database = {
       seo_urls: {
         Row: {
           created_at: string
+          current_observation_id: string | null
           disappeared_at: string | null
           first_seen_at: string
           id: string
@@ -13077,6 +13352,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          current_observation_id?: string | null
           disappeared_at?: string | null
           first_seen_at?: string
           id?: string
@@ -13092,6 +13368,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          current_observation_id?: string | null
           disappeared_at?: string | null
           first_seen_at?: string
           id?: string
@@ -13106,6 +13383,13 @@ export type Database = {
           workspace_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "seo_urls_current_observation_id_fkey"
+            columns: ["current_observation_id"]
+            isOneToOne: false
+            referencedRelation: "seo_crawl_observations"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "seo_urls_last_successful_crawl_id_fkey"
             columns: ["last_successful_crawl_id"]

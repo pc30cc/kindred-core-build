@@ -1,30 +1,62 @@
 /**
- * Rules engine driver — loads normalized crawl data from the database,
- * builds the pure `RuleContext`, runs every rule in checks.ts, and persists
- * the resulting `seo_issues`/`seo_issue_pages` rows. This is the ONLY place
- * that writes to those tables.
+ * Rules engine driver — loads normalized crawl data through the canonical SEO
+ * repository (never straight off `seo_pages`/`seo_links`), builds the pure
+ * `RuleContext`, runs every rule in checks.ts, and persists the resulting
+ * `seo_issues`/`seo_issue_pages` rows. This is the ONLY place that writes to
+ * those tables, and issue rows now carry the canonical `url_id`; the legacy
+ * `page_id` column stays nullable for pre-cutover history only.
  */
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
+import { getCrawlLinks, getCrawlPages } from '../canonicalRepository.js';
 import { runAllRules } from './checks.js';
 import type { RawIssue, RuleContext, SeoLinkForRules, SeoPageForRules, SeoSitemapForRules } from './types.js';
 
-const FETCH_CHUNK = 1000;
+/** The snake_case page record shape the observation payload preserves. */
+type LegacyPageRecord = {
+  [K in keyof SeoPageForRules]: SeoPageForRules[K];
+} & {
+  id: string;
+  url_id: string;
+  normalized_url: string;
+  http_status: number;
+  redirect_chain: { url: string; status: number }[] | null;
+  title_length: number;
+  meta_description: string;
+  meta_description_length: number;
+  canonical_url: string;
+  canonical_status: SeoPageForRules['canonicalStatus'];
+  meta_robots: string;
+  is_indexable: boolean;
+  h1_count: number;
+  h2_count: number;
+  word_count: number;
+  images_count: number;
+  images_missing_alt_count: number;
+  has_structured_data: boolean;
+  structured_data_errors: string[] | null;
+  has_open_graph: boolean;
+  has_twitter_card: boolean;
+  is_https: boolean;
+  has_mixed_content: boolean;
+  is_nofollow: boolean;
+  discovered_via: string;
+  incoming_internal_links_count: number;
+  fetch_error: string;
+  response_time_ms: number;
+};
+
 const ISSUE_PAGE_INSERT_CHUNK = 500;
 const MAX_AFFECTED_URLS_STORED = 5000;
 
-async function fetchAllPages(sb: ReturnType<typeof getServiceClient>, crawlId: string): Promise<SeoPageForRules[]> {
-  const out: SeoPageForRules[] = [];
-  let from = 0;
-  for (;;) {
-    const { data, error } = await sb
-      .from('seo_pages')
-      .select('id, url, normalized_url, http_status, redirect_chain, title, title_length, meta_description, meta_description_length, canonical_url, canonical_status, meta_robots, is_indexable, h1, h1_count, h2_count, lang, word_count, images_count, images_missing_alt_count, has_structured_data, structured_data_errors, has_open_graph, has_twitter_card, is_https, has_mixed_content, is_nofollow, discovered_via, incoming_internal_links_count, fetch_error, response_time_ms')
-      .eq('crawl_id', crawlId)
-      .range(from, from + FETCH_CHUNK - 1);
-    if (error || !data || data.length === 0) break;
-    for (const row of data as any[]) {
+async function fetchAllPages(config: ServerConfig, crawlId: string): Promise<(SeoPageForRules & { urlId: string })[]> {
+  const out: (SeoPageForRules & { urlId: string })[] = [];
+  const canonical = await getCrawlPages(config, crawlId);
+  {
+    const data = canonical.map((entry) => ({ ...entry.page, id: entry.legacyPageId, url_id: entry.urlId, url: entry.url, normalized_url: entry.normalizedUrl }));
+    for (const row of data as unknown as LegacyPageRecord[]) {
       out.push({
+        urlId: row.url_id || '',
         id: row.id,
         url: row.url,
         normalizedUrl: row.normalized_url,
@@ -58,40 +90,27 @@ async function fetchAllPages(sb: ReturnType<typeof getServiceClient>, crawlId: s
         responseTimeMs: row.response_time_ms,
       });
     }
-    if (data.length < FETCH_CHUNK) break;
-    from += FETCH_CHUNK;
   }
   return out;
 }
 
-async function fetchAllLinks(sb: ReturnType<typeof getServiceClient>, crawlId: string): Promise<SeoLinkForRules[]> {
-  const out: SeoLinkForRules[] = [];
-  let from = 0;
-  for (;;) {
-    const { data, error } = await sb
-      .from('seo_links')
-      .select('target_url, is_external, is_broken, http_status, source_page:source_page_id(url)')
-      .eq('crawl_id', crawlId)
-      .range(from, from + FETCH_CHUNK - 1);
-    if (error || !data || data.length === 0) break;
-    for (const row of data as any[]) {
-      out.push({
-        sourceUrl: row.source_page?.url || '',
-        targetUrl: row.target_url,
-        isExternal: row.is_external,
-        isBroken: row.is_broken,
-        httpStatus: row.http_status,
-      });
-    }
-    if (data.length < FETCH_CHUNK) break;
-    from += FETCH_CHUNK;
-  }
-  return out;
+async function fetchAllLinks(
+  config: ServerConfig,
+  args: { crawlId: string; workspaceId: string; siteId: string },
+): Promise<SeoLinkForRules[]> {
+  const edges = await getCrawlLinks(config, args);
+  return edges.map((e) => ({
+    sourceUrl: e.sourceUrl,
+    targetUrl: e.targetUrl,
+    isExternal: e.isExternal,
+    isBroken: e.isBroken,
+    httpStatus: e.httpStatus,
+  }));
 }
 
 async function fetchSitemaps(sb: ReturnType<typeof getServiceClient>, crawlId: string): Promise<SeoSitemapForRules[]> {
   const { data } = await sb.from('seo_sitemaps').select('url, status, error_message').eq('crawl_id', crawlId);
-  return ((data || []) as any[]).map((r) => ({ url: r.url, status: r.status, errorMessage: r.error_message }));
+  return ((data || []) as Record<string, unknown>[]).map((r) => ({ url: r.url as string, status: r.status as string, errorMessage: (r.error_message as string | null) ?? null }));
 }
 
 async function previousIssueTypes(sb: ReturnType<typeof getServiceClient>, workspaceId: string, websiteId: string, crawlId: string, crawlCreatedAt: string): Promise<Set<string>> {
@@ -124,8 +143,8 @@ export async function evaluateAndPersistIssues(
   const sb = getServiceClient(config);
 
   const [pages, links, sitemaps, prevTypes] = await Promise.all([
-    fetchAllPages(sb, args.crawlId),
-    fetchAllLinks(sb, args.crawlId),
+    fetchAllPages(config, args.crawlId),
+    fetchAllLinks(config, { crawlId: args.crawlId, workspaceId: args.workspaceId, siteId: args.websiteId }),
     fetchSitemaps(sb, args.crawlId),
     previousIssueTypes(sb, args.workspaceId, args.websiteId, args.crawlId, args.crawlCreatedAt),
   ]);
@@ -166,10 +185,13 @@ export async function evaluateAndPersistIssues(
     if (error || !inserted) continue;
     const issueId = (inserted as { id: string }).id;
 
-    const pageByUrl = new Map(pages.map((p) => [p.url, p.id]));
+    // Canonical identity is authoritative; legacy page_id only survives when a
+    // legacy row still exists (pre-cutover crawls / SEO_LEGACY_WRITES=true).
+    const byUrl = new Map(pages.map((p) => [p.url, p]));
     const urlRows = raw.affectedUrls.slice(0, MAX_AFFECTED_URLS_STORED).map((url) => ({
       issue_id: issueId,
-      page_id: pageByUrl.get(url) || null,
+      page_id: byUrl.get(url)?.id || null,
+      url_id: byUrl.get(url)?.urlId || null,
       url,
     }));
     for (let i = 0; i < urlRows.length; i += ISSUE_PAGE_INSERT_CHUNK) {

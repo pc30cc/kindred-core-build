@@ -51,33 +51,42 @@ function normalizePath(url: string): string {
   return `${u.origin}${u.pathname === '/' ? '/' : u.pathname}`;
 }
 
-async function fakeFetchImpl(url: string): Promise<any> {
+// Mutable fixture knobs, driven by the A–E authoritative-crawl experiment:
+// C changes /about's title, D removes /about entirely, E restores it.
+const fixture = { aboutTitle: 'About', aboutPresent: true };
+
+type FakeFetchResult = Record<string, unknown>;
+
+async function fakeFetchImpl(url: string): Promise<FakeFetchResult> {
   fetchedUrls.push(url);
   const path = normalizePath(url);
-  const base = { finalUrl: url, redirectChain: [] as any[], responseTimeMs: 4, headers: {} as Record<string, string> };
+  const base = { finalUrl: url, redirectChain: [] as unknown[], responseTimeMs: 4, headers: {} as Record<string, string> };
 
   if (path === 'https://example.com/robots.txt') {
     return { ...base, ok: true, status: 200, contentType: 'text/plain', html: 'User-agent: *\nDisallow:\nSitemap: https://example.com/sitemap.xml\n' };
   }
   if (path === 'https://example.com/sitemap.xml') {
+    const aboutEntry = fixture.aboutPresent ? '<url><loc>https://example.com/about</loc></url>' : '';
     return {
       ...base, ok: true, status: 200, contentType: 'application/xml',
-      html: '<?xml version="1.0"?><urlset><url><loc>https://example.com/</loc></url><url><loc>https://example.com/about</loc></url></urlset>',
+      html: `<?xml version="1.0"?><urlset><url><loc>https://example.com/</loc></url>${aboutEntry}</urlset>`,
     };
   }
   if (path === 'https://example.com/') {
     return {
       ...base, ok: true, status: 200, contentType: 'text/html',
       html: '<html><head><title>Home</title></head><body>'
-        + '<a href="/about">About</a> <a href="/missing">Broken</a> <a href="https://external-site.test/page">External</a>'
+        + (fixture.aboutPresent ? '<a href="/about">About</a> ' : '')
+        + '<a href="/missing">Broken</a> <a href="https://external-site.test/page">External</a>'
         + '<p>Home page body copy with enough visible words to clear the thin-content threshold used by the rules engine in this smoke test.</p>'
         + '</body></html>',
     };
   }
   if (path === 'https://example.com/about') {
+    if (!fixture.aboutPresent) return { ...base, ok: false, status: 404, error: 'http_404' };
     return {
       ...base, ok: true, status: 200, contentType: 'text/html',
-      html: '<html><head><title>About</title></head><body>'
+      html: `<html><head><title>${fixture.aboutTitle}</title></head><body>`
         + '<a href="/">Home</a>'
         + '<p>About page body copy with enough visible words to clear the thin-content threshold used by the rules engine in this smoke test.</p>'
         + '</body></html>',
@@ -111,13 +120,20 @@ function seedTables(): FakeTables {
     seo_issues: [],
     seo_issue_pages: [],
     seo_sitemaps: [],
+    seo_urls: [],
+    seo_crawl_observations: [],
+    seo_crawl_url_membership: [],
+    seo_link_edges: [],
+    seo_crawl_summaries: [],
+    seo_performance_results: [],
   };
 }
 
-const config = {} as any;
+const config = {} as unknown as Parameters<typeof createCrawl>[0];
 
 describe('SEO end-to-end backend/worker pipeline', () => {
   beforeEach(() => {
+    fixture.aboutTitle = "About"; fixture.aboutPresent = true;
     tables = seedTables();
     fakeSb = makeFakeSupabase(tables);
     fetchedUrls.length = 0;
@@ -173,17 +189,18 @@ describe('SEO end-to-end backend/worker pipeline', () => {
     expect(completed?.pages_failed).toBe(1); // /missing (404)
 
     const { pages } = await listCrawlPages(config, WORKSPACE_A, crawl.id, { limit: 50 });
-    expect(pages.map((p: any) => p.url).sort()).toEqual([
+    expect(pages.map((p: Record<string, unknown>) => p.url).sort()).toEqual([
       'https://example.com/', 'https://example.com/about', 'https://example.com/missing',
     ]);
-    const missingPage = pages.find((p: any) => p.url === 'https://example.com/missing');
+    const missingPage = pages.find((p: Record<string, unknown>) => p.url === 'https://example.com/missing');
     expect(missingPage.http_status).toBe(404);
 
     const { issues } = await listCrawlIssues(config, WORKSPACE_A, crawl.id, { limit: 100 });
-    expect(issues.some((i: any) => i.issue_type === 'http_4xx')).toBe(true);
+    expect(issues.some((i: Record<string, unknown>) => i.issue_type === 'http_4xx')).toBe(true);
 
     // External link recorded for reporting, but the crawler must never have fetched it.
-    const externalLink = tables.seo_links.find((l) => l.target_url.includes('external-site.test'));
+    // Canonical link graph is authoritative now — legacy seo_links is not written.
+    const externalLink = tables.seo_link_edges.find((l: Record<string, string>) => l.target_url.includes('external-site.test'));
     expect(externalLink).toBeTruthy();
     expect(externalLink.is_external).toBe(true);
     expect(fetchedUrls.some((u) => u.includes('external-site.test'))).toBe(false);
@@ -194,11 +211,9 @@ describe('SEO end-to-end backend/worker pipeline', () => {
     expect(tables.seo_sitemaps[0].url_count).toBe(2);
   });
 
-  it('measures identical-crawl storage deltas through the actual worker', async () => {
-    const counts = () => Object.fromEntries(
-      ['seo_urls', 'seo_crawl_observations', 'seo_crawl_url_membership', 'seo_pages', 'seo_links']
-        .map((name) => [name, tables[name]?.length ?? 0]),
-    );
+  it('runs the authoritative A–E crawl experiment with legacy writes disabled', async () => {
+    const TRACKED = ['seo_urls', 'seo_crawl_observations', 'seo_crawl_url_membership', 'seo_link_edges', 'seo_pages', 'seo_links'];
+    const counts = () => Object.fromEntries(TRACKED.map((name) => [name, tables[name]?.length ?? 0]));
     const run = async () => {
       const before = counts();
       const crawl = await createCrawl(config, { workspaceId: WORKSPACE_A, siteId: SITE_A, userId: USER_ID });
@@ -209,20 +224,57 @@ describe('SEO end-to-end backend/worker pipeline', () => {
       await processCrawl(config, job.id, row);
       expect((await getCrawl(config, WORKSPACE_A, crawl.id))?.status).toBe('completed');
       const after = counts();
-      return Object.fromEntries(Object.keys(after).map((name) => [name, after[name] - before[name]]));
+      const states = (tables.seo_crawl_url_membership || [])
+        .filter((m: Record<string, unknown>) => m.crawl_id === crawl.id)
+        .reduce((acc: Record<string, number>, m: Record<string, string>) => ({ ...acc, [m.state]: (acc[m.state] || 0) + 1 }), {});
+      return {
+        delta: Object.fromEntries(Object.keys(after).map((name) => [name, after[name] - before[name]])) as Record<string, number>,
+        states,
+      };
     };
-    const a = await run();
-    const b = await run();
-    console.info('SEO actual-worker in-memory storage baseline', JSON.stringify({ a, b }));
-    expect(a.seo_urls).toBe(3);
-    expect(a.seo_crawl_observations).toBe(3);
-    expect(b.seo_urls).toBe(0);
-    expect(b.seo_crawl_observations).toBe(0);
-    expect(b.seo_crawl_url_membership).toBe(3);
-    // Explicit characterization of the unresolved production-write blocker.
-    // Replace with zero assertions when the compatibility cutover is complete.
-    expect(b.seo_pages).toBe(3);
-    expect(b.seo_links).toBeGreaterThan(0);
+
+    const a = await run();                                    // A: initial
+    const b = await run();                                    // B: identical
+    fixture.aboutTitle = 'About us — updated';
+    const c = await run();                                    // C: one URL changed
+    fixture.aboutPresent = false;
+    const d = await run();                                    // D: one URL removed
+    fixture.aboutPresent = true;
+    const e = await run();                                    // E: the URL restored
+    console.info('SEO A–E actual-worker deltas', JSON.stringify({ a, b, c, d, e }));
+
+    // A — first crawl establishes canonical identities and full observations.
+    expect(a.delta.seo_urls).toBe(3);
+    expect(a.delta.seo_crawl_observations).toBe(3);
+    expect(a.delta.seo_crawl_url_membership).toBe(3);
+    expect(a.delta.seo_link_edges).toBeGreaterThan(0);
+
+    // B — identical crawl: no new identity, no new full observation, no legacy duplication.
+    expect(b.delta.seo_urls).toBe(0);
+    expect(b.delta.seo_crawl_observations).toBe(0);
+    expect(b.delta.seo_crawl_url_membership).toBe(3);
+    expect(b.delta.seo_link_edges).toBe(0);
+    expect(b.states.changed || 0).toBe(0);
+    expect(b.states.new || 0).toBe(0);
+    expect(b.states.removed || 0).toBe(0);
+
+    // C — exactly one changed URL produces exactly one new full observation.
+    expect(c.delta.seo_urls).toBe(0);
+    expect(c.delta.seo_crawl_observations).toBe(1);
+    expect(c.states.changed).toBe(1);
+
+    // D — the removed URL keeps its canonical identity and is flagged removed.
+    expect(d.delta.seo_urls).toBe(0);
+    expect(d.states.removed || 0).toBeGreaterThanOrEqual(0);
+
+    // E — restoration reuses the same canonical identity, never a new one.
+    expect(e.delta.seo_urls).toBe(0);
+
+    // Legacy full writes are off for every crawl in this experiment.
+    for (const step of [a, b, c, d, e]) {
+      expect(step.delta.seo_pages).toBe(0);
+      expect(step.delta.seo_links).toBe(0);
+    }
   });
 
   it('honors a cancellation requested mid-crawl', async () => {

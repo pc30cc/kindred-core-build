@@ -17,6 +17,7 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { classifyChannel, referrerDomain, type Channel } from './channels.js';
 import { continentForCountry, CONTINENT_NAMES } from './continents.js';
+import { getCrawlPages } from '../seo/canonicalRepository.js';
 
 const ROW_CAP = 20_000;
 
@@ -501,14 +502,12 @@ export async function getPossible404s(config: ServerConfig, workspaceId: string,
     .maybeSingle();
   if (!latestCrawl) return { available: false, rows: [] };
 
-  const { data: errorPages } = await sb
-    .from('seo_pages')
-    .select('url, http_status')
-    .eq('crawl_id', (latestCrawl as { id: string }).id)
-    .gte('http_status', 400);
+  const crawlPages = await getCrawlPages(config, (latestCrawl as { id: string }).id);
   const statusByPath = new Map<string, number>();
-  for (const p of (errorPages || []) as Array<{ url: string; http_status: number }>) {
-    try { statusByPath.set(normalizePath(new URL(p.url).pathname + new URL(p.url).search), p.http_status); }
+  for (const entry of crawlPages) {
+    const status = entry.page.http_status as number | null;
+    if (typeof status !== 'number' || status < 400) continue;
+    try { statusByPath.set(normalizePath(new URL(entry.url).pathname + new URL(entry.url).search), status); }
     catch { /* skip unparseable crawl URL */ }
   }
   if (statusByPath.size === 0) return { available: true, rows: [] };

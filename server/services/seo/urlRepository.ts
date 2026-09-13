@@ -88,6 +88,9 @@ export interface RecordObservationResult {
   urlId: string;
   changeType: UrlChangeType;
   observationId: string | null;
+  /** The observation that describes this URL's state in this crawl — the new
+   *  row when one was written, otherwise the reused previous one. */
+  effectiveObservationId: string | null;
   /** true when a full observation row was written (i.e. NOT deduplicated). */
   observationWritten: boolean;
 }
@@ -214,6 +217,8 @@ export async function recordObservation(args: RecordObservationArgs): Promise<Re
     { onConflict: 'crawl_id,url_id' },
   );
 
+  const effectiveObservationId = observationId ?? prev?.id ?? null;
+
   await sb
     .from('seo_urls')
     .update({
@@ -221,10 +226,12 @@ export async function recordObservation(args: RecordObservationArgs): Promise<Re
       is_active: true,
       disappeared_at: null,
       last_successful_crawl_id: crawlId,
+      // Current-state pointer: user-facing screens never replay history.
+      current_observation_id: effectiveObservationId,
     })
     .eq('id', urlId);
 
-  return { urlId, changeType, observationId, observationWritten };
+  return { urlId, changeType, observationId, effectiveObservationId, observationWritten };
 }
 
 /**

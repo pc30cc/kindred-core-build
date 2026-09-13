@@ -1492,3 +1492,22 @@ export function compareSelfhostTarget(connectionString: string) {
     return body as DbCompareResult;
   });
 }
+
+/** Downloads the whole database as a gzipped plain-SQL dump (psql importable). */
+export async function downloadSqlDump(): Promise<void> {
+  const res = await authFetch(`${API_BASE}/api/admin/database/dump.sql.gz`, { method: 'GET' });
+  if (res.status === 404) throw new Error('migration_backend_not_deployed');
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(String((body as { error?: string }).error || `API error: ${res.status}`));
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `database_${new Date().toISOString().replace(/[:.]/g, '-')}.sql.gz`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

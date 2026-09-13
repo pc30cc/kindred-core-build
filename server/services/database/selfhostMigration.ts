@@ -181,7 +181,7 @@ export async function runSelfhostMigration(
 
       if (options.truncateTarget) {
         await target
-          .query(`truncate table public.${JSON.stringify(table).replace(/"/g, '""').replace(/^""|""$/g, '"')} cascade`)
+          .query(`truncate table public."${table.replace(/"/g, '""')}" cascade`)
           .catch((e) => emit({ type: 'warn', message: `truncate ${table}: ${e.message}` }));
       }
 

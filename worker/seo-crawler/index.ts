@@ -133,7 +133,7 @@ export async function processCrawl(config: ReturnType<typeof loadConfig>, jobId:
     workspaceId: crawl.workspace_id,
     websiteId: crawl.website_id,
     crawlCreatedAt: crawl.created_at,
-    sitemapSampleUrls: (result.sitemapSummary as Record<string, unknown> as { sampleUrls?: string[] }).sampleUrls || [],
+    sitemapSampleUrls: (result.sitemapSummary as unknown as { sampleUrls?: string[] }).sampleUrls || [],
     crawledButMissingFromSitemapCount: result.sitemapSummary.crawledButMissingFromSitemap,
     sitemapUrlsNotCrawledCount: result.sitemapSummary.sitemapUrlsNotCrawled,
   });

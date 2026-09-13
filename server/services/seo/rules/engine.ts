@@ -40,7 +40,7 @@ type LegacyPageRecord = {
   is_https: boolean;
   has_mixed_content: boolean;
   is_nofollow: boolean;
-  discovered_via: string;
+  discovered_via: SeoPageForRules['discoveredVia'];
   incoming_internal_links_count: number;
   fetch_error: string;
   response_time_ms: number;
@@ -110,7 +110,7 @@ async function fetchAllLinks(
 
 async function fetchSitemaps(sb: ReturnType<typeof getServiceClient>, crawlId: string): Promise<SeoSitemapForRules[]> {
   const { data } = await sb.from('seo_sitemaps').select('url, status, error_message').eq('crawl_id', crawlId);
-  return ((data || []) as Record<string, unknown>[]).map((r) => ({ url: r.url as string, status: r.status as string, errorMessage: (r.error_message as string | null) ?? null }));
+  return ((data || []) as Record<string, unknown>[]).map((r) => ({ url: r.url as string, status: r.status as SeoSitemapForRules['status'], errorMessage: (r.error_message as string | null) ?? null }));
 }
 
 async function previousIssueTypes(sb: ReturnType<typeof getServiceClient>, workspaceId: string, websiteId: string, crawlId: string, crawlCreatedAt: string): Promise<Set<string>> {

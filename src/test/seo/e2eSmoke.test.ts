@@ -53,7 +53,7 @@ function normalizePath(url: string): string {
 
 // Mutable fixture knobs, driven by the A–E authoritative-crawl experiment:
 // C changes /about's title, D removes /about entirely, E restores it.
-const fixture = { aboutTitle: 'About', aboutPresent: true };
+const fixture = { aboutTitle: 'About', aboutPresent: true, brokenHref: '/missing' };
 
 type FakeFetchResult = Record<string, unknown>;
 
@@ -77,7 +77,7 @@ async function fakeFetchImpl(url: string): Promise<FakeFetchResult> {
       ...base, ok: true, status: 200, contentType: 'text/html',
       html: '<html><head><title>Home</title></head><body>'
         + (fixture.aboutPresent ? '<a href="/about">About</a> ' : '')
-        + '<a href="/missing">Broken</a> <a href="https://external-site.test/page">External</a>'
+        + `<a href="${fixture.brokenHref}">Broken</a> <a href="https://external-site.test/page">External</a>`
         + '<p>Home page body copy with enough visible words to clear the thin-content threshold used by the rules engine in this smoke test.</p>'
         + '</body></html>',
     };
@@ -92,7 +92,7 @@ async function fakeFetchImpl(url: string): Promise<FakeFetchResult> {
         + '</body></html>',
     };
   }
-  if (path === 'https://example.com/missing') {
+  if (path === 'https://example.com/missing' || path === 'https://example.com/missing-2') {
     return { ...base, ok: false, status: 404, error: 'http_404' };
   }
   throw new Error(`unexpected fetch in e2e smoke test: ${url}`);
@@ -133,7 +133,7 @@ const config = {} as unknown as Parameters<typeof createCrawl>[0];
 
 describe('SEO end-to-end backend/worker pipeline', () => {
   beforeEach(() => {
-    fixture.aboutTitle = "About"; fixture.aboutPresent = true;
+    fixture.aboutTitle = 'About'; fixture.aboutPresent = true; fixture.brokenHref = '/missing';
     tables = seedTables();
     fakeSb = makeFakeSupabase(tables);
     fetchedUrls.length = 0;
@@ -277,7 +277,72 @@ describe('SEO end-to-end backend/worker pipeline', () => {
     }
   });
 
+  it('completes a crawl when the legacy seo_pages/seo_links tables reject every access', async () => {
+    // Regression guard: the legacy model must not be structurally required.
+    // Any touch of seo_pages / seo_links throws, so a green run proves the
+    // authoritative pipeline is canonical-only.
+    const guarded = new Proxy(fakeSb as unknown as Record<string, unknown>, {
+      get(target, prop, receiver) {
+        if (prop === 'from') {
+          return (table: string) => {
+            if (table === 'seo_pages' || table === 'seo_links') {
+              throw new Error(`legacy_seo_write_forbidden: ${table}`);
+            }
+            return (target.from as (t: string) => unknown)(table);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const realSb = fakeSb;
+    fakeSb = guarded as typeof fakeSb;
+    try {
+      const crawl = await createCrawl(config, { workspaceId: WORKSPACE_A, siteId: SITE_A, userId: USER_ID });
+      const job = await claimNextJob(config, { jobTypes: ['seo_crawl'], workerId: 'worker-1', lockTtlSeconds: 120 });
+      const row = tables.seo_crawls.find((entry) => entry.id === crawl.id);
+      await processCrawl(config, job!.id, row);
+
+      expect((await getCrawl(config, WORKSPACE_A, crawl.id))?.status).toBe('completed');
+      expect(tables.seo_urls.length).toBe(3);
+      expect(tables.seo_crawl_observations.length).toBe(3);
+      expect(tables.seo_crawl_url_membership.length).toBe(3);
+      expect(tables.seo_link_edges.length).toBeGreaterThan(0);
+      expect(tables.seo_issues.length).toBeGreaterThan(0);
+      expect(tables.seo_crawl_summaries.length).toBe(1);
+      expect(tables.seo_pages.length).toBe(0);
+      expect(tables.seo_links.length).toBe(0);
+
+      const { pages } = await listCrawlPages(config, WORKSPACE_A, crawl.id, { limit: 50 });
+      expect(pages).toHaveLength(3);
+    } finally {
+      fakeSb = realSb;
+    }
+  });
+
+  it('does not duplicate the link graph across identical crawls, and stores only the changed edge', async () => {
+    const edgeCount = () => tables.seo_link_edges.length;
+    const run = async () => {
+      const crawl = await createCrawl(config, { workspaceId: WORKSPACE_A, siteId: SITE_A, userId: USER_ID });
+      const job = await claimNextJob(config, { jobTypes: ['seo_crawl'], workerId: 'worker-1', lockTtlSeconds: 120 });
+      const row = tables.seo_crawls.find((entry) => entry.id === crawl.id);
+      await processCrawl(config, job!.id, row);
+      return crawl.id;
+    };
+
+    await run();                      // X
+    const afterX = edgeCount();
+    expect(afterX).toBeGreaterThan(0);
+
+    await run();                      // X+1, identical link graph
+    expect(edgeCount() - afterX).toBe(0);
+
+    fixture.brokenHref = '/missing-2'; // exactly one internal link changed
+    await run();                       // X+2
+    expect(edgeCount() - afterX).toBe(1);
+  });
+
   it('honors a cancellation requested mid-crawl', async () => {
+
     const crawl = await createCrawl(config, { workspaceId: WORKSPACE_A, siteId: SITE_A, userId: USER_ID });
     const job = await claimNextJob(config, { jobTypes: ['seo_crawl'], workerId: 'worker-1', lockTtlSeconds: 120 });
     await requestJobCancel(config, job!.id);

@@ -4343,6 +4343,7 @@ const en = {
       target_database_missing: 'No database with that name exists on the target server.',
       target_tls_error: 'Secure (TLS) connection failed. Try adding sslmode=disable to the connection string.',
       target_connect_failed: 'Could not connect to the target database.',
+      migrationBackendNotDeployed: 'The updated server has not been deployed yet. Redeploy the Express server, then try again.',
       savePath: 'Save Path',
     },
     mapGeo: {

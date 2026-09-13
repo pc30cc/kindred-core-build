@@ -522,6 +522,7 @@ function MigrationTab() {
         target_tls_error: 'admin.database.target_tls_error',
         target_connect_failed: 'admin.database.target_connect_failed',
         invalid_connection_string: 'admin.database.invalid_connection_string',
+        migration_backend_not_deployed: 'admin.database.migrationBackendNotDeployed',
       } as const;
       const key = known[code as keyof typeof known];
       toast.error(key ? t(key) : code || t('admin.database.opFailed'));

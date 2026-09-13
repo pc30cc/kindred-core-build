@@ -4328,6 +4328,7 @@ const tr: TranslationKeys = {
       target_database_missing: 'Hedef sunucuda bu adda bir veritabanı yok.',
       target_tls_error: 'Güvenli (TLS) bağlantı kurulamadı. Bağlantı dizesine sslmode=disable eklemeyi deneyin.',
       target_connect_failed: 'Hedef veritabanına bağlanılamadı.',
+      migrationBackendNotDeployed: 'Güncel sunucu henüz dağıtılmadı. Express sunucusunu yeniden dağıtıp tekrar deneyin.',
       savePath: 'Kayıt Yolu',
     },
     mapGeo: {

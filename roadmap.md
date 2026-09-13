@@ -1,8 +1,8 @@
 # Roadmap
 
-- [ ] Audit live post-migration Retention + SEO storage and publish evidence.
-- [ ] Correct verified safety/storage gaps using forward-only migrations 171+; never edit/re-run 169/170.
-- [ ] Verify crawler/read compatibility, resumable backfill and production safety with tests before readiness.
+- [ ] Audit live SEO storage and publish concrete writer/reader inventory and baseline counts.
+- [ ] Complete authoritative delta storage, normalized links, compatible reads and resumable backfill using migrations 173+ only; migrations 169–172 immutable.
+- [ ] Verify actual identical crawls, exact row deltas, isolation, history, summaries and retention eligibility; cleanup remains disabled and legacy data intact.
 
 - [x] Fix all active preview typecheck errors in genericVerificationCore integration tests
 - [ ] Complete hosted/self-host v5.1 migration chain and legal policy bootstrap

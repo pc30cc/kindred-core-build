@@ -4,7 +4,7 @@
 Self-hosted backend (Express), no cloud dependency. Provider-based architecture, 14 types.
 Supabase for DB/auth. Dark theme. No Edge Functions without approval.
 Dashboard removed — do not re-add.
-Migrations 169/170 are immutable applied production history; corrections 171+ only, no automatic rollback or legacy SEO cleanup.
+Migrations 169–172 are immutable production history; corrections 173+ only. No rollback, legacy SEO deletion or destructive cleanup.
 
 ## Memories
 - [Theme](mem://design/theme) — Cloud White palette, Sora+Manrope fonts, radius/shadow tokens

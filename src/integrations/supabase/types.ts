@@ -11224,6 +11224,186 @@ export type Database = {
           },
         ]
       }
+      seo_crawl_observations: {
+        Row: {
+          canonical_status: string | null
+          change_type: string
+          changed: boolean
+          crawl_id: string
+          created_at: string
+          external_links_count: number
+          id: string
+          incoming_internal_links_count: number
+          internal_links_count: number
+          is_indexable: boolean | null
+          issue_flags: Json
+          meta_description: string | null
+          observation_hash: string
+          observed_at: string
+          payload: Json
+          site_id: string
+          status_code: number | null
+          title: string | null
+          url_id: string
+          workspace_id: string
+        }
+        Insert: {
+          canonical_status?: string | null
+          change_type?: string
+          changed?: boolean
+          crawl_id: string
+          created_at?: string
+          external_links_count?: number
+          id?: string
+          incoming_internal_links_count?: number
+          internal_links_count?: number
+          is_indexable?: boolean | null
+          issue_flags?: Json
+          meta_description?: string | null
+          observation_hash: string
+          observed_at?: string
+          payload?: Json
+          site_id: string
+          status_code?: number | null
+          title?: string | null
+          url_id: string
+          workspace_id: string
+        }
+        Update: {
+          canonical_status?: string | null
+          change_type?: string
+          changed?: boolean
+          crawl_id?: string
+          created_at?: string
+          external_links_count?: number
+          id?: string
+          incoming_internal_links_count?: number
+          internal_links_count?: number
+          is_indexable?: boolean | null
+          issue_flags?: Json
+          meta_description?: string | null
+          observation_hash?: string
+          observed_at?: string
+          payload?: Json
+          site_id?: string
+          status_code?: number | null
+          title?: string | null
+          url_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_crawl_observations_crawl_id_fkey"
+            columns: ["crawl_id"]
+            isOneToOne: false
+            referencedRelation: "seo_crawls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_crawl_observations_site_id_fkey"
+            columns: ["site_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_domains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_crawl_observations_url_id_fkey"
+            columns: ["url_id"]
+            isOneToOne: false
+            referencedRelation: "seo_urls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_crawl_observations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      seo_crawl_url_membership: {
+        Row: {
+          changed: boolean
+          crawl_id: string
+          effective_observation_id: string | null
+          observation_id: string | null
+          observed_at: string
+          site_id: string
+          state: string
+          status_code: number | null
+          url_id: string
+          workspace_id: string
+        }
+        Insert: {
+          changed?: boolean
+          crawl_id: string
+          effective_observation_id?: string | null
+          observation_id?: string | null
+          observed_at?: string
+          site_id: string
+          state?: string
+          status_code?: number | null
+          url_id: string
+          workspace_id: string
+        }
+        Update: {
+          changed?: boolean
+          crawl_id?: string
+          effective_observation_id?: string | null
+          observation_id?: string | null
+          observed_at?: string
+          site_id?: string
+          state?: string
+          status_code?: number | null
+          url_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_crawl_url_membership_crawl_id_fkey"
+            columns: ["crawl_id"]
+            isOneToOne: false
+            referencedRelation: "seo_crawls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_crawl_url_membership_effective_observation_id_fkey"
+            columns: ["effective_observation_id"]
+            isOneToOne: false
+            referencedRelation: "seo_crawl_observations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_crawl_url_membership_observation_id_fkey"
+            columns: ["observation_id"]
+            isOneToOne: false
+            referencedRelation: "seo_crawl_observations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_crawl_url_membership_site_id_fkey"
+            columns: ["site_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_domains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_crawl_url_membership_url_id_fkey"
+            columns: ["url_id"]
+            isOneToOne: false
+            referencedRelation: "seo_urls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_crawl_url_membership_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       seo_crawls: {
         Row: {
           cancel_requested: boolean
@@ -12872,6 +13052,76 @@ export type Database = {
           },
           {
             foreignKeyName: "seo_tracked_keywords_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      seo_urls: {
+        Row: {
+          created_at: string
+          disappeared_at: string | null
+          first_seen_at: string
+          id: string
+          is_active: boolean
+          last_seen_at: string
+          last_successful_crawl_id: string | null
+          metadata: Json
+          normalized_url: string
+          site_id: string
+          updated_at: string
+          url_hash: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          disappeared_at?: string | null
+          first_seen_at?: string
+          id?: string
+          is_active?: boolean
+          last_seen_at?: string
+          last_successful_crawl_id?: string | null
+          metadata?: Json
+          normalized_url: string
+          site_id: string
+          updated_at?: string
+          url_hash: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          disappeared_at?: string | null
+          first_seen_at?: string
+          id?: string
+          is_active?: boolean
+          last_seen_at?: string
+          last_successful_crawl_id?: string | null
+          metadata?: Json
+          normalized_url?: string
+          site_id?: string
+          updated_at?: string
+          url_hash?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_urls_last_successful_crawl_id_fkey"
+            columns: ["last_successful_crawl_id"]
+            isOneToOne: false
+            referencedRelation: "seo_crawls"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_urls_site_id_fkey"
+            columns: ["site_id"]
+            isOneToOne: false
+            referencedRelation: "workspace_domains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "seo_urls_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -18999,6 +19249,23 @@ export type Database = {
         }
         Returns: Json
       }
+      seo_backfill_url_model: {
+        Args: { _max_crawls?: number }
+        Returns: {
+          crawls_processed: number
+          memberships_created: number
+          urls_created: number
+        }[]
+      }
+      seo_retention_prune_crawl_details: {
+        Args: { _batch_size?: number; _dry_run?: boolean; _keep?: number }
+        Returns: {
+          crawls_matched: number
+          rows_deleted: number
+          rows_matched: number
+        }[]
+      }
+      seo_storage_metrics: { Args: never; Returns: Json }
       set_workspace_seat_entitlement_mode: {
         Args: {
           _mode: string

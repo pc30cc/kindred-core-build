@@ -26,6 +26,7 @@ const adminNav = [
   { group: 'operations', key: 'system', path: '/admin/system', icon: Server },
   { group: 'operations', key: 'observability', path: '/admin/observability', icon: Activity },
   { group: 'operations', key: 'retention', path: '/admin/retention', icon: ShieldCheck },
+  { group: 'operations', key: 'backup', path: '/admin/backup', icon: DatabaseBackup },
   { group: 'operations', key: 'featureFlags', path: '/admin/feature-flags', icon: Flag },
   { group: 'operations', key: 'plugins', path: '/admin/plugins', icon: Plug },
   { group: 'governance', key: 'branding', path: '/admin/branding', icon: Palette },

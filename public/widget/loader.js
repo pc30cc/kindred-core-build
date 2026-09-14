@@ -1440,7 +1440,7 @@
       tplScript.async = true;
       tplScript.setAttribute("data-gs-template", "renderer");
       tplScript.onload = function () { templateJsLoaded = true; done(); };
-      tplScript.onerror = function () { fail("template-js"); };
+      withHashFallback(tplScript, presentationJs, "src", document.head, function () { fail("template-js"); });
       document.head.appendChild(tplScript);
     };
     regScript.onerror = function () { fail("template-registry"); };

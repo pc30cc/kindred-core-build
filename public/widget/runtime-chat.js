@@ -225,7 +225,17 @@
         }),
       })
         .then(function (r) {
-          if (!r.ok) throw new Error('http_' + r.status);
+          if (!r.ok) {
+            // Read the sanitized public body (status + server-issued `code`
+            // only — never a raw Postgres error) so debug diagnostics below
+            // can report *why* without exposing internals to the console.
+            return r.json().catch(function () { return null; }).then(function (body) {
+              var e = new Error('http_' + r.status);
+              e.status = r.status;
+              e.code = (body && body.code) || null;
+              throw e;
+            });
+          }
           return r.json();
         })
         .then(function (data) {
@@ -242,6 +252,16 @@
           if (data.reply && onReply) onReply(data.reply);
         })
         .catch(function (err) {
+          // gs:debug-gated only. SAFE fields alone: no widget/session token,
+          // no visitor/session/contact id, no raw request headers, no
+          // service-role key, no raw Postgres error — see the P0 message-send
+          // incident postmortem this diagnostic was added for.
+          dbg('[Widget Runtime] message_send failed', {
+            operation: 'message_send',
+            status: (err && err.status) || null,
+            code: (err && err.code) || null,
+            conversation_present: !!conversationId,
+          });
           if (onError) onError(err);
         });
     },

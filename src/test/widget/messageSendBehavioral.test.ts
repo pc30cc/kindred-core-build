@@ -24,6 +24,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
 import express from 'express';
 import { enrichMessagesWithReplyTo, isVisitorVisibleMessageMeta, filterVisitorVisibleMessages } from '../../../server/routes/widgetAttachments.js';
 
@@ -96,6 +98,23 @@ function makeFakeSupabase() {
         return Promise.resolve({ data: found, error: null }).then(resolve);
       },
       insert: (row: any) => {
+        // P0 regression fixture — the exact production incident (2026-09-14):
+        // a migration adding `reply_to_message_id` existed in-repo but was
+        // never applied to the production DB, so every insert (which always
+        // selects that column back via MESSAGE_COLUMNS/RETURNING) failed with
+        // Postgres 42703 "column ... does not exist". This sentinel
+        // reproduces that failure class — a generic, non-23505 DB error on
+        // insert — without depending on a real schema-drift setup.
+        if (row.body === '__TRIGGER_DB_ERROR__') {
+          return {
+            select: () => ({
+              single: async () => ({
+                data: null,
+                error: { message: 'column "reply_to_message_id" of relation "conversation_messages" does not exist' },
+              }),
+            }),
+          };
+        }
         // Simulate migration 070's partial unique index:
         // (conversation_id, metadata->>'client_message_id').
         const cmid = row.metadata?.client_message_id;
@@ -646,6 +665,59 @@ describe('POST /api/widget/message — reply-to visitor visibility (internal mes
     expect(child.reply_to_message_id).toBeNull();
     expect(JSON.stringify(polled.body)).not.toContain('secret in A');
     expect(JSON.stringify(polled.body)).not.toContain(parentIdA);
+  });
+});
+
+describe('POST /api/widget/message — persistence failure (P0 regression: schema drift / missing migration)', () => {
+  it('a DB insert failure returns a stable 5xx with a safe error code, and commits nothing (no partial/duplicate row)', async () => {
+    const convId = seedConversation();
+    const before = messages.length;
+    const res = await post('/api/widget/message', {
+      workspace_id: WS_ID,
+      conversation_id: convId,
+      message: '__TRIGGER_DB_ERROR__',
+    });
+    expect(res.status).toBe(500);
+    expect(res.body.code).toBe('MESSAGE_PERSIST_FAILED');
+    // The raw Postgres error (column/relation/constraint detail) must never
+    // reach the public response — only the sanitized error + code.
+    expect(JSON.stringify(res.body)).not.toMatch(/relation|column|does not exist|42703|23505/i);
+    expect(messages).toHaveLength(before);
+    expect(publishSpy).not.toHaveBeenCalled();
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(aiRunSpy).not.toHaveBeenCalled();
+  });
+
+  it('a retry (same client_message_id) after the underlying fault clears succeeds and inserts exactly one row — no duplicate from the failed attempt', async () => {
+    const convId = seedConversation();
+    const failed = await post('/api/widget/message', {
+      workspace_id: WS_ID,
+      conversation_id: convId,
+      message: '__TRIGGER_DB_ERROR__',
+      client_message_id: 'cmid-retry-after-fail',
+    });
+    expect(failed.status).toBe(500);
+    expect(messages).toHaveLength(0);
+
+    const retried = await post('/api/widget/message', {
+      workspace_id: WS_ID,
+      conversation_id: convId,
+      message: 'now it works',
+      client_message_id: 'cmid-retry-after-fail',
+    });
+    expect(retried.status).toBe(200);
+    expect(messages.filter((m) => m.conversation_id === convId)).toHaveLength(1);
+  });
+
+  it('server/routes/widget.ts POST /message catch block returns a stable public code, never the raw error message', () => {
+    // Structural guard alongside the behavioral test above: the code field
+    // must be a literal, not derived from err.message (which could leak
+    // Postgres internals if ever interpolated in).
+    const src = fs.readFileSync(path.resolve(process.cwd(), 'server/routes/widget.ts'), 'utf8');
+    const idx = src.indexOf("console.error('[widget-message] Error:'");
+    expect(idx).toBeGreaterThan(-1);
+    const tail = src.slice(idx, idx + 300);
+    expect(tail).toMatch(/code:\s*'MESSAGE_PERSIST_FAILED'/);
   });
 });
 

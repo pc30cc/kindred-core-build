@@ -2488,8 +2488,11 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       reply_to: replyToPreview,
     });
   } catch (err: any) {
+    // Full detail (Postgres code/constraint/message) stays server-side only —
+    // the public response carries a stable, sanitized code so the widget can
+    // distinguish/report failure classes without ever seeing raw DB internals.
     console.error('[widget-message] Error:', err.message);
-    res.status(500).json({ error: 'Message send failed' });
+    res.status(500).json({ error: 'Message send failed', code: 'MESSAGE_PERSIST_FAILED' });
   }
 });
 

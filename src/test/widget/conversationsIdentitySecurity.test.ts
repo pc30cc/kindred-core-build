@@ -105,3 +105,98 @@ describe('widget runtime — new conversation & identity hygiene', () => {
     expect(source).toMatch(/if \(!convId && body\.visitor_id && !body\.force_new_conversation\)/);
   });
 });
+
+/**
+ * P0 regression (2026-09-14) — "Recent Conversations missing". Root cause
+ * was NOT the server (GET /conversations already fails closed with a real
+ * 500 on a DB error — see the assertion below) but the widget client:
+ * `loadConversations()` unconditionally collapsed ANY non-OK response
+ * (401/403/500/network failure) into `{ conversations: [] }`, so a real
+ * outage rendered identically to "this visitor genuinely has no
+ * conversations" with no way to tell the two apart or retry.
+ */
+describe('GET /api/widget/conversations — a backend failure must never be reported as a successful empty list', () => {
+  it('server: a DB error on the conversations query returns 500, not conversations: []', () => {
+    const body = handlerBody("widgetRouter.get('/conversations'");
+    expect(body).toMatch(/if \(error\) throw error;/);
+    expect(body).toMatch(/catch \(err: any\) \{/);
+    expect(body).toMatch(/res\.status\(500\)\.json\(\{ error: 'Internal error' \}\)/);
+  });
+
+  it('client: loadConversations() no longer collapses a non-OK response into { conversations: [] }', () => {
+    const runtime = readFileSync(resolve(process.cwd(), 'public/widget/runtime.js'), 'utf8');
+    const idx = runtime.indexOf('function loadConversations(onDone)');
+    expect(idx).toBeGreaterThan(-1);
+    const body = runtime.slice(idx, idx + 3200);
+    // The old masking line must be gone.
+    expect(body).not.toMatch(/return r\.ok \? r\.json\(\) : \{ conversations: \[\] \}/);
+    expect(body).not.toMatch(/\.catch\(function \(\) \{ return \{ conversations: \[\] \}; \}\)/);
+    // A non-OK response must throw so it lands in a distinct error path.
+    expect(body).toMatch(/if \(!r\.ok\) \{/);
+  });
+
+  it('client: a failed fetch sets error state and does NOT claim loaded:true (so it is retried, not permanently cached as empty)', () => {
+    const runtime = readFileSync(resolve(process.cwd(), 'public/widget/runtime.js'), 'utf8');
+    const idx = runtime.indexOf('function loadConversations(onDone)');
+    const body = runtime.slice(idx, idx + 3200);
+    const catchIdx = body.indexOf('.catch(function (err) {');
+    expect(catchIdx).toBeGreaterThan(-1);
+    const catchBody = body.slice(catchIdx, catchIdx + 700);
+    // Strip line comments before checking for a real `loaded: true`
+    // assignment — the fix's own explanatory comment names the old,
+    // rejected behavior ("Deliberately NOT loaded:true") and must not be
+    // mistaken for the code doing it.
+    const catchCode = catchBody.replace(/^\s*\/\/.*$/gm, '');
+    expect(catchBody).toMatch(/error: true/);
+    expect(catchCode).not.toMatch(/loaded:\s*true/);
+  });
+
+  it('client: repeated failures are bounded by a retry cooldown instead of re-fetching on every render', () => {
+    const runtime = readFileSync(resolve(process.cwd(), 'public/widget/runtime.js'), 'utf8');
+    expect(runtime).toMatch(/CONVERSATIONS_RETRY_COOLDOWN_MS/);
+    expect(runtime).toMatch(/conversationsLastAttemptAt/);
+  });
+
+  it('client: on failure, a previously loaded list is kept, not blanked (only the store fields loading/error are touched)', () => {
+    const runtime = readFileSync(resolve(process.cwd(), 'public/widget/runtime.js'), 'utf8');
+    const idx = runtime.indexOf('function loadConversations(onDone)');
+    const body = runtime.slice(idx, idx + 3200);
+    const catchIdx = body.indexOf('.catch(function (err) {');
+    const catchBody = body.slice(catchIdx, catchIdx + 700);
+    expect(catchBody).not.toMatch(/items:\s*\[\]/);
+  });
+});
+
+describe('POST /api/widget/message — public error code (P0 regression, 2026-09-14 outage)', () => {
+  it('the catch-all failure path returns a stable, sanitized code alongside the generic message', () => {
+    const idx = source.indexOf("widgetRouter.post('/message'");
+    expect(idx).toBeGreaterThan(-1);
+    const tail = source.slice(idx, source.length);
+    const catchIdx = tail.indexOf("console.error('[widget-message] Error:'");
+    expect(catchIdx).toBeGreaterThan(-1);
+    const catchBody = tail.slice(catchIdx, catchIdx + 300);
+    expect(catchBody).toMatch(/code:\s*'MESSAGE_PERSIST_FAILED'/);
+    // The PUBLIC json response (res.status(...).json({...})) must never
+    // interpolate the raw driver error — only the console.error server log
+    // (already outside the public response) may reference err.message.
+    const jsonLineIdx = catchBody.indexOf('res.status(500).json(');
+    expect(jsonLineIdx).toBeGreaterThan(-1);
+    const jsonLine = catchBody.slice(jsonLineIdx, catchBody.indexOf('\n', jsonLineIdx));
+    expect(jsonLine).not.toMatch(/err\.message/);
+  });
+
+  it('runtime-chat.js captures status + server code (never raw body) for gs:debug diagnostics, never widget/session identity', () => {
+    const chat = readFileSync(resolve(process.cwd(), 'public/widget/runtime-chat.js'), 'utf8');
+    const idx = chat.indexOf('message_send failed');
+    expect(idx).toBeGreaterThan(-1);
+    const body = chat.slice(idx - 50, idx + 350);
+    expect(body).toMatch(/operation:\s*'message_send'/);
+    expect(body).toMatch(/status:/);
+    expect(body).toMatch(/code:/);
+    expect(body).toMatch(/conversation_present:/);
+    // Must never appear anywhere near this diagnostic block.
+    for (const banned of ['sessionToken', 'visitorId', 'contact_id', 'X-Widget-Token']) {
+      expect(body).not.toContain(banned);
+    }
+  });
+});

@@ -7197,7 +7197,13 @@
     // ─── Visitor conversation list (server-backed) ───
     // GET /api/widget/conversations returns ONLY the conversations that
     // belong to this visitor. Core owns the state; the template owns markup.
-    var conversationsStore = createStore({ loaded: false, loading: false, items: [] });
+    var conversationsStore = createStore({ loaded: false, loading: false, items: [], error: false });
+    // Cooldown so a persistent backend failure can't be re-fetched on every
+    // render pass (renderHome/renderConversationList both call loadConversations
+    // whenever `loaded` is false) — without this a sustained outage would
+    // hammer the endpoint on every re-render instead of backing off.
+    var CONVERSATIONS_RETRY_COOLDOWN_MS = 15000;
+    var conversationsLastAttemptAt = 0;
 
     /** BCP47 tag for the active widget locale (Jalali calendar for fa). */
     function localeTag(calendar) {
@@ -7266,19 +7272,53 @@
 
       var st = conversationsStore.get();
       if (st.loading) return;
+      // A genuine failure (non-2xx, network error) must never be reported as
+      // "this visitor has no conversations" — that silently hides real
+      // outages (auth, backend 5xx, schema drift) behind an empty Home
+      // screen. On failure we do NOT set loaded:true — the caller's own
+      // `if (!loaded) loadConversations(...)` guard (renderHome /
+      // renderConversationList) then retries on the next natural re-render,
+      // bounded by this cooldown so a sustained outage can't be re-fetched
+      // on every render pass.
+      if (st.error && (Date.now() - conversationsLastAttemptAt) < CONVERSATIONS_RETRY_COOLDOWN_MS) {
+        if (onDone) onDone();
+        return;
+      }
+      conversationsLastAttemptAt = Date.now();
       conversationsStore.set({ loading: true });
       // No visitor_id on the wire: the server resolves identity solely from
       // the signed HttpOnly `dvsid` cookie and ignores any client-sent id.
       var url = ctx.apiBase + '/api/widget/conversations?workspace_id=' +
         encodeURIComponent(ctx.workspaceId || '');
       ctx.fetchWith(url, { method: 'GET' })
-        .then(function (r) { return r.ok ? r.json() : { conversations: [] }; })
-        .catch(function () { return { conversations: [] }; })
+        .then(function (r) {
+          if (!r.ok) {
+            var e = new Error('http_' + r.status);
+            e.status = r.status;
+            throw e;
+          }
+          return r.json();
+        })
         .then(function (data) {
           conversationsStore.set({
             loaded: true,
             loading: false,
+            error: false,
             items: (data && data.conversations ? data.conversations : []).map(mapConversationVm),
+          });
+          if (onDone) onDone();
+        })
+        .catch(function (err) {
+          Util.warn('conversations_load_failed', {
+            status: (err && err.status) || null,
+          });
+          conversationsStore.set({
+            // Deliberately NOT loaded:true — see comment above. Existing
+            // items (if any, from a prior successful load) are kept rather
+            // than blanked, so a transient failure on refresh doesn't erase
+            // a list the visitor already saw.
+            loading: false,
+            error: true,
           });
           if (onDone) onDone();
         });

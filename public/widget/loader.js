@@ -39,10 +39,17 @@
   var ELEMENT_TAG = "gs-widget";
 
   // DEBUG defaults to OFF in production. Opt in via:
-  //   window.__gs_debug = true   (developer console)
+  //   window.__gs_debug = true          (developer console)
+  //   localStorage.setItem('gs:debug','1')  (same key runtime.js/
+  //                                          runtime-chat.js already honor —
+  //                                          kept consistent here too)
   //   data-debug="true" attribute on the loader script
-  //   config.debugMode === true  (server-driven)
-  var DEBUG = window.__gs_debug === true;
+  //   config.debugMode === true         (server-driven)
+  function readLsDebug() {
+    try { return typeof localStorage !== 'undefined' && localStorage.getItem('gs:debug') === '1'; }
+    catch (_) { return false; }
+  }
+  var DEBUG = window.__gs_debug === true || readLsDebug();
 
   function log() {
     if (!DEBUG) return;
@@ -63,6 +70,41 @@
   var GS = window.__gs || [];
   var queue = [];
   var widgetApi = null;
+
+  // ─── Public event bus ────────────────────────────────────────────────
+  // onReady/onOpen/onClose/onMessage/onUnreadChange are registered through
+  // the SAME __gs.push(['onOpen', fn]) command mechanism as every other
+  // public command — a listener registration is just a command whose
+  // effect is "remember this callback" instead of "do a thing once". No
+  // second dispatch mechanism, no new top-level method on window.__gs.
+  var readyFired = false;
+  var eventListeners = { ready: [], open: [], close: [], message: [], unreadchange: [] };
+  function emitPublicEvent(name, payload) {
+    var arr = eventListeners[name];
+    if (!arr) return;
+    // Snapshot before iterating — a listener registering/unregistering
+    // another listener mid-emit must never skip or double-fire siblings.
+    var snap = arr.slice();
+    for (var i = 0; i < snap.length; i++) {
+      try { snap[i](payload); } catch (e) { warn("public event listener error (" + name + ")", e); }
+    }
+  }
+  function onPublicEvent(name) {
+    return function (cb) {
+      if (typeof cb !== "function") return;
+      eventListeners[name].push(cb);
+      // A listener registered AFTER the widget already became ready must
+      // still get its one 'ready' call — otherwise `push(['onReady', fn])`
+      // called late (e.g. after a slow host-page script) would silently
+      // never fire.
+      if (name === "ready" && readyFired) { try { cb(); } catch (e) { warn("onReady listener error", e); } }
+    };
+  }
+  // Bridge so runtime.js (loaded lazily, a separate script) can emit
+  // 'message' events without reaching into loader-internal state — the
+  // ONLY cross-file public-event hook. Never exposes tokens/ids/internal
+  // objects; runtime.js is responsible for handing this a minimal payload.
+  window.__gs_public_events = { emit: emitPublicEvent };
   var ready = false;
 
   if (Array.isArray(GS)) {
@@ -915,8 +957,19 @@
           close: function () { triggerClose(); },
           toggle: function () { triggerOpen(); },
           setUnread: function (count) { setUnreadBadge(count); },
+          show: function () { setLauncherHidden(false); },
+          hide: function () { triggerClose(); setLauncherHidden(true); },
+          isOpen: function () { return !!isOpen; },
+          identify: function (data) { setIdentifyData(data); },
+          onReady: onPublicEvent("ready"),
+          onOpen: onPublicEvent("open"),
+          onClose: onPublicEvent("close"),
+          onMessage: onPublicEvent("message"),
+          onUnreadChange: onPublicEvent("unreadchange"),
         };
         ready = true;
+        readyFired = true;
+        emitPublicEvent("ready");
         processQueue();
       })
       .catch(function (err) {
@@ -961,6 +1014,7 @@
     return (window.__gs_runtime && window.__gs_runtime._instance) || null;
   }
   function syncOpenStateFromRuntime() {
+    var was = isOpen;
     var inst = runtimeInstanceRef();
     if (inst && typeof inst.isOpen === "function") {
       try { isOpen = !!inst.isOpen(); } catch (_) { /* keep last known */ }
@@ -970,6 +1024,7 @@
     if (launcherEl) launcherEl.classList.toggle("open", !!isOpen);
     if (fabLabelEl) fabLabelEl.classList.toggle("open", !!isOpen);
     applyMobileFullScreen(!!isOpen);
+    if (isOpen !== was) emitPublicEvent(isOpen ? "open" : "close");
     return isOpen;
   }
 
@@ -1234,6 +1289,19 @@
             close: function () { try { instance.close(); } catch (_) {} syncOpenStateFromRuntime(); },
             toggle: function () { try { instance.toggle(); } catch (_) {} syncOpenStateFromRuntime(); },
             setUnread: setUnreadBadge,
+            show: function () { setLauncherHidden(false); },
+            hide: function () {
+              try { instance.close(); } catch (_) {}
+              syncOpenStateFromRuntime();
+              setLauncherHidden(true);
+            },
+            isOpen: function () { return !!isOpen; },
+            identify: function (data) { setIdentifyData(data); },
+            onReady: onPublicEvent("ready"),
+            onOpen: onPublicEvent("open"),
+            onClose: onPublicEvent("close"),
+            onMessage: onPublicEvent("message"),
+            onUnreadChange: onPublicEvent("unreadchange"),
           };
           ready = true;
           // init() only MOUNTS. The panel opens here — and ONLY here — when
@@ -1432,6 +1500,34 @@
       badge.className = "badge";
       badge.textContent = count > 9 ? "9+" : String(count);
       launcherEl.appendChild(badge);
+    }
+    emitPublicEvent("unreadchange", Math.max(0, count | 0));
+  }
+
+  // ─── Public API: show()/hide() — launcher-level visibility ───────────
+  // Distinct from open()/close() (the CHAT PANEL): this controls whether
+  // the launcher bubble is on the page at all. hide() also closes the
+  // panel first (a widget with no launcher but an open panel would be
+  // unreachable/unclosable by the visitor).
+  var launcherHidden = false;
+  function setLauncherHidden(hidden) {
+    launcherHidden = !!hidden;
+    if (launcherEl) launcherEl.style.display = launcherHidden ? "none" : "";
+  }
+
+  // ─── Public API: identify() — visitor metadata via the EXISTING,
+  // already-server-accepted visitor_name/visitor_email/visitor_phone
+  // fields on POST /api/widget/message (the same fields the pre-chat form
+  // already sends). No new identity mechanism, no new endpoint — this
+  // only remembers the values so the next message send includes them.
+  function setIdentifyData(data) {
+    if (!data || typeof data !== "object") return;
+    var next = {};
+    if (typeof data.name === "string" && data.name.trim()) next.name = data.name.trim().slice(0, 200);
+    if (typeof data.email === "string" && data.email.trim()) next.email = data.email.trim().slice(0, 255);
+    if (typeof data.phone === "string" && data.phone.trim()) next.phone = data.phone.trim().slice(0, 30);
+    try { window.__gs_identify_data = Object.assign({}, window.__gs_identify_data || {}, next); } catch (_) {
+      window.__gs_identify_data = next;
     }
   }
 

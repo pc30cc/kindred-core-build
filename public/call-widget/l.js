@@ -20,10 +20,25 @@
   var origin = '';
   try { origin = new URL(src).origin; } catch (_) { origin = window.location.origin; }
 
+  // Same opt-in debug convention as the chat widget (window.__gs_debug /
+  // localStorage 'gs:debug') — this loader previously warned unconditionally
+  // on embed misconfiguration and bootstrap failures, straight to every
+  // visitor's production console.
+  function isDebug() {
+    try {
+      if (window.__gs_debug === true) return true;
+      return typeof localStorage !== 'undefined' && localStorage.getItem('gs:debug') === '1';
+    } catch (_) { return false; }
+  }
+  function dwarn() {
+    if (!isDebug()) return;
+    try { console.warn.apply(console, arguments); } catch (_) {}
+  }
+
   var workspaceId = s.getAttribute('workspace-id') || s.getAttribute('data-workspace-id');
   var publicKey = s.getAttribute('public-key') || s.getAttribute('data-public-key');
   if (!workspaceId && !publicKey) {
-    console.warn('[call-widget] missing workspace-id or public-key');
+    dwarn('[call-widget] missing workspace-id or public-key');
     return;
   }
 
@@ -46,7 +61,7 @@
     .then(function (resp) {
       if (!resp.ok || resp.body.status !== 'ok') {
         if (resp.body && resp.body.status === 'disabled') return; // silent: globally disabled
-        console.warn('[call-widget] bootstrap failed', resp);
+        dwarn('[call-widget] bootstrap failed', resp);
         return;
       }
       var bootstrap = resp.body;
@@ -146,6 +161,6 @@
       ensureLiveKitSdk(loadPresentation);
     })
     .catch(function (err) {
-      console.warn('[call-widget] bootstrap error', err);
+      dwarn('[call-widget] bootstrap error', err);
     });
 })();

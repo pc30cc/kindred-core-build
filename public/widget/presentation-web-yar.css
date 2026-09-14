@@ -634,6 +634,13 @@ a.wy-powered:hover { color: var(--wy-text); }
 .msg-ticks svg { display: block; }
 .msg-ticks.is-seen { color: var(--wy-accent); }
 .msg-ticks.is-failed { color: #e5484d; font-weight: 700; }
+.msg-retry-btn {
+  border: none; background: none; padding: 0; margin-inline-start: 2px;
+  font: inherit; font-size: 10.5px; font-weight: 600; line-height: 1;
+  color: #e5484d; text-decoration: underline; text-underline-offset: 2px;
+  cursor: pointer;
+}
+.msg-retry-btn:hover, .msg-retry-btn:focus-visible { color: #c62a30; }
 
 .msg-quote {
   border-inline-start: 3px solid currentColor; padding-inline-start: 8px; font-size: 12px;

@@ -602,11 +602,19 @@
         var isLastInStreak = idx === s.messages.length - 1 || groupKeys[idx + 1] !== groupKeys[idx];
 
         var statusHtml = '';
-        if (m.sender === 'visitor' && isLastInStreak && receiptsEnabled && m.status) {
+        if (m.sender === 'visitor' && isLastInStreak && m.status === 'failed') {
+          // Send failure is error feedback, not a "read receipt" — shown
+          // regardless of the workspace's receiptsEnabled setting, with a
+          // retry action the visitor can actually act on (unlike the old
+          // static "!" glyph). data-msg-retry is handled by the same
+          // delegated click handler as data-msg-reply/data-msg-copy.
+          statusHtml = '<span class="msg-ticks is-failed" aria-label="' + esc(t('msgFailed')) + '">!</span>' +
+            '<button type="button" class="msg-retry-btn" data-msg-retry="' + esc(m.localId || '') +
+              '" title="' + esc(t('retry')) + '" aria-label="' + esc(t('retry')) + '">' +
+              esc(t('retry')) + '</button>';
+        } else if (m.sender === 'visitor' && isLastInStreak && receiptsEnabled && m.status) {
           if (m.status === 'sending') {
             statusHtml = '<span class="msg-ticks is-sending"><span class="msg-status-spinner"></span></span>';
-          } else if (m.status === 'failed') {
-            statusHtml = '<span class="msg-ticks is-failed" aria-label="' + esc(t('msgFailed')) + '">!</span>';
           } else {
             var seen = m.status === 'seen';
             var two = seen || m.status === 'delivered';

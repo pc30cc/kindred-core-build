@@ -1738,6 +1738,17 @@ const messageSchema = z.object({
   session_id: z.string().uuid().optional().nullable(),
   force_new_conversation: z.boolean().optional(),
   attachment_id: z.string().uuid().optional().nullable(),
+  /**
+   * Client-generated, stable across a message's retries (same id on every
+   * resend of the SAME composed message; a brand-new message gets a new
+   * id). Mirrors the operator-side `/send-message` idempotency contract
+   * (server/routes/conversations.ts) so a double-click or a client-side
+   * retry can never create two rows for one intended send.
+   */
+  client_message_id: z.string().min(8).max(64).optional(),
+  /** Visitor-side reply-to-message: must reference a message already in
+   *  this same conversation — validated below, never trusted blindly. */
+  reply_to_message_id: z.string().uuid().optional().nullable(),
   /** Phase 8H — optional department selected by widget (single/multi mode). */
   department_id: z.string().uuid().optional().nullable(),
   /** E2C — sanitized page context (currentPageUrl/Origin/Path/Title/referrer). */
@@ -2128,27 +2139,90 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
     // Insert visitor message (body may be empty when only an attachment is sent)
     const messageBody = body.message || (data.attachment_id ? '' : '');
-    const { data: insertedMsg, error: msgErr } = await supabase
-      .from('conversation_messages').insert({
-        conversation_id: convId,
-        body: messageBody,
-        sender_type: 'contact',
-        metadata: {
-          source: 'widget',
-          visitor_id: body.visitor_id,
-          session_id: body.session_id,
-          attachment_id: data.attachment_id || undefined,
-          department_id: data.department_id || undefined,
-          page_context: pageContext || undefined,
-          nudge_context: nudgeIdForAttribution ? { source: 'ai_proactive_nudge', nudge_id: nudgeIdForAttribution } : undefined,
-        },
-      })
-      .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')
-      .single();
-    if (msgErr) throw msgErr;
+    const MESSAGE_COLUMNS = 'id, conversation_id, sender_type, body, created_at, metadata, seen_at';
+    const clientMessageId = data.client_message_id || null;
+
+    // Reply-to: only ever accept a target that already exists in THIS same
+    // conversation — never trust a cross-conversation id from the client
+    // (that would let one visitor's widget leak a snippet of a message from
+    // a conversation it has no access to). A miss is dropped silently, same
+    // as an invalid page_context — it never fails the send itself.
+    let replyToMessageId: string | null = null;
+    if (data.reply_to_message_id) {
+      const { data: parent } = await supabase
+        .from('conversation_messages')
+        .select('id')
+        .eq('id', data.reply_to_message_id)
+        .eq('conversation_id', convId)
+        .maybeSingle();
+      if (parent) replyToMessageId = parent.id;
+    }
+
+    const insertMetadata: Record<string, unknown> = {
+      source: 'widget',
+      visitor_id: body.visitor_id,
+      session_id: body.session_id,
+      attachment_id: data.attachment_id || undefined,
+      department_id: data.department_id || undefined,
+      page_context: pageContext || undefined,
+      nudge_context: nudgeIdForAttribution ? { source: 'ai_proactive_nudge', nudge_id: nudgeIdForAttribution } : undefined,
+    };
+    if (clientMessageId) insertMetadata.client_message_id = clientMessageId;
+
+    /**
+     * Idempotency (double-click / client retry / resend-after-failure).
+     * Mirrors server/routes/conversations.ts's operator-side `/send-message`
+     * exactly, including reuse of the SAME partial unique index from
+     * migration 070 (`conversation_id`, `metadata->>'client_message_id'`) —
+     * there is one idempotency mechanism for `conversation_messages`
+     * inserts, not a second one invented for the widget. The lookup here
+     * only avoids a pointless failing insert; the unique index is the real
+     * guard against a genuine race between two near-simultaneous retries.
+     */
+    let duplicate = false;
+    let insertedMsg: any = null;
+    if (clientMessageId) {
+      const { data: prior } = await supabase
+        .from('conversation_messages')
+        .select(MESSAGE_COLUMNS)
+        .eq('conversation_id', convId)
+        .filter('metadata->>client_message_id', 'eq', clientMessageId)
+        .maybeSingle();
+      if (prior) { insertedMsg = prior; duplicate = true; }
+    }
+
+    if (!insertedMsg) {
+      const { data: row, error: insErr } = await supabase
+        .from('conversation_messages').insert({
+          conversation_id: convId,
+          body: messageBody,
+          sender_type: 'contact',
+          reply_to_message_id: replyToMessageId,
+          metadata: insertMetadata,
+        })
+        .select(MESSAGE_COLUMNS)
+        .single();
+      if (insErr || !row) {
+        // Lost the race against a concurrent replay of the same key.
+        if (clientMessageId && /duplicate key|23505/i.test(insErr?.message || '')) {
+          const { data: prior } = await supabase
+            .from('conversation_messages')
+            .select(MESSAGE_COLUMNS)
+            .eq('conversation_id', convId)
+            .filter('metadata->>client_message_id', 'eq', clientMessageId)
+            .maybeSingle();
+          if (prior) { insertedMsg = prior; duplicate = true; }
+        }
+        if (!insertedMsg) throw insErr || new Error('Insert failed');
+      } else {
+        insertedMsg = row;
+      }
+    }
 
     // AI Proactive Nudge attribution — best-effort, never blocks the message.
-    if (nudgeIdForAttribution && convId) {
+    // Skipped on a duplicate replay: the original send already attributed
+    // this nudge exactly once.
+    if (!duplicate && nudgeIdForAttribution && convId) {
       // Guarded transition only — a nudge that was never clicked cannot
       // silently become "converted" and corrupt attribution.
       void transitionNudgeStatus(supabase, { nudgeId: nudgeIdForAttribution, workspaceId, to: 'converted' });
@@ -2170,8 +2244,10 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
     // "Awaiting customer reply" threads return to the active queue as soon as
     // the customer writes again. Conditional, atomic and idempotent; the
-    // shared guard rejects anything that is not a real inbound customer message.
-    if (convId && insertedMsg?.id) {
+    // shared guard rejects anything that is not a real inbound customer
+    // message. Skipped on a duplicate replay — the original send already
+    // ran this transition for the same logical message.
+    if (!duplicate && convId && insertedMsg?.id) {
       await applyInboundConversationLifecycle(config, {
         workspaceId,
         conversationId: convId,
@@ -2187,8 +2263,9 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     }
 
 
-    // Phase 6a — Bind uploaded attachment to this message + conversation
-    if (data.attachment_id && insertedMsg?.id) {
+    // Phase 6a — Bind uploaded attachment to this message + conversation.
+    // Skipped on a duplicate replay — already bound by the original send.
+    if (!duplicate && data.attachment_id && insertedMsg?.id) {
       const ok = await attachUploadedFileToMessage(
         config, data.attachment_id, workspaceId, convId!, insertedMsg.id
       );
@@ -2225,8 +2302,10 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     }
 
     // Realtime: broadcast the visitor message to the inbox subscriber.
-    // Fire-and-forget — DB row is the source of truth.
-    if (insertedMsg) {
+    // Fire-and-forget — DB row is the source of truth. Skipped on a
+    // duplicate replay: the original send already broadcast and pushed
+    // this exact message once — replaying it would double-deliver.
+    if (insertedMsg && !duplicate) {
       publishConversationEvent(
         config,
         workspaceId,
@@ -2259,8 +2338,11 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     //   - auto_reply_always             → reply (capped + safety)
     //
     // Fire-and-forget: must never block the widget /message response.
+    // Skipped on a duplicate replay — the original send already triggered
+    // (or correctly skipped) exactly one AI run for this message; running
+    // it again would risk a second AI reply for one visitor message.
     // ─────────────────────────────────────────────────────────────────────
-    if (insertedMsg?.id && convId && !platformAiOff) {
+    if (!duplicate && insertedMsg?.id && convId && !platformAiOff) {
       const aiConvId = convId;
       const aiMsgId = insertedMsg.id;
       void maybeRunAiAssistantAfterVisitorMessage(config, {

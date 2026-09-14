@@ -40,7 +40,19 @@
   if (window.__gs_call_loaded) return;
   window.__gs_call_loaded = true;
 
+  // Same three opt-in mechanisms as every other widget module (loader.js,
+  // runtime.js Util.debug, runtime-chat.js isDebug()): OFF by default in
+  // production. This module previously logged every call/track/device event
+  // unconditionally — including participant identities and normalized WS
+  // URLs — straight to the visitor's production console.
+  function isDebug() {
+    try {
+      if (typeof window !== 'undefined' && window.__gs_debug === true) return true;
+      return typeof localStorage !== 'undefined' && localStorage.getItem('gs:debug') === '1';
+    } catch (_) { return false; }
+  }
   function dlog() {
+    if (!isDebug()) return;
     try {
       var args = Array.prototype.slice.call(arguments);
       args.unshift('[gs-call]');
@@ -49,6 +61,7 @@
   }
 
   function dwarn() {
+    if (!isDebug()) return;
     try {
       var args = Array.prototype.slice.call(arguments);
       args.unshift('[gs-call]');

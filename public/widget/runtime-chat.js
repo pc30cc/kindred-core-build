@@ -144,6 +144,11 @@
       var attachmentId = opts.attachmentId || null;
       var text = opts.text;
       var departmentId = opts.departmentId || null;
+      // Stable across retries of the SAME composed message (caller-owned —
+      // see runtime.js's sendMessage/resendMessage). Lets the backend treat
+      // a resend as idempotent instead of inserting a second row.
+      var clientMessageId = opts.clientMessageId || null;
+      var replyToMessageId = opts.replyToMessageId || null;
       var onReply = opts.onReply;
       var onConversation = opts.onConversation;
       // Phase 7 — receives { conversationId, messageId } once the backend
@@ -191,6 +196,12 @@
         }
       } catch (_) {}
 
+      // Public API identify() (window.__gs.push(['identify', {...}])) —
+      // reuses these same visitor_name/visitor_email/visitor_phone fields
+      // the pre-chat form already sends; no separate identity mechanism.
+      var identifyData = null;
+      try { identifyData = window.__gs_identify_data || null; } catch (_) {}
+
       fetchWith(apiBase + '/api/widget/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -199,6 +210,11 @@
           conversation_id: conversationId || undefined,
           force_new_conversation: forceNewConversation || undefined,
           attachment_id: attachmentId || undefined,
+          client_message_id: clientMessageId || undefined,
+          reply_to_message_id: replyToMessageId || undefined,
+          visitor_name: (identifyData && identifyData.name) || undefined,
+          visitor_email: (identifyData && identifyData.email) || undefined,
+          visitor_phone: (identifyData && identifyData.phone) || undefined,
 
           message: text,
           department_id: departmentId || undefined,
@@ -323,9 +339,25 @@
       var onMessages = opts.onMessages;
       var onConversation = opts.onConversation;
       var onTick = opts.onTick; // (ok: boolean) — connection health signal
-      var interval = opts.interval || 5000;
+      // `getInterval()` (preferred) is re-evaluated before EVERY tick, so a
+      // caller can slow the cadence while the tab is hidden and have it
+      // snap back to full speed the instant it's visible again — without
+      // tearing down and recreating the poll loop. Falls back to a fixed
+      // `interval` for backward compatibility.
+      var getInterval = typeof opts.getInterval === 'function'
+        ? opts.getInterval
+        : function () { return opts.interval || 5000; };
 
-      var pollId = setInterval(function () {
+      var stopped = false;
+      var timer = null;
+
+      function scheduleNext() {
+        if (stopped) return;
+        timer = setTimeout(tick, Math.max(1000, getInterval() || 5000));
+      }
+
+      function tick() {
+        timer = null;
         var cid = typeof getConversationId === 'function' ? getConversationId() : null;
         var url = buildUrl(apiBase, '/api/widget/poll', {
           workspace_id: workspaceId,
@@ -366,10 +398,13 @@
             }
             if (onTick) onTick(true);
           })
-          .catch(function () { if (onTick) onTick(false); });
-      }, interval);
+          .catch(function () { if (onTick) onTick(false); })
+          .then(scheduleNext);
+      }
 
-      return { stop: function () { clearInterval(pollId); } };
+      scheduleNext();
+
+      return { stop: function () { stopped = true; if (timer) { clearTimeout(timer); timer = null; } } };
     },
   };
 })();

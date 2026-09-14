@@ -4,7 +4,7 @@ import {
   Flag, Palette, Globe, FileText, CreditCard, Shield,
   Database, Crown, MessageSquare, MapPin, PhoneCall,
   ChevronLeft, ChevronRight, LogOut, ArrowLeft, ArrowRight, Activity, Video, Sparkles,
-  KeyRound, X, ShieldCheck, Radar, SlidersHorizontal,
+  KeyRound, X, ShieldCheck, Radar, SlidersHorizontal, DatabaseBackup,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/features/auth/AuthContext';

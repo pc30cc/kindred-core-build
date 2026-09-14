@@ -3709,6 +3709,7 @@ const en = {
       aiAgent: 'AI Agent',
       seoIntegrations: 'SEO Integrations',
       retention: 'Data Retention',
+      backup: 'Backup & Recovery',
       aiBilling: 'AI Billing',
       advancedRouting: 'Advanced Routing',
       system: 'System',

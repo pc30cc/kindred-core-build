@@ -117,6 +117,7 @@ import AdminWorkspacesPage from "@/pages/admin/WorkspacesPage";
 import AdminProvidersPage from "@/pages/admin/ProvidersPage";
 import AdminSystemPage from "@/pages/admin/SystemPage";
 import AdminRetentionPage from "@/pages/admin/RetentionPage";
+import AdminBackupPage from "@/pages/admin/BackupPage";
 import AdminObservabilityPage from "@/pages/admin/ObservabilityPage";
 import AdminFeatureFlagsPage from "@/pages/admin/FeatureFlagsPage";
 import AdminBrandingPage from "@/pages/admin/BrandingPage";

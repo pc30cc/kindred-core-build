@@ -482,6 +482,115 @@ export async function enrichMessagesWithAttachments(
 }
 
 /**
+ * Canonical visitor-message-visibility predicate — the ONE place that
+ * decides whether a message's metadata marks it as something a visitor
+ * must never see (currently: internal staffing/assignment/system notices,
+ * written with `metadata.internal === true` — see server/routes/
+ * conversations.ts's transfer notice). Every accessor that might expose a
+ * message (or a preview of one) to the widget — enrichMessagesWithSender's
+ * /poll+/history filter, and enrichMessagesWithReplyTo below — shares this
+ * one rule instead of maintaining independent copies that can drift.
+ */
+export function isVisitorVisibleMessageMeta(metadata: unknown): boolean {
+  const meta = (metadata && typeof metadata === 'object') ? metadata as Record<string, any> : null;
+  return !(meta && meta.internal === true);
+}
+
+/**
+ * Filters a full message LIST down to visitor-visible ones, built on
+ * isVisitorVisibleMessageMeta above. This is the counterpart for an array
+ * of message objects (each carrying its own `metadata`) — the ONE place
+ * every read path that returns a message list to the widget applies the
+ * rule, so it does not matter whether that path also happens to run
+ * sender-profile enrichment (enrichMessagesWithSender uses this too) or
+ * not (GET /identity/history has no sender enrichment step at all, and
+ * must still get the same visibility guarantee from calling this directly).
+ */
+export function filterVisitorVisibleMessages<T extends { metadata?: unknown }>(messages: T[]): T[] {
+  if (!messages || !messages.length) return messages || [];
+  return messages.filter((m) => isVisitorVisibleMessageMeta(m?.metadata));
+}
+
+/**
+ * Attach a resolved reply-to preview to every message carrying a
+ * `reply_to_message_id`, in ONE batch query — not one lookup per message.
+ * Shared by POST /message (the send response + realtime envelope), GET
+ * /poll, GET /history, and GET /identity/history so the structured reply
+ * relationship travels the same way through every read path a message can
+ * reach the widget through, matching the `enrichMessagesWithAttachments`
+ * pipeline style above.
+ *
+ * `conversationId` is the caller's ALREADY-KNOWN, already-authorized
+ * conversation id (every call site queries a single conversation) — not
+ * something read off the client messages, and never round-tripped back to
+ * the browser. `reply_to_message_id` self-references `conversation_messages`
+ * but the database does NOT enforce that a parent lives in the same
+ * conversation, so this is defense in depth: a parent is only ever attached
+ * when `parent.conversation_id === conversationId`.
+ *
+ * A parent is sanitized to "no reply, indistinguishable from having none"
+ * in THREE cases — NOT just `reply_to` (the body-carrying preview), but
+ * also the public `reply_to_message_id` field is nulled out, so a visitor
+ * can never use "the id is present but the preview is null" as an oracle
+ * for "something I can't see exists here":
+ *   - it no longer resolves at all (deleted — reply_to_message_id is
+ *     `ON DELETE SET NULL`, but a narrow race window exists between the
+ *     parent row disappearing and the FK actually nulling out)
+ *   - it resolves but belongs to a DIFFERENT conversation (should be
+ *     unreachable given the FK + this helper's own callers, but never
+ *     trusted blindly)
+ *   - it resolves in the same conversation but fails the canonical
+ *     visitor-visibility check (an internal staffing/system notice) — its
+ *     body must never reach `reply_to.text`, and its id must not leak via
+ *     `reply_to_message_id` either
+ * The true FK is whatever the DB row already had before this function ran
+ * (untouched at the database level — this only sanitizes the copy that
+ * goes out over the wire to the widget).
+ */
+export type ReplyToPreview = { id: string; text: string; sender_type: string };
+
+export async function enrichMessagesWithReplyTo(
+  config: ServerConfig,
+  conversationId: string,
+  messages: Array<{ reply_to_message_id?: string | null; [k: string]: any }>,
+): Promise<Array<any>> {
+  if (!messages || messages.length === 0) return messages || [];
+  const replyIds = Array.from(new Set(
+    messages
+      .map((m) => m.reply_to_message_id)
+      .filter((id): id is string => typeof id === 'string' && !!id),
+  ));
+  if (!replyIds.length) return messages;
+
+  const sb = getServiceClient(config);
+  const parentMap: Record<string, ReplyToPreview> = {};
+  try {
+    const { data } = await sb
+      .from('conversation_messages')
+      .select('id, conversation_id, body, sender_type, metadata')
+      .in('id', replyIds);
+    for (const p of (data || []) as any[]) {
+      if (p.conversation_id !== conversationId) continue; // defense in depth — see doc comment above
+      if (!isVisitorVisibleMessageMeta(p.metadata)) continue; // internal notice — never preview its body
+      parentMap[p.id] = { id: p.id, text: p.body ?? '', sender_type: p.sender_type };
+    }
+  } catch (e: any) {
+    console.warn('[widget-reply-enrich] parent lookup failed:', e?.message || e);
+  }
+
+  return messages.map((m) => {
+    if (!m.reply_to_message_id) return m;
+    const parent = parentMap[m.reply_to_message_id];
+    // No visible, same-conversation parent → the public shape must be
+    // identical to "this message never had a reply target": null the id
+    // too, not just the preview, so its presence can never be used to
+    // infer that a hidden/foreign message exists.
+    if (!parent) return { ...m, reply_to_message_id: null, reply_to: null };
+    return { ...m, reply_to: parent };
+  });
+}
+
+/**
  * Helper used by POST /message to attach an uploaded file to a message.
  * Exposed here so widget.ts can call it without duplicating logic.
  */

@@ -111,6 +111,18 @@ export function buildMessageEnvelope(row: {
   sender_avatar?: string | null;
   attachment?: unknown;
   attachments?: unknown;
+  /**
+   * Structured reply-to-message relationship. `reply_to_message_id` is the
+   * raw FK (conversation_messages.reply_to_message_id, migration 176);
+   * `reply_to` is an OPTIONAL pre-resolved `{id, text, sender_type}`
+   * preview the caller already fetched (widget.ts's POST /message does
+   * this with zero extra query, reusing the row it fetched to validate the
+   * reply target) — never resolved here, since this function must stay
+   * synchronous and callers that only have the raw id (e.g. a bulk
+   * republish) can omit it and let the widget fall back to the id alone.
+   */
+  reply_to_message_id?: string | null;
+  reply_to?: { id: string; text: string; sender_type: string } | null;
 }): ConversationEventEnvelope {
   const meta = (row.metadata && typeof row.metadata === 'object') ? row.metadata as Record<string, any> : {};
   return {
@@ -136,6 +148,8 @@ export function buildMessageEnvelope(row: {
       sender_avatar: row.sender_avatar ?? meta.agent_logo_url ?? null,
       ...(row.attachment ? { attachment: row.attachment } : {}),
       ...(row.attachments ? { attachments: row.attachments } : {}),
+      ...(row.reply_to_message_id ? { reply_to_message_id: row.reply_to_message_id } : {}),
+      ...(row.reply_to ? { reply_to: row.reply_to } : {}),
     },
   };
 }

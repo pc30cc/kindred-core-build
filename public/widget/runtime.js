@@ -1727,7 +1727,16 @@
           workspaceId: ctx.workspaceId,
           sessionToken: ctx.sessionToken,
           fetchWith: ctx.fetchWith,
-          interval: 4000,
+          // Full cadence while the tab is in the foreground; back off to a
+          // much slower poll while it's hidden — nothing about a background
+          // tab needs sub-5s message latency, and this is the one recurring
+          // network loop in the codebase that wasn't already visibility-
+          // aware (the loader's heartbeat and presence socket already are).
+          // Re-evaluated before every tick, so foregrounding the tab snaps
+          // the very next poll back to 4s with no reconnect/re-negotiation.
+          getInterval: function () {
+            return (typeof document !== 'undefined' && document.hidden) ? 15000 : 4000;
+          },
           getConversationId: function () { return subscribedConversation; },
           onConversation: function (cid) {
             // P0-B — while a fresh intent is armed the poll runs without a
@@ -2303,7 +2312,7 @@
       if (!userInteracted) {
         ringPendingUnlock = true;
         try { notifyStore.set({ ringPendingUnlock: true }); } catch (_) {}
-        try { console.debug('[gs-widget] ringtone blocked: awaiting user gesture'); } catch (_) {}
+        Util.log('[gs-widget] ringtone blocked: awaiting user gesture');
         return;
       }
       var ctx = ensureAudioCtx();
@@ -2348,7 +2357,7 @@
       if (ringNodes) ringNodes.stop();
       ringPendingUnlock = false;
       try { notifyStore.set({ ringPendingUnlock: false }); } catch (_) {}
-      try { console.debug('[gs-widget] ringtone stop', reason || 'unspecified'); } catch (_) {}
+      Util.log('[gs-widget] ringtone stop', reason || 'unspecified');
     }
     // When the visitor finally interacts with the page after a blocked
     // ringtone request, start it immediately if the call is still pending.
@@ -2697,10 +2706,10 @@
     var callBridge = (deps && deps.callBridge) || {};
     var subscribeToEngineOnce = typeof callBridge.subscribeToEngineOnce === 'function'
       ? callBridge.subscribeToEngineOnce
-      : function () { try { console.warn('[gs-call] subscribeToEngineOnce missing — build wiring bug'); } catch (_) {} return false; };
+      : function () { Util.warn('[gs-call] subscribeToEngineOnce missing — build wiring bug'); return false; };
     var openCallSurface = typeof callBridge.openCallSurface === 'function'
       ? callBridge.openCallSurface
-      : function () { try { console.warn('[gs-call] openCallSurface missing'); } catch (_) {} };
+      : function () { Util.warn('[gs-call] openCallSurface missing'); };
     var renderBody = typeof callBridge.renderBody === 'function'
       ? callBridge.renderBody
       : function () {};
@@ -3026,6 +3035,14 @@
           // detects the kind and draws an interactive card instead.
           senderType: senderTypeRaw,
           metadata: (m.metadata && typeof m.metadata === 'object') ? m.metadata : null,
+          // Structured reply-to-message relationship, resolved server-side
+          // (server/routes/widget.ts + enrichMessagesWithReplyTo) on every
+          // delivery path — send response, realtime envelope, /poll,
+          // /history, /identity/history. Consumed by
+          // presentation-web-yar.js's `m.replyTo.text` quote-box render.
+          // The legacy "> quoted text" body convention still renders
+          // correctly on its own (unchanged) if this is ever absent.
+          replyTo: m.reply_to ? { id: m.reply_to.id, text: m.reply_to.text, senderType: m.reply_to.sender_type } : null,
         });
         // Live-arrival marker for the typewriter reveal — the caller (the
         // realtime/poll transport handler) reads this after merge to know
@@ -3167,7 +3184,7 @@
             btn.disabled = false;
             btn.textContent = prevText;
             btn.removeAttribute('aria-busy');
-            try { console.warn('[gs-call] decline failed:', err && err.message); } catch (_) {}
+            Util.warn('[gs-call] decline failed:', err && err.message);
           });
         return;
       }
@@ -3219,7 +3236,7 @@
           btn.textContent = prevText;
           btn.removeAttribute('aria-busy');
           var msg = (err && err.message) || 'unknown';
-          try { console.warn('[gs-call] join failed:', msg); } catch (_) {}
+          Util.warn('[gs-call] join failed:', msg);
           // Surface a visible message under the card so the visitor isn't
           // left wondering. Reuses the existing card so we don't introduce
           // a new toast surface.
@@ -3260,7 +3277,7 @@
             } catch (_) { /* noop */ }
           }
           if (!url) {
-            try { console.warn('[gs-call] runtime URL unknown — missing config.callRuntimeUrl/window.__gs_call_url and runtime <script> tag fallback failed'); } catch (_) {}
+            Util.warn('[gs-call] runtime URL unknown — missing config.callRuntimeUrl/window.__gs_call_url and runtime <script> tag fallback failed');
             return reject(new Error('call_runtime_url_unknown'));
           }
           // Cache so subsequent re-tries don't re-derive.
@@ -3760,45 +3777,32 @@
     function forcingNew() { return ConvEpoch.isFresh() || chatStore.get().freshIntent === true; }
 
 
-    function sendMessage(text, onChange, attachmentId, optimisticAttachment) {
-
-      var conn = transportStore.get().connectionState;
-      if (conn !== 'online') return;
-      var s = chatStore.get();
-      var messages = s.messages.slice();
-      // Phase 7 — optimistic local id used to find this bubble later when
-      // the backend confirms (sending → sent) or rejects (→ failed).
-      var localId = 'local_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-      messages.push({
-        body: text,
-        sender: 'visitor',
-        time: new Date(),
-        attachmentId: attachmentId || null,
-        attachment: optimisticAttachment || null,
-        // Phase 7 — lifecycle starts as 'sending'. Transitions only on
-        // honest backend signals (onAccepted → 'sent', onError → 'failed',
-        // poll/history echo with seen_at → 'seen'). Never faked.
-        status: 'sending',
-        localId: localId,
-      });
-      chatStore.set({ messages: messages });
-      onChange();
-
-      function updateByLocalId(patch) {
-        var cs = chatStore.get();
-        var arr = cs.messages.slice();
-        for (var i = 0; i < arr.length; i++) {
-          if (arr[i].localId === localId) {
-            // Monotonic guard: never regress past 'seen'.
-            if (arr[i].status === 'seen') return;
-            arr[i] = Object.assign({}, arr[i], patch);
-            chatStore.set({ messages: arr });
-            onChange();
-            return;
-          }
+    function updateMessageByLocalId(localId, patch, onChange) {
+      var cs = chatStore.get();
+      var arr = cs.messages.slice();
+      for (var i = 0; i < arr.length; i++) {
+        if (arr[i].localId === localId) {
+          // Monotonic guard: never regress past 'seen'.
+          if (arr[i].status === 'seen') return;
+          arr[i] = Object.assign({}, arr[i], patch);
+          chatStore.set({ messages: arr });
+          if (onChange) onChange();
+          return;
         }
       }
+    }
 
+    /**
+     * Fires the actual network send for an already-pushed optimistic bubble.
+     * Shared by sendMessage() (fresh bubble) and resendMessage() (retry) so
+     * there is exactly one place that talks to transport.sendMessage() —
+     * both pass the SAME clientMessageId/localId, so a retry after the
+     * original request actually landed server-side (just lost its response)
+     * is idempotent rather than creating a second message (see the
+     * client_message_id contract in server/routes/widget.ts).
+     */
+    function attemptSend(localId, text, attachmentId, departmentId, replyToMessageId, onChange) {
+      var s = chatStore.get();
       transport.sendMessage(
         {
           text: text,
@@ -3807,12 +3811,9 @@
           // conversation". Never sent alongside a conversationId.
           forceNewConversation: forcingNew() && !s.conversationId,
           attachmentId: attachmentId || null,
-          departmentId: (function () {
-            try {
-              var d = (typeof window !== 'undefined') ? window.__gs_departments : null;
-              return d && d.getSelectedId ? d.getSelectedId() : null;
-            } catch (_) { return null; }
-          })(),
+          clientMessageId: localId,
+          replyToMessageId: replyToMessageId || null,
+          departmentId: departmentId,
         },
         {
           onConversation: function (cid) {
@@ -3830,24 +3831,85 @@
           onAccepted: function (info) {
             // Bind canonical message id and flip to 'sent'. The next merge
             // (poll/history) will reconcile by __id and may promote to 'seen'.
-            updateByLocalId({
+            updateMessageByLocalId(localId, {
               status: 'sent',
               __id: info && info.messageId ? info.messageId : undefined,
-            });
+            }, onChange);
           },
           onReply: function (reply) {
             var ns = chatStore.get();
             var arr = ns.messages.slice();
             arr.push({ body: reply, sender: 'operator', time: new Date() });
             chatStore.set({ messages: arr });
-            onChange();
+            if (onChange) onChange();
           },
           onError: function () {
             Util.warn('Send failed');
-            updateByLocalId({ status: 'failed' });
+            updateMessageByLocalId(localId, { status: 'failed' }, onChange);
           },
         }
       );
+    }
+
+    function sendMessage(text, onChange, attachmentId, optimisticAttachment, replyToMessageId) {
+      var s = chatStore.get();
+      var messages = s.messages.slice();
+      // Phase 7 — optimistic local id used to find this bubble later when
+      // the backend confirms (sending → sent) or rejects (→ failed). Also
+      // doubles as the send's client_message_id (idempotency key) — see
+      // attemptSend()/resendMessage().
+      var localId = 'local_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      var departmentId = (function () {
+        try {
+          var d = (typeof window !== 'undefined') ? window.__gs_departments : null;
+          return d && d.getSelectedId ? d.getSelectedId() : null;
+        } catch (_) { return null; }
+      })();
+      messages.push({
+        body: text,
+        sender: 'visitor',
+        time: new Date(),
+        attachmentId: attachmentId || null,
+        attachment: optimisticAttachment || null,
+        replyToMessageId: replyToMessageId || null,
+        // Phase 7 — lifecycle starts as 'sending'/'failed'. Transitions only
+        // on honest backend signals (onAccepted → 'sent', onError →
+        // 'failed', poll/history echo with seen_at → 'seen'). Never faked.
+        // Offline/reconnecting: still show the bubble so the visitor gets
+        // feedback and a retry action, rather than the message silently
+        // vanishing — but never attempt the network call while there is no
+        // usable connection.
+        status: transportStore.get().connectionState === 'online' ? 'sending' : 'failed',
+        localId: localId,
+        // The composer's own department selector can change before a retry;
+        // pin the value the visitor actually had at compose time so a
+        // resend targets the same department.
+        departmentId: departmentId,
+      });
+      chatStore.set({ messages: messages });
+      onChange();
+
+      if (transportStore.get().connectionState !== 'online') return;
+      attemptSend(localId, text, attachmentId, departmentId, replyToMessageId, onChange);
+    }
+
+    /**
+     * Retry/resend for a bubble stuck in 'failed'. Reuses the exact same
+     * text/attachment/department/reply-target and, critically, the SAME
+     * localId as client_message_id — so if the original request actually
+     * reached the server (its response was just lost), the backend returns
+     * the original message instead of inserting a duplicate.
+     */
+    function resendMessage(localId, onChange) {
+      var cs = chatStore.get();
+      var msg = null;
+      for (var i = 0; i < cs.messages.length; i++) {
+        if (cs.messages[i].localId === localId) { msg = cs.messages[i]; break; }
+      }
+      if (!msg || msg.status !== 'failed') return;
+      if (transportStore.get().connectionState !== 'online') return;
+      updateMessageByLocalId(localId, { status: 'sending' }, onChange);
+      attemptSend(localId, msg.body, msg.attachmentId, msg.departmentId, msg.replyToMessageId, onChange);
     }
 
     function bootstrapHistory(onChange) {
@@ -3990,6 +4052,7 @@
       renderHandoffPrechatInline: renderHandoffPrechatInline,
       renderContactFallback: renderContactFallback,
       sendMessage: sendMessage,
+      resendMessage: resendMessage,
       bootstrapHistory: bootstrapHistory,
       // P0-C / P0-3 — explicit thread selection. Loads exactly `cid`, never
       // lets the server pick a different conversation, and drops its own
@@ -4118,7 +4181,7 @@
             onResult: function (r) {
               var arts = r.articles || [];
               var cats = r.categories || [];
-              try { console.info('[Widget KB] loaded articles', { count: arts.length, categories: cats.length, locale: ctx.locale, workspaceId: ctx.workspaceId }); } catch (_) {}
+              Util.log('[Widget KB] loaded articles', { count: arts.length, categories: cats.length, locale: ctx.locale });
               kbStore.set({ loaded: true, loadedAt: Date.now(), categories: cats, articles: arts });
               resolveAll();
             },
@@ -4511,6 +4574,12 @@
        locale: resolvedLocale,
        primaryColor: config.primaryColor || '#3B82F6',
        shell: shell,
+       // Realtime drivers (runtime-rt-centrifugo.js, runtime-rt-supabase.js)
+       // call ctx._log(...) for their own connect/subscribe diagnostics.
+       // Route it through the same gated Util.log so those call sites are
+       // live (useful with debug on) but silent by default, like every
+       // other module.
+       _log: Util.log,
      };
 
     // Mount the active presentation template BEFORE anything renders.
@@ -4838,25 +4907,19 @@
       // Idempotent server-side; we never block the local teardown.
       try {
         if (manualHangup && snap && snap.invitationId) {
-          try {
-            console.info('[gs-call] visitor ending call', {
-              call_session_id: snap.callId || null,
-              invitation_id: snap.invitationId,
-            });
-          } catch (_) {}
+          Util.log('[gs-call] visitor ending call', {
+            call_session_id: snap.callId || null,
+            invitation_id: snap.invitationId,
+          });
           postCallInvitationAction(snap.invitationId, 'end')
             .then(function (resp) {
-              try {
-                console.info('[gs-call] visitor end endpoint success', {
-                  duration_seconds: resp && resp.duration_seconds,
-                  call_session_id: resp && resp.call_session_id,
-                });
-              } catch (_) {}
+              Util.log('[gs-call] visitor end endpoint success', {
+                duration_seconds: resp && resp.duration_seconds,
+                call_session_id: resp && resp.call_session_id,
+              });
             })
             .catch(function (err) {
-              try {
-                console.warn('[gs-call] visitor end endpoint failed', err && (err.message || err));
-              } catch (_) {}
+              Util.warn('[gs-call] visitor end endpoint failed', err && (err.message || err));
             });
         }
       } catch (_) {}
@@ -5221,7 +5284,7 @@
           if (attr.name.indexOf('data-') === 0) dataAttrs[attr.name] = attr.value || 'true';
         }
         var cs = window.getComputedStyle(el);
-        console.info('[call-ui] video orientation', {
+        Util.log('[call-ui] video orientation', {
           role: el.getAttribute('data-call-video-role') || 'visitor-video',
           computedTransform: cs.transform,
           inlineTransform: el.style.transform || '',
@@ -5256,19 +5319,17 @@
         stage.classList.add('gs-call-video--' + orientation);
         stage.setAttribute('data-video-orientation', orientation);
       }
-      try {
-        console.info('[call-ui] video dimensions', {
-          role: role,
-          videoWidth: el.videoWidth,
-          videoHeight: el.videoHeight,
-          orientation: orientation,
-        });
-        console.info('[call-ui] orientation class applied', {
-          role: role,
-          orientation: orientation,
-          cls: 'gs-call-video--' + orientation,
-        });
-      } catch (_) {}
+      Util.log('[call-ui] video dimensions', {
+        role: role,
+        videoWidth: el.videoWidth,
+        videoHeight: el.videoHeight,
+        orientation: orientation,
+      });
+      Util.log('[call-ui] orientation class applied', {
+        role: role,
+        orientation: orientation,
+        cls: 'gs-call-video--' + orientation,
+      });
       return orientation;
     }
     function bindTrack(el, track, lkTrack, role) {
@@ -5299,16 +5360,14 @@
         var roleTag = role || 'video';
         ['loadedmetadata', 'playing', 'waiting', 'stalled', 'error', 'resize'].forEach(function (evt) {
           el.addEventListener(evt, function () {
-            try {
-              console.info('[gs-call-ui] remote video event', {
-                role: roleTag,
-                event: evt,
-                width: el.videoWidth,
-                height: el.videoHeight,
-                readyState: el.readyState,
-                paused: el.paused,
-              });
-            } catch (_) {}
+            Util.log('[gs-call-ui] remote video event', {
+              role: roleTag,
+              event: evt,
+              width: el.videoWidth,
+              height: el.videoHeight,
+              readyState: el.readyState,
+              paused: el.paused,
+            });
             if (evt === 'loadedmetadata' || evt === 'resize' || evt === 'playing') {
               try { applyCallVideoOrientation(el, roleTag); } catch (_) {}
             }
@@ -5321,9 +5380,7 @@
       var newTrackId = (track && track.id) || (lkTrack && lkTrack.sid) || '';
       if (lkTrack && typeof lkTrack.attach === 'function') {
         if (prevAttachedLkTrack !== lkTrack) {
-          try {
-            console.info('[gs-call-ui] bind remote video start', { role: role, via: 'lk-attach', sid: lkTrack.sid });
-          } catch (_) {}
+          Util.log('[gs-call-ui] bind remote video start', { role: role, via: 'lk-attach', sid: lkTrack.sid });
           if (prevAttachedLkTrack && typeof prevAttachedLkTrack.detach === 'function') {
             try { prevAttachedLkTrack.detach(el); } catch (_) {}
           }
@@ -5331,16 +5388,14 @@
             lkTrack.attach(el);
             el.__gsAttachedLkTrack = lkTrack;
             el.__gsBoundTrackId = newTrackId;
-            try {
-              console.info('[gs-call-ui] bind remote video success', {
-                role: role,
-                width: el.videoWidth,
-                height: el.videoHeight,
-                readyState: el.readyState,
-              });
-            } catch (_) {}
+            Util.log('[gs-call-ui] bind remote video success', {
+              role: role,
+              width: el.videoWidth,
+              height: el.videoHeight,
+              readyState: el.readyState,
+            });
           } catch (e) {
-            try { console.warn('[gs-call-ui] lk attach failed; fallback to srcObject', e && e.message); } catch (_) {}
+            Util.warn('[gs-call-ui] lk attach failed; fallback to srcObject', e && e.message);
             if (track) {
               try { el.srcObject = new MediaStream([track]); el.__gsBoundTrackId = track.id; } catch (_) {}
             }
@@ -5350,9 +5405,7 @@
         var stalled = el.tagName === 'VIDEO' && el.readyState < 2 && prevId === track.id;
         var dead = track.readyState !== 'live';
         if (prevId !== track.id || stalled || dead) {
-          try {
-            console.info('[gs-call-ui] bind remote video start', { role: role, via: 'srcObject', trackId: track.id });
-          } catch (_) {}
+          Util.log('[gs-call-ui] bind remote video start', { role: role, via: 'srcObject', trackId: track.id });
           try {
             el.srcObject = new MediaStream([track]);
             el.__gsBoundTrackId = track.id;
@@ -5364,7 +5417,7 @@
       try { p = el.play(); } catch (_) {}
       if (p && typeof p.catch === 'function') {
         p.catch(function (err) {
-          try { console.warn('[gs-call-ui] remote video play failed', { role: role, error: err && err.message }); } catch (_) {}
+          Util.warn('[gs-call-ui] remote video play failed', { role: role, error: err && err.message });
         });
       }
     }
@@ -5899,7 +5952,9 @@
     }
     if (chatFrame) {
       chatFrame.addEventListener('click', function (ev) {
-        var el = ev.target && ev.target.closest ? ev.target.closest('[data-msg-reply],[data-msg-copy]') : null;
+        var el = ev.target && ev.target.closest
+          ? ev.target.closest('[data-msg-reply],[data-msg-copy],[data-msg-retry]')
+          : null;
         if (!el) return;
         if (el.hasAttribute('data-msg-reply')) {
           ev.preventDefault();
@@ -5908,6 +5963,12 @@
             text: el.getAttribute('data-msg-reply-text') || '',
             author: el.getAttribute('data-msg-reply-author') || '',
           });
+          return;
+        }
+        if (el.hasAttribute('data-msg-retry')) {
+          ev.preventDefault();
+          var retryLocalId = el.getAttribute('data-msg-retry') || '';
+          if (retryLocalId) chatUI.resendMessage(retryLocalId, renderBody);
           return;
         }
         ev.preventDefault();
@@ -6193,6 +6254,13 @@
       return (serverMsg && map[serverMsg]) || (t('uploadFailed') || 'Upload failed');
     }
     function startUpload(file) {
+      // Bugfix: this read `attachCfg` with no binding anywhere in scope —
+      // every call threw ReferenceError before reaching any of the
+      // validation/upload logic below. `ctx.config.attachments` is the
+      // actual config object (same shape presentation-web-yar.js already
+      // reads correctly as `cfg.attachments` to decide whether to render
+      // the attach button at all).
+      var attachCfg = (ctx.config && ctx.config.attachments) || {};
       var allowed = (attachCfg.allowedMimes || []);
       var maxBytes = (attachCfg.maxSizeMb || 10) * 1024 * 1024;
       // Voice notes go through this same upload function but are a SEPARATE
@@ -6253,6 +6321,38 @@
       attachInput.addEventListener('change', function (e) {
         var file = e.target.files && e.target.files[0];
         if (file) startUpload(file);
+      });
+    }
+
+    // ─── Clipboard image/file paste (Ctrl+V / Cmd+V) ───────────────────
+    // Same upload path as the attach button — startUpload() — so the same
+    // MIME/size policy, progress UI and error handling apply automatically;
+    // no parallel upload implementation. Reads clipboardData.items/files
+    // from the paste event only (no navigator.clipboard.read(), so no
+    // clipboard-permission prompt is ever triggered). A paste with no file
+    // in it (the overwhelming common case: plain text) is left completely
+    // alone — preventDefault() is only called once an actual file/image is
+    // found, so normal text paste is never touched.
+    if (msgInput && attachBtn && attachInput) {
+      msgInput.addEventListener('paste', function (ev) {
+        if (attachmentStore.get().status !== 'idle') return; // one pending attachment at a time
+        var cd = ev.clipboardData || (ev.originalEvent && ev.originalEvent.clipboardData);
+        if (!cd) return;
+        var file = null;
+        if (cd.files && cd.files.length) {
+          file = cd.files[0];
+        } else if (cd.items && cd.items.length) {
+          for (var i = 0; i < cd.items.length; i++) {
+            var item = cd.items[i];
+            if (item && item.kind === 'file') {
+              var f = item.getAsFile();
+              if (f) { file = f; break; }
+            }
+          }
+        }
+        if (!file) return;
+        ev.preventDefault();
+        startUpload(file);
       });
     }
 
@@ -6691,15 +6791,22 @@
       } : null;
       if (hasReadyAttach) resetAttachment();
       // Forwarded/quoted context travels inside the message body so the
-      // operator (and any channel bridge) sees exactly what was quoted.
+      // operator (and any channel bridge) sees exactly what was quoted —
+      // unchanged, existing behavior. `replyToMessageId` ADDITIONALLY
+      // persists a real, queryable reply relationship server-side (see
+      // server/routes/widget.ts); the text-embedded quote above is what
+      // still renders it correctly everywhere (send, realtime, poll,
+      // history) without depending on that column being read back.
       var outText = text;
+      var replyToId = null;
       if (pendingQuote && pendingQuote.text) {
         var qLine = String(pendingQuote.text).replace(/\s*\n+\s*/g, ' ').trim();
         if (pendingQuote.author) qLine = pendingQuote.author + ': ' + qLine;
         outText = '> ' + qLine + '\n\n' + text;
+        replyToId = pendingQuote.id || null;
         setPendingQuote(null);
       }
-      chatUI.sendMessage(outText, renderBody, attachmentId, optimisticAtt);
+      chatUI.sendMessage(outText, renderBody, attachmentId, optimisticAtt, replyToId);
       try {
         if (sendState.aiOwnsThread) showAiThinking();
       } catch (_) {}
@@ -6895,13 +7002,13 @@
     function requestAiAgentIntro(source) {
       // Fail-closed even if a future call site forgets the guard.
       if (!canRequestVisitorAiIntro()) {
-        try { console.debug('[Widget AI Agent] intro suppressed (AI not visitor-facing)', source || 'auto'); } catch (_) {}
+        Util.log('[Widget AI Agent] intro suppressed (AI not visitor-facing)', source || 'auto');
         return;
       }
       var key = aiIntroKey();
       if (__aiIntroKeys[key]) {
 
-        try { console.debug('[Widget AI Agent] intro skipped (already requested for this thread)', key); } catch (_) {}
+        Util.log('[Widget AI Agent] intro skipped (already requested for this thread)', key);
         return;
       }
       __aiIntroKeys[key] = true;
@@ -6917,7 +7024,7 @@
       var conversationId = forceNew ? null : (snap.conversationId || null);
       var identitySnap = identityStore.get() || {};
       var sessionId = identitySnap.sessionId || identitySnap.session_id || null;
-      try { console.debug('[Widget AI Agent] intro requested', { source: source || 'auto', conversationId: conversationId, forceNew: forceNew, sessionId: sessionId, locale: ctx.locale }); } catch (_) {}
+      Util.log('[Widget AI Agent] intro requested', { source: source || 'auto', conversationId: conversationId, forceNew: forceNew, locale: ctx.locale });
 
       ctx.fetchWith(ctx.apiBase + '/api/widget/ai-agent/intro', {
         method: 'POST',
@@ -6939,12 +7046,12 @@
           return r.json().catch(function () { return {}; });
         })
         .then(function (resp) {
-          try { console.debug('[Widget AI Agent] intro response', { sent: resp && resp.sent, reason: resp && resp.reason, messageId: resp && resp.messageId, conversationId: resp && resp.conversationId }); } catch (_) {}
+          Util.log('[Widget AI Agent] intro response', { sent: resp && resp.sent, reason: resp && resp.reason });
           // P0-2 — the visitor started/opened another conversation while the
           // intro was in flight. This greeting belongs to a dead context:
           // never adopt its conversation id, never paint its bubble.
           if (!ConvEpoch.valid(startEpoch)) {
-            try { console.debug('[Widget AI Agent] intro dropped (stale epoch)', startEpoch); } catch (_) {}
+            Util.log('[Widget AI Agent] intro dropped (stale epoch)', startEpoch);
             return;
           }
           if (!resp || resp.sent !== true) {
@@ -6985,7 +7092,7 @@
               }
             }
             if (isDup) {
-              try { console.debug('[Widget AI Agent] intro deduped'); } catch (_) {}
+              Util.log('[Widget AI Agent] intro deduped');
               if (Object.keys(patch).length) {
                 chatStore.set(patch);
                 try { if (patch.conversationId && transport && transport.subscribeConversation) transport.subscribeConversation(patch.conversationId); } catch (_) {}
@@ -7014,14 +7121,14 @@
             // through renderBody, but we want zero-delay paint of the intro.
             try { renderBody(); } catch (_) {}
             try { var __h2 = chatScrollHost(); if (__h2) __h2.scrollTop = __h2.scrollHeight; } catch (_) {}
-            try { console.debug('[Widget AI Agent] intro rendered immediately'); } catch (_) {}
+            Util.log('[Widget AI Agent] intro rendered immediately');
           } catch (_) {}
         })
         .catch(function (err) {
           // Reset THIS thread's slot so a future re-attempt is possible
           // (e.g. transient network); other threads keep their own state.
           delete __aiIntroKeys[key];
-          try { console.debug('[Widget AI Agent] intro failed', err && err.message); } catch (_) {}
+          Util.log('[Widget AI Agent] intro failed', err && err.message);
         });
 
     }
@@ -7784,6 +7891,17 @@
       } catch (_) { /* never break on audio */ }
 
       if (newCount > 0 && lastIncoming) {
+        // Public API onMessage() — minimal, non-sensitive payload only
+        // (no message id, no conversation id, no tokens). Mirrors the same
+        // "new AND not currently visible" gate as the toast/announce below.
+        try {
+          if (window.__gs_public_events && window.__gs_public_events.emit) {
+            window.__gs_public_events.emit('message', {
+              text: lastIncoming.text || lastIncoming.body || '',
+              senderType: lastIncoming.role || lastIncoming.sender || lastIncoming.sender_type || 'agent',
+            });
+          }
+        } catch (_) {}
         hideThinkingIndicator();
         // Screen-reader announcement fires regardless of canToast below —
         // a sighted user viewing the open chat tab sees the new bubble

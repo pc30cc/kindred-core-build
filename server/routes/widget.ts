@@ -90,7 +90,7 @@ import {
   issueContinuityCookieForContact,
 } from '../services/widget/crossWidgetIdentity.js';
 import { widgetIdentityRouter } from './widgetIdentity.js';
-import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments } from './widgetAttachments.js';
+import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments, enrichMessagesWithReplyTo, isVisitorVisibleMessageMeta, filterVisitorVisibleMessages } from './widgetAttachments.js';
 import { widgetCallbacksRouter } from './widgetCallbacks.js';
 import { widgetDepartmentsRouter } from './widgetDepartments.js';
 import { widgetCallInvitationsRouter } from './widgetCallInvitations.js';
@@ -1240,10 +1240,11 @@ async function enrichMessagesWithSender(
 ): Promise<any[]> {
   if (!messages || !messages.length) return messages || [];
   // Internal staffing notices (assignment transfers) never reach the visitor.
-  messages = messages.filter((m) => {
-    const meta = (m?.metadata && typeof m.metadata === 'object') ? m.metadata : null;
-    return !(meta && (meta as any).internal === true);
-  });
+  // Canonical helper — see widgetAttachments.ts's filterVisitorVisibleMessages
+  // doc comment for why this must be the ONE place this rule lives (also
+  // used directly by GET /identity/history, which has no sender-profile
+  // enrichment step to piggyback the filter on).
+  messages = filterVisitorVisibleMessages(messages);
   if (!messages.length) return messages;
 
   const ids = Array.from(new Set(
@@ -1370,7 +1371,7 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
 
     const { data: msgs } = await supabase
       .from('conversation_messages')
-      .select('id, body, sender_type, sender_id, created_at, metadata, seen_at')
+      .select('id, body, sender_type, sender_id, created_at, metadata, seen_at, reply_to_message_id')
       .eq('conversation_id', activeConversationId)
       .order('created_at', { ascending: false })
       .limit(200);
@@ -1391,10 +1392,14 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
       // Phase 7 — lifecycle. Only ever set on visitor messages, only by an
       // operator-side action (mark_conversation_seen RPC). Monotonic.
       seen_at: m.seen_at || null,
+      // Structured reply-to-message relationship — resolved below via
+      // enrichMessagesWithReplyTo (one batch query, not one per message).
+      reply_to_message_id: m.reply_to_message_id || null,
     }));
     // Phase 6b — attach public-safe attachment metadata (no provider URLs)
     const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
-    const messages = await enrichMessagesWithSender(supabase, enriched, workspaceId);
+    const withReplies = await enrichMessagesWithReplyTo(config, activeConversationId as string, enriched);
+    const messages = await enrichMessagesWithSender(supabase, withReplies, workspaceId);
 
     let operatorInfo = null;
     if (conv.assigned_to) {
@@ -1464,7 +1469,7 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
   const supabase = getServiceClient(config);
   const { data: msgs } = await supabase
     .from('conversation_messages')
-    .select('id, body, sender_type, sender_id, created_at, metadata, seen_at')
+    .select('id, body, sender_type, sender_id, created_at, metadata, seen_at, reply_to_message_id')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: false })
     .limit(200);
@@ -1479,10 +1484,12 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
     metadata: m.metadata,
     // Phase 7 — lifecycle (see /poll for semantics).
     seen_at: m.seen_at || null,
+    reply_to_message_id: m.reply_to_message_id || null,
   }));
   // Phase 6b — attach public-safe attachment metadata (no provider URLs)
   const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
-  const messages = await enrichMessagesWithSender(supabase, enriched, workspaceId);
+  const withReplies = await enrichMessagesWithReplyTo(config, conversationId, enriched);
+  const messages = await enrichMessagesWithSender(supabase, withReplies, workspaceId);
 
   return res.json({ messages });
 });
@@ -1738,6 +1745,17 @@ const messageSchema = z.object({
   session_id: z.string().uuid().optional().nullable(),
   force_new_conversation: z.boolean().optional(),
   attachment_id: z.string().uuid().optional().nullable(),
+  /**
+   * Client-generated, stable across a message's retries (same id on every
+   * resend of the SAME composed message; a brand-new message gets a new
+   * id). Mirrors the operator-side `/send-message` idempotency contract
+   * (server/routes/conversations.ts) so a double-click or a client-side
+   * retry can never create two rows for one intended send.
+   */
+  client_message_id: z.string().min(8).max(64).optional(),
+  /** Visitor-side reply-to-message: must reference a message already in
+   *  this same conversation — validated below, never trusted blindly. */
+  reply_to_message_id: z.string().uuid().optional().nullable(),
   /** Phase 8H — optional department selected by widget (single/multi mode). */
   department_id: z.string().uuid().optional().nullable(),
   /** E2C — sanitized page context (currentPageUrl/Origin/Path/Title/referrer). */
@@ -1777,6 +1795,9 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
   const workspaceId = resolveWorkspaceId(req, res, body.workspace_id);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+  // Hoisted: needed both for the new-conversation creation-idempotency key
+  // (below) and the message-insert idempotency key (further down).
+  const clientMessageId = data.client_message_id || null;
 
   const supabase = getServiceClient(config);
 
@@ -2068,17 +2089,52 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       // race blocks on the per-(workspace, visitor) advisory lock and then
       // matches the winner's row. `closed` threads are never matched, so the
       // archived one stays archived.
-      const lockKey = body.session_id || body.visitor_id || contactId || `anon:${Date.now()}:${Math.random()}`;
+      //
+      // Lost-response retry safety: the widget client sends NEITHER
+      // visitor_id NOR session_id on POST /message (identity there is the
+      // HttpOnly `dvsid` cookie only, which this creation path — unlike
+      // /identity/history — never consults), so p_match_session_id/
+      // p_match_contact_id below essentially never match anything for a
+      // visitor's very first message. Concretely: visitor sends message 1,
+      // the server creates conversation A and inserts message A, but the
+      // HTTP response is lost before the client sees `conversation_id`. The
+      // client still believes it has no conversation. A retry (manual or
+      // via resendMessage(), reusing the SAME client_message_id) would,
+      // without this, call ensure_active_conversation a second time with no
+      // match key that could find conversation A — creating a second
+      // conversation B with a duplicate logical message. That is a real
+      // conversation-level duplicate no `client_message_id` check inside a
+      // single conversation can catch, since it never learns conversation A
+      // exists.
+      //
+      // Fix: reuse the RPC's existing `p_match_thread_key` mechanism (today
+      // only exercised by channel bridges — Telegram/WhatsApp/etc. thread
+      // ids) as a client-message-scoped creation-idempotency key. It is
+      // matched — inside the SAME advisory-locked transaction as the
+      // insert — BEFORE the session/contact fallback, so a retry with the
+      // identical client_message_id deterministically finds conversation A
+      // instead of creating conversation B, and namespaced
+      // (`widget_cmid:`) so it can never collide with a real external
+      // channel thread key.
+      //
+      // This does NOT weaken "+ New conversation": forcingNew() always
+      // mints a brand-new client_message_id for that first message (see
+      // runtime.js sendMessage), so the thread-key match only ever reunites
+      // RETRIES of the exact same compose attempt — it never reattaches to
+      // an unrelated prior open conversation the way matching on a stable
+      // visitor/session identity would.
+      const widgetThreadKey = clientMessageId ? `widget_cmid:${clientMessageId}` : null;
+      const lockKey = clientMessageId || body.session_id || body.visitor_id || contactId || `anon:${Date.now()}:${Math.random()}`;
       const { data: ensured, error: convErr } = await supabase.rpc('ensure_active_conversation', {
         p_workspace_id: workspaceId,
         p_lock_key: lockKey,
-        p_match_thread_key: null,
+        p_match_thread_key: widgetThreadKey,
         p_match_session_id: body.session_id || null,
         p_match_contact_id: contactId,
         p_contact_id: contactId,
         p_visitor_session_id: body.session_id || null,
         p_subject: subjectText,
-        p_metadata: {},
+        p_metadata: widgetThreadKey ? { channel_thread_key: widgetThreadKey } : {},
       });
 
       if (convErr) throw convErr;
@@ -2128,27 +2184,118 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
     // Insert visitor message (body may be empty when only an attachment is sent)
     const messageBody = body.message || (data.attachment_id ? '' : '');
-    const { data: insertedMsg, error: msgErr } = await supabase
-      .from('conversation_messages').insert({
-        conversation_id: convId,
-        body: messageBody,
-        sender_type: 'contact',
-        metadata: {
-          source: 'widget',
-          visitor_id: body.visitor_id,
-          session_id: body.session_id,
-          attachment_id: data.attachment_id || undefined,
-          department_id: data.department_id || undefined,
-          page_context: pageContext || undefined,
-          nudge_context: nudgeIdForAttribution ? { source: 'ai_proactive_nudge', nudge_id: nudgeIdForAttribution } : undefined,
-        },
-      })
-      .select('id, conversation_id, sender_type, body, created_at, metadata, seen_at')
-      .single();
-    if (msgErr) throw msgErr;
+    const MESSAGE_COLUMNS = 'id, conversation_id, sender_type, body, created_at, metadata, seen_at, reply_to_message_id';
+
+    // Reply-to: only ever accept a target that already exists in THIS same
+    // conversation — never trust a cross-conversation id from the client
+    // (that would let one visitor's widget leak a snippet of a message from
+    // a conversation it has no access to). A miss is dropped silently, same
+    // as an invalid page_context — it never fails the send itself.
+    // Selecting body/sender_type here (not just id) means the send RESPONSE
+    // and the realtime envelope can both carry a resolved preview with zero
+    // extra round-trips — the same shape enrichMessagesWithReplyTo resolves
+    // for /poll, /history and /identity/history from the DB afterwards.
+    //
+    // The DB-stored FK (dbReplyToMessageId) is kept even when the parent is
+    // an internal staffing/system notice — same-conversation is still a
+    // true fact about the reply, and the column may be useful internally
+    // for audit/integrity — but nothing PUBLIC (the send response, the
+    // realtime envelope, and every other read path via
+    // enrichMessagesWithReplyTo) may ever expose that id unless the parent
+    // also passes the canonical visitor-visibility check. A visitor who
+    // supplies the UUID of an internal message must see a response
+    // INDISTINGUISHABLE from a missing/deleted parent: both
+    // reply_to_message_id AND reply_to come back null publicly — the raw id
+    // by itself would otherwise be a visibility oracle ("something exists
+    // here I can't see"). Never expose an internal message's body OR id to
+    // the browser.
+    let dbReplyToMessageId: string | null = null;
+    let publicReplyToMessageId: string | null = null;
+    let replyToPreview: { id: string; text: string; sender_type: string } | null = null;
+    if (data.reply_to_message_id) {
+      const { data: parent } = await supabase
+        .from('conversation_messages')
+        .select('id, body, sender_type, metadata')
+        .eq('id', data.reply_to_message_id)
+        .eq('conversation_id', convId)
+        .maybeSingle();
+      if (parent) {
+        dbReplyToMessageId = parent.id;
+        if (isVisitorVisibleMessageMeta(parent.metadata)) {
+          publicReplyToMessageId = parent.id;
+          replyToPreview = { id: parent.id, text: parent.body ?? '', sender_type: parent.sender_type };
+        }
+      }
+    }
+
+    const insertMetadata: Record<string, unknown> = {
+      source: 'widget',
+      visitor_id: body.visitor_id,
+      session_id: body.session_id,
+      attachment_id: data.attachment_id || undefined,
+      department_id: data.department_id || undefined,
+      page_context: pageContext || undefined,
+      nudge_context: nudgeIdForAttribution ? { source: 'ai_proactive_nudge', nudge_id: nudgeIdForAttribution } : undefined,
+    };
+    if (clientMessageId) insertMetadata.client_message_id = clientMessageId;
+
+    /**
+     * Idempotency (double-click / client retry / resend-after-failure).
+     * Mirrors server/routes/conversations.ts's operator-side `/send-message`
+     * exactly, including reuse of the SAME partial unique index from
+     * migration 070 (`conversation_id`, `metadata->>'client_message_id'`) —
+     * there is one idempotency mechanism for `conversation_messages`
+     * inserts, not a second one invented for the widget. The lookup here
+     * only avoids a pointless failing insert; the unique index is the real
+     * guard against a genuine race between two near-simultaneous retries.
+     */
+    let duplicate = false;
+    let insertedMsg: any = null;
+    if (clientMessageId) {
+      const { data: prior } = await supabase
+        .from('conversation_messages')
+        .select(MESSAGE_COLUMNS)
+        .eq('conversation_id', convId)
+        .filter('metadata->>client_message_id', 'eq', clientMessageId)
+        .maybeSingle();
+      if (prior) { insertedMsg = prior; duplicate = true; }
+    }
+
+    if (!insertedMsg) {
+      const { data: row, error: insErr } = await supabase
+        .from('conversation_messages').insert({
+          conversation_id: convId,
+          body: messageBody,
+          sender_type: 'contact',
+          // The true FK — stored regardless of visitor-visibility (see the
+          // doc comment above dbReplyToMessageId). Only the PUBLIC response
+          // and realtime envelope further down are sanitized.
+          reply_to_message_id: dbReplyToMessageId,
+          metadata: insertMetadata,
+        })
+        .select(MESSAGE_COLUMNS)
+        .single();
+      if (insErr || !row) {
+        // Lost the race against a concurrent replay of the same key.
+        if (clientMessageId && /duplicate key|23505/i.test(insErr?.message || '')) {
+          const { data: prior } = await supabase
+            .from('conversation_messages')
+            .select(MESSAGE_COLUMNS)
+            .eq('conversation_id', convId)
+            .filter('metadata->>client_message_id', 'eq', clientMessageId)
+            .maybeSingle();
+          if (prior) { insertedMsg = prior; duplicate = true; }
+        }
+        if (!insertedMsg) throw insErr || new Error('Insert failed');
+      } else {
+        insertedMsg = row;
+      }
+    }
 
     // AI Proactive Nudge attribution — best-effort, never blocks the message.
-    if (nudgeIdForAttribution && convId) {
+    // Skipped on a duplicate replay: the original send already attributed
+    // this nudge exactly once.
+    if (!duplicate && nudgeIdForAttribution && convId) {
       // Guarded transition only — a nudge that was never clicked cannot
       // silently become "converted" and corrupt attribution.
       void transitionNudgeStatus(supabase, { nudgeId: nudgeIdForAttribution, workspaceId, to: 'converted' });
@@ -2170,8 +2317,10 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
     // "Awaiting customer reply" threads return to the active queue as soon as
     // the customer writes again. Conditional, atomic and idempotent; the
-    // shared guard rejects anything that is not a real inbound customer message.
-    if (convId && insertedMsg?.id) {
+    // shared guard rejects anything that is not a real inbound customer
+    // message. Skipped on a duplicate replay — the original send already
+    // ran this transition for the same logical message.
+    if (!duplicate && convId && insertedMsg?.id) {
       await applyInboundConversationLifecycle(config, {
         workspaceId,
         conversationId: convId,
@@ -2187,8 +2336,9 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     }
 
 
-    // Phase 6a — Bind uploaded attachment to this message + conversation
-    if (data.attachment_id && insertedMsg?.id) {
+    // Phase 6a — Bind uploaded attachment to this message + conversation.
+    // Skipped on a duplicate replay — already bound by the original send.
+    if (!duplicate && data.attachment_id && insertedMsg?.id) {
       const ok = await attachUploadedFileToMessage(
         config, data.attachment_id, workspaceId, convId!, insertedMsg.id
       );
@@ -2225,13 +2375,23 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     }
 
     // Realtime: broadcast the visitor message to the inbox subscriber.
-    // Fire-and-forget — DB row is the source of truth.
-    if (insertedMsg) {
+    // Fire-and-forget — DB row is the source of truth. Skipped on a
+    // duplicate replay: the original send already broadcast and pushed
+    // this exact message once — replaying it would double-deliver.
+    if (insertedMsg && !duplicate) {
       publishConversationEvent(
         config,
         workspaceId,
         convId!,
-        buildMessageEnvelope(insertedMsg as any),
+        // Merge in the already-resolved parent preview (fetched above, zero
+        // extra query) so a live realtime delivery carries the structured
+        // reply relationship immediately — the receiving widget never has
+        // to wait for a poll/history round-trip to render the quote box.
+        // reply_to_message_id is overridden with the SANITIZED public id
+        // (not insertedMsg's raw DB column, which may still be the true FK
+        // to a hidden/internal parent) — the envelope must follow the exact
+        // same public contract as every other read path.
+        buildMessageEnvelope({ ...(insertedMsg as any), reply_to_message_id: publicReplyToMessageId, reply_to: replyToPreview }),
       ).catch(() => {});
 
       // NATIVE PUSH — same central dispatcher as every other channel.
@@ -2259,8 +2419,11 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     //   - auto_reply_always             → reply (capped + safety)
     //
     // Fire-and-forget: must never block the widget /message response.
+    // Skipped on a duplicate replay — the original send already triggered
+    // (or correctly skipped) exactly one AI run for this message; running
+    // it again would risk a second AI reply for one visitor message.
     // ─────────────────────────────────────────────────────────────────────
-    if (insertedMsg?.id && convId && !platformAiOff) {
+    if (!duplicate && insertedMsg?.id && convId && !platformAiOff) {
       const aiConvId = convId;
       const aiMsgId = insertedMsg.id;
       void maybeRunAiAssistantAfterVisitorMessage(config, {
@@ -2313,6 +2476,16 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       message_id: insertedMsg?.id || null,
       status: 'sent',
       reply,
+      // Structured reply-to-message relationship (§ reply-to end-to-end):
+      // the SANITIZED (public) id plus a resolved preview, so the widget
+      // can paint the quote box on the just-sent bubble without a second
+      // request. Both are null together for a hidden/foreign/missing
+      // parent — never just the preview — so the id alone can't be used as
+      // a visibility oracle. Same shape /poll, /history and
+      // /identity/history resolve independently via enrichMessagesWithReplyTo
+      // for every OTHER read path.
+      reply_to_message_id: publicReplyToMessageId,
+      reply_to: replyToPreview,
     });
   } catch (err: any) {
     console.error('[widget-message] Error:', err.message);

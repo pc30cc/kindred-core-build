@@ -1423,7 +1423,7 @@
     tplLink.setAttribute("data-gs-runtime", "true");
     tplLink.setAttribute("data-gs-template", "true");
     tplLink.onload = function () { templateCssLoaded = true; done(); };
-    tplLink.onerror = function () { fail("template-css"); };
+    withHashFallback(tplLink, presentationCss, "href", shadowRoot, function () { fail("template-css"); });
     shadowRoot.appendChild(tplLink);
 
     // Registry first (tiny), then the active template's renderer. The

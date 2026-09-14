@@ -7213,8 +7213,25 @@
     // itself (renderBodyInner()) never re-invokes it once `error` is set —
     // see that guard for why this is what actually prevents the
     // render→load→render recursion a prior version of this code had.
-    var CONVERSATIONS_RETRY_COOLDOWN_MS = 15000;
+    //
+    // Bounded exponential backoff — 15s, 30s, 60s, 120s, then capped at
+    // 300s — instead of a fixed 15s loop, so a sustained outage doesn't
+    // keep hammering the endpoint every 15 seconds indefinitely.
+    var CONVERSATIONS_RETRY_BASE_MS = 15000;
+    var CONVERSATIONS_RETRY_MAX_MS = 300000;
     var conversationsRetryTimer = null;
+    var conversationsConsecutiveFailures = 0;
+    // Set only while an automatic (never manual) retry is deferred because
+    // the tab is hidden — see fireConversationsAutoRetry().
+    var conversationsVisibilityHandler = null;
+
+    /** failure #1 → 15s, #2 → 30s, #3 → 60s, #4 → 120s, #5+ → 300s (cap).
+     * Reads conversationsConsecutiveFailures as it stands at call time —
+     * callers must increment it first. */
+    function conversationsNextRetryDelay() {
+      var exp = Math.max(0, conversationsConsecutiveFailures - 1);
+      return Math.min(CONVERSATIONS_RETRY_MAX_MS, CONVERSATIONS_RETRY_BASE_MS * Math.pow(2, exp));
+    }
 
     /** BCP47 tag for the active widget locale (Jalali calendar for fa). */
     function localeTag(calendar) {
@@ -7277,25 +7294,53 @@
       if (conversationsRetryTimer) return; // at most one scheduled retry, ever
       conversationsRetryTimer = setTimeout(function () {
         conversationsRetryTimer = null;
-        loadConversations(function () {
-          var activeTab = shellStore.get().activeTab;
-          if (activeTab === 'home' || activeTab === 'list') renderBody();
-        });
-      }, CONVERSATIONS_RETRY_COOLDOWN_MS);
+        fireConversationsAutoRetry();
+      }, conversationsNextRetryDelay());
     }
 
-    /** Explicit user "Retry" tap: bypass the cooldown, make exactly one
-     * request right now. Cancels any pending automatic retry so the two
-     * mechanisms never both fire for the same failure. */
+    /** An AUTOMATIC retry (never a manual one) defers while the tab is
+     * hidden — there is no point spending a request the visitor cannot see
+     * the result of — and fires exactly once as soon as it becomes visible
+     * again, without re-applying backoff (the wait itself already served
+     * as this attempt's delay). */
+    function fireConversationsAutoRetry() {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        if (conversationsVisibilityHandler) return; // already waiting on one
+        conversationsVisibilityHandler = function () {
+          if (document.visibilityState === 'hidden') return;
+          document.removeEventListener('visibilitychange', conversationsVisibilityHandler);
+          conversationsVisibilityHandler = null;
+          runConversationsRetryRequest();
+        };
+        document.addEventListener('visibilitychange', conversationsVisibilityHandler);
+        return;
+      }
+      runConversationsRetryRequest();
+    }
+
+    function runConversationsRetryRequest() {
+      loadConversations(function () {
+        var activeTab = shellStore.get().activeTab;
+        if (activeTab === 'home' || activeTab === 'list') renderBody();
+      });
+    }
+
+    /** Explicit user "Retry" tap: bypass backoff AND the hidden-tab defer,
+     * make exactly one request right now. Cancels any pending automatic
+     * timer or visibility-wait so the mechanisms never both fire for the
+     * same failure — and if this request itself fails, it counts as just
+     * another consecutive failure (loadConversations()'s own catch handles
+     * that uniformly, whatever triggered the attempt). */
     function retryConversationsLoad() {
       if (conversationsRetryTimer) {
         clearTimeout(conversationsRetryTimer);
         conversationsRetryTimer = null;
       }
-      loadConversations(function () {
-        var activeTab = shellStore.get().activeTab;
-        if (activeTab === 'home' || activeTab === 'list') renderBody();
-      });
+      if (conversationsVisibilityHandler) {
+        document.removeEventListener('visibilitychange', conversationsVisibilityHandler);
+        conversationsVisibilityHandler = null;
+      }
+      runConversationsRetryRequest();
     }
 
     function loadConversations(onDone) {
@@ -7330,6 +7375,15 @@
           return r.json();
         })
         .then(function (data) {
+          // A success resets backoff entirely — the NEXT future failure
+          // (whenever it happens) starts again from the base 15s delay,
+          // never resuming from wherever the count left off.
+          conversationsConsecutiveFailures = 0;
+          if (conversationsRetryTimer) { clearTimeout(conversationsRetryTimer); conversationsRetryTimer = null; }
+          if (conversationsVisibilityHandler) {
+            document.removeEventListener('visibilitychange', conversationsVisibilityHandler);
+            conversationsVisibilityHandler = null;
+          }
           conversationsStore.set({
             loaded: true,
             loading: false,
@@ -7339,12 +7393,15 @@
           if (onDone) onDone();
         })
         .catch(function (err) {
+          conversationsConsecutiveFailures += 1;
           // gs:debug-gated only. SAFE fields alone: no token, no visitor/
           // session/contact id, no headers, no raw DB error.
           Util.warn('conversations_load_failed', {
             operation: 'conversations_load',
             status: (err && err.status) || null,
             code: (err && err.code) || null,
+            failureCount: conversationsConsecutiveFailures,
+            nextRetryMs: conversationsNextRetryDelay(),
           });
           conversationsStore.set({
             // Deliberately NOT loaded:true — a genuine failure (non-2xx,
@@ -7353,8 +7410,9 @@
             // successful load) are kept rather than blanked, so a transient
             // failure on refresh doesn't erase a list the visitor already
             // saw. Further attempts happen ONLY via scheduleConversationsRetry
-            // (one bounded automatic retry) or an explicit user retry —
-            // never by the render path re-invoking this function.
+            // (one bounded automatic retry, exponential backoff) or an
+            // explicit user retry — never by the render path re-invoking
+            // this function.
             loading: false,
             error: true,
           });
@@ -8222,6 +8280,12 @@
         openConversation: function (cid) { openConversation(cid); },
         chatState: function () { return chatStore.get(); },
         setConnectionState: function (state) { transportStore.set({ connectionState: state }); },
+        // Test-only equivalent of tapping the Recent Conversations "Retry"
+        // button — needed because that button only renders in the
+        // error+nothing-cached state; tests exercising a retry AFTER a
+        // successful load (e.g. proving backoff-reset semantics) have no
+        // DOM affordance to click.
+        retryConversations: function () { retryConversationsLoad(); },
       } : undefined,
       /** Single source of truth for panel visibility. */
       isOpen: function () { return !!shellStore.get().isOpen; },

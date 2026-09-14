@@ -95,6 +95,17 @@ export default function BackupPage() {
 
   const kindLabel = (k: string) => t(`admin.backup.kind.${k}` as never) as string;
 
+  /**
+   * Readiness badge. "Healthy" is never the same as "proven": only a recorded
+   * drill or verification turns a pillar green.
+   */
+  const readinessBadge = (state: 'verified' | 'pending' | 'not_tested' | 'failed' | undefined) => {
+    const label = t(`admin.backup.readinessState.${state ?? 'not_tested'}` as never) as string;
+    if (state === 'verified') return <Badge variant="secondary" className="gap-1"><CheckCircle2 className="h-3 w-3" />{label}</Badge>;
+    if (state === 'failed') return <Badge variant="destructive">{label}</Badge>;
+    return <Badge variant="outline">{label}</Badge>;
+  };
+
   if (loading && !overview) {
     return (
       <div className="space-y-4 p-6">
@@ -144,6 +155,56 @@ export default function BackupPage() {
                 <Badge variant={a.severity === 'critical' ? 'destructive' : 'outline'}>{kindLabel(a.scope)}</Badge>
                 <span>{t(`admin.backup.alert.${a.code}` as never) as string}</span>
                 {a.detail && <span className="text-muted-foreground">({a.detail})</span>}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Protection readiness — the honest state of recovery, pillar by pillar. */}
+      <Card className={overview?.readiness?.fully_protected ? undefined : 'border-amber-500/40'}>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">{t('admin.backup.readinessTitle' as never) as string}</CardTitle>
+          <CardDescription>
+            {overview?.readiness?.fully_protected
+              ? (t('admin.backup.readinessProtected' as never) as string)
+              : (t('admin.backup.readinessNotProtected' as never) as string)}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          {(['local_wal', 'offsite_backup', 'full_restore', 'pitr', 'object_backup'] as const).map((pillar) => (
+            <div key={pillar} className="rounded-lg border p-3">
+              <div className="text-xs text-muted-foreground">{t(`admin.backup.pillar.${pillar}` as never) as string}</div>
+              <div className="mt-2">{readinessBadge(overview?.readiness?.[pillar])}</div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      {/* Recovery metrics */}
+      {overview?.metrics && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">{t('admin.backup.metricsTitle' as never) as string}</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+            {([
+              ['last_physical_backup_at', fmtTime(overview.metrics.last_physical_backup_at)],
+              ['last_verified_physical_backup_at', fmtTime(overview.metrics.last_verified_physical_backup_at)],
+              ['last_remote_wal_at', fmtTime(overview.metrics.last_remote_wal_at)],
+              ['oldest_pitr_at', fmtTime(overview.metrics.oldest_pitr_at)],
+              ['newest_pitr_at', fmtTime(overview.metrics.newest_pitr_at)],
+              ['last_logical_backup_at', fmtTime(overview.metrics.last_logical_backup_at)],
+              ['physical_backup_bytes', fmtBytes(overview.metrics.physical_backup_bytes)],
+              ['object_backup_bytes', fmtBytes(overview.metrics.object_backup_bytes)],
+              ['last_full_restore_drill_at', fmtTime(overview.metrics.last_full_restore_drill_at)],
+              ['last_pitr_drill_at', fmtTime(overview.metrics.last_pitr_drill_at)],
+              ['last_object_restore_drill_at', fmtTime(overview.metrics.last_object_restore_drill_at)],
+              ['measured_restore_seconds', fmtDuration(overview.metrics.measured_restore_seconds)],
+            ] as const).map(([key, value]) => (
+              <div key={key} className="flex justify-between gap-3 border-b py-1 last:border-0">
+                <span className="text-muted-foreground">{t(`admin.backup.metric.${key}` as never) as string}</span>
+                <span>{value}</span>
               </div>
             ))}
           </CardContent>

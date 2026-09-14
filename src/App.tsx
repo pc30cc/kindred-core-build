@@ -117,6 +117,7 @@ import AdminWorkspacesPage from "@/pages/admin/WorkspacesPage";
 import AdminProvidersPage from "@/pages/admin/ProvidersPage";
 import AdminSystemPage from "@/pages/admin/SystemPage";
 import AdminRetentionPage from "@/pages/admin/RetentionPage";
+import AdminBackupPage from "@/pages/admin/BackupPage";
 import AdminObservabilityPage from "@/pages/admin/ObservabilityPage";
 import AdminFeatureFlagsPage from "@/pages/admin/FeatureFlagsPage";
 import AdminBrandingPage from "@/pages/admin/BrandingPage";
@@ -258,6 +259,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/admin/system" element={<AdminSystemPage />} />
                 <Route path="/admin/observability" element={<AdminObservabilityPage />} />
                 <Route path="/admin/retention" element={<AdminRetentionPage />} />
+                <Route path="/admin/backup" element={<AdminBackupPage />} />
                 <Route path="/admin/feature-flags" element={<AdminFeatureFlagsPage />} />
                 <Route path="/admin/branding" element={<AdminBrandingPage />} />
                 <Route path="/admin/domains" element={<AdminDomainsPage />} />

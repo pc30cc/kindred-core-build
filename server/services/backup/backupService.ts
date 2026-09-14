@@ -126,7 +126,13 @@ export type BackupAlertCode =
   | 'wal_archive_failing'
   | 'wal_archive_lag'
   | 'restore_drill_overdue'
-  | 'restore_drill_never';
+  | 'restore_drill_never'
+  | 'object_backup_failed'
+  | 'object_backup_missing'
+  | 'object_restore_untested'
+  | 'pitr_not_verified'
+  | 'remote_repository_unreachable'
+  | 'remote_capacity_warning';
 
 export interface BackupAlert {
   scope: string;
@@ -135,8 +141,52 @@ export interface BackupAlert {
   detail?: string;
 }
 
+/**
+ * Readiness is deliberately separate from "health".
+ *
+ * Health answers "is the machinery running?" — a green WAL archiver makes it
+ * green. Readiness answers the only question that matters in a disaster:
+ * "has recovery actually been proven?". Local WAL being healthy must never be
+ * presented as protection; each pillar below only turns `verified` after a
+ * real, recorded drill.
+ */
+export type ReadinessState = 'verified' | 'pending' | 'not_tested' | 'failed';
+
+export interface BackupReadiness {
+  /** Continuous WAL archiving on the database server itself. */
+  local_wal: ReadinessState;
+  /** A physical backup that exists outside the production server and verified. */
+  offsite_backup: ReadinessState;
+  /** An isolated full restore of that backup has been completed. */
+  full_restore: ReadinessState;
+  /** A real A/B/C point-in-time restore has been completed. */
+  pitr: ReadinessState;
+  /** Object storage (MinIO / Supabase Storage) copied off-site AND restore-tested. */
+  object_backup: ReadinessState;
+  /** True only when every pillar above is `verified`. */
+  fully_protected: boolean;
+}
+
+/** Recovery metrics surfaced to Super Admin. Never contains credentials. */
+export interface RecoveryMetrics {
+  last_physical_backup_at: string | null;
+  last_verified_physical_backup_at: string | null;
+  last_remote_wal_at: string | null;
+  oldest_pitr_at: string | null;
+  newest_pitr_at: string | null;
+  last_logical_backup_at: string | null;
+  physical_backup_bytes: number | null;
+  object_backup_bytes: number | null;
+  last_full_restore_drill_at: string | null;
+  last_pitr_drill_at: string | null;
+  last_object_restore_drill_at: string | null;
+  measured_restore_seconds: number | null;
+}
+
 export interface BackupOverview {
   health: BackupHealthState;
+  readiness: BackupReadiness;
+  metrics: RecoveryMetrics;
   alerts: BackupAlert[];
   latest: BackupHealthRow[];
   wal: WalStatus | null;
@@ -210,9 +260,41 @@ export function deriveAlerts(input: {
     }
   }
 
+  // Object storage: PostgreSQL recovery does not restore stored files, so a
+  // missing object backup is its own failure, not a footnote of the database one.
   const objectRow = byKind.get('object');
-  if (objectRow && (objectRow.age_seconds ?? Infinity) > MAX_AGE_SECONDS.object) {
-    alerts.push({ scope: 'object', severity: 'warning', code: 'backup_too_old' });
+  if (!objectRow) {
+    alerts.push({ scope: 'object', severity: 'critical', code: 'object_backup_missing' });
+  } else {
+    if (objectRow.status === 'failed') {
+      alerts.push({ scope: 'object', severity: 'critical', code: 'object_backup_failed' });
+    }
+    if ((objectRow.age_seconds ?? Infinity) > MAX_AGE_SECONDS.object) {
+      alerts.push({ scope: 'object', severity: 'warning', code: 'backup_too_old' });
+    }
+    if (!isOffsite(objectRow.destination)) {
+      alerts.push({ scope: 'object', severity: 'critical', code: 'backup_not_offsite' });
+    }
+  }
+  if (!input.lastDrills.some((d) => d.drill_kind === 'object_storage' && d.status === 'passed')) {
+    alerts.push({ scope: 'object', severity: 'warning', code: 'object_restore_untested' });
+  }
+
+  // A remote repository that cannot be read is reported by the host agent as a
+  // metadata flag on the run it failed to write.
+  for (const row of input.latest) {
+    const meta = (row as unknown as { metadata?: Record<string, unknown> }).metadata || {};
+    if (meta.repository_unreachable === true) {
+      alerts.push({ scope: row.kind, severity: 'critical', code: 'remote_repository_unreachable' });
+    }
+    if (meta.repository_capacity_warning === true) {
+      alerts.push({ scope: row.kind, severity: 'warning', code: 'remote_capacity_warning' });
+    }
+  }
+
+  // PITR is only proven by an actual point-in-time restore.
+  if (!input.lastDrills.some((d) => d.drill_kind === 'pitr' && d.status === 'passed')) {
+    alerts.push({ scope: 'pitr', severity: 'critical', code: 'pitr_not_verified' });
   }
 
   const wal = input.wal;
@@ -252,6 +334,111 @@ export function deriveAlerts(input: {
 export function healthOf(alerts: BackupAlert[]): BackupHealthState {
   if (alerts.some((a) => a.severity === 'critical')) return 'critical';
   return alerts.length > 0 ? 'attention' : 'ok';
+}
+
+function latestDrill(drills: RestoreDrill[], kind: RestoreDrill['drill_kind']): RestoreDrill | null {
+  return (
+    drills
+      .filter((d) => d.drill_kind === kind && d.finished_at)
+      .sort((a, b) => (b.finished_at || '').localeCompare(a.finished_at || ''))[0] ?? null
+  );
+}
+
+function drillState(drill: RestoreDrill | null): ReadinessState {
+  if (!drill) return 'not_tested';
+  if (drill.status === 'passed') return 'verified';
+  if (drill.status === 'failed') return 'failed';
+  return 'pending';
+}
+
+/**
+ * Turns recorded facts into the five states Super Admin shows. Nothing here
+ * infers protection from configuration: a pillar is `verified` only when a
+ * drill or verification actually happened and was recorded.
+ */
+export function computeReadiness(input: {
+  latest: BackupHealthRow[];
+  wal: WalStatus | null;
+  lastDrills: RestoreDrill[];
+}): BackupReadiness {
+  const wal = input.wal;
+  let local_wal: ReadinessState = 'not_tested';
+  if (wal) {
+    const archiving = wal.archive_mode === 'on' || wal.archive_mode === 'always';
+    const recentFailure = Boolean(
+      wal.last_failed_time && wal.last_archived_time && wal.last_failed_time > wal.last_archived_time,
+    );
+    const laggy = (wal.archive_lag_seconds ?? Infinity) > MAX_AGE_SECONDS.wal;
+    local_wal = archiving && !recentFailure && !laggy ? 'verified' : archiving ? 'pending' : 'failed';
+  }
+
+  const base = input.latest.find((r) => r.kind === 'base');
+  let offsite_backup: ReadinessState = 'pending';
+  if (base) {
+    if (!isOffsite(base.destination) || base.status !== 'succeeded') offsite_backup = 'pending';
+    else if (base.verification_status === 'failed') offsite_backup = 'failed';
+    else if (base.verification_status === 'verified') offsite_backup = 'verified';
+    else offsite_backup = 'pending';
+  }
+
+  const full_restore = drillState(latestDrill(input.lastDrills, 'full_restore'));
+  const pitr = drillState(latestDrill(input.lastDrills, 'pitr'));
+
+  const objectRun = input.latest.find((r) => r.kind === 'object');
+  const objectDrill = drillState(latestDrill(input.lastDrills, 'object_storage'));
+  const object_backup: ReadinessState =
+    objectDrill === 'verified' && objectRun && isOffsite(objectRun.destination) && objectRun.status === 'succeeded'
+      ? 'verified'
+      : objectDrill === 'failed'
+        ? 'failed'
+        : objectDrill;
+
+  const pillars = [local_wal, offsite_backup, full_restore, pitr, object_backup];
+  return {
+    local_wal,
+    offsite_backup,
+    full_restore,
+    pitr,
+    object_backup,
+    fully_protected: pillars.every((p) => p === 'verified'),
+  };
+}
+
+function durationSeconds(drill: RestoreDrill | null): number | null {
+  if (!drill) return null;
+  const fromFindings = (drill.findings as { duration_seconds?: unknown } | null)?.duration_seconds;
+  if (typeof fromFindings === 'number' && Number.isFinite(fromFindings)) return fromFindings;
+  if (!drill.finished_at || !drill.started_at) return null;
+  const s = (new Date(drill.finished_at).getTime() - new Date(drill.started_at).getTime()) / 1000;
+  return Number.isFinite(s) && s >= 0 ? Math.round(s) : null;
+}
+
+export function computeMetrics(input: {
+  latest: BackupHealthRow[];
+  wal: WalStatus | null;
+  lastDrills: RestoreDrill[];
+  oldestPitrAt: string | null;
+}): RecoveryMetrics {
+  const base = input.latest.find((r) => r.kind === 'base');
+  const logical = input.latest.find((r) => r.kind === 'logical');
+  const object = input.latest.find((r) => r.kind === 'object');
+  const fullRestore = latestDrill(input.lastDrills, 'full_restore');
+  return {
+    last_physical_backup_at: base?.finished_at ?? null,
+    last_verified_physical_backup_at: base?.verification_status === 'verified' ? (base.verified_at ?? null) : null,
+    last_remote_wal_at: isOffsite(input.latest.find((r) => r.kind === 'wal')?.destination)
+      ? (input.latest.find((r) => r.kind === 'wal')?.finished_at ?? null)
+      : null,
+    oldest_pitr_at: input.oldestPitrAt,
+    newest_pitr_at: input.wal?.last_archived_time ?? null,
+    last_logical_backup_at: logical?.finished_at ?? null,
+    physical_backup_bytes: base?.bytes ?? null,
+    object_backup_bytes: object?.bytes ?? null,
+    last_full_restore_drill_at: fullRestore?.finished_at ?? null,
+    last_pitr_drill_at: latestDrill(input.lastDrills, 'pitr')?.finished_at ?? null,
+    last_object_restore_drill_at: latestDrill(input.lastDrills, 'object_storage')?.finished_at ?? null,
+    measured_restore_seconds: durationSeconds(fullRestore),
+  };
 }
 
 function parseSchedule(): { kind: BackupKind; cron: string | null; next_run_at: string | null }[] {
@@ -302,8 +489,12 @@ export async function getBackupOverview(config: ServerConfig): Promise<BackupOve
     .limit(1)
     .maybeSingle();
 
+  const oldestPitrAt = (oldestBase as { finished_at?: string } | null)?.finished_at ?? null;
+
   return {
     health: healthOf(alerts),
+    readiness: computeReadiness({ latest, wal, lastDrills }),
+    metrics: computeMetrics({ latest, wal, lastDrills, oldestPitrAt }),
     alerts,
     latest,
     wal,

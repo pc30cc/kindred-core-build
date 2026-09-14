@@ -3691,6 +3691,7 @@ const fa: TranslationKeys = {
       aiAgent: 'دستیار هوشمند',
       seoIntegrations: 'یکپارچه‌سازی‌های سئو',
       retention: 'نگهداشت داده‌ها',
+      backup: 'پشتیبان‌گیری و بازیابی',
       aiBilling: 'صورتحساب هوش مصنوعی',
       advancedRouting: 'مسیریابی پیشرفته',
       system: 'سیستم',

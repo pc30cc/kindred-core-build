@@ -1510,7 +1510,7 @@
       } catch (_) { /* never block chat boot on the call module */ }
       done();
     };
-    script.onerror = function () { fail("js"); };
+    withHashFallback(script, runtimeJs, "src", document.head, function () { fail("js"); });
     document.head.appendChild(script);
   }
 

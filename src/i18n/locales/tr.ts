@@ -3695,6 +3695,7 @@ const tr: TranslationKeys = {
       aiAgent: 'AI Ajanı',
       seoIntegrations: 'SEO Entegrasyonları',
       retention: 'Veri Saklama',
+      backup: 'Yedekleme ve Kurtarma',
       aiBilling: 'AI Faturalandırma',
       advancedRouting: 'Gelişmiş Yönlendirme',
       system: 'Sistem',

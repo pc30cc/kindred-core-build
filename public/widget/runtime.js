@@ -915,6 +915,8 @@
         wyFeedbackThanks: 'Thanks for your feedback!',
         wyTalkToSupport: 'Chat with support',
         convJustNow: 'now',
+        convLoadError: "Couldn't load conversations",
+        convRetry: 'Retry',
 
       },
       fa: {
@@ -1117,6 +1119,8 @@
         wyFeedbackThanks: 'از بازخورد شما سپاسگزاریم!',
         wyTalkToSupport: 'گفتگو با پشتیبانی',
         convJustNow: 'هم‌اکنون',
+        convLoadError: 'بارگذاری گفتگوها انجام نشد',
+        convRetry: 'تلاش مجدد',
 
       },
       tr: {
@@ -1319,6 +1323,8 @@
         wyFeedbackThanks: 'Geri bildiriminiz için teşekkürler!',
         wyTalkToSupport: 'Destek ile sohbet et',
         convJustNow: 'şimdi',
+        convLoadError: 'Konuşmalar yüklenemedi',
+        convRetry: 'Tekrar dene',
 
       },
     };
@@ -7198,12 +7204,17 @@
     // GET /api/widget/conversations returns ONLY the conversations that
     // belong to this visitor. Core owns the state; the template owns markup.
     var conversationsStore = createStore({ loaded: false, loading: false, items: [], error: false });
-    // Cooldown so a persistent backend failure can't be re-fetched on every
-    // render pass (renderHome/renderConversationList both call loadConversations
-    // whenever `loaded` is false) — without this a sustained outage would
-    // hammer the endpoint on every re-render instead of backing off.
+    // Automatic retry after a failed load. `conversationsRetryTimer` holds
+    // AT MOST ONE pending timer — scheduleConversationsRetry() is a no-op if
+    // one is already armed, and the callback clears the handle before it
+    // does anything else. This is deliberately the ONLY thing (besides an
+    // explicit user retry, see retryConversationsLoad()) allowed to
+    // re-attempt loadConversations() after a failure: the render path
+    // itself (renderBodyInner()) never re-invokes it once `error` is set —
+    // see that guard for why this is what actually prevents the
+    // render→load→render recursion a prior version of this code had.
     var CONVERSATIONS_RETRY_COOLDOWN_MS = 15000;
-    var conversationsLastAttemptAt = 0;
+    var conversationsRetryTimer = null;
 
     /** BCP47 tag for the active widget locale (Jalali calendar for fa). */
     function localeTag(calendar) {
@@ -7256,35 +7267,49 @@
       };
     }
 
+    /**
+     * The ONLY thing allowed to call this after the very first attempt is
+     * either this timer or an explicit user retry (retryConversationsLoad)
+     * — see the render-path guard in renderBodyInner() for why that
+     * invariant is what keeps this whole lifecycle recursion-free.
+     */
+    function scheduleConversationsRetry() {
+      if (conversationsRetryTimer) return; // at most one scheduled retry, ever
+      conversationsRetryTimer = setTimeout(function () {
+        conversationsRetryTimer = null;
+        loadConversations(function () {
+          var activeTab = shellStore.get().activeTab;
+          if (activeTab === 'home' || activeTab === 'list') renderBody();
+        });
+      }, CONVERSATIONS_RETRY_COOLDOWN_MS);
+    }
+
+    /** Explicit user "Retry" tap: bypass the cooldown, make exactly one
+     * request right now. Cancels any pending automatic retry so the two
+     * mechanisms never both fire for the same failure. */
+    function retryConversationsLoad() {
+      if (conversationsRetryTimer) {
+        clearTimeout(conversationsRetryTimer);
+        conversationsRetryTimer = null;
+      }
+      loadConversations(function () {
+        var activeTab = shellStore.get().activeTab;
+        if (activeTab === 'home' || activeTab === 'list') renderBody();
+      });
+    }
+
     function loadConversations(onDone) {
       if (!chatEnabled) {
         // Chat is off for this workspace: there is no thread list to fetch.
-        // Latch `loaded` anyway — renderHome() calls us whenever it is
-        // false and our callback re-renders, so leaving it false made the
-        // pair recurse synchronously until the stack blew (a hard widget
-        // crash on chat-disabled workspaces).
         if (!(conversationsStore.get() || {}).loaded) {
-          conversationsStore.set({ loaded: true, loading: false, items: [] });
+          conversationsStore.set({ loaded: true, loading: false, error: false, items: [] });
         }
         if (onDone) onDone();
         return;
       }
 
       var st = conversationsStore.get();
-      if (st.loading) return;
-      // A genuine failure (non-2xx, network error) must never be reported as
-      // "this visitor has no conversations" — that silently hides real
-      // outages (auth, backend 5xx, schema drift) behind an empty Home
-      // screen. On failure we do NOT set loaded:true — the caller's own
-      // `if (!loaded) loadConversations(...)` guard (renderHome /
-      // renderConversationList) then retries on the next natural re-render,
-      // bounded by this cooldown so a sustained outage can't be re-fetched
-      // on every render pass.
-      if (st.error && (Date.now() - conversationsLastAttemptAt) < CONVERSATIONS_RETRY_COOLDOWN_MS) {
-        if (onDone) onDone();
-        return;
-      }
-      conversationsLastAttemptAt = Date.now();
+      if (st.loading) { if (onDone) onDone(); return; }
       conversationsStore.set({ loading: true });
       // No visitor_id on the wire: the server resolves identity solely from
       // the signed HttpOnly `dvsid` cookie and ignores any client-sent id.
@@ -7293,9 +7318,14 @@
       ctx.fetchWith(url, { method: 'GET' })
         .then(function (r) {
           if (!r.ok) {
-            var e = new Error('http_' + r.status);
-            e.status = r.status;
-            throw e;
+            // Read the sanitized public body (status + server `code` only —
+            // never raw DB detail) for the gs:debug diagnostic below.
+            return r.json().catch(function () { return null; }).then(function (body) {
+              var e = new Error('http_' + r.status);
+              e.status = r.status;
+              e.code = (body && body.code) || null;
+              throw e;
+            });
           }
           return r.json();
         })
@@ -7309,17 +7339,26 @@
           if (onDone) onDone();
         })
         .catch(function (err) {
+          // gs:debug-gated only. SAFE fields alone: no token, no visitor/
+          // session/contact id, no headers, no raw DB error.
           Util.warn('conversations_load_failed', {
+            operation: 'conversations_load',
             status: (err && err.status) || null,
+            code: (err && err.code) || null,
           });
           conversationsStore.set({
-            // Deliberately NOT loaded:true — see comment above. Existing
-            // items (if any, from a prior successful load) are kept rather
-            // than blanked, so a transient failure on refresh doesn't erase
-            // a list the visitor already saw.
+            // Deliberately NOT loaded:true — a genuine failure (non-2xx,
+            // network error) must never be reported as "this visitor has no
+            // conversations". Existing items (if any, from a prior
+            // successful load) are kept rather than blanked, so a transient
+            // failure on refresh doesn't erase a list the visitor already
+            // saw. Further attempts happen ONLY via scheduleConversationsRetry
+            // (one bounded automatic retry) or an explicit user retry —
+            // never by the render path re-invoking this function.
             loading: false,
             error: true,
           });
+          scheduleConversationsRetry();
           if (onDone) onDone();
         });
     }
@@ -7447,6 +7486,14 @@
     function bindViewHooks() {}
 
 
+    // Purely a function of conversationsStore's current state — it does NOT
+    // itself decide whether to (re)load. That decision lives in exactly one
+    // place, renderBodyInner()'s 'list' branch, so there is a single call
+    // site for loadConversations() and no risk of this function's own
+    // render triggering another load (the bug a prior version of this code
+    // had: this function used to call loadConversations() itself here,
+    // whose retry callback called this function again, recursing
+    // synchronously whenever the load kept failing).
     function renderConversationList() {
       if (!body) return;
       var cs = conversationsStore.get();
@@ -7455,6 +7502,7 @@
             rtl: (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa',
             loading: cs.loading && !cs.loaded,
             conversations: cs.items,
+            error: !!cs.error,
             chatEnabled: chatEnabled,
           })
         : '';
@@ -7463,25 +7511,27 @@
       if (newBtn) {
         newBtn.addEventListener('click', function () { startNewConversation(); });
       }
-
-      if (!cs.loaded && !cs.loading) {
-        loadConversations(function () {
-          if (shellStore.get().activeTab === 'list') renderConversationList();
-        });
+      var retryBtn = body.querySelector('[data-home-action="conversations-retry"]');
+      if (retryBtn) {
+        retryBtn.addEventListener('click', function () { retryConversationsLoad(); });
       }
     }
 
+    // Same contract as renderConversationList() above: pure render of
+    // current store state, never itself a loadConversations() call site.
     function renderHome() {
       if (!body) return;
       var pState = presenceStore.get();
       var kbState = kbStore.get() || {};
+      var convState = conversationsStore.get() || {};
       body.innerHTML = Presentation.homeHtml({
         rtl: (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa',
         isOnline: pState.status === 'online' && pState.liveChatEnabled !== false,
         teamMembers: teamMembers,
         categories: kbState.categories || [],
         articles: kbState.articles || [],
-        conversations: (conversationsStore.get() || {}).items || [],
+        conversations: convState.items || [],
+        conversationsError: !!convState.error,
         headerTitle: headerTitle,
         kbEnabled: kbEnabled,
         chatEnabled: chatEnabled,
@@ -7503,6 +7553,10 @@
         chatStore.set({ conversationId: chatStore.get().conversationId });
         switchTab('chat');
       });
+      var retryBtn = body.querySelector('[data-home-action="conversations-retry"]');
+      if (retryBtn) {
+        retryBtn.addEventListener('click', function () { retryConversationsLoad(); });
+      }
 
       var seeAll = body.querySelector('[data-home-action="help"]');
       if (seeAll) seeAll.addEventListener('click', function () { switchTab('help'); });
@@ -7517,11 +7571,6 @@
         el.addEventListener('click', function () { switchTab('help'); });
       });
       bindSmartSurface(body.querySelector('.smart-home-card'), smartSurface);
-      if (!(conversationsStore.get() || {}).loaded) {
-        loadConversations(function () {
-          if (shellStore.get().activeTab === 'home') renderHome();
-        });
-      }
     }
 
 
@@ -7680,11 +7729,28 @@
         // threads arrive ("Start chat" → recent list + "Start new"). Painting
         // the empty variant first produced a visible flip on every reload, so
         // hold the skeleton until the thread list is resolved.
-        if (chatEnabled && !(conversationsStore.get() || {}).loaded) {
+        //
+        // THIS is the single call site for loadConversations() in the whole
+        // render path (renderHome()/renderConversationList() are pure
+        // renders of current store state and never call it themselves — a
+        // prior version had them do so via their own retry callback, which
+        // recursed synchronously into a stack overflow whenever the load
+        // kept failing). The `!error` guard is what makes that impossible
+        // here: once a load has failed, this branch stops calling
+        // loadConversations() at all — subsequent attempts happen only via
+        // scheduleConversationsRetry()'s single bounded timer or an
+        // explicit user retry (retryConversationsLoad()), never from a
+        // render. The `!loading` guard additionally means a re-entrant
+        // renderBody() call while a request is already in flight just
+        // repaints the skeleton instead of starting a second request.
+        var homeConvState = conversationsStore.get() || {};
+        if (chatEnabled && !homeConvState.loaded && !homeConvState.error) {
           renderLoading('home');
-          loadConversations(function () {
-            if (shellStore.get().activeTab === 'home') renderBody();
-          });
+          if (!homeConvState.loading) {
+            loadConversations(function () {
+              if (shellStore.get().activeTab === 'home') renderBody();
+            });
+          }
           return;
         }
         renderHome();
@@ -7698,13 +7764,15 @@
       }
       if (tab === 'list') {
         if (inputBar) inputBar.style.display = 'none';
-        // Same contract as home: never flash an "empty list" before the
-        // visitor's threads arrive — hold the list skeleton instead.
-        if (!(conversationsStore.get() || {}).loaded) {
+        // Same contract as home — see the long comment there.
+        var listConvState = conversationsStore.get() || {};
+        if (!listConvState.loaded && !listConvState.error) {
           renderLoading('list');
-          loadConversations(function () {
-            if (shellStore.get().activeTab === 'list') renderBody();
-          });
+          if (!listConvState.loading) {
+            loadConversations(function () {
+              if (shellStore.get().activeTab === 'list') renderBody();
+            });
+          }
           return;
         }
         renderConversationList();

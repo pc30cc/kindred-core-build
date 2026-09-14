@@ -141,7 +141,7 @@ describe('GET /api/widget/conversations — a backend failure must never be repo
     const body = runtime.slice(idx, idx + 3200);
     const catchIdx = body.indexOf('.catch(function (err) {');
     expect(catchIdx).toBeGreaterThan(-1);
-    const catchBody = body.slice(catchIdx, catchIdx + 700);
+    const catchBody = body.slice(catchIdx, catchIdx + 1300);
     // Strip line comments before checking for a real `loaded: true`
     // assignment — the fix's own explanatory comment names the old,
     // rejected behavior ("Deliberately NOT loaded:true") and must not be
@@ -151,10 +151,16 @@ describe('GET /api/widget/conversations — a backend failure must never be repo
     expect(catchCode).not.toMatch(/loaded:\s*true/);
   });
 
-  it('client: repeated failures are bounded by a retry cooldown instead of re-fetching on every render', () => {
+  it('client: a failed load schedules exactly one bounded automatic retry (never re-fetching on every render)', () => {
     const runtime = readFileSync(resolve(process.cwd(), 'public/widget/runtime.js'), 'utf8');
     expect(runtime).toMatch(/CONVERSATIONS_RETRY_COOLDOWN_MS/);
-    expect(runtime).toMatch(/conversationsLastAttemptAt/);
+    expect(runtime).toMatch(/function scheduleConversationsRetry\(\)/);
+    // "At most one scheduled retry" — the guard must check the existing
+    // timer handle before arming a new one.
+    const idx = runtime.indexOf('function scheduleConversationsRetry()');
+    const body = runtime.slice(idx, idx + 500);
+    expect(body).toMatch(/if \(conversationsRetryTimer\) return;/);
+    expect(body).toMatch(/setTimeout\(/);
   });
 
   it('client: on failure, a previously loaded list is kept, not blanked (only the store fields loading/error are touched)', () => {
@@ -162,8 +168,68 @@ describe('GET /api/widget/conversations — a backend failure must never be repo
     const idx = runtime.indexOf('function loadConversations(onDone)');
     const body = runtime.slice(idx, idx + 3200);
     const catchIdx = body.indexOf('.catch(function (err) {');
-    const catchBody = body.slice(catchIdx, catchIdx + 700);
+    const catchBody = body.slice(catchIdx, catchIdx + 1300);
     expect(catchBody).not.toMatch(/items:\s*\[\]/);
+  });
+
+  it('client: an explicit user retry bypasses the cooldown and cancels any pending automatic retry (no double-fire)', () => {
+    const runtime = readFileSync(resolve(process.cwd(), 'public/widget/runtime.js'), 'utf8');
+    expect(runtime).toMatch(/function retryConversationsLoad\(\)/);
+    const idx = runtime.indexOf('function retryConversationsLoad()');
+    const body = runtime.slice(idx, idx + 400);
+    expect(body).toMatch(/clearTimeout\(conversationsRetryTimer\)/);
+    expect(body).toMatch(/loadConversations\(/);
+  });
+
+  it('client: renderHome() and renderConversationList() are pure renders of store state — neither calls loadConversations() itself (the recursion bug: a retry callback re-entering the same render function that scheduled it)', () => {
+    const runtime = readFileSync(resolve(process.cwd(), 'public/widget/runtime.js'), 'utf8');
+    // Strip comments first — this file's own explanatory prose names the
+    // function ("...never itself a loadConversations() call site") and
+    // must not be mistaken for actual code doing it.
+    const stripComments = (s: string) => s.replace(/\/\/.*$/gm, '');
+
+    const homeIdx = runtime.indexOf('function renderHome()');
+    expect(homeIdx).toBeGreaterThan(-1);
+    const nextFnIdx = runtime.indexOf('\n    function ', homeIdx + 10);
+    const homeBody = stripComments(runtime.slice(homeIdx, nextFnIdx));
+    expect(homeBody).not.toMatch(/loadConversations\(/);
+
+    const listIdx = runtime.indexOf('function renderConversationList()');
+    expect(listIdx).toBeGreaterThan(-1);
+    const listBody = stripComments(runtime.slice(listIdx, homeIdx)); // renderConversationList precedes renderHome
+    expect(listBody).not.toMatch(/loadConversations\(/);
+  });
+
+  it('client: a load failure logs only a SAFE gs:debug diagnostic (operation/status/code) — never widget/session/visitor/contact identity', () => {
+    const runtime = readFileSync(resolve(process.cwd(), 'public/widget/runtime.js'), 'utf8');
+    const idx = runtime.indexOf('conversations_load_failed');
+    expect(idx).toBeGreaterThan(-1);
+    const body = runtime.slice(idx - 30, idx + 300);
+    expect(body).toMatch(/operation:\s*'conversations_load'/);
+    expect(body).toMatch(/status:/);
+    expect(body).toMatch(/code:/);
+    for (const banned of ['sessionToken', 'visitorId', 'contact_id', 'X-Widget-Token', 'dvsid']) {
+      expect(body).not.toContain(banned);
+    }
+    // Gated behind Util.warn, which is itself gated on Util.debug (gs:debug)
+    // — see productionHardeningPass.test.ts for the debug-gating contract.
+    expect(runtime.slice(Math.max(0, idx - 150), idx + 40)).toContain("Util.warn('conversations_load_failed'");
+  });
+
+  it("client: renderBodyInner()'s home/list branches are gated on both !loaded and !error, so a failed load is never re-attempted by the render path itself (only scheduleConversationsRetry's timer or an explicit user retry may)", () => {
+    const runtime = readFileSync(resolve(process.cwd(), 'public/widget/runtime.js'), 'utf8');
+    const dispatcherIdx = runtime.indexOf('function renderBodyInner()');
+    expect(dispatcherIdx).toBeGreaterThan(-1);
+    const homeBranchIdx = runtime.indexOf("if (tab === 'home')", dispatcherIdx);
+    const listBranchIdx = runtime.indexOf("if (tab === 'list')", dispatcherIdx);
+    const homeBranch = runtime.slice(homeBranchIdx, listBranchIdx);
+    expect(homeBranch).toMatch(/!homeConvState\.loaded && !homeConvState\.error/);
+    expect(homeBranch).toMatch(/if \(!homeConvState\.loading\) \{/);
+
+    const chatBranchIdx = runtime.indexOf("if (tab === 'chat')", listBranchIdx);
+    const listBranch = runtime.slice(listBranchIdx, chatBranchIdx);
+    expect(listBranch).toMatch(/!listConvState\.loaded && !listConvState\.error/);
+    expect(listBranch).toMatch(/if \(!listConvState\.loading\) \{/);
   });
 });
 

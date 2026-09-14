@@ -1731,8 +1731,36 @@ export interface RestoreDrillDto {
   notes: string | null;
 }
 
+export type BackupReadinessStateDto = 'verified' | 'pending' | 'not_tested' | 'failed';
+
+export interface BackupReadinessDto {
+  local_wal: BackupReadinessStateDto;
+  offsite_backup: BackupReadinessStateDto;
+  full_restore: BackupReadinessStateDto;
+  pitr: BackupReadinessStateDto;
+  object_backup: BackupReadinessStateDto;
+  fully_protected: boolean;
+}
+
+export interface RecoveryMetricsDto {
+  last_physical_backup_at: string | null;
+  last_verified_physical_backup_at: string | null;
+  last_remote_wal_at: string | null;
+  oldest_pitr_at: string | null;
+  newest_pitr_at: string | null;
+  last_logical_backup_at: string | null;
+  physical_backup_bytes: number | null;
+  object_backup_bytes: number | null;
+  last_full_restore_drill_at: string | null;
+  last_pitr_drill_at: string | null;
+  last_object_restore_drill_at: string | null;
+  measured_restore_seconds: number | null;
+}
+
 export interface BackupOverviewDto {
   health: 'ok' | 'attention' | 'critical';
+  readiness: BackupReadinessDto;
+  metrics: RecoveryMetricsDto;
   alerts: { scope: string; severity: 'warning' | 'critical'; code: string; detail?: string }[];
   latest: BackupHealthRowDto[];
   wal: WalStatusDto | null;

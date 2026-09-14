@@ -90,7 +90,7 @@ import {
   issueContinuityCookieForContact,
 } from '../services/widget/crossWidgetIdentity.js';
 import { widgetIdentityRouter } from './widgetIdentity.js';
-import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments, enrichMessagesWithReplyTo, isVisitorVisibleMessageMeta } from './widgetAttachments.js';
+import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments, enrichMessagesWithReplyTo, isVisitorVisibleMessageMeta, filterVisitorVisibleMessages } from './widgetAttachments.js';
 import { widgetCallbacksRouter } from './widgetCallbacks.js';
 import { widgetDepartmentsRouter } from './widgetDepartments.js';
 import { widgetCallInvitationsRouter } from './widgetCallInvitations.js';
@@ -1240,9 +1240,11 @@ async function enrichMessagesWithSender(
 ): Promise<any[]> {
   if (!messages || !messages.length) return messages || [];
   // Internal staffing notices (assignment transfers) never reach the visitor.
-  // Canonical predicate — see widgetAttachments.ts's isVisitorVisibleMessageMeta
-  // doc comment for why this must be the ONE place this rule lives.
-  messages = messages.filter((m) => isVisitorVisibleMessageMeta(m?.metadata));
+  // Canonical helper — see widgetAttachments.ts's filterVisitorVisibleMessages
+  // doc comment for why this must be the ONE place this rule lives (also
+  // used directly by GET /identity/history, which has no sender-profile
+  // enrichment step to piggyback the filter on).
+  messages = filterVisitorVisibleMessages(messages);
   if (!messages.length) return messages;
 
   const ids = Array.from(new Set(
@@ -2194,15 +2196,21 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     // extra round-trips — the same shape enrichMessagesWithReplyTo resolves
     // for /poll, /history and /identity/history from the DB afterwards.
     //
-    // The FK itself (replyToMessageId) is kept even when the parent is an
-    // internal staffing/system notice — same-conversation is still a true
-    // fact about the reply — but replyToPreview (the only thing that can
-    // ever carry the parent's BODY to the browser) is only ever built when
-    // the parent also passes the canonical visitor-visibility check. A
-    // visitor who supplies the UUID of an internal message must see exactly
-    // what they'd see for a deleted parent: the FK may persist, the preview
-    // is null. Never expose an internal message's body via reply_to.text.
-    let replyToMessageId: string | null = null;
+    // The DB-stored FK (dbReplyToMessageId) is kept even when the parent is
+    // an internal staffing/system notice — same-conversation is still a
+    // true fact about the reply, and the column may be useful internally
+    // for audit/integrity — but nothing PUBLIC (the send response, the
+    // realtime envelope, and every other read path via
+    // enrichMessagesWithReplyTo) may ever expose that id unless the parent
+    // also passes the canonical visitor-visibility check. A visitor who
+    // supplies the UUID of an internal message must see a response
+    // INDISTINGUISHABLE from a missing/deleted parent: both
+    // reply_to_message_id AND reply_to come back null publicly — the raw id
+    // by itself would otherwise be a visibility oracle ("something exists
+    // here I can't see"). Never expose an internal message's body OR id to
+    // the browser.
+    let dbReplyToMessageId: string | null = null;
+    let publicReplyToMessageId: string | null = null;
     let replyToPreview: { id: string; text: string; sender_type: string } | null = null;
     if (data.reply_to_message_id) {
       const { data: parent } = await supabase
@@ -2212,8 +2220,9 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         .eq('conversation_id', convId)
         .maybeSingle();
       if (parent) {
-        replyToMessageId = parent.id;
+        dbReplyToMessageId = parent.id;
         if (isVisitorVisibleMessageMeta(parent.metadata)) {
+          publicReplyToMessageId = parent.id;
           replyToPreview = { id: parent.id, text: parent.body ?? '', sender_type: parent.sender_type };
         }
       }
@@ -2258,7 +2267,10 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
           conversation_id: convId,
           body: messageBody,
           sender_type: 'contact',
-          reply_to_message_id: replyToMessageId,
+          // The true FK — stored regardless of visitor-visibility (see the
+          // doc comment above dbReplyToMessageId). Only the PUBLIC response
+          // and realtime envelope further down are sanitized.
+          reply_to_message_id: dbReplyToMessageId,
           metadata: insertMetadata,
         })
         .select(MESSAGE_COLUMNS)
@@ -2375,7 +2387,11 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         // extra query) so a live realtime delivery carries the structured
         // reply relationship immediately — the receiving widget never has
         // to wait for a poll/history round-trip to render the quote box.
-        buildMessageEnvelope({ ...(insertedMsg as any), reply_to: replyToPreview }),
+        // reply_to_message_id is overridden with the SANITIZED public id
+        // (not insertedMsg's raw DB column, which may still be the true FK
+        // to a hidden/internal parent) — the envelope must follow the exact
+        // same public contract as every other read path.
+        buildMessageEnvelope({ ...(insertedMsg as any), reply_to_message_id: publicReplyToMessageId, reply_to: replyToPreview }),
       ).catch(() => {});
 
       // NATIVE PUSH — same central dispatcher as every other channel.
@@ -2461,11 +2477,14 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       status: 'sent',
       reply,
       // Structured reply-to-message relationship (§ reply-to end-to-end):
-      // the raw FK plus a resolved preview, so the widget can paint the
-      // quote box on the just-sent bubble without a second request. Same
-      // shape /poll, /history and /identity/history resolve independently
-      // via enrichMessagesWithReplyTo for every OTHER read path.
-      reply_to_message_id: replyToMessageId,
+      // the SANITIZED (public) id plus a resolved preview, so the widget
+      // can paint the quote box on the just-sent bubble without a second
+      // request. Both are null together for a hidden/foreign/missing
+      // parent — never just the preview — so the id alone can't be used as
+      // a visibility oracle. Same shape /poll, /history and
+      // /identity/history resolve independently via enrichMessagesWithReplyTo
+      // for every OTHER read path.
+      reply_to_message_id: publicReplyToMessageId,
       reply_to: replyToPreview,
     });
   } catch (err: any) {

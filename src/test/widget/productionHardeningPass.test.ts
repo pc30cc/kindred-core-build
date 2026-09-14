@@ -107,13 +107,13 @@ describe('visitor reply-to-message — real persisted relationship', () => {
   });
 
   it('a miss (invalid/foreign id) is dropped silently rather than failing the send', () => {
-    expect(widgetRoute).toContain('let replyToMessageId: string | null = null;');
+    expect(widgetRoute).toContain('let dbReplyToMessageId: string | null = null;');
     expect(widgetRoute).toContain('if (parent) {');
-    expect(widgetRoute).toContain('replyToMessageId = parent.id;');
+    expect(widgetRoute).toContain('dbReplyToMessageId = parent.id;');
   });
 
-  it('stores the validated reply relationship on the insert', () => {
-    expect(widgetRoute).toContain('reply_to_message_id: replyToMessageId,');
+  it('stores the validated reply relationship on the insert (the true FK, independent of visitor-visibility)', () => {
+    expect(widgetRoute).toContain('reply_to_message_id: dbReplyToMessageId,');
   });
 
   it('is backed by a real, forward-only migration adding the column + index, present in BOTH migration chains', () => {
@@ -316,11 +316,15 @@ describe('reply-to-message — every read path resolves the structured relation 
     expect(widgetAttachmentsSvc).toContain('if (!isVisitorVisibleMessageMeta(p.metadata)) continue;');
   });
 
-  it('the canonical visitor-visibility predicate lives in ONE place and is reused by enrichMessagesWithSender (no duplicated/drifting rule)', () => {
+  it('the canonical visitor-visibility rule lives in ONE place (filterVisitorVisibleMessages) and is reused by enrichMessagesWithSender and GET /identity/history alike', () => {
     expect(widgetAttachmentsSvc).toContain('export function isVisitorVisibleMessageMeta(');
-    expect(widgetRoute).toContain('messages.filter((m) => isVisitorVisibleMessageMeta(m?.metadata));');
-    // The old inline duplicate must be gone, not just supplemented.
+    expect(widgetAttachmentsSvc).toContain('export function filterVisitorVisibleMessages<T extends { metadata?: unknown }>(messages: T[]): T[] {');
+    expect(widgetAttachmentsSvc).toContain('return messages.filter((m) => isVisitorVisibleMessageMeta(m?.metadata));');
+    expect(widgetRoute).toContain('messages = filterVisitorVisibleMessages(messages);');
+    expect(widgetIdentityRoute).toContain('const baseMessages = filterVisitorVisibleMessages(');
+    // The old inline duplicates must be gone, not just supplemented.
     expect(widgetRoute).not.toContain("return !(meta && (meta as any).internal === true);");
+    expect(widgetRoute).not.toContain('messages.filter((m) => isVisitorVisibleMessageMeta(m?.metadata));');
   });
 
   it('the realtime envelope builder (buildMessageEnvelope) carries reply_to_message_id/reply_to when the caller supplies them', () => {
@@ -331,9 +335,10 @@ describe('reply-to-message — every read path resolves the structured relation 
 
   it('POST /message resolves the parent preview with ZERO extra query (reuses the row already fetched to validate the reply target), gated on visitor-visibility', () => {
     const idx = widgetRoute.indexOf('Reply-to: only ever accept a target');
-    const body = widgetRoute.slice(idx, idx + 2100);
+    const body = widgetRoute.slice(idx, idx + 2500);
     expect(body).toContain("select('id, body, sender_type, metadata')");
     expect(body).toContain('if (isVisitorVisibleMessageMeta(parent.metadata)) {');
+    expect(body).toContain('publicReplyToMessageId = parent.id;');
     expect(body).toContain('replyToPreview = { id: parent.id, text: parent.body ?? \'\', sender_type: parent.sender_type };');
   });
 

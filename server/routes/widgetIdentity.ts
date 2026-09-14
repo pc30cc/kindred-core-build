@@ -51,7 +51,7 @@ import {
   resolveWorkspaceId,
   getClientIp,
 } from '../services/widget/security.js';
-import { enrichMessagesWithAttachments, enrichMessagesWithReplyTo } from './widgetAttachments.js';
+import { enrichMessagesWithAttachments, enrichMessagesWithReplyTo, filterVisitorVisibleMessages } from './widgetAttachments.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
 import { getClientCountry } from '../utils/clientIp.js';
 
@@ -382,7 +382,12 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
     .order('created_at', { ascending: true })
     .limit(200);
 
-  const baseMessages = (msgs || []).map((m: any) => ({
+  // Unlike /poll and /history, this endpoint has no sender-profile
+  // enrichment step (enrichMessagesWithSender) to piggyback the visitor-
+  // visibility filter on — it must be applied directly, using the SAME
+  // canonical helper, or an internal staffing/system notice would be
+  // returned straight through in `messages[]`.
+  const baseMessages = filterVisitorVisibleMessages((msgs || []).map((m: any) => ({
     id: m.id,
     role: m.sender_type === 'contact' ? 'visitor' : m.sender_type === 'system' ? 'system' : 'agent',
     sender_type: m.sender_type,
@@ -393,7 +398,7 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
     // can render the correct status on already-seen messages.
     seen_at: m.seen_at || null,
     reply_to_message_id: m.reply_to_message_id || null,
-  }));
+  })));
   // Phase 6b — attach public-safe attachment metadata (no provider URLs)
   const withAttachments = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
   const messages = await enrichMessagesWithReplyTo(config, conv.id, withAttachments);

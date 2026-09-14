@@ -497,6 +497,21 @@ export function isVisitorVisibleMessageMeta(metadata: unknown): boolean {
 }
 
 /**
+ * Filters a full message LIST down to visitor-visible ones, built on
+ * isVisitorVisibleMessageMeta above. This is the counterpart for an array
+ * of message objects (each carrying its own `metadata`) — the ONE place
+ * every read path that returns a message list to the widget applies the
+ * rule, so it does not matter whether that path also happens to run
+ * sender-profile enrichment (enrichMessagesWithSender uses this too) or
+ * not (GET /identity/history has no sender enrichment step at all, and
+ * must still get the same visibility guarantee from calling this directly).
+ */
+export function filterVisitorVisibleMessages<T extends { metadata?: unknown }>(messages: T[]): T[] {
+  if (!messages || !messages.length) return messages || [];
+  return messages.filter((m) => isVisitorVisibleMessageMeta(m?.metadata));
+}
+
+/**
  * Attach a resolved reply-to preview to every message carrying a
  * `reply_to_message_id`, in ONE batch query — not one lookup per message.
  * Shared by POST /message (the send response + realtime envelope), GET
@@ -513,9 +528,11 @@ export function isVisitorVisibleMessageMeta(metadata: unknown): boolean {
  * conversation, so this is defense in depth: a parent is only ever attached
  * when `parent.conversation_id === conversationId`.
  *
- * A parent is dropped to "no reply preview" (never to an error, and the
- * raw `reply_to_message_id` on the child is left untouched either way) in
- * THREE cases, indistinguishable to the visitor:
+ * A parent is sanitized to "no reply, indistinguishable from having none"
+ * in THREE cases — NOT just `reply_to` (the body-carrying preview), but
+ * also the public `reply_to_message_id` field is nulled out, so a visitor
+ * can never use "the id is present but the preview is null" as an oracle
+ * for "something I can't see exists here":
  *   - it no longer resolves at all (deleted — reply_to_message_id is
  *     `ON DELETE SET NULL`, but a narrow race window exists between the
  *     parent row disappearing and the FK actually nulling out)
@@ -524,7 +541,11 @@ export function isVisitorVisibleMessageMeta(metadata: unknown): boolean {
  *     trusted blindly)
  *   - it resolves in the same conversation but fails the canonical
  *     visitor-visibility check (an internal staffing/system notice) — its
- *     body must never reach `reply_to.text`
+ *     body must never reach `reply_to.text`, and its id must not leak via
+ *     `reply_to_message_id` either
+ * The true FK is whatever the DB row already had before this function ran
+ * (untouched at the database level — this only sanitizes the copy that
+ * goes out over the wire to the widget).
  */
 export type ReplyToPreview = { id: string; text: string; sender_type: string };
 
@@ -560,7 +581,12 @@ export async function enrichMessagesWithReplyTo(
   return messages.map((m) => {
     if (!m.reply_to_message_id) return m;
     const parent = parentMap[m.reply_to_message_id];
-    return parent ? { ...m, reply_to: parent } : m;
+    // No visible, same-conversation parent → the public shape must be
+    // identical to "this message never had a reply target": null the id
+    // too, not just the preview, so its presence can never be used to
+    // infer that a hidden/foreign message exists.
+    if (!parent) return { ...m, reply_to_message_id: null, reply_to: null };
+    return { ...m, reply_to: parent };
   });
 }
 

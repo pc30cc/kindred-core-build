@@ -259,6 +259,7 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                 <Route path="/admin/system" element={<AdminSystemPage />} />
                 <Route path="/admin/observability" element={<AdminObservabilityPage />} />
                 <Route path="/admin/retention" element={<AdminRetentionPage />} />
+                <Route path="/admin/backup" element={<AdminBackupPage />} />
                 <Route path="/admin/feature-flags" element={<AdminFeatureFlagsPage />} />
                 <Route path="/admin/branding" element={<AdminBrandingPage />} />
                 <Route path="/admin/domains" element={<AdminDomainsPage />} />

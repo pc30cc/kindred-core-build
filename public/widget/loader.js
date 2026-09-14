@@ -2332,6 +2332,28 @@
 
 
 
+  /**
+   * Decode the exp claim from an HMAC widget session token (same format
+   * read by runtime.js's TokenManager). Used so presence's own refresh
+   * schedule can be bounded by this token's TTL too — it is issued
+   * independently of, and is typically shorter-lived than, the realtime
+   * connection/subscription tokens, so scheduling refresh purely off the
+   * realtime TTL leaves a window where every refresh attempt starts with
+   * an already-expired session token.
+   */
+  function readSessionTokenExpiry(t) {
+    try {
+      if (!t || typeof t !== 'string' || t.indexOf('wss_') !== 0) return 0;
+      var raw = t.slice(4);
+      var dot = raw.lastIndexOf('.');
+      if (dot < 1) return 0;
+      var b64 = raw.slice(0, dot).replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4) b64 += '=';
+      var json = JSON.parse(atob(b64));
+      return (json && typeof json.exp === 'number') ? json.exp * 1000 : 0;
+    } catch (_) { return 0; }
+  }
+
   // ─── Visitor live presence (realtime-first) ──────────────────────────
   //
   // While Centrifugo presence is authoritative, "this visitor is here right
@@ -2387,9 +2409,17 @@
     // reconnect wave and a presence gap for every visitor on the page.
     function scheduleRefresh(cfg) {
       clearRefresh();
+      // Bound by the session token's own expiry too (not just the realtime
+      // conn/lease TTLs): that token is minted independently, is often
+      // shorter-lived, and nothing else touches the network to keep it warm
+      // while presence owns liveness (the heartbeat is suppressed in that
+      // state — see doPing below). Without this bound, refresh was scheduled
+      // purely off the realtime TTL and every refresh attempt predictably
+      // opened with an already-expired session token.
       var soonest = Math.min(
         cfg.expires_at || Infinity,
-        cfg.lease_expires_at || Infinity
+        cfg.lease_expires_at || Infinity,
+        readSessionTokenExpiry(tokenNow()) || Infinity
       );
       if (!isFinite(soonest)) return;
       var delay = Math.max(15000, soonest - Date.now() - 60000);

@@ -396,7 +396,7 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
   }));
   // Phase 6b — attach public-safe attachment metadata (no provider URLs)
   const withAttachments = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
-  const messages = await enrichMessagesWithReplyTo(config, withAttachments);
+  const messages = await enrichMessagesWithReplyTo(config, conv.id, withAttachments);
 
   return res.json({ conversation_id: conv.id, messages, last_updated_at: conv.updatedAt });
 });

@@ -25,6 +25,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import http from 'node:http';
 import express from 'express';
+import { enrichMessagesWithReplyTo, isVisitorVisibleMessageMeta } from '../../../server/routes/widgetAttachments.js';
 
 // ─────────────────────────────────────────────────────────────────────────
 // In-memory fake conversation_messages / conversations store
@@ -346,6 +347,24 @@ function seedConversation(workspaceId = WS_ID): string {
   return id;
 }
 
+/** Directly implant a message row, bypassing POST /message — used to seed
+ * messages a visitor could never create themselves (an internal staffing
+ * notice) or to simulate a stale/foreign FK for defense-in-depth tests. */
+function seedMessage(convId: string, body: string, metadata: Record<string, any> = {}): string {
+  const id = freshId('msg');
+  messages.push({
+    id,
+    conversation_id: convId,
+    sender_type: metadata.internal ? 'system' : 'contact',
+    body,
+    metadata,
+    reply_to_message_id: null,
+    created_at: new Date().toISOString(),
+    seen_at: null,
+  });
+  return id;
+}
+
 describe('POST /api/widget/message — reply-to end-to-end (behavioral)', () => {
   it('persists reply_to_message_id and returns a resolved reply_to preview in the send response', async () => {
     const convId = seedConversation();
@@ -538,5 +557,131 @@ describe('POST /api/widget/message — fresh-conversation lost-response retry (b
     expect(second.body.conversation_id).not.toBe(first.body.conversation_id);
     expect(conversations).toHaveLength(2);
     expect(messages).toHaveLength(2);
+  });
+});
+
+describe('POST /api/widget/message — reply-to visitor visibility (internal messages never preview)', () => {
+  it('an internal parent never returns a body preview in the send response (the FK may still be recorded)', async () => {
+    const convId = seedConversation();
+    const internalId = seedMessage(convId, 'X transferred this conversation to Y', { internal: true, kind: 'conversation_transferred' });
+
+    const reply = await post('/api/widget/message', {
+      workspace_id: WS_ID,
+      conversation_id: convId,
+      message: 'quoting staff note',
+      reply_to_message_id: internalId,
+    });
+    expect(reply.status).toBe(200);
+    // The FK MAY persist — same-conversation is still a true fact — but the
+    // preview object (the only thing that can carry the parent's BODY) must
+    // be null, exactly like a missing/deleted parent.
+    expect(reply.body.reply_to).toBeNull();
+    expect(JSON.stringify(reply.body)).not.toContain('transferred this conversation');
+
+    const stored = messages.find((m) => m.id === reply.body.message_id);
+    expect(stored?.reply_to_message_id).toBe(internalId);
+  });
+
+  it('GET /poll and GET /history never surface the internal parent preview either', async () => {
+    const convId = seedConversation();
+    const internalId = seedMessage(convId, 'internal staffing note body', { internal: true });
+    await post('/api/widget/message', { workspace_id: WS_ID, conversation_id: convId, message: 'quoting staff note', reply_to_message_id: internalId });
+
+    const polled = await get(`/api/widget/poll?workspace_id=${WS_ID}&conversation_id=${convId}`);
+    const childPolled = polled.body.messages.find((m: any) => m.text === 'quoting staff note');
+    expect(childPolled.reply_to).toBeUndefined();
+    expect(JSON.stringify(polled.body)).not.toContain('internal staffing note body');
+
+    const history = await get(`/api/widget/history?workspace_id=${WS_ID}&conversation_id=${convId}`);
+    const childHistory = history.body.messages.find((m: any) => m.text === 'quoting staff note');
+    expect(childHistory.reply_to).toBeUndefined();
+    expect(JSON.stringify(history.body)).not.toContain('internal staffing note body');
+  });
+
+  it('the realtime envelope never carries the internal parent body', async () => {
+    const convId = seedConversation();
+    const internalId = seedMessage(convId, 'do not leak this body via realtime', { internal: true });
+    publishSpy.mockClear();
+    await post('/api/widget/message', { workspace_id: WS_ID, conversation_id: convId, message: 'quoting staff note', reply_to_message_id: internalId });
+
+    expect(publishSpy).toHaveBeenCalledTimes(1);
+    const envelope = publishSpy.mock.calls[0][3];
+    expect(envelope.payload.reply_to).toBeUndefined();
+    expect(JSON.stringify(envelope)).not.toContain('do not leak this body via realtime');
+  });
+
+  it('a bypassed cross-conversation FK (simulating a stale/foreign link) is rejected by enrichment defense-in-depth, independent of POST-time validation', async () => {
+    const convA = seedConversation();
+    const convB = seedConversation();
+    const parentIdA = seedMessage(convA, 'secret in A');
+
+    // Implant a child row directly in conv B whose FK points at conv A's
+    // message — something POST-time validation already refuses to create,
+    // but the enrichment layer (used by /poll, /history, /identity/history)
+    // must not trust a `reply_to_message_id` FK blindly either.
+    messages.push({
+      id: freshId('msg'),
+      conversation_id: convB,
+      sender_type: 'contact',
+      body: 'bypassed child',
+      metadata: {},
+      reply_to_message_id: parentIdA,
+      created_at: new Date().toISOString(),
+      seen_at: null,
+    });
+
+    const polled = await get(`/api/widget/poll?workspace_id=${WS_ID}&conversation_id=${convB}`);
+    const child = polled.body.messages.find((m: any) => m.text === 'bypassed child');
+    expect(child.reply_to).toBeUndefined();
+    expect(JSON.stringify(polled.body)).not.toContain('secret in A');
+  });
+});
+
+describe('enrichMessagesWithReplyTo / isVisitorVisibleMessageMeta — direct unit coverage (the exact function GET /identity/history also calls)', () => {
+  const config = { supabaseUrl: 'https://example.supabase.co', supabaseAnonKey: 'ANON_KEY', supabaseServiceRoleKey: 'SERVICE_KEY' } as any;
+
+  it('isVisitorVisibleMessageMeta rejects metadata.internal === true and accepts everything else', () => {
+    expect(isVisitorVisibleMessageMeta({ internal: true })).toBe(false);
+    expect(isVisitorVisibleMessageMeta({ internal: false })).toBe(true);
+    expect(isVisitorVisibleMessageMeta(null)).toBe(true);
+    expect(isVisitorVisibleMessageMeta(undefined)).toBe(true);
+    expect(isVisitorVisibleMessageMeta({})).toBe(true);
+    expect(isVisitorVisibleMessageMeta('not an object')).toBe(true);
+  });
+
+  it('attaches a preview for a visible, same-conversation parent', async () => {
+    const convId = seedConversation();
+    const parentId = seedMessage(convId, 'visible parent text');
+    const [result] = await enrichMessagesWithReplyTo(config, convId, [
+      { id: 'c1', reply_to_message_id: parentId },
+    ]);
+    expect(result.reply_to).toEqual({ id: parentId, text: 'visible parent text', sender_type: 'contact' });
+  });
+
+  it('drops the preview for an internal parent, even in the same conversation', async () => {
+    const convId = seedConversation();
+    const parentId = seedMessage(convId, 'internal secret', { internal: true });
+    const [result] = await enrichMessagesWithReplyTo(config, convId, [
+      { id: 'c1', reply_to_message_id: parentId },
+    ]);
+    expect(result.reply_to).toBeUndefined();
+  });
+
+  it('drops the preview for a cross-conversation parent even though the row resolves', async () => {
+    const convA = seedConversation();
+    const convB = seedConversation();
+    const parentId = seedMessage(convA, 'secret in A');
+    const [result] = await enrichMessagesWithReplyTo(config, convB, [
+      { id: 'c1', reply_to_message_id: parentId },
+    ]);
+    expect(result.reply_to).toBeUndefined();
+  });
+
+  it('drops the preview for a missing/deleted parent without throwing', async () => {
+    const convId = seedConversation();
+    const [result] = await enrichMessagesWithReplyTo(config, convId, [
+      { id: 'c1', reply_to_message_id: freshId('gone') },
+    ]);
+    expect(result.reply_to).toBeUndefined();
   });
 });

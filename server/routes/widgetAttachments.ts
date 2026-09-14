@@ -482,6 +482,21 @@ export async function enrichMessagesWithAttachments(
 }
 
 /**
+ * Canonical visitor-message-visibility predicate — the ONE place that
+ * decides whether a message's metadata marks it as something a visitor
+ * must never see (currently: internal staffing/assignment/system notices,
+ * written with `metadata.internal === true` — see server/routes/
+ * conversations.ts's transfer notice). Every accessor that might expose a
+ * message (or a preview of one) to the widget — enrichMessagesWithSender's
+ * /poll+/history filter, and enrichMessagesWithReplyTo below — shares this
+ * one rule instead of maintaining independent copies that can drift.
+ */
+export function isVisitorVisibleMessageMeta(metadata: unknown): boolean {
+  const meta = (metadata && typeof metadata === 'object') ? metadata as Record<string, any> : null;
+  return !(meta && meta.internal === true);
+}
+
+/**
  * Attach a resolved reply-to preview to every message carrying a
  * `reply_to_message_id`, in ONE batch query — not one lookup per message.
  * Shared by POST /message (the send response + realtime envelope), GET
@@ -490,15 +505,32 @@ export async function enrichMessagesWithAttachments(
  * reach the widget through, matching the `enrichMessagesWithAttachments`
  * pipeline style above.
  *
- * A parent that no longer resolves (deleted — reply_to_message_id is
- * `ON DELETE SET NULL`, but a narrow race window exists between the parent
- * row disappearing and the FK actually nulling out) degrades to "no reply
- * preview" rather than ever rendering a broken/empty quote.
+ * `conversationId` is the caller's ALREADY-KNOWN, already-authorized
+ * conversation id (every call site queries a single conversation) — not
+ * something read off the client messages, and never round-tripped back to
+ * the browser. `reply_to_message_id` self-references `conversation_messages`
+ * but the database does NOT enforce that a parent lives in the same
+ * conversation, so this is defense in depth: a parent is only ever attached
+ * when `parent.conversation_id === conversationId`.
+ *
+ * A parent is dropped to "no reply preview" (never to an error, and the
+ * raw `reply_to_message_id` on the child is left untouched either way) in
+ * THREE cases, indistinguishable to the visitor:
+ *   - it no longer resolves at all (deleted — reply_to_message_id is
+ *     `ON DELETE SET NULL`, but a narrow race window exists between the
+ *     parent row disappearing and the FK actually nulling out)
+ *   - it resolves but belongs to a DIFFERENT conversation (should be
+ *     unreachable given the FK + this helper's own callers, but never
+ *     trusted blindly)
+ *   - it resolves in the same conversation but fails the canonical
+ *     visitor-visibility check (an internal staffing/system notice) — its
+ *     body must never reach `reply_to.text`
  */
 export type ReplyToPreview = { id: string; text: string; sender_type: string };
 
 export async function enrichMessagesWithReplyTo(
   config: ServerConfig,
+  conversationId: string,
   messages: Array<{ reply_to_message_id?: string | null; [k: string]: any }>,
 ): Promise<Array<any>> {
   if (!messages || messages.length === 0) return messages || [];
@@ -514,9 +546,11 @@ export async function enrichMessagesWithReplyTo(
   try {
     const { data } = await sb
       .from('conversation_messages')
-      .select('id, body, sender_type')
+      .select('id, conversation_id, body, sender_type, metadata')
       .in('id', replyIds);
     for (const p of (data || []) as any[]) {
+      if (p.conversation_id !== conversationId) continue; // defense in depth — see doc comment above
+      if (!isVisitorVisibleMessageMeta(p.metadata)) continue; // internal notice — never preview its body
       parentMap[p.id] = { id: p.id, text: p.body ?? '', sender_type: p.sender_type };
     }
   } catch (e: any) {

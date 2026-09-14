@@ -90,7 +90,7 @@ import {
   issueContinuityCookieForContact,
 } from '../services/widget/crossWidgetIdentity.js';
 import { widgetIdentityRouter } from './widgetIdentity.js';
-import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments, enrichMessagesWithReplyTo } from './widgetAttachments.js';
+import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments, enrichMessagesWithReplyTo, isVisitorVisibleMessageMeta } from './widgetAttachments.js';
 import { widgetCallbacksRouter } from './widgetCallbacks.js';
 import { widgetDepartmentsRouter } from './widgetDepartments.js';
 import { widgetCallInvitationsRouter } from './widgetCallInvitations.js';
@@ -1240,10 +1240,9 @@ async function enrichMessagesWithSender(
 ): Promise<any[]> {
   if (!messages || !messages.length) return messages || [];
   // Internal staffing notices (assignment transfers) never reach the visitor.
-  messages = messages.filter((m) => {
-    const meta = (m?.metadata && typeof m.metadata === 'object') ? m.metadata : null;
-    return !(meta && (meta as any).internal === true);
-  });
+  // Canonical predicate — see widgetAttachments.ts's isVisitorVisibleMessageMeta
+  // doc comment for why this must be the ONE place this rule lives.
+  messages = messages.filter((m) => isVisitorVisibleMessageMeta(m?.metadata));
   if (!messages.length) return messages;
 
   const ids = Array.from(new Set(
@@ -1397,7 +1396,7 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
     }));
     // Phase 6b — attach public-safe attachment metadata (no provider URLs)
     const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
-    const withReplies = await enrichMessagesWithReplyTo(config, enriched);
+    const withReplies = await enrichMessagesWithReplyTo(config, activeConversationId as string, enriched);
     const messages = await enrichMessagesWithSender(supabase, withReplies, workspaceId);
 
     let operatorInfo = null;
@@ -1487,7 +1486,7 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
   }));
   // Phase 6b — attach public-safe attachment metadata (no provider URLs)
   const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
-  const withReplies = await enrichMessagesWithReplyTo(config, enriched);
+  const withReplies = await enrichMessagesWithReplyTo(config, conversationId, enriched);
   const messages = await enrichMessagesWithSender(supabase, withReplies, workspaceId);
 
   return res.json({ messages });
@@ -2194,18 +2193,29 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
     // and the realtime envelope can both carry a resolved preview with zero
     // extra round-trips — the same shape enrichMessagesWithReplyTo resolves
     // for /poll, /history and /identity/history from the DB afterwards.
+    //
+    // The FK itself (replyToMessageId) is kept even when the parent is an
+    // internal staffing/system notice — same-conversation is still a true
+    // fact about the reply — but replyToPreview (the only thing that can
+    // ever carry the parent's BODY to the browser) is only ever built when
+    // the parent also passes the canonical visitor-visibility check. A
+    // visitor who supplies the UUID of an internal message must see exactly
+    // what they'd see for a deleted parent: the FK may persist, the preview
+    // is null. Never expose an internal message's body via reply_to.text.
     let replyToMessageId: string | null = null;
     let replyToPreview: { id: string; text: string; sender_type: string } | null = null;
     if (data.reply_to_message_id) {
       const { data: parent } = await supabase
         .from('conversation_messages')
-        .select('id, body, sender_type')
+        .select('id, body, sender_type, metadata')
         .eq('id', data.reply_to_message_id)
         .eq('conversation_id', convId)
         .maybeSingle();
       if (parent) {
         replyToMessageId = parent.id;
-        replyToPreview = { id: parent.id, text: parent.body ?? '', sender_type: parent.sender_type };
+        if (isVisitorVisibleMessageMeta(parent.metadata)) {
+          replyToPreview = { id: parent.id, text: parent.body ?? '', sender_type: parent.sender_type };
+        }
       }
     }
 

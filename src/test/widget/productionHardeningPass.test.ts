@@ -288,25 +288,39 @@ describe('reply-to-message — every read path resolves the structured relation 
     expect(widgetAttachmentsSvc).toMatch(/\.in\('id', replyIds\)/);
   });
 
-  it('GET /poll selects reply_to_message_id and runs it through enrichMessagesWithReplyTo', () => {
+  it('GET /poll selects reply_to_message_id and runs it through enrichMessagesWithReplyTo, scoped to the active conversation', () => {
     const idx = widgetRoute.indexOf("widgetRouter.get('/poll'");
     const body = widgetRoute.slice(idx, idx + 5000);
     expect(body).toContain('reply_to_message_id');
-    expect(body).toContain('enrichMessagesWithReplyTo(config, enriched)');
+    expect(body).toContain('enrichMessagesWithReplyTo(config, activeConversationId as string, enriched)');
   });
 
-  it('GET /history selects reply_to_message_id and runs it through enrichMessagesWithReplyTo', () => {
+  it('GET /history selects reply_to_message_id and runs it through enrichMessagesWithReplyTo, scoped to the requested conversation', () => {
     const idx = widgetRoute.indexOf("widgetRouter.get('/history'");
     const body = widgetRoute.slice(idx, idx + 2500);
     expect(body).toContain('reply_to_message_id');
-    expect(body).toContain('enrichMessagesWithReplyTo(config, enriched)');
+    expect(body).toContain('enrichMessagesWithReplyTo(config, conversationId, enriched)');
   });
 
-  it('GET /identity/history (smart continuation / page-reload path) also resolves it', () => {
+  it('GET /identity/history (smart continuation / page-reload path) also resolves it, scoped to the continued conversation', () => {
     const idx = widgetIdentityRoute.indexOf("widgetIdentityRouter.get('/history'");
     const body = widgetIdentityRoute.slice(idx, idx + 3000);
     expect(body).toContain('reply_to_message_id');
-    expect(body).toContain('enrichMessagesWithReplyTo(config, withAttachments)');
+    expect(body).toContain('enrichMessagesWithReplyTo(config, conv.id, withAttachments)');
+  });
+
+  it('enrichMessagesWithReplyTo is scoped by a conversationId parameter and applies the canonical visitor-visibility + same-conversation checks before attaching any preview', () => {
+    expect(widgetAttachmentsSvc).toContain('export async function enrichMessagesWithReplyTo(\n  config: ServerConfig,\n  conversationId: string,');
+    expect(widgetAttachmentsSvc).toContain('select(\'id, conversation_id, body, sender_type, metadata\')');
+    expect(widgetAttachmentsSvc).toContain('if (p.conversation_id !== conversationId) continue;');
+    expect(widgetAttachmentsSvc).toContain('if (!isVisitorVisibleMessageMeta(p.metadata)) continue;');
+  });
+
+  it('the canonical visitor-visibility predicate lives in ONE place and is reused by enrichMessagesWithSender (no duplicated/drifting rule)', () => {
+    expect(widgetAttachmentsSvc).toContain('export function isVisitorVisibleMessageMeta(');
+    expect(widgetRoute).toContain('messages.filter((m) => isVisitorVisibleMessageMeta(m?.metadata));');
+    // The old inline duplicate must be gone, not just supplemented.
+    expect(widgetRoute).not.toContain("return !(meta && (meta as any).internal === true);");
   });
 
   it('the realtime envelope builder (buildMessageEnvelope) carries reply_to_message_id/reply_to when the caller supplies them', () => {
@@ -315,10 +329,11 @@ describe('reply-to-message — every read path resolves the structured relation 
     expect(publishSvc).toContain('...(row.reply_to ? { reply_to: row.reply_to } : {}),');
   });
 
-  it('POST /message resolves the parent preview with ZERO extra query (reuses the row already fetched to validate the reply target)', () => {
+  it('POST /message resolves the parent preview with ZERO extra query (reuses the row already fetched to validate the reply target), gated on visitor-visibility', () => {
     const idx = widgetRoute.indexOf('Reply-to: only ever accept a target');
-    const body = widgetRoute.slice(idx, idx + 1400);
-    expect(body).toContain("select('id, body, sender_type')");
+    const body = widgetRoute.slice(idx, idx + 2100);
+    expect(body).toContain("select('id, body, sender_type, metadata')");
+    expect(body).toContain('if (isVisitorVisibleMessageMeta(parent.metadata)) {');
     expect(body).toContain('replyToPreview = { id: parent.id, text: parent.body ?? \'\', sender_type: parent.sender_type };');
   });
 

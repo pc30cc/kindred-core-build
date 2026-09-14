@@ -487,6 +487,8 @@ a.wy-powered:hover { color: var(--wy-text); }
   font-size: 12.5px; font-weight: 500; letter-spacing: 0.025em; color: var(--wy-accent); padding: 0;
 }
 .home-link-chevron { display: inline-flex; transition: transform 0.16s var(--wy-ease); }
+
+.home-conv-error-text { font-size: 12.5px; color: var(--wy-muted); margin: 0 0 4px; }
 [dir='rtl'] .home-link-chevron svg { transform: scaleX(-1); }
 .home-link:hover .home-link-chevron { transform: translateX(2px); }
 [dir='rtl'] .home-link:hover .home-link-chevron { transform: translateX(-2px); }

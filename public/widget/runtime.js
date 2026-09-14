@@ -915,6 +915,8 @@
         wyFeedbackThanks: 'Thanks for your feedback!',
         wyTalkToSupport: 'Chat with support',
         convJustNow: 'now',
+        convLoadError: "Couldn't load conversations",
+        convRetry: 'Retry',
 
       },
       fa: {
@@ -1117,6 +1119,8 @@
         wyFeedbackThanks: 'از بازخورد شما سپاسگزاریم!',
         wyTalkToSupport: 'گفتگو با پشتیبانی',
         convJustNow: 'هم‌اکنون',
+        convLoadError: 'بارگذاری گفتگوها انجام نشد',
+        convRetry: 'تلاش مجدد',
 
       },
       tr: {
@@ -1319,6 +1323,8 @@
         wyFeedbackThanks: 'Geri bildiriminiz için teşekkürler!',
         wyTalkToSupport: 'Destek ile sohbet et',
         convJustNow: 'şimdi',
+        convLoadError: 'Konuşmalar yüklenemedi',
+        convRetry: 'Tekrar dene',
 
       },
     };
@@ -7197,7 +7203,35 @@
     // ─── Visitor conversation list (server-backed) ───
     // GET /api/widget/conversations returns ONLY the conversations that
     // belong to this visitor. Core owns the state; the template owns markup.
-    var conversationsStore = createStore({ loaded: false, loading: false, items: [] });
+    var conversationsStore = createStore({ loaded: false, loading: false, items: [], error: false });
+    // Automatic retry after a failed load. `conversationsRetryTimer` holds
+    // AT MOST ONE pending timer — scheduleConversationsRetry() is a no-op if
+    // one is already armed, and the callback clears the handle before it
+    // does anything else. This is deliberately the ONLY thing (besides an
+    // explicit user retry, see retryConversationsLoad()) allowed to
+    // re-attempt loadConversations() after a failure: the render path
+    // itself (renderBodyInner()) never re-invokes it once `error` is set —
+    // see that guard for why this is what actually prevents the
+    // render→load→render recursion a prior version of this code had.
+    //
+    // Bounded exponential backoff — 15s, 30s, 60s, 120s, then capped at
+    // 300s — instead of a fixed 15s loop, so a sustained outage doesn't
+    // keep hammering the endpoint every 15 seconds indefinitely.
+    var CONVERSATIONS_RETRY_BASE_MS = 15000;
+    var CONVERSATIONS_RETRY_MAX_MS = 300000;
+    var conversationsRetryTimer = null;
+    var conversationsConsecutiveFailures = 0;
+    // Set only while an automatic (never manual) retry is deferred because
+    // the tab is hidden — see fireConversationsAutoRetry().
+    var conversationsVisibilityHandler = null;
+
+    /** failure #1 → 15s, #2 → 30s, #3 → 60s, #4 → 120s, #5+ → 300s (cap).
+     * Reads conversationsConsecutiveFailures as it stands at call time —
+     * callers must increment it first. */
+    function conversationsNextRetryDelay() {
+      var exp = Math.max(0, conversationsConsecutiveFailures - 1);
+      return Math.min(CONVERSATIONS_RETRY_MAX_MS, CONVERSATIONS_RETRY_BASE_MS * Math.pow(2, exp));
+    }
 
     /** BCP47 tag for the active widget locale (Jalali calendar for fa). */
     function localeTag(calendar) {
@@ -7250,36 +7284,139 @@
       };
     }
 
+    /**
+     * The ONLY thing allowed to call this after the very first attempt is
+     * either this timer or an explicit user retry (retryConversationsLoad)
+     * — see the render-path guard in renderBodyInner() for why that
+     * invariant is what keeps this whole lifecycle recursion-free.
+     */
+    function scheduleConversationsRetry() {
+      if (conversationsRetryTimer) return; // at most one scheduled retry, ever
+      conversationsRetryTimer = setTimeout(function () {
+        conversationsRetryTimer = null;
+        fireConversationsAutoRetry();
+      }, conversationsNextRetryDelay());
+    }
+
+    /** An AUTOMATIC retry (never a manual one) defers while the tab is
+     * hidden — there is no point spending a request the visitor cannot see
+     * the result of — and fires exactly once as soon as it becomes visible
+     * again, without re-applying backoff (the wait itself already served
+     * as this attempt's delay). */
+    function fireConversationsAutoRetry() {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        if (conversationsVisibilityHandler) return; // already waiting on one
+        conversationsVisibilityHandler = function () {
+          if (document.visibilityState === 'hidden') return;
+          document.removeEventListener('visibilitychange', conversationsVisibilityHandler);
+          conversationsVisibilityHandler = null;
+          runConversationsRetryRequest();
+        };
+        document.addEventListener('visibilitychange', conversationsVisibilityHandler);
+        return;
+      }
+      runConversationsRetryRequest();
+    }
+
+    function runConversationsRetryRequest() {
+      loadConversations(function () {
+        var activeTab = shellStore.get().activeTab;
+        if (activeTab === 'home' || activeTab === 'list') renderBody();
+      });
+    }
+
+    /** Explicit user "Retry" tap: bypass backoff AND the hidden-tab defer,
+     * make exactly one request right now. Cancels any pending automatic
+     * timer or visibility-wait so the mechanisms never both fire for the
+     * same failure — and if this request itself fails, it counts as just
+     * another consecutive failure (loadConversations()'s own catch handles
+     * that uniformly, whatever triggered the attempt). */
+    function retryConversationsLoad() {
+      if (conversationsRetryTimer) {
+        clearTimeout(conversationsRetryTimer);
+        conversationsRetryTimer = null;
+      }
+      if (conversationsVisibilityHandler) {
+        document.removeEventListener('visibilitychange', conversationsVisibilityHandler);
+        conversationsVisibilityHandler = null;
+      }
+      runConversationsRetryRequest();
+    }
+
     function loadConversations(onDone) {
       if (!chatEnabled) {
         // Chat is off for this workspace: there is no thread list to fetch.
-        // Latch `loaded` anyway — renderHome() calls us whenever it is
-        // false and our callback re-renders, so leaving it false made the
-        // pair recurse synchronously until the stack blew (a hard widget
-        // crash on chat-disabled workspaces).
         if (!(conversationsStore.get() || {}).loaded) {
-          conversationsStore.set({ loaded: true, loading: false, items: [] });
+          conversationsStore.set({ loaded: true, loading: false, error: false, items: [] });
         }
         if (onDone) onDone();
         return;
       }
 
       var st = conversationsStore.get();
-      if (st.loading) return;
+      if (st.loading) { if (onDone) onDone(); return; }
       conversationsStore.set({ loading: true });
       // No visitor_id on the wire: the server resolves identity solely from
       // the signed HttpOnly `dvsid` cookie and ignores any client-sent id.
       var url = ctx.apiBase + '/api/widget/conversations?workspace_id=' +
         encodeURIComponent(ctx.workspaceId || '');
       ctx.fetchWith(url, { method: 'GET' })
-        .then(function (r) { return r.ok ? r.json() : { conversations: [] }; })
-        .catch(function () { return { conversations: [] }; })
+        .then(function (r) {
+          if (!r.ok) {
+            // Read the sanitized public body (status + server `code` only —
+            // never raw DB detail) for the gs:debug diagnostic below.
+            return r.json().catch(function () { return null; }).then(function (body) {
+              var e = new Error('http_' + r.status);
+              e.status = r.status;
+              e.code = (body && body.code) || null;
+              throw e;
+            });
+          }
+          return r.json();
+        })
         .then(function (data) {
+          // A success resets backoff entirely — the NEXT future failure
+          // (whenever it happens) starts again from the base 15s delay,
+          // never resuming from wherever the count left off.
+          conversationsConsecutiveFailures = 0;
+          if (conversationsRetryTimer) { clearTimeout(conversationsRetryTimer); conversationsRetryTimer = null; }
+          if (conversationsVisibilityHandler) {
+            document.removeEventListener('visibilitychange', conversationsVisibilityHandler);
+            conversationsVisibilityHandler = null;
+          }
           conversationsStore.set({
             loaded: true,
             loading: false,
+            error: false,
             items: (data && data.conversations ? data.conversations : []).map(mapConversationVm),
           });
+          if (onDone) onDone();
+        })
+        .catch(function (err) {
+          conversationsConsecutiveFailures += 1;
+          // gs:debug-gated only. SAFE fields alone: no token, no visitor/
+          // session/contact id, no headers, no raw DB error.
+          Util.warn('conversations_load_failed', {
+            operation: 'conversations_load',
+            status: (err && err.status) || null,
+            code: (err && err.code) || null,
+            failureCount: conversationsConsecutiveFailures,
+            nextRetryMs: conversationsNextRetryDelay(),
+          });
+          conversationsStore.set({
+            // Deliberately NOT loaded:true — a genuine failure (non-2xx,
+            // network error) must never be reported as "this visitor has no
+            // conversations". Existing items (if any, from a prior
+            // successful load) are kept rather than blanked, so a transient
+            // failure on refresh doesn't erase a list the visitor already
+            // saw. Further attempts happen ONLY via scheduleConversationsRetry
+            // (one bounded automatic retry, exponential backoff) or an
+            // explicit user retry — never by the render path re-invoking
+            // this function.
+            loading: false,
+            error: true,
+          });
+          scheduleConversationsRetry();
           if (onDone) onDone();
         });
     }
@@ -7407,6 +7544,14 @@
     function bindViewHooks() {}
 
 
+    // Purely a function of conversationsStore's current state — it does NOT
+    // itself decide whether to (re)load. That decision lives in exactly one
+    // place, renderBodyInner()'s 'list' branch, so there is a single call
+    // site for loadConversations() and no risk of this function's own
+    // render triggering another load (the bug a prior version of this code
+    // had: this function used to call loadConversations() itself here,
+    // whose retry callback called this function again, recursing
+    // synchronously whenever the load kept failing).
     function renderConversationList() {
       if (!body) return;
       var cs = conversationsStore.get();
@@ -7415,6 +7560,7 @@
             rtl: (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa',
             loading: cs.loading && !cs.loaded,
             conversations: cs.items,
+            error: !!cs.error,
             chatEnabled: chatEnabled,
           })
         : '';
@@ -7423,25 +7569,27 @@
       if (newBtn) {
         newBtn.addEventListener('click', function () { startNewConversation(); });
       }
-
-      if (!cs.loaded && !cs.loading) {
-        loadConversations(function () {
-          if (shellStore.get().activeTab === 'list') renderConversationList();
-        });
+      var retryBtn = body.querySelector('[data-home-action="conversations-retry"]');
+      if (retryBtn) {
+        retryBtn.addEventListener('click', function () { retryConversationsLoad(); });
       }
     }
 
+    // Same contract as renderConversationList() above: pure render of
+    // current store state, never itself a loadConversations() call site.
     function renderHome() {
       if (!body) return;
       var pState = presenceStore.get();
       var kbState = kbStore.get() || {};
+      var convState = conversationsStore.get() || {};
       body.innerHTML = Presentation.homeHtml({
         rtl: (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa',
         isOnline: pState.status === 'online' && pState.liveChatEnabled !== false,
         teamMembers: teamMembers,
         categories: kbState.categories || [],
         articles: kbState.articles || [],
-        conversations: (conversationsStore.get() || {}).items || [],
+        conversations: convState.items || [],
+        conversationsError: !!convState.error,
         headerTitle: headerTitle,
         kbEnabled: kbEnabled,
         chatEnabled: chatEnabled,
@@ -7463,6 +7611,10 @@
         chatStore.set({ conversationId: chatStore.get().conversationId });
         switchTab('chat');
       });
+      var retryBtn = body.querySelector('[data-home-action="conversations-retry"]');
+      if (retryBtn) {
+        retryBtn.addEventListener('click', function () { retryConversationsLoad(); });
+      }
 
       var seeAll = body.querySelector('[data-home-action="help"]');
       if (seeAll) seeAll.addEventListener('click', function () { switchTab('help'); });
@@ -7477,11 +7629,6 @@
         el.addEventListener('click', function () { switchTab('help'); });
       });
       bindSmartSurface(body.querySelector('.smart-home-card'), smartSurface);
-      if (!(conversationsStore.get() || {}).loaded) {
-        loadConversations(function () {
-          if (shellStore.get().activeTab === 'home') renderHome();
-        });
-      }
     }
 
 
@@ -7640,11 +7787,28 @@
         // threads arrive ("Start chat" → recent list + "Start new"). Painting
         // the empty variant first produced a visible flip on every reload, so
         // hold the skeleton until the thread list is resolved.
-        if (chatEnabled && !(conversationsStore.get() || {}).loaded) {
+        //
+        // THIS is the single call site for loadConversations() in the whole
+        // render path (renderHome()/renderConversationList() are pure
+        // renders of current store state and never call it themselves — a
+        // prior version had them do so via their own retry callback, which
+        // recursed synchronously into a stack overflow whenever the load
+        // kept failing). The `!error` guard is what makes that impossible
+        // here: once a load has failed, this branch stops calling
+        // loadConversations() at all — subsequent attempts happen only via
+        // scheduleConversationsRetry()'s single bounded timer or an
+        // explicit user retry (retryConversationsLoad()), never from a
+        // render. The `!loading` guard additionally means a re-entrant
+        // renderBody() call while a request is already in flight just
+        // repaints the skeleton instead of starting a second request.
+        var homeConvState = conversationsStore.get() || {};
+        if (chatEnabled && !homeConvState.loaded && !homeConvState.error) {
           renderLoading('home');
-          loadConversations(function () {
-            if (shellStore.get().activeTab === 'home') renderBody();
-          });
+          if (!homeConvState.loading) {
+            loadConversations(function () {
+              if (shellStore.get().activeTab === 'home') renderBody();
+            });
+          }
           return;
         }
         renderHome();
@@ -7658,13 +7822,15 @@
       }
       if (tab === 'list') {
         if (inputBar) inputBar.style.display = 'none';
-        // Same contract as home: never flash an "empty list" before the
-        // visitor's threads arrive — hold the list skeleton instead.
-        if (!(conversationsStore.get() || {}).loaded) {
+        // Same contract as home — see the long comment there.
+        var listConvState = conversationsStore.get() || {};
+        if (!listConvState.loaded && !listConvState.error) {
           renderLoading('list');
-          loadConversations(function () {
-            if (shellStore.get().activeTab === 'list') renderBody();
-          });
+          if (!listConvState.loading) {
+            loadConversations(function () {
+              if (shellStore.get().activeTab === 'list') renderBody();
+            });
+          }
           return;
         }
         renderConversationList();
@@ -8114,6 +8280,12 @@
         openConversation: function (cid) { openConversation(cid); },
         chatState: function () { return chatStore.get(); },
         setConnectionState: function (state) { transportStore.set({ connectionState: state }); },
+        // Test-only equivalent of tapping the Recent Conversations "Retry"
+        // button — needed because that button only renders in the
+        // error+nothing-cached state; tests exercising a retry AFTER a
+        // successful load (e.g. proving backoff-reset semantics) have no
+        // DOM affordance to click.
+        retryConversations: function () { retryConversationsLoad(); },
       } : undefined,
       /** Single source of truth for panel visibility. */
       isOpen: function () { return !!shellStore.get().isOpen; },

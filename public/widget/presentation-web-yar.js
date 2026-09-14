@@ -1031,6 +1031,20 @@
           '</section>'
         : '';
 
+      // A genuine load failure (never a real "zero conversations" 200) with
+      // nothing cached to fall back on. If there ARE cached items (a later
+      // background refresh failed but the earlier successful load's data is
+      // still in the store), they render above instead — a transient
+      // refresh failure must never blank a list the visitor already saw.
+      var convErrorHtml = (!hasThreads && vm.conversationsError)
+        ? '<section class="home-section home-conv-error">' +
+            '<p class="home-conv-error-text">' + esc(tf('wyConversationsLoadError', t('convLoadError'))) + '</p>' +
+            '<button type="button" class="home-link" data-home-action="conversations-retry">' +
+              esc(tf('wyConversationsRetry', t('convRetry'))) +
+            '</button>' +
+          '</section>'
+        : '';
+
       var chipsHtml = showChips
         ? '<section class="home-section">' +
             '<h3 class="home-section-title">' + esc(tf('wyArticlesSuggest', t('homeHelpTitle'))) + '</h3>' +
@@ -1075,7 +1089,7 @@
               '<h2 class="home-greeting">' + esc(t('homeGreeting')) + '</h2>' +
               '<p class="home-welcome">' + esc(vm.welcomeMessage || t('homeWelcome')) + '</p>' +
             '</section>' +
-            recentHtml + chipsHtml +
+            recentHtml + convErrorHtml + chipsHtml +
           '</div>' +
           '<div class="wy-actions-block">' +
             '<div class="wy-actions">' + actions + '</div>' + footerHtml() +
@@ -1091,11 +1105,23 @@
       vm = vm || {};
       var rtl = !!vm.rtl;
       var items = vm.conversations || [];
-      var bodyHtml = vm.loading
-        ? skeletonConvRowsHtml(6)
-        : (items.length
-            ? items.map(function (c) { return conversationRowHtml(c, false); }).join('')
-            : '<div class="wy-empty"><p>' + esc(tf('wyNoConversations', 'No conversations yet')) + '</p></div>');
+      // A real failure with nothing cached gets its own distinguishable,
+      // retryable state — never the same "no conversations yet" copy a
+      // genuine 200 with zero threads gets. If items ARE present (cached
+      // from an earlier successful load, refresh just failed) they render
+      // as normal instead — a transient failure must not blank the list.
+      var bodyHtml = (vm.error && !items.length)
+        ? '<div class="wy-empty wy-conv-error">' +
+            '<p>' + esc(tf('wyConversationsLoadError', t('convLoadError'))) + '</p>' +
+            '<button type="button" class="wy-btn wy-btn-outline" data-home-action="conversations-retry">' +
+              esc(tf('wyConversationsRetry', t('convRetry'))) +
+            '</button>' +
+          '</div>'
+        : (vm.loading
+            ? skeletonConvRowsHtml(6)
+            : (items.length
+                ? items.map(function (c) { return conversationRowHtml(c, false); }).join('')
+                : '<div class="wy-empty"><p>' + esc(tf('wyNoConversations', 'No conversations yet')) + '</p></div>'));
       return '<div class="wy-view wy-view-list"' + (rtl ? ' dir="rtl"' : '') + '>' +
         '<div class="wy-head wy-head-list">' +
           backButtonHtml('home') +

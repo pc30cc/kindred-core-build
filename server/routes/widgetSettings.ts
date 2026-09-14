@@ -223,6 +223,14 @@ widgetSettingsRouter.patch('/:workspaceId/debug', async (req, res) => {
   const oldValue = !!before?.debug_mode;
   const newValue = parsed.data.debug_mode;
 
+  // A genuine no-op (already at the requested value) does neither the
+  // widget_settings UPDATE nor the audit_logs INSERT — there is no state
+  // change to persist or to audit, and skipping the UPDATE also avoids
+  // bumping updated_at for nothing.
+  if (oldValue === newValue) {
+    return res.json({ settings: { workspace_id: workspaceId, debug_mode: oldValue } });
+  }
+
   const { data, error } = await sb
     .from('widget_settings')
     .update({ debug_mode: newValue, updated_at: new Date().toISOString() })
@@ -231,30 +239,29 @@ widgetSettingsRouter.patch('/:workspaceId/debug', async (req, res) => {
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
-  if (oldValue !== newValue) {
-    // Durable audit trail — reuses the existing audit_logs table (the SAME
-    // one server/routes/adminManagement.ts's audit viewer already reads),
-    // not a second audit subsystem. This field flips widget diagnostics on
-    // for every visitor of the workspace, so who changed it and when is a
-    // compliance-relevant fact worth its own row, not just an updated_at
-    // bump on widget_settings. No token, session, or visitor PII is ever
-    // in scope here — old_value/new_value are strictly {debug_mode: boolean}.
-    try {
-      await sb.from('audit_logs').insert({
-        workspace_id: workspaceId,
-        user_id: actorUserId,
-        entity_type: 'widget_settings',
-        entity_id: workspaceId,
-        action: 'widget_settings.debug_mode_changed',
-        old_value: { debug_mode: oldValue },
-        new_value: { debug_mode: newValue },
-      });
-    } catch (auditErr: any) {
-      // Best-effort, matches every other audit writer in this codebase
-      // (see server/services/privacy/audit.ts) — a logging failure must
-      // never fail the actual setting change.
-      console.warn('[widget-settings-debug] audit_logs insert failed:', auditErr?.message || auditErr);
-    }
+  // Durable audit trail — reuses the existing audit_logs table (the SAME
+  // one server/routes/adminManagement.ts's audit viewer already reads),
+  // not a second audit subsystem. This field flips widget diagnostics on
+  // for every visitor of the workspace, so who changed it and when is a
+  // compliance-relevant fact worth its own row, not just an updated_at
+  // bump on widget_settings. No token, session, or visitor PII is ever
+  // in scope here — old_value/new_value are strictly {debug_mode: boolean}.
+  // Supabase/PostgREST resolves query failures as {data, error} rather
+  // than throwing — inspect `error` explicitly, matching every other
+  // writer in this file, rather than relying on a try/catch that a normal
+  // failure response would never trigger. Best-effort either way: a
+  // logging failure must never fail the actual setting change.
+  const { error: auditError } = await sb.from('audit_logs').insert({
+    workspace_id: workspaceId,
+    user_id: actorUserId,
+    entity_type: 'widget_settings',
+    entity_id: workspaceId,
+    action: 'widget_settings.debug_mode_changed',
+    old_value: { debug_mode: oldValue },
+    new_value: { debug_mode: newValue },
+  });
+  if (auditError) {
+    console.warn('[widget-settings-debug] audit_logs insert failed:', auditError.message);
   }
 
   return res.json({ settings: data });
@@ -416,6 +423,17 @@ widgetSettingsRouter.get('/platform/config', async (req, res) => {
  * to rotate it via this API ever exists, it deserves the same treatment
  * debug_mode got (its own isolated, explicitly-audited endpoint), not a
  * slot in the general-purpose PATCH.
+ *
+ * `default_debug_mode` is likewise excluded — the repository audit in
+ * 693a9c2/5e89a3b established it is not consumed anywhere in the
+ * request-serving path or by workspace creation (server/routes/widget.ts's
+ * visitor bootstrap response reads only the per-workspace
+ * widget_settings.debug_mode, never this platform default). The column
+ * stays for DB compatibility, but nothing — UI or API — may write it
+ * until an explicit product decision wires it into real behavior; a
+ * writable field that changes a value with no runtime effect is worse
+ * than an unwritable one, since it implies a capability that does not
+ * exist.
  */
 const widgetPlatformConfigPatchSchema = z.object({
   id: z.string().uuid(),
@@ -425,7 +443,6 @@ const widgetPlatformConfigPatchSchema = z.object({
   default_allow_subdomains: z.boolean().optional(),
   max_allowed_domains_per_workspace: z.number().int().min(1).max(1000).optional(),
   enforce_domain_validation: z.boolean().optional(),
-  default_debug_mode: z.boolean().optional(),
   force_chat_enabled: z.enum(['allow', 'force_on', 'force_off']).optional(),
   force_kb_enabled: z.enum(['allow', 'force_on', 'force_off']).optional(),
   force_visitor_tracking: z.enum(['allow', 'force_on', 'force_off']).optional(),

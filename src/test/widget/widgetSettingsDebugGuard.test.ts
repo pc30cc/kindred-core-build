@@ -34,6 +34,15 @@ let platformRow: Row;
 let auditLogs: Row[];
 let isPlatformAdmin: boolean;
 let entitlementsOverride: { features: Record<string, boolean>; maxDomains: number } | null;
+// Write-count tracking for the debug no-op assertions — a real query
+// count, not just "did the row end up unchanged" (which a no-op UPDATE to
+// the same value would also satisfy).
+let widgetSettingsUpdateCalls: number;
+let auditLogsInsertCalls: number;
+// When set, the fake audit_logs insert resolves { error } WITHOUT
+// throwing — the actual Supabase/PostgREST failure shape — instead of the
+// happy-path { error: null }.
+let auditInsertError: { message: string } | null;
 
 function resetFakeDb() {
   settingsRow = {
@@ -46,10 +55,13 @@ function resetFakeDb() {
     updated_at: '2020-01-01T00:00:00.000Z',
   };
   prechatRow = null;
-  platformRow = { id: PLATFORM_ID, default_debug_mode: false, max_message_length: 5000 };
+  platformRow = { id: PLATFORM_ID, max_message_length: 5000 };
   auditLogs = [];
   isPlatformAdmin = false;
   entitlementsOverride = null;
+  widgetSettingsUpdateCalls = 0;
+  auditLogsInsertCalls = 0;
+  auditInsertError = null;
 }
 
 function makeFakeSupabase() {
@@ -58,6 +70,7 @@ function makeFakeSupabase() {
       select: () => b,
       eq: () => b,
       update: (patch: Record<string, any>) => {
+        widgetSettingsUpdateCalls += 1;
         Object.assign(settingsRow, patch);
         return b;
       },
@@ -95,6 +108,12 @@ function makeFakeSupabase() {
   function auditLogsBuilder() {
     const b: any = {
       insert: async (row: Record<string, any>) => {
+        auditLogsInsertCalls += 1;
+        if (auditInsertError) {
+          // The real Supabase/PostgREST failure shape: resolves
+          // { data: null, error }, never throws.
+          return { data: null, error: auditInsertError };
+        }
         auditLogs.push({ ...row });
         return { data: null, error: null };
       },
@@ -325,12 +344,53 @@ describe('PATCH /api/widget-settings/:workspaceId/debug — platform-admin-only,
     expect(serialized).not.toMatch(/wss_|token|secret|email|phone/i);
   });
 
-  it('a genuine no-op (setting debug_mode to its current value) writes NO audit event', async () => {
+  it('a genuine no-op (setting debug_mode to its current value) performs NEITHER the widget_settings UPDATE NOR the audit_logs INSERT', async () => {
     isPlatformAdmin = true;
     settingsRow.debug_mode = false;
     const res = await patch(`/api/widget-settings/${WS_ID}/debug`, { debug_mode: false });
     expect(res.status).toBe(200);
+    expect(res.body.settings).toEqual({ workspace_id: WS_ID, debug_mode: false });
     expect(auditLogs).toHaveLength(0);
+    // Real query counts, not just "the row ended up unchanged" — a no-op
+    // UPDATE to the same value would also leave the row unchanged while
+    // still needlessly bumping updated_at.
+    expect(widgetSettingsUpdateCalls).toBe(0);
+    expect(auditLogsInsertCalls).toBe(0);
+  });
+
+  it('the same no-op check applies symmetrically for true → true', async () => {
+    isPlatformAdmin = true;
+    settingsRow.debug_mode = true;
+    const res = await patch(`/api/widget-settings/${WS_ID}/debug`, { debug_mode: true });
+    expect(res.status).toBe(200);
+    expect(widgetSettingsUpdateCalls).toBe(0);
+    expect(auditLogsInsertCalls).toBe(0);
+    expect(auditLogs).toHaveLength(0);
+  });
+
+  it('an audit_logs insert failure (resolved as {error}, not thrown) still lets the setting change succeed, and is handled without a request failure', async () => {
+    isPlatformAdmin = true;
+    settingsRow.debug_mode = false;
+    auditInsertError = { message: 'insert failed: permission denied' };
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const res = await patch(`/api/widget-settings/${WS_ID}/debug`, { debug_mode: true });
+
+    // The actual setting change is unaffected by the audit failure.
+    expect(res.status).toBe(200);
+    expect(res.body.settings.debug_mode).toBe(true);
+    expect(settingsRow.debug_mode).toBe(true);
+    // The failed insert was attempted (and its {error} shape was actually
+    // inspected — see below) — not silently skipped.
+    expect(auditLogsInsertCalls).toBe(1);
+    expect(auditLogs).toHaveLength(0); // the fake never pushes a row when it returns {error}
+    // The failure is logged, not swallowed entirely.
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[widget-settings-debug] audit_logs insert failed:',
+      'insert failed: permission denied',
+    );
+
+    warnSpy.mockRestore();
   });
 
   it('two real toggles in sequence write exactly two audit events, not one merged or duplicated', async () => {
@@ -417,6 +477,14 @@ describe('PATCH /api/widget-settings/platform/config — dedicated strict schema
     isPlatformAdmin = true;
     const res = await patch('/api/widget-settings/platform/config', { id: PLATFORM_ID, alert_webhook_secret: 'sh-h-h' });
     expect(res.status).toBe(400);
+  });
+
+  it('default_debug_mode is rejected outright — the dead setting is not writable through any API path, not just hidden from the UI', async () => {
+    isPlatformAdmin = true;
+    const res = await patch('/api/widget-settings/platform/config', { id: PLATFORM_ID, default_debug_mode: true });
+    expect(res.status).toBe(400);
+    expect(res.body.issues?.some((i: any) => i.message.includes('default_debug_mode'))).toBe(true);
+    expect(platformRow.default_debug_mode).toBeUndefined();
   });
 
   it('a non-platform-admin is denied before validation even matters', async () => {

@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Bug, Rocket, Activity, Zap, Video, ArrowRight, Sparkles } from 'lucide-react';
+import { MessageSquare, Mail, Phone, Globe, Shield, Settings, Lock, Info, Rocket, Activity, Zap, Video, ArrowRight, Sparkles } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { DeploymentUrlsSection } from '@/components/admin/widget/DeploymentUrlsSection';
 import {
@@ -269,18 +269,19 @@ export default function AdminWidgetSettingsPage() {
                 />
               </div>
 
-              <div className="flex items-center justify-between rounded-lg border border-border p-4">
-                <div className="space-y-0.5">
-                  <Label className="text-sm font-medium flex items-center gap-2"><Bug className="h-3.5 w-3.5" /> {t('admin.widgetSettingsPage.deployment.debug' as any)}</Label>
-                  <p className="text-xs text-muted-foreground">
-                    {t('admin.widgetSettingsPage.deployment.debugHint' as any)}
-                  </p>
-                </div>
-                <Switch
-                  checked={settings.default_debug_mode}
-                  onCheckedChange={(v) => update({ default_debug_mode: v })}
-                />
-              </div>
+              {/* default_debug_mode is a real widget_platform_settings column
+                  but is not read anywhere in the request-serving path (see
+                  server/routes/widget.ts — the visitor bootstrap response's
+                  debugMode comes only from the per-workspace
+                  widget_settings.debug_mode, never this platform default).
+                  Removed rather than left toggleable: a switch that changes
+                  a stored value with no runtime effect is worse than no
+                  switch, since it implies a platform-wide capability
+                  ("every new workspace defaults to verbose") that does not
+                  exist. Per-workspace debug stays available through its own
+                  dedicated, audited endpoint — PATCH
+                  /api/widget-settings/:workspaceId/debug — never a
+                  platform-wide default. */}
 
               <div className="space-y-2 rounded-lg border border-border p-4">
                 <Label className="text-sm font-medium">{t('admin.widgetSettingsPage.deployment.maxDomains' as any)}</Label>

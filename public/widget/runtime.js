@@ -2098,7 +2098,17 @@
               prechat: configFallback(),
             });
           }
-          Util.log('identity resolved', identityStore.get());
+          // Never log identityStore.get() directly — it carries contact.name/
+          // email/phone plus visitor/session ids. Redacted, minimal summary
+          // only; a developer who genuinely needs the raw contact for a
+          // specific diagnostic can read identityStore.get() themselves from
+          // devtools, deliberately, one visitor at a time.
+          var _ids = identityStore.get();
+          Util.log('identity resolved', {
+            loaded: !!_ids.loaded,
+            identityState: _ids.identityState || 'anonymous',
+            hasContact: !!_ids.contact,
+          });
           if (cb) cb(true);
         })
         .catch(function () {

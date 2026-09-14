@@ -70,13 +70,88 @@ widgetSettingsRouter.get('/:workspaceId', async (req, res) => {
   return res.json({ settings: data });
 });
 
-const widgetSettingsUpdateSchema = z.object({}).passthrough();
+/**
+ * Explicit allowlist of columns a workspace owner/admin may write on their
+ * own `widget_settings` row via this generic PATCH — fail-closed by
+ * construction (`.strict()`): any key not named here, including one added
+ * to the table by a future migration, is REJECTED (400), never silently
+ * dropped or passed through. This replaces a prior `z.object({}).passthrough()`
+ * that accepted and wrote whatever columns a request body named — the
+ * mass-assignment hole that let `debug_mode` (which makes the widget
+ * verbose for every visitor) reach a production workspace with no
+ * dedicated UI and no audit trail.
+ *
+ * Every field below is verified against the ACTUAL current caller
+ * (src/pages/app/WidgetPage.tsx's `setField`/`handleToggle`/domain-list/
+ * business-hours writers, cross-checked against server/services/widget/
+ * entitlements.ts's own WIDGET_SETTING_CAPABILITY /
+ * WIDGET_CUSTOMIZATION_CAPABILITY maps) — not guessed. A field the UI does
+ * not currently write (e.g. `launcher_text`, `theme`, `secondary_color`,
+ * `greeting_message`, the `fab_*` styling columns beyond label/scale/icon/
+ * image, `read_receipts_enabled`, `mobile_behavior`) is deliberately left
+ * OUT: adding real UI for one of those later means deliberately adding it
+ * here too, which is the point.
+ *
+ * Explicitly and permanently excluded, whatever the UI ever does: `id`,
+ * `workspace_id`, `created_at`, `updated_at` (identity/ownership/managed by
+ * the server), `debug_mode` (platform-support only — see the dedicated
+ * `/debug` endpoint below), `round_robin_cursor_user_id` (server-internal
+ * routing state), and any platform-owned URL/config column (those live on
+ * `widget_platform_settings`, a different table this router already keeps
+ * separate).
+ */
+const widgetSettingsPatchSchema = z.object({
+  // Appearance
+  primary_color: z.string().max(32).optional(),
+  brand_name: z.string().max(200).nullable().optional(),
+  reply_time_text: z.string().max(500).nullable().optional(),
+  welcome_message: z.string().max(2000).nullable().optional(),
+  placeholder_text: z.string().max(500).nullable().optional(),
+  position: z.enum(['bottom-right', 'bottom-left']).optional(),
+  locale: z.string().max(16).optional(),
+  show_logo: z.boolean().optional(),
+  show_team_avatars: z.boolean().optional(),
+  show_powered_by: z.boolean().optional(),
+  // Launcher (FAB)
+  fab_label: z.string().max(100).nullable().optional(),
+  fab_scale: z.number().min(50).max(300).optional(),
+  fab_icon: z.string().max(50).nullable().optional(),
+  fab_image_url: z.string().max(2000).nullable().optional(),
+  // Master + per-feature toggles
+  enabled: z.boolean().optional(),
+  chat_enabled: z.boolean().optional(),
+  kb_enabled: z.boolean().optional(),
+  visitor_tracking_enabled: z.boolean().optional(),
+  attachments_enabled: z.boolean().optional(),
+  voice_notes_enabled: z.boolean().optional(),
+  emoji_enabled: z.boolean().optional(),
+  live_chat_enabled: z.boolean().optional(),
+  smart_engagement_enabled: z.boolean().optional(),
+  store_raw_ip: z.boolean().optional(),
+  // Domains
+  allowed_domains: z.array(z.string().max(255)).max(1000).optional(),
+  allow_subdomains: z.boolean().optional(),
+  // Assignment / availability
+  assignment_mode: z.enum(['auto', 'round_robin', 'manual']).optional(),
+  offline_mode: z.enum(['hide_widget', 'show_offline_message', 'capture_message']).optional(),
+  offline_message_localized: z.record(z.string(), z.string()).nullable().optional(),
+  availability_labels: z.record(z.string(), z.record(z.string(), z.string())).nullable().optional(),
+  business_hours: z.record(z.string(), z.unknown()).nullable().optional(),
+}).strict();
 
 widgetSettingsRouter.patch('/:workspaceId', async (req, res) => {
   const config = serverConfigOf(req);
   const workspaceId = req.params.workspaceId;
-  const parsed = widgetSettingsUpdateSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const parsed = widgetSettingsPatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: 'Invalid input',
+      // Zod names exactly which key(s) were rejected (unknown, wrong type,
+      // out of range) — surfaced so a legitimate caller can see what to fix,
+      // without ever echoing the rejected VALUE back.
+      issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+    });
+  }
   const auth = await requireManageWithPhoneVerified(req, res, workspaceId);
   if (!auth) return;
 
@@ -115,6 +190,83 @@ widgetSettingsRouter.patch('/:workspaceId', async (req, res) => {
   return res.json({ settings: data });
 });
 
+// ── widget_settings.debug_mode (per workspace, platform-admin only) ──
+// Deliberately isolated from the generic PATCH above — see the comment
+// there. Flips widget diagnostics on/off for EVERY visitor of this
+// workspace; a platform-support tool for actively troubleshooting one
+// customer, gated the same way as the platform-wide settings further
+// below (requirePlatformAdmin), never the workspace's own `manage` check.
+// Kept as its own tiny endpoint/schema rather than folded into the
+// generic one so it can never be set as a side effect of an unrelated
+// settings save.
+const widgetDebugModeSchema = z.object({ debug_mode: z.boolean() }).strict();
+
+widgetSettingsRouter.patch('/:workspaceId/debug', async (req, res) => {
+  const config = serverConfigOf(req);
+  const workspaceId = req.params.workspaceId;
+  const parsed = widgetDebugModeSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input — expects { debug_mode: boolean }' });
+  const actorUserId = await requirePlatformAdmin(req, res);
+  if (!actorUserId) return;
+  const sb = getServiceClient(config);
+
+  // Read the current value first — the audit event below needs old AND new,
+  // and this also lets us skip both the write and the audit row when the
+  // request is a genuine no-op (already at the requested value).
+  const { data: before, error: beforeErr } = await sb
+    .from('widget_settings')
+    .select('debug_mode')
+    .eq('workspace_id', workspaceId)
+    .single();
+  if (beforeErr) return res.status(500).json({ error: beforeErr.message });
+
+  const oldValue = !!before?.debug_mode;
+  const newValue = parsed.data.debug_mode;
+
+  // A genuine no-op (already at the requested value) does neither the
+  // widget_settings UPDATE nor the audit_logs INSERT — there is no state
+  // change to persist or to audit, and skipping the UPDATE also avoids
+  // bumping updated_at for nothing.
+  if (oldValue === newValue) {
+    return res.json({ settings: { workspace_id: workspaceId, debug_mode: oldValue } });
+  }
+
+  const { data, error } = await sb
+    .from('widget_settings')
+    .update({ debug_mode: newValue, updated_at: new Date().toISOString() })
+    .eq('workspace_id', workspaceId)
+    .select('workspace_id, debug_mode')
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+
+  // Durable audit trail — reuses the existing audit_logs table (the SAME
+  // one server/routes/adminManagement.ts's audit viewer already reads),
+  // not a second audit subsystem. This field flips widget diagnostics on
+  // for every visitor of the workspace, so who changed it and when is a
+  // compliance-relevant fact worth its own row, not just an updated_at
+  // bump on widget_settings. No token, session, or visitor PII is ever
+  // in scope here — old_value/new_value are strictly {debug_mode: boolean}.
+  // Supabase/PostgREST resolves query failures as {data, error} rather
+  // than throwing — inspect `error` explicitly, matching every other
+  // writer in this file, rather than relying on a try/catch that a normal
+  // failure response would never trigger. Best-effort either way: a
+  // logging failure must never fail the actual setting change.
+  const { error: auditError } = await sb.from('audit_logs').insert({
+    workspace_id: workspaceId,
+    user_id: actorUserId,
+    entity_type: 'widget_settings',
+    entity_id: workspaceId,
+    action: 'widget_settings.debug_mode_changed',
+    old_value: { debug_mode: oldValue },
+    new_value: { debug_mode: newValue },
+  });
+  if (auditError) {
+    console.warn('[widget-settings-debug] audit_logs insert failed:', auditError.message);
+  }
+
+  return res.json({ settings: data });
+});
+
 // ── widget_prechat_settings (per workspace) ───────────────────────
 
 widgetSettingsRouter.get('/:workspaceId/prechat', async (req, res) => {
@@ -133,15 +285,39 @@ widgetSettingsRouter.get('/:workspaceId/prechat', async (req, res) => {
   return res.json({ settings: data });
 });
 
+/**
+ * Explicit allowlist for `widget_prechat_settings` — same fail-closed
+ * `.strict()` principle as the generic widget_settings PATCH above, derived
+ * from the real caller (src/hooks/useWidgetIdentity.ts's
+ * `WidgetPrechatSettings` type, as actually sent by
+ * src/components/app/widget/PrechatSection.tsx). `workspace_id` is
+ * deliberately NOT accepted from the client at all — the server injects it
+ * from the URL param below, so a request body can never target a
+ * different workspace's row. `created_at`/`updated_at` are excluded the
+ * same way as on widget_settings.
+ */
+const widgetPrechatPatchSchema = z.object({
+  ask_name: z.boolean().optional(),
+  ask_email: z.boolean().optional(),
+  ask_phone: z.boolean().optional(),
+  require_name: z.boolean().optional(),
+  require_email: z.boolean().optional(),
+  require_phone: z.boolean().optional(),
+  verify_email: z.boolean().optional(),
+  verify_phone: z.boolean().optional(),
+  prechat_timing: z.enum(['always', 'after_handoff', 'never']).optional(),
+  history_continue_window_hours: z.number().int().min(0).max(8760).optional(),
+}).strict();
+
 widgetSettingsRouter.put('/:workspaceId/prechat', async (req, res) => {
   const config = serverConfigOf(req);
   const workspaceId = req.params.workspaceId;
-  const parsed = widgetSettingsUpdateSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
-  // Whitelisted enum — never let an arbitrary string reach the CHECK constraint.
-  const patch = parsed.data as Record<string, any>;
-  if ('prechat_timing' in patch && !['always', 'after_handoff', 'never'].includes(patch.prechat_timing)) {
-    return res.status(400).json({ error: 'invalid_prechat_timing' });
+  const parsed = widgetPrechatPatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: 'Invalid input',
+      issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+    });
   }
   const auth = await requireManageWithPhoneVerified(req, res, workspaceId);
   if (!auth) return;
@@ -152,9 +328,10 @@ widgetSettingsRouter.put('/:workspaceId/prechat', async (req, res) => {
     return res.status(403).json({ error: 'plan_upgrade_required', denied: ['widget_prechat_form'] });
   }
 
-
-
   const sb = getServiceClient(config);
+  // workspace_id comes from the URL param (the authorized workspace), never
+  // from the request body — parsed.data cannot carry it (the schema above
+  // has no such field, and .strict() would reject it if the client tried).
   const { data, error } = await sb
     .from('widget_prechat_settings')
     .upsert({ ...parsed.data, workspace_id: workspaceId }, { onConflict: 'workspace_id' })
@@ -225,19 +402,98 @@ widgetSettingsRouter.get('/platform/config', async (req, res) => {
 
 
 
+/**
+ * Dedicated schema for the platform singleton — separate from
+ * widgetSettingsPatchSchema on purpose (different table, different threat
+ * model: this route is already requirePlatformAdmin-only, a much smaller
+ * and more trusted caller set than a workspace's own owner/admin). Still
+ * `.strict()`, not `z.object({}).passthrough()`: even a trusted-admin
+ * surface should not silently accept a column a future migration adds
+ * before anyone has decided whether platform admins should be able to set
+ * it, and immutable identifiers must never be writable through a generic
+ * update regardless of who is calling.
+ *
+ * `id` is accepted here only to select WHICH row (this table is a
+ * singleton, so there is exactly one, but the existing call convention
+ * requires the id) — it is stripped from the write payload below exactly
+ * as before. `created_at`/`updated_at` are never accepted; `updated_by` is
+ * set by the server from the authenticated admin, never trusted from the
+ * client. `alert_webhook_secret` is deliberately excluded: no current UI
+ * writes it and it is a credential, not a setting — if a legitimate need
+ * to rotate it via this API ever exists, it deserves the same treatment
+ * debug_mode got (its own isolated, explicitly-audited endpoint), not a
+ * slot in the general-purpose PATCH.
+ *
+ * `default_debug_mode` is likewise excluded — the repository audit in
+ * 693a9c2/5e89a3b established it is not consumed anywhere in the
+ * request-serving path or by workspace creation (server/routes/widget.ts's
+ * visitor bootstrap response reads only the per-workspace
+ * widget_settings.debug_mode, never this platform default). The column
+ * stays for DB compatibility, but nothing — UI or API — may write it
+ * until an explicit product decision wires it into real behavior; a
+ * writable field that changes a value with no runtime effect is worse
+ * than an unwritable one, since it implies a capability that does not
+ * exist.
+ */
+const widgetPlatformConfigPatchSchema = z.object({
+  id: z.string().uuid(),
+  prechat_name_policy: z.enum(['force_on', 'force_off', 'default_on', 'default_off']).optional(),
+  prechat_email_policy: z.enum(['force_on', 'force_off', 'default_on', 'default_off']).optional(),
+  prechat_phone_policy: z.enum(['force_on', 'force_off', 'default_on', 'default_off']).optional(),
+  default_allow_subdomains: z.boolean().optional(),
+  max_allowed_domains_per_workspace: z.number().int().min(1).max(1000).optional(),
+  enforce_domain_validation: z.boolean().optional(),
+  force_chat_enabled: z.enum(['allow', 'force_on', 'force_off']).optional(),
+  force_kb_enabled: z.enum(['allow', 'force_on', 'force_off']).optional(),
+  force_visitor_tracking: z.enum(['allow', 'force_on', 'force_off']).optional(),
+  max_message_length: z.number().int().min(1).max(50000).optional(),
+  rate_limit_messages_per_minute: z.number().int().min(1).max(1000).optional(),
+  admin_notes: z.string().max(10000).nullable().optional(),
+  default_welcome_message: z.string().max(2000).optional(),
+  widget_loader_base_url: z.string().max(2000).nullable().optional(),
+  widget_asset_base_url: z.string().max(2000).nullable().optional(),
+  widget_public_base_url: z.string().max(2000).nullable().optional(),
+  widget_api_base_url: z.string().max(2000).nullable().optional(),
+  embed_header_comment: z.string().max(5000).nullable().optional(),
+  embed_footer_comment: z.string().max(5000).nullable().optional(),
+  typing_rate_limit_enabled: z.boolean().optional(),
+  typing_rate_limit_window_ms: z.number().int().min(0).optional(),
+  typing_rate_limit_max_events: z.number().int().min(0).optional(),
+  realtime_stale_resubscribe_guard_enabled: z.boolean().optional(),
+  realtime_reconnect_jitter_pct: z.number().int().min(0).max(100).optional(),
+  realtime_token_ttl_seconds: z.number().int().min(0).optional(),
+  realtime_idle_disposal_ms: z.number().int().min(0).optional(),
+  realtime_pending_max: z.number().int().min(0).optional(),
+  realtime_message_dedupe_enabled: z.boolean().optional(),
+  realtime_message_dedupe_window: z.number().int().min(0).optional(),
+  observability_metrics_enabled: z.boolean().optional(),
+  observability_structured_logs_enabled: z.boolean().optional(),
+  observability_log_level: z.string().max(20).optional(),
+  alerting_enabled: z.boolean().optional(),
+  alert_webhook_url: z.string().max(2000).nullable().optional(),
+  perf_memory_budget_mb: z.number().int().min(1).optional(),
+  powered_by_enabled: z.boolean().optional(),
+  powered_by_text: z.string().max(500).optional(),
+  powered_by_brand_text: z.string().max(200).nullable().optional(),
+  powered_by_url: z.string().max(2000).nullable().optional(),
+}).strict();
+
 widgetSettingsRouter.patch('/platform/config', async (req, res) => {
   const config = serverConfigOf(req);
-  const parsed = widgetSettingsUpdateSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  const parsed = widgetPlatformConfigPatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: 'Invalid input',
+      issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+    });
+  }
   const userId = await requirePlatformAdmin(req, res);
   if (!userId) return;
-  const id = typeof req.body?.id === 'string' ? req.body.id : undefined;
-  if (!id) return res.status(400).json({ error: 'Missing id' });
-  const { id: _drop, ...updates } = parsed.data as Record<string, unknown>;
+  const { id, ...updates } = parsed.data;
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('widget_platform_settings')
-    .update(updates)
+    .update({ ...updates, updated_by: userId })
     .eq('id', id)
     .select()
     .single();

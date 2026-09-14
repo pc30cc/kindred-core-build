@@ -233,7 +233,7 @@ vi.mock('../../../server/services/ai-agent/platformGuards.js', () => ({
   isAutoAnswerAllowedForWorkspace: async () => ({ allowed: true }),
 }));
 
-const aiRunSpy = vi.fn(async () => ({ action: 'skipped', reason: 'test_stub' }));
+const aiRunSpy = vi.fn(async (..._args: any[]) => ({ action: 'skipped', reason: 'test_stub' }));
 vi.mock('../../../server/services/ai-agent/engine.js', () => ({
   maybeRunAiAssistantAfterVisitorMessage: (...args: any[]) => aiRunSpy(...args),
 }));
@@ -243,18 +243,18 @@ vi.mock('../../../server/services/ai-agent/handoffState.js', () => ({
   markNeedsHuman: async () => {},
 }));
 
-const publishSpy = vi.fn(async () => ({ ok: true }));
+const publishSpy = vi.fn(async (..._args: any[]) => ({ ok: true }));
 vi.mock('../../../server/services/realtime/publish.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../server/services/realtime/publish.js')>();
   return { ...actual, publishConversationEvent: (...args: any[]) => publishSpy(...args) };
 });
 
-const pushSpy = vi.fn(async () => {});
+const pushSpy = vi.fn(async (..._args: any[]) => {});
 vi.mock('../../../server/services/push/index.js', () => ({
   notifyInboundMessage: (...args: any[]) => pushSpy(...args),
 }));
 
-const attachSpy = vi.fn(async () => true);
+const attachSpy = vi.fn(async (..._args: any[]) => true);
 vi.mock('../../../server/routes/widgetAttachments.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../server/routes/widgetAttachments.js')>();
   return {

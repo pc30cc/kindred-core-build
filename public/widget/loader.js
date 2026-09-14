@@ -1443,7 +1443,7 @@
       withHashFallback(tplScript, presentationJs, "src", document.head, function () { fail("template-js"); });
       document.head.appendChild(tplScript);
     };
-    regScript.onerror = function () { fail("template-registry"); };
+    withHashFallback(regScript, presentationRegistryJs, "src", document.head, function () { fail("template-registry"); });
     document.head.appendChild(regScript);
 
     var script = document.createElement("script");

@@ -521,6 +521,10 @@
   var launcherEl = null;
   var errorToastEl = null;
   var isOpen = false;
+  // Last unread count reported to setUnreadBadge — the only source for the
+  // public getState()/onUnreadChange `unread` field, since the badge DOM
+  // itself is write-only (rendered then discarded, never read back).
+  var lastUnreadCount = 0;
   // Singletons for background loops the loader owns. Guard against double
   // start in case bootstrap() is somehow re-entered (defense in depth — the
   // singleton flag at the top of the IIFE already prevents this in practice).
@@ -959,7 +963,10 @@
           setUnread: function (count) { setUnreadBadge(count); },
           show: function () { setLauncherHidden(false); },
           hide: function () { triggerClose(); setLauncherHidden(true); },
-          isOpen: function () { return !!isOpen; },
+          // Callback-shaped — see callWithPublicState() above for why a
+          // bare return value here is unusable by a host page.
+          isOpen: function (cb) { callWithPublicState(cb); },
+          getState: function (cb) { callWithPublicState(cb); },
           identify: function (data) { setIdentifyData(data); },
           onReady: onPublicEvent("ready"),
           onOpen: onPublicEvent("open"),
@@ -1295,7 +1302,10 @@
               syncOpenStateFromRuntime();
               setLauncherHidden(true);
             },
-            isOpen: function () { return !!isOpen; },
+            // Callback-shaped — see callWithPublicState() above for why a
+            // bare return value here is unusable by a host page.
+            isOpen: function (cb) { callWithPublicState(cb); },
+            getState: function (cb) { callWithPublicState(cb); },
             identify: function (data) { setIdentifyData(data); },
             onReady: onPublicEvent("ready"),
             onOpen: onPublicEvent("open"),
@@ -1501,7 +1511,8 @@
       badge.textContent = count > 9 ? "9+" : String(count);
       launcherEl.appendChild(badge);
     }
-    emitPublicEvent("unreadchange", Math.max(0, count | 0));
+    lastUnreadCount = Math.max(0, count | 0);
+    emitPublicEvent("unreadchange", lastUnreadCount);
   }
 
   // ─── Public API: show()/hide() — launcher-level visibility ───────────
@@ -1513,6 +1524,21 @@
   function setLauncherHidden(hidden) {
     launcherHidden = !!hidden;
     if (launcherEl) launcherEl.style.display = launcherHidden ? "none" : "";
+  }
+
+  // ─── Public API: getState()/isOpen() — queue-compatible state query ──
+  // window.__gs.push([...]) is fire-and-forget: processQueue()/push() call
+  // widgetApi[cmd[0]].apply(...) and DISCARD whatever it returns, so a
+  // command that `return`s a value (the original isOpen() design) is
+  // unusable from a host page — there is nowhere for that return value to
+  // go. Every state query is therefore callback-shaped instead, exactly
+  // like onReady/onOpen/etc.: `push(['getState', function (state) {...}])`.
+  function getPublicState() {
+    return { ready: !!ready, open: !!isOpen, visible: !launcherHidden, unread: lastUnreadCount };
+  }
+  function callWithPublicState(cb) {
+    if (typeof cb !== "function") return;
+    try { cb(getPublicState()); } catch (e) { warn("getState/isOpen callback error", e); }
   }
 
   // ─── Public API: identify() — visitor metadata via the EXISTING,

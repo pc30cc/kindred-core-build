@@ -51,7 +51,7 @@ import {
   resolveWorkspaceId,
   getClientIp,
 } from '../services/widget/security.js';
-import { enrichMessagesWithAttachments } from './widgetAttachments.js';
+import { enrichMessagesWithAttachments, enrichMessagesWithReplyTo } from './widgetAttachments.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
 import { getClientCountry } from '../utils/clientIp.js';
 
@@ -377,7 +377,7 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
 
   const { data: msgs } = await supabase
     .from('conversation_messages')
-    .select('id, body, sender_type, created_at, metadata, seen_at')
+    .select('id, body, sender_type, created_at, metadata, seen_at, reply_to_message_id')
     .eq('conversation_id', conv.id)
     .order('created_at', { ascending: true })
     .limit(200);
@@ -392,9 +392,11 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
     // Phase 7 — lifecycle propagated to history backfill so the widget
     // can render the correct status on already-seen messages.
     seen_at: m.seen_at || null,
+    reply_to_message_id: m.reply_to_message_id || null,
   }));
   // Phase 6b — attach public-safe attachment metadata (no provider URLs)
-  const messages = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
+  const withAttachments = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
+  const messages = await enrichMessagesWithReplyTo(config, withAttachments);
 
   return res.json({ conversation_id: conv.id, messages, last_updated_at: conv.updatedAt });
 });

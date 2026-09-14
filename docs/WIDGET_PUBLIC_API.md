@@ -34,23 +34,52 @@ contract changes.
 | `setUnread` | `count: number` | Sets the launcher's unread badge count directly. Normally server-driven — only call this if you're deliberately overriding it. |
 | `show` | — | Shows the launcher bubble (if previously hidden with `hide`). |
 | `hide` | — | Closes the panel (if open) and hides the launcher bubble entirely. |
-| `isOpen` | — | *Not a queueable command* — see below. |
+| `getState` | `callback: (state) => void` | Reads current widget state — see below. |
+| `isOpen` | `callback: (state) => void` | Same callback/payload as `getState` — a shorter name for when you only care about `open`. |
 | `identify` | `{ name?, email?, phone? }` | Remembers visitor contact details and includes them on the visitor's next sent message, via the same `visitor_name`/`visitor_email`/`visitor_phone` fields the pre-chat form already sends. Does not create a conversation or send anything by itself. |
 
-### Querying state: `isOpen`
+### Querying state: `getState` / `isOpen`
 
-`isOpen` cannot be meaningfully "pushed" (its return value would be
-discarded by the queue). Instead, once the widget is ready, call it as an
-event handler side-effect or via `onOpen`/`onClose`, e.g.:
+`window.__gs.push([...])` is a **fire-and-forget queue** — the dispatcher
+that drains it calls each command and discards whatever it returns, so a
+command that tried to `return` a value (e.g. a naive `isOpen()` design)
+would have nowhere for that value to go and could never actually reach the
+host page. Every state query is therefore **callback-shaped** instead,
+exactly like `onReady`/`onOpen`/etc. — pass a function as the argument and
+the widget calls it with a state object:
 
 ```js
-window.__gs.push(['onOpen', function () { /* panel is open */ }]);
-window.__gs.push(['onClose', function () { /* panel is closed */ }]);
+window.__gs.push(['getState', function (state) {
+  console.log(state); // { ready: true, open: false, visible: true, unread: 2 }
+}]);
+
+// Shorthand for the same thing, if you only care about `open`:
+window.__gs.push(['isOpen', function (state) {
+  if (state.open) { /* panel is currently open */ }
+}]);
 ```
 
-If you need a one-off synchronous read (rare — prefer the events above),
-you can inspect it from inside an `onReady`/`onOpen`/`onClose` callback,
-since those only fire once the internal API object exists.
+`state` is always exactly:
+
+```ts
+{
+  ready: boolean;   // command API has finished bootstrapping
+  open: boolean;    // chat panel is open
+  visible: boolean; // launcher bubble is shown (false after hide())
+  unread: number;   // current server-authoritative unread count
+}
+```
+
+No tokens, visitor IDs, conversation IDs, or other internal state — ever.
+
+This follows the same queue-before-ready semantics as every other command:
+you can call `getState`/`isOpen` immediately after the embed snippet, even
+before the loader script has run, and the callback fires once the widget
+is actually ready to answer.
+
+For state *transitions* (as opposed to a point-in-time read), prefer the
+events below (`onOpen`/`onClose`/`onUnreadChange`) — they push to you
+instead of requiring you to poll.
 
 ## Events
 

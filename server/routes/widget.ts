@@ -90,7 +90,7 @@ import {
   issueContinuityCookieForContact,
 } from '../services/widget/crossWidgetIdentity.js';
 import { widgetIdentityRouter } from './widgetIdentity.js';
-import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments } from './widgetAttachments.js';
+import { widgetAttachmentsRouter, attachUploadedFileToMessage, enrichMessagesWithAttachments, enrichMessagesWithReplyTo } from './widgetAttachments.js';
 import { widgetCallbacksRouter } from './widgetCallbacks.js';
 import { widgetDepartmentsRouter } from './widgetDepartments.js';
 import { widgetCallInvitationsRouter } from './widgetCallInvitations.js';
@@ -1370,7 +1370,7 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
 
     const { data: msgs } = await supabase
       .from('conversation_messages')
-      .select('id, body, sender_type, sender_id, created_at, metadata, seen_at')
+      .select('id, body, sender_type, sender_id, created_at, metadata, seen_at, reply_to_message_id')
       .eq('conversation_id', activeConversationId)
       .order('created_at', { ascending: false })
       .limit(200);
@@ -1391,10 +1391,14 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
       // Phase 7 — lifecycle. Only ever set on visitor messages, only by an
       // operator-side action (mark_conversation_seen RPC). Monotonic.
       seen_at: m.seen_at || null,
+      // Structured reply-to-message relationship — resolved below via
+      // enrichMessagesWithReplyTo (one batch query, not one per message).
+      reply_to_message_id: m.reply_to_message_id || null,
     }));
     // Phase 6b — attach public-safe attachment metadata (no provider URLs)
     const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
-    const messages = await enrichMessagesWithSender(supabase, enriched, workspaceId);
+    const withReplies = await enrichMessagesWithReplyTo(config, enriched);
+    const messages = await enrichMessagesWithSender(supabase, withReplies, workspaceId);
 
     let operatorInfo = null;
     if (conv.assigned_to) {
@@ -1464,7 +1468,7 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
   const supabase = getServiceClient(config);
   const { data: msgs } = await supabase
     .from('conversation_messages')
-    .select('id, body, sender_type, sender_id, created_at, metadata, seen_at')
+    .select('id, body, sender_type, sender_id, created_at, metadata, seen_at, reply_to_message_id')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: false })
     .limit(200);
@@ -1479,10 +1483,12 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
     metadata: m.metadata,
     // Phase 7 — lifecycle (see /poll for semantics).
     seen_at: m.seen_at || null,
+    reply_to_message_id: m.reply_to_message_id || null,
   }));
   // Phase 6b — attach public-safe attachment metadata (no provider URLs)
   const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
-  const messages = await enrichMessagesWithSender(supabase, enriched, workspaceId);
+  const withReplies = await enrichMessagesWithReplyTo(config, enriched);
+  const messages = await enrichMessagesWithSender(supabase, withReplies, workspaceId);
 
   return res.json({ messages });
 });
@@ -1788,6 +1794,9 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
   const workspaceId = resolveWorkspaceId(req, res, body.workspace_id);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
+  // Hoisted: needed both for the new-conversation creation-idempotency key
+  // (below) and the message-insert idempotency key (further down).
+  const clientMessageId = data.client_message_id || null;
 
   const supabase = getServiceClient(config);
 
@@ -2079,17 +2088,52 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       // race blocks on the per-(workspace, visitor) advisory lock and then
       // matches the winner's row. `closed` threads are never matched, so the
       // archived one stays archived.
-      const lockKey = body.session_id || body.visitor_id || contactId || `anon:${Date.now()}:${Math.random()}`;
+      //
+      // Lost-response retry safety: the widget client sends NEITHER
+      // visitor_id NOR session_id on POST /message (identity there is the
+      // HttpOnly `dvsid` cookie only, which this creation path — unlike
+      // /identity/history — never consults), so p_match_session_id/
+      // p_match_contact_id below essentially never match anything for a
+      // visitor's very first message. Concretely: visitor sends message 1,
+      // the server creates conversation A and inserts message A, but the
+      // HTTP response is lost before the client sees `conversation_id`. The
+      // client still believes it has no conversation. A retry (manual or
+      // via resendMessage(), reusing the SAME client_message_id) would,
+      // without this, call ensure_active_conversation a second time with no
+      // match key that could find conversation A — creating a second
+      // conversation B with a duplicate logical message. That is a real
+      // conversation-level duplicate no `client_message_id` check inside a
+      // single conversation can catch, since it never learns conversation A
+      // exists.
+      //
+      // Fix: reuse the RPC's existing `p_match_thread_key` mechanism (today
+      // only exercised by channel bridges — Telegram/WhatsApp/etc. thread
+      // ids) as a client-message-scoped creation-idempotency key. It is
+      // matched — inside the SAME advisory-locked transaction as the
+      // insert — BEFORE the session/contact fallback, so a retry with the
+      // identical client_message_id deterministically finds conversation A
+      // instead of creating conversation B, and namespaced
+      // (`widget_cmid:`) so it can never collide with a real external
+      // channel thread key.
+      //
+      // This does NOT weaken "+ New conversation": forcingNew() always
+      // mints a brand-new client_message_id for that first message (see
+      // runtime.js sendMessage), so the thread-key match only ever reunites
+      // RETRIES of the exact same compose attempt — it never reattaches to
+      // an unrelated prior open conversation the way matching on a stable
+      // visitor/session identity would.
+      const widgetThreadKey = clientMessageId ? `widget_cmid:${clientMessageId}` : null;
+      const lockKey = clientMessageId || body.session_id || body.visitor_id || contactId || `anon:${Date.now()}:${Math.random()}`;
       const { data: ensured, error: convErr } = await supabase.rpc('ensure_active_conversation', {
         p_workspace_id: workspaceId,
         p_lock_key: lockKey,
-        p_match_thread_key: null,
+        p_match_thread_key: widgetThreadKey,
         p_match_session_id: body.session_id || null,
         p_match_contact_id: contactId,
         p_contact_id: contactId,
         p_visitor_session_id: body.session_id || null,
         p_subject: subjectText,
-        p_metadata: {},
+        p_metadata: widgetThreadKey ? { channel_thread_key: widgetThreadKey } : {},
       });
 
       if (convErr) throw convErr;
@@ -2139,23 +2183,30 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 
     // Insert visitor message (body may be empty when only an attachment is sent)
     const messageBody = body.message || (data.attachment_id ? '' : '');
-    const MESSAGE_COLUMNS = 'id, conversation_id, sender_type, body, created_at, metadata, seen_at';
-    const clientMessageId = data.client_message_id || null;
+    const MESSAGE_COLUMNS = 'id, conversation_id, sender_type, body, created_at, metadata, seen_at, reply_to_message_id';
 
     // Reply-to: only ever accept a target that already exists in THIS same
     // conversation — never trust a cross-conversation id from the client
     // (that would let one visitor's widget leak a snippet of a message from
     // a conversation it has no access to). A miss is dropped silently, same
     // as an invalid page_context — it never fails the send itself.
+    // Selecting body/sender_type here (not just id) means the send RESPONSE
+    // and the realtime envelope can both carry a resolved preview with zero
+    // extra round-trips — the same shape enrichMessagesWithReplyTo resolves
+    // for /poll, /history and /identity/history from the DB afterwards.
     let replyToMessageId: string | null = null;
+    let replyToPreview: { id: string; text: string; sender_type: string } | null = null;
     if (data.reply_to_message_id) {
       const { data: parent } = await supabase
         .from('conversation_messages')
-        .select('id')
+        .select('id, body, sender_type')
         .eq('id', data.reply_to_message_id)
         .eq('conversation_id', convId)
         .maybeSingle();
-      if (parent) replyToMessageId = parent.id;
+      if (parent) {
+        replyToMessageId = parent.id;
+        replyToPreview = { id: parent.id, text: parent.body ?? '', sender_type: parent.sender_type };
+      }
     }
 
     const insertMetadata: Record<string, unknown> = {
@@ -2310,7 +2361,11 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         config,
         workspaceId,
         convId!,
-        buildMessageEnvelope(insertedMsg as any),
+        // Merge in the already-resolved parent preview (fetched above, zero
+        // extra query) so a live realtime delivery carries the structured
+        // reply relationship immediately — the receiving widget never has
+        // to wait for a poll/history round-trip to render the quote box.
+        buildMessageEnvelope({ ...(insertedMsg as any), reply_to: replyToPreview }),
       ).catch(() => {});
 
       // NATIVE PUSH — same central dispatcher as every other channel.
@@ -2395,6 +2450,13 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       message_id: insertedMsg?.id || null,
       status: 'sent',
       reply,
+      // Structured reply-to-message relationship (§ reply-to end-to-end):
+      // the raw FK plus a resolved preview, so the widget can paint the
+      // quote box on the just-sent bubble without a second request. Same
+      // shape /poll, /history and /identity/history resolve independently
+      // via enrichMessagesWithReplyTo for every OTHER read path.
+      reply_to_message_id: replyToMessageId,
+      reply_to: replyToPreview,
     });
   } catch (err: any) {
     console.error('[widget-message] Error:', err.message);

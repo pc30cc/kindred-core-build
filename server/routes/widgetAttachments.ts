@@ -482,6 +482,55 @@ export async function enrichMessagesWithAttachments(
 }
 
 /**
+ * Attach a resolved reply-to preview to every message carrying a
+ * `reply_to_message_id`, in ONE batch query — not one lookup per message.
+ * Shared by POST /message (the send response + realtime envelope), GET
+ * /poll, GET /history, and GET /identity/history so the structured reply
+ * relationship travels the same way through every read path a message can
+ * reach the widget through, matching the `enrichMessagesWithAttachments`
+ * pipeline style above.
+ *
+ * A parent that no longer resolves (deleted — reply_to_message_id is
+ * `ON DELETE SET NULL`, but a narrow race window exists between the parent
+ * row disappearing and the FK actually nulling out) degrades to "no reply
+ * preview" rather than ever rendering a broken/empty quote.
+ */
+export type ReplyToPreview = { id: string; text: string; sender_type: string };
+
+export async function enrichMessagesWithReplyTo(
+  config: ServerConfig,
+  messages: Array<{ reply_to_message_id?: string | null; [k: string]: any }>,
+): Promise<Array<any>> {
+  if (!messages || messages.length === 0) return messages || [];
+  const replyIds = Array.from(new Set(
+    messages
+      .map((m) => m.reply_to_message_id)
+      .filter((id): id is string => typeof id === 'string' && !!id),
+  ));
+  if (!replyIds.length) return messages;
+
+  const sb = getServiceClient(config);
+  const parentMap: Record<string, ReplyToPreview> = {};
+  try {
+    const { data } = await sb
+      .from('conversation_messages')
+      .select('id, body, sender_type')
+      .in('id', replyIds);
+    for (const p of (data || []) as any[]) {
+      parentMap[p.id] = { id: p.id, text: p.body ?? '', sender_type: p.sender_type };
+    }
+  } catch (e: any) {
+    console.warn('[widget-reply-enrich] parent lookup failed:', e?.message || e);
+  }
+
+  return messages.map((m) => {
+    if (!m.reply_to_message_id) return m;
+    const parent = parentMap[m.reply_to_message_id];
+    return parent ? { ...m, reply_to: parent } : m;
+  });
+}
+
+/**
  * Helper used by POST /message to attach an uploaded file to a message.
  * Exposed here so widget.ts can call it without duplicating logic.
  */

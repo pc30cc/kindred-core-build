@@ -31,6 +31,10 @@ const presentation = read('public/widget/presentation-web-yar.js');
 const presentationCss = read('public/widget/presentation-web-yar.css');
 const callWidgetLoader = read('public/call-widget/l.js');
 const widgetRoute = read('server/routes/widget.ts');
+const widgetIdentityRoute = read('server/routes/widgetIdentity.ts');
+const widgetAttachmentsSvc = read('server/routes/widgetAttachments.ts');
+const publishSvc = read('server/services/realtime/publish.ts');
+const conversationsRoute = read('server/routes/conversations.ts');
 const replyMigrationSelfHost = read('database/migrations/176_widget_message_reply_to.sql');
 const replyMigrationHosted = read('supabase/migrations/20260914120000_widget_message_reply_to.sql');
 
@@ -104,7 +108,8 @@ describe('visitor reply-to-message — real persisted relationship', () => {
 
   it('a miss (invalid/foreign id) is dropped silently rather than failing the send', () => {
     expect(widgetRoute).toContain('let replyToMessageId: string | null = null;');
-    expect(widgetRoute).toContain('if (parent) replyToMessageId = parent.id;');
+    expect(widgetRoute).toContain('if (parent) {');
+    expect(widgetRoute).toContain('replyToMessageId = parent.id;');
   });
 
   it('stores the validated reply relationship on the insert', () => {
@@ -211,7 +216,7 @@ describe('public window.__gs API', () => {
 
   it('new commands are present on BOTH the placeholder (pre-runtime) and real (post-mount) widgetApi', () => {
     const occurrences = (needle: string) => loader.split(needle).length - 1;
-    for (const cmd of ['show:', 'hide:', 'isOpen:', 'identify:', 'onReady:', 'onOpen:', 'onClose:', 'onMessage:', 'onUnreadChange:']) {
+    for (const cmd of ['show:', 'hide:', 'isOpen:', 'getState:', 'identify:', 'onReady:', 'onOpen:', 'onClose:', 'onMessage:', 'onUnreadChange:']) {
       expect(occurrences(cmd)).toBeGreaterThanOrEqual(2);
     }
   });
@@ -274,5 +279,83 @@ describe('hidden-tab polling backoff', () => {
 
   it('a call in progress is never affected by the chat-poll backoff (call-widget has its own independent timers)', () => {
     expect(read('public/call-widget/runtime.js')).not.toContain('document.hidden');
+  });
+});
+
+describe('reply-to-message — every read path resolves the structured relation (not just the FK)', () => {
+  it('enrichMessagesWithReplyTo exists as ONE shared, batch-query helper (no N+1, no duplicated logic)', () => {
+    expect(widgetAttachmentsSvc).toContain('export async function enrichMessagesWithReplyTo(');
+    expect(widgetAttachmentsSvc).toMatch(/\.in\('id', replyIds\)/);
+  });
+
+  it('GET /poll selects reply_to_message_id and runs it through enrichMessagesWithReplyTo', () => {
+    const idx = widgetRoute.indexOf("widgetRouter.get('/poll'");
+    const body = widgetRoute.slice(idx, idx + 5000);
+    expect(body).toContain('reply_to_message_id');
+    expect(body).toContain('enrichMessagesWithReplyTo(config, enriched)');
+  });
+
+  it('GET /history selects reply_to_message_id and runs it through enrichMessagesWithReplyTo', () => {
+    const idx = widgetRoute.indexOf("widgetRouter.get('/history'");
+    const body = widgetRoute.slice(idx, idx + 2500);
+    expect(body).toContain('reply_to_message_id');
+    expect(body).toContain('enrichMessagesWithReplyTo(config, enriched)');
+  });
+
+  it('GET /identity/history (smart continuation / page-reload path) also resolves it', () => {
+    const idx = widgetIdentityRoute.indexOf("widgetIdentityRouter.get('/history'");
+    const body = widgetIdentityRoute.slice(idx, idx + 3000);
+    expect(body).toContain('reply_to_message_id');
+    expect(body).toContain('enrichMessagesWithReplyTo(config, withAttachments)');
+  });
+
+  it('the realtime envelope builder (buildMessageEnvelope) carries reply_to_message_id/reply_to when the caller supplies them', () => {
+    expect(publishSvc).toContain('reply_to_message_id?: string | null;');
+    expect(publishSvc).toContain("...(row.reply_to_message_id ? { reply_to_message_id: row.reply_to_message_id } : {}),");
+    expect(publishSvc).toContain('...(row.reply_to ? { reply_to: row.reply_to } : {}),');
+  });
+
+  it('POST /message resolves the parent preview with ZERO extra query (reuses the row already fetched to validate the reply target)', () => {
+    const idx = widgetRoute.indexOf('Reply-to: only ever accept a target');
+    const body = widgetRoute.slice(idx, idx + 1400);
+    expect(body).toContain("select('id, body, sender_type')");
+    expect(body).toContain('replyToPreview = { id: parent.id, text: parent.body ?? \'\', sender_type: parent.sender_type };');
+  });
+
+  it('operator inbox (GET /:id/messages) already returns the raw column via select(\'*\') — zero code change needed for the FK to reach the operator', () => {
+    const idx = conversationsRoute.indexOf("conversationsRouter.get('/:id/messages'");
+    const body = conversationsRoute.slice(idx, idx + 800);
+    expect(body).toContain("select('*')");
+  });
+
+  it('the operator inbox already renders the reply/quote relationship — the preserved "> author: text" convention — independent of this change', () => {
+    const inboxSrc = read('src/pages/app/InboxPage.tsx');
+    expect(inboxSrc).toContain('Quoted replies arrive as leading "> author: text" lines');
+    expect(inboxSrc).toMatch(/quoteLines\.push/);
+  });
+});
+
+describe('fresh-conversation lost-response retry — creation-idempotency fix', () => {
+  it('reuses the EXISTING p_match_thread_key mechanism (already proven for channel-bridge conversations) rather than inventing a new one', () => {
+    expect(widgetRoute).toContain('const widgetThreadKey = clientMessageId ? `widget_cmid:${clientMessageId}` : null;');
+    expect(widgetRoute).toContain('p_match_thread_key: widgetThreadKey,');
+    expect(widgetRoute).toContain("p_metadata: widgetThreadKey ? { channel_thread_key: widgetThreadKey } : {},");
+  });
+
+  it('the namespaced key can never collide with a real external channel thread key', () => {
+    expect(widgetRoute).toContain('widget_cmid:');
+  });
+
+  it('does not weaken "+ New conversation": a fresh compose always gets a fresh client_message_id, so the thread-key match only ever reunites retries of the SAME compose attempt', () => {
+    // sendMessage() (runtime.js) mints a new localId/client_message_id on
+    // every call — forcingNew() does not special-case or reuse a prior id.
+    const runtimeSrc = read('public/widget/runtime.js');
+    const idx = runtimeSrc.indexOf('function sendMessage(text, onChange');
+    const body = runtimeSrc.slice(idx, idx + 800);
+    expect(body).toContain("var localId = 'local_' + Date.now() + '_' + Math.random()");
+  });
+
+  it('the lock key also prefers client_message_id, so retries of the same compose serialize against each other instead of racing', () => {
+    expect(widgetRoute).toContain('const lockKey = clientMessageId ||');
   });
 });

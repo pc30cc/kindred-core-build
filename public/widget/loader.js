@@ -1357,6 +1357,37 @@
       if (wantRuntimeOpen) showShellError(lt("resourcesFailed"));
     }
 
+    // ─── Hashed-asset self-healing ───────────────────────────────────────
+    // /config hands us content-hashed asset names (runtime.<hash>.js). If the
+    // static host has not been redeployed in lockstep with the API, those
+    // exact names 404 and the whole chat UI silently dies (or, worse, loads
+    // partially: shell from cache, message renderer missing → thread opens
+    // empty). Retry ONCE with the unhashed canonical filename before giving
+    // up. Same origin, same path, no new endpoint — just a resilience net.
+    function unhashedAssetUrl(url) {
+      if (!url) return null;
+      var alt = String(url).replace(/\.[0-9a-f]{6,16}\.(js|css)(\?|#|$)/, ".$1$2");
+      return alt !== String(url) ? alt : null;
+    }
+    /**
+     * Wires `el.onerror` so a hashed 404 is retried once with the unhashed
+     * name (a fresh node, because re-setting src/href on a failed element is
+     * not reliably re-fetched), then calls onFail() if that also fails.
+     */
+    function withHashFallback(el, url, urlProp, parent, onFail) {
+      el.onerror = function () {
+        var alt = unhashedAssetUrl(url);
+        if (!alt) { onFail(); return; }
+        warn("asset failed, retrying unhashed:", alt);
+        var retry = el.cloneNode(false);
+        retry[urlProp] = alt;
+        retry.onload = el.onload;
+        retry.onerror = function () { onFail(); };
+        try { el.parentNode && el.parentNode.removeChild(el); } catch (_) {}
+        parent.appendChild(retry);
+      };
+    }
+
     if (runtimeCss) {
       // Inject as <link> directly into the SHADOW ROOT — Shadow DOM supports
       // external stylesheets natively and they are NOT subject to CORS
@@ -1367,9 +1398,10 @@
       link.href = runtimeCss;
       link.setAttribute("data-gs-runtime", "true");
       link.onload = function () { cssLoaded = true; done(); };
-      link.onerror = function () { fail("css"); };
+      withHashFallback(link, runtimeCss, "href", shadowRoot, function () { fail("css"); });
       shadowRoot.appendChild(link);
     }
+
 
     // Optional presentation-owned font asset — a hashed, immutable stylesheet
     // named by the active template's registry descriptor. The loader is
@@ -1391,7 +1423,7 @@
     tplLink.setAttribute("data-gs-runtime", "true");
     tplLink.setAttribute("data-gs-template", "true");
     tplLink.onload = function () { templateCssLoaded = true; done(); };
-    tplLink.onerror = function () { fail("template-css"); };
+    withHashFallback(tplLink, presentationCss, "href", shadowRoot, function () { fail("template-css"); });
     shadowRoot.appendChild(tplLink);
 
     // Registry first (tiny), then the active template's renderer. The
@@ -1408,10 +1440,10 @@
       tplScript.async = true;
       tplScript.setAttribute("data-gs-template", "renderer");
       tplScript.onload = function () { templateJsLoaded = true; done(); };
-      tplScript.onerror = function () { fail("template-js"); };
+      withHashFallback(tplScript, presentationJs, "src", document.head, function () { fail("template-js"); });
       document.head.appendChild(tplScript);
     };
-    regScript.onerror = function () { fail("template-registry"); };
+    withHashFallback(regScript, presentationRegistryJs, "src", document.head, function () { fail("template-registry"); });
     document.head.appendChild(regScript);
 
     var script = document.createElement("script");
@@ -1478,7 +1510,7 @@
       } catch (_) { /* never block chat boot on the call module */ }
       done();
     };
-    script.onerror = function () { fail("js"); };
+    withHashFallback(script, runtimeJs, "src", document.head, function () { fail("js"); });
     document.head.appendChild(script);
   }
 

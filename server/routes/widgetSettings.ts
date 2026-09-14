@@ -100,6 +100,22 @@ widgetSettingsRouter.patch('/:workspaceId', async (req, res) => {
     patch.show_powered_by = true;
   }
 
+  // debug_mode controls whether the WIDGET ITSELF becomes verbose in EVERY
+  // visitor's browser console for this workspace (see public/widget/
+  // loader.js / runtime.js — config.debugMode is one of the widget's
+  // handful of debug opt-ins). It is a platform-support diagnostic, never
+  // a workspace self-service setting, and this generic passthrough PATCH
+  // (this endpoint accepts and writes whatever columns the request body
+  // names, with no allowlist) is exactly how it could get flipped on for
+  // a production workspace with zero UI, zero audit trail, and zero
+  // warning about its blast radius — as a side effect of an unrelated
+  // settings save that happened to include it, not necessarily a
+  // deliberate act. It is deliberately settable ONLY via
+  // PATCH /api/widget-settings/:workspaceId/debug below, which is gated
+  // by requirePlatformAdmin instead of the workspace owner/admin `manage`
+  // check used here.
+  if ('debug_mode' in patch) delete patch.debug_mode;
+
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('widget_settings')
@@ -112,6 +128,34 @@ widgetSettingsRouter.patch('/:workspaceId', async (req, res) => {
   // a short-lived cache — drop it now so the change is live immediately
   // instead of after the TTL.
   invalidateWorkspaceOriginCache(workspaceId);
+  return res.json({ settings: data });
+});
+
+// ── widget_settings.debug_mode (per workspace, platform-admin only) ──
+// Deliberately isolated from the generic PATCH above — see the comment
+// there. Flips widget diagnostics on/off for EVERY visitor of this
+// workspace; a platform-support tool for actively troubleshooting one
+// customer, gated the same way as the platform-wide settings further
+// below (requirePlatformAdmin), never the workspace's own `manage` check.
+// Kept as its own tiny endpoint/schema rather than folded into the
+// generic one so it can never be set as a side effect of an unrelated
+// settings save.
+const widgetDebugModeSchema = z.object({ debug_mode: z.boolean() });
+
+widgetSettingsRouter.patch('/:workspaceId/debug', async (req, res) => {
+  const config = serverConfigOf(req);
+  const workspaceId = req.params.workspaceId;
+  const parsed = widgetDebugModeSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input — expects { debug_mode: boolean }' });
+  if (!(await requirePlatformAdmin(req, res))) return;
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('widget_settings')
+    .update({ debug_mode: parsed.data.debug_mode, updated_at: new Date().toISOString() })
+    .eq('workspace_id', workspaceId)
+    .select('workspace_id, debug_mode')
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
   return res.json({ settings: data });
 });
 

@@ -2616,7 +2616,9 @@
             lease = cfg.presence_lease || null;
             leaseExpiresAt = cfg.lease_expires_at || 0;
             setOwns(true);
-            log('presence subscribed', cfg.channel);
+            // Never log cfg.channel — its format (vp:v2:{workspace_id}:
+            // {session_id}) embeds the visitor's session id.
+            log('presence subscribed');
           }
 
           if (frame && frame.error) {

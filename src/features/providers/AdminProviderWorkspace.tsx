@@ -16,14 +16,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle, ArrowRight, CheckCircle2, ChevronRight, ExternalLink, Info,
-  Layers, Plug, RefreshCw, Search, Server, Settings2, ShieldCheck, Sparkles,
+  Layers, Plug, RefreshCw, Server, Settings2, ShieldCheck, Sparkles,
   TestTube, Trash2, Zap,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -42,6 +40,7 @@ import { PROVIDER_SCHEMAS, type ProviderVendor, type ProviderField } from './sch
 import { ProviderConfigForm } from './ProviderConfigForm';
 import { ProviderHealthBadge, ProviderHealthDot } from './ProviderHealthBadge';
 import { ProviderIcon } from './ProviderIcon';
+import { ProviderVendorRail, type VendorState } from './ProviderVendorRail';
 
 type Section = 'overview' | 'vendors' | 'runtime';
 type HealthMap = Record<string, { health: ProviderHealth; checkedAt: number }>;
@@ -168,9 +167,8 @@ export function AdminProviderWorkspace({ type, extra }: Props) {
   const providers = useRegisteredProviders(type);
   const summary = useProviderSummary();
 
-  const [section, setSection] = useState<Section>('overview');
+  const [section, setSection] = useState<Section>('vendors');
   const [selectedVendor, setSelectedVendor] = useState<string>(schema?.vendors[0]?.name ?? '');
-  const [vendorQuery, setVendorQuery] = useState('');
   const [healthMap, setHealthMap] = useState<HealthMap>({});
   const [checking, setChecking] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
@@ -201,8 +199,7 @@ export function AdminProviderWorkspace({ type, extra }: Props) {
   }, [configuredVendor]);
 
   useEffect(() => {
-    setSection('overview');
-    setVendorQuery('');
+    setSection('vendors');
     setHealthMap({});
     setSelectedVendor(PROVIDER_SCHEMAS[type]?.vendors[0]?.name ?? '');
   }, [type]);
@@ -273,32 +270,21 @@ export function AdminProviderWorkspace({ type, extra }: Props) {
     }
   }, [type, t]);
 
-  const vendorGroups = useMemo(() => {
-    const all = schema?.vendors ?? [];
-    const q = vendorQuery.trim().toLowerCase();
-    const filtered = q
-      ? all.filter((v) =>
-          v.name.toLowerCase().includes(q) ||
-          v.label.toLowerCase().includes(q) ||
-          v.description.toLowerCase().includes(q))
-      : all;
+  // The rail states this panel can show: one vendor is the platform default,
+  // every other one is either catalogued-but-idle or has no runtime yet.
+  const vendorStateOf = useCallback((vendor: ProviderVendor): VendorState => {
+    if (vendor.name === configuredVendor) return 'primary';
+    if (vendor.name === effectiveName) return 'active';
+    return vendor.comingSoon ? 'soon' : 'idle';
+  }, [configuredVendor, effectiveName]);
 
-    const localised = all.some((v) => v.locales?.length);
-    if (!localised) return [{ key: '', label: '', vendors: filtered }];
+  const vendorBadgeLabel = useCallback((state: VendorState): string | null => {
+    if (state === 'primary') return t('adminProviders.panel.vendorActive');
+    if (state === 'active') return t('adminProviders.panel.effective');
+    if (state === 'soon') return t('adminProviders.panel.comingSoon');
+    return null;
+  }, [t]);
 
-    const groups: { key: string; label: string; vendors: ProviderVendor[] }[] = LOCALE_GROUPS.map((g) => ({
-      key: g.key,
-      label: `${g.flag} ${t(`adminProviders.panel.regions.${g.key}` as never)}`,
-      vendors: filtered.filter((v) => v.locales?.includes(g.key)),
-    }));
-    const rest = filtered.filter((v) => !v.locales?.length);
-    if (rest.length) {
-      groups.push({ key: 'other', label: `🌐 ${t('adminProviders.panel.regions.other')}`, vendors: rest });
-    }
-    return groups.filter((g) => g.vendors.length > 0);
-  }, [schema, vendorQuery, t]);
-
-  const visibleVendorCount = vendorGroups.reduce((n, g) => n + g.vendors.length, 0);
   const activeVendorSchema = schema?.vendors.find((v) => v.name === selectedVendor);
   // A default may point at a vendor that is no longer in the catalogue — still
   // show what is stored rather than pretending nothing is configured.
@@ -577,95 +563,16 @@ export function AdminProviderWorkspace({ type, extra }: Props) {
         {/* ── Vendors ──────────────────────────────────────────────── */}
         <TabsContent value="vendors" className="mt-4">
           <div className="grid gap-4 lg:grid-cols-[minmax(0,17rem)_minmax(0,1fr)]">
-            {/* Vendor rail — one entry per vendor, acts as the tab list */}
+            {/* Vendor rail — one row per vendor, acts as the tab list */}
             <Card className="border-border/60 h-fit">
-              <CardContent className="p-2.5 space-y-2.5">
-                {schema.vendors.length > 6 && (
-                  <div className="relative">
-                    <Search className="absolute top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground start-2.5" />
-                    <Input
-                      value={vendorQuery}
-                      onChange={(e) => setVendorQuery(e.target.value)}
-                      placeholder={t('adminProviders.panel.searchVendors')}
-                      className="h-8 text-xs ps-8"
-                    />
-                  </div>
-                )}
-
-                <ScrollArea className="max-h-[32rem] lg:max-h-[calc(100vh-22rem)] pe-1">
-                  <div className="space-y-3" role="tablist" aria-orientation="vertical">
-                    {vendorGroups.map((group) => (
-                      <div key={group.key || 'all'} className="space-y-1">
-                        {group.label && (
-                          <p className="px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                            {group.label}
-                          </p>
-                        )}
-                        {group.vendors.map((vendor) => {
-                          const isSelected = vendor.name === selectedVendor;
-                          const isConfigured = vendor.name === configuredVendor;
-                          const isEffective = vendor.name === effectiveName;
-                          return (
-                            <button
-                              key={vendor.name}
-                              type="button"
-                              role="tab"
-                              aria-selected={isSelected}
-                              onClick={() => setSelectedVendor(vendor.name)}
-                              className={cn(
-                                'w-full text-start rounded-lg px-2.5 py-2 transition-colors',
-                                isSelected
-                                  ? 'bg-primary/10 ring-1 ring-primary/25'
-                                  : 'hover:bg-muted',
-                              )}
-                            >
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={cn(
-                                    'h-1.5 w-1.5 rounded-full shrink-0',
-                                    isEffective ? 'bg-emerald-400'
-                                      : isConfigured ? 'bg-primary'
-                                        : vendor.comingSoon ? 'bg-muted-foreground/40'
-                                          : 'bg-border',
-                                  )}
-                                />
-                                <span
-                                  className={cn(
-                                    'flex-1 truncate text-xs',
-                                    isSelected ? 'font-medium text-primary' : 'text-foreground',
-                                  )}
-                                >
-                                  {vendor.label}
-                                </span>
-                                {isConfigured && (
-                                  <Badge className="h-4 px-1 text-[9px] bg-emerald-500/15 text-emerald-400 border-emerald-500/30 shrink-0">
-                                    {t('adminProviders.panel.vendorActive')}
-                                  </Badge>
-                                )}
-                                {!isConfigured && vendor.comingSoon && (
-                                  <Badge variant="outline" className="h-4 px-1 text-[9px] border-border text-muted-foreground shrink-0">
-                                    {t('adminProviders.panel.comingSoon')}
-                                  </Badge>
-                                )}
-                              </div>
-                              <p className="mt-0.5 ps-3.5 text-[10px] text-muted-foreground truncate">
-                                {vendor.deployment
-                                  ? t(`adminProviders.panel.deployment.${vendor.deployment}` as never)
-                                  : `${vendor.fields.length} ${t('adminProviders.panel.fields')}`}
-                              </p>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ))}
-
-                    {visibleVendorCount === 0 && (
-                      <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-                        {t('adminProviders.panel.noVendorMatch')}
-                      </p>
-                    )}
-                  </div>
-                </ScrollArea>
+              <CardContent className="p-2.5">
+                <ProviderVendorRail
+                  vendors={schema.vendors}
+                  selected={selectedVendor}
+                  onSelect={setSelectedVendor}
+                  stateOf={vendorStateOf}
+                  badgeLabel={vendorBadgeLabel}
+                />
               </CardContent>
             </Card>
 

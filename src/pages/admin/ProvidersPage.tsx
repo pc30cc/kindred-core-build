@@ -17,6 +17,7 @@ import { PROVIDER_SCHEMAS } from '@/features/providers/schemas';
 import { ProviderIcon } from '@/features/providers/ProviderIcon';
 import { AdminProviderWorkspace, ProviderPanelHeader } from '@/features/providers/AdminProviderWorkspace';
 import { AdminSmsProviderCard } from '@/features/providers/AdminSmsProviderCard';
+import { AdminStorageProvidersPanel } from '@/features/providers/AdminStorageProvidersPanel';
 import { AdminRealtimeCard } from '@/features/providers/AdminRealtimeCard';
 import { AdminAuthStatusCard } from '@/features/providers/AdminAuthStatusCard';
 import { PrivacyExportStorageCard } from '@/features/providers/PrivacyExportStorageCard';
@@ -42,6 +43,9 @@ const CUSTOM_PANELS: Partial<Record<ProviderTypeKey, React.ComponentType>> = {
   auth: AdminAuthStatusCard,
   realtime: AdminRealtimeCard,
   sms: AdminSmsProviderCard,
+  // Storage runs several vendors at once (primary + mirrors), so it has its
+  // own pool panel instead of the single-default vendor workspace.
+  storage: AdminStorageProvidersPanel,
 };
 
 /** Type-specific sections appended to the workspace Overview tab. */

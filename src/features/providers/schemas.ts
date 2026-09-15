@@ -370,6 +370,23 @@ const storageVendors: ProviderVendor[] = [
     ],
   },
   {
+    name: 'arvan_storage', label: 'ArvanCloud Object Storage',
+    description: 'S3-compatible object storage hosted in Iran — Simin (Tehran) and Shahriar (Tabriz)',
+    docsUrl: 'https://docs.arvancloud.ir/fa/developer-tools/sdk/object-storage/',
+    deployment: 'external',
+    fields: [
+      { key: 'region', label: 'Region', type: 'select', required: true, options: [
+        { value: 'ir-thr-at1', label: 'سیمین — تهران (ir-thr-at1)' },
+        { value: 'ir-tbz-sh1', label: 'شهریار — تبریز (ir-tbz-sh1)' },
+      ], hint: 'The endpoint is derived from the region: https://s3.<region>.arvanstorage.ir' },
+      { key: 'bucket', label: 'Bucket Name', type: 'text', required: true, placeholder: 'my-bucket' },
+      { key: 'access_key_id', label: 'Access Key', type: 'password', required: true, hint: 'From the ArvanCloud panel → Object Storage → Access Keys. Stored server-side only.' },
+      { key: 'secret_access_key', label: 'Secret Key', type: 'password', required: true, hint: 'Stored server-side only.' },
+      { key: 'endpoint', label: 'Custom Endpoint', type: 'url', placeholder: 'https://s3.ir-thr-at1.arvanstorage.ir', hint: 'Only needed for a datacenter this build does not list yet' },
+      { key: 'cdn_url', label: 'Public / CDN URL', type: 'url', hint: 'Custom domain or CDN hostname serving this bucket' },
+    ],
+  },
+  {
     name: 'bunny_storage', label: 'Bunny Storage',
     description: 'Edge storage by BunnyCDN — fast global replication',
     docsUrl: 'https://docs.bunny.net/reference/storage-api',

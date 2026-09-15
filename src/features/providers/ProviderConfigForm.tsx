@@ -29,6 +29,12 @@ interface ProviderConfigFormProps {
   hideVendorHeader?: boolean;
   /** Extra controls rendered on the opposite side of the footer actions. */
   extraActions?: React.ReactNode;
+  /**
+   * Credential fields the server already holds. They arrive blank (a stored
+   * secret is never sent to the browser), so they are marked as saved and
+   * count as filled — leaving one empty keeps the stored value.
+   */
+  savedSecretKeys?: string[];
 }
 
 function FieldInput({
@@ -121,6 +127,7 @@ export function ProviderConfigForm({
   dense,
   hideVendorHeader,
   extraActions,
+  savedSecretKeys,
 }: ProviderConfigFormProps) {
   const { t } = useI18n();
   const [values, setValues] = useState<Record<string, string>>(() => {
@@ -131,8 +138,9 @@ export function ProviderConfigForm({
     return init;
   });
 
+  const saved = new Set(savedSecretKeys ?? []);
   const missingRequired = vendor.fields.filter(
-    (f) => f.required && !values[f.key]?.trim()
+    (f) => f.required && !values[f.key]?.trim() && !saved.has(f.key)
   );
 
   // Credentials travel in HTTP headers: a masked placeholder ("••••") or any
@@ -264,6 +272,12 @@ export function ProviderConfigForm({
                     onChange={(v) => setValues((p) => ({ ...p, [field.key]: v }))}
                     invalid={invalid}
                   />
+                  {saved.has(field.key) && !values[field.key]?.trim() && (
+                    <p className="flex items-center gap-1 text-[11px] text-emerald-400">
+                      <ShieldCheck className="h-3 w-3 shrink-0" />
+                      {t('adminProviders.form.savedSecret')}
+                    </p>
+                  )}
                   {field.hint && !invalid && (
                     <p className="text-[11px] leading-relaxed text-muted-foreground">{field.hint}</p>
                   )}

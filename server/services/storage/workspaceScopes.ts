@@ -11,6 +11,12 @@
  *                            resolvePrivacyStoragePolicy)
  *   - 'livekit_recording'  — LiveKit's own recording_storage account
  *                            (server/services/calls/recordingStorageResolver.ts)
+ *   - 'replica:<vendor>'   — every enabled vendor in the storage pool
+ *                            (./poolScopes.ts). Mirrored writes put the
+ *                            SAME workspace/<id>/... objects in additional
+ *                            physical accounts, so deletion must walk them
+ *                            too — regardless of `mirrorDeletes`, which
+ *                            only governs ordinary object deletion.
  *
  * Any code that needs to enumerate or act on "every physical location
  * that can hold workspace/<id>/..." — workspace deletion, the
@@ -23,8 +29,14 @@ import type { ServerConfig } from '../../config.js';
 import { resolveStorageConfigForOwner, type StorageConfig } from './index.js';
 import { resolvePrivacyStoragePolicy, PrivacyStorageNotConfigured } from '../privacy/storageResolver.js';
 import { resolveRecordingStorageConfig, RecordingStorageNotConfigured } from '../calls/recordingStorageResolver.js';
+import { storagePoolScopes } from './poolScopes.js';
 
-export type WorkspaceStorageScopeName = 'attachment' | 'privacy_export' | 'livekit_recording';
+export type WorkspaceStorageScopeName =
+  | 'attachment'
+  | 'privacy_export'
+  | 'livekit_recording'
+  /** One per enabled storage-pool vendor — see ./poolScopes.ts. */
+  | `replica:${string}`;
 
 export type ScopeResolution =
   | { configured: true; config: StorageConfig }
@@ -41,8 +53,17 @@ export function workspaceScopePrefix(workspaceId: string): string {
   return `workspace/${workspaceId}/`;
 }
 
-export function workspaceStorageScopes(config: ServerConfig, workspaceId: string): WorkspaceStorageScope[] {
-  return [
+/**
+ * Async because the pool's vendor list lives in the database. A failure to
+ * read it THROWS rather than returning the three static scopes: silently
+ * dropping the replica scopes would let deletion advance to the DB purge
+ * while mirrored copies survive.
+ */
+export async function workspaceStorageScopes(
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<WorkspaceStorageScope[]> {
+  const scopes: WorkspaceStorageScope[] = [
     {
       name: 'attachment',
       async resolve(): Promise<ScopeResolution> {
@@ -76,6 +97,12 @@ export function workspaceStorageScopes(config: ServerConfig, workspaceId: string
       },
     },
   ];
+
+  for (const replica of await storagePoolScopes(config)) {
+    scopes.push({ name: replica.name as WorkspaceStorageScopeName, resolve: replica.resolve });
+  }
+
+  return scopes;
 }
 
 /**

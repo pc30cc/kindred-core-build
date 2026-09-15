@@ -247,6 +247,12 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
   // scratch for 025 vs. hosted's single ADD COLUMN; self-host covers 6
   // FK-bearing tables for 026 vs. hosted's 11, since hosted has later
   // features self-host's bootstrap chain never received), so the SQL is
+  {
+    label: '189 — storage provider pool: atomic pool/default write + targeted replica state',
+    selfHost: 'database/migrations/189_storage_provider_pool_atomic.sql',
+    hosted: 'supabase/migrations/20260916092000_storage_provider_pool_atomic.sql',
+  },
+
   // intentionally asymmetric, not a drift bug.
 
   // NOTE: 182 (database/migrations/182_admin_purge_workspaces_selfhost.sql)

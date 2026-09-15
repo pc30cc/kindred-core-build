@@ -19,6 +19,7 @@
  * would make it uncallable by definition.
  */
 import { Router } from 'express';
+import type { Request } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
@@ -32,8 +33,10 @@ import { invalidateSignupPlanCache } from '../services/billing/signupPlan.js';
 
 export const adminManagementRouter = Router();
 
-function serverConfigOf(req: any): ServerConfig {
-  return req.serverConfig as ServerConfig;
+type ReqWithConfig = Request & { serverConfig: ServerConfig };
+
+function serverConfigOf(req: Request): ServerConfig {
+  return (req as unknown as ReqWithConfig).serverConfig;
 }
 
 // NOTE: "am I a platform admin" and "bootstrap the first admin" are NOT
@@ -160,14 +163,14 @@ adminManagementRouter.delete('/users/:userId', async (req, res) => {
   const storageFailures: string[] = [];
   try {
     const { data: owned } = await sb.from('workspaces').select('id').eq('owner_id', userId);
-    const workspaceIds = (owned ?? []).map((w: any) => w.id as string);
+    const workspaceIds = (owned ?? []).map((w) => w.id as string);
     if (workspaceIds.length > 0) {
       const keyed: Array<{ workspaceId: string; key: string }> = [];
       const collect = async (table: string, column: string) => {
         const { data } = await sb.from(table).select(`workspace_id, ${column}`).in('workspace_id', workspaceIds).limit(5000);
-        for (const row of (data ?? []) as any[]) {
+        for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
           const key = row?.[column];
-          if (typeof key === 'string' && key) keyed.push({ workspaceId: row.workspace_id, key });
+          if (typeof key === 'string' && key) keyed.push({ workspaceId: row.workspace_id as string, key });
         }
       };
       await collect('conversation_attachments', 'storage_path');
@@ -183,8 +186,8 @@ adminManagementRouter.delete('/users/:userId', async (req, res) => {
         }
       }
     }
-  } catch (err: any) {
-    console.error('[admin] storage purge failed for user', userId, err?.message);
+  } catch (err) {
+    console.error('[admin] storage purge failed for user', userId, err instanceof Error ? err.message : String(err));
   }
 
   // 2. Purge the database.
@@ -201,7 +204,7 @@ adminManagementRouter.delete('/users/:userId', async (req, res) => {
     entity_type: 'user',
     entity_id: userId,
     new_value: { summary: data, storage_failures: storageFailures.length },
-  } as any);
+  });
 
   return res.json({ success: true, summary: data, storageFailures: storageFailures.length });
 });
@@ -263,17 +266,80 @@ adminManagementRouter.get('/workspaces/:workspaceId', async (req, res) => {
   return res.json(data);
 });
 
+/**
+ * Deletion is asynchronous and storage-aware (docs/STORAGE_ARCHITECTURE_AUDIT.md):
+ * this route only flips the workspace to 'deleting' and enqueues a
+ * workspace_deletion_jobs row; server/services/workspaceDeletion/worker.ts
+ * does the actual work (walk + delete every workspace/<id>/ storage
+ * object, then run the existing admin_delete_workspace DB purge). Returns
+ * 202 with the job id rather than 200 with a synchronous result — the
+ * caller polls GET /workspaces/:workspaceId/deletion-status.
+ */
 adminManagementRouter.delete('/workspaces/:workspaceId', async (req, res) => {
   const actorId = await requirePlatformAdmin(req, res);
   if (!actorId) return;
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
-  const { data, error } = await sb.rpc('admin_delete_workspace', {
-    _actor_user_id: actorId,
-    _workspace_id: req.params.workspaceId,
-  });
-  if (error) return res.status(400).json({ error: error.message });
-  return res.json({ success: data as boolean });
+  const workspaceId = req.params.workspaceId;
+
+  const { data: workspace, error: wsError } = await sb
+    .from('workspaces')
+    .select('id, slug, name, status')
+    .eq('id', workspaceId)
+    .maybeSingle();
+  if (wsError) return res.status(500).json({ error: wsError.message });
+  if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
+
+  if (workspace.status === 'deleting') {
+    // Idempotent: a deletion is already in flight for this workspace —
+    // report its existing job instead of enqueueing a second one.
+    const { data: existingJob } = await sb
+      .from('workspace_deletion_jobs')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .in('status', ['pending', 'storage_cleanup', 'db_cleanup'])
+      .order('requested_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return res.status(202).json({ started: false, job: existingJob ?? null });
+  }
+
+  const { error: statusError } = await sb
+    .from('workspaces')
+    .update({ status: 'deleting' })
+    .eq('id', workspaceId)
+    .eq('status', 'active');
+  if (statusError) return res.status(500).json({ error: statusError.message });
+
+  const { data: job, error: jobError } = await sb
+    .from('workspace_deletion_jobs')
+    .insert({
+      workspace_id: workspaceId,
+      workspace_slug: workspace.slug,
+      workspace_name: workspace.name,
+      requested_by: actorId,
+    })
+    .select('*')
+    .single();
+  if (jobError) return res.status(500).json({ error: jobError.message });
+
+  return res.status(202).json({ started: true, job });
+});
+
+adminManagementRouter.get('/workspaces/:workspaceId/deletion-status', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  const config = serverConfigOf(req);
+  const sb = getServiceClient(config);
+  const { data: job, error } = await sb
+    .from('workspace_deletion_jobs')
+    .select('*')
+    .eq('workspace_id', req.params.workspaceId)
+    .order('requested_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ job });
 });
 
 // ── Feature flags (platform-wide, workspace_id IS NULL) ────────────────
@@ -327,23 +393,23 @@ adminManagementRouter.get('/audit-logs', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
 
   const logs = data || [];
-  const userIds = [...new Set(logs.map((l: any) => l.user_id).filter(Boolean))];
-  const workspaceIds = [...new Set(logs.map((l: any) => l.workspace_id).filter(Boolean))];
+  const userIds = [...new Set(logs.map((l) => l.user_id).filter(Boolean))];
+  const workspaceIds = [...new Set(logs.map((l) => l.workspace_id).filter(Boolean))];
 
   const [profiles, workspaces, facets] = await Promise.all([
     userIds.length
       ? sb.from('profiles').select('id, email, full_name').in('id', userIds)
-      : Promise.resolve({ data: [] as any[] }),
+      : Promise.resolve({ data: [] as { id: string; email: string; full_name: string }[] }),
     workspaceIds.length
       ? sb.from('workspaces').select('id, name, slug').in('id', workspaceIds)
-      : Promise.resolve({ data: [] as any[] }),
+      : Promise.resolve({ data: [] as { id: string; name: string; slug: string }[] }),
     sb.from('audit_logs').select('action, entity_type').order('created_at', { ascending: false }).limit(1000),
   ]);
 
-  const profileById = new Map((profiles.data || []).map((p: any) => [p.id, p]));
-  const workspaceById = new Map((workspaces.data || []).map((w: any) => [w.id, w]));
+  const profileById = new Map((profiles.data || []).map((p) => [p.id, p]));
+  const workspaceById = new Map((workspaces.data || []).map((w) => [w.id, w]));
 
-  const enriched = logs.map((l: any) => ({
+  const enriched = logs.map((l) => ({
     ...l,
     actor_email: profileById.get(l.user_id)?.email ?? null,
     actor_name: profileById.get(l.user_id)?.full_name ?? null,
@@ -354,8 +420,8 @@ adminManagementRouter.get('/audit-logs', async (req, res) => {
     logs: enriched,
     total: count ?? enriched.length,
     facets: {
-      actions: [...new Set((facets.data || []).map((r: any) => r.action).filter(Boolean))].sort(),
-      entityTypes: [...new Set((facets.data || []).map((r: any) => r.entity_type).filter(Boolean))].sort(),
+      actions: [...new Set((facets.data || []).map((r) => r.action).filter(Boolean))].sort(),
+      entityTypes: [...new Set((facets.data || []).map((r) => r.entity_type).filter(Boolean))].sort(),
     },
   });
 });
@@ -515,7 +581,7 @@ adminManagementRouter.put('/platform-settings', async (req, res) => {
   if (lookupError) return res.status(500).json({ error: lookupError.message });
   const q = existing
     ? sb.from('platform_settings').update(payload).eq('id', (existing as { id: string }).id).select('*').single()
-    : sb.from('platform_settings').insert(payload as any).select('*').single();
+    : sb.from('platform_settings').insert(payload).select('*').single();
   const { data: savedSettings, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
   // The signup policy is memoised for 30s in the auth path — drop it now so
@@ -556,7 +622,7 @@ adminManagementRouter.put('/platform-domains', async (req, res) => {
         .eq('id', (existing as { id: string }).id)
         .select()
         .maybeSingle()
-    : await sb.from('platform_domains').insert(payload as any).select().maybeSingle();
+    : await sb.from('platform_domains').insert(payload).select().maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ domains: data });
 });
@@ -586,7 +652,7 @@ adminManagementRouter.put('/platform-branding', async (req, res) => {
         .eq('id', (existing as { id: string }).id)
         .select()
         .maybeSingle()
-    : await sb.from('platform_branding').insert(payload as any).select().maybeSingle();
+    : await sb.from('platform_branding').insert(payload).select().maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ branding: data });
 });
@@ -627,7 +693,7 @@ adminManagementRouter.put('/platform-branding-localized', async (req, res) => {
         .eq('id', (existing as { id: string }).id)
         .select()
         .maybeSingle()
-    : await sb.from('platform_branding_localized').insert(payload as any).select().maybeSingle();
+    : await sb.from('platform_branding_localized').insert(payload).select().maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ branding: data });
 });
@@ -660,7 +726,7 @@ adminManagementRouter.put('/email-settings', async (req, res) => {
         .from('email_settings')
         .update({ ...parsed.data, updated_at: new Date().toISOString() })
         .eq('id', (existing as { id: string }).id)
-    : await sb.from('email_settings').insert({ ...parsed.data, workspace_id: null } as any);
+    : await sb.from('email_settings').insert({ ...parsed.data, workspace_id: null });
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ success: true });
 });
@@ -699,7 +765,7 @@ adminManagementRouter.put('/email-settings-localized', async (req, res) => {
     .maybeSingle();
   const { error } = existing
     ? await sb.from('email_settings_localized').update(payload).eq('id', (existing as { id: string }).id)
-    : await sb.from('email_settings_localized').insert(payload as any);
+    : await sb.from('email_settings_localized').insert(payload);
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ success: true });
 });
@@ -762,6 +828,7 @@ adminManagementRouter.patch('/domains/:id', async (req, res) => {
     .eq('id', req.params.id)
     .maybeSingle();
   if (!existing) return res.status(404).json({ error: 'Domain not found' });
+  const existingDomain = existing as { id: string; domain: string; workspace_id: string };
 
   const update: Record<string, unknown> = {};
   let nextDomain: string | null = null;
@@ -780,7 +847,7 @@ adminManagementRouter.patch('/domains/:id', async (req, res) => {
     await sb
       .from('workspace_domains')
       .update({ is_primary: false })
-      .eq('workspace_id', (existing as any).workspace_id);
+      .eq('workspace_id', existingDomain.workspace_id);
   }
 
   const { data, error } = await sb
@@ -790,14 +857,14 @@ adminManagementRouter.patch('/domains/:id', async (req, res) => {
     .select('*, workspaces(name)')
     .maybeSingle();
   if (error) {
-    if ((error as any).code === '23505') {
+    if (error.code === '23505') {
       return res.status(409).json({ error: 'This domain is already registered.', code: 'DOMAIN_TAKEN' });
     }
     return res.status(500).json({ error: error.message });
   }
 
-  invalidateWorkspaceOriginCache((existing as any).workspace_id);
-  if ((existing as any).domain) invalidateOriginHostCache((existing as any).domain);
+  invalidateWorkspaceOriginCache(existingDomain.workspace_id);
+  if (existingDomain.domain) invalidateOriginHostCache(existingDomain.domain);
   if (nextDomain) invalidateOriginHostCache(nextDomain);
   return res.json({ domain: data });
 });
@@ -856,7 +923,7 @@ adminManagementRouter.put('/runtime-config/:key', async (req, res) => {
   const { error } = await sb
     .from('app_runtime_config')
     .upsert(
-      { key: req.params.key, value: body.value as any, updated_at: new Date().toISOString() },
+      { key: req.params.key, value: body.value, updated_at: new Date().toISOString() },
       { onConflict: 'key' },
     );
   if (error) return res.status(500).json({ error: error.message });

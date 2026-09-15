@@ -200,6 +200,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/179_profiles_avatar_storage_key_scope_check.sql',
     hosted: 'supabase/migrations/20260915090500_profiles_avatar_storage_key_scope_check.sql',
   },
+  {
+    label: '180 — Workspace deletion storage-aware lifecycle',
+    selfHost: 'database/migrations/180_workspace_deletion_lifecycle.sql',
+    hosted: 'supabase/migrations/20260915093000_workspace_deletion_lifecycle.sql',
+  },
 
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered

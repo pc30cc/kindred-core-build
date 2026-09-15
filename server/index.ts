@@ -5,7 +5,7 @@ import cookieParser from 'cookie-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { primePlatformOrigins, isAllowedOrigin } from './services/platformOrigins.js';
-import { loadConfig } from './config.js';
+import { loadConfig, type ServerConfig } from './config.js';
 import { widgetRouter } from './routes/widget.js';
 import { visitorRouter, visitorsAdminRouter } from './routes/visitors.js';
 import { healthRouter } from './routes/health.js';
@@ -90,6 +90,7 @@ import { syncSeatEntitlementMode } from './services/invitations/bootstrap.js';
 import { ensureInvitationSecrets } from './services/invitations/secretBootstrap.js';
 
 import { startPrivacyExpirySweep } from './services/privacy/expirySweep.js';
+import { startWorkspaceDeletionWorker } from './services/workspaceDeletion/worker.js';
 import { startAiBillingRecovery } from './services/ai-billing/recoveryTicker.js';
 import { startBillingV2Schedulers } from './services/billing/scheduler/ticker.js';
 import { startAlertingTicker } from './services/observability/alertingTicker.js';
@@ -214,7 +215,7 @@ for (const dir of CALL_WIDGET_DIRS) {
     '/call-widget',
     express.static(dir, {
       fallthrough: true,
-      setHeaders: (res, filePath) => widgetAssetHeaders(res as any, filePath),
+      setHeaders: (res, filePath) => widgetAssetHeaders(res as unknown as express.Response, filePath),
     }),
   );
 }
@@ -226,7 +227,7 @@ for (const dir of CALL_WIDGET_VENDOR_SOURCES) {
     '/widget/vendor',
     express.static(dir, {
       fallthrough: true,
-      setHeaders: (res, filePath) => widgetAssetHeaders(res as any, filePath),
+      setHeaders: (res, filePath) => widgetAssetHeaders(res as unknown as express.Response, filePath),
     }),
   );
 }
@@ -285,7 +286,7 @@ app.use((req, res, next) => {
 // Attach config FIRST so the webhook route (which bypasses json/cookieParser)
 // can still resolve its config off the request object.
 app.use((req, _res, next) => {
-  (req as any).serverConfig = config;
+  (req as express.Request & { serverConfig: ServerConfig }).serverConfig = config;
   next();
 });
 
@@ -309,7 +310,7 @@ app.use((req, res, next) => {
   if (req.path === '/api/calls/livekit/webhook') return next();
   if (req.path.startsWith('/api/billing/webhook')) return next();
   if (req.path.startsWith('/api/commerce/events')) return next();
-  return (express.json({ limit: '50mb' }) as any)(req, res, next);
+  return express.json({ limit: '50mb' })(req, res, next);
 });
 app.use(cookieParser()); // Parse signed visitor cookies (HttpOnly dvsid)
 
@@ -622,6 +623,10 @@ app.listen(config.port, () => {
 
   // GDPR — start hourly TTL purge for expired export artifacts (provider-based).
   startPrivacyExpirySweep(config);
+  // Storage-aware workspace deletion — walks + deletes every workspace/<id>/
+  // storage object before the existing DB purge runs. See
+  // docs/STORAGE_ARCHITECTURE_AUDIT.md and server/services/workspaceDeletion/worker.ts.
+  startWorkspaceDeletionWorker(config);
 
   // AI billing — automatic, idempotent recovery/reconciliation pass.
   startAiBillingRecovery(config);
@@ -740,8 +745,8 @@ app.listen(config.port, () => {
           `loaderVersion=${diag.loaderVersion}, ` +
           `runtimeJs=${diag.runtimeJs}`,
       );
-    } catch (err: any) {
-      console.warn('[startup] widget manifest warm-up failed:', err?.message || err);
+    } catch (err) {
+      console.warn('[startup] widget manifest warm-up failed:', err instanceof Error ? err.message : err);
     }
   }, 100);
 });

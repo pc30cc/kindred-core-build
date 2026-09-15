@@ -12,7 +12,7 @@
  * The local filesystem provider is used end-to-end (no network, no real
  * DB) — same technique as recordingRangeDownload.test.ts.
  */
-import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -29,6 +29,13 @@ interface MockQueryBuilder {
 }
 
 export const mockInsertCalls: Array<{ table: string; row: unknown }> = [];
+
+// Mutable — read by the mocked `workspaces` table lookup inside
+// isWorkspaceDeleting() (server/services/storage/index.ts). null means "no
+// workspace row" (every existing test in this file never set it, matching
+// the pre-existing default { data: null } behavior below, so this is
+// backward compatible).
+export const mockWorkspaceStatus = { current: null as string | null };
 
 vi.mock('../../../server/supabase.js', () => {
   // No workspace-level provider_configs override; app_runtime_config
@@ -55,6 +62,9 @@ vi.mock('../../../server/supabase.js', () => {
         // maybeSingle, not single — mirror the same local+publicUrl config.
         if (table === 'app_runtime_config') {
           return { data: { value: { provider_name: 'local', config: { local_path: '/tmp/storage', public_url: 'http://local.test' } } } };
+        }
+        if (table === 'workspaces') {
+          return { data: mockWorkspaceStatus.current ? { status: mockWorkspaceStatus.current } : null };
         }
         return { data: null };
       },
@@ -387,6 +397,58 @@ describe('uploadForOwner / downloadForOwner / deleteForOwner / getFileUrlForOwne
       contentType: 'image/png',
     });
     expect(mockInsertCalls.some((c) => c.table === 'storage_usage_logs')).toBe(true);
+    rmSync(join('/tmp/storage', key), { force: true });
+  });
+});
+
+describe('uploadForOwner — workspace deletion write-lock', () => {
+  afterEach(() => {
+    mockWorkspaceStatus.current = null;
+  });
+
+  it('rejects an upload for a workspace whose status is deleting', async () => {
+    mockWorkspaceStatus.current = 'deleting';
+    const key = chatAttachmentKey({ workspaceId: WS_A, fileName: 'should-not-land.png' });
+
+    const r = await storage.uploadForOwner({} as unknown as ServerConfig, {
+      owner: { kind: 'workspace', workspaceId: WS_A },
+      fileKey: key,
+      data: PNG_BYTES,
+      contentType: 'image/png',
+    });
+
+    expect(r.success).toBe(false);
+    expect(r.error).toMatch(/being deleted/);
+    expect(existsSync(join('/tmp/storage', key))).toBe(false);
+  });
+
+  it('still allows an upload for an active workspace (no false-positive lock)', async () => {
+    mockWorkspaceStatus.current = 'active';
+    const key = chatAttachmentKey({ workspaceId: WS_A, fileName: 'active-ws-ok.png' });
+
+    const r = await storage.uploadForOwner({} as unknown as ServerConfig, {
+      owner: { kind: 'workspace', workspaceId: WS_A },
+      fileKey: key,
+      data: PNG_BYTES,
+      contentType: 'image/png',
+    });
+
+    expect(r.success).toBe(true);
+    rmSync(join('/tmp/storage', key), { force: true });
+  });
+
+  it('never applies the write-lock to a user- or platform-owned upload (workspace status is irrelevant to them)', async () => {
+    mockWorkspaceStatus.current = 'deleting';
+    const key = userAvatarKey({ userId: USER_A, ext: 'png' });
+
+    const r = await storage.uploadForOwner({} as unknown as ServerConfig, {
+      owner: { kind: 'user', userId: USER_A },
+      fileKey: key,
+      data: PNG_BYTES,
+      contentType: 'image/png',
+    });
+
+    expect(r.success).toBe(true);
     rmSync(join('/tmp/storage', key), { force: true });
   });
 });

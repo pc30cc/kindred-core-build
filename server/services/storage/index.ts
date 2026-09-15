@@ -18,7 +18,7 @@ import { getServiceClient } from '../../supabase.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { assertOwnerScopedKey, assertSafeStorageKey, isKnownLegacyStorageKey, LEGACY_USER_AVATAR_PATTERN, StorageKeyError, type StorageOwner } from './keys.js';
+import { assertOwnerScopedKey, assertSafeStorageKey, isKnownLegacyStorageKey, LEGACY_USER_AVATAR_PATTERN, ownerRoot, StorageKeyError, type StorageOwner } from './keys.js';
 
 export type { StorageOwner };
 
@@ -72,6 +72,20 @@ export interface StorageResult {
   error?: string;
 }
 
+export interface ListResult {
+  success: boolean;
+  keys?: string[];
+  /**
+   * Opaque continuation token for a provider that supports true pagination
+   * (currently only S3-compatible, via ListObjectsV2's continuation token).
+   * `null` means the listing is complete. local/BunnyCDN always return the
+   * complete result in one call (recursive walk on our side) and so always
+   * report `null` here — see listWithConfig()'s doc comment.
+   */
+  nextCursor?: string | null;
+  error?: string;
+}
+
 /**
  * Ownership enforcement for every owner-resolved operation (uploadForOwner /
  * downloadForOwner / deleteForOwner / getFileUrlForOwner, and — via the
@@ -119,6 +133,25 @@ function enforceOwnerScope(owner: StorageOwner, fileKey: string, allowLegacyKey?
 
 function enforceWorkspaceScope(workspaceId: string, fileKey: string, allowLegacyKey?: boolean): string | null {
   return enforceOwnerScope({ kind: 'workspace', workspaceId }, fileKey, allowLegacyKey);
+}
+
+/**
+ * Write-lock check for uploadForOwner() — see
+ * database/migrations/180_workspace_deletion_lifecycle.sql's workspaces.status
+ * column. Fails open (returns false) on a lookup error so a transient DB
+ * hiccup never blocks every upload for every workspace; the deletion
+ * worker's own storage-cleanup walk is the actual safety net against
+ * orphaned bytes, this is best-effort defense against a race, not the
+ * sole guard.
+ */
+async function isWorkspaceDeleting(serverConfig: ServerConfig, workspaceId: string): Promise<boolean> {
+  try {
+    const sb = getServiceClient(serverConfig);
+    const { data } = await sb.from('workspaces').select('status').eq('id', workspaceId).maybeSingle();
+    return (data as { status?: string } | null)?.status === 'deleting';
+  } catch {
+    return false;
+  }
 }
 
 // ─── Allowed file types ──────────────────────────────────────────
@@ -185,6 +218,49 @@ async function bunnyDelete(config: StorageConfig, fileKey: string): Promise<Stor
 function bunnyGetUrl(config: StorageConfig, fileKey: string): string {
   const cdnBase = config.cdnUrl || `https://${config.storageZone}.b-cdn.net`;
   return `${cdnBase}/${fileKey}`;
+}
+
+interface BunnyListEntry {
+  ObjectName: string;
+  IsDirectory: boolean;
+}
+
+/**
+ * Bunny Storage's listing endpoint is per-directory only (one level, no
+ * recursion, no continuation token) — so a full-prefix listing has to walk
+ * subdirectories itself. Returns every object key under `prefix` in one
+ * call; there is no cursor to hand back for this provider (see
+ * listForOwner()'s doc comment for why that's an accepted limitation).
+ */
+async function bunnyList(config: StorageConfig, prefix: string): Promise<ListResult> {
+  const regionPrefix = config.region && config.region !== 'de' ? `${config.region}.` : '';
+  const baseUrl = `https://${regionPrefix}storage.bunnycdn.com/${config.storageZone}`;
+  const keys: string[] = [];
+  const dirsToWalk = [prefix.endsWith('/') ? prefix : `${prefix}/`];
+  const MAX_DIRS = 5000; // guard against a pathological/looping directory structure
+  let walked = 0;
+
+  while (dirsToWalk.length > 0) {
+    if (++walked > MAX_DIRS) {
+      return { success: false, error: `bunnyList exceeded ${MAX_DIRS} directory walks under ${prefix}` };
+    }
+    const dir = dirsToWalk.shift()!;
+    const res = await fetch(`${baseUrl}/${dir}`, {
+      method: 'GET',
+      headers: { AccessKey: config.apiKey!, Accept: 'application/json' },
+    });
+    if (!res.ok) {
+      if (res.status === 404) continue; // empty/nonexistent directory — nothing under it
+      return { success: false, error: `BunnyCDN list failed: ${res.status} ${res.statusText}` };
+    }
+    const entries = (await res.json().catch(() => [])) as BunnyListEntry[];
+    for (const entry of entries) {
+      const childPath = `${dir}${entry.ObjectName}`;
+      if (entry.IsDirectory) dirsToWalk.push(`${childPath}/`);
+      else keys.push(childPath);
+    }
+  }
+  return { success: true, keys, nextCursor: null };
 }
 
 // ─── S3-Compatible Storage ───────────────────────────────────────
@@ -292,6 +368,34 @@ function s3GetUrl(config: StorageConfig, fileKey: string): string {
   return `${endpoint}/${config.bucket}/${fileKey}`;
 }
 
+/** Minimal ListObjectsV2 XML extraction — no XML parser dependency in this project, and the response shape is fixed/well-known enough for a targeted regex to be reliable. */
+function extractXmlTags(xml: string, tag: string): string[] {
+  const re = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'g');
+  const out: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml))) out.push(m[1]);
+  return out;
+}
+
+async function s3List(config: StorageConfig, prefix: string, cursor?: string): Promise<ListResult> {
+  const endpoint = getS3Endpoint(config);
+  const params = new URLSearchParams({ 'list-type': '2', prefix, 'max-keys': '1000' });
+  if (cursor) params.set('continuation-token', cursor);
+  const url = `${endpoint}/${config.bucket}?${params.toString()}`;
+  const headers = signS3Request('GET', url, config);
+
+  const res = await fetch(url, { method: 'GET', headers });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    return { success: false, error: `S3 list failed: ${res.status} ${text.slice(0, 200)}` };
+  }
+  const xml = await res.text();
+  const keys = extractXmlTags(xml, 'Key');
+  const isTruncated = extractXmlTags(xml, 'IsTruncated')[0] === 'true';
+  const nextToken = extractXmlTags(xml, 'NextContinuationToken')[0];
+  return { success: true, keys, nextCursor: isTruncated && nextToken ? nextToken : null };
+}
+
 // ─── Local Storage (dev fallback) ────────────────────────────────
 
 function ensureLocalDir(dir: string) {
@@ -329,6 +433,28 @@ function localGetUrl(config: StorageConfig, fileKey: string): string {
   // instead of silently pointing visitors at the operator's loopback.
   if (!base) return `/storage/${fileKey}`;
   return `${base}/${fileKey}`;
+}
+
+async function localList(config: StorageConfig, prefix: string): Promise<ListResult> {
+  const basePath = config.localPath || '/tmp/storage';
+  const dirPath = path.join(basePath, prefix);
+  const keys: string[] = [];
+
+  function walk(dir: string, relPrefix: string) {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return; // directory doesn't exist — nothing under this prefix
+    }
+    for (const entry of entries) {
+      const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) walk(path.join(dir, entry.name), rel);
+      else keys.push(`${prefix.replace(/\/$/, '')}/${rel}`);
+    }
+  }
+  walk(dirPath, '');
+  return { success: true, keys, nextCursor: null };
 }
 
 // ─── Download (server-side proxy fetch) ──────────────────────────
@@ -596,6 +722,23 @@ const deleteHandlers: Record<string, (config: StorageConfig, key: string) => Pro
   local: localDelete,
 };
 
+// Deliberately narrower than uploadHandlers: gcs/azure_blob are mapped to
+// s3Upload/s3Delete there as an optimistic "S3-compatible interop" best
+// effort, but s3List() parses a specific XML dialect (ListObjectsV2) that
+// isn't guaranteed to match those providers' native listing response
+// shape. A destructive workflow (workspace deletion) silently trusting a
+// wrong parse is worse than clearly failing with "unsupported provider" —
+// see listForOwner()'s callers, which must treat an unsupported provider
+// as "cannot verify complete cleanup", never as "nothing to delete".
+const listHandlers: Record<string, (config: StorageConfig, prefix: string, cursor?: string) => Promise<ListResult>> = {
+  bunny_storage: bunnyList,
+  s3: s3List,
+  cloudflare_r2: s3List,
+  minio: s3List,
+  do_spaces: s3List,
+  local: localList,
+};
+
 const urlHandlers: Record<string, (config: StorageConfig, key: string) => string> = {
   bunny_storage: bunnyGetUrl,
   s3: s3GetUrl,
@@ -770,6 +913,19 @@ export async function uploadForOwner(
   const scopeError = enforceOwnerScope(req.owner, req.fileKey, req.allowLegacyKey);
   if (scopeError) return { success: false, error: scopeError };
 
+  if (req.owner.kind === 'workspace') {
+    const deleting = await isWorkspaceDeleting(serverConfig, req.owner.workspaceId);
+    if (deleting) {
+      // A workspace mid-deletion (server/services/workspaceDeletion/worker.ts)
+      // must never receive new bytes — a write racing the cleanup walk
+      // would either land in an object the walk already passed (silently
+      // orphaned once the workspace row and all its DB pointers are
+      // purged) or, worse, resurrect the workspace's storage footprint
+      // after cleanup reported it empty.
+      return { success: false, error: 'Workspace is being deleted; uploads are disabled' };
+    }
+  }
+
   const storageConfig = await resolveStorageConfigForOwner(serverConfig, req.owner);
   if (!storageConfig) {
     return { success: false, error: 'No storage provider configured' };
@@ -834,6 +990,47 @@ export async function uploadFile(
     contentType: req.contentType,
     allowLegacyKey: req.allowLegacyKey,
   });
+}
+
+/**
+ * List every object key under `prefixSuffix` (default: the owner's whole
+ * root — `workspace/<id>/`, `users/<id>/`, or `platform/`) through the
+ * storage provider resolved for that owner. Fail-closed the same way every
+ * other *ForOwner primitive does: the resolved prefix is asserted
+ * owner-scoped before any provider call, so a caller can never be tricked
+ * into listing (and a workspace-deletion caller into subsequently
+ * deleting) anything outside the owner's own root — most importantly,
+ * `users/` and `platform/` can never be reached through a workspace owner
+ * here, matching docs/STORAGE_ARCHITECTURE_AUDIT.md's requirement that
+ * workspace deletion cleanup never touches those namespaces.
+ */
+export async function listForOwner(
+  serverConfig: ServerConfig,
+  owner: StorageOwner,
+  prefixSuffix?: string,
+  cursor?: string,
+): Promise<ListResult> {
+  const root = ownerRoot(owner);
+  const prefix = prefixSuffix ? `${root}/${prefixSuffix.replace(/^\/+/, '')}` : `${root}/`;
+  try {
+    assertSafeStorageKey(prefix);
+  } catch (err) {
+    return { success: false, error: err instanceof StorageKeyError ? err.message : 'Invalid list prefix' };
+  }
+  if (!prefix.startsWith(`${root}/`)) {
+    // Defense in depth against a prefixSuffix containing `../` or an
+    // absolute-looking segment that could otherwise escape the owner's
+    // root despite passing assertSafeStorageKey's generic traversal check.
+    return { success: false, error: `Resolved list prefix escapes owner root: ${prefix}` };
+  }
+
+  const storageConfig = await resolveStorageConfigForOwner(serverConfig, owner);
+  if (!storageConfig) return { success: false, error: 'No storage provider configured' };
+
+  const handler = listHandlers[storageConfig.provider];
+  if (!handler) return { success: false, error: `Unsupported provider for listing: ${storageConfig.provider}` };
+
+  return handler(storageConfig, prefix, cursor);
 }
 
 /**
@@ -1006,6 +1203,16 @@ export async function deleteWithConfig(
   const handler = deleteHandlers[storageConfig.provider];
   if (!handler) return { success: false, error: `Unsupported provider: ${storageConfig.provider}` };
   return handler(storageConfig, fileKey);
+}
+
+export async function listWithConfig(
+  storageConfig: StorageConfig,
+  prefix: string,
+  cursor?: string,
+): Promise<ListResult> {
+  const handler = listHandlers[storageConfig.provider];
+  if (!handler) return { success: false, error: `Unsupported provider for listing: ${storageConfig.provider}` };
+  return handler(storageConfig, prefix, cursor);
 }
 
 /**

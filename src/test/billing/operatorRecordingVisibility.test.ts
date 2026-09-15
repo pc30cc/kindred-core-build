@@ -396,7 +396,7 @@ describe('POST /calls/:id/recordings/bulk-download-tokens', () => {
     tableState['call_recordings'] = (_op: string, eqs: Array<[string, unknown]>) => {
       const idEq = eqs.find(([c]) => c === 'id');
       const row = idEq ? fixtures[idEq[1] as string] : null;
-      return { data: row ?? null, error: null };
+      return { data: (row ?? null) as unknown as TableRow, error: null };
     };
     const { req, res, get } = makeReqRes({
       params: { id: CALL_ID },
@@ -493,7 +493,7 @@ describe('POST /calls/:id/recordings/archive', () => {
     tableState['call_recordings'] = (_op: string, eqs: Array<[string, unknown]>) => {
       const idEq = eqs.find(([c]) => c === 'id');
       const row = idEq ? fixtures[idEq[1] as string] : null;
-      return { data: row ?? null, error: null };
+      return { data: (row ?? null) as unknown as TableRow, error: null };
     };
     const req: MockReq = {
       params: { id: CALL_ID },
@@ -609,7 +609,7 @@ describe('POST /workspaces/recordings/archive (multi-call)', () => {
     tableState['call_recordings'] = (_op: string, eqs: Array<[string, unknown]>) => {
       const idEq = eqs.find(([c]) => c === 'id');
       const row = idEq ? fixtures[idEq[1] as string] : null;
-      return { data: row ?? null, error: null };
+      return { data: (row ?? null) as unknown as TableRow, error: null };
     };
     const req: MockReq = {
       query: { workspaceId: WS_OK },

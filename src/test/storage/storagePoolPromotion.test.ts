@@ -228,20 +228,51 @@ describe('POST /:providerName/primary — promotion gate', () => {
     expect((runtimeConfig.get('default_storage_provider') as { provider_name: string }).provider_name).toBe('s3');
   });
 
-  it('changing a vendor’s credentials invalidates the readiness it had', async () => {
+  it('repointing at a different location is refused while the old one holds managed data', async () => {
     seedPrimaryObject('workspace/ws/a.txt');
     await fullSync('s3');
 
-    // A different bucket is a different physical location — whatever the
-    // earlier walk proved no longer applies.
+    // A different bucket is a different physical location. The pool knows one
+    // location per vendor, so accepting this would drop the old bucket out of
+    // every future lifecycle cleanup while it still holds that object.
+    const saved = await call('put', '/:providerName', { providerName: 's3' }, {
+      config: { bucket: 'somewhere-else', region: 'us-east-1' },
+    });
+
+    expect(saved.statusCode).toBe(409);
+    expect((saved.body as { reason?: string }).reason).toBe('old_location_not_empty');
+    expect(getEntry('s3')!.config).toMatchObject({ bucket: 'mirror' });
+  });
+
+  it('repointing is allowed once the old location is verifiably empty, and readiness is dropped', async () => {
+    seedPrimaryObject('workspace/ws/a.txt');
+    await fullSync('s3');
+    mirrorObjects.clear();   // the old bucket was emptied by the operator
+
     const saved = await call('put', '/:providerName', { providerName: 's3' }, {
       config: { bucket: 'somewhere-else', region: 'us-east-1' },
     });
     expect(saved.statusCode).toBe(200);
 
+    // A new physical location is a new storage identity — nothing the earlier
+    // walk proved applies to it.
     const res = await call('post', '/:providerName/primary', { providerName: 's3' }, {});
     expect(res.statusCode).toBe(409);
     expect((res.body as { reason?: string }).reason).toBe('not_synchronized');
+  });
+
+  it('rotating a secret at the SAME location keeps readiness', async () => {
+    seedPrimaryObject('workspace/ws/a.txt');
+    await fullSync('s3');
+
+    // Same bucket, new key: the bytes did not move, so the proof still holds.
+    const saved = await call('put', '/:providerName', { providerName: 's3' }, {
+      config: { bucket: 'mirror', region: 'us-east-1', secret_access_key: 'rotated' },
+    });
+    expect(saved.statusCode).toBe(200);
+
+    const res = await call('post', '/:providerName/primary', { providerName: 's3' }, {});
+    expect(res.statusCode).toBe(200);
   });
 
   it('re-saving identical settings keeps readiness', async () => {

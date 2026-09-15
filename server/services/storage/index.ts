@@ -1750,6 +1750,18 @@ function contentTypeForKey(key: string): string {
   return CONTENT_TYPE_BY_EXT[ext] ?? 'application/octet-stream';
 }
 
+/**
+ * Canonical form of a listed key. The local provider's recursive walk returns
+ * a leading slash when the prefix is empty (`/workspace/…` rather than
+ * `workspace/…`); copying that verbatim would write every object to the
+ * replica under a key nothing else ever reads, and would hide it from any
+ * prefix-scoped check. Normalizing here keeps both sides of the comparison —
+ * and the key actually written — in the canonical shape.
+ */
+function canonicalListedKey(key: string): string {
+  return key.replace(/^\/+/, '');
+}
+
 /** Keys the target already holds under `prefix`, over a bounded number of pages. */
 async function listExistingKeys(config: StorageConfig, prefix: string): Promise<Set<string>> {
   const existing = new Set<string>();
@@ -1757,7 +1769,7 @@ async function listExistingKeys(config: StorageConfig, prefix: string): Promise<
   for (let page = 0; page < EXISTING_SCAN_MAX_PAGES; page++) {
     const listed = await listWithConfig(config, prefix, cursor);
     if (!listed.success) break; // treat as "holds nothing known" — copies, never skips
-    for (const key of listed.keys ?? []) existing.add(key);
+    for (const key of listed.keys ?? []) existing.add(canonicalListedKey(key));
     if (!listed.nextCursor) break;
     cursor = listed.nextCursor;
   }
@@ -1831,7 +1843,7 @@ export async function syncStorageReplica(
 
   // Sorted so an offset into this page addresses the same key on any
   // re-listing, whatever order the provider walked its objects in.
-  const pageKeys = (listed.keys ?? []).slice().sort();
+  const pageKeys = (listed.keys ?? []).map(canonicalListedKey).sort();
   const batchKeys = pageKeys.slice(cursor.o, cursor.o + limit);
 
   const existing = await listExistingKeys(targetConfig, prefix);

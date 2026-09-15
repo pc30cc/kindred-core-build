@@ -25,6 +25,7 @@ import {
   syncStorageReplica,
   listWithConfig,
 } from '../services/storage/index.js';
+import { storageConfigFingerprint } from '../services/storage/workspaceScopes.js';
 
 export const adminStorageProvidersRouter = Router();
 
@@ -200,10 +201,22 @@ adminStorageProvidersRouter.put('/replication', async (req, res) => {
     const body = replicationSchema.parse(req.body);
     const serverConfig = ctx(req).serverConfig;
     const pool = await readStoragePool(serverConfig);
+    const wasOn = pool.replication.enabled;
     pool.replication = {
       enabled: body.enabled,
       mirrorDeletes: body.mirrorDeletes ?? pool.replication.mirrorDeletes,
     };
+
+    // The moment mirroring stops, every replica starts falling behind the
+    // primary — silently, with no failed write to record. So switching it off
+    // invalidates readiness outright: turning it back on later must not
+    // resurrect a proof that stopped being true while it was off.
+    if (wasOn && !body.enabled) {
+      for (const [name, entry] of Object.entries(pool.providers)) {
+        if (name !== pool.primary) clearSyncReadiness(entry);
+      }
+    }
+
     await writeStoragePool(serverConfig, pool);
     res.json(serializePool(await readStoragePool(serverConfig)));
   } catch (e) {
@@ -253,6 +266,8 @@ const saveSchema = z.object({
   config: z.record(z.union([z.string(), z.number(), z.boolean()])).default({}),
   enabled: z.boolean().optional(),
   makePrimary: z.boolean().optional(),
+  /** Repoint at a different physical location even though the old one is not verifiably empty. */
+  force: z.boolean().optional(),
 });
 
 adminStorageProvidersRouter.put('/:providerName', async (req, res) => {
@@ -266,18 +281,60 @@ adminStorageProvidersRouter.put('/:providerName', async (req, res) => {
     const existing = pool.providers[name];
     const merged = mergeConfig(existing?.config ?? {}, body.config);
 
+    // Two different edits wear the same shape here. Rotating a key leaves the
+    // bytes exactly where they were. Changing the bucket, endpoint, zone or
+    // local path does not: it points this entry at a DIFFERENT physical
+    // location, and the old one keeps everything it holds while silently
+    // ceasing to be a lifecycle-deletion scope — the pool only knows one
+    // location per vendor.
+    //
+    // So a location change is only allowed once the old location is
+    // verifiably free of managed data. Otherwise the entry stays pointed at
+    // it (409), which is what keeps it in every future owner purge.
+    const previousFingerprint = existing
+      ? storageConfigFingerprint(storageConfigFromRecord(name, existing.config))
+      : null;
+    const nextFingerprint = storageConfigFingerprint(storageConfigFromRecord(name, merged));
+    const locationChanged = !!previousFingerprint && previousFingerprint !== nextFingerprint;
+
+    if (locationChanged && !body.force) {
+      const check = await managedDataCheck(name, existing!.config);
+      if (!check.clean) {
+        return res.status(409).json({
+          error:
+            `This would repoint ${name} at a different storage location, but the current one `
+            + `${check.reason}. Workspace and account deletion can only reach one location per `
+            + 'vendor, so the old one would keep that data forever. Purge or empty it first — '
+            + 'or add the new location as a separate vendor.',
+          reason: 'old_location_not_empty',
+          sample: check.sample ?? null,
+        });
+      }
+    } else if (locationChanged) {
+      console.warn(
+        `[storage] FORCED location change for ${name} by admin ${adminId(req) ?? 'unknown'} `
+        + '— objects left at the previous location are no longer reachable by owner deletion.',
+      );
+    }
+
     pool.providers[name] = {
       enabled: body.enabled ?? existing?.enabled ?? true,
       config: merged,
       updatedAt: new Date().toISOString(),
       syncedAt: existing?.syncedAt ?? null,
       syncedFrom: existing?.syncedFrom ?? null,
+      // A recorded replication gap survives an ordinary save. Dropping it here
+      // would quietly restore promotion readiness that a failed mirror write
+      // had already invalidated.
+      dirtyAt: existing?.dirtyAt ?? null,
+      dirtyReason: existing?.dirtyReason ?? null,
       sync: existing?.sync ?? null,
     };
 
-    // New credentials can point at a different bucket entirely, so whatever
-    // an earlier back-fill proved about this vendor no longer holds.
-    if (JSON.stringify(merged) !== JSON.stringify(existing?.config ?? {})) {
+    // A new physical location is a new storage identity: nothing an earlier
+    // walk proved, and nothing an earlier failure recorded, applies to it.
+    // A pure credential rotation keeps both.
+    if (locationChanged) {
       clearSyncReadiness(pool.providers[name]);
     }
 
@@ -310,6 +367,11 @@ adminStorageProvidersRouter.patch('/:providerName', async (req, res) => {
         error: 'The primary provider cannot be switched off — promote another vendor first',
       });
     }
+
+    // Same reasoning per vendor: a retired mirror receives nothing while it
+    // is off, so whatever an earlier walk proved expires the moment it is
+    // switched off — re-enabling does not bring the proof back.
+    if (entry.enabled && !body.enabled) clearSyncReadiness(entry);
 
     entry.enabled = body.enabled;
     await writeStoragePool(serverConfig, pool);
@@ -410,12 +472,22 @@ adminStorageProvidersRouter.post('/:providerName/primary', async (req, res) => {
 // data, and "cannot verify" counts as "not free". `force: true` is the named
 // destructive escape hatch for recovery, and says plainly what it costs.
 
-/** Owner-scoped roots the platform writes. Anything under them is managed data. */
-const MANAGED_PREFIXES = ['workspace/', 'users/'];
+/**
+ * Every canonical root the platform writes (server/services/storage/keys.ts).
+ * `platform/` belongs here as much as the owner-scoped roots: a full replica
+ * sync copies platform-owned objects too, and forgetting a vendor that holds
+ * them loses them just as completely.
+ */
+const MANAGED_PREFIXES = ['workspace/', 'users/', 'platform/'];
 
 /**
  * Does this vendor still hold managed objects? A listing that fails is
  * reported as unverifiable — never as empty.
+ *
+ * One page per prefix is enough for an empty/non-empty answer: the listing is
+ * issued without a delimiter, so a prefix that contains anything at all
+ * returns at least one key in its first page. This is not a walk and must not
+ * be turned into one.
  */
 async function managedDataCheck(
   provider: string,

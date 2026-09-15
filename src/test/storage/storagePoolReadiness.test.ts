@@ -268,6 +268,144 @@ describe('a failed mirrored write invalidates promotion readiness', () => {
   });
 });
 
+describe('readiness expires when a replica stops receiving writes', () => {
+  it('switching a replica off invalidates it — re-enabling does not bring the proof back', async () => {
+    fs.mkdirSync(path.join(primaryDir, `workspace/${WS}/attachments`), { recursive: true });
+    fs.writeFileSync(path.join(primaryDir, `workspace/${WS}/attachments/old.txt`), 'x');
+    expect((await fullSync('s3')).report?.markedSynchronized).toBe(true);
+
+    // Retire it. From here the mirror receives nothing, so it starts falling
+    // behind with no failed write to notice.
+    expect((await call('patch', '/:providerName', { providerName: 's3' }, { enabled: false })).statusCode).toBe(200);
+    expect(isReplicaSynchronized(await readStoragePool(serverConfig), 's3')).toBe(false);
+
+    // The primary takes new writes while it is off.
+    expect((await uploadToOwner('written-while-off.txt')).success).toBe(true);
+
+    // Turning it back on must not resurrect the old proof.
+    expect((await call('patch', '/:providerName', { providerName: 's3' }, { enabled: true })).statusCode).toBe(200);
+    expect(isReplicaSynchronized(await readStoragePool(serverConfig), 's3')).toBe(false);
+
+    const refused = await call('post', '/:providerName/primary', { providerName: 's3' }, {});
+    expect(refused.statusCode).toBe(409);
+    expect((refused.body as { reason?: string }).reason).toBe('not_synchronized');
+
+    // Only a fresh whole-namespace walk earns it back.
+    expect((await fullSync('s3')).report?.markedSynchronized).toBe(true);
+    expect((await call('post', '/:providerName/primary', { providerName: 's3' }, {})).statusCode).toBe(200);
+  });
+
+  it('switching global replication off invalidates every replica the same way', async () => {
+    fs.mkdirSync(path.join(primaryDir, `workspace/${WS}/attachments`), { recursive: true });
+    fs.writeFileSync(path.join(primaryDir, `workspace/${WS}/attachments/old.txt`), 'x');
+    expect((await fullSync('s3')).report?.markedSynchronized).toBe(true);
+
+    expect((await call('put', '/replication', {}, { enabled: false })).statusCode).toBe(200);
+    expect(isReplicaSynchronized(await readStoragePool(serverConfig), 's3')).toBe(false);
+
+    expect((await uploadToOwner('written-while-unmirrored.txt')).success).toBe(true);
+
+    expect((await call('put', '/replication', {}, { enabled: true })).statusCode).toBe(200);
+    expect(isReplicaSynchronized(await readStoragePool(serverConfig), 's3')).toBe(false);
+
+    const refused = await call('post', '/:providerName/primary', { providerName: 's3' }, {});
+    expect(refused.statusCode).toBe(409);
+    expect((refused.body as { reason?: string }).reason).toBe('not_synchronized');
+  });
+
+  it('leaves the primary alone — it is not a replica of anything', async () => {
+    await call('put', '/replication', {}, { enabled: false });
+    const pool = await readStoragePool(serverConfig);
+    expect(pool.providers.local.dirtyAt ?? null).toBeNull();
+  });
+});
+
+describe('an ordinary save keeps a recorded replication gap', () => {
+  it('re-saving the same config cannot wipe dirtyAt mid-walk', async () => {
+    fs.mkdirSync(path.join(primaryDir, `workspace/${WS}/attachments`), { recursive: true });
+    for (let i = 0; i < 4; i++) {
+      fs.writeFileSync(path.join(primaryDir, `workspace/${WS}/attachments/f${i}.txt`), 'x');
+    }
+
+    // A walk is under way…
+    const first = await syncStorageReplica(serverConfig, { target: 's3', restart: true, limit: 1 });
+    expect(first.report?.done).toBe(false);
+
+    // …a mirrored write fails, recording the gap…
+    mirrorWritable = false;
+    await uploadToOwner('late.txt');
+    mirrorWritable = true;
+    expect((await readStoragePool(serverConfig)).providers.s3.dirtyAt).toBeTruthy();
+
+    // …and an admin saves the vendor unchanged. That must not launder the gap
+    // away: the walk still cannot vouch for an object it never saw.
+    const saved = await call('put', '/:providerName', { providerName: 's3' }, {
+      config: { bucket: 'mirror', region: 'us-east-1' },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect((await readStoragePool(serverConfig)).providers.s3.dirtyAt).toBeTruthy();
+
+    let result = await syncStorageReplica(serverConfig, { target: 's3', limit: 50 });
+    while (result.ok && result.report && !result.report.done) {
+      result = await syncStorageReplica(serverConfig, { target: 's3', limit: 50 });
+    }
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/mirrored write failed/i);
+    expect(isReplicaSynchronized(await readStoragePool(serverConfig), 's3')).toBe(false);
+  });
+});
+
+describe('a physical-location change cannot orphan the old location', () => {
+  it('refuses bucket A -> bucket B while A still holds managed objects', async () => {
+    mirrorObjects.set(`workspace/${WS}/attachments/a.txt`, 'x');
+
+    const saved = await call('put', '/:providerName', { providerName: 's3' }, {
+      config: { bucket: 'bucket-b', region: 'us-east-1' },
+    });
+
+    expect(saved.statusCode).toBe(409);
+    expect((saved.body as { reason?: string }).reason).toBe('old_location_not_empty');
+    // Still pointed at A — so A is still walked by every future owner purge.
+    expect(getEntry('s3')!.config).toMatchObject({ bucket: 'mirror' });
+  });
+
+  it('refuses when the old location cannot be verified', async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response('boom', { status: 500 })) as typeof globalThis.fetch;
+
+    const saved = await call('put', '/:providerName', { providerName: 's3' }, {
+      config: { bucket: 'bucket-b', region: 'us-east-1' },
+    });
+    globalThis.fetch = realFetch;
+
+    expect(saved.statusCode).toBe(409);
+    expect(getEntry('s3')!.config).toMatchObject({ bucket: 'mirror' });
+  });
+
+  it('refuses for platform-owned objects too, not just owner-scoped ones', async () => {
+    mirrorObjects.set('platform/ringback/default.mp3', 'x');
+
+    const saved = await call('put', '/:providerName', { providerName: 's3' }, {
+      config: { bucket: 'bucket-b', region: 'us-east-1' },
+    });
+
+    expect(saved.statusCode).toBe(409);
+    expect(getEntry('s3')!.config).toMatchObject({ bucket: 'mirror' });
+  });
+
+  it('a pure credential rotation at the same location is accepted', async () => {
+    mirrorObjects.set(`workspace/${WS}/attachments/a.txt`, 'x');
+
+    const saved = await call('put', '/:providerName', { providerName: 's3' }, {
+      config: { bucket: 'mirror', region: 'us-east-1', secret_access_key: 'rotated' },
+    });
+
+    expect(saved.statusCode).toBe(200);
+    expect(getEntry('s3')!.config).toMatchObject({ bucket: 'mirror', secret_access_key: 'rotated' });
+  });
+});
+
 describe('stale whole-pool writes are rejected (compare-and-set)', () => {
   it('a sync that started under credentials A cannot restore them, nor bless credentials B', async () => {
     fs.mkdirSync(path.join(primaryDir, `workspace/${WS}/attachments`), { recursive: true });
@@ -363,6 +501,18 @@ describe('removing a vendor cannot silently forget owner data', () => {
     expect(res.statusCode).toBe(409);
     expect((res.body as { reason?: string }).reason).toBe('managed_data_present');
     // Still configured — so still a deletion scope for every future owner purge.
+    expect(getEntry('s3')).toBeTruthy();
+  });
+
+  it('refuses while the vendor still holds platform objects', async () => {
+    // A full replica sync copies platform-owned objects too; forgetting a
+    // vendor that holds them loses them just as completely.
+    mirrorObjects.set('platform/ringback/default.mp3', 'x');
+
+    const res = await call('delete', '/:providerName', { providerName: 's3' }, {});
+
+    expect(res.statusCode).toBe(409);
+    expect((res.body as { reason?: string }).reason).toBe('managed_data_present');
     expect(getEntry('s3')).toBeTruthy();
   });
 

@@ -896,6 +896,42 @@ export async function logWorkspaceStorageUsage(
   });
 }
 
+function ownerLabel(owner: StorageOwner): string {
+  if (owner.kind === 'workspace') return `workspace:${owner.workspaceId}`;
+  if (owner.kind === 'user') return `user:${owner.userId}`;
+  return 'platform';
+}
+
+/**
+ * Structured, ops-facing telemetry for every owner-resolved storage
+ * operation — one JSON line per call, covering ALL owner kinds (unlike
+ * logWorkspaceStorageUsage, which is workspace-quota-only by design).
+ * This is the gap docs/STORAGE_ARCHITECTURE_AUDIT.md's observability
+ * requirement calls out: today a user-owned avatar upload/delete or any
+ * listForOwner() call produces nothing a log aggregator can key off of.
+ * Deliberately just a structured console line, not a new DB table or
+ * external metrics dependency — matches every other background job in
+ * this codebase (privacy expiry sweep, recording retention janitor).
+ */
+function logStorageOperation(params: {
+  operation: 'upload' | 'delete' | 'list';
+  owner: StorageOwner;
+  provider: string;
+  success: boolean;
+  durationMs: number;
+  error?: string;
+}): void {
+  console.log(JSON.stringify({
+    component: 'storage',
+    op: params.operation,
+    owner: ownerLabel(params.owner),
+    provider: params.provider,
+    success: params.success,
+    duration_ms: params.durationMs,
+    error: params.error,
+  }));
+}
+
 /**
  * Upload a file through the storage provider resolved for its owner.
  * Workspace-owned uploads participate in storage_usage_logs (the single
@@ -941,6 +977,7 @@ export async function uploadForOwner(
     return { success: false, error: `Unsupported storage provider: ${storageConfig.provider}` };
   }
 
+  const startedAt = Date.now();
   let result: StorageResult;
   try {
     result = await handler(storageConfig, req);
@@ -956,6 +993,7 @@ export async function uploadForOwner(
         errorMessage: message,
       });
     }
+    logStorageOperation({ operation: 'upload', owner: req.owner, provider: storageConfig.provider, success: false, durationMs: Date.now() - startedAt, error: message });
     return { success: false, error: message };
   }
 
@@ -971,6 +1009,7 @@ export async function uploadForOwner(
       errorMessage: result.error,
     });
   }
+  logStorageOperation({ operation: 'upload', owner: req.owner, provider: storageConfig.provider, success: result.success, durationMs: Date.now() - startedAt, error: result.error });
 
   return result;
 }
@@ -1030,7 +1069,10 @@ export async function listForOwner(
   const handler = listHandlers[storageConfig.provider];
   if (!handler) return { success: false, error: `Unsupported provider for listing: ${storageConfig.provider}` };
 
-  return handler(storageConfig, prefix, cursor);
+  const startedAt = Date.now();
+  const result = await handler(storageConfig, prefix, cursor);
+  logStorageOperation({ operation: 'list', owner, provider: storageConfig.provider, success: result.success, durationMs: Date.now() - startedAt, error: result.error });
+  return result;
 }
 
 /**
@@ -1051,6 +1093,7 @@ export async function deleteForOwner(
   const handler = deleteHandlers[storageConfig.provider];
   if (!handler) return { success: false, error: `Unsupported provider: ${storageConfig.provider}` };
 
+  const startedAt = Date.now();
   try {
     const result = await handler(storageConfig, fileKey);
     if (owner.kind === 'workspace') {
@@ -1089,9 +1132,12 @@ export async function deleteForOwner(
         errorMessage: result.error,
       });
     }
+    logStorageOperation({ operation: 'delete', owner, provider: storageConfig.provider, success: result.success, durationMs: Date.now() - startedAt, error: result.error });
     return result;
   } catch (err: unknown) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
+    const message = err instanceof Error ? err.message : String(err);
+    logStorageOperation({ operation: 'delete', owner, provider: storageConfig.provider, success: false, durationMs: Date.now() - startedAt, error: message });
+    return { success: false, error: message };
   }
 }
 

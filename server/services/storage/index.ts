@@ -18,7 +18,7 @@ import { getServiceClient } from '../../supabase.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { assertOwnerScopedKey, assertSafeStorageKey, isKnownLegacyStorageKey, StorageKeyError, type StorageOwner } from './keys.js';
+import { assertOwnerScopedKey, assertSafeStorageKey, isKnownLegacyStorageKey, LEGACY_USER_AVATAR_PATTERN, StorageKeyError, type StorageOwner } from './keys.js';
 
 export type { StorageOwner };
 
@@ -71,11 +71,6 @@ export interface StorageResult {
   fileKey?: string;
   error?: string;
 }
-
-// A pre-canonicalization shape that's only ever legitimate for a
-// user-owned object (never workspace/platform) — the account avatar
-// migration target. See docs/STORAGE_ARCHITECTURE_AUDIT.md §4/§9.
-const LEGACY_USER_AVATAR_PATTERN = /^avatars\/[0-9a-f-]{36}\//i;
 
 /**
  * Ownership enforcement for every owner-resolved operation (uploadForOwner /

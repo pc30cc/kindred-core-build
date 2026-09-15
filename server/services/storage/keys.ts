@@ -315,10 +315,31 @@ export function assertCallRecordingKey(workspaceId: string, callSessionId: strin
 // server/services/storage/index.ts's enforceOwnerScope, so a
 // workspace-resolved or platform-resolved call can never smuggle a key
 // through this shape.
+// Named individually (rather than only as an anonymous array entry) so the
+// legacy migration tool (server/services/storage/legacyMigration/*.ts) can
+// import the exact same pattern used for enforcement, instead of
+// re-deriving its own copy that could silently drift from this one.
+export const LEGACY_BRANDING_PATTERN = /^branding\/[0-9a-f-]{36}\//i; // account.ts workspace icon (target: workspace/<id>/branding/...)
+export const LEGACY_EMAIL_ATTACHMENT_PATTERN = /^email-attachments\/[0-9a-f-]{36}\//i; // pre-migration email_attachments.storage_key rows (writers already migrated)
+export const LEGACY_LIVEKIT_RECORDING_PATTERN = /^gs_[0-9a-f]{8}_[0-9a-f-]{1,24}\//i; // LiveKit egress recordings (target: workspace/<id>/calls/recordings/<sessionId>/...)
+// User-owned legacy shape (never workspace-scoped — see the note above).
+// Lives here, not in index.ts, so it's in the same single registry as the
+// workspace-scoped patterns above; index.ts imports it for enforcement.
+export const LEGACY_USER_AVATAR_PATTERN = /^avatars\/[0-9a-f-]{36}\//i;
+// Privacy exports bypass uploadForOwner()/enforceOwnerScope entirely (see
+// server/services/privacy/worker.ts — it calls uploadWithConfig directly to
+// preserve the dedicated provider-policy resolver), so this pattern is
+// never consulted by isKnownLegacyStorageKey()/enforceOwnerScope; it exists
+// solely for the legacy migration tool to detect pre-canonicalization
+// privacy_jobs.artifact_storage_key rows, both the old workspace-scoped
+// privacy-exports/<workspaceId>/... shape and the old '_self' sentinel
+// shape used for user-subject jobs before this project's Phase 2.
+export const LEGACY_PRIVACY_EXPORT_PATTERN = /^privacy-exports\//i;
+
 const LEGACY_KEY_PATTERNS: RegExp[] = [
-  /^branding\/[0-9a-f-]{36}\//i, // account.ts workspace icon (target: workspace/<id>/branding/...)
-  /^email-attachments\/[0-9a-f-]{36}\//i, // pre-migration email_attachments.storage_key rows (writers already migrated)
-  /^gs_[0-9a-f]{8}_[0-9a-f-]{1,24}\//i, // LiveKit egress recordings (target: workspace/<id>/calls/recordings/<sessionId>/...)
+  LEGACY_BRANDING_PATTERN,
+  LEGACY_EMAIL_ATTACHMENT_PATTERN,
+  LEGACY_LIVEKIT_RECORDING_PATTERN,
 ];
 
 export function isKnownLegacyStorageKey(key: unknown): boolean {

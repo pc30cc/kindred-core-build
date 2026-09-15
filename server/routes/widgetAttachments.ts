@@ -7,9 +7,11 @@
  *
  * STORAGE ENFORCEMENT (non-negotiable):
  *   - storage_provider is resolved server-side via resolveStorageConfig()
- *   - storage_path is built server-side, NEVER from client input
- *   - Path format is enforced both in code AND by a CHECK constraint in SQL:
- *       workspace/{workspace_id}/attachments/{yyyy}/{mm}/{uuid}-{safeFileName}
+ *   - storage_path is built server-side (via the central chatAttachmentKey()
+ *     builder, server/services/storage/keys.ts), NEVER from client input
+ *   - Path format is enforced both by the builder AND by a CHECK constraint
+ *     in SQL requiring the `workspace/{workspace_id}/attachments/%` prefix:
+ *       workspace/{workspace_id}/attachments/chat/{yyyy}/{mm}/{uuid}-{safeFileName}
  *   - workspace_id is the server-resolved one (from token), not client-provided
  *
  * SECURITY:
@@ -24,7 +26,6 @@
 
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import crypto from 'crypto';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import {
@@ -35,6 +36,7 @@ import {
   verifyConversationOwnership,
 } from '../services/widget/security.js';
 import { uploadFile, downloadFile } from '../services/storage/index.js';
+import { chatAttachmentKey } from '../services/storage/keys.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 
@@ -91,16 +93,14 @@ function safeFileName(name: string, mime: string): string {
 }
 
 /**
- * Build the canonical workspace-scoped storage path.
- * Backend-only. Client never picks any part of this path.
+ * Build the canonical workspace-scoped storage path via the central
+ * chatAttachmentKey() builder (server/services/storage/keys.ts) — this
+ * route's own MIME-based safeFileName() fallback above is preserved and
+ * fed into the builder. Backend-only. Client never picks any part of
+ * this path.
  */
 function buildStoragePath(workspaceId: string, fileName: string, mime: string): string {
-  const now = new Date();
-  const yyyy = String(now.getUTCFullYear());
-  const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
-  const uuid = crypto.randomUUID();
-  const safe = safeFileName(fileName, mime);
-  return `workspace/${workspaceId}/attachments/${yyyy}/${mm}/${uuid}-${safe}`;
+  return chatAttachmentKey({ workspaceId, fileName: safeFileName(fileName, mime) });
 }
 
 async function loadWorkspaceAttachmentSettings(config: ServerConfig, workspaceId: string) {

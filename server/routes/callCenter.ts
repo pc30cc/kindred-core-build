@@ -36,6 +36,7 @@ import {
 import { mintPlaybackToken } from '../services/calls/recordingPlaybackToken.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
 import { uploadFile, deleteFile, resolveStorageConfig, resolveGlobalStorageConfig, uploadWithConfig, deleteWithConfig, getFileUrlWithConfig, downloadWithConfig } from '../services/storage/index.js';
+import { callCenterAvatarKey, platformCallCenterRingbackKey } from '../services/storage/keys.js';
 import { resolveRecordingStorageConfig, RecordingStorageNotConfigured } from '../services/calls/recordingStorageResolver.js';
 import { buildStoreZip, safeArchiveName } from '../services/calls/zipStore.js';
 import {
@@ -48,7 +49,6 @@ import {
 import {
   assignCallToAgent, transferCall, RoutingException,
 } from '../services/callCenter/routing.js';
-import crypto from 'crypto';
 import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { validateSessionToken, SESSION_COOKIE_NAME } from '../services/auth/sessions.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
@@ -427,7 +427,12 @@ callCenterRouter.post('/settings/avatar', async (req, res) => {
     .maybeSingle();
   const previousPath = (prevRow?.avatar_storage_path as string | null | undefined) ?? null;
   const safe = String(fileName).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
-  const fileKey = `workspace/${wid}/call-center/avatar/${crypto.randomUUID()}-${safe}`;
+  // Workspace-first storage finalization: now routed through the central
+  // callCenterAvatarKey() builder (server/services/storage/keys.ts) —
+  // supabase/migrations/20260915091500_call_center_settings_avatar_scope.sql's
+  // CHECK constraint already accepts this shape alongside the prior
+  // ad-hoc one, specifically anticipating this fix.
+  const fileKey = callCenterAvatarKey({ workspaceId: wid, fileName: safe });
   const result = await uploadFile(ctx.config, {
     workspaceId: wid, fileKey, data: buffer, contentType: String(contentType),
   });
@@ -1697,10 +1702,14 @@ callCenterRouter.post('/admin/platform/ringback-audio', async (req, res) => {
   if (!storage) return res.status(500).json({ error: 'global_storage_not_configured' });
   const safe = input.fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 90);
   const slot = input.kind === 'queue' ? `queue-${input.queue_position}` : input.kind;
-  const fileKey = `platform/call-center/ringback/${slot}/${crypto.randomUUID()}-${safe}`;
-  const uploaded = await uploadWithConfig(storage, {
-    workspaceId: '00000000-0000-0000-0000-000000000000', fileKey, data: buffer, contentType: input.contentType,
-  });
+  // Workspace-first storage finalization: routed through the central
+  // platformCallCenterRingbackKey() builder. This object is genuinely
+  // platform-owned (a global admin setting, not tied to any workspace) —
+  // the previous all-zero-UUID sentinel workspaceId was dead code
+  // (uploadWithConfig() never reads it for key construction or scope
+  // enforcement) and is removed rather than perpetuated.
+  const fileKey = platformCallCenterRingbackKey({ slot, fileName: safe });
+  const uploaded = await uploadWithConfig(storage, { fileKey, data: buffer, contentType: input.contentType });
   const url = uploaded.url || getFileUrlWithConfig(storage, fileKey);
   if (!uploaded.success || !url) return res.status(500).json({ error: 'audio_upload_failed', details: uploaded.error });
   const current = await getPlatformCallCenterSettings(ctx.config);

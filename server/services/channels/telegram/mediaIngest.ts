@@ -17,12 +17,12 @@
  * inserted text message.
  */
 
-import crypto from 'crypto';
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import { redactToken } from '../../../../shared/channels/redact.js';
 import { requestProviderOperation, type ProviderOperation } from '../operations.js';
 import { uploadFile, resolveStorageConfig, getFileUrlWithConfig } from '../../storage/index.js';
+import { chatAttachmentKey } from '../../storage/keys.js';
 import { requireLimit } from '../../../middleware/featureGating.js';
 import { usageFnForLimit } from '../../billing/usageResolvers.js';
 
@@ -75,13 +75,13 @@ function safeFileName(name: string, mime: string): string {
   return `file.${EXT_BY_MIME[mime] || 'bin'}`;
 }
 
-/** Identical convention to conversationAttachments.ts / widgetAttachments.ts. */
+/**
+ * Identical convention to conversationAttachments.ts / widgetAttachments.ts
+ * — all three now delegate the actual key construction to the central
+ * chatAttachmentKey() builder (server/services/storage/keys.ts).
+ */
 function buildStoragePath(workspaceId: string, fileName: string, mime: string): string {
-  const now = new Date();
-  const yyyy = String(now.getUTCFullYear());
-  const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
-  const uuid = crypto.randomUUID();
-  return `workspace/${workspaceId}/attachments/${yyyy}/${mm}/${uuid}-${safeFileName(fileName, mime)}`;
+  return chatAttachmentKey({ workspaceId, fileName: safeFileName(fileName, mime) });
 }
 
 /**
@@ -319,6 +319,15 @@ export async function persistContactAvatar(
       .maybeSingle();
     if (!contact) return;
 
+    // Workspace-first storage audit: already workspace-scoped (compliant
+    // with the core invariant) but deliberately NOT routed through
+    // contactAvatarKey() — that builder's signature keys the object
+    // solely by contactId, with no room for the caller-supplied
+    // fileKeyHint this key uses instead. The external Channels Worker
+    // (not part of this repo) chooses fileKeyHint per delivery; changing
+    // the key shape without visibility into that contract risks silently
+    // breaking avatar de-duplication/versioning on the Worker side, which
+    // is out of scope for a storage-ownership audit. Left as-is.
     const fileKey = `workspace/${input.workspaceId}/avatars/telegram/${input.fileKeyHint}.jpg`;
     const uploaded = await uploadFile(config, {
       workspaceId: input.workspaceId,

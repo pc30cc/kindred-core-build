@@ -63,6 +63,22 @@ function callSessionRow(): Record<string, unknown> {
   };
 }
 
+const JOB_ID = '99999999-9999-9999-9999-999999999999';
+function baseWorkspaceDeletionJob(): Record<string, unknown> {
+  return {
+    id: JOB_ID, workspace_id: WS_A, lease_token: 'job-lease-tok',
+    attempt_count: 0, storage_scopes: {}, status: 'storage_cleanup',
+  };
+}
+
+// Sixth corrective pass, P0 (StopEgress success ≠ terminal): `sessionRow`
+// and `jobRow` are REAL mutable state (not a fresh fixture per read) so
+// the end-to-end regression test below can drive the real recording-start
+// flow AND the real workspaceDeletion/worker.ts quiescence logic against
+// the SAME row, observing genuine state transitions across both.
+let sessionRow: Record<string, unknown> = callSessionRow();
+let jobRow: Record<string, unknown> = baseWorkspaceDeletionJob();
+
 const { twirpMock } = vi.hoisted(() => ({ twirpMock: vi.fn() }));
 
 // ─── owner_write_leases RPC — same shape as writeBarrierLateWrites.test.ts,
@@ -100,27 +116,66 @@ vi.mock('../../../server/supabase.js', () => ({
     from: (table: string) => {
       if (table === 'call_sessions') {
         return {
-          select: () => ({
-            eq: () => ({
-              eq: () => ({ maybeSingle: async () => ({ data: callSessionRow(), error: null }) }),
-              maybeSingle: async () => ({ data: callSessionRow(), error: null }),
-            }),
-          }),
+          select: () => {
+            const filters: Array<(r: Record<string, unknown>) => boolean> = [];
+            const chain = {
+              eq: (col: string, val: unknown) => { filters.push((r) => r[col] === val); return chain; },
+              in: (col: string, vals: unknown[]) => { filters.push((r) => vals.includes(r[col])); return chain; },
+              maybeSingle: async () => {
+                const match = filters.every((f) => f(sessionRow));
+                return { data: match ? sessionRow : null, error: null };
+              },
+              // findNonTerminalRecordings() (workspaceDeletion/worker.ts)
+              // ends its chain on .in(), not .maybeSingle() — a bare
+              // thenable resolving an array, exactly like the real
+              // PostgREST builder.
+              then: (resolve: (v: { data: unknown; error: null }) => void) => {
+                const match = filters.every((f) => f(sessionRow));
+                resolve({ data: match ? [sessionRow] : [], error: null });
+              },
+            };
+            return chain;
+          },
           update: (patch: Record<string, unknown>) => ({
             eq: () => {
               if (patch.recording_state === 'pending') {
-                return Promise.resolve(dbState.onStartingError ? { data: null, error: dbState.onStartingError } : { data: null, error: null });
+                if (dbState.onStartingError) return Promise.resolve({ data: null, error: dbState.onStartingError });
+                Object.assign(sessionRow, patch);
+                return Promise.resolve({ data: null, error: null });
               }
               // Both flows' phase-2 write sets recording_state to
               // 'recording' (chat-call) or includes recording_enabled
               // (Call Center's persistRecordingStart's topLevel patch).
               if (patch.recording_state === 'recording' || 'recording_enabled' in patch) {
-                return Promise.resolve(dbState.onStartedError ? { data: null, error: dbState.onStartedError } : { data: null, error: null });
+                if (dbState.onStartedError) return Promise.resolve({ data: null, error: dbState.onStartedError });
+                Object.assign(sessionRow, patch);
+                return Promise.resolve({ data: null, error: null });
               }
-              // Any other write (e.g. a 'failed' cleanup mark) always succeeds.
+              // Any other write (a 'failed' cleanup mark, or a
+              // quiesceLiveKitEgress() reconciliation write) always
+              // succeeds and is actually persisted.
+              Object.assign(sessionRow, patch);
               return Promise.resolve({ data: null, error: null });
             },
           }),
+        };
+      }
+      if (table === 'workspace_deletion_jobs') {
+        return {
+          update: (patch: Record<string, unknown>) => {
+            const filters: Array<(r: Record<string, unknown>) => boolean> = [];
+            const chain = {
+              eq: (col: string, val: unknown) => { filters.push((r) => r[col] === val); return chain; },
+              select: () => ({
+                then: (resolve: (v: { data: unknown; error: null }) => void) => {
+                  const match = filters.every((f) => f(jobRow));
+                  if (match) Object.assign(jobRow, patch);
+                  resolve({ data: match ? [{ id: jobRow.id }] : [], error: null });
+                },
+              }),
+            };
+            return chain;
+          },
         };
       }
       // Generic passthrough for call_events / call_participants / etc. —
@@ -195,6 +250,20 @@ vi.mock('../../../server/services/callCenter/recording.js', () => ({
   }),
 }));
 
+// ─── used only by the end-to-end "StopEgress success ≠ terminal"
+// regression describe block below — workspaceDeletion/worker.ts's OWN
+// scope-walking algorithm has full dedicated coverage in
+// scopeCleanupEngine.test.ts / workspaceDeletionWorker.test.ts; here it's
+// mocked so its outcome (called or not) is the only thing observed.
+const { runScopeCleanupTickMock } = vi.hoisted(() => ({ runScopeCleanupTickMock: vi.fn() }));
+vi.mock('../../../server/services/storage/scopeCleanupEngine.js', () => ({
+  runScopeCleanupTick: runScopeCleanupTickMock,
+}));
+vi.mock('../../../server/services/storage/workspaceScopes.js', () => ({
+  workspaceStorageScopes: () => [],
+  workspaceScopePrefix: (workspaceId: string) => `workspace/${workspaceId}/`,
+}));
+
 function findHandler(router: import('express').Router, method: string, path: string) {
   const stack = (router as unknown as { stack: Array<{ route?: { path: string; methods: Record<string, boolean>; stack: Array<{ handle: (...a: unknown[]) => unknown }> } }> }).stack;
   const layer = stack.find((l) => l.route?.path === path && l.route.methods[method]);
@@ -227,6 +296,9 @@ beforeEach(() => {
   leases.length = 0;
   leaseCounter = 0;
   twirpMock.mockReset();
+  sessionRow = callSessionRow();
+  jobRow = baseWorkspaceDeletionJob();
+  runScopeCleanupTickMock.mockReset();
 });
 
 describe('chat-call recording start (server/routes/calls.ts) — fail-closed on PostgREST {error}', () => {
@@ -324,5 +396,95 @@ describe('Call Center recording start (server/services/callCenter/recordingContr
     ).rejects.toThrow();
 
     expect(await hasActiveOwnerWriteLeases({} as never, 'workspace', WS_A)).toBe(true);
+  });
+});
+
+/**
+ * A seventh-review P0: a compensating StopEgress call that does not
+ * THROW is not the same as Egress being terminal — `stopRecording()`
+ * itself reports `status:'finalizing'` on its ordinary success path
+ * (LiveKit can still asynchronously finalize/upload after that call
+ * returns). `livekitProvider.ts`'s `startRecording()` now sets
+ * `needsReconciliation=true` in this branch too (not only when the
+ * compensating stop itself fails), so neither real caller marks the row
+ * 'failed' — it stays at its durable phase-1 'pending' marker, which
+ * workspaceDeletion/worker.ts's `quiesceLiveKitEgress()` (via
+ * `findActiveEgressForRoom`'s real `ListEgress` call, only Twirp mocked)
+ * discovers and refuses to treat as safe until LiveKit itself confirms a
+ * terminal state — never merely because a Stop call returned.
+ */
+describe('END-TO-END: StopEgress succeeding after onStarted persistence failure does NOT mean Egress is terminal', () => {
+  it('chat-call flow (server/routes/calls.ts): call_session stays non-terminal (never "failed") and workspace deletion storage cleanup is blocked until LiveKit reconciliation confirms no active Egress', async () => {
+    const { callsRouter } = await import('../../../server/routes/calls');
+    const { runStorageCleanup } = await import('../../../server/services/workspaceDeletion/worker');
+
+    dbState.onStartedError = { message: 'transient_db_failure' };
+    twirpMock.mockImplementation(async (args: { method: string }) => {
+      if (args.method === 'StartRoomCompositeEgress') return { egress_id: 'egr-e2e-1', status: 'EGRESS_ACTIVE' };
+      if (args.method === 'StopEgress') return {}; // succeeds -> stopRecording() reports status:'finalizing', not terminal
+      if (args.method === 'ListEgress') return { items: [{ egress_id: 'egr-e2e-1', status: 'EGRESS_ACTIVE' }] };
+      throw new Error(`unexpected twirp method ${args.method}`);
+    });
+
+    // 1. onStarting persists successfully. 2. StartRoomCompositeEgress
+    // succeeds. 3. onStarted returns a realistic PostgREST {error}.
+    // 4. compensating StopEgress succeeds.
+    const handler = findHandler(callsRouter, 'post', '/:id/recording/start');
+    const { req, res, get } = makeReqRes();
+    await handler(req, res, () => {});
+    expect(get().statusCode).not.toBe(200);
+
+    // 5. call_session MUST NOT become 'failed'. 6. it remains
+    // 'pending' — the durable phase-1 marker — and discoverable.
+    expect(sessionRow.recording_state).toBe('pending');
+
+    // 7. workspace deletion MUST NOT run storage cleanup yet — LiveKit
+    // (via the real findActiveEgressForRoom/ListEgress call) still
+    // reports this egress active, so quiesceLiveKitEgress() discovers
+    // it, issues its own stop, and marks the row 'finalizing' — still
+    // not a state storage cleanup may trust.
+    await runStorageCleanup({} as never, jobRow as never);
+    expect(runScopeCleanupTickMock).not.toHaveBeenCalled();
+    expect(sessionRow.recording_state).toBe('finalizing');
+    expect(jobRow.status).toBe('storage_cleanup'); // never advanced, never purged
+
+    // 8. only once LiveKit's own webhook (covered independently by
+    // livekitWebhookRetry.test.ts) confirms a genuinely terminal state
+    // does cleanup proceed — modeled here as that write's accepted
+    // outcome, since re-testing the webhook route itself is out of
+    // scope for this regression.
+    sessionRow.recording_state = 'available';
+    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'advance' });
+    await runStorageCleanup({} as never, jobRow as never);
+    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('Call Center flow (server/services/callCenter/recordingControl.ts): the SAME invariant for patchRecordingMeta', async () => {
+    const { startCallCenterRecording } = await import('../../../server/services/callCenter/recordingControl');
+    const { runStorageCleanup } = await import('../../../server/services/workspaceDeletion/worker');
+
+    dbState.onStartedError = { message: 'transient_db_failure' };
+    twirpMock.mockImplementation(async (args: { method: string }) => {
+      if (args.method === 'StartRoomCompositeEgress') return { egress_id: 'egr-e2e-2', status: 'EGRESS_ACTIVE' };
+      if (args.method === 'StopEgress') return {};
+      if (args.method === 'ListEgress') return { items: [{ egress_id: 'egr-e2e-2', status: 'EGRESS_ACTIVE' }] };
+      throw new Error(`unexpected twirp method ${args.method}`);
+    });
+
+    await expect(
+      startCallCenterRecording({} as never, { workspaceId: WS_A, callId: CALL_ID, actorUserId: 'u-1' }),
+    ).rejects.toThrow();
+
+    expect(sessionRow.recording_state).toBe('pending');
+
+    await runStorageCleanup({} as never, jobRow as never);
+    expect(runScopeCleanupTickMock).not.toHaveBeenCalled();
+    expect(sessionRow.recording_state).toBe('finalizing');
+    expect(jobRow.status).toBe('storage_cleanup');
+
+    sessionRow.recording_state = 'available';
+    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'advance' });
+    await runStorageCleanup({} as never, jobRow as never);
+    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
   });
 });

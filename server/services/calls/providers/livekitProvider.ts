@@ -481,9 +481,14 @@ export const livekitProvider: CallProvider = {
           // fact — a deletion worker has nothing to see and wait on. Try
           // to stop it so it can't finalize/upload an object nothing will
           // ever reference.
+          let stopStatus: string | null = null;
+          let stopErr: unknown = null;
           try {
-            await livekitProvider.stopRecording(config, handle.recordingId);
-          } catch (stopErr) {
+            stopStatus = (await livekitProvider.stopRecording(config, handle.recordingId)).status;
+          } catch (e) {
+            stopErr = e;
+          }
+          if (stopErr !== null) {
             // Compensation itself failed — we cannot confirm Egress is
             // stopped. Do NOT release the lease: let it expire naturally
             // so workspace deletion keeps waiting rather than trusting
@@ -495,9 +500,25 @@ export const livekitProvider: CallProvider = {
               true, // needsReconciliation — see this class's doc comment; the caller must NOT clear its non-terminal marker
             );
           }
+          // Sixth corrective pass, P0: a StopEgress call that does not
+          // THROW is not the same as Egress being terminal —
+          // stopRecording() itself returns status:'finalizing' on the
+          // ordinary success path (only its own not_found branch reports
+          // 'available'); either way LiveKit can still asynchronously
+          // finalize/upload after this call returns. Persistence never
+          // happened, so there is still no durable recording_id on
+          // record — needsReconciliation=true here too (not only on a
+          // compensation FAILURE) so the caller leaves the phase-1
+          // 'pending' marker in place instead of marking the row
+          // 'failed'. workspaceDeletion/worker.ts's
+          // quiesceLiveKitEgress() discovers it by room via
+          // findActiveEgressForRoom() and only trusts storage once
+          // LiveKit itself confirms a terminal/no longer active state —
+          // never merely because this Stop call returned without error.
           throw new CallProviderNotReadyError(
             'livekit',
-            `LiveKit recording started but could not be durably recorded: ${errMessage(persistErr)}`,
+            `LiveKit recording started but could not be durably recorded (${errMessage(persistErr)}); compensating stop was issued (status: ${stopStatus}) but that alone does not confirm Egress is terminal — reconciliation required`,
+            true, // needsReconciliation
           );
         }
       }

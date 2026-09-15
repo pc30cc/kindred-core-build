@@ -110,7 +110,7 @@ const { uploadForOwnerMock, deleteForOwnerMock, uploadFileMock, deleteFileMock }
   })),
   deleteForOwnerMock: vi.fn(async (..._args: unknown[]) => ({ success: true })),
   uploadFileMock: vi.fn(async () => ({ success: true, url: 'https://cdn.example/x', fileKey: 'x' })),
-  deleteFileMock: vi.fn(async () => ({ success: true })),
+  deleteFileMock: vi.fn(async (..._args: unknown[]) => ({ success: true })),
 }));
 
 vi.mock('../../../server/services/storage/index.js', () => ({

@@ -148,8 +148,16 @@ function enforceWorkspaceScope(workspaceId: string, fileKey: string, allowLegacy
  * which the caller can simply retry. A row genuinely absent (no error, no
  * data — the workspace doesn't exist at all) is a different, unrelated
  * concern this guard doesn't own, so that case still resolves to `false`.
+ *
+ * Exported (second corrective pass, P0) so every workspace-owned write
+ * path shares this ONE guard rather than each reimplementing it — see
+ * uploadWithConfigForOwner() below (privacy exports) and
+ * server/services/calls/providers/livekitProvider.ts's startRecording()
+ * (LiveKit Egress writes, which never go through this module's upload
+ * handlers at all — LiveKit itself writes the bytes — so the guard must
+ * run before the recording is even started).
  */
-async function isWorkspaceDeleting(serverConfig: ServerConfig, workspaceId: string): Promise<boolean> {
+export async function isWorkspaceDeleting(serverConfig: ServerConfig, workspaceId: string): Promise<boolean> {
   try {
     const sb = getServiceClient(serverConfig);
     const { data, error } = await sb.from('workspaces').select('status').eq('id', workspaceId).maybeSingle();
@@ -1224,6 +1232,37 @@ export function getFileUrlWithConfig(storageConfig: StorageConfig, fileKey: stri
 // caller's StorageConfig. They're used by privacy exports and any future
 // feature that needs a dedicated provider policy. No file-type whitelist
 // is enforced because the caller fully controls the upload (e.g. ZIP).
+
+/**
+ * Owner-aware counterpart to uploadWithConfig() — for a feature that needs
+ * BOTH a dedicated provider-policy resolver (bypassing the generic
+ * resolveStorageConfigForOwner) AND the standard owner-scope enforcement
+ * and workspace-deletion write lock every other workspace-owned write
+ * gets via uploadForOwner(). Second corrective pass, P0: privacy exports
+ * previously called uploadWithConfig() directly, which enforces neither —
+ * an in-flight privacy export could write a new object to a workspace
+ * AFTER its deletion scope had already been swept, orphaning it right
+ * before the DB purge. This is the single place that check now lives;
+ * callers (server/services/privacy/worker.ts) never duplicate it.
+ */
+export async function uploadWithConfigForOwner(
+  serverConfig: ServerConfig,
+  owner: StorageOwner,
+  storageConfig: StorageConfig,
+  req: ProviderUploadRequest & { allowLegacyKey?: boolean },
+): Promise<StorageResult> {
+  const scopeError = enforceOwnerScope(owner, req.fileKey, req.allowLegacyKey);
+  if (scopeError) return { success: false, error: scopeError };
+
+  if (owner.kind === 'workspace') {
+    const deleting = await isWorkspaceDeleting(serverConfig, owner.workspaceId);
+    if (deleting) {
+      return { success: false, error: 'Workspace is being deleted; uploads are disabled' };
+    }
+  }
+
+  return uploadWithConfig(storageConfig, req);
+}
 
 export async function uploadWithConfig(
   storageConfig: StorageConfig,

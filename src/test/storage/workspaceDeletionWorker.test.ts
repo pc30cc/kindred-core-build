@@ -1,59 +1,67 @@
 /**
  * Workspace deletion worker — server/services/workspaceDeletion/worker.ts.
  *
- * Covers the redesigned multi-scope storage cleanup (every physical
- * provider a workspace can have objects in — attachment / privacy_export /
- * livekit_recording — server/services/storage/workspaceScopes.ts), not
- * just a single owner-derived one:
- *   - each scope is walked independently, one listing page per tick, and
- *     `db_cleanup` is never reached until every scope is 'done' or
- *     'skipped_not_configured'
- *   - two scopes resolving to the same physical StorageConfig
- *     (storageConfigFingerprint match) are only ever listed/deleted once —
- *     the second is marked 'done' via dedup_of, copying the first's counts
- *   - an unconfigured scope is skipped immediately and never blocks
- *     siblings; a scope that WAS configured and stops being so mid-cleanup
- *     is never silently marked done
- *   - resumability from a persisted per-scope cursor
- *   - the retry/backoff path (attempt_count/next_retry_at) versus terminal
- *     'failed' only once MAX_JOB_ATTEMPTS is exhausted
- *   - the never-touch-users/platform guarantee (only ever
- *     workspace/<id>/...)
+ * Covers this worker's OWN responsibilities post-rewrite (the shared
+ * scope-walking algorithm itself — dedup, verification, drift detection,
+ * heartbeat-during-delete-loop — has full dedicated coverage in
+ * src/test/storage/scopeCleanupEngine.test.ts and is deliberately NOT
+ * re-tested here; runScopeCleanupTick is mocked so its outcome is fully
+ * controllable):
+ *   - claimNext's translation of the claim RPC's {ok, job} shape
+ *   - runStorageCleanup wiring: calling runScopeCleanupTick with the right
+ *     scopes/prefix/heartbeat/persist, and translating its outcome
+ *     ('advance' | 'progress' | 'error') into the right job-row patch
+ *   - every job-row write is conditioned on `id AND lease_token`
+ *     (persistFenced) — proven both via the heartbeat/persist callbacks
+ *     directly and via retry/backoff and runDbCleanup's completion write
+ *   - retry/backoff vs. terminal 'failed' once MAX_JOB_ATTEMPTS is reached
  *   - runDbCleanup's idempotent-recovery when admin_delete_workspace errors
  *     but the workspace row is already gone (a prior crashed run already
- *     committed it)
+ *     committed the purge)
+ *   - THE LEASE FENCING RACE: a worker whose lease was reclaimed by another
+ *     worker must have its late write rejected (LeaseFencedError), and must
+ *     never clobber the reclaiming worker's state
+ *   - the outer `started` same-process guard on startWorkspaceDeletionWorker
+ *
+ * tickRunning (the INNER same-process guard against a second tick
+ * overlapping a slow one within one process) is not directly exported and
+ * has no clean observation point through the public API — verified by
+ * reading worker.ts instead: tick() checks `if (tickRunning) return;` before
+ * any work and clears it in a `finally`, so no dedicated test is forced here.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { claimNext, runStorageCleanup, runDbCleanup } from '../../../server/services/workspaceDeletion/worker';
+import {
+  claimNext,
+  runStorageCleanup,
+  runDbCleanup,
+  startWorkspaceDeletionWorker,
+  LeaseFencedError,
+} from '../../../server/services/workspaceDeletion/worker';
 import type { WorkspaceDeletionJobRow, StorageScopesState } from '../../../server/services/workspaceDeletion/types';
-import type { StorageConfig, StorageResult, ListResult } from '../../../server/services/storage/index';
-import type { WorkspaceStorageScope, ScopeResolution } from '../../../server/services/storage/workspaceScopes';
+import type { ScopeCleanupContext, ScopeCleanupOutcome } from '../../../server/services/storage/scopeCleanupEngine';
+import type { WorkspaceStorageScope } from '../../../server/services/storage/workspaceScopes';
 
 const WS_A = '11111111-1111-1111-1111-111111111111';
 const JOB_1 = '77777777-7777-7777-7777-777777777771';
 const ACTOR = '99999999-9999-9999-9999-999999999999';
 
-const { listWithConfigMock, deleteWithConfigMock, workspaceStorageScopesMock } = vi.hoisted(() => ({
-  listWithConfigMock: vi.fn<(config: unknown, prefix: string, cursor?: string) => Promise<ListResult>>(),
-  deleteWithConfigMock: vi.fn<(config: unknown, key: string) => Promise<StorageResult>>(async () => ({ success: true })),
-  workspaceStorageScopesMock: vi.fn(),
+const { runScopeCleanupTickMock, workspaceStorageScopesMock } = vi.hoisted(() => ({
+  runScopeCleanupTickMock: vi.fn<(ctx: ScopeCleanupContext) => Promise<ScopeCleanupOutcome>>(),
+  workspaceStorageScopesMock: vi.fn<(config: unknown, workspaceId: string) => WorkspaceStorageScope[]>(),
 }));
 
-vi.mock('../../../server/services/storage/index.js', () => ({
-  listWithConfig: listWithConfigMock,
-  deleteWithConfig: deleteWithConfigMock,
+// worker.ts no longer talks to storage/index.js directly for listing/
+// deleting — that moved entirely into scopeCleanupEngine.ts, which already
+// has its own dedicated coverage. Here we mock the engine's single entry
+// point directly so its outcome is fully controllable without driving the
+// real listing/dedup/verification/drift logic.
+vi.mock('../../../server/services/storage/scopeCleanupEngine.js', () => ({
+  runScopeCleanupTick: runScopeCleanupTickMock,
 }));
 
-// workspaceScopePrefix / storageConfigFingerprint are re-implemented here
-// verbatim (matching server/services/storage/workspaceScopes.ts exactly)
-// rather than pulled in via importOriginal, so this mock never drags in
-// the real privacy-export / LiveKit resolver modules that the real
-// workspaceStorageScopes() (which we replace entirely) depends on.
 vi.mock('../../../server/services/storage/workspaceScopes.js', () => ({
   workspaceStorageScopes: workspaceStorageScopesMock,
   workspaceScopePrefix: (workspaceId: string) => `workspace/${workspaceId}/`,
-  storageConfigFingerprint: (cfg: StorageConfig) =>
-    JSON.stringify([cfg.provider, cfg.bucket ?? null, cfg.storageZone ?? null, cfg.endpoint ?? null, cfg.s3Region ?? null, cfg.localPath ?? null]),
 }));
 
 type Row = Record<string, unknown>;
@@ -63,9 +71,22 @@ type Row = Record<string, unknown>;
 // TS refuses to assign it directly into a Row[]-typed slot even though it is
 // structurally a Row at runtime.
 const db: Record<string, unknown[]> = {};
-const rpcCalls: Array<{ fn: string; args: unknown }> = [];
-let rpcResponse: { data: unknown; error: { message: string } | null } = { data: null, error: null };
+const rpcCalls: Array<{ fn: string; args: Record<string, unknown> }> = [];
 
+type RpcResponse = { data: unknown; error: { message: string } | null };
+let claimResponseOverride: RpcResponse | null = null;
+let renewResponseOverride: RpcResponse | null = null;
+let adminDeleteResponse: RpcResponse = { data: null, error: null };
+let claimTokenCounter = 0;
+
+/**
+ * `.from('workspace_deletion_jobs').update(patch).eq('id', x).eq('lease_token', y).select('id')`
+ * must actually check EVERY `.eq()` predicate against the in-memory row
+ * (not just the first one) — that's what lets the lease-fencing tests below
+ * prove a stale worker's write is rejected once lease_token no longer
+ * matches, exactly as the real Postgres `UPDATE ... WHERE id = $1 AND
+ * lease_token = $2` would.
+ */
 function makeBuilder(table: string) {
   const rows = (db[table] || (db[table] = [])) as Row[];
   return {
@@ -83,24 +104,69 @@ function makeBuilder(table: string) {
       };
       return chain;
     },
-    update: (patch: Row) => ({
-      eq: async (col: string, val: unknown) => {
-        for (const r of rows) {
-          if (r[col] === val) Object.assign(r, patch);
-        }
-        return { data: null, error: null };
-      },
-    }),
+    update: (patch: Row) => {
+      const filters: Array<(r: Row) => boolean> = [];
+      const chain = {
+        eq: (col: string, val: unknown) => {
+          filters.push((r) => r[col] === val);
+          return chain;
+        },
+        select: async (_cols?: string) => {
+          const matched = rows.filter((r) => filters.every((f) => f(r)));
+          for (const r of matched) Object.assign(r, patch);
+          return { data: matched.map((r) => ({ id: r.id })), error: null };
+        },
+      };
+      return chain;
+    },
   };
+}
+
+/**
+ * rpc() handles three distinct RPCs:
+ *   - claim_workspace_deletion_job: by default mints a fresh fake
+ *     lease_token on the single seeded workspace_deletion_jobs row (exactly
+ *     as claim_workspace_deletion_job()'s `gen_random_uuid()` would on a
+ *     fresh claim OR a reclaim), so real claimNext() calls compose with the
+ *     fencing tests below. A test can override this entirely via
+ *     claimResponseOverride for the simpler claimNext() unit tests.
+ *   - renew_workspace_deletion_lease: by default succeeds only if the
+ *     caller's _lease_token still matches the row's current lease_token,
+ *     mirroring 185_deletion_lease_fencing.sql's WHERE clause.
+ *   - admin_delete_workspace: fully controlled by adminDeleteResponse.
+ */
+async function rpc(fn: string, args: Record<string, unknown>): Promise<RpcResponse> {
+  rpcCalls.push({ fn, args });
+
+  if (fn === 'claim_workspace_deletion_job') {
+    if (claimResponseOverride) return claimResponseOverride;
+    const row = db.workspace_deletion_jobs?.[0] as Row | undefined;
+    if (!row) return { data: { ok: true, job: null }, error: null };
+    claimTokenCounter += 1;
+    row.lease_token = `token-${claimTokenCounter}`;
+    if (row.status === 'pending') row.status = 'storage_cleanup';
+    return { data: { ok: true, job: { ...row } }, error: null };
+  }
+
+  if (fn === 'renew_workspace_deletion_lease') {
+    if (renewResponseOverride) return renewResponseOverride;
+    const row = db.workspace_deletion_jobs?.[0] as Row | undefined;
+    const ok = !!row && row.lease_token === args._lease_token;
+    return {
+      data: ok ? { ok: true, lease_expires_at: new Date().toISOString() } : { ok: false, error: 'fenced_out' },
+      error: null,
+    };
+  }
+
+  if (fn === 'admin_delete_workspace') return adminDeleteResponse;
+
+  return { data: null, error: null };
 }
 
 vi.mock('../../../server/supabase.js', () => ({
   getServiceClient: () => ({
     from: (table: string) => makeBuilder(table),
-    rpc: async (fn: string, args: unknown) => {
-      rpcCalls.push({ fn, args });
-      return rpcResponse;
-    },
+    rpc,
   }),
 }));
 
@@ -116,6 +182,7 @@ function baseJob(overrides: Partial<WorkspaceDeletionJobRow> = {}): WorkspaceDel
     attempt_count: 0,
     next_retry_at: null,
     locked_by: null,
+    lease_token: 'lease-token-1',
     lease_expires_at: null,
     db_cleanup_completed_at: null,
     error_message: null,
@@ -132,273 +199,125 @@ function baseJob(overrides: Partial<WorkspaceDeletionJobRow> = {}): WorkspaceDel
   };
 }
 
-function configuredConfig(bucket: string): StorageConfig {
-  return { provider: 's3', bucket, s3Region: 'us-east-1' };
-}
-
 function currentJobRow(): Row {
   return db.workspace_deletion_jobs[0] as Row;
 }
 
 beforeEach(() => {
   for (const key of Object.keys(db)) delete db[key];
-  listWithConfigMock.mockReset();
-  deleteWithConfigMock.mockReset();
-  deleteWithConfigMock.mockResolvedValue({ success: true });
+  runScopeCleanupTickMock.mockReset();
   workspaceStorageScopesMock.mockReset();
+  workspaceStorageScopesMock.mockReturnValue([]);
   rpcCalls.length = 0;
-  rpcResponse = { data: { ok: true, job: null }, error: null };
+  claimResponseOverride = null;
+  renewResponseOverride = null;
+  adminDeleteResponse = { data: null, error: null };
+  claimTokenCounter = 0;
 });
 
 describe('claimNext', () => {
-  it('returns the claimed job when the RPC reports ok with a job', async () => {
-    const job = baseJob({ status: 'storage_cleanup' });
-    rpcResponse = { data: { ok: true, job }, error: null };
+  it('returns the claimed job (including lease_token) when the RPC reports ok with a job', async () => {
+    const job = baseJob({ lease_token: 'tok-abc' });
+    claimResponseOverride = { data: { ok: true, job }, error: null };
 
     const claimed = await claimNext({} as never);
 
     expect(claimed).toEqual(job);
+    expect(claimed?.lease_token).toBe('tok-abc');
     expect(rpcCalls[0].fn).toBe('claim_workspace_deletion_job');
     expect(rpcCalls[0].args).toMatchObject({ _lease_seconds: 60 });
   });
 
   it('returns null when the RPC reports ok with nothing claimable', async () => {
-    rpcResponse = { data: { ok: true, job: null }, error: null };
+    claimResponseOverride = { data: { ok: true, job: null }, error: null };
 
     expect(await claimNext({} as never)).toBeNull();
   });
 
   it('returns null when the RPC itself errors', async () => {
-    rpcResponse = { data: null, error: { message: 'boom' } };
+    claimResponseOverride = { data: null, error: { message: 'boom' } };
 
     expect(await claimNext({} as never)).toBeNull();
   });
 
   it('returns null when data.ok is false', async () => {
-    rpcResponse = { data: { ok: false, job: null }, error: null };
+    claimResponseOverride = { data: { ok: false, job: null }, error: null };
 
     expect(await claimNext({} as never)).toBeNull();
   });
 });
 
-describe('runStorageCleanup', () => {
-  it('walks 3 configured scopes with different physical configs independently, one per tick, and only advances to db_cleanup once every scope is done', async () => {
-    const attachmentResolve = vi.fn(async (): Promise<ScopeResolution> => ({ configured: true, config: configuredConfig('attach-bucket') }));
-    const privacyResolve = vi.fn(async (): Promise<ScopeResolution> => ({ configured: true, config: configuredConfig('privacy-bucket') }));
-    const livekitResolve = vi.fn(async (): Promise<ScopeResolution> => ({ configured: true, config: configuredConfig('livekit-bucket') }));
-    workspaceStorageScopesMock.mockReturnValue([
-      { name: 'attachment', resolve: attachmentResolve },
-      { name: 'privacy_export', resolve: privacyResolve },
-      { name: 'livekit_recording', resolve: livekitResolve },
-    ] satisfies WorkspaceStorageScope[]);
-    listWithConfigMock.mockImplementation(async (config: StorageConfig) => ({
-      success: true,
-      keys: [`workspace/${WS_A}/${config.bucket}/a.pdf`],
-      nextCursor: null,
-    }));
+describe('runStorageCleanup — engine wiring', () => {
+  it('calls runScopeCleanupTick with the scopes from workspaceStorageScopes, the workspace prefix, and heartbeat/persist functions', async () => {
+    const scopes = [{ name: 'attachment', resolve: vi.fn() }] as unknown as WorkspaceStorageScope[];
+    workspaceStorageScopesMock.mockReturnValue(scopes);
+    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'progress' });
+    const job = baseJob();
     db.workspace_deletion_jobs = [baseJob()];
 
-    // Tick 1: only the attachment scope is touched.
-    await runStorageCleanup({} as never, baseJob());
-    expect(privacyResolve).not.toHaveBeenCalled();
-    expect(livekitResolve).not.toHaveBeenCalled();
-    let row = currentJobRow();
-    let state = row.storage_scopes as StorageScopesState;
-    expect(state.attachment?.status).toBe('done');
-    expect(state.privacy_export).toBeUndefined();
-    expect(row.status).toBe('storage_cleanup');
+    await runStorageCleanup({} as never, job);
 
-    // Tick 2: attachment is skipped (already done), privacy_export is worked.
-    await runStorageCleanup({} as never, baseJob({ storage_scopes: state }));
-    expect(attachmentResolve).toHaveBeenCalledTimes(1); // never re-resolved
-    expect(livekitResolve).not.toHaveBeenCalled();
-    row = currentJobRow();
-    state = row.storage_scopes as StorageScopesState;
-    expect(state.privacy_export?.status).toBe('done');
-    expect(row.status).toBe('storage_cleanup');
-
-    // Tick 3: livekit_recording is worked.
-    await runStorageCleanup({} as never, baseJob({ storage_scopes: state }));
-    row = currentJobRow();
-    state = row.storage_scopes as StorageScopesState;
-    expect(state.livekit_recording?.status).toBe('done');
-    expect(row.status).toBe('storage_cleanup'); // one more tick needed to notice completion
-
-    // Tick 4: every scope is done -> advances.
-    await runStorageCleanup({} as never, baseJob({ storage_scopes: state }));
-    row = currentJobRow();
-    expect(row.status).toBe('db_cleanup');
-
-    expect(listWithConfigMock).toHaveBeenCalledTimes(3);
-    expect(listWithConfigMock).toHaveBeenNthCalledWith(1, configuredConfig('attach-bucket'), `workspace/${WS_A}/`, undefined);
-    expect(listWithConfigMock).toHaveBeenNthCalledWith(2, configuredConfig('privacy-bucket'), `workspace/${WS_A}/`, undefined);
-    expect(listWithConfigMock).toHaveBeenNthCalledWith(3, configuredConfig('livekit-bucket'), `workspace/${WS_A}/`, undefined);
-    expect(deleteWithConfigMock).toHaveBeenCalledTimes(3);
+    expect(workspaceStorageScopesMock).toHaveBeenCalledWith({}, WS_A);
+    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
+    const ctx = runScopeCleanupTickMock.mock.calls[0][0];
+    expect(ctx.scopes).toBe(scopes);
+    expect(ctx.prefix).toBe(`workspace/${WS_A}/`);
+    expect(typeof ctx.heartbeat).toBe('function');
+    expect(typeof ctx.persist).toBe('function');
   });
 
-  it('dedups two scopes resolving to the identical physical StorageConfig — the second is marked done via dedup_of without ever being listed', async () => {
-    const sharedConfig = configuredConfig('shared-bucket');
-    const attachmentResolve = vi.fn(async (): Promise<ScopeResolution> => ({ configured: true, config: sharedConfig }));
-    const privacyResolve = vi.fn(async (): Promise<ScopeResolution> => ({ configured: true, config: sharedConfig }));
-    workspaceStorageScopesMock.mockReturnValue([
-      { name: 'attachment', resolve: attachmentResolve },
-      { name: 'privacy_export', resolve: privacyResolve },
-    ] satisfies WorkspaceStorageScope[]);
-    listWithConfigMock.mockResolvedValueOnce({
-      success: true,
-      keys: [`workspace/${WS_A}/a.pdf`, `workspace/${WS_A}/b.pdf`],
-      nextCursor: null,
-    });
-    db.workspace_deletion_jobs = [baseJob()];
+  it('on {kind:"advance"}: advances status to db_cleanup and releases the lock, conditioned on lease_token', async () => {
+    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'advance' });
+    db.workspace_deletion_jobs = [
+      baseJob({ status: 'storage_cleanup', locked_by: 'worker-x', lease_expires_at: new Date().toISOString() }),
+    ];
 
-    // Tick 1: attachment claims and fully drains the shared bucket.
-    await runStorageCleanup({} as never, baseJob());
-    let row = currentJobRow();
-    const state1 = row.storage_scopes as StorageScopesState;
-    expect(state1.attachment).toMatchObject({ status: 'done', objects_found: 2, objects_deleted: 2 });
-    expect(row.status).toBe('storage_cleanup');
-    expect(listWithConfigMock).toHaveBeenCalledTimes(1);
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup' }));
 
-    // Tick 2: privacy_export resolves to the same config and dedups — no re-listing.
-    await runStorageCleanup({} as never, baseJob({ storage_scopes: state1 }));
-    row = currentJobRow();
-    const state2 = row.storage_scopes as StorageScopesState;
-    expect(privacyResolve).toHaveBeenCalledTimes(1);
-    expect(state2.privacy_export).toMatchObject({
-      status: 'done',
-      dedup_of: 'attachment',
-      objects_found: 2,
-      objects_deleted: 2,
-    });
-    expect(listWithConfigMock).toHaveBeenCalledTimes(1); // still just the one call from tick 1
-    expect(deleteWithConfigMock).toHaveBeenCalledTimes(2); // still just the two deletes from tick 1
-    // Dedup doesn't stop the loop (unlike real work, which returns after
-    // one page) — with no scopes left to process, the same tick notices
-    // every scope is terminal and advances.
+    const row = currentJobRow();
     expect(row.status).toBe('db_cleanup');
+    expect(row.locked_by).toBeNull();
+    expect(row.lease_expires_at).toBeNull();
   });
 
-  it('marks an unconfigured scope skipped_not_configured immediately, never retries it, and never blocks a sibling scope', async () => {
-    const attachmentResolve = vi.fn(async (): Promise<ScopeResolution> => ({ configured: false, reason: 'No storage provider configured' }));
-    const privacyResolve = vi.fn(async (): Promise<ScopeResolution> => ({ configured: true, config: configuredConfig('privacy-bucket') }));
-    workspaceStorageScopesMock.mockReturnValue([
-      { name: 'attachment', resolve: attachmentResolve },
-      { name: 'privacy_export', resolve: privacyResolve },
-    ] satisfies WorkspaceStorageScope[]);
-    listWithConfigMock.mockResolvedValueOnce({ success: true, keys: [], nextCursor: null });
-    db.workspace_deletion_jobs = [baseJob()];
+  it('on {kind:"progress"}: persists storage_scopes and releases the lock, but does NOT advance status to db_cleanup', async () => {
+    const progressState: StorageScopesState = {
+      attachment: { status: 'in_progress', cursor: 'tok-1', objects_found: 1, objects_deleted: 1, error: null, fingerprint: 'fp-a', dedup_of: null, verified: false },
+    };
+    runScopeCleanupTickMock.mockImplementationOnce(async (ctx) => {
+      Object.assign(ctx.state, progressState); // the real engine mutates ctx.state in place
+      return { kind: 'progress' };
+    });
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup', locked_by: 'worker-x' })];
 
-    await runStorageCleanup({} as never, baseJob());
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup' }));
 
-    let row = currentJobRow();
-    let state = row.storage_scopes as StorageScopesState;
-    expect(state.attachment).toMatchObject({ status: 'skipped_not_configured', objects_found: 0, objects_deleted: 0 });
-    expect(state.privacy_export?.status).toBe('done'); // not blocked by the skipped sibling, same tick
-    expect(listWithConfigMock).toHaveBeenCalledTimes(1); // only ever for privacy_export
-    expect(row.status).toBe('storage_cleanup');
-
-    await runStorageCleanup({} as never, baseJob({ storage_scopes: state }));
-
-    row = currentJobRow();
-    state = row.storage_scopes as StorageScopesState;
-    expect(row.status).toBe('db_cleanup');
-    expect(attachmentResolve).toHaveBeenCalledTimes(1); // never retried once skipped
+    const row = currentJobRow();
+    expect(row.status).toBe('storage_cleanup'); // unchanged
+    expect(row.locked_by).toBeNull();
+    expect(row.storage_scopes).toEqual(progressState);
   });
 
-  it('sends the job to retry/backoff (never marks anything done) when a scope resolve() throws', async () => {
-    const attachmentResolve = vi.fn(async (): Promise<ScopeResolution> => {
-      throw new Error('provider secrets fetch failed');
-    });
-    workspaceStorageScopesMock.mockReturnValue([{ name: 'attachment', resolve: attachmentResolve }] satisfies WorkspaceStorageScope[]);
-    db.workspace_deletion_jobs = [baseJob({ attempt_count: 0 })];
+  it('on {kind:"error"}: retries with backoff (attempt_count increments, next_retry_at set) and does NOT set status to failed while below MAX_JOB_ATTEMPTS', async () => {
+    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'error', message: 'scope attachment listing failed: provider_unreachable' });
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup', attempt_count: 0 })];
 
-    await runStorageCleanup({} as never, baseJob({ attempt_count: 0 }));
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup', attempt_count: 0 }));
 
     const row = currentJobRow();
     expect(row.status).toBe('storage_cleanup'); // retry path never sets status
     expect(row.attempt_count).toBe(1);
     expect(row.next_retry_at).toBeTruthy();
-    expect(row.error_message).toMatch(/provider secrets fetch failed/);
-    expect(row.storage_scopes).toEqual({});
-    expect(listWithConfigMock).not.toHaveBeenCalled();
+    expect(row.error_message).toMatch(/provider_unreachable/);
+    expect(row.locked_by).toBeNull();
+    expect(row.lease_expires_at).toBeNull();
   });
 
-  it('sends the job to retry/backoff (never marks it done) when a scope that was configured earlier stops being configured mid-cleanup', async () => {
-    const attachmentResolve = vi.fn(async (): Promise<ScopeResolution> => ({ configured: false, reason: 'integration disabled' }));
-    workspaceStorageScopesMock.mockReturnValue([{ name: 'attachment', resolve: attachmentResolve }] satisfies WorkspaceStorageScope[]);
-    const midState: StorageScopesState = {
-      attachment: { status: 'in_progress', cursor: 'tok-9', objects_found: 5, objects_deleted: 5, error: null, fingerprint: 'fp-a', dedup_of: null },
-    };
-    db.workspace_deletion_jobs = [baseJob({ storage_scopes: midState, attempt_count: 1 })];
+  it('on {kind:"error"}: terminally fails once attempt_count reaches MAX_JOB_ATTEMPTS=5 (starting from attempt_count 4)', async () => {
+    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'error', message: 'permission_denied' });
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup', attempt_count: 4 })];
 
-    await runStorageCleanup({} as never, baseJob({ storage_scopes: midState, attempt_count: 1 }));
-
-    const row = currentJobRow();
-    expect(row.attempt_count).toBe(2);
-    expect(row.next_retry_at).toBeTruthy();
-    const state = row.storage_scopes as StorageScopesState;
-    expect(state.attachment?.status).toBe('in_progress'); // untouched — never silently flipped to done
-    expect(listWithConfigMock).not.toHaveBeenCalled();
-  });
-
-  it('resumes an in_progress scope from its persisted cursor and never re-touches an already-done scope', async () => {
-    const attachmentResolve = vi.fn();
-    const privacyResolve = vi.fn(async (): Promise<ScopeResolution> => ({ configured: true, config: configuredConfig('privacy-bucket') }));
-    workspaceStorageScopesMock.mockReturnValue([
-      { name: 'attachment', resolve: attachmentResolve },
-      { name: 'privacy_export', resolve: privacyResolve },
-    ] satisfies WorkspaceStorageScope[]);
-    listWithConfigMock.mockResolvedValueOnce({ success: true, keys: [`workspace/${WS_A}/c.pdf`], nextCursor: null });
-
-    const state: StorageScopesState = {
-      attachment: { status: 'done', cursor: null, objects_found: 1, objects_deleted: 1, error: null, fingerprint: 'fp-attach', dedup_of: null },
-      privacy_export: {
-        status: 'in_progress',
-        cursor: 'tok-1',
-        objects_found: 3,
-        objects_deleted: 3,
-        error: null,
-        fingerprint: JSON.stringify(['s3', 'privacy-bucket', null, null, 'us-east-1', null]),
-        dedup_of: null,
-      },
-    };
-    db.workspace_deletion_jobs = [baseJob({ storage_scopes: state })];
-
-    await runStorageCleanup({} as never, baseJob({ storage_scopes: state }));
-
-    expect(attachmentResolve).not.toHaveBeenCalled();
-    expect(privacyResolve).toHaveBeenCalledTimes(1);
-    expect(listWithConfigMock).toHaveBeenCalledWith(configuredConfig('privacy-bucket'), `workspace/${WS_A}/`, 'tok-1');
-    const row = currentJobRow();
-    const newState = row.storage_scopes as StorageScopesState;
-    expect(newState.privacy_export).toMatchObject({ status: 'done', objects_found: 4, objects_deleted: 4 });
-    expect(newState.attachment).toEqual(state.attachment); // byte-for-byte unchanged
-  });
-
-  it('retries with backoff (does not fail immediately) when a delete keeps failing across the per-key attempt cap', async () => {
-    const attachmentResolve = vi.fn(async (): Promise<ScopeResolution> => ({ configured: true, config: configuredConfig('attach-bucket') }));
-    workspaceStorageScopesMock.mockReturnValue([{ name: 'attachment', resolve: attachmentResolve }] satisfies WorkspaceStorageScope[]);
-    listWithConfigMock.mockResolvedValueOnce({ success: true, keys: [`workspace/${WS_A}/a.pdf`], nextCursor: null });
-    deleteWithConfigMock.mockResolvedValue({ success: false, error: 'permission_denied' });
-    db.workspace_deletion_jobs = [baseJob({ attempt_count: 2 })];
-
-    await runStorageCleanup({} as never, baseJob({ attempt_count: 2 }));
-
-    expect(deleteWithConfigMock).toHaveBeenCalledTimes(3); // MAX_DELETE_ATTEMPTS_PER_KEY
-    const row = currentJobRow();
-    expect(row.status).toBe('storage_cleanup'); // not failed yet
-    expect(row.attempt_count).toBe(3);
-    expect(row.next_retry_at).toBeTruthy();
-  });
-
-  it('terminally fails the job once a persistent delete failure pushes attempt_count to MAX_JOB_ATTEMPTS', async () => {
-    const attachmentResolve = vi.fn(async (): Promise<ScopeResolution> => ({ configured: true, config: configuredConfig('attach-bucket') }));
-    workspaceStorageScopesMock.mockReturnValue([{ name: 'attachment', resolve: attachmentResolve }] satisfies WorkspaceStorageScope[]);
-    listWithConfigMock.mockResolvedValueOnce({ success: true, keys: [`workspace/${WS_A}/a.pdf`], nextCursor: null });
-    deleteWithConfigMock.mockResolvedValue({ success: false, error: 'permission_denied' });
-    db.workspace_deletion_jobs = [baseJob({ attempt_count: 4 })];
-
-    await runStorageCleanup({} as never, baseJob({ attempt_count: 4 }));
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup', attempt_count: 4 }));
 
     const row = currentJobRow();
     expect(row.status).toBe('failed');
@@ -406,30 +325,86 @@ describe('runStorageCleanup', () => {
     expect(row.error_message).toMatch(/permission_denied/);
   });
 
-  it('only ever lists/deletes under workspace/<id>/ — never users/ or platform/', async () => {
-    const attachmentResolve = vi.fn(async (): Promise<ScopeResolution> => ({ configured: true, config: configuredConfig('attach-bucket') }));
-    workspaceStorageScopesMock.mockReturnValue([{ name: 'attachment', resolve: attachmentResolve }] satisfies WorkspaceStorageScope[]);
-    listWithConfigMock.mockResolvedValueOnce({ success: true, keys: [`workspace/${WS_A}/a.pdf`], nextCursor: null });
-    db.workspace_deletion_jobs = [baseJob()];
+  it('the heartbeat callback calls renew_workspace_deletion_lease with the job id and lease_token', async () => {
+    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'progress' });
+    const job = baseJob({ lease_token: 'tok-hb' });
+    db.workspace_deletion_jobs = [baseJob({ lease_token: 'tok-hb' })];
 
-    await runStorageCleanup({} as never, baseJob());
+    await runStorageCleanup({} as never, job);
+    const ctx = runScopeCleanupTickMock.mock.calls[0][0];
 
-    expect(listWithConfigMock).toHaveBeenCalledWith(configuredConfig('attach-bucket'), `workspace/${WS_A}/`, undefined);
-    expect(deleteWithConfigMock).toHaveBeenCalledWith(configuredConfig('attach-bucket'), `workspace/${WS_A}/a.pdf`);
-    const prefixArg = listWithConfigMock.mock.calls[0][1] as string;
-    expect(prefixArg.startsWith('users/')).toBe(false);
-    expect(prefixArg.startsWith('platform/')).toBe(false);
-    expect(prefixArg).toBe(`workspace/${WS_A}/`);
+    const stillHeld = await ctx.heartbeat();
+
+    expect(stillHeld).toBe(true);
+    const renewCall = rpcCalls.find((c) => c.fn === 'renew_workspace_deletion_lease');
+    expect(renewCall?.args).toMatchObject({ _job_id: JOB_1, _lease_token: 'tok-hb' });
+  });
+
+  it('the persist callback conditions its write on id AND lease_token — succeeds while the token matches, throws LeaseFencedError once it no longer does', async () => {
+    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'progress' });
+    const job = baseJob({ lease_token: 'tok-persist' });
+    db.workspace_deletion_jobs = [baseJob({ lease_token: 'tok-persist' })];
+
+    await runStorageCleanup({} as never, job);
+    const ctx = runScopeCleanupTickMock.mock.calls[0][0];
+
+    const newState: StorageScopesState = {
+      attachment: { status: 'done', cursor: null, objects_found: 1, objects_deleted: 1, error: null, fingerprint: 'fp', dedup_of: null, verified: true },
+    };
+    await ctx.persist(newState);
+    expect(currentJobRow().storage_scopes).toEqual(newState);
+
+    // Another worker reclaims the job — id still matches, lease_token does not.
+    currentJobRow().lease_token = 'someone-elses-token';
+    await expect(ctx.persist(newState)).rejects.toThrow(LeaseFencedError);
+  });
+});
+
+describe('THE LEASE FENCING RACE', () => {
+  it('rejects a stale worker\'s late write once another worker has reclaimed the job, and never clobbers the reclaiming worker\'s state', async () => {
+    // Seed the job row, unleased, in storage_cleanup.
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup', lease_token: null, locked_by: null })];
+
+    // 1. Worker A calls claimNext and gets lease_token T1.
+    const jobA = await claimNext({} as never);
+    expect(jobA).not.toBeNull();
+    const tokenT1 = jobA!.lease_token;
+    expect(tokenT1).toBeTruthy();
+    expect(currentJobRow().lease_token).toBe(tokenT1);
+
+    // 2. The lease expires and worker B reclaims the job: its lease_token
+    // changes to T2, exactly as a fresh claim_workspace_deletion_job() call
+    // would mint on a reclaim.
+    const tokenT2 = 'worker-b-token';
+    currentJobRow().lease_token = tokenT2;
+    const statusBeforeStaleWrite = currentJobRow().status;
+
+    // 3. Worker B now holds T2 — nothing further needed from B for this test.
+
+    // 4. Worker A "finishes late" and tries to advance the job, still
+    // carrying the STALE token T1, believing its cleanup is done.
+    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'advance' });
+
+    // 5. Worker A's write must be rejected outright, not silently no-op'd —
+    // and must never crash a real poll loop the way an unhandled rejection
+    // would (worker.ts's tick() catches exactly this error).
+    await expect(runStorageCleanup({} as never, jobA!)).rejects.toThrow(LeaseFencedError);
+
+    const row = currentJobRow();
+    expect(row.status).toBe(statusBeforeStaleWrite); // never advanced by A
+    expect(row.status).not.toBe('db_cleanup');
+    expect(row.lease_token).toBe(tokenT2); // still B's — never overwritten by A
   });
 });
 
 describe('runDbCleanup', () => {
-  it('calls admin_delete_workspace with the actor and workspace id, then marks the job completed', async () => {
+  it('calls admin_delete_workspace with the actor and workspace id, then marks the job completed conditioned on lease_token', async () => {
     db.workspace_deletion_jobs = [baseJob({ status: 'db_cleanup' })];
 
     await runDbCleanup({} as never, baseJob({ status: 'db_cleanup' }));
 
-    expect(rpcCalls[0]).toEqual({ fn: 'admin_delete_workspace', args: { _actor_user_id: ACTOR, _workspace_id: WS_A } });
+    const call = rpcCalls.find((c) => c.fn === 'admin_delete_workspace');
+    expect(call?.args).toEqual({ _actor_user_id: ACTOR, _workspace_id: WS_A });
     const row = currentJobRow();
     expect(row.status).toBe('completed');
     expect(row.db_cleanup_completed_at).toBeTruthy();
@@ -437,7 +412,7 @@ describe('runDbCleanup', () => {
   });
 
   it('retries with backoff (does not fail immediately) when the RPC errors and the workspace row still exists', async () => {
-    rpcResponse = { data: null, error: { message: 'not authorized' } };
+    adminDeleteResponse = { data: null, error: { message: 'not authorized' } };
     db.workspace_deletion_jobs = [baseJob({ status: 'db_cleanup', attempt_count: 1 })];
     db.workspaces = [{ id: WS_A }];
 
@@ -451,7 +426,7 @@ describe('runDbCleanup', () => {
   });
 
   it('terminally fails when the RPC errors, the workspace row still exists, and attempt_count is already exhausted', async () => {
-    rpcResponse = { data: null, error: { message: 'not authorized' } };
+    adminDeleteResponse = { data: null, error: { message: 'not authorized' } };
     db.workspace_deletion_jobs = [baseJob({ status: 'db_cleanup', attempt_count: 4 })];
     db.workspaces = [{ id: WS_A }];
 
@@ -463,7 +438,7 @@ describe('runDbCleanup', () => {
   });
 
   it('treats an RPC error as an already-completed idempotent resume when the workspace row is already gone', async () => {
-    rpcResponse = { data: null, error: { message: 'Workspace not found' } };
+    adminDeleteResponse = { data: null, error: { message: 'Workspace not found' } };
     db.workspace_deletion_jobs = [baseJob({ status: 'db_cleanup' })];
     db.workspaces = []; // already purged by a prior crashed run
 
@@ -471,5 +446,33 @@ describe('runDbCleanup', () => {
 
     const row = currentJobRow();
     expect(row.status).toBe('completed');
+  });
+
+  it('throws LeaseFencedError (and does not mark the job completed) when another worker has reclaimed the job before the completion write', async () => {
+    db.workspace_deletion_jobs = [baseJob({ status: 'db_cleanup', lease_token: 'tok-stale' })];
+    const staleJob = baseJob({ status: 'db_cleanup', lease_token: 'tok-stale' });
+    currentJobRow().lease_token = 'tok-fresh'; // reclaimed out from under it
+
+    await expect(runDbCleanup({} as never, staleJob)).rejects.toThrow(LeaseFencedError);
+
+    const row = currentJobRow();
+    expect(row.status).not.toBe('completed');
+  });
+});
+
+describe('startWorkspaceDeletionWorker — same-process started guard', () => {
+  it('calling it twice only ever registers one setInterval', () => {
+    vi.useFakeTimers();
+    try {
+      claimResponseOverride = { data: { ok: true, job: null }, error: null };
+      const setIntervalSpy = vi.spyOn(global, 'setInterval');
+
+      startWorkspaceDeletionWorker({} as never);
+      startWorkspaceDeletionWorker({} as never);
+
+      expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

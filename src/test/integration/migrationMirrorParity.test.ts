@@ -220,6 +220,16 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/184_workspace_branding_storage_key.sql',
     hosted: 'supabase/migrations/20260915100000_workspace_branding_storage_key.sql',
   },
+  {
+    label: '185 — Deletion lease fencing (lease_token + renew RPCs)',
+    selfHost: 'database/migrations/185_deletion_lease_fencing.sql',
+    hosted: 'supabase/migrations/20260916083000_deletion_lease_fencing.sql',
+  },
+  {
+    label: '186 — User deletion multi-provider storage scopes',
+    selfHost: 'database/migrations/186_user_deletion_multi_provider.sql',
+    hosted: 'supabase/migrations/20260916084000_user_deletion_multi_provider.sql',
+  },
 
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered

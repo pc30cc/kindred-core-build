@@ -28,7 +28,7 @@ import {
   resolvePrivacyStoragePolicy,
   PrivacyStorageNotConfigured,
 } from './storageResolver.js';
-import { uploadWithConfig, logWorkspaceStorageUsage, type StorageOwner } from '../storage/index.js';
+import { uploadWithConfigForOwner, logWorkspaceStorageUsage, type StorageOwner } from '../storage/index.js';
 import { privacyExportKey } from '../storage/keys.js';
 import type { PrivacyJobRow } from './types.js';
 
@@ -100,9 +100,16 @@ export async function processJob(config: ServerConfig, job: PrivacyJobRow): Prom
     // provider is configured and fallback is not allowed — the catch
     // block below will mark the job failed with a clear error.
     const policy = await resolvePrivacyStoragePolicy(config, job.workspace_id);
-    const objectKey = privacyExportKey(ownerForJob(job), job.id);
+    const owner = ownerForJob(job);
+    const objectKey = privacyExportKey(owner, job.id);
 
-    const upload = await uploadWithConfig(policy.config, {
+    // uploadWithConfigForOwner (not the bare uploadWithConfig) — second
+    // corrective pass, P0: a workspace-owned privacy export must respect
+    // the SAME owner-scope enforcement and workspace-deletion write lock
+    // every other workspace-owned write gets, so an export that was
+    // already in flight when deletion began cannot write a new object
+    // into a workspace whose storage scopes have already been swept.
+    const upload = await uploadWithConfigForOwner(config, owner, policy.config, {
       fileKey: objectKey,
       data: buffer,
       contentType: 'application/zip',

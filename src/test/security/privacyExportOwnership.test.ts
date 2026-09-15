@@ -48,7 +48,7 @@ const { resolveSubjectMock, buildExportZipMock, resolvePrivacyStoragePolicyMock,
     source: 'platform_default' as const,
     allowAttachmentFallback: false,
   })),
-  uploadWithConfigMock: vi.fn(async (_config: unknown, req: { fileKey: string }) => ({
+  uploadWithConfigMock: vi.fn(async (_config: unknown, _owner: unknown, _storageConfig: unknown, req: { fileKey: string }) => ({
     success: true,
     url: `http://local.test/${req.fileKey}`,
     fileKey: req.fileKey,
@@ -68,7 +68,14 @@ vi.mock('../../../server/services/storage/index.js', async () => {
   const actual = await vi.importActual<typeof import('../../../server/services/storage/index')>(
     '../../../server/services/storage/index',
   );
-  return { ...actual, uploadWithConfig: uploadWithConfigMock };
+  // processJob calls uploadWithConfigForOwner (not the bare uploadWithConfig)
+  // since the second corrective pass's workspace-deletion write barrier —
+  // mock that call site directly rather than the lower-level function it
+  // wraps, since an ESM module's own internal call from one export to
+  // another (uploadWithConfigForOwner -> uploadWithConfig, both declared in
+  // the same source file) resolves to the real local binding regardless of
+  // what an outside vi.mock() does to the module's exports.
+  return { ...actual, uploadWithConfigForOwner: uploadWithConfigMock };
 });
 
 interface JobUpdateCall {
@@ -143,7 +150,7 @@ describe('processJob (export action) — canonical key + no fake workspaceId', (
     await processJob({} as never, job);
 
     expect(uploadWithConfigMock).toHaveBeenCalledTimes(1);
-    const [, req] = uploadWithConfigMock.mock.calls[0];
+    const [, , , req] = uploadWithConfigMock.mock.calls[0];
     expect(req.fileKey).toBe(`users/${USER_A}/exports/privacy/${JOB_ID}.zip`);
     // No fake/sentinel workspaceId passed to the storage layer.
     expect(req).not.toHaveProperty('workspaceId');
@@ -160,7 +167,7 @@ describe('processJob (export action) — canonical key + no fake workspaceId', (
     await processJob({} as never, job);
 
     expect(uploadWithConfigMock).toHaveBeenCalledTimes(1);
-    const [, req] = uploadWithConfigMock.mock.calls[0];
+    const [, , , req] = uploadWithConfigMock.mock.calls[0];
     expect(req.fileKey).toBe(`workspace/${WS_A}/exports/privacy/${JOB_ID}.zip`);
     expect(req).not.toHaveProperty('workspaceId');
   });
@@ -172,7 +179,7 @@ describe('processJob (export action) — canonical key + no fake workspaceId', (
 
     await processJob({} as never, job);
 
-    const [, req] = uploadWithConfigMock.mock.calls[0];
+    const [, , , req] = uploadWithConfigMock.mock.calls[0];
     expect(req.fileKey.startsWith('privacy-exports/')).toBe(false);
   });
 });

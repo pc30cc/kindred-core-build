@@ -17,7 +17,7 @@ import { issueReauthToken, consumeReauthToken } from '../services/privacy/reauth
 import { writePrivacyAudit } from '../services/privacy/audit.js';
 import { readLegacyArtifact, deleteLegacyArtifact } from '../services/privacy/artifactStore.js';
 import { resolvePrivacyStoragePolicy } from '../services/privacy/storageResolver.js';
-import { downloadWithConfig, deleteWithConfig, logWorkspaceStorageUsage } from '../services/storage/index.js';
+import { downloadWithConfig, deleteWithConfig, logWorkspaceStorageUsage, isWorkspaceDeleting } from '../services/storage/index.js';
 import type { PrivacyAction, PrivacySubjectType } from '../services/privacy/types.js';
 import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
 import { findIdentityById } from '../services/auth/identity.js';
@@ -129,6 +129,16 @@ privacyRouter.post('/jobs', async (req, res) => {
     if (!body.workspace_id) return res.status(400).json({ error: 'workspace_id required for contact/visitor jobs' });
     const ok = await isWorkspaceAdmin(config, body.workspace_id, me.userId);
     if (!ok) return res.status(403).json({ error: 'Workspace admin required' });
+  }
+
+  // Second corrective pass, P0: a workspace already mid-deletion must
+  // never accept a NEW privacy job — its eventual artifact upload would
+  // race the deletion worker's storage-cleanup scan (uploadWithConfigForOwner
+  // in server/services/privacy/worker.ts blocks the write itself, but
+  // rejecting at job-creation time fails fast instead of queueing work
+  // that can only ever end in a failed job).
+  if (body.workspace_id && (await isWorkspaceDeleting(config, body.workspace_id))) {
+    return res.status(409).json({ error: 'Workspace is being deleted; new privacy jobs are disabled' });
   }
 
   // ─── Reauth requirement ───────────────────────────────────────

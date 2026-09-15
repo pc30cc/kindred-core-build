@@ -1,22 +1,6 @@
-import type { WorkspaceStorageScopeName } from '../storage/workspaceScopes.js';
+export type { ScopeProgress, ScopeCleanupState as StorageScopesState } from '../storage/scopeCleanupEngine.js';
 
 export type WorkspaceDeletionJobStatus = 'pending' | 'storage_cleanup' | 'db_cleanup' | 'completed' | 'failed';
-
-export type ScopeProgressStatus = 'pending' | 'in_progress' | 'done' | 'skipped_not_configured' | 'failed';
-
-export interface ScopeProgress {
-  status: ScopeProgressStatus;
-  cursor: string | null;
-  objects_found: number;
-  objects_deleted: number;
-  error: string | null;
-  /** Set once the scope's config is resolved, even before it's fully drained — lets a later scope dedupe against it. */
-  fingerprint: string | null;
-  /** Set when this scope was skipped because another scope with the same fingerprint already covered it. */
-  dedup_of: WorkspaceStorageScopeName | null;
-}
-
-export type StorageScopesState = Partial<Record<WorkspaceStorageScopeName, ScopeProgress>>;
 
 export interface WorkspaceDeletionJobRow {
   id: string;
@@ -25,10 +9,12 @@ export interface WorkspaceDeletionJobRow {
   workspace_name: string;
   requested_by: string;
   status: WorkspaceDeletionJobStatus;
-  storage_scopes: StorageScopesState;
+  storage_scopes: import('../storage/scopeCleanupEngine.js').ScopeCleanupState;
   attempt_count: number;
   next_retry_at: string | null;
   locked_by: string | null;
+  /** Fencing token — 185_deletion_lease_fencing.sql. Every progress/status write must be conditioned on this exact value matching the row's current one. */
+  lease_token: string | null;
   lease_expires_at: string | null;
   db_cleanup_completed_at: string | null;
   error_message: string | null;

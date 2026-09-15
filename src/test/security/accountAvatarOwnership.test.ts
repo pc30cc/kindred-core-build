@@ -108,7 +108,7 @@ const { uploadForOwnerMock, deleteForOwnerMock, uploadFileMock, deleteFileMock }
     url: `https://cdn.example/${req.fileKey}`,
     fileKey: req.fileKey,
   })),
-  deleteForOwnerMock: vi.fn(async () => ({ success: true })),
+  deleteForOwnerMock: vi.fn(async (..._args: unknown[]) => ({ success: true })),
   uploadFileMock: vi.fn(async () => ({ success: true, url: 'https://cdn.example/x', fileKey: 'x' })),
   deleteFileMock: vi.fn(async () => ({ success: true })),
 }));

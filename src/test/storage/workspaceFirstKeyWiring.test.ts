@@ -192,7 +192,7 @@ describe('conversation/widget attachment producers now share ONE central builder
     expect(row).toBeTruthy();
     expect(row.workspace_id).toBe(WS_A);
     expect(row.storage_path).toMatch(new RegExp(`^workspace/${WS_A}/attachments/chat/\\d{4}/\\d{2}/`));
-    expect(row.storage_path.endsWith('photo.png')).toBe(true);
+    expect(String(row.storage_path).endsWith('photo.png')).toBe(true);
   });
 
   it('widgetAttachments.ts and mediaIngest.ts (telegram) now call the SAME chatAttachmentKey() builder as conversationAttachments.ts — source-verified, since standing up the full widget-token/rate-limit chain for a route-level test would duplicate src/test/billing/widgetAttachmentsRoute.test.ts and src/test/channels/telegramMediaIngest.test.ts (already covers mediaIngest.ts\'s shape at the route level) without adding coverage', () => {

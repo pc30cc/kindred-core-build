@@ -253,6 +253,12 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     hosted: 'supabase/migrations/20260916092000_storage_provider_pool_atomic.sql',
   },
 
+  {
+    label: '190 — contacts.avatar_storage_key (cached URLs become derived data)',
+    selfHost: 'database/migrations/190_contact_avatar_storage_key.sql',
+    hosted: 'supabase/migrations/20260916093000_contact_avatar_storage_key.sql',
+  },
+
   // intentionally asymmetric, not a drift bug.
 
   // NOTE: 182 (database/migrations/182_admin_purge_workspaces_selfhost.sql)

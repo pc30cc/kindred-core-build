@@ -156,6 +156,33 @@ export function adminSetStorageReplication(enabled: boolean, mirrorDeletes?: boo
   });
 }
 
+export interface AdminStorageUrlRefreshReport {
+  sources: {
+    name: string;
+    scanned: number;
+    updated: number;
+    unchanged: number;
+    skippedNoKey: number;
+    failed: number;
+    errors: string[];
+    complete: boolean;
+  }[];
+  totalUpdated: number;
+  complete: boolean;
+}
+
+/**
+ * Rebuild the cached public URLs (avatars, logos) from the storage keys the
+ * rows already hold, for whatever provider is primary now. Needed after a
+ * promotion: a key is provider-independent, a URL is not.
+ */
+export function adminRefreshStoredUrls(limit?: number) {
+  return request<{ report: AdminStorageUrlRefreshReport }>(`${BASE}/refresh-urls`, {
+    method: 'POST',
+    body: JSON.stringify(limit === undefined ? {} : { limit }),
+  });
+}
+
 /**
  * Copy one bounded batch of what the mirror is missing. The walk position
  * lives on the server: pass `restart` to begin again, otherwise the call

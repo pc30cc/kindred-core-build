@@ -26,6 +26,7 @@ import {
   listWithConfig,
 } from '../services/storage/index.js';
 import { storageConfigFingerprint } from '../services/storage/workspaceScopes.js';
+import { refreshStoredFileUrls } from '../services/storage/urlRefresh.js';
 
 export const adminStorageProvidersRouter = Router();
 
@@ -254,6 +255,29 @@ adminStorageProvidersRouter.post('/sync', async (req, res) => {
     });
     if (!result.ok) return res.status(400).json({ error: result.error });
     res.json({ report: result.report });
+  } catch (e) {
+    if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
+    fail(res, e);
+  }
+});
+
+// ─── Rebuild cached public URLs from their storage keys ──────────
+//
+// A key is provider-independent; a URL is not. The columns that cache a URL
+// for rendering (avatars, logos) therefore go stale the moment the primary
+// changes — this rebuilds them from the keys that are already stored, for
+// whatever provider is live now. Bounded per call, and a row without a key
+// is never touched.
+
+adminStorageProvidersRouter.post('/refresh-urls', async (req, res) => {
+  try {
+    const body = z.object({ limit: z.number().int().min(1).max(2000).optional() })
+      .strict()
+      .parse(req.body ?? {});
+    if (!allowExpensiveCall(`refresh:${adminId(req) ?? 'unknown'}`)) {
+      return res.status(429).json({ error: 'Too many refresh runs — try again in a minute' });
+    }
+    res.json({ report: await refreshStoredFileUrls(ctx(req).serverConfig, { limit: body.limit }) });
   } catch (e) {
     if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
     fail(res, e);

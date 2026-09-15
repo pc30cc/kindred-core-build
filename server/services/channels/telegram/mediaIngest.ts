@@ -67,7 +67,7 @@ const EXT_BY_MIME: Record<string, string> = {
 
 function safeFileName(name: string, mime: string): string {
   const stripped = String(name || '')
-    .replace(/[^\w.\-]+/g, '_')
+    .replace(/[^\w.-]+/g, '_')
     .replace(/_+/g, '_')
     .replace(/^[._]+|[._]+$/g, '')
     .slice(0, 80);
@@ -94,14 +94,21 @@ async function checkStorageQuota(
   workspaceId: string,
 ): Promise<{ allowed: boolean; reason?: string }> {
   const limitMw = requireLimit('storage_gb', usageFnForLimit('storage_gb'));
-  const req: any = { body: { workspace_id: workspaceId }, query: {}, params: {}, serverConfig: config };
+  // The middleware is written for Express; this drives it with the smallest
+  // request/response shape it actually touches.
+  const req = { body: { workspace_id: workspaceId }, query: {}, params: {}, serverConfig: config };
   let allowed = false;
   let reason: string | undefined;
-  const res: any = {
-    status(code: number) { (res as any)._status = code; return res; },
-    json(body: any) { reason = body?.error || `limit_check_failed_${(res as any)._status}`; return res; },
+  let status = 0;
+  const res = {
+    status(code: number) { status = code; return res; },
+    json(body: { error?: string }) { reason = body?.error || `limit_check_failed_${status}`; return res; },
   };
-  await limitMw(req, res, () => { allowed = true; });
+  await limitMw(
+    req as unknown as Parameters<typeof limitMw>[0],
+    res as unknown as Parameters<typeof limitMw>[1],
+    () => { allowed = true; },
+  );
   return allowed ? { allowed: true } : { allowed: false, reason: reason || 'storage_gb limit reached' };
 }
 
@@ -239,6 +246,7 @@ export async function persistInboundAttachment(
       .select('id')
       .single();
     if (insertError || !row) throw new Error('attachment_row_insert_failed');
+    const attachmentId = (row as { id: string }).id;
 
     const uploadResult = await uploadFile(config, {
       workspaceId: input.workspaceId,
@@ -251,20 +259,20 @@ export async function persistInboundAttachment(
       await sb
         .from('conversation_attachments')
         .update({ status: 'failed', error_message: (uploadResult.error || 'upload_failed').slice(0, 200) })
-        .eq('id', (row as any).id);
+        .eq('id', attachmentId);
       throw new Error(uploadResult.error || 'upload_failed');
     }
 
     await sb
       .from('conversation_attachments')
       .update({ status: 'uploaded', finalized_at: new Date().toISOString() })
-      .eq('id', (row as any).id);
+      .eq('id', attachmentId);
 
     return {
       fileId: input.fileId,
       kind: input.kind,
       status: 'stored',
-      attachmentId: (row as any).id,
+      attachmentId,
       fileName,
       mimeType,
       sizeBytes: input.bytes.byteLength,
@@ -293,9 +301,9 @@ export async function recordMediaOutcomes(
     .maybeSingle();
   if (!data) return;
 
-  const metadata = { ...(((data as any).metadata ?? {}) as Record<string, unknown>) };
-  const previous: TelegramMediaOutcome[] = Array.isArray((metadata as any).attachments)
-    ? ((metadata as any).attachments as TelegramMediaOutcome[])
+  const metadata = { ...(((data as { metadata?: unknown }).metadata ?? {}) as Record<string, unknown>) };
+  const previous: TelegramMediaOutcome[] = Array.isArray(metadata.attachments)
+    ? (metadata.attachments as TelegramMediaOutcome[])
     : [];
   const byFileId = new Map(previous.map((item) => [item.fileId, item]));
   for (const outcome of outcomes) byFileId.set(outcome.fileId, outcome);
@@ -340,13 +348,16 @@ export async function persistContactAvatar(
     const storageConfig = await resolveStorageConfig(config, input.workspaceId);
     const url = uploaded.url || (storageConfig ? getFileUrlWithConfig(storageConfig, fileKey) : null);
     if (!url) return;
+    // The key is what survives a provider change; the URL is a cache of it
+    // (server/services/storage/urlRefresh.ts rebuilds the cache).
+    const avatarColumns = { avatar_url: url, avatar_storage_key: fileKey };
 
     await sb
       .from('contacts')
       .update({
-        avatar_url: url,
+        ...avatarColumns,
         metadata: {
-          ...((contact as any).metadata || {}),
+          ...((contact as { metadata?: Record<string, unknown> }).metadata || {}),
           avatar_source: 'telegram',
           avatar_synced_at: new Date().toISOString(),
         },

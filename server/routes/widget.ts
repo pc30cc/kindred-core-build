@@ -203,6 +203,7 @@ const DEFAULT_WIDGET_SETTINGS = {
   fab_label: '',
   fab_scale: 100,
   fab_icon_color: '#ffffff',
+  fab_image_storage_key: null as string | null,
   fab_image_url: null as string | null,
   fab_text_color: '#ffffff',
   default_mode: 'chat',
@@ -956,11 +957,17 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         iconColor: ws.fab_icon_color || '#ffffff',
         textColor: ws.fab_text_color || '#ffffff',
         animation: ws.fab_animation ?? true,
-        // Optional launcher image (stored via the workspace storage provider).
+        // Optional launcher image. DERIVED from the stored key for whichever
+        // provider is primary right now, so promoting a new one needs no row
+        // rewritten. The legacy `fab_image_url` tail is a deprecated
+        // read-only fallback for rows uploaded before the key column
+        // existed; nothing writes it any more. The storage key itself is
+        // never sent to a visitor.
         // On hover the runtime circle-reveals the configured icon underneath.
-        imageUrl: typeof ws.fab_image_url === 'string' && /^https?:\/\//i.test(ws.fab_image_url.trim())
-          ? ws.fab_image_url.trim()
-          : null,
+        imageUrl: (await createStorageUrlResolver(config).workspace(workspaceId, ws.fab_image_storage_key))
+          ?? (typeof ws.fab_image_url === 'string' && /^https?:\/\//i.test(ws.fab_image_url.trim())
+            ? ws.fab_image_url.trim()
+            : null),
       },
       features: {
         chat: ws.chat_enabled ?? true,

@@ -5,6 +5,26 @@ _Companion to `docs/STORAGE_ARCHITECTURE_AUDIT.md` (ownership + key shape) and
 what the database records about a file the platform owns, and where its public
 link comes from._
 
+## The product rule
+
+A workspace user, operator or admin **cannot type a media/file URL and have
+it persisted**. There is exactly one path for a file WebYar manages:
+
+```
+upload / ingest  ->  WebYar storage  ->  canonical key in the DB
+                 ->  URL derived at read time
+```
+
+and explicitly not:
+
+```
+workspace API  ->  arbitrary https://...  ->  persisted *_url
+```
+
+Every request schema that once allowed the second shape has had the field
+removed, and each is `.strict()` so a stale client gets a 400 naming the
+field rather than a silent drop. See **Closed inputs** below.
+
 ## The invariant
 
 For every file WebYar stores, the database persists **the canonical storage
@@ -100,40 +120,92 @@ and is not an object we store.
 | `workspace_branding.logo_url` | workspace | `routes/account.ts`, legacy migration | `logo_storage_key` | **was yes** | operator may type one | writer stores the key and clears the URL; `routes/workspaces.ts` and the widget derive |
 | `call_center_settings.avatar_url` | workspace | `routes/callCenter.ts` | `avatar_storage_path` | **was yes** | settings PATCH may set one | upload writes the key and clears the URL; GET/PUT and the call widget derive |
 | `ai_agent_settings.agent_logo_url` | workspace | `routes/ai-agent/assistant.ts` | `metadata.ai_avatar_storage_key` | **was yes** | settings PATCH may set one | upload writes the key and clears the URL; `resolveAgentLogoUrl()` derives |
-| `contacts.avatar_url` | workspace | telegram `mediaIngest.ts`; CRM import API | `avatar_storage_key` (**new, migration 190**) | **was yes** | yes — CRM import | ingest writes the key and clears the URL; an explicit external URL clears the key; readers prefer the key |
+| `contacts.avatar_url` | workspace | telegram `mediaIngest.ts` only | `avatar_storage_key` (**new, migration 190**) | **was yes** | **no longer** | ingest writes the key and clears the URL; `avatar_url` removed from the create / bulk / update schemas; legacy values are read-only |
+| `widget_settings.fab_image_url` | workspace | `widgetSettings.ts` fab-image endpoint | `fab_image_storage_key` (**new, migration 190**) | **was yes** | **no longer** | the browser no longer uploads and PATCHes a URL back; a dedicated server-side endpoint stores the key and clears the URL |
 | `conversation_messages.metadata.agent_logo_url` | workspace | `services/ai-agent/responder.ts` | — | **was yes** | no | no longer snapshotted; readers derive the agent logo from its key |
 | `platform_call_center_settings.ringback_music_url` | platform | `routes/callCenter.ts` | `ringback_music_path` | **was yes** | no | upload clears it; admin GET and the call widget derive from the path |
 | `platform_call_center_settings.ringback_announcement_audio_path` / `ringback_queue_audio_paths` | platform | `routes/callCenter.ts` | these columns | no | no | already key-only; read path now uses the resolver |
-| `platform_branding.logo_url` / `favicon_url` / `pwa_icon_url` | platform | `routes/adminManagement.ts` (typed by an operator) | — | n/a | **yes** | left alone — not our objects |
-| `widget_settings.logo_url` / `fab_image_url` | workspace | `routes/widgetSettings.ts` (typed by an operator) | — | n/a | **yes** | left alone |
-| `email_settings.email_logo_url` | platform | `routes/adminManagement.ts` (typed by an operator) | — | n/a | **yes** | left alone |
-| `workspace_branding.favicon_url` / `social_image_url` | workspace | no writer in the repo | — | n/a | **yes** | left alone |
-| `commerce_products.image_url`, `commerce_product_variants.image_url` | workspace | commerce sync from the merchant's platform | — | n/a | **yes** | left alone — origin URLs from the merchant's own CDN |
+| `platform_branding.logo_url` / `favicon_url` / `pwa_icon_url` | platform | `routes/adminManagement.ts` (typed by a PLATFORM admin) | — | n/a | **yes** | **documented exception** — see below |
+| `widget_settings.logo_url` | workspace | nothing (dead column; the widget reads `workspace_branding`) | — | n/a | n/a | removed from the PATCH schema's reachable surface by `.strict()`; no writer |
+| `email_settings.email_logo_url` | platform | `routes/adminManagement.ts` (typed by a PLATFORM admin) | — | n/a | **yes** | **documented exception** — see below |
+| `workspace_branding.favicon_url` / `social_image_url` | workspace | no writer | — | n/a | n/a | stripped from the branding PATCH, so a workspace admin can no longer set one; needs an upload endpoint if the product wants them back |
+| `commerce_products.image_url`, `commerce_product_variants.image_url` | workspace | commerce sync from the merchant's platform | — | n/a | **yes** | **documented exception** — third-party integration data, see below |
 
-Two columns are genuinely dual-source — `contacts.avatar_url` and
-`call_center_settings.avatar_url` / `ai_agent_settings.agent_logo_url`, which a
-client may set to an external link. The rule in every reader is the same: **a
-key of ours wins**, because it is ours and survives a promotion; the stored URL
-is consulted only when there is no key.
+### Closed inputs
+
+Each of these was a workspace-writable media URL. All are gone from their
+request schemas, and each schema is `.strict()`:
+
+| Surface | Field removed | The only way to change that image now |
+|---|---|---|
+| `POST /api/contacts`, `POST /api/contacts/bulk`, `PATCH /api/contacts/:id` | `avatar_url` | channel ingest (`persistContactAvatar`) |
+| `PUT /api/ai-agent/settings` | `agent_logo_url` | `POST` / `DELETE /api/ai-agent/settings/avatar` |
+| `PUT /api/call-center/settings` | `avatar_url` (and `avatar_storage_path`, never settable) | `POST` / `DELETE /api/call-center/settings/avatar` |
+| `PATCH /api/widget-settings/:workspaceId` | `fab_image_url` | `POST` / `DELETE /api/widget-settings/:workspaceId/fab-image` |
+| `PATCH /api/workspaces/:id/branding` | `logo_url`, `favicon_url`, `social_image_url`, `logo_storage_key` | `POST /api/account/workspace-icon` (logo); none yet for the other two |
+
+### Legacy read fallbacks (deprecated)
+
+A row written before this change may still hold a URL and no key. Those
+values keep rendering so images do not break mid-rollout, and every such
+branch is marked `@deprecated LEGACY READ FALLBACK` at its source:
+
+- `resolveContactAvatarUrl()` — `contacts.avatar_url`
+- `resolveCallCenterAvatarUrl()` — `call_center_settings.avatar_url`
+- `resolveAgentLogoUrl()` — `ai_agent_settings.agent_logo_url`
+- `withDerivedFabImageUrl()` and the widget bootstrap — `widget_settings.fab_image_url`
+- `withDerivedLogoUrl()` — `workspace_branding.logo_url`
+
+They are **read-only**. Nothing creates a new value for any of them: a key
+always wins, every writer clears the URL column, and no schema accepts one.
+They are removed together with the columns in the later cleanup migration.
+
+### Documented exceptions
+
+Two kinds of URL legitimately remain:
+
+1. **Platform-operator branding** — `platform_branding.logo_url` /
+   `favicon_url` / `pwa_icon_url` and `email_settings.email_logo_url`. These
+   are typed by a PLATFORM admin (`requirePlatformAdmin`), not by a
+   workspace user, and there is no upload endpoint for them anywhere in the
+   repo. They are outside the workspace tenancy model this rule is about.
+   Giving them the same upload → key → derived treatment is the obvious next
+   step if the platform wants a single model everywhere; until then this is
+   a deliberate, named gap, not an oversight.
+2. **Third-party integration data** — `commerce_products.image_url` and
+   `commerce_product_variants.image_url`. These come from the merchant's own
+   platform through the WooCommerce connector
+   (`services/commerce/connectors/woocommerce.ts`); they reference the
+   merchant's CDN, are not manually supplied by a workspace user, and are not
+   files WebYar stores. They stay as they are.
+
+Not media at all, despite looking like it: `call_center_departments.icon` and
+`knowledge_base_categories.icon` hold icon NAMES, not URLs.
 
 ## Migration 190
 
 `database/migrations/190_storage_key_ownership.sql` (mirrored to
 `supabase/migrations/20260916093000_storage_key_ownership.sql`) does two things:
 
-1. Adds `contacts.avatar_storage_key` and backfills it **conservatively and
+1. Adds `contacts.avatar_storage_key` and `widget_settings.fab_image_storage_key`.
+   The contact key is backfilled **conservatively and
    per-row workspace-scoped**: a key is recovered only when the stored URL
    contains that row's OWN workspace id under the exact prefix the ingest
    writes. A generic `workspace/<any-uuid>/` match is deliberately not used —
    `contacts.avatar_url` is also written by the CRM import API, and a URL that
    merely mentions some workspace id must never be adopted as this row's key.
    Query strings and fragments are stripped. Anything unprovable stays `NULL`,
-   which every reader already handles.
+   which every reader already handles. The launcher image gets **no
+   backfill at all**: the browser used to choose its object key, so nothing
+   in the stored URL proves which key belongs to this workspace. Those rows
+   keep rendering from the legacy URL until an operator re-uploads.
 2. Adds ownership `CHECK` constraints, so a key naming another tenant is
-   unrepresentable in the schema and not only in the resolver. `contacts`' is
-   validated (the backfill provably satisfies it); the pre-existing key columns
-   get `NOT VALID` constraints, which still enforce the rule on every new
-   INSERT/UPDATE while the legacy-migration job works through historical rows.
+   unrepresentable in the schema and not only in the resolver. The two new
+   columns' constraints are validated (`contacts` because the backfill
+   provably satisfies it, `widget_settings` because it starts empty); the
+   pre-existing key columns get `NOT VALID` constraints, which still enforce
+   the rule on every new INSERT/UPDATE while the legacy-migration job works
+   through historical rows.
 
 It deliberately does **not** clear the now-derived `*_url` columns. Deployment
 order is `189 → 190 → backend → frontend`, so for the length of the deploy the
@@ -163,5 +235,8 @@ exposes `canServePublicUrls` so the admin screen can say so up front.
    to it in the same statement.
 3. Derive the link for the response and for every read path through
    `createStorageUrlResolver()`, scoped to the request.
-4. Add the column to the migration map above, and to the forbidden-assignment
-   list in `src/test/storage/keyOnlyStructuralGuard.test.ts`.
+4. Do NOT add a URL field to the feature's settings schema. The upload
+   endpoint is the only mutation; the settings schema stays `.strict()` and
+   image-free.
+5. Add the column to the migration map above, and to the forbidden-assignment
+   and closed-input lists in `src/test/storage/keyOnlyStructuralGuard.test.ts`.

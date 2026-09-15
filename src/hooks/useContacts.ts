@@ -42,13 +42,14 @@ export function useCreateContact(workspaceId: string | undefined) {
       // self-hosted server enforces max_contacts via requireLimit.
       return await contactsApi.create({
         workspace_id: workspaceId!,
-        email: (contact as any).email ?? null,
-        name: (contact as any).name ?? null,
-        phone: (contact as any).phone ?? null,
-        avatar_url: (contact as any).avatar_url ?? null,
-        tags: (contact as any).tags ?? [],
-        notes: (contact as any).notes ?? null,
-        metadata: (contact as any).metadata ?? {},
+        email: contact.email ?? null,
+        name: contact.name ?? null,
+        phone: contact.phone ?? null,
+        // No avatar field: a contact avatar is only ever stored by an
+        // ingest path, which writes its canonical storage key.
+        tags: contact.tags ?? [],
+        notes: contact.notes ?? null,
+        metadata: contact.metadata ?? {},
       });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['contacts', workspaceId] }),
@@ -65,13 +66,12 @@ export function useBulkCreateContacts(workspaceId: string | undefined) {
       const result = await contactsApi.bulkCreate(
         workspaceId!,
         contacts.map((c) => ({
-          email: (c as any).email ?? null,
-          name: (c as any).name ?? null,
-          phone: (c as any).phone ?? null,
-          avatar_url: (c as any).avatar_url ?? null,
-          tags: (c as any).tags ?? [],
-          notes: (c as any).notes ?? null,
-          metadata: (c as any).metadata ?? {},
+          email: c.email ?? null,
+          name: c.name ?? null,
+          phone: c.phone ?? null,
+          tags: c.tags ?? [],
+          notes: c.notes ?? null,
+          metadata: c.metadata ?? {},
         })),
       );
       return { inserted: result.inserted };

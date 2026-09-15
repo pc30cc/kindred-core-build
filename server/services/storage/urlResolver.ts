@@ -241,14 +241,16 @@ export async function userAvatarUrlMap(
 /**
  * Public URL for a contact avatar.
  *
- * `contacts.avatar_url` is the one column with two legitimate producers: the
- * channel ingest, which stores our own object and therefore a key, and the
- * CRM/API import, where an integrator supplies somebody else's URL
- * (a Gravatar, a CRM's own CDN). A key always wins, because it is ours and
- * survives a promotion; the stored URL is only consulted when there is no
- * key, and then only if it is externally supplied — which is exactly what
- * migration 190's CHECK constraint guarantees by refusing to let both
- * columns be set at once.
+ * `avatar_storage_key` is the ONLY supported write model: bytes arrive
+ * through an ingest path, land in WebYar storage, and the row records the
+ * key. Nothing may persist a contact avatar URL any more — the API schema
+ * no longer has the field (server/routes/contacts.ts) and the ingest writer
+ * clears the column.
+ *
+ * @deprecated LEGACY READ FALLBACK — the `avatar_url` branch below exists
+ * only so rows written before this change keep rendering during rollout. It
+ * is read-only: no code path creates a new value for it. Remove it, and the
+ * column, once the cleanup migration has run.
  */
 export async function resolveContactAvatarUrl(
   resolver: StorageUrlResolver,

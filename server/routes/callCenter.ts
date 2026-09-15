@@ -293,10 +293,13 @@ async function requireGlobalAdmin(req: Request, res: Response) {
 /**
  * The call-centre widget avatar's public link, derived from its stored key.
  *
- * `call_center_settings.avatar_storage_path` is the only persisted record of
- * the object; `avatar_url` is no longer written by the upload route, so it
- * only ever holds an operator-supplied external link (the settings PATCH
- * schema still accepts one). A key therefore wins over it.
+ * `avatar_storage_path` is the only supported record of the object: the
+ * upload route writes it and clears `avatar_url`, and the settings PATCH
+ * schema has no avatar field at all.
+ *
+ * @deprecated LEGACY READ FALLBACK — the `avatar_url` branch exists only so
+ * rows written before this change keep rendering during rollout. Read-only:
+ * nothing creates a new value for it. Remove it with the column.
  */
 async function resolveCallCenterAvatarUrl(
   config: ServerConfig,
@@ -415,9 +418,12 @@ const settingsPatchSchema = z.object({
   widget_template_id: z.literal('default').optional(),
   widget_theme: callWidgetThemeSchema.optional(),
   display_name: z.string().nullable().optional(),
-  avatar_url: z.string().nullable().optional(),
-  // avatar_storage_path is intentionally NOT settable from clients.
-  // It is only written by the avatar upload route to prevent path injection.
+  // NO AVATAR FIELD. The call-centre avatar has exactly two mutations —
+  // POST /settings/avatar and DELETE /settings/avatar — which store the
+  // bytes in WebYar storage and record `avatar_storage_path`; the link is
+  // derived from that key on every read. Neither `avatar_url` (a manually
+  // typed link, which cannot follow a provider promotion and is not ours to
+  // serve) nor `avatar_storage_path` (path injection) is settable here.
   voice_enabled: z.boolean().optional(),
   video_enabled: z.boolean().optional(),
   callback_enabled: z.boolean().optional(),
@@ -433,7 +439,7 @@ const settingsPatchSchema = z.object({
   widget_default_locale: z.enum(['en', 'fa', 'tr']).nullable().optional(),
   widget_enabled_locales: z.array(z.enum(['en', 'fa', 'tr'])).nullable().optional(),
   widget_custom_texts: z.record(z.record(z.string().max(200))).nullable().optional(),
-});
+}).strict();
 
 callCenterRouter.put('/settings', async (req, res) => {
   const wid = String(req.query.workspaceId || req.body?.workspaceId || '');

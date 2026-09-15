@@ -103,6 +103,102 @@ describe('no writer persists a provider URL', () => {
   });
 });
 
+describe('no Workspace-writable schema accepts a media URL', () => {
+  /**
+   * The product rule, not a style rule: a workspace user, operator or admin
+   * must never be able to type a media/file URL and have it persisted.
+   * WebYar-managed media has exactly one path —
+   *
+   *   upload/ingest -> WebYar storage -> canonical key -> URL derived on read
+   *
+   * — so every one of these fields was removed from its request schema. The
+   * previous pass checked only what UPLOAD HANDLERS wrote, which is why it
+   * missed the launcher image: nothing was wrong with the upload, the hole
+   * was the settings schema next to it. These assertions look at the
+   * schemas.
+   */
+  const CLOSED_INPUTS: Array<{ file: string; schema: RegExp; field: string; what: string }> = [
+    {
+      file: 'server/routes/contacts.ts',
+      schema: /const contactSchema = z\.object\(\{[\s\S]*?\}\)\.strict\(\)/,
+      field: 'avatar_url',
+      what: 'contact create / bulk / update',
+    },
+    {
+      file: 'server/routes/ai-agent/assistant.ts',
+      schema: /const updateSchema = z\.object\(\{[\s\S]*?\n\}\)\.strict\(\)/,
+      field: 'agent_logo_url',
+      what: 'the AI agent settings PUT',
+    },
+    {
+      file: 'server/routes/callCenter.ts',
+      schema: /const settingsPatchSchema = z\.object\(\{[\s\S]*?\n\}\)\.strict\(\)/,
+      field: 'avatar_url',
+      what: 'the call-centre settings PUT',
+    },
+    {
+      file: 'server/routes/widgetSettings.ts',
+      schema: /const widgetSettingsPatchSchema = z\.object\(\{[\s\S]*?\n\}\)\.strict\(\)/,
+      field: 'fab_image_url',
+      what: 'the generic widget settings PATCH',
+    },
+  ];
+
+  for (const { file, schema, field, what } of CLOSED_INPUTS) {
+    it(`${what} does not accept ${field}`, () => {
+      const match = schema.exec(read(file));
+      expect(match, `schema not found in ${file}`).toBeTruthy();
+      // A comment may mention the field (explaining why it is gone); an
+      // actual `field: z.…` declaration may not exist.
+      const declarations = (match![0].match(new RegExp(`^\\s*${field}\\s*:`, 'gm')) ?? []);
+      expect(declarations).toEqual([]);
+    });
+  }
+
+  it('every one of those schemas is fail-closed, so a stale client is told', () => {
+    // `.strict()` turns "we ignored your avatar_url" into a 400 naming it —
+    // the difference between a silently dropped write and a visible one.
+    for (const { file, schema } of CLOSED_INPUTS) {
+      expect(schema.test(read(file)), file).toBe(true);
+    }
+  });
+
+  it('the workspace branding PATCH strips media URL columns from its passthrough body', () => {
+    const body = read('server/routes/workspaces.ts');
+    for (const field of ['logo_storage_key', 'logo_url', 'favicon_url', 'social_image_url']) {
+      expect(body, field).toContain(`'${field}'`);
+    }
+    expect(body).toMatch(/for \(const field of STORAGE_OWNED_BRANDING_FIELDS\) delete updates\[field\];/);
+  });
+
+  it('no WebYar upload result URL is persisted into a domain or settings table', () => {
+    // A general sweep, not a per-file list: any `<something>_url: <x>.url`
+    // where x is an upload result is the exact shape this architecture
+    // forbids, wherever it appears.
+    const offenders: string[] = [];
+    for (const rel of walk('server')) {
+      const lines = read(rel).split('\n');
+      lines.forEach((line, i) => {
+        if (/\w+_url\s*:\s*(result|uploaded|upload|saved|res)\b[^,;)]*\.url\b/.test(line)) {
+          offenders.push(`${rel}:${i + 1}  ${line.trim()}`);
+        }
+      });
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('the launcher image is uploaded by the server, never by the browser', () => {
+    const page = read('src/pages/app/WidgetPage.tsx');
+    // The old shape: browser uploads through the generic storage API, then
+    // saves whichever provider URL came back.
+    expect(page).not.toContain('storageUpload');
+    expect(page).not.toMatch(/setField\(\s*'fab_image_url'/);
+    // The new shape: hand the bytes to the dedicated endpoint.
+    expect(page).toContain('useUploadWidgetFabImage');
+    expect(read('server/routes/widgetSettings.ts')).toContain("widgetSettingsRouter.post('/:workspaceId/fab-image'");
+  });
+});
+
 describe('URL derivation has exactly one home', () => {
   const RESOLVER = 'server/services/storage/urlResolver.ts';
 
@@ -162,9 +258,16 @@ describe('migration 190 backfills conservatively', () => {
       'profiles_avatar_storage_key_owned',
       'workspace_branding_logo_storage_key_owned',
       'call_center_settings_avatar_storage_path_owned',
+      'widget_settings_fab_image_storage_key_owned',
     ]) {
       expect(body).toContain(name);
     }
+  });
+
+  it('adds the launcher-image key column, scoped to the workspace widget namespace', () => {
+    const body = read(SQL);
+    expect(body).toContain('ADD COLUMN IF NOT EXISTS fab_image_storage_key text');
+    expect(body).toContain("fab_image_storage_key LIKE 'workspace/' || workspace_id::text || '/widget/%'");
   });
 
   it('leaves migration 189 untouched by this change', () => {

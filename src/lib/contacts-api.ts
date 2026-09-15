@@ -9,12 +9,14 @@ import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
  */
 const API_BASE = RESOLVED_API_BASE || '';
 
+/** An Error that also carries the failed response, for callers that branch on it. */
+type ApiError = Error & { status?: number; body?: unknown };
+
 export interface CreateContactInput {
   workspace_id: string;
   email?: string | null;
   name?: string | null;
   phone?: string | null;
-  avatar_url?: string | null;
   tags?: string[];
   notes?: string | null;
   metadata?: Record<string, unknown>;
@@ -35,7 +37,7 @@ export const contactsApi = {
     });
     const json = await res.json();
     if (!res.ok) {
-      const err: any = new Error(json.error || `Create failed: ${res.status}`);
+      const err: ApiError = new Error(json.error || `Create failed: ${res.status}`);
       err.status = res.status;
       err.body = json;
       throw err;
@@ -53,7 +55,7 @@ export const contactsApi = {
     });
     const json = await res.json();
     if (!res.ok) {
-      const err: any = new Error(json.error || `Bulk create failed: ${res.status}`);
+      const err: ApiError = new Error(json.error || `Bulk create failed: ${res.status}`);
       err.status = res.status;
       err.body = json;
       throw err;

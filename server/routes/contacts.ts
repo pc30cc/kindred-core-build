@@ -48,15 +48,28 @@ type ContactRow = Record<string, unknown> & {
   avatar_storage_key?: string | null;
 };
 
+/**
+ * NO MEDIA URL IS WRITABLE HERE.
+ *
+ * `avatar_url` used to be part of this schema, which let a workspace caller
+ * persist an arbitrary `https://…` into `contacts.avatar_url`. That is the
+ * model this platform does not have: a contact avatar WebYar keeps must
+ * enter through an ingest path (bytes -> WebYar storage -> canonical key in
+ * `contacts.avatar_storage_key`), and its link is derived at read time. A
+ * manually typed URL cannot follow a provider promotion, cannot be deleted
+ * with the workspace, and is not ours to serve.
+ *
+ * `.strict()` so the removal is visible: a client still sending
+ * `avatar_url` gets a 400 naming the field, not a silent drop.
+ */
 const contactSchema = z.object({
   email: z.string().email().max(320).nullable().optional(),
   name: z.string().max(200).nullable().optional(),
   phone: z.string().max(64).nullable().optional(),
-  avatar_url: z.string().max(2048).nullable().optional(),
   tags: z.array(z.string().max(64)).max(64).optional(),
   notes: z.string().max(10_000).nullable().optional(),
   metadata: z.record(z.unknown()).optional(),
-});
+}).strict();
 
 const createSchema = contactSchema.extend({
   workspace_id: z.string().uuid(),
@@ -80,11 +93,8 @@ async function authorizeWorkspaceMember(
 }
 
 /**
- * `avatar_url` on this API is an EXTERNAL link an integrator supplies (a
- * CRM's own CDN, a Gravatar). It is not one of our objects, so it is stored
- * as given — and it clears `avatar_storage_key`, because an explicit
- * external avatar replaces one we stored rather than sitting behind it
- * (a key always wins when both are present).
+ * Neither avatar column is set here: a contact created through the API has
+ * no avatar until an ingest path stores one and writes its key.
  */
 function normalizeContactRow(c: z.infer<typeof contactSchema>, workspaceId: string) {
   return {
@@ -92,8 +102,6 @@ function normalizeContactRow(c: z.infer<typeof contactSchema>, workspaceId: stri
     email: c.email ?? null,
     name: c.name ?? null,
     phone: c.phone ?? null,
-    avatar_url: c.avatar_url ?? null,
-    avatar_storage_key: null,
     tags: c.tags ?? [],
     notes: c.notes ?? null,
     metadata: c.metadata ?? {},
@@ -108,6 +116,11 @@ contactsRouter.post('/', async (req, res) => {
       return res.status(400).json({
         error: 'Invalid payload',
         details: parsed.error.flatten().fieldErrors,
+        // `fieldErrors` is empty for an unrecognized key (a field this
+        // schema deliberately dropped, such as the old `avatar_url`), so
+        // the raw issues are surfaced too — a stale client must be told
+        // WHICH key was refused, not just that something was.
+        issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
       });
     }
     const auth = await authorizeWorkspaceMember(req, res, config, parsed.data.workspace_id);
@@ -161,6 +174,11 @@ contactsRouter.post('/bulk', async (req, res) => {
       return res.status(400).json({
         error: 'Invalid payload',
         details: parsed.error.flatten().fieldErrors,
+        // `fieldErrors` is empty for an unrecognized key (a field this
+        // schema deliberately dropped, such as the old `avatar_url`), so
+        // the raw issues are surfaced too — a stale client must be told
+        // WHICH key was refused, not just that something was.
+        issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
       });
     }
     const auth = await authorizeWorkspaceMember(req, res, config, parsed.data.workspace_id);
@@ -341,7 +359,11 @@ contactsRouter.patch('/:id', async (req, res) => {
     const config: ServerConfig = serverConfigOf(req);
     const parsed = updateContactSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten().fieldErrors });
+      return res.status(400).json({
+        error: 'Invalid payload',
+        details: parsed.error.flatten().fieldErrors,
+        issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+      });
     }
     const sb = getServiceClient(config);
     const loaded = await loadAndAuthorizeContact(req, res, config, sb, req.params.id);
@@ -349,13 +371,10 @@ contactsRouter.patch('/:id', async (req, res) => {
 
     const { data, error } = await sb
       .from('contacts')
-      .update({
-        ...parsed.data,
-        // An explicit external avatar replaces one we stored — see
-        // normalizeContactRow() for why the key is dropped rather than kept.
-        ...('avatar_url' in parsed.data ? { avatar_storage_key: null } : {}),
-        updated_at: new Date().toISOString(),
-      })
+      // No avatar field can reach here — the schema has none (see
+      // contactSchema). Both avatar columns are owned exclusively by the
+      // ingest path.
+      .update({ ...parsed.data, updated_at: new Date().toISOString() })
       .eq('id', req.params.id)
       .select()
       .single();

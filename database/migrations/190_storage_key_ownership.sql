@@ -20,7 +20,11 @@
 --      profiles.avatar_storage_key             ai_agent_settings.metadata->ai_avatar_storage_key
 --
 --    Contact avatars (server/services/channels/telegram/mediaIngest.ts) kept
---    only `avatar_url`, with nothing to derive from.
+--    only `avatar_url`, with nothing to derive from. The widget launcher
+--    image (`widget_settings.fab_image_url`) was worse still: the browser
+--    uploaded the bytes and then PATCHed the provider URL the upload route
+--    returned straight back into the settings row, so the row recorded a
+--    vendor hostname and no key at all.
 --
 --    The backfill is deliberately CONSERVATIVE and per-row workspace-scoped.
 --    It recovers a key only when the stored URL contains this row's OWN
@@ -77,6 +81,21 @@ WHERE c.avatar_storage_key IS NULL
   AND split_part(split_part(c.avatar_url, '#', 1), '?', 1)
       LIKE '%workspace/' || c.workspace_id::text || '/avatars/telegram/%';
 
+-- ─── 1b. widget_settings.fab_image_storage_key ─────────────────────
+--
+-- No backfill is possible or attempted. The launcher image was uploaded by
+-- the browser through the generic storage API with a client-chosen key, so
+-- a row's `fab_image_url` is a provider URL whose key shape this migration
+-- cannot prove belongs to the workspace. Existing rows therefore keep
+-- rendering from the legacy URL (read-only) until an operator re-uploads
+-- through the new endpoint, which stores the key and clears the URL.
+
+ALTER TABLE public.widget_settings
+  ADD COLUMN IF NOT EXISTS fab_image_storage_key text;
+
+COMMENT ON COLUMN public.widget_settings.fab_image_storage_key IS
+  'Canonical storage key of the widget launcher image (workspace/<workspace_id>/widget/launcher/...). The only persisted record of the file: its public URL is derived at read time for whichever storage provider is primary. Written solely by POST /api/widget-settings/:workspaceId/fab-image — never from the generic settings PATCH.';
+
 -- ─── 2. Ownership constraints ──────────────────────────────────────
 
 DO $contacts_ck$
@@ -129,6 +148,22 @@ BEGIN
 END
 $branding_ck$;
 
+DO $fab_ck$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.widget_settings'::regclass AND conname = 'widget_settings_fab_image_storage_key_owned'
+  ) THEN
+    ALTER TABLE public.widget_settings
+      ADD CONSTRAINT widget_settings_fab_image_storage_key_owned
+      CHECK (
+        fab_image_storage_key IS NULL
+        OR fab_image_storage_key LIKE 'workspace/' || workspace_id::text || '/widget/%'
+      );
+  END IF;
+END
+$fab_ck$;
+
 DO $callcenter_ck$
 BEGIN
   IF NOT EXISTS (
@@ -158,6 +193,13 @@ BEGIN
     RAISE EXCEPTION 'storage_key_ownership: contacts.avatar_storage_key missing';
   END IF;
 
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'widget_settings' AND column_name = 'fab_image_storage_key'
+  ) THEN
+    RAISE EXCEPTION 'storage_key_ownership: widget_settings.fab_image_storage_key missing';
+  END IF;
+
   -- The backfill must never have adopted another tenant's key.
   SELECT count(*) INTO bad_rows
   FROM public.contacts
@@ -172,7 +214,8 @@ BEGIN
       ('contacts_avatar_storage_key_owned'),
       ('profiles_avatar_storage_key_owned'),
       ('workspace_branding_logo_storage_key_owned'),
-      ('call_center_settings_avatar_storage_path_owned')
+      ('call_center_settings_avatar_storage_path_owned'),
+      ('widget_settings_fab_image_storage_key_owned')
     ) AS expected(name)
     WHERE NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = expected.name)
   LOOP

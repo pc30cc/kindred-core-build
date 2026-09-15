@@ -422,8 +422,23 @@ const PLATFORM_OWNED_BRANDING_FIELDS = ['platform_name'] as const;
  * workspace's bucket namespace and is written ONLY by the icon upload route
  * (account.ts), never from a client body — a caller that could set it could
  * point this row at any key.
+ *
+ * The `*_url` columns are stripped for the opposite reason: this PATCH is a
+ * `passthrough()` schema, so without this list a workspace admin could type
+ * an arbitrary `https://…` into a media column. WebYar-managed media has
+ * exactly one path — upload to WebYar storage, persist the canonical key,
+ * derive the link on read — and a manually entered URL is not it. The
+ * workspace icon already has that path (POST /api/account/workspace-icon);
+ * `favicon_url` and `social_image_url` have no upload endpoint yet and are
+ * therefore simply not writable until one exists, rather than being left
+ * open as a manual-URL hole.
  */
-const STORAGE_OWNED_BRANDING_FIELDS = ['logo_storage_key'] as const;
+const STORAGE_OWNED_BRANDING_FIELDS = [
+  'logo_storage_key',
+  'logo_url',
+  'favicon_url',
+  'social_image_url',
+] as const;
 
 workspacesRouter.patch(`/${WORKSPACE_ID_PARAM}/branding`, async (req: WorkspaceIdRequest, res) => {
   const config: ServerConfig = serverConfigOf(req);

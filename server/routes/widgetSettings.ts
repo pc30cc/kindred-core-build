@@ -9,7 +9,7 @@
  * `workspace_owner_phone_verified` gate on workspace-level writes
  * (supabase/migrations/20260801214300_...sql).
  */
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
@@ -21,17 +21,20 @@ import {
   resolveWidgetEntitlements,
   guardWidgetSettingsPatch,
 } from '../services/widget/entitlements.js';
+import { uploadForOwner, deleteForOwner } from '../services/storage/index.js';
+import { widgetAssetKey } from '../services/storage/keys.js';
+import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
 
 
 export const widgetSettingsRouter = Router();
 
-function serverConfigOf(req: any): ServerConfig {
-  return req.serverConfig as ServerConfig;
+function serverConfigOf(req: Request): ServerConfig {
+  return (req as Request & { serverConfig: ServerConfig }).serverConfig;
 }
 
 async function requireManageWithPhoneVerified(
-  req: any,
-  res: any,
+  req: Request,
+  res: Response,
   workspaceId: string,
 ): Promise<{ userId: string } | null> {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
@@ -67,8 +70,31 @@ widgetSettingsRouter.get('/:workspaceId', async (req, res) => {
     .eq('workspace_id', req.params.workspaceId)
     .single();
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ settings: data });
+  return res.json({ settings: await withDerivedFabImageUrl(config, req.params.workspaceId, data) });
 });
+
+/**
+ * `fab_image_url` is DERIVED from `fab_image_storage_key` for whichever
+ * storage provider is primary right now, so promoting a new one rewrites no
+ * row. The key itself never leaves the server.
+ *
+ * The `?? row.fab_image_url` tail is a LEGACY READ FALLBACK (deprecated):
+ * rows uploaded before this endpoint existed hold a provider URL and no
+ * key, and would otherwise render a broken launcher during rollout. It is
+ * read-only — nothing creates a new value for that column — and goes away
+ * with the column itself.
+ */
+async function withDerivedFabImageUrl(
+  config: ServerConfig,
+  workspaceId: string,
+  row: Record<string, unknown> | null,
+): Promise<Record<string, unknown> | null> {
+  if (!row) return row;
+  const key = typeof row.fab_image_storage_key === 'string' ? row.fab_image_storage_key : null;
+  const derived = await createStorageUrlResolver(config).workspace(workspaceId, key);
+  const { fab_image_storage_key: _key, ...safe } = row;
+  return { ...safe, fab_image_url: derived ?? row.fab_image_url ?? null };
+}
 
 /**
  * Explicit allowlist of columns a workspace owner/admin may write on their
@@ -116,7 +142,12 @@ const widgetSettingsPatchSchema = z.object({
   fab_label: z.string().max(100).nullable().optional(),
   fab_scale: z.number().min(50).max(300).optional(),
   fab_icon: z.string().max(50).nullable().optional(),
-  fab_image_url: z.string().max(2000).nullable().optional(),
+  // NO fab_image_url. The launcher image is uploaded to WebYar storage
+  // through POST /:workspaceId/fab-image, which records only
+  // `fab_image_storage_key`; the link is derived on read. A settings PATCH
+  // that could write an arbitrary image URL would reopen exactly the
+  // manual-URL path this platform does not have — and because this schema
+  // is `.strict()`, a client still sending the field gets a 400 naming it.
   // Master + per-feature toggles
   enabled: z.boolean().optional(),
   chat_enabled: z.boolean().optional(),
@@ -159,7 +190,7 @@ widgetSettingsRouter.patch('/:workspaceId', async (req, res) => {
   // on a widget behaviour the workspace plan does not grant, or exceed the
   // embed-domain cap.
   const entitlements = await resolveWidgetEntitlements(config, workspaceId);
-  const guard = guardWidgetSettingsPatch(parsed.data as Record<string, any>, entitlements);
+  const guard = guardWidgetSettingsPatch(parsed.data as Record<string, unknown>, entitlements);
   if (!guard.ok) {
     return res.status(403).json({
       error: 'plan_upgrade_required',
@@ -170,7 +201,7 @@ widgetSettingsRouter.patch('/:workspaceId', async (req, res) => {
 
   // The powered-by footer may only be switched OFF by the workspace when the
   // plan grants that right; otherwise it stays forced ON.
-  const patch = { ...(parsed.data as Record<string, any>) };
+  const patch = { ...(parsed.data as Record<string, unknown>) };
   if ('show_powered_by' in patch && entitlements.features.widget_powered_by_toggle !== true) {
     patch.show_powered_by = true;
   }
@@ -187,7 +218,148 @@ widgetSettingsRouter.patch('/:workspaceId', async (req, res) => {
   // a short-lived cache — drop it now so the change is live immediately
   // instead of after the TTL.
   invalidateWorkspaceOriginCache(workspaceId);
-  return res.json({ settings: data });
+  return res.json({ settings: await withDerivedFabImageUrl(config, workspaceId, data) });
+});
+
+// ── widget launcher (FAB) image ───────────────────────────────────
+//
+// The ONE way this file's bytes get into the platform. It is deliberately
+// NOT the generic storage API plus a settings PATCH: that shape let the
+// browser choose the object key AND then persist whatever provider URL the
+// upload returned, so the row recorded a vendor hostname with no key behind
+// it and a provider promotion silently broke every launcher.
+//
+// Here the server owns every part of it: it authorizes `manage`, validates
+// the bytes, BUILDS THE KEY ITSELF (the client cannot influence it), uploads
+// through the workspace-owned primitive, and stores only the key. The URL in
+// the response is derived from that key, exactly as every later read derives
+// it.
+
+const FAB_IMAGE_MIMES: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+};
+const FAB_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+
+const fabImageSchema = z.object({
+  contentType: z.string().max(80),
+  /** base64 — the same transport the account-avatar and branding uploads use. */
+  data: z.string().min(1),
+  fileName: z.string().max(160).optional(),
+}).strict();
+
+widgetSettingsRouter.post('/:workspaceId/fab-image', async (req, res) => {
+  const config = serverConfigOf(req);
+  const workspaceId = req.params.workspaceId;
+  const parsed = fabImageSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: 'Invalid input',
+      issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+    });
+  }
+  const auth = await requireManageWithPhoneVerified(req, res, workspaceId);
+  if (!auth) return;
+
+  const ext = FAB_IMAGE_MIMES[parsed.data.contentType.toLowerCase()];
+  if (!ext) return res.status(415).json({ error: 'unsupported_image_type' });
+
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.from(parsed.data.data, 'base64');
+  } catch {
+    return res.status(400).json({ error: 'invalid_data' });
+  }
+  if (buffer.length === 0) return res.status(400).json({ error: 'empty_file' });
+  if (buffer.length > FAB_IMAGE_MAX_BYTES) return res.status(413).json({ error: 'file_too_large' });
+
+  const sb = getServiceClient(config);
+  const { data: previous } = await sb
+    .from('widget_settings')
+    .select('fab_image_storage_key')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  const previousKey = typeof previous?.fab_image_storage_key === 'string'
+    ? previous.fab_image_storage_key
+    : null;
+
+  // Server-built key. `widgetAssetKey` roots it at
+  // workspace/<id>/widget/launcher/, which is what migration 190's
+  // ownership CHECK on this column requires.
+  const fileKey = widgetAssetKey({
+    workspaceId,
+    category: 'launcher',
+    fileName: parsed.data.fileName || `launcher.${ext}`,
+  });
+
+  const uploaded = await uploadForOwner(config, {
+    owner: { kind: 'workspace', workspaceId },
+    fileKey,
+    data: buffer,
+    contentType: parsed.data.contentType,
+  });
+  if (!uploaded.success) {
+    return res.status(502).json({ error: 'upload_failed', details: uploaded.error });
+  }
+
+  // KEY ONLY. The legacy URL column is cleared in the same statement so a
+  // value written by the old browser-upload path cannot outlive the key
+  // that replaces it.
+  const { data: saved, error } = await sb
+    .from('widget_settings')
+    .update({
+      fab_image_storage_key: fileKey,
+      fab_image_url: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('workspace_id', workspaceId)
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+
+  if (previousKey && previousKey !== fileKey) {
+    await deleteForOwner(config, { kind: 'workspace', workspaceId }, previousKey).catch(() => undefined);
+  }
+
+  return res.json({ settings: await withDerivedFabImageUrl(config, workspaceId, saved) });
+});
+
+widgetSettingsRouter.delete('/:workspaceId/fab-image', async (req, res) => {
+  const config = serverConfigOf(req);
+  const workspaceId = req.params.workspaceId;
+  const auth = await requireManageWithPhoneVerified(req, res, workspaceId);
+  if (!auth) return;
+
+  const sb = getServiceClient(config);
+  const { data: previous } = await sb
+    .from('widget_settings')
+    .select('fab_image_storage_key')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  const previousKey = typeof previous?.fab_image_storage_key === 'string'
+    ? previous.fab_image_storage_key
+    : null;
+
+  const { data: saved, error } = await sb
+    .from('widget_settings')
+    .update({
+      fab_image_storage_key: null,
+      // Also clears any legacy URL, so removing the image removes it for
+      // rows that predate the key column too.
+      fab_image_url: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('workspace_id', workspaceId)
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+
+  if (previousKey) {
+    await deleteForOwner(config, { kind: 'workspace', workspaceId }, previousKey).catch(() => undefined);
+  }
+
+  return res.json({ settings: await withDerivedFabImageUrl(config, workspaceId, saved) });
 });
 
 // ── widget_settings.debug_mode (per workspace, platform-admin only) ──
@@ -367,7 +539,9 @@ widgetSettingsRouter.get('/platform/config', async (req, res) => {
   if (!(await requirePlatformAdmin(req, res))) return;
   const sb = getServiceClient(config);
 
-  const fail = (stage: string, error: any) =>
+  /** The PostgREST error shape this handler reports back to a platform admin. */
+  type PostgrestFailure = { message?: string; details?: string; code?: string; hint?: string } | null;
+  const fail = (stage: string, error: PostgrestFailure) =>
     res.status(500).json({
       error: `widget_platform_settings ${stage} failed: ${error?.message || 'unknown error'}`,
       detail: error?.details || undefined,

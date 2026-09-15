@@ -70,11 +70,17 @@ assistantRouter.get('/capabilities', async (req: Request, res: Response) => {
 });
 
 // ─── PUT /settings ───
+//
+// The agent's logo is NOT settable here. The only two mutations are
+// POST /settings/avatar and DELETE /settings/avatar, which put the bytes in
+// WebYar storage and record `metadata.ai_avatar_storage_key`; the display
+// link is derived from that key at read time. A generic settings save that
+// could also write `agent_logo_url` would reopen the manual-URL path this
+// platform does not have.
 const updateSchema = z.object({
   workspaceId: z.string().uuid(),
   enabled: z.boolean().optional(),
   agent_name: z.string().min(1).max(120).optional(),
-  agent_logo_url: z.string().url().nullable().optional(),
   business_description: z.string().max(2000).nullable().optional(),
   answer_guidance: z.enum(['conservative','balanced','creative']).optional(),
   mode: z.enum(['off','suggest_only','auto_reply_when_offline','auto_reply_until_human_joins','auto_reply_always']).optional(),
@@ -118,7 +124,7 @@ const updateSchema = z.object({
   pause_auto_reply_after_human_reply: z.boolean().optional(),
   allow_suggestions_after_takeover: z.boolean().optional(),
   keep_in_automated_until_handoff: z.boolean().optional(),
-});
+}).strict();
 
 assistantRouter.put('/settings', async (req: Request, res: Response) => {
   const config = serverConfigOf(req);

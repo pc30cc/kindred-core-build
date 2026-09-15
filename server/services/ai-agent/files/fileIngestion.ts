@@ -14,6 +14,7 @@ import { getServiceClient } from '../../../supabase.js';
 import {
   uploadFile, downloadFile, deleteFile, resolveStorageConfig,
 } from '../../storage/index.js';
+import { aiAgentFileKey } from '../../storage/keys.js';
 import { chunkText } from '../knowledgeIndex/chunker.js';
 import { indexSource, getEmbedderForWorkspace } from '../knowledgeIndex/indexer.js';
 import { resolveAiAgentDataLimits } from '../limits.js';
@@ -360,8 +361,9 @@ export async function queueAiFileIngest(
     metadata: { mime_type: mimeType, size_bytes: buffer.length, parser },
   });
 
-  // 2. Upload original file to active storage provider.
-  const fileKey = `workspace/${workspaceId}/ai-agent/files/${source.id}/${crypto.randomUUID()}-${safeName}`;
+  // 2. Upload original file to active storage provider, via the central
+  // aiAgentFileKey() builder (server/services/storage/keys.ts).
+  const fileKey = aiAgentFileKey({ workspaceId, sourceId: source.id, fileName: safeName });
   const upload = await uploadFile(config, { workspaceId, fileKey, data: buffer, contentType: mimeType });
   if (!upload.success) {
     await sb.from('ai_data_sources').update({

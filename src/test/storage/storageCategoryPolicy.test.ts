@@ -55,6 +55,14 @@ describe('StorageCategoryPolicy registry', () => {
         'operator_upload',
         'call_center_avatar',
         'privacy_export',
+        // Workspace-first storage finalization audit: both of these were
+        // wrongly marked wired:false ("no producer yet") — real producers
+        // already existed (server/services/channels/telegram/mediaIngest.ts's
+        // persistContactAvatar(), server/routes/ai-agent/assistant.ts's
+        // avatar upload), just via ad-hoc keys instead of the matching
+        // keys.ts builder. Corrected here, not a new feature.
+        'contact_avatar',
+        'ai_agent_avatar',
       ].sort(),
     );
   });

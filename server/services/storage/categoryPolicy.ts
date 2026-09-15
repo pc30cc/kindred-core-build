@@ -120,15 +120,15 @@ export interface StorageCategoryPolicyEntry {
 export const STORAGE_CATEGORY_POLICY: Record<StorageCategory, StorageCategoryPolicyEntry> = {
   conversation_attachment: {
     countsTowardQuota: true, retention: 'workspace_lifecycle', visibility: 'private', ownerKind: 'workspace', wired: true,
-    notes: 'server/routes/conversationAttachments.ts -> uploadFile(). Gated by requireLimit(storage_gb) per docs/STORAGE_LIMIT_POLICY.md.',
+    notes: 'server/routes/conversationAttachments.ts -> uploadFile(), via the central chatAttachmentKey() builder (workspace-first storage finalization audit — was a local ad-hoc buildStoragePath() before this fix, byte-identical logic triplicated across this file, widgetAttachments.ts and mediaIngest.ts). Gated by requireLimit(storage_gb) per docs/STORAGE_LIMIT_POLICY.md.',
   },
   widget_attachment: {
     countsTowardQuota: true, retention: 'workspace_lifecycle', visibility: 'private', ownerKind: 'workspace', wired: true,
-    notes: 'server/routes/widgetAttachments.ts -> uploadFile(). Gated by requireLimit(storage_gb).',
+    notes: 'server/routes/widgetAttachments.ts -> uploadFile(), via the central chatAttachmentKey() builder (see conversation_attachment note). Gated by requireLimit(storage_gb).',
   },
   channel_attachment: {
     countsTowardQuota: true, retention: 'workspace_lifecycle', visibility: 'private', ownerKind: 'workspace', wired: true,
-    notes: 'server/services/channels/telegram/mediaIngest.ts (and equivalent channel media ingesters) -> uploadFile(). Not requireLimit-gated (inbound provider webhooks can\'t be blocked the way an operator upload can), but counted.',
+    notes: 'server/services/channels/telegram/mediaIngest.ts\'s persistInboundAttachment() (and equivalent channel media ingesters) -> uploadFile(), via the central chatAttachmentKey() builder — this file\'s own doc comment declares its shape "identical convention" to conversationAttachments.ts/widgetAttachments.ts, so it shares that builder rather than the differently-shaped channelAttachmentKey() (which remains unused; no producer currently wants a channel-distinct folder). Not requireLimit-gated (inbound provider webhooks can\'t be blocked the way an operator upload can), but counted.',
   },
   email_attachment: {
     countsTowardQuota: true, retention: 'workspace_lifecycle', visibility: 'private', ownerKind: 'workspace', wired: true,
@@ -136,19 +136,19 @@ export const STORAGE_CATEGORY_POLICY: Record<StorageCategory, StorageCategoryPol
   },
   ai_agent_file: {
     countsTowardQuota: true, retention: 'workspace_lifecycle', visibility: 'private', ownerKind: 'workspace', wired: true,
-    notes: 'server/services/ai-agent/files/fileIngestion.ts -> uploadFile().',
+    notes: 'server/services/ai-agent/files/fileIngestion.ts -> uploadFile(), via the central aiAgentFileKey() builder (workspace-first storage finalization audit — was ad-hoc, byte-identical shape, before this fix). This is the platform\'s "knowledge base" file storage; there is no separate KB feature.',
   },
   workspace_branding: {
     countsTowardQuota: true, retention: 'workspace_lifecycle', visibility: 'public', ownerKind: 'workspace', wired: true,
-    notes: 'server/routes/admin.ts workspace icon -> uploadFile(). Legacy branding/<id>/... shape still allowed (isKnownLegacyStorageKey).',
+    notes: 'server/routes/account.ts workspace-icon upload -> uploadForOwner(), via the central workspaceBrandingKey() builder. (A prior version of this note incorrectly cited admin.ts and uploadFile() — corrected during the workspace-first storage finalization audit.) Legacy branding/<id>/... shape still allowed (isKnownLegacyStorageKey).',
   },
   operator_upload: {
     countsTowardQuota: true, retention: 'workspace_lifecycle', visibility: 'private', ownerKind: 'workspace', wired: true,
-    notes: 'server/routes/storage.ts generic POST /api/storage/upload -> uploadFile(). Gated by requireLimit(storage_gb).',
+    notes: 'server/routes/storage.ts generic POST /api/storage/upload -> uploadFile(). Gated by requireLimit(storage_gb). fileKey is caller-supplied but strictly validated (workspaceKeyError()) to require the workspace/<authorizedWorkspaceId>/ prefix before any write — a deliberate generic passthrough, not a dedicated key-builder category.',
   },
   call_center_avatar: {
     countsTowardQuota: true, retention: 'workspace_lifecycle', visibility: 'public', ownerKind: 'workspace', wired: true,
-    notes: 'server/routes/callCenter.ts avatar upload -> uploadFile(), so logging is correct today even though the key shape is ad-hoc (workspace/<id>/call-center/avatar/... instead of callCenterAvatarKey()\'s workspace/<id>/avatars/call-center/...). See call_center_settings_avatar_path_scope_check.',
+    notes: 'server/routes/callCenter.ts avatar upload -> uploadFile(), now via the central callCenterAvatarKey() builder (workspace/<id>/avatars/call-center/...) — fixed during the workspace-first storage finalization audit; call_center_settings_avatar_path_scope_check already accepted this shape in anticipation.',
   },
   privacy_export: {
     countsTowardQuota: true, retention: 'ttl_short', visibility: 'private', ownerKind: 'workspace_or_user', wired: true,
@@ -164,19 +164,19 @@ export const STORAGE_CATEGORY_POLICY: Record<StorageCategory, StorageCategoryPol
   },
   platform_call_center_ringback: {
     countsTowardQuota: false, retention: 'indefinite', visibility: 'private', ownerKind: 'platform', wired: true,
-    notes: 'server/routes/callCenter.ts ringback-audio upload -> uploadWithConfig() with a placeholder all-zero workspaceId (predates the StorageOwner model; the key itself is correctly platform/call-center/ringback/... via platformCallCenterRingbackKey()). Never logs regardless — uploadWithConfig has no logging path at all — so quota exclusion is correct by omission, not by owner.kind gating. The zero-UUID sentinel is a tracked anti-pattern (server/services/storage/keys.ts already has the owner-generic builder) but inert for quota purposes.',
+    notes: 'server/routes/callCenter.ts ringback-audio upload -> uploadWithConfig() via platformCallCenterRingbackKey() (workspace-first storage finalization audit). The previously-tracked all-zero-UUID workspaceId sentinel was removed — it was inert dead code (uploadWithConfig() never read it) and is no longer passed at all. Never logs regardless — uploadWithConfig has no logging path at all — so quota exclusion is correct by omission, not by owner.kind gating.',
   },
   platform_asset: {
     countsTowardQuota: false, retention: 'indefinite', visibility: 'private', ownerKind: 'platform', wired: true,
     notes: 'Any platform/... object. Never attributable to a workspace by definition.',
   },
   contact_avatar: {
-    countsTowardQuota: true, retention: 'workspace_lifecycle', visibility: 'public', ownerKind: 'workspace', wired: false,
-    notes: 'server/services/storage/keys.ts has contactAvatarKey() but no producer writes this shape yet (forward-declared).',
+    countsTowardQuota: true, retention: 'workspace_lifecycle', visibility: 'public', ownerKind: 'workspace', wired: true,
+    notes: 'Corrected during the workspace-first storage finalization audit — this note previously (incorrectly) claimed "no producer writes this shape yet". A real producer exists: server/services/channels/telegram/mediaIngest.ts\'s persistContactAvatar() -> uploadFile(), already workspace-scoped (workspace/<id>/avatars/telegram/<hint>.jpg) and quota-wired by construction, but DELIBERATELY still not routed through contactAvatarKey() — that builder keys the object solely by contactId, with no room for the caller-supplied fileKeyHint the external Channels Worker relies on; changing the shape without visibility into that cross-service contract was judged out of scope for a storage-ownership audit.',
   },
   ai_agent_avatar: {
-    countsTowardQuota: true, retention: 'workspace_lifecycle', visibility: 'public', ownerKind: 'workspace', wired: false,
-    notes: 'aiAgentAvatarKey() exists, unwired.',
+    countsTowardQuota: true, retention: 'workspace_lifecycle', visibility: 'public', ownerKind: 'workspace', wired: true,
+    notes: 'Corrected during the workspace-first storage finalization audit — this note previously (incorrectly) claimed "unwired". server/routes/ai-agent/assistant.ts\'s avatar upload -> uploadFile(), now via the central aiAgentAvatarKey() builder (was ad-hoc workspace/<id>/ai-agent/avatar/... before this fix).',
   },
   integration_avatar: {
     countsTowardQuota: true, retention: 'workspace_lifecycle', visibility: 'public', ownerKind: 'workspace', wired: false,

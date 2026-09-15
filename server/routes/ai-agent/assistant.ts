@@ -22,6 +22,7 @@ import { getOperatorAvailability } from '../../services/ai-agent/availability.js
 import { buildOverview } from '../../services/ai-agent/overview.js';
 import { randomUUID } from 'crypto';
 import { uploadFile, deleteFile } from '../../services/storage/index.js';
+import { aiAgentAvatarKey } from '../../services/storage/keys.js';
 import {
   toCustomerSafeAiAgentSettings,
   validateAvatarBytes,
@@ -228,8 +229,12 @@ assistantRouter.post('/settings/avatar', async (req: Request, res: Response) => 
   const finalMime = v.mime!;
 
   const safeName = safeAvatarFilename(filename);
-  // workspace-scoped path. NEVER returned to the client.
-  const fileKey = `workspace/${workspaceId}/ai-agent/avatar/${randomUUID()}-${safeName}${safeName.endsWith('.' + ext) ? '' : '.' + ext}`;
+  // workspace-scoped path, built via the central aiAgentAvatarKey()
+  // builder (server/services/storage/keys.ts). NEVER returned to the client.
+  const fileKey = aiAgentAvatarKey({
+    workspaceId,
+    fileName: `${safeName}${safeName.endsWith('.' + ext) ? '' : '.' + ext}`,
+  });
 
   // Best-effort cleanup of previous avatar (if it was stored via our provider).
   let oldKey: string | null = null;

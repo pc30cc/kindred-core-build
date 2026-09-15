@@ -5,8 +5,9 @@
  *   - Identity = first-party session cookie (server/lib/workspaceAuth.ts)
  *   - Workspace membership re-verified per call
  *
- * Storage path scope is server-built and identical to the visitor flow:
- *   workspace/{workspace_id}/attachments/{yyyy}/{mm}/{uuid}-{safeFileName}
+ * Storage path scope is server-built via the central chatAttachmentKey()
+ * builder (server/services/storage/keys.ts) and identical to the visitor
+ * flow: workspace/{workspace_id}/attachments/chat/{yyyy}/{mm}/{uuid}-{safeFileName}
  *
  * The same `conversation_attachments` table is reused. The only difference:
  *   uploaded_by_type = 'agent'
@@ -22,10 +23,10 @@
  */
 import { Router } from 'express';
 import { z } from 'zod';
-import crypto from 'crypto';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { uploadFile, downloadFileRange } from '../services/storage/index.js';
+import { chatAttachmentKey } from '../services/storage/keys.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
@@ -110,12 +111,14 @@ function safeFileName(name: string, mime: string): string {
   return `file.${EXT_BY_MIME[mime] || 'bin'}`;
 }
 
+// Workspace-first storage finalization: delegates the actual key
+// construction (owner root, category folder, date partition, uuid) to the
+// single central builder in server/services/storage/keys.ts instead of
+// hand-rolling it here — this route's own safeFileName() above (with its
+// MIME-based extension fallback) is preserved and fed into the builder,
+// so behavior for a genuinely unsafe/empty filename is unchanged.
 function buildStoragePath(workspaceId: string, fileName: string, mime: string): string {
-  const now = new Date();
-  const yyyy = String(now.getUTCFullYear());
-  const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
-  const uuid = crypto.randomUUID();
-  return `workspace/${workspaceId}/attachments/${yyyy}/${mm}/${uuid}-${safeFileName(fileName, mime)}`;
+  return chatAttachmentKey({ workspaceId, fileName: safeFileName(fileName, mime) });
 }
 
 /** Authenticate caller as a workspace member. Sends 401/403 on failure. */

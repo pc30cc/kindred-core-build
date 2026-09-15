@@ -12,26 +12,37 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+type Row = Record<string, unknown>;
+interface MockQueryBuilder {
+  select: () => MockQueryBuilder;
+  eq: () => MockQueryBuilder;
+  order: () => MockQueryBuilder;
+  limit: () => MockQueryBuilder;
+  maybeSingle: () => Promise<{ data: null; error: null }>;
+  insert: (payload: Row) => { select: () => { single: () => Promise<{ data: Row | null; error: null }> } };
+  update: (patch: Row) => { eq: () => Promise<{ data: null; error: null }> };
+}
+
 const state: {
-  attachmentRows: any[];
-  operations: any[];
+  attachmentRows: Row[];
+  operations: Row[];
   gateAllow: boolean;
   uploadOk: boolean;
 } = { attachmentRows: [], operations: [], gateAllow: true, uploadOk: true };
 
 const sbMock = {
   from: (table: string) => {
-    const builder: any = {
+    const builder: MockQueryBuilder = {
       select: () => builder,
       eq: () => builder,
       order: () => builder,
       limit: () => builder,
       maybeSingle: async () => ({ data: null, error: null }),
-      insert: (payload: any) => ({
+      insert: (payload: Row) => ({
         select: () => ({
           single: async () => {
             if (table === 'conversation_attachments') {
-              const row = { id: `att-${state.attachmentRows.length + 1}`, ...payload };
+              const row: Row = { id: `att-${state.attachmentRows.length + 1}`, ...payload };
               state.attachmentRows.push(row);
               return { data: row, error: null };
             }
@@ -39,7 +50,7 @@ const sbMock = {
           },
         }),
       }),
-      update: (patch: any) => ({
+      update: (patch: Row) => ({
         eq: async () => {
           if (table === 'conversation_attachments') {
             const row = state.attachmentRows[state.attachmentRows.length - 1];
@@ -56,15 +67,15 @@ const sbMock = {
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => sbMock }));
 
 vi.mock('../../../server/services/channels/operations.js', () => ({
-  requestProviderOperation: async (_config: any, input: any) => {
-    const operation = { id: `op-${state.operations.length + 1}`, ...input };
+  requestProviderOperation: async (_config: unknown, input: Row) => {
+    const operation: Row = { id: `op-${state.operations.length + 1}`, ...input };
     state.operations.push(operation);
     return operation;
   },
 }));
 
 const { uploadFileMock } = vi.hoisted(() => ({
-  uploadFileMock: vi.fn(async (_config: any, req: any): Promise<any> => ({
+  uploadFileMock: vi.fn(async (_config: unknown, req: { fileKey: string }): Promise<{ success: boolean; url?: string; error?: string }> => ({
     success: true,
     url: `https://cdn.example.com/${req.fileKey}`,
   })),
@@ -72,11 +83,11 @@ const { uploadFileMock } = vi.hoisted(() => ({
 vi.mock('../../../server/services/storage/index.js', () => ({
   uploadFile: uploadFileMock,
   resolveStorageConfig: async () => ({ provider: 'local', localPath: '/tmp/storage' }),
-  getFileUrlWithConfig: (_c: any, key: string) => `https://cdn.example.com/${key}`,
+  getFileUrlWithConfig: (_c: unknown, key: string) => `https://cdn.example.com/${key}`,
 }));
 
 vi.mock('../../../server/middleware/featureGating.js', () => ({
-  requireLimit: () => async (_req: any, res: any, next: any) => {
+  requireLimit: () => async (_req: unknown, res: { status: (c: number) => { json: (b: unknown) => void } }, next: () => void) => {
     if (state.gateAllow) return next();
     res.status(403).json({ error: 'storage_gb limit reached' });
   },
@@ -89,11 +100,15 @@ const { requestTelegramMediaFetch, persistInboundAttachment, HARD_MAX_BYTES } = 
   '../../../server/services/channels/telegram/mediaIngest.js'
 );
 
-const CONFIG: any = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' };
+const CONFIG: Record<string, unknown> = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' };
 const TOKEN = '123456:AAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKK';
 
 const baseInput = {
-  workspaceId: 'ws-1',
+  // A real UUID — persistInboundAttachment's storage key now goes through
+  // the central chatAttachmentKey() builder (server/services/storage/keys.ts),
+  // which validates workspaceId as a UUID (it previously accepted any
+  // string via ad-hoc interpolation with no validation at all).
+  workspaceId: '11111111-1111-1111-1111-111111111111',
   integrationId: 'integ-1',
   conversationId: 'conv-1',
   messageId: 'msg-1',
@@ -109,7 +124,7 @@ beforeEach(() => {
   state.gateAllow = true;
   state.uploadOk = true;
   uploadFileMock.mockClear();
-  uploadFileMock.mockImplementation(async (_config: any, req: any): Promise<any> =>
+  uploadFileMock.mockImplementation(async (_config, req) =>
     state.uploadOk
       ? { success: true, url: `https://cdn.example.com/${req.fileKey}` }
       : { success: false, error: 'disk full' },
@@ -147,7 +162,7 @@ describe('requestTelegramMediaFetch (no provider I/O in Core)', () => {
 describe('persistInboundAttachment (Core owns validation + storage)', () => {
   it('stores an allowed file and finalizes the canonical row', async () => {
     const outcome = await persistInboundAttachment(CONFIG, {
-      workspaceId: 'ws-1',
+      workspaceId: '11111111-1111-1111-1111-111111111111',
       conversationId: 'conv-1',
       messageId: 'msg-1',
       fileId: 'f1',
@@ -163,12 +178,15 @@ describe('persistInboundAttachment (Core owns validation + storage)', () => {
     const row = state.attachmentRows[0];
     expect(row.status).toBe('uploaded');
     expect(row.uploaded_by_type).toBe('contact');
-    expect(row.storage_path).toContain('workspace/ws-1/attachments/');
+    // Now built via the central chatAttachmentKey() builder — shares its
+    // shape with conversationAttachments.ts/widgetAttachments.ts (see that
+    // file's own doc comment: "Identical convention").
+    expect(row.storage_path).toContain('workspace/11111111-1111-1111-1111-111111111111/attachments/chat/');
   });
 
   it('rejects a disallowed mime type without touching storage', async () => {
     const outcome = await persistInboundAttachment(CONFIG, {
-      workspaceId: 'ws-1',
+      workspaceId: '11111111-1111-1111-1111-111111111111',
       conversationId: 'conv-1',
       messageId: 'msg-1',
       fileId: 'f1',
@@ -186,7 +204,7 @@ describe('persistInboundAttachment (Core owns validation + storage)', () => {
 
   it('rejects a file above the hard size cap', async () => {
     const outcome = await persistInboundAttachment(CONFIG, {
-      workspaceId: 'ws-1',
+      workspaceId: '11111111-1111-1111-1111-111111111111',
       conversationId: 'conv-1',
       messageId: 'msg-1',
       fileId: 'f1',
@@ -203,7 +221,7 @@ describe('persistInboundAttachment (Core owns validation + storage)', () => {
   it('honours the SHARED storage_gb entitlement gate', async () => {
     state.gateAllow = false;
     const outcome = await persistInboundAttachment(CONFIG, {
-      workspaceId: 'ws-1',
+      workspaceId: '11111111-1111-1111-1111-111111111111',
       conversationId: 'conv-1',
       messageId: 'msg-1',
       fileId: 'f1',
@@ -220,7 +238,7 @@ describe('persistInboundAttachment (Core owns validation + storage)', () => {
   it('marks the row failed when the upload itself fails', async () => {
     state.uploadOk = false;
     const outcome = await persistInboundAttachment(CONFIG, {
-      workspaceId: 'ws-1',
+      workspaceId: '11111111-1111-1111-1111-111111111111',
       conversationId: 'conv-1',
       messageId: 'msg-1',
       fileId: 'f1',
@@ -235,7 +253,7 @@ describe('persistInboundAttachment (Core owns validation + storage)', () => {
 
   it('never leaks a bot token into a row or an outcome', async () => {
     const outcome = await persistInboundAttachment(CONFIG, {
-      workspaceId: 'ws-1',
+      workspaceId: '11111111-1111-1111-1111-111111111111',
       conversationId: 'conv-1',
       messageId: 'msg-1',
       fileId: 'f1',

@@ -41,14 +41,15 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { requireLimit } from '../middleware/featureGating.js';
 import { usageFnForLimit } from '../services/billing/usageResolvers.js';
-import { requireUser as requireSessionUser, authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { requireUser as requireSessionUser, authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { isEmailVerified } from '../services/auth/identity.js';
 import { runIdempotent, peekCommitted } from '../services/invitations/idempotency.js';
+import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
 
 export const workspaceMembersRouter = Router();
 
 // ── Auth middleware — delegates to the central first-party session helper ─
-async function requireUser(req: any, res: any, next: any) {
+async function requireUser(req, res, next) {
   const userId = await requireSessionUser(req, res);
   if (!userId) return;
   req.authUser = { id: userId };
@@ -59,7 +60,7 @@ const acceptSchema = z.object({
   token: z.string().trim().min(1).max(512),
 });
 
-const legacyInvitationGone = (_req: any, res: any) => res.status(410).json({
+const legacyInvitationGone = (_req, res) => res.status(410).json({
   error: 'LEGACY_INVITATION_API_RETIRED',
   replacement: '/api/workspace-invitations',
 });
@@ -73,7 +74,7 @@ const legacyInvitationGone = (_req: any, res: any) => res.status(410).json({
 // On any RPC-equivalent precondition failure, the route responds 400
 // with the same human-readable message the RPC would have raised, so
 // the existing UI text path is unchanged.
-async function resolveInvitationContext(req: any, res: any, next: any) {
+async function resolveInvitationContext(req, res, next) {
   const config: ServerConfig = req.serverConfig;
   const parsed = acceptSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -145,7 +146,7 @@ async function resolveInvitationContext(req: any, res: any, next: any) {
 // Wrap requireLimit so already-member acceptance bypasses the gate.
 const maxAgentsLimitMw = (() => {
   const inner = requireLimit('max_agents', usageFnForLimit('max_agents'));
-  return (req: any, res: any, next: any) => {
+  return (req, res, next) => {
     if (req.alreadyWorkspaceMember) return next();
     return inner(req, res, next);
   };
@@ -250,7 +251,7 @@ workspaceMembersRouter.get('/', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return;
 
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const sb = getServiceClient(config);
   const { data: members, error: memberErr } = await sb
     .from('workspace_members')
@@ -258,15 +259,18 @@ workspaceMembersRouter.get('/', async (req, res) => {
     .eq('workspace_id', workspaceId);
   if (memberErr) return res.status(500).json({ error: memberErr.message });
 
-  const userIds = (members || []).map((m: any) => m.user_id);
+  const userIds = (members || []).map((m) => m.user_id);
   const [{ data: profiles }, { data: deptMembers }, { data: depts }] = await Promise.all([
     userIds.length
-      ? sb.from('profiles').select('id, full_name, email, avatar_url').in('id', userIds)
-      : Promise.resolve({ data: [] as any[] }),
+      ? sb.from('profiles').select('id, full_name, email, avatar_storage_key').in('id', userIds)
+      : Promise.resolve({ data: [] }),
     sb.from('workspace_department_members').select('user_id, department_id').eq('workspace_id', workspaceId),
     sb.from('workspace_departments').select('id, name').eq('workspace_id', workspaceId),
   ]);
-  const deptNameById = new Map((depts || []).map((d: any) => [d.id, d.name]));
+  // Avatars are derived from the stored key for the provider that is primary
+  // right now — one provider resolution for the whole member list.
+  await hydrateUserAvatars(config, (profiles || []));
+  const deptNameById = new Map((depts || []).map((d) => [d.id, d.name]));
   const deptsByUser = new Map<string, string[]>();
   for (const dm of deptMembers || []) {
     const name = deptNameById.get(dm.department_id);
@@ -276,9 +280,9 @@ workspaceMembersRouter.get('/', async (req, res) => {
     deptsByUser.set(dm.user_id, list);
   }
 
-  const result = (members || []).map((m: any) => ({
+  const result = (members || []).map((m) => ({
     ...m,
-    profile: (profiles || []).find((p: any) => p.id === m.user_id) || null,
+    profile: (profiles || []).find((p) => p.id === m.user_id) || null,
     department_names: deptsByUser.get(m.user_id) || [],
   }));
   return res.json({ members: result });
@@ -297,7 +301,7 @@ workspaceMembersRouter.patch('/:memberId', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
   if (!auth) return;
 
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const sb = getServiceClient(config);
 
   const { data: member } = await sb
@@ -343,7 +347,7 @@ workspaceMembersRouter.patch('/:memberId/suspension', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
   if (!auth) return;
 
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const sb = getServiceClient(config);
 
   const { data: member } = await sb
@@ -401,7 +405,7 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
   if (!auth) return;
 
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const sb = getServiceClient(config);
 
   const memberId = String(req.params.memberId);
@@ -450,7 +454,7 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
       .select('email')
       .eq('id', (member as { user_id: string }).user_id)
       .maybeSingle();
-    const email = String((profile as any)?.email || '').trim().toLowerCase();
+    const email = String(profile?.email || '').trim().toLowerCase();
     if (!email) return;
     await sb
       .from('workspace_invitations')
@@ -508,7 +512,7 @@ workspaceMembersRouter.delete('/:memberId', async (req, res) => {
  */
 async function assertTargetIsWorkspaceMember(
   sb: ReturnType<typeof getServiceClient>,
-  res: any,
+  res,
   workspaceId: string,
   userId: string,
 ): Promise<boolean> {
@@ -536,7 +540,7 @@ workspaceMembersRouter.get('/user/:userId/departments', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
   if (!auth) return;
 
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const sb = getServiceClient(config);
   if (!(await assertTargetIsWorkspaceMember(sb, res, workspaceId, req.params.userId))) return;
 
@@ -546,7 +550,7 @@ workspaceMembersRouter.get('/user/:userId/departments', async (req, res) => {
     .eq('workspace_id', workspaceId)
     .eq('user_id', req.params.userId);
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ department_ids: (data || []).map((r: any) => r.department_id) });
+  return res.json({ department_ids: (data || []).map((r) => r.department_id) });
 });
 
 const setMemberDeptsSchema = z.object({ department_ids: z.array(z.string().uuid()) });
@@ -562,7 +566,7 @@ workspaceMembersRouter.put('/user/:userId/departments', async (req, res) => {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
   if (!auth) return;
 
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const sb = getServiceClient(config);
   const userId = req.params.userId;
   const { department_ids } = parsedBody.data;
@@ -579,7 +583,7 @@ workspaceMembersRouter.put('/user/:userId/departments', async (req, res) => {
       .eq('workspace_id', workspaceId)
       .in('id', department_ids);
     if (deptErr) return res.status(500).json({ error: deptErr.message });
-    const validIds = new Set((validDepts || []).map((d: any) => d.id));
+    const validIds = new Set((validDepts || []).map((d) => d.id));
     const invalid = department_ids.filter((id) => !validIds.has(id));
     if (invalid.length > 0) {
       return res.status(400).json({ error: 'department_not_in_workspace', invalid });

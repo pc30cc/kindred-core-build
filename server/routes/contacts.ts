@@ -32,9 +32,21 @@ import {
   resolveIpVisibilityPolicy,
   resolveContactNetworkProfile,
 } from '../services/visitors/networkProfile.js';
-import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
+import { hydrateContactAvatars, hydrateUserAvatars } from '../services/storage/urlResolver.js';
 
 export const contactsRouter = Router();
+
+/**
+ * A contact row as this router handles it: the columns it reads by name,
+ * plus whatever else `select('*')` returned and is passed straight through.
+ */
+type ContactRow = Record<string, unknown> & {
+  id: string;
+  workspace_id: string;
+  avatar_url?: string | null;
+  avatar_storage_key?: string | null;
+};
 
 const contactSchema = z.object({
   email: z.string().email().max(320).nullable().optional(),
@@ -56,8 +68,8 @@ const bulkSchema = z.object({
 });
 
 async function authorizeWorkspaceMember(
-  req: any,
-  res: any,
+  req,
+  res,
   _config: ServerConfig,
   workspaceId: string,
 ): Promise<{ userId: string; role: string | null } | null> {
@@ -67,6 +79,13 @@ async function authorizeWorkspaceMember(
   return { userId: auth.userId, role: auth.role };
 }
 
+/**
+ * `avatar_url` on this API is an EXTERNAL link an integrator supplies (a
+ * CRM's own CDN, a Gravatar). It is not one of our objects, so it is stored
+ * as given — and it clears `avatar_storage_key`, because an explicit
+ * external avatar replaces one we stored rather than sitting behind it
+ * (a key always wins when both are present).
+ */
 function normalizeContactRow(c: z.infer<typeof contactSchema>, workspaceId: string) {
   return {
     workspace_id: workspaceId,
@@ -74,6 +93,7 @@ function normalizeContactRow(c: z.infer<typeof contactSchema>, workspaceId: stri
     name: c.name ?? null,
     phone: c.phone ?? null,
     avatar_url: c.avatar_url ?? null,
+    avatar_storage_key: null,
     tags: c.tags ?? [],
     notes: c.notes ?? null,
     metadata: c.metadata ?? {},
@@ -82,7 +102,7 @@ function normalizeContactRow(c: z.infer<typeof contactSchema>, workspaceId: stri
 
 contactsRouter.post('/', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const parsed = createSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({
@@ -125,8 +145,9 @@ contactsRouter.post('/', async (req, res) => {
     // Invalidate cached entitlement so a subsequent at-cap check sees the
     // new occupancy on the next request (cache TTL is 60s otherwise).
     clearEntitlementCache(parsed.data.workspace_id);
+    await hydrateContactAvatars(config, parsed.data.workspace_id, data ? [data] : []);
     return res.json({ ok: true, contact: data });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[contacts/create] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -134,7 +155,7 @@ contactsRouter.post('/', async (req, res) => {
 
 contactsRouter.post('/bulk', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const parsed = bulkSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({
@@ -164,7 +185,7 @@ contactsRouter.post('/bulk', async (req, res) => {
     }
     clearEntitlementCache(parsed.data.workspace_id);
     return res.json({ ok: true, inserted: data?.length ?? 0 });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[contacts/bulk] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -190,7 +211,7 @@ contactsRouter.post('/bulk', async (req, res) => {
 
 contactsRouter.get('/', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const workspaceId = String(req.query.workspace_id || '');
     if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
     const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
@@ -203,8 +224,11 @@ contactsRouter.get('/', async (req, res) => {
       .eq('workspace_id', workspaceId)
       .order('created_at', { ascending: false });
     if (error) return res.status(500).json({ error: error.message });
+    // Our own avatars are derived from their keys for the workspace's
+    // current provider; externally supplied ones pass straight through.
+    await hydrateContactAvatars(config, workspaceId, (data || []));
     return res.json({ contacts: data || [] });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[contacts list] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -212,13 +236,13 @@ contactsRouter.get('/', async (req, res) => {
 
 /** Loads a contact and authorizes the caller against its OWN workspace_id. Sends the response and returns null on any failure. */
 async function loadAndAuthorizeContact(
-  req: any,
-  res: any,
+  req,
+  res,
   config: ServerConfig,
   sb: ReturnType<typeof getServiceClient>,
   contactId: string,
   opts: { manage?: boolean } = {},
-): Promise<{ contact: any } | null> {
+): Promise<{ contact: ContactRow } | null> {
   const { data: contact } = await sb.from('contacts').select('*').eq('id', contactId).maybeSingle();
   if (!contact) {
     res.status(404).json({ error: 'not_found' });
@@ -233,12 +257,13 @@ async function loadAndAuthorizeContact(
 
 contactsRouter.get('/:id', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const sb = getServiceClient(config);
     const loaded = await loadAndAuthorizeContact(req, res, config, sb, req.params.id);
     if (!loaded) return;
+    await hydrateContactAvatars(config, loaded.contact.workspace_id, [loaded.contact]);
     return res.json({ contact: loaded.contact });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[contacts get] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -246,7 +271,7 @@ contactsRouter.get('/:id', async (req, res) => {
 
 contactsRouter.get('/:id/conversations', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const sb = getServiceClient(config);
     const loaded = await loadAndAuthorizeContact(req, res, config, sb, req.params.id);
     if (!loaded) return;
@@ -257,7 +282,7 @@ contactsRouter.get('/:id/conversations', async (req, res) => {
       .eq('contact_id', req.params.id)
       .order('updated_at', { ascending: false });
     if (convErr) return res.status(500).json({ error: convErr.message });
-    const convs = (convData ?? []) as any[];
+    const convs = (convData ?? []);
     if (!convs.length) return res.json({ conversations: [] });
 
     const ids = convs.map((c) => c.id);
@@ -269,23 +294,23 @@ contactsRouter.get('/:id/conversations', async (req, res) => {
 
     const operatorIds = new Set<string>();
     for (const c of convs) if (c.assigned_to) operatorIds.add(c.assigned_to);
-    for (const m of (msgs ?? []) as any[]) {
+    for (const m of (msgs ?? [])) {
       if (m.sender_type === 'agent' && m.sender_id) operatorIds.add(m.sender_id);
     }
 
-    let profiles: Record<string, { full_name: string | null; email: string; avatar_url: string | null }> = {};
+    const profiles: Record<string, { full_name: string | null; email: string; avatar_url: string | null }> = {};
     if (operatorIds.size) {
       const { data: profs } = await sb
         .from('profiles')
-        .select('id, full_name, email, avatar_url')
+        .select('id, full_name, email, avatar_storage_key')
         .in('id', Array.from(operatorIds));
-      for (const p of (profs ?? []) as any[]) {
+      for (const p of await hydrateUserAvatars(config, profs ?? [])) {
         profiles[p.id] = { full_name: p.full_name, email: p.email, avatar_url: p.avatar_url };
       }
     }
 
     const result = convs.map((c) => {
-      const mine = ((msgs ?? []) as any[]).filter((m) => m.conversation_id === c.id);
+      const mine = ((msgs ?? [])).filter((m) => m.conversation_id === c.id);
       const hasAi = mine.some((m) => m.sender_type === 'ai' || m.sender_type === 'bot');
       const agentMsgs = mine.filter((m) => m.sender_type === 'agent' && m.sender_id);
       const lastAgentId = agentMsgs.length ? agentMsgs[agentMsgs.length - 1].sender_id : null;
@@ -303,7 +328,7 @@ contactsRouter.get('/:id/conversations', async (req, res) => {
       };
     });
     return res.json({ conversations: result });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[contacts conversations] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -313,7 +338,7 @@ const updateContactSchema = contactSchema.partial();
 
 contactsRouter.patch('/:id', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const parsed = updateContactSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten().fieldErrors });
@@ -324,13 +349,20 @@ contactsRouter.patch('/:id', async (req, res) => {
 
     const { data, error } = await sb
       .from('contacts')
-      .update({ ...parsed.data, updated_at: new Date().toISOString() })
+      .update({
+        ...parsed.data,
+        // An explicit external avatar replaces one we stored — see
+        // normalizeContactRow() for why the key is dropped rather than kept.
+        ...('avatar_url' in parsed.data ? { avatar_storage_key: null } : {}),
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', req.params.id)
       .select()
       .single();
     if (error) return res.status(500).json({ error: error.message });
+    await hydrateContactAvatars(config, loaded.contact.workspace_id, data ? [data] : []);
     return res.json({ ok: true, contact: data });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[contacts update] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -338,7 +370,7 @@ contactsRouter.patch('/:id', async (req, res) => {
 
 contactsRouter.delete('/:id', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const sb = getServiceClient(config);
     const loaded = await loadAndAuthorizeContact(req, res, config, sb, req.params.id);
     if (!loaded) return;
@@ -346,7 +378,7 @@ contactsRouter.delete('/:id', async (req, res) => {
     const { error } = await sb.from('contacts').delete().eq('id', req.params.id);
     if (error) return res.status(500).json({ error: error.message });
     return res.json({ ok: true });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[contacts delete] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -362,7 +394,7 @@ const bulkDeleteSchema = z.object({ ids: z.array(z.string().uuid()).min(1).max(1
 
 contactsRouter.post('/bulk-delete', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const parsed = bulkDeleteSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'invalid_body' });
     const sb = getServiceClient(config);
@@ -387,7 +419,7 @@ contactsRouter.post('/bulk-delete', async (req, res) => {
     const { error: delErr } = await sb.from('contacts').delete().in('id', parsed.data.ids);
     if (delErr) return res.status(500).json({ error: delErr.message });
     return res.json({ deleted: parsed.data.ids.length });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[contacts bulk-delete] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -414,7 +446,7 @@ contactsRouter.get('/:id/ip', async (req, res) => {
   try {
     const contactId = req.params.id;
     if (!contactId) return res.status(400).json({ error: 'missing_id' });
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const sb = getServiceClient(config);
 
     const { data: contact } = await sb
@@ -446,7 +478,7 @@ contactsRouter.get('/:id/ip', async (req, res) => {
       ip_view: profile.ip,
       visitor_session_id: profile.visitor_session_id,
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[contacts/ip] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }

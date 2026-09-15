@@ -254,9 +254,9 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
   },
 
   {
-    label: '190 — contacts.avatar_storage_key (cached URLs become derived data)',
-    selfHost: 'database/migrations/190_contact_avatar_storage_key.sql',
-    hosted: 'supabase/migrations/20260916093000_contact_avatar_storage_key.sql',
+    label: '190 — storage-key ownership: contacts.avatar_storage_key + per-owner CHECKs',
+    selfHost: 'database/migrations/190_storage_key_ownership.sql',
+    hosted: 'supabase/migrations/20260916093000_storage_key_ownership.sql',
   },
 
   // intentionally asymmetric, not a drift bug.

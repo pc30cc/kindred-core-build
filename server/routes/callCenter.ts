@@ -37,6 +37,7 @@ import { mintPlaybackToken } from '../services/calls/recordingPlaybackToken.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
 import { uploadFile, deleteFile, resolveStorageConfig, resolveGlobalStorageConfig, uploadWithConfig, deleteWithConfig, getFileUrlWithConfig, downloadWithConfig } from '../services/storage/index.js';
 import { callCenterAvatarKey, platformCallCenterRingbackKey } from '../services/storage/keys.js';
+import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
 import { resolveRecordingStorageConfig, RecordingStorageNotConfigured } from '../services/calls/recordingStorageResolver.js';
 import { buildStoreZip, safeArchiveName } from '../services/calls/zipStore.js';
 import {
@@ -289,6 +290,52 @@ async function requireGlobalAdmin(req: Request, res: Response) {
   return { userId, config };
 }
 
+/**
+ * The call-centre widget avatar's public link, derived from its stored key.
+ *
+ * `call_center_settings.avatar_storage_path` is the only persisted record of
+ * the object; `avatar_url` is no longer written by the upload route, so it
+ * only ever holds an operator-supplied external link (the settings PATCH
+ * schema still accepts one). A key therefore wins over it.
+ */
+async function resolveCallCenterAvatarUrl(
+  config: ServerConfig,
+  workspaceId: string,
+  row: { avatar_storage_path?: string | null; avatar_url?: string | null },
+): Promise<string | null> {
+  if (row?.avatar_storage_path) {
+    return createStorageUrlResolver(config).workspace(workspaceId, row.avatar_storage_path);
+  }
+  return row?.avatar_url ?? null;
+}
+
+/**
+ * Ringback audio is platform-owned (`platform/...`), so its links come from
+ * the app-wide provider. Nothing here reads a stored URL: the paths are the
+ * record, the URLs are derived for whichever provider is primary now.
+ */
+async function resolvePlatformRingbackUrls(
+  config: ServerConfig,
+  platform: {
+    ringback_music_path?: string | null;
+    ringback_announcement_audio_path?: string | null;
+    ringback_queue_audio_paths?: Record<string, string> | null;
+  },
+): Promise<{ music_url: string | null; announcement_url: string | null; queue_urls: Record<string, string> }> {
+  const resolver = createStorageUrlResolver(config);
+  const queuePaths = (platform?.ringback_queue_audio_paths || {}) as Record<string, string>;
+  const [music_url, announcement_url, queueEntries] = await Promise.all([
+    resolver.platform(platform?.ringback_music_path ?? null),
+    resolver.platform(platform?.ringback_announcement_audio_path ?? null),
+    Promise.all(
+      Object.entries(queuePaths).map(async ([pos, key]) => [pos, await resolver.platform(key)] as const),
+    ),
+  ]);
+  const queue_urls: Record<string, string> = {};
+  for (const [pos, url] of queueEntries) if (url) queue_urls[pos] = url;
+  return { music_url, announcement_url, queue_urls };
+}
+
 // ── Workspace settings ─────────────────────────────────────────────────────
 // Lightweight capabilities endpoint — does NOT create a settings row.
 // Used by sidebar to decide whether to show the Call Center entry.
@@ -346,10 +393,13 @@ callCenterRouter.get('/settings', async (req, res) => {
   const platform = await getPlatformCallCenterSettings(ctx.config);
   const effective = computeEffectiveCallCenterCaps(platform, settingsRaw);
   const recording = await computeRecordingCapability(ctx.config, wid, platform, settingsRaw);
-  // Sanitize: never expose avatar_storage_path to clients
+  // Sanitize: never expose avatar_storage_path to clients. `avatar_url` is
+  // not read from the row — it is DERIVED from the key for whatever provider
+  // is primary right now, so a promotion needs no row rewritten.
   const { avatar_storage_path: _, ...storedSettings } = settingsRaw;
   const settings = {
     ...storedSettings,
+    avatar_url: await resolveCallCenterAvatarUrl(ctx.config, wid, settingsRaw),
     widget_template_id: resolveCallWidgetTemplateId(settingsRaw.widget_template_id),
     widget_theme: normalizeCallWidgetTheme(settingsRaw.widget_theme),
     pre_call_form_schema: normalizeCallWidgetFormSchema(settingsRaw.pre_call_form_schema),
@@ -393,8 +443,9 @@ callCenterRouter.put('/settings', async (req, res) => {
   const parsed = settingsPatchSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
   const settingsRaw = await updateWorkspaceSettings(ctx.config, wid, parsed.data);
-  // Sanitize: never expose avatar_storage_path to clients
-  const { avatar_storage_path: _, ...settings } = settingsRaw;
+  // Sanitize: never expose avatar_storage_path to clients; derive the link.
+  const { avatar_storage_path: _, ...rest } = settingsRaw;
+  const settings = { ...rest, avatar_url: await resolveCallCenterAvatarUrl(ctx.config, wid, settingsRaw) };
   res.json({ settings });
 });
 
@@ -439,15 +490,17 @@ callCenterRouter.post('/settings/avatar', async (req, res) => {
   if (!result.success || !result.url) {
     return res.status(500).json({ error: 'avatar_upload_failed' });
   }
-  const updated = await updateWorkspaceSettings(ctx.config, wid, {
-    avatar_url: result.url, avatar_storage_path: fileKey,
+  // KEY ONLY: the stored URL is cleared, and the link handed back is
+  // derived from the key through the one resolver every read path uses.
+  await updateWorkspaceSettings(ctx.config, wid, {
+    avatar_url: null, avatar_storage_path: fileKey,
   });
   // Best-effort cleanup of the previous avatar; failures must not fail the
   // upload and must not be exposed to the client.
   if (previousPath && previousPath !== fileKey) {
     try { await deleteFile(ctx.config, wid, previousPath); } catch { /* best-effort */ }
   }
-  res.json({ avatar_url: updated.avatar_url });
+  res.json({ avatar_url: await createStorageUrlResolver(ctx.config).workspace(wid, fileKey) });
 });
 
 // Remove the current avatar: clears both the public URL and the storage path,
@@ -1599,7 +1652,9 @@ callCenterRouter.post('/callbacks/:id/cancel', async (req, res) => {
 callCenterRouter.get('/admin/platform', async (req, res) => {
   const ctx = await requireGlobalAdmin(req, res);
   if (!ctx) return;
-  const settings = await getPlatformCallCenterSettings(ctx.config);
+  const storedSettings = await getPlatformCallCenterSettings(ctx.config);
+  const ringback = await resolvePlatformRingbackUrls(ctx.config, storedSettings);
+  const settings = { ...storedSettings, ringback_music_url: ringback.music_url };
   // Provider readiness summary + workspace counts
   const sb = getServiceClient(ctx.config);
   const [{ count: enabledWorkspaces }, { count: activeCalls }, { count: waitingCalls }] = await Promise.all([
@@ -1640,7 +1695,9 @@ const platformPatchSchema = z.object({
   ringback_enabled: z.boolean().optional(),
   ringback_mode: z.enum(['tone', 'music', 'off']).optional(),
   ringback_music_path: z.string().nullable().optional(),
-  ringback_music_url: z.string().nullable().optional(),
+  // ringback_music_url is deliberately NOT settable: the link is derived
+  // from ringback_music_path at read time, so persisting one could only
+  // reintroduce a provider-pinned value.
   ringback_announcement_audio_path: z.string().nullable().optional(),
   ringback_queue_audio_paths: z.record(z.string()).nullable().optional(),
   queue_show_position: z.boolean().optional(),
@@ -1710,7 +1767,8 @@ callCenterRouter.post('/admin/platform/ringback-audio', async (req, res) => {
   // enforcement) and is removed rather than perpetuated.
   const fileKey = platformCallCenterRingbackKey({ slot, fileName: safe });
   const uploaded = await uploadWithConfig(storage, { fileKey, data: buffer, contentType: input.contentType });
-  const url = uploaded.url || getFileUrlWithConfig(storage, fileKey);
+  // The link is derived, never persisted — see resolvePlatformRingbackUrls.
+  const url = getFileUrlWithConfig(storage, fileKey);
   if (!uploaded.success || !url) return res.status(500).json({ error: 'audio_upload_failed', details: uploaded.error });
   const current = await getPlatformCallCenterSettings(ctx.config);
   const patch: Partial<PlatformCallCenterSettings> = {};
@@ -1718,7 +1776,9 @@ callCenterRouter.post('/admin/platform/ringback-audio', async (req, res) => {
   if (input.kind === 'music') {
     previousPath = current.ringback_music_path;
     patch.ringback_music_path = fileKey;
-    patch.ringback_music_url = url;
+    // KEY ONLY: the legacy URL column is cleared so nothing can fall back to
+    // a link that names the provider primary at upload time.
+    patch.ringback_music_url = null;
     patch.ringback_mode = 'music';
     patch.ringback_enabled = true;
   } else if (input.kind === 'announcement') {
@@ -1734,7 +1794,7 @@ callCenterRouter.post('/admin/platform/ringback-audio', async (req, res) => {
   if (previousPath && previousPath !== fileKey) {
     try { await deleteWithConfig(storage, previousPath); } catch { /* best-effort */ }
   }
-  res.json({ settings: updated, url, file_key: fileKey });
+  res.json({ settings: { ...updated, ringback_music_url: (await resolvePlatformRingbackUrls(ctx.config, updated)).music_url }, url, file_key: fileKey });
 });
 
 callCenterRouter.get('/admin/workspaces', async (req, res) => {

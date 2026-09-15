@@ -48,6 +48,13 @@ export interface AdminStorageProviderDto {
   updatedAt: string | null;
   /** Proven to hold everything the current primary holds — the promotion gate. */
   synchronized: boolean;
+  /**
+   * Whether this vendor can express a public URL. No row stores a URL —
+   * every avatar and logo link is derived from its storage key for the
+   * CURRENT primary — so a vendor that cannot build one may mirror writes
+   * but can never be promoted.
+   */
+  canServePublicUrls: boolean;
   syncedAt: string | null;
   /** A known replication gap recorded server-side; blocks promotion until a fresh full sync. */
   dirtyAt: string | null;
@@ -153,33 +160,6 @@ export function adminSetStorageReplication(enabled: boolean, mirrorDeletes?: boo
   return request<AdminStoragePoolDto>(`${BASE}/replication`, {
     method: 'PUT',
     body: JSON.stringify({ enabled, mirrorDeletes }),
-  });
-}
-
-export interface AdminStorageUrlRefreshReport {
-  sources: {
-    name: string;
-    scanned: number;
-    updated: number;
-    unchanged: number;
-    skippedNoKey: number;
-    failed: number;
-    errors: string[];
-    complete: boolean;
-  }[];
-  totalUpdated: number;
-  complete: boolean;
-}
-
-/**
- * Rebuild the cached public URLs (avatars, logos) from the storage keys the
- * rows already hold, for whatever provider is primary now. Needed after a
- * promotion: a key is provider-independent, a URL is not.
- */
-export function adminRefreshStoredUrls(limit?: number) {
-  return request<{ report: AdminStorageUrlRefreshReport }>(`${BASE}/refresh-urls`, {
-    method: 'POST',
-    body: JSON.stringify(limit === undefined ? {} : { limit }),
   });
 }
 

@@ -17,13 +17,14 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
+import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
 
 export const teamChatRouter = Router();
 
 async function authorizeMember(
-  req: any,
-  res: any,
+  req,
+  res,
   _config: ServerConfig,
   workspaceId: string,
 ): Promise<{ userId: string } | null> {
@@ -41,6 +42,26 @@ type AttachmentRow = {
   id: string; file_name: string; mime_type: string; size_bytes: number; status: string;
 };
 
+/** One direct message between two teammates, as this router reads it. */
+type TeamMessageRow = {
+  id: string;
+  sender_id: string;
+  recipient_id: string;
+  body: string | null;
+  attachment_id: string | null;
+  read_at: string | null;
+  created_at: string;
+};
+
+/** The visitor-safe attachment shape the team-chat surface renders. */
+type AttachmentSummary = {
+  id: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  kind: 'image' | 'audio' | 'video' | 'file';
+};
+
 function attachmentKind(mime: string): 'image' | 'audio' | 'video' | 'file' {
   if (mime.startsWith('image/')) return 'image';
   if (mime.startsWith('audio/')) return 'audio';
@@ -49,10 +70,10 @@ function attachmentKind(mime: string): 'image' | 'audio' | 'video' | 'file' {
 }
 
 async function hydrateAttachments(
-  sb: any,
+  sb,
   workspaceId: string,
   ids: string[],
-): Promise<Map<string, any>> {
+): Promise<Map<string, AttachmentSummary>> {
   const unique = Array.from(new Set(ids.filter(Boolean)));
   if (!unique.length) return new Map();
   const { data } = await sb
@@ -60,7 +81,7 @@ async function hydrateAttachments(
     .select('id, file_name, mime_type, size_bytes, status, workspace_id')
     .eq('workspace_id', workspaceId)
     .in('id', unique);
-  const map = new Map<string, any>();
+  const map = new Map<string, AttachmentSummary>();
   for (const a of (data ?? []) as AttachmentRow[]) {
     map.set(a.id, {
       id: a.id,
@@ -76,7 +97,7 @@ async function hydrateAttachments(
 // ═══ GET /api/team-chat/colleagues ═════════════════════════════════
 teamChatRouter.get('/colleagues', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const workspaceId = String(req.query.workspace_id || '');
     if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
     const auth = await authorizeMember(req, res, config, workspaceId);
@@ -89,11 +110,11 @@ teamChatRouter.get('/colleagues', async (req, res) => {
       .eq('workspace_id', workspaceId);
     if (memErr) return res.status(500).json({ error: memErr.message });
 
-    const ids = (members ?? []).map((m: any) => m.user_id).filter(Boolean);
+    const ids = (members ?? []).map((m) => m.user_id).filter(Boolean);
     const [{ data: profiles }, { data: msgs }] = await Promise.all([
       ids.length
-        ? sb.from('profiles').select('id, full_name, email, avatar_url').in('id', ids)
-        : Promise.resolve({ data: [] as any[] } as any),
+        ? sb.from('profiles').select('id, full_name, email, avatar_storage_key').in('id', ids)
+        : Promise.resolve({ data: [] }),
       sb.from('team_messages')
         .select('id, sender_id, recipient_id, body, attachment_id, read_at, created_at')
         .eq('workspace_id', workspaceId)
@@ -102,9 +123,10 @@ teamChatRouter.get('/colleagues', async (req, res) => {
         .limit(500),
     ]);
 
-    const profileById = new Map((profiles ?? []).map((p: any) => [p.id, p]));
+    await hydrateUserAvatars(config, (profiles ?? []));
+    const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
 
-    const lastByPeer = new Map<string, any>();
+    const lastByPeer = new Map<string, TeamMessageRow>();
     const unreadByPeer = new Map<string, number>();
     for (const m of msgs ?? []) {
       const peer = m.sender_id === auth.userId ? m.recipient_id : m.sender_id;
@@ -117,17 +139,17 @@ teamChatRouter.get('/colleagues', async (req, res) => {
     // Preview rows need to say "sent a photo/voice message" instead of an
     // empty line when the message carries only a file.
     const previewAttIds = Array.from(lastByPeer.values())
-      .map((m: any) => m.attachment_id)
+      .map((m) => m.attachment_id)
       .filter(Boolean) as string[];
     const previewAtts = await hydrateAttachments(sb, workspaceId, previewAttIds);
     const attachmentKindById = new Map<string, string>(
-      Array.from(previewAtts.entries()).map(([id, a]: any) => [id, a.kind]),
+      Array.from(previewAtts.entries()).map(([id, a]) => [id, a.kind]),
     );
 
     const colleagues = (members ?? [])
-      .filter((m: any) => m.user_id !== auth.userId)
-      .map((m: any) => {
-        const p: any = profileById.get(m.user_id) ?? {};
+      .filter((m) => m.user_id !== auth.userId)
+      .map((m) => {
+        const p = profileById.get(m.user_id) ?? {};
         const last = lastByPeer.get(m.user_id) ?? null;
         return {
           user_id: m.user_id,
@@ -148,7 +170,7 @@ teamChatRouter.get('/colleagues', async (req, res) => {
             : null,
         };
       })
-      .sort((a: any, b: any) => {
+      .sort((a, b) => {
         if ((b.unread > 0 ? 1 : 0) !== (a.unread > 0 ? 1 : 0)) return (b.unread > 0 ? 1 : 0) - (a.unread > 0 ? 1 : 0);
         const ta = a.last_message ? Date.parse(a.last_message.created_at) : 0;
         const tb = b.last_message ? Date.parse(b.last_message.created_at) : 0;
@@ -156,9 +178,9 @@ teamChatRouter.get('/colleagues', async (req, res) => {
         return (a.full_name || a.email || '').localeCompare(b.full_name || b.email || '');
       });
 
-    const totalUnread = colleagues.reduce((n: number, c: any) => n + c.unread, 0);
+    const totalUnread = colleagues.reduce((n: number, c) => n + c.unread, 0);
     return res.json({ ok: true, colleagues, total_unread: totalUnread, me: auth.userId });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[team-chat colleagues] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -167,7 +189,7 @@ teamChatRouter.get('/colleagues', async (req, res) => {
 // ═══ GET /api/team-chat/thread ═════════════════════════════════════
 teamChatRouter.get('/thread', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const workspaceId = String(req.query.workspace_id || '');
     const peerId = String(req.query.peer_id || '');
     if (!workspaceId || !peerId) return res.status(400).json({ error: 'workspace_id and peer_id required' });
@@ -190,14 +212,14 @@ teamChatRouter.get('/thread', async (req, res) => {
 
     const rows = (data ?? []).slice().reverse();
     const atts = await hydrateAttachments(
-      sb, workspaceId, rows.map((m: any) => m.attachment_id).filter(Boolean),
+      sb, workspaceId, rows.map((m) => m.attachment_id).filter(Boolean),
     );
-    const messages = rows.map((m: any) => ({
+    const messages = rows.map((m) => ({
       ...m,
       attachment: m.attachment_id ? atts.get(String(m.attachment_id)) ?? null : null,
     }));
     return res.json({ ok: true, messages, me: auth.userId });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[team-chat thread] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -215,7 +237,7 @@ const sendSchema = z.object({
 
 teamChatRouter.post('/messages', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const parsed = sendSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten().fieldErrors });
@@ -236,7 +258,7 @@ teamChatRouter.post('/messages', async (req, res) => {
 
     // The attachment must belong to this workspace, be uploaded by THIS
     // operator and not already be bound to a visitor conversation.
-    let attachment: any = null;
+    let attachment = null;
     if (attachmentId) {
       const { data: attRow } = await sb
         .from('conversation_attachments')
@@ -276,7 +298,7 @@ teamChatRouter.post('/messages', async (req, res) => {
     }
 
     return res.json({ ok: true, message: { ...inserted, attachment } });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[team-chat send] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -290,7 +312,7 @@ const readSchema = z.object({
 
 teamChatRouter.post('/read', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const parsed = readSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
     const auth = await authorizeMember(req, res, config, parsed.data.workspace_id);
@@ -306,7 +328,7 @@ teamChatRouter.post('/read', async (req, res) => {
       .is('read_at', null);
     if (error) return res.status(500).json({ error: error.message });
     return res.json({ ok: true });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[team-chat read] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }

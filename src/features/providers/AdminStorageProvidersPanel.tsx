@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle, ArrowRight, CheckCircle2, CloudUpload, Copy, Crown, Database,
-  ExternalLink, Info, Link as LinkIcon, Power, RefreshCw, ShieldAlert, TestTube, Trash2, XCircle,
+  ExternalLink, Info, Power, RefreshCw, ShieldAlert, TestTube, Trash2, XCircle,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -34,9 +34,8 @@ import { useI18n } from '@/i18n';
 import {
   adminGetStoragePool, adminSaveStorageProvider, adminSetStorageProviderEnabled,
   adminPromoteStorageProvider, adminRemoveStorageProvider, adminTestStorageProvider,
-  adminSetStorageReplication, adminSyncStorageReplica, adminRefreshStoredUrls,
+  adminSetStorageReplication, adminSyncStorageReplica,
   type AdminStoragePoolDto, type AdminStorageProviderDto, type AdminStorageSyncReport,
-  type AdminStorageUrlRefreshReport,
 } from '@/lib/storage-providers-api';
 import { PROVIDER_SCHEMAS, type ProviderVendor } from './schemas';
 import { ProviderConfigForm } from './ProviderConfigForm';
@@ -152,7 +151,6 @@ export function AdminStorageProvidersPanel() {
   const [removeOpen, setRemoveOpen] = useState(false);
   const [syncPrefix, setSyncPrefix] = useState('');
   const [syncRun, setSyncRun] = useState<SyncRun>(IDLE_SYNC);
-  const [urlReport, setUrlReport] = useState<AdminStorageUrlRefreshReport | null>(null);
   const [forcePromoteOpen, setForcePromoteOpen] = useState(false);
   const [forceRemoveOpen, setForceRemoveOpen] = useState(false);
   const [removeBlockedReason, setRemoveBlockedReason] = useState<string | null>(null);
@@ -229,27 +227,6 @@ export function AdminStorageProvidersPanel() {
     mutationFn: ({ enabled, mirrorDeletes }: { enabled: boolean; mirrorDeletes?: boolean }) =>
       adminSetStorageReplication(enabled, mirrorDeletes),
     onSuccess: applyPool,
-    onError,
-  });
-
-  /**
-   * A storage key is the same on every provider; a cached public URL names
-   * one. So the avatar/logo columns that keep a URL for rendering go stale
-   * the moment the primary changes, and this rebuilds them from the keys the
-   * rows already hold.
-   */
-  const refreshUrls = useMutation({
-    mutationFn: () => adminRefreshStoredUrls(),
-    onSuccess: ({ report }) => {
-      setUrlReport(report);
-      toast({
-        title: t('adminProviders.storage.urls.done'),
-        description: report.complete
-          ? t('adminProviders.storage.urls.doneDesc', { updated: report.totalUpdated })
-          : t('adminProviders.storage.urls.doneMore', { updated: report.totalUpdated }),
-        variant: report.sources.some((x) => x.failed > 0) ? 'destructive' : 'default',
-      });
-    },
     onError,
   });
 
@@ -338,7 +315,13 @@ export function AdminStorageProvidersPanel() {
   const isMirror = !!entry && !entry.isPrimary && entry.enabled;
   // Readiness comes from the pool the server serialized, never from this
   // session's memory of a sync it just ran.
-  const canPromote = !!entry && entry.enabled && entry.synchronized;
+  //
+  // A vendor that cannot express a public URL is excluded from BOTH paths,
+  // including the forced one: no row stores a URL any more, so a primary
+  // with no URL builder blanks every avatar and logo with nothing left to
+  // repair. The server refuses it either way; this mirrors that.
+  const canServeUrls = entry?.canServePublicUrls !== false;
+  const canPromote = !!entry && entry.enabled && entry.synchronized && canServeUrls;
   const primaryEntry = pool?.primary ? entryOf(pool, pool.primary) : undefined;
   const primaryVendor = vendors.find((v) => v.name === pool?.primary);
   const mirrors = (pool?.providers ?? []).filter((p) => !p.isPrimary && p.enabled);
@@ -450,63 +433,6 @@ export function AdminStorageProvidersPanel() {
             </div>
           </div>
 
-          {/* Cached URLs — derived from the stored keys, rebuilt on demand */}
-          <div className="space-y-2 rounded-lg border border-border bg-muted/10 p-3">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <LinkIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <span className="text-xs font-medium text-foreground">
-                    {t('adminProviders.storage.urls.title')}
-                  </span>
-                </div>
-                <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed max-w-2xl">
-                  {t('adminProviders.storage.urls.desc')}
-                </p>
-              </div>
-              <Button
-                size="sm" variant="outline"
-                onClick={() => refreshUrls.mutate()}
-                disabled={refreshUrls.isPending}
-              >
-                {refreshUrls.isPending
-                  ? <RefreshCw className="h-3.5 w-3.5 me-1.5 animate-spin" />
-                  : <LinkIcon className="h-3.5 w-3.5 me-1.5" />}
-                {refreshUrls.isPending
-                  ? t('adminProviders.storage.urls.running')
-                  : t('adminProviders.storage.urls.run')}
-              </Button>
-            </div>
-
-            {urlReport && (
-              <div className="space-y-1">
-                {urlReport.sources.map((source) => (
-                  <div key={source.name} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px]">
-                    <span className="font-mono text-muted-foreground">{source.name}</span>
-                    <span className="text-emerald-400">
-                      {source.updated} {t('adminProviders.storage.urls.updated')}
-                    </span>
-                    <span className="text-muted-foreground">
-                      {source.unchanged} {t('adminProviders.storage.urls.unchanged')}
-                    </span>
-                    {source.skippedNoKey > 0 && (
-                      <span className="text-muted-foreground/70">
-                        {source.skippedNoKey} {t('adminProviders.storage.urls.noKey')}
-                      </span>
-                    )}
-                    {source.failed > 0 && (
-                      <span className="text-destructive">
-                        {source.failed} {t('adminProviders.storage.sync.failed')}
-                      </span>
-                    )}
-                  </div>
-                ))}
-                {!urlReport.complete && (
-                  <p className="text-[11px] text-amber-400">{t('adminProviders.storage.urls.more')}</p>
-                )}
-              </div>
-            )}
-          </div>
         </CardContent>
       </Card>
 
@@ -659,13 +585,17 @@ export function AdminStorageProvidersPanel() {
                         size="sm" variant="outline"
                         onClick={() => promote.mutate({ name: selected })}
                         disabled={promote.isPending || !canPromote}
-                        title={canPromote ? undefined : t('adminProviders.storage.promoteBlocked')}
+                        title={
+                          canPromote ? undefined
+                          : !canServeUrls ? t('adminProviders.storage.promoteNoPublicUrl')
+                          : t('adminProviders.storage.promoteBlocked')
+                        }
                       >
                         <Crown className="h-3.5 w-3.5 me-1.5" />
                         {t('adminProviders.storage.makePrimary')}
                       </Button>
                     )}
-                    {!isPrimary && !canPromote && (
+                    {!isPrimary && !canPromote && canServeUrls && (
                       <Button
                         size="sm" variant="ghost"
                         className="text-amber-400 hover:text-amber-400 hover:bg-amber-500/10"

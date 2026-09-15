@@ -20,10 +20,11 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
 
 export const workspaceIntegrationsRouter = Router();
 
-function serverConfigOf(req: any): ServerConfig {
+function serverConfigOf(req): ServerConfig {
   return req.serverConfig as ServerConfig;
 }
 
@@ -75,7 +76,7 @@ workspaceIntegrationsRouter.get('/:workspaceId/contact-channels', async (req, re
 
   const convToContact = new Map<string, string>();
   const map: Record<string, { chat: boolean; call: boolean; calls: number; lastCallAt: string | null }> = {};
-  for (const c of (convs ?? []) as any[]) {
+  for (const c of (convs ?? [])) {
     convToContact.set(c.id, c.contact_id);
     if (!map[c.contact_id]) map[c.contact_id] = { chat: false, call: false, calls: 0, lastCallAt: null };
   }
@@ -91,7 +92,7 @@ workspaceIntegrationsRouter.get('/:workspaceId/contact-channels', async (req, re
         .in('context_id', part)
         .order('created_at', { ascending: false });
       if (sessErr) return res.status(500).json({ error: sessErr.message });
-      for (const s of (sessions ?? []) as any[]) {
+      for (const s of (sessions ?? [])) {
         const contactId = convToContact.get(s.context_id);
         if (!contactId) continue;
         callConvIds.add(s.context_id);
@@ -129,10 +130,10 @@ workspaceIntegrationsRouter.get('/:workspaceId/contacts/:contactId/calls', async
 
   const { data: convs, error } = await sb.from('conversations').select('id').eq('contact_id', contactId);
   if (error) return res.status(500).json({ error: error.message });
-  const convIds = ((convs ?? []) as any[]).map((c) => c.id);
+  const convIds = ((convs ?? [])).map((c) => c.id);
   if (!convIds.length) return res.json({ calls: [] });
 
-  const sessions: any[] = [];
+  const sessions = [];
   for (const part of chunk(convIds, 150)) {
     const { data, error: sessErr } = await sb
       .from('call_sessions')
@@ -141,26 +142,27 @@ workspaceIntegrationsRouter.get('/:workspaceId/contacts/:contactId/calls', async
       .in('context_id', part)
       .order('created_at', { ascending: false });
     if (sessErr) return res.status(500).json({ error: sessErr.message });
-    sessions.push(...((data ?? []) as any[]));
+    sessions.push(...((data ?? [])));
   }
   if (!sessions.length) return res.json({ calls: [] });
 
   const agentIds = Array.from(new Set(sessions.map((s) => s.assigned_agent_id).filter(Boolean))) as string[];
   const profiles: Record<string, { full_name: string | null; email: string; avatar_url: string | null }> = {};
   if (agentIds.length) {
-    const { data: profs } = await sb.from('profiles').select('id, full_name, email, avatar_url').in('id', agentIds);
-    for (const p of (profs ?? []) as any[]) {
+    const { data: profs } = await sb.from('profiles').select('id, full_name, email, avatar_storage_key').in('id', agentIds);
+    // Avatars are derived from the stored key for the current provider.
+    for (const p of await hydrateUserAvatars(config, profs ?? [])) {
       profiles[p.id] = { full_name: p.full_name, email: p.email, avatar_url: p.avatar_url };
     }
   }
 
-  const recordings: Record<string, any> = {};
+  const recordings: Record<string, { duration_seconds?: number | null; size_bytes?: number | null }> = {};
   for (const part of chunk(sessions.map((s) => s.id), 150)) {
     const { data: recs } = await sb
       .from('call_recordings')
       .select('call_session_id, duration_seconds, size_bytes, created_at')
       .in('call_session_id', part);
-    for (const r of (recs ?? []) as any[]) recordings[r.call_session_id] = r;
+    for (const r of (recs ?? [])) recordings[r.call_session_id] = r;
   }
 
   const calls = sessions.map((s) => {

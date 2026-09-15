@@ -44,12 +44,22 @@ import { markHumanTakeover } from '../services/ai-agent/handoffState.js';
 import { maybeCreateLearningCandidateFromOperatorReply } from '../services/ai-agent/learning/candidates.js';
 import { markSpam, unmarkSpam } from '../services/spam/state.js';
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
-import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { dispatchOutboundIfChannelConversation } from '../services/channels/outbound.js';
 import { enqueueOutboundMediaIfChannelConversation } from '../services/channels/mediaOutbound.js';
 
 import { applyPostSendAction } from '../services/conversationPostSend.js';
-import { isActionableCustomerTurn, isQualifiedCustomerFacingAnswer } from '../services/needsReply.js';
+import { isActionableCustomerTurn, isQualifiedCustomerFacingAnswer, type NeedsReplyMessage } from '../services/needsReply.js';
+
+/** The public-safe attachment shape a message is enriched with. No URLs. */
+type MessageAttachment = {
+  id: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  kind: string;
+};
+import { createStorageUrlResolver, hydrateUserAvatars, hydrateContactAvatars } from '../services/storage/urlResolver.js';
 
 
 export const conversationsRouter = Router();
@@ -94,8 +104,8 @@ const startFromVisitorSchema = z.object({
  * central first-party session helper (server/lib/workspaceAuth.ts).
  */
 async function authorizeWorkspaceMember(
-  req: any,
-  res: any,
+  req,
+  res,
   _config: ServerConfig,
   workspaceId: string,
 ): Promise<{ userId: string; isAdmin: boolean; role: string | null } | null> {
@@ -117,7 +127,7 @@ const inboxTakeOverSchema = z.object({
   assign_to_me: z.boolean().optional().default(true),
 });
 conversationsRouter.post('/:conversationId/take-over', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const conversationId = String(req.params.conversationId || '');
   const parsed = inboxTakeOverSchema.safeParse(req.body);
   if (!conversationId || !parsed.success) return res.status(400).json({ error: 'invalid_params' });
@@ -168,7 +178,7 @@ const typingSchema = z.object({
 
 conversationsRouter.post('/typing', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const parsed = typingSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid payload' });
@@ -215,7 +225,7 @@ conversationsRouter.post('/typing', async (req, res) => {
       },
     );
     return res.json({ ok: true, published: pub.ok });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[conversations/typing] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -223,7 +233,7 @@ conversationsRouter.post('/typing', async (req, res) => {
 
 conversationsRouter.post('/send-message', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const parsed = sendMessageSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({
@@ -253,7 +263,7 @@ conversationsRouter.post('/send-message', async (req, res) => {
     const clientMessageId = parsed.data.client_message_id ?? null;
     const baseMetadata: Record<string, unknown> = {
       ...(parsed.data.metadata ?? {}),
-      source: (parsed.data.metadata as any)?.source ?? 'inbox',
+      source: parsed.data.metadata?.source ?? 'inbox',
     };
     if (parsed.data.attachment_id) baseMetadata.attachment_id = parsed.data.attachment_id;
     if (clientMessageId) baseMetadata.client_message_id = clientMessageId;
@@ -268,7 +278,7 @@ conversationsRouter.post('/send-message', async (req, res) => {
      * outbound dispatch, so no second Telegram/WhatsApp/… delivery is queued.
      */
     let duplicate = false;
-    let inserted: any = null;
+    let inserted = null;
     if (clientMessageId) {
       const { data: prior } = await sb
         .from('conversation_messages')
@@ -355,10 +365,10 @@ conversationsRouter.post('/send-message', async (req, res) => {
           messageId: inserted.id,
           attachmentId: parsed.data.attachment_id,
           caption: messageBody,
-          req: req as any,
+          req,
         });
         dispatch = { accepted: true, result: mediaResult };
-      } catch (err: any) {
+      } catch (err) {
         console.warn('[conversations/send-message] outbound media enqueue failed:', err?.message);
         dispatch = { accepted: false, result: 'failed' };
       }
@@ -377,7 +387,7 @@ conversationsRouter.post('/send-message', async (req, res) => {
     // Enrich envelope with public-safe attachment metadata so the visitor
     // widget renders the file via its proxy route. Same shape as visitor flow.
     const [enriched] = await enrichMessagesWithAttachments(
-      config, parsed.data.workspace_id, [inserted as any]
+      config, parsed.data.workspace_id, [inserted]
     );
 
     // Operator identity must travel WITH the realtime envelope — otherwise the
@@ -388,10 +398,18 @@ conversationsRouter.post('/send-message', async (req, res) => {
       try {
         const { data: prof } = await sb
           .from('profiles')
-          .select('full_name, avatar_url')
+          .select('id, full_name, avatar_storage_key')
           .eq('id', auth.userId)
           .maybeSingle();
-        if (prof) senderProfile = { name: (prof as any).full_name || null, avatar: (prof as any).avatar_url || null };
+        if (prof) {
+          // The realtime envelope carries a DERIVED link, exactly like the
+          // REST enrichment below — an event payload must never republish a
+          // provider-pinned URL that a row no longer holds.
+          senderProfile = {
+            name: prof.full_name || null,
+            avatar: await createStorageUrlResolver(config).user(auth.userId, prof.avatar_storage_key),
+          };
+        }
       } catch { /* avatar is cosmetic — never block the send */ }
     }
 
@@ -404,7 +422,7 @@ conversationsRouter.post('/send-message', async (req, res) => {
           parsed.data.workspace_id,
           parsed.data.conversation_id,
           buildMessageEnvelope({
-            ...(enriched as any),
+            ...(enriched as Parameters<typeof buildMessageEnvelope>[0]),
             sender_id: auth.userId ?? null,
             sender_name: senderProfile?.name ?? null,
             sender_avatar: senderProfile?.avatar ?? null,
@@ -436,7 +454,7 @@ conversationsRouter.post('/send-message', async (req, res) => {
       conversationId: parsed.data.conversation_id,
       operatorId: auth.userId,
       reason: 'operator_replied',
-    }).catch((e: any) =>
+    }).catch((e) =>
       console.warn('[conversations/send-message] markHumanTakeover failed:', e?.message),
     );
 
@@ -449,7 +467,7 @@ conversationsRouter.post('/send-message', async (req, res) => {
         operatorMessageId: inserted.id,
         operatorMessageBody: parsed.data.body || '',
         operatorId: auth.userId,
-      }).catch((e: any) =>
+      }).catch((e) =>
         console.warn('[conversations/send-message] learning candidate hook failed:', e?.message),
       );
     }
@@ -487,7 +505,7 @@ conversationsRouter.post('/send-message', async (req, res) => {
     });
 
 
-  } catch (err: any) {
+  } catch (err) {
     console.error('[conversations/send-message] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -503,7 +521,7 @@ conversationsRouter.post('/send-message', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════
 conversationsRouter.post('/start-from-visitor', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const parsed = startFromVisitorSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({
@@ -586,7 +604,7 @@ conversationsRouter.post('/start-from-visitor', async (req, res) => {
     });
 
     return res.json({ ok: true, conversation_id: created.id, created: true });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[conversations/start-from-visitor] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -614,7 +632,7 @@ const patchConversationSchema = z.object({
 
 conversationsRouter.patch('/:id', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const parsed = patchConversationSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({
@@ -762,7 +780,7 @@ conversationsRouter.patch('/:id', async (req, res) => {
               .from('profiles')
               .select('id, full_name')
               .in('id', Array.from(new Set(ids)));
-            (people || []).forEach((p: any) => {
+            (people || []).forEach((p) => {
               if (p?.full_name) nameById.set(p.id, p.full_name as string);
             });
           }
@@ -787,7 +805,7 @@ conversationsRouter.patch('/:id', async (req, res) => {
               to_name: toName,
             },
           });
-        } catch (e: any) {
+        } catch (e) {
           console.warn('[conversations PATCH] transfer notice failed:', e?.message || e);
         }
       })();
@@ -837,7 +855,7 @@ conversationsRouter.patch('/:id', async (req, res) => {
     }
 
     return res.json({ ok: true, conversation: after });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[conversations PATCH] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -858,7 +876,7 @@ const claimConversationSchema = z.object({
 
 conversationsRouter.post('/:id/claim', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const parsed = claimConversationSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid payload', details: parsed.error.flatten().fieldErrors });
@@ -904,7 +922,7 @@ conversationsRouter.post('/:id/claim', async (req, res) => {
     });
 
     return res.json({ ok: true, assigned_to: auth.userId });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[conversations claim] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -925,8 +943,8 @@ const spamSchema = z.object({
   conversation_id: z.string().uuid(),
 });
 
-conversationsRouter.post('/spam', async (req: any, res: any) => {
-  const config = (req as any).serverConfig as ServerConfig;
+conversationsRouter.post('/spam', async (req, res) => {
+  const config = serverConfigOf(req);
   const parsed = spamSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
   const auth = await authorizeWorkspaceMember(req, res, config, parsed.data.workspace_id);
@@ -950,7 +968,7 @@ conversationsRouter.post('/spam', async (req: any, res: any) => {
       });
     }
     return res.json(result);
-  } catch (err: any) {
+  } catch (err) {
     if (err?.message === 'conversation_not_found') {
       return res.status(404).json({ error: 'conversation_not_found' });
     }
@@ -990,9 +1008,9 @@ const listQuerySchema = z.object({
   scope: z.enum(['mine', 'all']).optional().default('mine'),
 });
 
-conversationsRouter.get('/', async (req: any, res: any) => {
+conversationsRouter.get('/', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const parsed = listQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid query', details: parsed.error.flatten().fieldErrors });
@@ -1010,7 +1028,7 @@ conversationsRouter.get('/', async (req: any, res: any) => {
     const sb = getServiceClient(config);
     let q = sb
       .from('conversations')
-      .select('*, contacts(name, email, avatar_url, visitor_code, metadata)')
+      .select('*, contacts(id, name, email, avatar_url, avatar_storage_key, visitor_code, metadata)')
       .eq('workspace_id', workspace_id)
       .order('updated_at', { ascending: false });
 
@@ -1041,7 +1059,14 @@ conversationsRouter.get('/', async (req: any, res: any) => {
 
     const { data, error } = await q;
     if (error) return res.status(500).json({ error: error.message });
-    const convos = (data || []) as any[];
+    const convos = (data || []);
+    // Contact avatars: derived from the stored key for the workspace's
+    // current provider, one resolution for the whole page.
+    await hydrateContactAvatars(
+      config,
+      workspace_id,
+      convos.map((c) => c.contacts).filter(Boolean),
+    );
 
     const ids = convos.map((c) => c.id).filter(Boolean);
     if (ids.length > 0) {
@@ -1071,7 +1096,7 @@ conversationsRouter.get('/', async (req: any, res: any) => {
       // the Inbox can rank by real waiting age instead of `updated_at` (which
       // assignment, routing metadata and delivery receipts also bump).
       const waitingSinceByConv: Record<string, string | null> = {};
-      for (const m of (msgs || []) as any[]) {
+      for (const m of (msgs || [])) {
         if (!m.conversation_id) continue;
         // Channel menu/button taps are navigation, not conversation content:
         // they must never drive the list preview or the unread badge. Older
@@ -1091,13 +1116,13 @@ conversationsRouter.get('/', async (req: any, res: any) => {
             sender_name: null,
             // A file-only message has an empty body: the list preview must
             // describe the media instead of claiming "no messages yet".
-            attachment_id: (meta as any)?.attachment_id ? String((meta as any).attachment_id) : null,
+            attachment_id: meta?.attachment_id ? String(meta.attachment_id) : null,
             attachment_kind: null,
             // System notices (transfer / unassign) are stored in English:
             // ship the structured metadata so the UI can localize the preview.
-            system_kind: (meta as any)?.kind ? String((meta as any).kind) : null,
-            actor_name: (meta as any)?.actor_name ? String((meta as any).actor_name) : null,
-            to_name: (meta as any)?.to_name ? String((meta as any).to_name) : null,
+            system_kind: meta?.kind ? String(meta.kind) : null,
+            actor_name: meta?.actor_name ? String(meta.actor_name) : null,
+            to_name: meta?.to_name ? String(meta.to_name) : null,
           };
         }
         if (m.sender_type === 'agent' && m.sender_id) {
@@ -1108,12 +1133,12 @@ conversationsRouter.get('/', async (req: any, res: any) => {
         // Rows arrive newest-first. The first conversational turn decides the
         // obligation; we then keep walking back over the customer streak to
         // find when the wait actually started.
-        if (isQualifiedCustomerFacingAnswer(m as any)) {
+        if (isQualifiedCustomerFacingAnswer(m as NeedsReplyMessage)) {
           if (!needsReplyDecided.has(m.conversation_id)) {
             needsReplyByConv[m.conversation_id] = false;
           }
           needsReplyDecided.add(m.conversation_id);
-        } else if (isActionableCustomerTurn(m as any)) {
+        } else if (isActionableCustomerTurn(m as NeedsReplyMessage)) {
           if (!needsReplyDecided.has(m.conversation_id)) {
             needsReplyByConv[m.conversation_id] = true;
             waitingSinceByConv[m.conversation_id] = m.created_at ?? null;
@@ -1145,7 +1170,7 @@ conversationsRouter.get('/', async (req: any, res: any) => {
           .select('id, mime_type')
           .in('id', previewAttachmentIds);
         const mimeById = new Map<string, string>(
-          ((atts || []) as any[]).map((a) => [String(a.id), String(a.mime_type || '')]),
+          ((atts || [])).map((a) => [String(a.id), String(a.mime_type || '')]),
         );
         for (const last of Object.values(lastByConv)) {
           if (!last.attachment_id) continue;
@@ -1173,7 +1198,7 @@ conversationsRouter.get('/', async (req: any, res: any) => {
           .select('id, full_name, email')
           .in('id', agentSenderIds);
         const nameById = new Map<string, string>(
-          ((profs || []) as any[]).map((p) => [
+          ((profs || [])).map((p) => [
             String(p.id),
             String(p.full_name || String(p.email || '').split('@')[0] || ''),
           ]),
@@ -1225,16 +1250,16 @@ conversationsRouter.get('/', async (req: any, res: any) => {
     }
 
     return res.json({ conversations: result });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[conversations list] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
 });
 
 // ─── Sidebar inbox counters ─────────────────────────────────────────
-conversationsRouter.get('/inbox-counts', async (req: any, res: any) => {
+conversationsRouter.get('/inbox-counts', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const workspaceId = String(req.query.workspace_id || '');
     if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
     const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
@@ -1260,16 +1285,16 @@ conversationsRouter.get('/inbox-counts', async (req: any, res: any) => {
       needs_human: needsRes.count ?? 0,
       spam: spamRes.count ?? 0,
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[conversations inbox-counts] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
 });
 
 // ─── Per-tab counters for the Main Inbox status tabs ─────────────────
-conversationsRouter.get('/inbox-tab-counts', async (req: any, res: any) => {
+conversationsRouter.get('/inbox-tab-counts', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const workspaceId = String(req.query.workspace_id || '');
     if (!workspaceId) return res.status(400).json({ error: 'workspace_id is required' });
     const auth = await authorizeWorkspaceMember(req, res, config, workspaceId);
@@ -1279,7 +1304,7 @@ conversationsRouter.get('/inbox-tab-counts', async (req: any, res: any) => {
     const seesAll =
       (auth.isAdmin || auth.role === 'owner' || auth.role === 'admin' || auth.role === 'team_lead')
       && String(req.query.scope || 'mine') === 'all';
-    const scopeAssignment = (q: any) =>
+    const scopeAssignment = (q) =>
       seesAll ? q : q.or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`);
     const base = () =>
       scopeAssignment(sb.from('conversations').select('id', { count: 'exact', head: true })
@@ -1308,7 +1333,7 @@ conversationsRouter.get('/inbox-tab-counts', async (req: any, res: any) => {
         .in('status', ['resolved', 'closed'])
         .or(`assigned_to.is.null,assigned_to.eq.${auth.userId}`)
         .limit(2000);
-      const rows = (resolvedRows || []) as any[];
+      const rows = (resolvedRows || []);
       const ids = rows.map((r) => r.id);
       const handled: Record<string, Set<string>> = {};
       if (ids.length) {
@@ -1318,7 +1343,7 @@ conversationsRouter.get('/inbox-tab-counts', async (req: any, res: any) => {
           .in('conversation_id', ids)
           .eq('sender_type', 'agent')
           .limit(5000);
-        for (const m of (agentMsgs || []) as any[]) {
+        for (const m of (agentMsgs || [])) {
           if (!m.sender_id) continue;
           (handled[m.conversation_id] ||= new Set<string>()).add(String(m.sender_id));
         }
@@ -1338,7 +1363,7 @@ conversationsRouter.get('/inbox-tab-counts', async (req: any, res: any) => {
       automated: automatedRes.count ?? 0,
     });
 
-  } catch (err: any) {
+  } catch (err) {
     console.error('[conversations inbox-tab-counts] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -1354,9 +1379,9 @@ conversationsRouter.get('/inbox-tab-counts', async (req: any, res: any) => {
 // a client-supplied one — a caller cannot probe an arbitrary
 // conversation id by guessing/forging a workspace_id query param.
 // ═══════════════════════════════════════════════════════════════════
-conversationsRouter.get('/:id/messages', async (req: any, res: any) => {
+conversationsRouter.get('/:id/messages', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const conversationId = req.params.id;
     const sb = getServiceClient(config);
 
@@ -1367,7 +1392,7 @@ conversationsRouter.get('/:id/messages', async (req: any, res: any) => {
       .maybeSingle();
     if (!conv) return res.status(404).json({ error: 'conversation_not_found' });
 
-    const auth = await authorizeWorkspaceMember(req, res, config, (conv as any).workspace_id);
+    const auth = await authorizeWorkspaceMember(req, res, config, conv.workspace_id);
     if (!auth) return;
 
     const { data, error } = await sb
@@ -1376,14 +1401,14 @@ conversationsRouter.get('/:id/messages', async (req: any, res: any) => {
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: true });
     if (error) return res.status(500).json({ error: error.message });
-    let messages = (data || []) as any[];
+    let messages = (data || []);
 
     // Super Admin can hide Telegram bot menu taps from operator threads.
-    if (messages.some((m) => String((m?.metadata as any)?.channel_menu_event ?? '') === 'true')) {
+    if (messages.some((m) => String(m?.metadata?.channel_menu_event ?? '') === 'true')) {
       const menuVisible = await isTelegramMenuEventsVisible(config);
       if (!menuVisible) {
         messages = messages.filter(
-          (m) => String((m?.metadata as any)?.channel_menu_event ?? '') !== 'true',
+          (m) => String(m?.metadata?.channel_menu_event ?? '') !== 'true',
         );
       }
     }
@@ -1392,13 +1417,13 @@ conversationsRouter.get('/:id/messages', async (req: any, res: any) => {
     const fromMeta = new Set<string>();
     for (const m of messages) {
       if (m?.id) ids.add(m.id);
-      const aid = (m?.metadata as any)?.attachment_id;
+      const aid = m?.metadata?.attachment_id;
       if (typeof aid === 'string') fromMeta.add(aid);
     }
-    const attMap: Record<string, any> = {};
+    const attMap: Record<string, MessageAttachment> = {};
     // A single inbound channel message can carry SEVERAL media parts
     // (WhatsApp album, Telegram document + caption, …) so this is a list.
-    const byMsg: Record<string, any[]> = {};
+    const byMsg: Record<string, MessageAttachment[]> = {};
     if (ids.size || fromMeta.size) {
       const orFilters: string[] = [];
       if (ids.size) orFilters.push(`message_id.in.(${Array.from(ids).join(',')})`);
@@ -1407,7 +1432,7 @@ conversationsRouter.get('/:id/messages', async (req: any, res: any) => {
         .from('conversation_attachments')
         .select('id, file_name, mime_type, size_bytes, status, message_id, created_at')
         .or(orFilters.join(','));
-      for (const a of (atts || []) as any[]) {
+      for (const a of (atts || [])) {
         if (a.status !== 'attached' && a.status !== 'uploaded') continue;
         const mime = String(a.mime_type || '');
         const meta = {
@@ -1430,15 +1455,15 @@ conversationsRouter.get('/:id/messages', async (req: any, res: any) => {
     ));
     const senderMap: Record<string, { name: string | null; avatar: string | null }> = {};
     if (senderIds.length) {
-      const { data: profiles } = await sb.from('profiles').select('id, full_name, avatar_url').in('id', senderIds);
-      for (const p of (profiles || []) as any[]) {
+      const { data: profiles } = await sb.from('profiles').select('id, full_name, avatar_storage_key').in('id', senderIds);
+      for (const p of await hydrateUserAvatars(config, profiles || [])) {
         senderMap[p.id] = { name: p.full_name || null, avatar: p.avatar_url || null };
       }
     }
 
     const enriched = messages.map((m) => {
-      const aid = (m?.metadata as any)?.attachment_id;
-      const list: any[] = [];
+      const aid = m?.metadata?.attachment_id;
+      const list: unknown[] = [];
       const seen = new Set<string>();
       if (typeof aid === 'string' && attMap[aid]) { list.push(attMap[aid]); seen.add(aid); }
       for (const a of (m.id && byMsg[m.id]) || []) {
@@ -1456,7 +1481,7 @@ conversationsRouter.get('/:id/messages', async (req: any, res: any) => {
 
 
     return res.json({ messages: enriched });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[conversations messages] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -1472,9 +1497,9 @@ conversationsRouter.get('/:id/messages', async (req: any, res: any) => {
 // membership check and monotonic update are reimplemented directly here
 // against the same table/columns; behavior is identical.
 // ═══════════════════════════════════════════════════════════════════
-conversationsRouter.post('/:id/seen', async (req: any, res: any) => {
+conversationsRouter.post('/:id/seen', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const conversationId = req.params.id;
     const sb = getServiceClient(config);
 
@@ -1485,7 +1510,7 @@ conversationsRouter.post('/:id/seen', async (req: any, res: any) => {
       .maybeSingle();
     if (!conv) return res.status(404).json({ error: 'conversation_not_found' });
 
-    const auth = await authorizeWorkspaceMember(req, res, config, (conv as any).workspace_id);
+    const auth = await authorizeWorkspaceMember(req, res, config, conv.workspace_id);
     if (!auth) return;
 
     const { data, error } = await sb
@@ -1497,7 +1522,7 @@ conversationsRouter.post('/:id/seen', async (req: any, res: any) => {
       .select('id');
     if (error) return res.status(500).json({ error: error.message });
     return res.json({ ok: true, count: (data || []).length });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[conversations seen] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -1513,9 +1538,9 @@ conversationsRouter.post('/:id/seen', async (req: any, res: any) => {
 // ═══════════════════════════════════════════════════════════════════
 const deleteAllSchema = z.object({ workspace_id: z.string().uuid() });
 
-conversationsRouter.delete('/', async (req: any, res: any) => {
+conversationsRouter.delete('/', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const parsed = deleteAllSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'workspace_id is required' });
     const auth = await authorizeWorkspaceAccess(req, res, parsed.data.workspace_id, { manage: true });
@@ -1527,7 +1552,7 @@ conversationsRouter.delete('/', async (req: any, res: any) => {
       .select('id')
       .eq('workspace_id', parsed.data.workspace_id);
     if (fetchErr) return res.status(500).json({ error: fetchErr.message });
-    const ids = (convs ?? []).map((c: any) => c.id);
+    const ids = (convs ?? []).map((c) => c.id);
     if (ids.length === 0) return res.json({ deleted: 0 });
 
     const { error: msgErr } = await sb.from('conversation_messages').delete().in('conversation_id', ids);
@@ -1537,14 +1562,14 @@ conversationsRouter.delete('/', async (req: any, res: any) => {
     if (convErr) return res.status(500).json({ error: convErr.message });
 
     return res.json({ deleted: ids.length });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[conversations delete-all] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
 });
 
-conversationsRouter.post('/not-spam', async (req: any, res: any) => {
-  const config = (req as any).serverConfig as ServerConfig;
+conversationsRouter.post('/not-spam', async (req, res) => {
+  const config = serverConfigOf(req);
   const parsed = spamSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
   const auth = await authorizeWorkspaceMember(req, res, config, parsed.data.workspace_id);
@@ -1564,7 +1589,7 @@ conversationsRouter.post('/not-spam', async (req: any, res: any) => {
       contact_id: result.contact_id,
     });
     return res.json(result);
-  } catch (err: any) {
+  } catch (err) {
     if (err?.message === 'conversation_not_found') {
       return res.status(404).json({ error: 'conversation_not_found' });
     }

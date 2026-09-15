@@ -9,7 +9,6 @@ import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import {
   resolveStorageConfigForOwner,
-  getFileUrlWithConfig,
   type StorageConfig,
 } from '../index.js';
 import {
@@ -281,11 +280,13 @@ export function workspaceBrandingMigrationProvider(config: ServerConfig): Legacy
       return cfg;
     },
     async commitNewKey(candidateId, newKey) {
-      const cfg: StorageConfig | null = await resolveStorageConfigForOwner(config, { kind: 'workspace', workspaceId: candidateId });
-      const url = cfg ? getFileUrlWithConfig(cfg, newKey) : null;
+      // KEY ONLY. The legacy URL this row was discovered from is cleared
+      // rather than rewritten to the new key's URL: a URL names one
+      // provider, and the whole point of recovering the key is that the
+      // link can be derived for whichever provider is primary at read time.
       const { error } = await sb
         .from('workspace_branding')
-        .update({ logo_storage_key: newKey, ...(url ? { logo_url: url } : {}) })
+        .update({ logo_storage_key: newKey, logo_url: null })
         .eq('workspace_id', candidateId);
       if (error) throw new Error(error.message);
     },

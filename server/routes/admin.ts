@@ -9,7 +9,7 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { z } from 'zod';
 import { issueRecoveryEmail } from '../services/auth-email.js';
-import { deleteFile } from '../services/storage/index.js';
+import { deleteFile, deleteForOwner } from '../services/storage/index.js';
 import { adminWidgetRouter } from './adminWidget.js';
 import { adminMetricsRouter } from './adminMetrics.js';
 import { adminMonitoringRouter } from './adminMonitoring.js';
@@ -382,32 +382,41 @@ adminRouter.delete('/users/:userId/avatar', async (req, res) => {
 
     const { data: profile, error: profileError } = await sb
       .from('profiles')
-      .select('avatar_url')
+      .select('avatar_url, avatar_storage_key')
       .eq('id', userId)
       .maybeSingle();
     if (profileError) return res.status(500).json({ error: profileError.message });
     if (!profile) return res.status(404).json({ error: 'user_not_found' });
 
-    const prev = profile.avatar_url;
-    if (prev && typeof prev === 'string') {
-      const { data: membership } = await sb
-        .from('workspace_members')
-        .select('workspace_id')
-        .eq('user_id', userId)
-        .limit(1)
-        .maybeSingle();
-      const workspaceId = membership?.workspace_id;
-      const marker = `/avatars/${userId}/`;
-      const idx = prev.indexOf(marker);
-      if (workspaceId && idx >= 0) {
-        const oldKey = prev.slice(idx + 1);
-        if (oldKey) await deleteFile(config, workspaceId, oldKey).catch(() => undefined);
+    // The storage key is the record of the object. Only a row written before
+    // that column existed (migration 177) still needs the legacy
+    // `/avatars/<userId>/` marker recovered from the old URL.
+    const storedKey = typeof profile.avatar_storage_key === 'string' ? profile.avatar_storage_key : null;
+    if (storedKey) {
+      await deleteForOwner(config, { kind: 'user', userId }, storedKey, { allowLegacyKey: true })
+        .catch(() => undefined);
+    } else {
+      const prev = profile.avatar_url;
+      if (prev && typeof prev === 'string') {
+        const { data: membership } = await sb
+          .from('workspace_members')
+          .select('workspace_id')
+          .eq('user_id', userId)
+          .limit(1)
+          .maybeSingle();
+        const workspaceId = membership?.workspace_id;
+        const marker = `/avatars/${userId}/`;
+        const idx = prev.indexOf(marker);
+        if (workspaceId && idx >= 0) {
+          const oldKey = prev.slice(idx + 1);
+          if (oldKey) await deleteFile(config, workspaceId, oldKey).catch(() => undefined);
+        }
       }
     }
 
     const { error: updateError } = await sb
       .from('profiles')
-      .update({ avatar_url: null, updated_at: new Date().toISOString() })
+      .update({ avatar_url: null, avatar_storage_key: null, updated_at: new Date().toISOString() })
       .eq('id', userId);
     if (updateError) return res.status(500).json({ error: updateError.message });
 

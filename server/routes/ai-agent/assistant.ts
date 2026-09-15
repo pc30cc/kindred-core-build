@@ -13,6 +13,7 @@ import { checkModuleAccess, requireModule } from '../../middleware/featureGating
 import {
   getOrCreateSettings,
   updateSettings,
+  resolveAgentLogoUrl,
   type AgentSettings,
 } from '../../services/ai-agent/settings.js';
 import { getKnowledgeStatus } from '../../services/ai-agent/retrieval.js';
@@ -23,24 +24,26 @@ import { buildOverview } from '../../services/ai-agent/overview.js';
 import { randomUUID } from 'crypto';
 import { uploadFile, deleteFile } from '../../services/storage/index.js';
 import { aiAgentAvatarKey } from '../../services/storage/keys.js';
+import { createStorageUrlResolver } from '../../services/storage/urlResolver.js';
 import {
   toCustomerSafeAiAgentSettings,
   validateAvatarBytes,
 } from '../../services/ai-agent/customerSafe.js';
 import { getWorkspaceAiAgentCapabilities } from '../../services/ai-agent/platformSettings.js';
 import { resolveCurrentUserId, authorizeMember, isOwnerOrAdmin, requireWorkspace } from './shared.js';
+import { serverConfigOf } from '../../lib/workspaceAuth.js';
 
 export const assistantRouter: Router = express.Router();
 
 // ─── GET /settings ───
 assistantRouter.get('/settings', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
   if (!auth) return;
   const settings = await getOrCreateSettings(config, workspaceId);
-  return res.json({ settings: toCustomerSafeAiAgentSettings(settings) });
+  return res.json({ settings: toCustomerSafeAiAgentSettings(settings, await resolveAgentLogoUrl(config, workspaceId, settings)) });
 });
 
 // ─── E12 GET /capabilities ───
@@ -48,7 +51,7 @@ assistantRouter.get('/settings', async (req: Request, res: Response) => {
 // platform kill switch is on (so the UI can render the disabled state).
 // Requires the caller to be a workspace member of the requested workspace.
 assistantRouter.get('/capabilities', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -61,7 +64,7 @@ assistantRouter.get('/capabilities', async (req: Request, res: Response) => {
       userId || null,
     );
     return res.json({ capabilities });
-  } catch (e: any) {
+  } catch (e) {
     return res.status(500).json({ error: e?.message || 'capabilities_read_failed' });
   }
 });
@@ -118,7 +121,7 @@ const updateSchema = z.object({
 });
 
 assistantRouter.put('/settings', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
@@ -165,8 +168,8 @@ assistantRouter.put('/settings', async (req: Request, res: Response) => {
 
   try {
     const updated = await updateSettings(config, workspaceId, patch as Partial<AgentSettings>);
-    return res.json({ settings: toCustomerSafeAiAgentSettings(updated) });
-  } catch (err: any) {
+    return res.json({ settings: toCustomerSafeAiAgentSettings(updated, await resolveAgentLogoUrl(config, workspaceId, updated)) });
+  } catch (err) {
     return res.status(500).json({ error: 'update_failed', details: err?.message });
   }
 });
@@ -192,7 +195,7 @@ function safeAvatarFilename(name: string): string {
 }
 
 assistantRouter.post('/settings/avatar', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = avatarUploadSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'invalid_params', details: parsed.error.flatten().fieldErrors });
@@ -251,12 +254,14 @@ assistantRouter.post('/settings/avatar', async (req: Request, res: Response) => 
     data: buf,
     contentType: finalMime,
   });
-  if (!uploaded.success || !uploaded.url) {
+  if (!uploaded.success) {
     return res.status(502).json({ error: 'upload_failed', details: uploaded.error });
   }
 
-  // Persist public URL on the existing settings.agent_logo_url column.
-  // Track internal storage key in metadata so we can clean up on replace.
+  // KEY ONLY. `metadata.ai_avatar_storage_key` is the sole persisted record
+  // of this object; `agent_logo_url` is cleared, because a stored URL names
+  // the provider that was primary at upload time and would keep naming it
+  // after a promotion. The display link is derived on every read.
   try {
     const current = await getOrCreateSettings(config, workspaceId);
     const newMeta = {
@@ -264,10 +269,10 @@ assistantRouter.post('/settings/avatar', async (req: Request, res: Response) => 
       ai_avatar_storage_key: fileKey,
     };
     await updateSettings(config, workspaceId, {
-      agent_logo_url: uploaded.url,
+      agent_logo_url: null,
       metadata: newMeta,
     } as Partial<AgentSettings>);
-  } catch (err: any) {
+  } catch (err) {
     return res.status(500).json({ error: 'persist_failed', details: err?.message });
   }
 
@@ -276,12 +281,12 @@ assistantRouter.post('/settings/avatar', async (req: Request, res: Response) => 
     deleteFile(config, workspaceId, oldKey).catch(() => undefined);
   }
 
-  // Only safe display URL is returned. Storage key stays server-side.
-  return res.json({ avatar_url: uploaded.url });
+  // Only the derived display URL is returned. The storage key stays server-side.
+  return res.json({ avatar_url: await createStorageUrlResolver(config).workspace(workspaceId, fileKey) });
 });
 
 assistantRouter.delete('/settings/avatar', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -296,12 +301,12 @@ assistantRouter.delete('/settings/avatar', async (req: Request, res: Response) =
     const meta = (current.metadata || {}) as Record<string, unknown>;
     if (typeof meta.ai_avatar_storage_key === 'string') oldKey = meta.ai_avatar_storage_key;
     const newMeta = { ...meta };
-    delete (newMeta as any).ai_avatar_storage_key;
+    delete newMeta.ai_avatar_storage_key;
     await updateSettings(config, workspaceId, {
       agent_logo_url: null,
       metadata: newMeta,
     } as Partial<AgentSettings>);
-  } catch (err: any) {
+  } catch (err) {
     return res.status(500).json({ error: 'persist_failed', details: err?.message });
   }
 
@@ -313,7 +318,7 @@ assistantRouter.delete('/settings/avatar', async (req: Request, res: Response) =
 
 // ─── GET /knowledge-status ───
 assistantRouter.get('/knowledge-status', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -324,7 +329,7 @@ assistantRouter.get('/knowledge-status', async (req: Request, res: Response) => 
 
 // ─── GET /diagnostics ───
 assistantRouter.get('/diagnostics', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -350,7 +355,7 @@ assistantRouter.get('/diagnostics', async (req: Request, res: Response) => {
 
   // Phase 3.1 — automated inbox counts (best-effort).
   const sb = getServiceClient(config);
-  let automatedCounts = {
+  const automatedCounts = {
     ai_managed: 0,
     needs_human: 0,
     human_active: 0,
@@ -365,7 +370,7 @@ assistantRouter.get('/diagnostics', async (req: Request, res: Response) => {
         .select('id', { count: 'exact', head: true })
         .eq('workspace_id', workspaceId)
         .eq('ai_state', s);
-      (automatedCounts as any)[s] = count ?? 0;
+      automatedCounts[s] = count ?? 0;
     }
     const { data: lastHandoff } = await sb
       .from('conversations')
@@ -376,7 +381,7 @@ assistantRouter.get('/diagnostics', async (req: Request, res: Response) => {
       .limit(1)
       .maybeSingle();
     if (lastHandoff?.metadata) {
-      automatedCounts.last_handoff_reason = ((lastHandoff.metadata as any).ai_handoff_reason as string) || null;
+      automatedCounts.last_handoff_reason = (lastHandoff.metadata.ai_handoff_reason as string) || null;
     }
     const { data: lastTakeover } = await sb
       .from('conversations')
@@ -387,7 +392,7 @@ assistantRouter.get('/diagnostics', async (req: Request, res: Response) => {
       .limit(1)
       .maybeSingle();
     if (lastTakeover?.metadata) {
-      automatedCounts.last_human_takeover_at = ((lastTakeover.metadata as any).human_takeover_at as string) || null;
+      automatedCounts.last_human_takeover_at = (lastTakeover.metadata.human_takeover_at as string) || null;
     }
   } catch { /* best-effort */ }
 
@@ -399,22 +404,22 @@ assistantRouter.get('/diagnostics', async (req: Request, res: Response) => {
     is_global_admin: auth.isAdmin,
     role: auth.role,
     auto_modes_supported: true,
-    intro_enabled: (settings as any).ai_intro_enabled !== false,
+    intro_enabled: settings.ai_intro_enabled !== false,
     operator_availability: availability,
     reply_limits: {
       per_conversation: settings.max_replies_per_conversation,
       per_hour: settings.max_replies_per_hour,
-      fallback_behavior: (settings as any).fallback_behavior || 'handoff',
-      stop_on_handoff: (settings as any).stop_on_handoff !== false,
+      fallback_behavior: settings.fallback_behavior || 'handoff',
+      stop_on_handoff: settings.stop_on_handoff !== false,
     },
     automated_inbox: automatedCounts,
     safety_settings: {
       pause_auto_reply_after_human_reply:
-        (settings as any).pause_auto_reply_after_human_reply !== false,
+        settings.pause_auto_reply_after_human_reply !== false,
       allow_suggestions_after_takeover:
-        (settings as any).allow_suggestions_after_takeover !== false,
+        settings.allow_suggestions_after_takeover !== false,
       keep_in_automated_until_handoff:
-        (settings as any).keep_in_automated_until_handoff !== false,
+        settings.keep_in_automated_until_handoff !== false,
     },
     recent_runs: recentRuns,
   });
@@ -430,7 +435,7 @@ const genDescSchema = z.object({ workspaceId: z.string().uuid() });
 // plan/override changes take effect uniformly without stranding any in-flight
 // work.
 assistantRouter.post('/generate-business-description', requireModule('ai_assistant'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = genDescSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_params' });
   const { workspaceId } = parsed.data;
@@ -481,7 +486,7 @@ assistantRouter.post('/generate-business-description', requireModule('ai_assista
       },
     });
     return res.json({ description: (r.text || '').trim(), source: 'ai', provider: r.provider, model: r.model });
-  } catch (err: any) {
+  } catch (err) {
     const code = err?.code || '';
     if (
       code === 'ai_allowance_exhausted' ||
@@ -500,7 +505,7 @@ assistantRouter.post('/generate-business-description', requireModule('ai_assista
 
 // ── GET /overview ──
 assistantRouter.get('/overview', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = requireWorkspace(req);
   if (!workspaceId) return res.status(400).json({ error: 'missing_workspace_id' });
   const auth = await authorizeMember(req, res, config, workspaceId);
@@ -508,7 +513,7 @@ assistantRouter.get('/overview', async (req: Request, res: Response) => {
   try {
     const overview = await buildOverview(config, workspaceId);
     return res.json(overview);
-  } catch (err: any) {
+  } catch (err) {
     return res.status(500).json({ error: 'overview_failed', details: err?.message });
   }
 });

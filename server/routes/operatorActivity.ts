@@ -54,6 +54,7 @@ import {
 } from '../services/widget/operatorPresence.js';
 import { shouldWriteFallbackPresence } from '../services/widget/operatorPresenceSource.js';
 import { recordOperatorActivity } from '../services/widget/operatorActivity.js';
+import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
 
 export const operatorActivityRouter = Router();
 
@@ -143,7 +144,7 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
       .is('workspace_id', null)
       .maybeSingle();
 
-    const { state } = computeOperatorState(prefs as any, now);
+    const { state } = computeOperatorState(prefs, now);
 
     const { error } = await sb
       .from('operator_activity_samples')
@@ -164,7 +165,7 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
     void pruneOldSamples(sb);
 
     return res.json({ ok: true, state, presence_mode: fallbackPresence ? 'database' : 'realtime' });
-  } catch (err: any) {
+  } catch (err) {
     return res.status(500).json({ error: err?.message || 'Heartbeat failed' });
   }
 });
@@ -192,19 +193,21 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
       .eq('workspace_id', workspaceId);
     if (memErr) return res.status(500).json({ error: memErr.message });
 
-    const userIds = (members || []).map((m: any) => m.user_id);
+    const userIds = (members || []).map((m) => m.user_id);
     const [{ data: profiles }, { data: prefsRows }] = await Promise.all([
       userIds.length
-        ? sb.from('profiles').select('id, full_name, email, avatar_url').in('id', userIds)
-        : Promise.resolve({ data: [] as any[] } as any),
+        ? sb.from('profiles').select('id, full_name, email, avatar_storage_key').in('id', userIds)
+        : Promise.resolve({ data: [] }),
       userIds.length
         ? sb
             .from('user_availability_prefs')
             .select('user_id, force_offline, available_when_using_app, schedule_enabled, timezone, weekly_schedule')
             .in('user_id', userIds)
             .is('workspace_id', null)
-        : Promise.resolve({ data: [] as any[] } as any),
+        : Promise.resolve({ data: [] }),
     ]);
+
+    await hydrateUserAvatars(config, (profiles || []));
 
     // Activity samples for the window (bounded).
     const samples: Array<{ user_id: string; bucket: string; available: boolean }> = [];
@@ -218,7 +221,7 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
         .order('bucket', { ascending: true })
         .range(page * PAGE, page * PAGE + PAGE - 1);
       if (error) return res.status(500).json({ error: error.message });
-      samples.push(...((data || []) as any));
+      samples.push(...(data || []));
       if (!data || data.length < PAGE) break;
     }
 
@@ -230,7 +233,7 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
       .gte('created_at', sinceIso)
       .limit(5000);
 
-    const convIds = (convs || []).map((c: any) => c.id);
+    const convIds = (convs || []).map((c) => c.id);
     let messages: Array<{ sender_id: string | null; sender_type: string; conversation_id: string }> = [];
     if (convIds.length) {
       const { data: msgs } = await sb
@@ -240,14 +243,14 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
         .eq('sender_type', 'agent')
         .gte('created_at', sinceIso)
         .limit(10000);
-      messages = (msgs || []) as any;
+      messages = msgs || [];
     }
 
-    const profileMap = new Map((profiles || []).map((p: any) => [p.id, p]));
-    const prefsMap = new Map((prefsRows || []).map((p: any) => [p.user_id, p]));
+    const profileMap = new Map((profiles || []).map((p) => [p.id, p]));
+    const prefsMap = new Map((prefsRows || []).map((p) => [p.user_id, p]));
     const now = new Date();
 
-    const rows = (members || []).map((m: any) => {
+    const rows = (members || []).map((m) => {
       const mine = samples.filter((s) => s.user_id === m.user_id);
       // Each stored row represents one 5-minute bucket. Legacy per-minute rows
       // are collapsed onto their bucket so a minute is never counted twice.
@@ -271,11 +274,11 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
       }
 
 
-      const assigned = (convs || []).filter((c: any) => c.assigned_to === m.user_id);
-      const resolved = assigned.filter((c: any) => c.status === 'resolved' || c.status === 'closed').length;
+      const assigned = (convs || []).filter((c) => c.assigned_to === m.user_id);
+      const resolved = assigned.filter((c) => c.status === 'resolved' || c.status === 'closed').length;
       const replies = messages.filter((x) => x.sender_id === m.user_id).length;
 
-      const live = computeOperatorState(prefsMap.get(m.user_id) as any, now);
+      const live = computeOperatorState(prefsMap.get(m.user_id), now);
 
       return {
         user_id: m.user_id,
@@ -309,7 +312,7 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
       },
       operators: rows,
     });
-  } catch (err: any) {
+  } catch (err) {
     return res.status(500).json({ error: err?.message || 'Failed to load activity stats' });
   }
 });

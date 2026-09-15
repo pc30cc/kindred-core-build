@@ -21,7 +21,7 @@ import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import { redactToken } from '../../../../shared/channels/redact.js';
 import { requestProviderOperation, type ProviderOperation } from '../operations.js';
-import { uploadFile, resolveStorageConfig, getFileUrlWithConfig } from '../../storage/index.js';
+import { uploadFile, resolveStorageConfig } from '../../storage/index.js';
 import { chatAttachmentKey } from '../../storage/keys.js';
 import { requireLimit } from '../../../middleware/featureGating.js';
 import { usageFnForLimit } from '../../billing/usageResolvers.js';
@@ -312,7 +312,29 @@ export async function recordMediaOutcomes(
   await sb.from('conversation_messages').update({ metadata }).eq('id', messageId);
 }
 
-/** Persists a contact avatar delivered by the worker. Never throws. */
+/**
+ * Persists a contact avatar delivered by the worker. Never throws.
+ *
+ * TWO OWNERSHIP RULES, both fail-closed.
+ *
+ * 1. The contact must belong to the workspace the worker named. The lookup
+ *    and the write are BOTH scoped by `id` AND `workspace_id`: a contact id
+ *    is guessable and the Channels Worker is a separate process, so a
+ *    delivery quoting the wrong workspace must write nothing at all — not
+ *    "the right row for the wrong tenant". Scoping only the read would still
+ *    leave the UPDATE able to hit another tenant's row if the two ever
+ *    disagreed, so the same filter is repeated on the write.
+ *
+ * 2. A DB error is not "no such contact". A failed SELECT is treated as a
+ *    refusal to proceed, never as a green light to skip the check — the
+ *    avatar is simply not persisted and the next inbound message retries.
+ *
+ * What is written is the KEY, not a URL. The public link is derived at read
+ * time from whatever provider is primary then (storage/urlResolver.ts), so
+ * promoting a new primary needs no rewrite of this row. `avatar_url` is
+ * explicitly cleared: a stale URL from a previous provider must not outlive
+ * the key that replaces it.
+ */
 export async function persistContactAvatar(
   config: ServerConfig,
   input: { workspaceId: string; contactId: string; fileKeyHint: string; bytes: Buffer },
@@ -320,11 +342,16 @@ export async function persistContactAvatar(
   try {
     if (input.bytes.byteLength > MAX_AVATAR_BYTES) return;
     const sb = getServiceClient(config);
-    const { data: contact } = await sb
+    const { data: contact, error: lookupError } = await sb
       .from('contacts')
       .select('id, metadata')
       .eq('id', input.contactId)
+      .eq('workspace_id', input.workspaceId)
       .maybeSingle();
+    if (lookupError) {
+      console.warn('[telegram-avatar] contact lookup failed, avatar not persisted:', redactToken(lookupError.message));
+      return;
+    }
     if (!contact) return;
 
     // Workspace-first storage audit: already workspace-scoped (compliant
@@ -345,24 +372,23 @@ export async function persistContactAvatar(
     });
     if (!uploaded.success) return;
 
-    const storageConfig = await resolveStorageConfig(config, input.workspaceId);
-    const url = uploaded.url || (storageConfig ? getFileUrlWithConfig(storageConfig, fileKey) : null);
-    if (!url) return;
-    // The key is what survives a provider change; the URL is a cache of it
-    // (server/services/storage/urlRefresh.ts rebuilds the cache).
-    const avatarColumns = { avatar_url: url, avatar_storage_key: fileKey };
-
-    await sb
+    const { error: writeError } = await sb
       .from('contacts')
       .update({
-        ...avatarColumns,
+        avatar_storage_key: fileKey,
+        avatar_url: null,
         metadata: {
           ...((contact as { metadata?: Record<string, unknown> }).metadata || {}),
           avatar_source: 'telegram',
           avatar_synced_at: new Date().toISOString(),
         },
       })
-      .eq('id', input.contactId);
+      .eq('id', input.contactId)
+      .eq('workspace_id', input.workspaceId);
+
+    if (writeError) {
+      console.warn('[telegram-avatar] contact update failed:', redactToken(writeError.message));
+    }
   } catch (err) {
     console.warn('[telegram-avatar] persist skipped:', redactToken(err instanceof Error ? err.message : String(err)));
   }

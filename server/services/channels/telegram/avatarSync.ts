@@ -30,9 +30,13 @@ export type TelegramAvatarSyncInput = {
   telegramUserId: string | null;
 };
 
-function shouldSync(contact: any): boolean {
+function shouldSync(contact): boolean {
   const syncedAt = contact?.metadata?.avatar_synced_at;
-  if (!contact?.avatar_url) return true;
+  // "Has an avatar" means either one of ours (a storage key — the only thing
+  // persisted for an object we own) or an externally supplied URL from a CRM
+  // import. Checking only the URL column would re-fetch from the provider on
+  // every message for every contact whose avatar we already store.
+  if (!contact?.avatar_storage_key && !contact?.avatar_url) return true;
   if (typeof syncedAt !== 'string') return true;
   const ts = Date.parse(syncedAt);
   return !Number.isFinite(ts) || Date.now() - ts > REFRESH_AFTER_MS;
@@ -48,8 +52,12 @@ export async function syncTelegramContactAvatar(
     const sb = getServiceClient(config);
     const { data: contact } = await sb
       .from('contacts')
-      .select('id, avatar_url, metadata')
+      .select('id, avatar_url, avatar_storage_key, metadata')
       .eq('id', input.contactId)
+      // Same ownership scoping as the write side (mediaIngest.persistContactAvatar):
+      // the decision to queue a fetch for this contact is made only for the
+      // workspace that owns it.
+      .eq('workspace_id', input.workspaceId)
       .maybeSingle();
     if (!contact || !shouldSync(contact)) return;
 
@@ -87,7 +95,7 @@ export async function markAvatarChecked(config: ServerConfig, contactId: string)
     await sb
       .from('contacts')
       .update({
-        metadata: { ...(((contact as any)?.metadata) || {}), avatar_synced_at: new Date().toISOString() },
+        metadata: { ...((contact?.metadata) || {}), avatar_synced_at: new Date().toISOString() },
       })
       .eq('id', contactId);
   } catch {

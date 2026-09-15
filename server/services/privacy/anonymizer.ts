@@ -301,6 +301,9 @@ export async function runAnonymize(
           name: null,
           notes: null,
           avatar_url: null,
+          // The key is the record of a WebYar-owned avatar; clearing only the
+          // URL column would leave the object still addressable from the row.
+          avatar_storage_key: null,
           tags: [],
           metadata: { anonymized: true, anonymized_at: new Date().toISOString() },
         })

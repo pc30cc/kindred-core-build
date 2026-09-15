@@ -22,7 +22,7 @@ import crypto from 'crypto';
 import { getServiceClient } from '../supabase.js';
 import type { ServerConfig } from '../config.js';
 import { routeParam } from '../lib/routeParams.js';
-import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import {
   publishConversationEvent,
   buildMessageEnvelope,
@@ -78,6 +78,19 @@ import {
   getClientIp,
   getRequestOrigin,
 } from '../services/widget/security.js';
+import { createStorageUrlResolver, hydrateUserAvatars } from '../services/storage/urlResolver.js';
+import { resolveAgentLogoUrl, type AgentMode } from '../services/ai-agent/settings.js';
+
+/**
+ * What the widget security middleware attaches to a request after it has
+ * verified the session token and the visitor cookie: the workspace the token
+ * is scoped to, and the visitor it belongs to. Both are server-derived —
+ * never read from the body or the query.
+ */
+type WidgetScopedRequest = Request & {
+  _widgetWorkspaceId?: string;
+  visitorId?: string;
+};
 import { maybeRunAiAssistantAfterVisitorMessage } from '../services/ai-agent/engine.js';
 import { logRun as logAiRun } from '../services/ai-agent/logs.js';
 import { getPlatformAiAgentSettings } from '../services/ai-agent/platformSettings.js';
@@ -233,9 +246,9 @@ const DEFAULT_PRECHAT_POLICY = {
   phone: 'default_on',
 } as const;
 
-function normalizePreChatPolicy(value: any) {
+function normalizePreChatPolicy(value) {
   const source = value && typeof value === 'object' ? value : {};
-  const valid = (v: any) => v === 'force_on' || v === 'force_off' || v === 'default_on' || v === 'default_off';
+  const valid = (v) => v === 'force_on' || v === 'force_off' || v === 'default_on' || v === 'default_off';
   return {
     name: valid(source.name) ? source.name : DEFAULT_PRECHAT_POLICY.name,
     email: valid(source.email) ? source.email : DEFAULT_PRECHAT_POLICY.email,
@@ -244,7 +257,7 @@ function normalizePreChatPolicy(value: any) {
 }
 
 // Loads policy from widget_platform_settings (preferred) or falls back to app_runtime_config
-async function loadPlatformPreChatPolicy(supabase: any): Promise<any> {
+async function loadPlatformPreChatPolicy(supabase): Promise<Record<string, unknown>> {
   const { data: platformRow } = await supabase
     .from('widget_platform_settings')
     .select('prechat_name_policy, prechat_email_policy, prechat_phone_policy')
@@ -265,7 +278,7 @@ async function loadPlatformPreChatPolicy(supabase: any): Promise<any> {
   return legacy?.value || null;
 }
 
-function buildPreChatConfig(policyValue: any, workspaceFlags: Array<{ key: string; enabled: boolean | null }> = []) {
+function buildPreChatConfig(policyValue, workspaceFlags: Array<{ key: string; enabled: boolean | null }> = []) {
   const policy = normalizePreChatPolicy(policyValue);
   const flagMap = new Map(workspaceFlags.map((flag) => [flag.key, flag.enabled]));
 
@@ -289,7 +302,7 @@ function buildPreChatConfig(policyValue: any, workspaceFlags: Array<{ key: strin
 // ═══════════════════════════════════════════════
 widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware('widget.bootstrap'), async (req: Request, res: Response) => {
   try {
-    const config = (req as any).serverConfig as ServerConfig;
+    const config = serverConfigOf(req);
     const supabase = getServiceClient(config);
     const { workspace_id } = req.body || {};
 
@@ -400,7 +413,7 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
         locale: localeHint,
       });
       availabilityPayload = snapshotToWirePayload(snap);
-    } catch (err: any) {
+    } catch (err) {
       console.warn('[widget-bootstrap] availability resolve failed:', err?.message);
     }
 
@@ -424,7 +437,7 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
       effective_policy,
       version: '3.0.0',
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[widget-bootstrap] Error:', err.message);
     return res.status(500).json({ error: 'Bootstrap failed' });
   }
@@ -491,7 +504,7 @@ widgetRouter.post('/session/refresh', widgetRateLimit('refresh'), perfHttpMiddle
     // hiccups — token refresh must never block.
     let effective_policy: Awaited<ReturnType<typeof resolveEffectivePolicy>> | null = null;
     try {
-      const config = (req as any).serverConfig as ServerConfig;
+      const config = serverConfigOf(req);
       effective_policy = await resolveEffectivePolicy(config, { workspaceId });
     } catch (_err) {
       effective_policy = null;
@@ -503,7 +516,7 @@ widgetRouter.post('/session/refresh', widgetRateLimit('refresh'), perfHttpMiddle
       expires_at: newResult.expiresAt ? new Date(newResult.expiresAt * 1000).toISOString() : null,
       effective_policy,
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[session-refresh] Error:', err.message);
     return res.status(500).json({ error: 'Session refresh failed' });
   }
@@ -526,8 +539,8 @@ widgetRouter.use(enforceOrigin);
 // ═══════════════════════════════════════════════
 widgetRouter.use((req: Request, res: Response, next: NextFunction) => {
   try {
-    const tokenWs = (req as any)._widgetWorkspaceId as string | undefined;
-    const wsFromBody = (req.body && typeof req.body === 'object' ? (req.body as any).workspace_id : undefined) as string | undefined;
+    const tokenWs = (req as WidgetScopedRequest)._widgetWorkspaceId as string | undefined;
+    const wsFromBody = (req.body && typeof req.body === 'object' ? req.body.workspace_id : undefined) as string | undefined;
     const wsFromQuery = req.query.workspace_id as string | undefined;
     const ws = tokenWs || wsFromBody || wsFromQuery;
     if (!ws) return next();
@@ -535,13 +548,13 @@ widgetRouter.use((req: Request, res: Response, next: NextFunction) => {
     const cookie = readVisitorCookie(req, ws);
     if (!cookie) return next();
 
-    if (req.body && typeof req.body === 'object' && !(req.body as any).visitor_id) {
-      (req.body as any).visitor_id = cookie.v;
+    if (req.body && typeof req.body === 'object' && !req.body.visitor_id) {
+      req.body.visitor_id = cookie.v;
     }
     if (!req.query.visitor_id) {
-      (req.query as any).visitor_id = cookie.v;
+      req.query.visitor_id = cookie.v;
     }
-    (req as any).visitorId = cookie.v;
+    (req as WidgetScopedRequest).visitorId = cookie.v;
   } catch (_) {
     // Identity resolution must never block the request
   }
@@ -551,7 +564,7 @@ widgetRouter.use((req: Request, res: Response, next: NextFunction) => {
 // GET /config — Full widget configuration
 // ═══════════════════════════════════════════════
 widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -579,7 +592,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     ] = await Promise.all([
       supabase.from('widget_settings').select('*').eq('workspace_id', workspaceId).maybeSingle(),
       supabase.from('workspace_branding')
-        .select('logo_url, primary_color')
+        .select('logo_url, logo_storage_key, primary_color')
         .eq('workspace_id', workspaceId).maybeSingle(),
       // Single source of truth for widget URLs — never read platform_domains/branding for these.
       supabase.from('widget_platform_settings')
@@ -705,7 +718,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
 
       const { data: aiSettings } = await supabase
         .from('ai_agent_settings')
-        .select('enabled, mode, ai_intro_enabled, agent_name, agent_logo_url')
+        .select('enabled, mode, ai_intro_enabled, agent_name, agent_logo_url, metadata')
         .eq('workspace_id', workspaceId)
         .maybeSingle();
       // Best-effort, separate from the query above on purpose: this column
@@ -723,9 +736,9 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
           .select('handoff_prechat_message_localized')
           .eq('workspace_id', workspaceId)
           .maybeSingle();
-        if (hpRow && (hpRow as any).handoff_prechat_message_localized
-          && typeof (hpRow as any).handoff_prechat_message_localized === 'object') {
-          handoffPrechatMessageLocalized = (hpRow as any).handoff_prechat_message_localized;
+        if (hpRow && hpRow.handoff_prechat_message_localized
+          && typeof hpRow.handoff_prechat_message_localized === 'object') {
+          handoffPrechatMessageLocalized = hpRow.handoff_prechat_message_localized;
         }
       } catch (_) { /* column may not exist yet — fine, client has its own fallback copy */ }
       if (aiSettings) {
@@ -740,7 +753,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         const { resolveVisitorAiSnapshot } = await import('../services/ai-agent/visitorAiSnapshot.js');
         const aiSnapshot = await resolveVisitorAiSnapshot(config, workspaceId, {
           enabled: !!aiSettings.enabled,
-          mode: mode as any,
+          mode: mode as AgentMode,
         });
         aiAgentInfo = {
           enabled: !!aiSettings.enabled,
@@ -754,7 +767,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
           providerReady: aiSnapshot.providerReady,
           reason: aiSnapshot.reason,
           agentName: aiSettings.agent_name || null,
-          agentLogoUrl: aiSettings.agent_logo_url || null,
+          agentLogoUrl: await resolveAgentLogoUrl(config, workspaceId, aiSettings),
           disabledByPlatform: false,
           disabledMessage: null,
           handoffPrechatMessageLocalized: handoffPrechatMessageLocalized,
@@ -762,7 +775,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
       }
 
       }
-    } catch (e: any) {
+    } catch (e) {
       console.warn('[widget-config] ai_agent_settings lookup failed:', e?.message || e);
     }
 
@@ -772,20 +785,21 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     let teamMembers: Array<{ name: string; avatar: string | null; online: boolean }> = [];
     if (members?.length) {
       const { data: profiles } = await supabase
-        .from('profiles').select('id, full_name, avatar_url')
-        .in('id', members.map((m: any) => m.user_id));
+        .from('profiles').select('id, full_name, avatar_storage_key')
+        .in('id', members.map((m) => m.user_id));
+      const withAvatars = await hydrateUserAvatars(config, profiles || []);
       // Resolve who's online right now using the operator presence service
       // so the widget can render a green status dot on each avatar.
-      let presenceByUser = new Map<string, 'online' | 'offline'>();
+      const presenceByUser = new Map<string, 'online' | 'offline'>();
       try {
         // Visitor-facing dots follow CUSTOMER availability (manual status +
         // schedule), never connection state.
         const { listCustomerAvailableOperators } = await import('../services/widget/customerAvailability.js');
         const { available } = await listCustomerAvailableOperators(config, workspaceId);
         for (const op of available) presenceByUser.set(op.user_id, 'online');
-      } catch (_) {}
+      } catch { /* presence is cosmetic — never fail the bootstrap */ }
       if (profiles) {
-        teamMembers = profiles.map((p: any) => ({
+        teamMembers = withAvatars.map((p) => ({
           name: p.full_name || 'Operator',
           avatar: p.avatar_url,
           online: presenceByUser.get(p.id) === 'online',
@@ -867,11 +881,11 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     // grants `widget_powered_by_toggle` (default preference: shown).
     const workspaceMayHidePoweredBy = widgetEntitlements?.features?.widget_powered_by_toggle === true;
     const workspaceWantsPoweredBy = workspaceMayHidePoweredBy
-      ? (ws as any).show_powered_by !== false
+      ? ws.show_powered_by !== false
       : true;
     const poweredBy = buildPoweredByConfig(
-      platformWidget as any,
-      (platformBranding as any)?.platform_name || '',
+      platformWidget as Record<string, unknown>,
+      platformBranding?.platform_name || '',
       poweredByPlanAllows && workspaceWantsPoweredBy,
     );
     const widgetConfig = {
@@ -896,7 +910,12 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
 
       primaryColor: ws.primary_color || branding?.primary_color || '#3B82F6',
       secondaryColor: ws.secondary_color || '#6366f1',
-      logoUrl: ws.logo_url || branding?.logo_url || null,
+      // `widget_settings.logo_url` is an operator-typed external link and is
+      // kept as-is; the workspace's own uploaded logo is derived from its
+      // storage key so it follows a provider promotion with no row rewrite.
+      logoUrl: ws.logo_url
+        || (await createStorageUrlResolver(config).workspace(workspaceId, branding?.logo_storage_key))
+        || null,
       launcherText: resolveLocalizedDefault(
         ws.launcher_text,
         'launcher',
@@ -1037,7 +1056,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
     };
 
     res.json(widgetConfig);
-  } catch (err: any) {
+  } catch (err) {
     console.error('Widget config error:', err);
     res.status(500).json({ error: 'Internal error' });
   }
@@ -1065,7 +1084,7 @@ const smartEventSchema = z.object({
 }).refine((d) => (d.source === 'ai_proactive' ? !!d.ai_nudge_id : !!d.rule_id), { message: 'rule_id or ai_nudge_id required' });
 
 widgetRouter.post('/smart/event', widgetRateLimit('default'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -1092,7 +1111,7 @@ widgetRouter.post('/smart/event', widgetRateLimit('default'), async (req: Reques
       return res.status(status).json({ error: result.reason || 'rejected' });
     }
     res.json({ ok: true });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[smart-event] failed:', err?.message || err);
     res.status(500).json({ error: 'Internal error' });
   }
@@ -1160,7 +1179,7 @@ function sanitizeNudgePath(raw: string | null | undefined): string {
 }
 
 widgetRouter.post('/nudge/evaluate', widgetRateLimit('default'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -1182,7 +1201,7 @@ widgetRouter.post('/nudge/evaluate', widgetRateLimit('default'), async (req: Req
     // precedence as every other widget route. A client-supplied visitor_id
     // is stored ONLY as a display/analytics column — never used for
     // enforcement (frequency, dedup, billing all key on trustedSessionKey).
-    const visitorId = readVisitorCookie(req as any, workspaceId)?.v || null;
+    const visitorId = readVisitorCookie(req as Request, workspaceId)?.v || null;
     const journey: AiJourneyContext = {
       current: { path: sanitizeNudgePath(d.current.path), title: d.current.title || undefined, ts: Date.now() },
       recentPages: d.recent_pages.map((p) => ({ path: sanitizeNudgePath(p.path), title: p.title || undefined, ts: p.ts })),
@@ -1222,7 +1241,7 @@ widgetRouter.post('/nudge/evaluate', widgetRateLimit('default'), async (req: Req
       journey,
     });
     res.json(result);
-  } catch (err: any) {
+  } catch (err) {
     console.error('[nudge-evaluate] failed:', err?.message || err);
     res.json({ decision: 'suppress' });
   }
@@ -1234,10 +1253,11 @@ widgetRouter.post('/nudge/evaluate', widgetRateLimit('default'), async (req: Req
  * Visitor + system messages are passed through unchanged.
  */
 async function enrichMessagesWithSender(
-  supabase: any,
-  messages: any[],
+  config: ServerConfig,
+  supabase,
+  messages,
   workspaceId?: string | null,
-): Promise<any[]> {
+): Promise<unknown[]> {
   if (!messages || !messages.length) return messages || [];
   // Internal staffing notices (assignment transfers) never reach the visitor.
   // Canonical helper — see widgetAttachments.ts's filterVisitorVisibleMessages
@@ -1252,17 +1272,20 @@ async function enrichMessagesWithSender(
       .filter((m) => m._sender_id && (m.role === 'agent' || m.sender_type === 'agent' || m.sender_type === 'ai'))
       .map((m) => m._sender_id as string)
   ));
-  let profileMap = new Map<string, { name: string | null; avatar: string | null }>();
+  const profileMap = new Map<string, { name: string | null; avatar: string | null }>();
   if (ids.length) {
     try {
       const { data: profiles } = await supabase
         .from('profiles')
-        .select('id, full_name, avatar_url')
+        .select('id, full_name, avatar_storage_key')
         .in('id', ids);
-      (profiles || []).forEach((p: any) => {
+      // Derived from the stored key for the provider that is primary now —
+      // one resolution for the whole thread.
+      await hydrateUserAvatars(config, (profiles || []));
+      (profiles || []).forEach((p) => {
         profileMap.set(p.id, { name: p.full_name || null, avatar: p.avatar_url || null });
       });
-    } catch (e: any) {
+    } catch (e) {
       console.warn('[widget-sender-enrich] profile lookup failed:', e?.message || e);
     }
   }
@@ -1275,11 +1298,11 @@ async function enrichMessagesWithSender(
     try {
       const { data: s } = await supabase
         .from('ai_agent_settings')
-        .select('agent_name, agent_logo_url')
+        .select('agent_name, agent_logo_url, metadata')
         .eq('workspace_id', workspaceId)
         .maybeSingle();
-      if (s) aiDisplay = { name: s.agent_name || null, avatar: s.agent_logo_url || null };
-    } catch (e: any) {
+      if (s) aiDisplay = { name: s.agent_name || null, avatar: await resolveAgentLogoUrl(config, workspaceId, s) };
+    } catch (e) {
       console.warn('[widget-sender-enrich] ai settings lookup failed:', e?.message || e);
     }
   }
@@ -1290,7 +1313,9 @@ async function enrichMessagesWithSender(
       return {
         ...rest,
         sender_name: meta.agent_name || aiDisplay?.name || null,
-        sender_avatar: meta.agent_logo_url || aiDisplay?.avatar || null,
+        // No `meta.agent_logo_url` fallback: a provider URL is no longer
+        // snapshotted into a message row (see ai-agent/responder.ts).
+        sender_avatar: aiDisplay?.avatar || null,
       };
     }
     const { _sender_id, ...rest } = m;
@@ -1307,7 +1332,7 @@ async function enrichMessagesWithSender(
 }
 
 widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
   if (res.headersSent) return;
   if (!workspaceId) return res.json({ status: 'unknown', messages: [], conversation_id: null });
@@ -1318,7 +1343,7 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
   const supabase = getServiceClient(config);
 
   try {
-    let conv: any = null;
+    let conv = null;
     let activeConversationId: string | null = null;
 
     // Try direct conversation lookup with ownership verification
@@ -1376,7 +1401,7 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
       .order('created_at', { ascending: false })
       .limit(200);
 
-    const baseMessages = (msgs || []).slice().reverse().map((m: any) => ({
+    const baseMessages = (msgs || []).slice().reverse().map((m) => ({
       id: m.id,
       // Legacy 'role' kept for widget runtime compatibility — AI replies
       // collapse to 'agent' here so existing widget rendering still works.
@@ -1399,14 +1424,19 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
     // Phase 6b — attach public-safe attachment metadata (no provider URLs)
     const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
     const withReplies = await enrichMessagesWithReplyTo(config, activeConversationId as string, enriched);
-    const messages = await enrichMessagesWithSender(supabase, withReplies, workspaceId);
+    const messages = await enrichMessagesWithSender(config, supabase, withReplies, workspaceId);
 
     let operatorInfo = null;
     if (conv.assigned_to) {
       const { data: profile } = await supabase
-        .from('profiles').select('full_name, avatar_url')
+        .from('profiles').select('id, full_name, avatar_storage_key')
         .eq('id', conv.assigned_to).maybeSingle();
-      if (profile) operatorInfo = { name: profile.full_name, avatar: profile.avatar_url };
+      if (profile) {
+        operatorInfo = {
+          name: profile.full_name,
+          avatar: await createStorageUrlResolver(config).user(conv.assigned_to, profile.avatar_storage_key),
+        };
+      }
     }
 
     // Phase 8B — surface a `ringing` call session on this conversation as
@@ -1439,7 +1469,7 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
       conversation_id: activeConversationId,
       active_call: activeCall,
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[widget-poll] Error:', err.message);
     res.status(500).json({ error: 'Poll failed' });
   }
@@ -1449,7 +1479,7 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
 // GET /history — Conversation history
 // ═══════════════════════════════════════════════
 widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
   if (res.headersSent) return;
 
@@ -1474,7 +1504,7 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
     .order('created_at', { ascending: false })
     .limit(200);
 
-  const baseMessages = (msgs || []).slice().reverse().map((m: any) => ({
+  const baseMessages = (msgs || []).slice().reverse().map((m) => ({
     id: m.id,
     role: m.sender_type === 'contact' ? 'visitor' : m.sender_type === 'system' ? 'system' : 'agent',
     sender_type: m.sender_type,
@@ -1489,7 +1519,7 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
   // Phase 6b — attach public-safe attachment metadata (no provider URLs)
   const enriched = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
   const withReplies = await enrichMessagesWithReplyTo(config, conversationId, enriched);
-  const messages = await enrichMessagesWithSender(supabase, withReplies, workspaceId);
+  const messages = await enrichMessagesWithSender(config, supabase, withReplies, workspaceId);
 
   return res.json({ messages });
 });
@@ -1498,7 +1528,7 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
 // GET /conversations — Visitor's own conversation list
 // ───────────────────────────────────────────────
 // Identity is taken EXCLUSIVELY from the signed HttpOnly `dvsid` cookie
-// (`req.visitorId`, set by the middleware above after verifying the cookie
+// (`(req as WidgetScopedRequest).visitorId`, set by the middleware above after verifying the cookie
 // signature AND that it was issued for this workspace). Any `visitor_id`
 // supplied by the client in the query string or body is ignored outright —
 // it is never read here, so a tampered/forged value cannot widen or shift
@@ -1506,14 +1536,14 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
 // within that already-authenticated identity.
 // ═══════════════════════════════════════════════
 widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
   if (res.headersSent) return;
   if (!workspaceId) return res.json({ conversations: [] });
 
   // Cookie-derived identity ONLY. Deliberately does not fall back to
   // req.query.visitor_id / req.body.visitor_id.
-  const visitorId = (req as any).visitorId as string | undefined;
+  const visitorId = (req as WidgetScopedRequest).visitorId as string | undefined;
   if (!visitorId) return res.json({ conversations: [] });
 
   const supabase = getServiceClient(config);
@@ -1528,7 +1558,7 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
       .eq('workspace_id', workspaceId)
       .eq('visitor_id', visitorId)
       .limit(50);
-    const sessionIds = (sessions || []).map((s: any) => s.id).filter(Boolean);
+    const sessionIds = (sessions || []).map((s) => s.id).filter(Boolean);
 
     // Fallback linkage used elsewhere in this file (see /poll, /message):
     // a contact whose metadata carries this visitor_id.
@@ -1558,7 +1588,7 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
     if (error) throw error;
 
     const list = convos || [];
-    const convIds = list.map((c: any) => c.id);
+    const convIds = list.map((c) => c.id);
 
     // Visitor-side read markers (widget_conversation_reads). Keyed by the
     // cookie-derived visitor id, so a visitor only ever sees their own
@@ -1571,7 +1601,7 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
         .eq('workspace_id', workspaceId)
         .eq('visitor_id', visitorId)
         .in('conversation_id', convIds);
-      for (const r of (reads || []) as any[]) {
+      for (const r of (reads || [])) {
         readAtByConv[r.conversation_id] = new Date(r.last_read_at).getTime();
       }
     }
@@ -1590,7 +1620,7 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
         .in('conversation_id', convIds)
         .order('created_at', { ascending: false })
         .limit(500);
-      for (const m of (msgs || []) as any[]) {
+      for (const m of (msgs || [])) {
         if (!lastByConv[m.conversation_id]) {
           lastByConv[m.conversation_id] = { body: m.body ?? '', created_at: m.created_at };
         }
@@ -1607,7 +1637,7 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
       return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
     };
 
-    const conversations = list.map((c: any) => {
+    const conversations = list.map((c) => {
       const last = lastByConv[c.id] || null;
       return {
         id: c.id,
@@ -1620,7 +1650,7 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
     });
 
     return res.json({ conversations });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[widget-conversations] Error:', err.message);
     res.status(500).json({ error: 'Internal error' });
   }
@@ -1634,12 +1664,12 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
 // visitor cannot mark somebody else's thread as read.
 // ═══════════════════════════════════════════════
 widgetRouter.post('/conversations/:id/read', widgetRateLimit('poll'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const workspaceId = resolveWorkspaceId(req, res, (req.body && (req.body as any).workspace_id) || (req.query.workspace_id as string));
+  const config = serverConfigOf(req);
+  const workspaceId = resolveWorkspaceId(req, res, (req.body && req.body.workspace_id) || (req.query.workspace_id as string));
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
 
-  const visitorId = (req as any).visitorId as string | undefined;
+  const visitorId = (req as WidgetScopedRequest).visitorId as string | undefined;
   if (!visitorId) return res.status(401).json({ error: 'visitor identity required' });
 
   const conversationId = String(req.params.id || '');
@@ -1663,15 +1693,15 @@ widgetRouter.post('/conversations/:id/read', widgetRateLimit('poll'), async (req
       .eq('workspace_id', workspaceId)
       .eq('visitor_id', visitorId)
       .limit(50);
-    const sessionIds = new Set((sessions || []).map((s: any) => s.id));
+    const sessionIds = new Set((sessions || []).map((s) => s.id));
 
-    let owns = !!(convo as any).visitor_session_id && sessionIds.has((convo as any).visitor_session_id);
-    if (!owns && (convo as any).contact_id) {
+    let owns = !!convo.visitor_session_id && sessionIds.has(convo.visitor_session_id);
+    if (!owns && convo.contact_id) {
       const { data: contact } = await supabase
         .from('contacts')
         .select('id')
         .eq('workspace_id', workspaceId)
-        .eq('id', (convo as any).contact_id)
+        .eq('id', convo.contact_id)
         .contains('metadata', { visitor_id: visitorId })
         .maybeSingle();
       owns = !!contact;
@@ -1689,7 +1719,7 @@ widgetRouter.post('/conversations/:id/read', widgetRateLimit('poll'), async (req
       }, { onConflict: 'conversation_id,visitor_id' });
 
     return res.json({ ok: true });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[widget-conversation-read] Error:', err.message);
     res.status(500).json({ error: 'Internal error' });
   }
@@ -1700,7 +1730,7 @@ widgetRouter.post('/conversations/:id/read', widgetRateLimit('poll'), async (req
 // GET /help-articles — Knowledge base articles
 // ═══════════════════════════════════════════════
 widgetRouter.get('/help-articles', widgetRateLimit('default'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
   if (res.headersSent) return;
   if (!workspaceId) return res.json({ articles: [] });
@@ -1724,7 +1754,7 @@ widgetRouter.get('/help-articles', widgetRateLimit('default'), async (req: Reque
 
     const { data: articles } = await query;
     return res.json({ articles: articles || [] });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[widget-help] Error:', err.message);
     res.status(500).json({ error: 'Internal error' });
   }
@@ -1783,7 +1813,7 @@ const messageSchema = z.object({
 );
 
 widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = messageSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid parameters', details: parsed.error.flatten().fieldErrors });
@@ -1815,13 +1845,13 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
   } | null = null;
   try {
     // Accept both canonical and camelCase aliases for forward compat.
-    const raw = (data as any).page_context || (req.body && (req.body as any).pageContext) || null;
+    const raw = data.page_context || (req.body && req.body.pageContext) || null;
     const debugPC = process.env.DEBUG_WIDGET_PAGE_CONTEXT === '1';
     if (debugPC) {
       console.log('[widget-page-ctx] received', { workspaceId, hasRaw: !!raw });
     }
     if (raw && typeof raw === 'object') {
-      const sanitizeStr = (v: any, max: number) =>
+      const sanitizeStr = (v, max: number) =>
         (typeof v === 'string' && v.trim()) ? v.trim().slice(0, max) : null;
       const sanitizeUrl = (raw: string | null): string | null => {
         if (!raw) return null;
@@ -1878,7 +1908,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         }
       }
     }
-  } catch (err: any) {
+  } catch (err) {
     console.warn('[widget-message] page_context parse failed:', err?.message || err);
     pageContext = null;
   }
@@ -1890,7 +1920,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
   // AI Agent's prompt.
   let nudgeContext: { topic: string; message: string } | null = null;
   let nudgeIdForAttribution: string | null = null;
-  const nudgeCtxInput = (data as any).nudge_context || null;
+  const nudgeCtxInput = data.nudge_context || null;
   if (nudgeCtxInput?.nudge_id) {
     try {
       const { data: nudgeRow } = await supabase
@@ -1903,7 +1933,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         nudgeContext = { topic: String(nudgeRow.topic || '').slice(0, 60), message: String(nudgeRow.message || '').slice(0, 400) };
         nudgeIdForAttribution = nudgeRow.id as string;
       }
-    } catch (err: any) {
+    } catch (err) {
       console.warn('[widget-message] nudge_context lookup failed:', err?.message || err);
     }
   }
@@ -2008,7 +2038,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       if (!convId && (body.visitor_email || body.visitor_phone)) {
         const email = (body.visitor_email || '').trim().toLowerCase() || null;
         const phone = (body.visitor_phone || '').trim().replace(/[^\d+]/g, '') || null;
-        let contactRow: any = null;
+        let contactRow = null;
         if (email) {
           const r = await supabase
             .from('contacts').select('id')
@@ -2076,7 +2106,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
           await issueContinuityCookieForContact(
             supabase, req, res, workspaceId, contactId, 'chat_widget',
           );
-        } catch (e: any) {
+        } catch (e) {
           console.warn('[widget] cross-widget identity link failed:', e?.message || e);
         }
       }
@@ -2138,7 +2168,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       });
 
       if (convErr) throw convErr;
-      const ensuredRow: any = Array.isArray(ensured) ? ensured[0] : ensured;
+      const ensuredRow = Array.isArray(ensured) ? ensured[0] : ensured;
       if (!ensuredRow?.id) throw new Error('conversation creation failed');
       convId = ensuredRow.id as string;
       const createdNewConversation = Boolean(ensuredRow.created);
@@ -2250,7 +2280,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
      * guard against a genuine race between two near-simultaneous retries.
      */
     let duplicate = false;
-    let insertedMsg: any = null;
+    let insertedMsg = null;
     if (clientMessageId) {
       const { data: prior } = await supabase
         .from('conversation_messages')
@@ -2369,7 +2399,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
           previous_ai_state: restored.previousAiState,
           restored_to_main_inbox: restored.changed,
         });
-      } catch (e: any) {
+      } catch (e) {
         console.warn('[widget-message] platform_ai_disabled_restore_failed:', e?.message || e);
       }
     }
@@ -2391,7 +2421,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         // (not insertedMsg's raw DB column, which may still be the true FK
         // to a hidden/internal parent) — the envelope must follow the exact
         // same public contract as every other read path.
-        buildMessageEnvelope({ ...(insertedMsg as any), reply_to_message_id: publicReplyToMessageId, reply_to: replyToPreview }),
+        buildMessageEnvelope({ ...(insertedMsg as Parameters<typeof buildMessageEnvelope>[0]), reply_to_message_id: publicReplyToMessageId, reply_to: replyToPreview }),
       ).catch(() => {});
 
       // NATIVE PUSH — same central dispatcher as every other channel.
@@ -2402,7 +2432,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         conversationId: convId!,
         messageId: insertedMsg.id,
         text: messageBody,
-        senderName: (body as any)?.visitor_name || null,
+        senderName: body?.visitor_name || null,
         channel: 'widget',
         attachmentCount: data.attachment_id ? 1 : 0,
       });
@@ -2435,7 +2465,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
         pageContext: pageContext || undefined,
         nudgeContext: nudgeContext || undefined,
       })
-        .then(async (result: any) => {
+        .then(async (result) => {
           // Observability: several engine outcomes (empty question, agent
           // disabled, duplicate suggestion, internal failure) return without
           // writing an ai_agent_runs row, which makes a silent AI impossible
@@ -2455,7 +2485,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
             });
           } catch { /* diagnostics must never break the visitor flow */ }
         })
-        .catch((e: any) =>
+        .catch((e) =>
           console.warn('[widget-message] AI Agent engine error:', e?.message || e),
         );
     }
@@ -2487,7 +2517,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
       reply_to_message_id: publicReplyToMessageId,
       reply_to: replyToPreview,
     });
-  } catch (err: any) {
+  } catch (err) {
     // Full detail (Postgres code/constraint/message) stays server-side only —
     // the public response carries a stable, sanitized code so the widget can
     // distinguish/report failure classes without ever seeing raw DB internals.
@@ -2500,7 +2530,7 @@ widgetRouter.post('/message', widgetRateLimit('message'), async (req: Request, r
 // POST /track — Visitor tracking event
 // ═══════════════════════════════════════════════
 widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -2551,7 +2581,7 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
           .select('store_raw_ip')
           .eq('workspace_id', workspaceId)
           .maybeSingle();
-        storeRawIp = (ws as any)?.store_raw_ip === true;
+        storeRawIp = ws?.store_raw_ip === true;
       } catch { /* default to not storing on lookup failure */ }
       const ipRawForStorage = storeRawIp ? clientIp : null;
 
@@ -2568,7 +2598,7 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
       let previousIpHash: string | null = null;
       if (existing) {
         activeSessionId = existing.id;
-        previousIpHash = ((existing as any).ip_hash as string | null) ?? null;
+        previousIpHash = (existing.ip_hash as string | null) ?? null;
         // Detect URL change BEFORE we overwrite current_page so we can log it.
         const { data: prevRow } = await supabase.from('visitor_sessions')
           .select('current_page').eq('id', existing.id).maybeSingle();
@@ -2606,7 +2636,7 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
               url: String(normalizedPageUrl).slice(0, 2048),
               title: page_title ? String(page_title).slice(0, 300) : null,
             });
-          } catch (e: any) {
+          } catch (e) {
             console.warn('[widget-track] page-view insert failed:', e?.message);
           }
         }
@@ -2663,7 +2693,7 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
                 url: String(normalizedPageUrl).slice(0, 2048),
                 title: page_title ? String(page_title).slice(0, 300) : null,
               });
-            } catch (e: any) {
+            } catch (e) {
               console.warn('[widget-track] first page-view insert failed:', e?.message);
             }
           }
@@ -2706,7 +2736,7 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
     }
 
     return res.json({ ok: true, session_id: activeSessionId });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[widget-track] Error:', err.message);
     res.json({ ok: true, session_id: session_id || null }); // Don't fail on tracking errors
   }
@@ -2717,7 +2747,7 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
 // (window.gsAnalytics.track(name, properties) in the loader snippet)
 // ═══════════════════════════════════════════════
 widgetRouter.post('/event', widgetRateLimit('default'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -2736,7 +2766,7 @@ widgetRouter.post('/event', widgetRateLimit('default'), async (req: Request, res
       pageUrl: typeof page_url === 'string' ? page_url : null,
     });
     res.json(result);
-  } catch (err: any) {
+  } catch (err) {
     console.error('[widget-event] Error:', err.message);
     res.json({ ok: true }); // Never fail the visitor's page on a tracking error
   }
@@ -2746,7 +2776,7 @@ widgetRouter.post('/event', widgetRateLimit('default'), async (req: Request, res
 // PUT /action — Heartbeat, Typing, Reopen, CSAT
 // ═══════════════════════════════════════════════
 widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widget.action'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
   if (res.headersSent) return;
 
@@ -2830,7 +2860,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
               url: String(current_page).slice(0, 2048),
               title: page_title ? String(page_title).slice(0, 300) : null,
             });
-          } catch (e: any) {
+          } catch (e) {
             console.warn('[widget-action] page-view insert failed:', e?.message);
           }
         }
@@ -3003,7 +3033,7 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
     }
 
     return res.status(400).json({ error: 'Unknown action' });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[widget-action] Error:', err.message);
     res.status(500).json({ error: 'Action failed' });
   }
@@ -3023,7 +3053,7 @@ const escalateSchema = z.object({
   session_id: z.string().uuid().nullable().optional(),
 });
 widgetRouter.post('/escalate', widgetRateLimit('default'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -3047,7 +3077,7 @@ widgetRouter.post('/escalate', widgetRateLimit('default'), async (req: Request, 
       payload: { source: 'widget_button' },
     });
     return res.json({ ok: true });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[widget-escalate] Error:', err.message);
     return res.status(500).json({ error: 'escalate_failed' });
   }
@@ -3075,7 +3105,7 @@ const RUNTIME_BUILD_HASH = crypto.createHash('md5')
  * this visitor session. No operator-only fields are returned.
  */
 widgetRouter.get('/calls/:id/state', widgetRateLimit('poll'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -3129,7 +3159,7 @@ widgetRouter.get('/calls/:id/state', widgetRateLimit('poll'), async (req: Reques
  * NEVER returned here — participantType is forced to 'visitor'.
  */
 widgetRouter.post('/calls/:id/visitor-token', widgetRateLimit('default'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -3237,7 +3267,7 @@ widgetRouter.post('/calls/:id/visitor-token', widgetRateLimit('default'), async 
           .select('value')
           .eq('key', 'call_rtc_endpoints')
           .maybeSingle();
-        const sharedSecret = (rtcRow?.value as any)?.turn?.shared_secret;
+        const sharedSecret = rtcRow?.value?.turn?.shared_secret;
         if (typeof sharedSecret === 'string' && sharedSecret.length > 0) {
           const m = mintTurnCreds({ sharedSecret, identity: 'call:' + session.id, ttlSeconds: 600 });
           turn.username = m.username;
@@ -3259,7 +3289,7 @@ widgetRouter.post('/calls/:id/visitor-token', widgetRateLimit('default'), async 
         ...(turn.urls.length === 0 ? [CALL_ERROR_CODES.TURN_MISSING] : []),
       ],
     });
-  } catch (err: any) {
+  } catch (err) {
     const { CALL_ERROR_CODES, CALL_ERROR_HTTP_STATUS, callErrorBody } =
       await import('../services/calls/errorCodes.js');
     if (err?.providerId) {
@@ -3277,7 +3307,7 @@ widgetRouter.post('/calls/:id/visitor-token', widgetRateLimit('default'), async 
 });
 
 widgetRouter.get('/manifest', widgetRateLimit('bootstrap'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -3348,7 +3378,7 @@ widgetRouter.get('/manifest', widgetRateLimit('bootstrap'), async (req: Request,
     res.set('CDN-Cache-Control', 'no-store');
     res.set('Cloudflare-CDN-Cache-Control', 'no-store');
     return res.json(manifest);
-  } catch (err: any) {
+  } catch (err) {
     console.error('[widget-manifest] Error:', err.message);
     return res.status(500).json({ error: 'Manifest generation failed' });
   }
@@ -3370,7 +3400,7 @@ widgetRouter.get('/manifest-debug', widgetRateLimit('default'), (_req: Request, 
     const diag = getManifestDiagnostics();
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     return res.json({ ok: true, diagnostics: diag });
-  } catch (err: any) {
+  } catch (err) {
     return res.status(500).json({ ok: false, error: err?.message || 'manifest_debug_failed' });
   }
 });
@@ -3387,7 +3417,7 @@ widgetRouter.post('/manifest-invalidate', widgetRateLimit('default'), (_req: Req
 // POST /validate-origin — Origin validation
 // ═══════════════════════════════════════════════
 widgetRouter.post('/validate-origin', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const { workspace_id, origin } = req.body;
 
   if (!workspace_id || !origin) {
@@ -3420,7 +3450,7 @@ const kbQuerySchema = z.object({
 });
 
 widgetRouter.get('/kb', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = kbQuerySchema.safeParse(req.query);
 
   if (!parsed.success) {
@@ -3431,7 +3461,7 @@ widgetRouter.get('/kb', async (req: Request, res: Response) => {
   const supabase = getServiceClient(config);
 
   try {
-    let query = supabase
+    const query = supabase
       .from('knowledge_base_articles')
       .select('id, title, excerpt, slug, locale')
       .eq('workspace_id', workspace_id)
@@ -3464,8 +3494,8 @@ const kbFeedbackSchema = z.object({
 });
 
 widgetRouter.post('/kb/articles/:slug/feedback', widgetRateLimit('default'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string || (req.body as any)?.workspace_id);
+  const config = serverConfigOf(req);
+  const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string || req.body?.workspace_id);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
 
@@ -3571,7 +3601,7 @@ widgetRouter.post('/kb/articles/:slug/feedback', widgetRateLimit('default'), asy
     }
 
     return res.json({ ok: true, rating: parsed.data.rating });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[widget-kb-feedback] Error:', err.message);
     res.status(500).json({ error: 'Internal error' });
   }
@@ -3599,14 +3629,14 @@ const offlineMessageSchema = z.object({
 });
 
 widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = offlineMessageSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'invalid_payload', details: parsed.error.flatten() });
   }
 
   const { workspace_id, message, email, name, phone, locale } = parsed.data;
-  const tokenWs = (req as any)._widgetWorkspaceId as string | undefined;
+  const tokenWs = (req as WidgetScopedRequest)._widgetWorkspaceId as string | undefined;
   if (tokenWs && tokenWs !== workspace_id) {
     return res.status(403).json({ error: 'workspace_mismatch' });
   }
@@ -3714,7 +3744,7 @@ widgetRouter.post('/offline-messages', widgetRateLimit('message'), async (req: R
   await recordConversationEvent(config, {
     workspaceId: workspace_id,
     conversationId: conv.id,
-    eventType: 'captured_offline' as any,
+    eventType: 'captured_offline',
     actorType: 'system',
     payload: {
       availability_state: snap.state,
@@ -3753,13 +3783,13 @@ async function notifyOfflineCapture(
   // column shape isn't what we expect, so notification is purely best-effort.
   let recipientIds: string[] = [];
   try {
-    const { data: wsMembers } = await (supabase as any)
+    const { data: wsMembers } = await supabase
       .from('workspace_members')
       .select('user_id, role')
       .eq('workspace_id', workspaceId)
       .in('role', ['owner', 'admin']);
     if (Array.isArray(wsMembers)) {
-      recipientIds = wsMembers.map((m: any) => m.user_id).filter(Boolean);
+      recipientIds = wsMembers.map((m) => m.user_id).filter(Boolean);
     }
   } catch {
     // ignore — will check email_settings.reply_to_email below
@@ -3771,7 +3801,7 @@ async function notifyOfflineCapture(
       .from('profiles')
       .select('id, email')
       .in('id', recipientIds);
-    emails = (profiles || []).map((p: any) => p.email).filter(Boolean);
+    emails = (profiles || []).map((p) => p.email).filter(Boolean);
   }
 
   if (!emails.length) {
@@ -3825,7 +3855,7 @@ async function notifyOfflineCapture(
         },
         locale: payload.locale,
       });
-    } catch (err: any) {
+    } catch (err) {
       console.warn('[offline-messages] email to', to, 'failed:', err?.message);
     }
   }
@@ -3845,7 +3875,7 @@ const testEmailSchema = z.object({
 });
 
 widgetRouter.post('/admin/test-offline-email', async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = testEmailSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'invalid_payload', details: parsed.error.flatten() });
@@ -3873,7 +3903,7 @@ widgetRouter.post('/admin/test-offline-email', async (req: Request, res: Respons
       locale: locale || 'en',
     });
     return res.json({ ok: true });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[admin/test-offline-email] failed:', err?.message);
     return res.status(500).json({ error: 'send_failed', message: err?.message || 'unknown' });
   }
@@ -3904,8 +3934,8 @@ function isQueueGateDenial(gate: QueueGateResult): gate is QueueDenial {
  * effective policy snapshot. No new identity flow, no new pre-chat form.
  */
 widgetRouter.get('/call-channels', widgetRateLimit('bootstrap'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const workspaceId = (req as any)._widgetWorkspaceId as string | undefined
+  const config = serverConfigOf(req);
+  const workspaceId = (req as WidgetScopedRequest)._widgetWorkspaceId as string | undefined
     || (req.query.workspace_id as string | undefined);
   if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
   try {
@@ -3918,7 +3948,7 @@ widgetRouter.get('/call-channels', widgetRateLimit('bootstrap'), async (req: Req
       visitor_initiated_audio: channels.visitor_initiated_audio,
       visitor_initiated_video: channels.visitor_initiated_video,
     });
-  } catch (err: any) {
+  } catch (err) {
     return res.status(500).json({ error: 'channel_lookup_failed' });
   }
 });
@@ -3930,9 +3960,9 @@ widgetRouter.get('/call-channels', widgetRateLimit('bootstrap'), async (req: Req
  * Honors effective channel gates server-side.
  */
 widgetRouter.post('/call-queue/enqueue', widgetRateLimit('message'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const workspaceId = (req as any)._widgetWorkspaceId as string | undefined;
-  const visitorId = (req as any).visitorId as string | undefined;
+  const config = serverConfigOf(req);
+  const workspaceId = (req as WidgetScopedRequest)._widgetWorkspaceId as string | undefined;
+  const visitorId = (req as WidgetScopedRequest).visitorId as string | undefined;
   if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
   const parsed = z.object({
     channel: z.enum(['audio', 'video']),
@@ -3978,7 +4008,7 @@ widgetRouter.post('/call-queue/enqueue', widgetRateLimit('message'), async (req:
       },
     });
     return res.json({ entry });
-  } catch (err: any) {
+  } catch (err) {
     const code = err?.message || 'enqueue_failed';
     const status = code === 'queue_disabled' || code === 'voice_disabled' || code === 'video_disabled'
       ? 409
@@ -3993,15 +4023,15 @@ widgetRouter.post('/call-queue/enqueue', widgetRateLimit('message'), async (req:
  * prevents cross-workspace cancellation.
  */
 widgetRouter.post('/call-queue/:entryId/cancel', widgetRateLimit('message'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const workspaceId = (req as any)._widgetWorkspaceId as string | undefined;
+  const config = serverConfigOf(req);
+  const workspaceId = (req as WidgetScopedRequest)._widgetWorkspaceId as string | undefined;
   const entryId = routeParam(req.params.entryId);
   if (!entryId) return res.status(400).json({ error: 'invalid_entry_id' });
   if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
   const entry = await getQueueEntry(config, workspaceId, entryId);
   if (!entry) return res.status(404).json({ error: 'not_found' });
   // Optional safety: only owner of entry can cancel.
-  const visitorId = (req as any).visitorId as string | undefined;
+  const visitorId = (req as WidgetScopedRequest).visitorId as string | undefined;
   if (entry.visitor_session_id && visitorId && entry.visitor_session_id !== visitorId) {
     return res.status(403).json({ error: 'forbidden' });
   }
@@ -4021,10 +4051,10 @@ widgetRouter.post('/call-queue/:entryId/cancel', widgetRateLimit('message'), asy
 import { maybeSendIntro } from '../services/ai-agent/intro.js';
 
 widgetRouter.post('/ai-agent/intro', widgetRateLimit('message'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const workspaceId = (req as any)._widgetWorkspaceId as string | undefined;
+  const config = serverConfigOf(req);
+  const workspaceId = (req as WidgetScopedRequest)._widgetWorkspaceId as string | undefined;
   if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
-  const visitorId = (req as any).visitorId as string | undefined;
+  const visitorId = (req as WidgetScopedRequest).visitorId as string | undefined;
 
   const parsed = z.object({
     conversation_id: z.string().uuid().optional().nullable(),
@@ -4045,7 +4075,7 @@ widgetRouter.post('/ai-agent/intro', widgetRateLimit('message'), async (req: Req
       forceNewConversation: parsed.data.force_new_conversation === true,
     });
     return res.json(result);
-  } catch (err: any) {
+  } catch (err) {
     console.warn('[widget/ai-intro] failed:', err?.message);
     // Never break widget — return graceful no-op.
     return res.json({ sent: false, reason: 'intro_failed' });
@@ -4062,8 +4092,8 @@ widgetRouter.post('/ai-agent/intro', widgetRateLimit('message'), async (req: Req
 // Never throws — an empty list just means no chips render.
 // ═══════════════════════════════════════════════════════════════════
 widgetRouter.get('/ai-agent/qna-suggestions', widgetRateLimit('default'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
-  const workspaceId = (req as any)._widgetWorkspaceId as string | undefined;
+  const config = serverConfigOf(req);
+  const workspaceId = (req as WidgetScopedRequest)._widgetWorkspaceId as string | undefined;
   if (!workspaceId) return res.status(400).json({ error: 'missing_workspace' });
 
   const parsed = z.object({
@@ -4099,9 +4129,9 @@ widgetRouter.get('/ai-agent/qna-suggestions', widgetRateLimit('default'), async 
       data = fallback.data || [];
     }
     return res.json({
-      questions: (data || []).map((q: any) => ({ id: q.id, question: q.question })),
+      questions: (data || []).map((q) => ({ id: q.id, question: q.question })),
     });
-  } catch (err: any) {
+  } catch (err) {
     console.warn('[widget/qna-suggestions] failed:', err?.message);
     return res.json({ questions: [] });
   }

@@ -6,6 +6,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { createStorageUrlResolver } from '../storage/urlResolver.js';
 
 export type AgentMode =
   | 'off'
@@ -214,4 +215,29 @@ export async function updateSettings(
     .single();
   if (error) throw new Error(`ai_agent_settings update failed: ${error.message}`);
   return data as AgentSettings;
+}
+/**
+ * The AI agent's logo URL, derived from its storage key.
+ *
+ * The object's only persisted record is `metadata.ai_avatar_storage_key`;
+ * the avatar upload route no longer writes `agent_logo_url`, so a value
+ * still in that column can only be an operator-supplied external link
+ * (the settings PATCH schema accepts one). A key of ours therefore wins,
+ * and the link it produces names whichever provider is primary right now.
+ */
+export async function resolveAgentLogoUrl(
+  config: ServerConfig,
+  workspaceId: string | null | undefined,
+  settings: { agent_logo_url?: string | null; metadata?: unknown } | null | undefined,
+): Promise<string | null> {
+  if (!settings) return null;
+  const meta = (settings.metadata && typeof settings.metadata === 'object')
+    ? settings.metadata as Record<string, unknown>
+    : {};
+  const key = typeof meta.ai_avatar_storage_key === 'string' ? meta.ai_avatar_storage_key : null;
+  if (key) {
+    const derived = await createStorageUrlResolver(config).workspace(workspaceId, key);
+    if (derived) return derived;
+  }
+  return settings.agent_logo_url ?? null;
 }

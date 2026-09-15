@@ -53,14 +53,23 @@ import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
 import { publishOperatorEvent } from '../services/realtime/publish.js';
-import { authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
+import { hydrateUserAvatars } from '../services/storage/urlResolver.js';
 
 export const conversationNotesRouter = Router({ mergeParams: true });
 
+/** The author/actor profile a note or timeline event is hydrated with. */
+type ProfileSummary = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  avatar_url?: string | null;
+};
+
 // ─── Auth helper — delegates to the central first-party session helper ──
 async function authorizeMember(
-  req: any,
-  res: any,
+  req,
+  res,
   _config: ServerConfig,
   workspaceId: string,
 ): Promise<{ userId: string } | null> {
@@ -76,7 +85,7 @@ async function authorizeMember(
  */
 async function loadConversation(
   config: ServerConfig,
-  res: any,
+  res,
   conversationId: string,
   workspaceId: string,
 ) {
@@ -100,7 +109,7 @@ async function loadConversation(
 // ═══════════════════════════════════════════════════════════════════
 conversationNotesRouter.get('/:id/notes', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const conversationId = req.params.id;
     const workspaceId = String(req.query.workspace_id || '');
     if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -120,12 +129,14 @@ conversationNotesRouter.get('/:id/notes', async (req, res) => {
 
     // Hydrate author profile for UI rendering.
     const authorIds = Array.from(new Set((notes ?? []).map(n => n.author_id).filter(Boolean)));
-    let profiles: Record<string, any> = {};
+    const profiles: Record<string, ProfileSummary> = {};
     if (authorIds.length) {
       const { data: rows } = await sb
         .from('profiles')
-        .select('id, full_name, email, avatar_url')
+        .select('id, full_name, email, avatar_storage_key')
         .in('id', authorIds);
+      // Avatar links are derived from the stored key for the current provider.
+      await hydrateUserAvatars(config, (rows ?? []));
       for (const p of rows ?? []) profiles[p.id] = p;
     }
     const enriched = (notes ?? []).map(n => ({
@@ -133,7 +144,7 @@ conversationNotesRouter.get('/:id/notes', async (req, res) => {
       author: profiles[n.author_id] ?? null,
     }));
     return res.json({ ok: true, notes: enriched });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[notes GET] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -152,7 +163,7 @@ const createNoteSchema = z.object({
 
 conversationNotesRouter.post('/:id/notes', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const conversationId = req.params.id;
     const parsed = createNoteSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -180,9 +191,10 @@ conversationNotesRouter.post('/:id/notes', async (req, res) => {
     // Hydrate author for the optimistic UI render.
     const { data: profile } = await sb
       .from('profiles')
-      .select('id, full_name, email, avatar_url')
+      .select('id, full_name, email, avatar_storage_key')
       .eq('id', auth.userId)
       .maybeSingle();
+    await hydrateUserAvatars(config, profile ? [profile] : []);
 
     // Timeline event — stable payload: { note_id, preview }
     // skipRealtimeEcho: the richer `note_added` operator event below
@@ -213,7 +225,7 @@ conversationNotesRouter.post('/:id/notes', async (req, res) => {
     }, { skipInboxChannel: true });
 
     return res.json({ ok: true, note: { ...inserted, author: profile ?? null } });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[notes POST] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -232,7 +244,7 @@ const updateNoteSchema = z.object({
 
 conversationNotesRouter.patch('/:id/notes/:noteId', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const { id: conversationId, noteId } = req.params;
     const parsed = updateNoteSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid payload' });
@@ -265,7 +277,7 @@ conversationNotesRouter.patch('/:id/notes/:noteId', async (req, res) => {
     if (error || !updated) return res.status(500).json({ error: error?.message || 'Update failed' });
 
     return res.json({ ok: true, note: updated });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[notes PATCH] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -278,7 +290,7 @@ conversationNotesRouter.patch('/:id/notes/:noteId', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════
 conversationNotesRouter.delete('/:id/notes/:noteId', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const { id: conversationId, noteId } = req.params;
     const workspaceId = String(req.query.workspace_id || '');
     if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -333,7 +345,7 @@ conversationNotesRouter.delete('/:id/notes/:noteId', async (req, res) => {
     }, { skipInboxChannel: true });
 
     return res.json({ ok: true });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[notes DELETE] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }
@@ -347,7 +359,7 @@ conversationNotesRouter.delete('/:id/notes/:noteId', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════
 conversationNotesRouter.get('/:id/timeline', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = serverConfigOf(req);
     const conversationId = req.params.id;
     const workspaceId = String(req.query.workspace_id || '');
     if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -374,17 +386,18 @@ conversationNotesRouter.get('/:id/timeline', async (req, res) => {
     for (const ev of events ?? []) {
       if (ev.actor_id && ev.actor_type === 'agent') userIds.add(ev.actor_id);
       if (ev.event_type === 'assigned' || ev.event_type === 'unassigned') {
-        const p = ev.payload as any;
+        const p = (ev.payload ?? {}) as Record<string, unknown>;
         if (typeof p?.from === 'string') userIds.add(p.from);
         if (typeof p?.to === 'string') userIds.add(p.to);
       }
     }
-    let profiles: Record<string, any> = {};
+    const profiles: Record<string, ProfileSummary> = {};
     if (userIds.size) {
       const { data: rows } = await sb
         .from('profiles')
-        .select('id, full_name, email, avatar_url')
+        .select('id, full_name, email, avatar_storage_key')
         .in('id', Array.from(userIds));
+      await hydrateUserAvatars(config, (rows ?? []));
       for (const p of rows ?? []) profiles[p.id] = p;
     }
 
@@ -396,17 +409,17 @@ conversationNotesRouter.get('/:id/timeline', async (req, res) => {
       payload:
         ev.event_type === 'assigned' || ev.event_type === 'unassigned'
           ? {
-              ...(ev.payload as any),
+              ...((ev.payload ?? {}) as Record<string, unknown>),
               _refs: {
-                from: profiles[(ev.payload as any)?.from] ?? null,
-                to: profiles[(ev.payload as any)?.to] ?? null,
+                from: profiles[ev.payload?.from] ?? null,
+                to: profiles[ev.payload?.to] ?? null,
               },
             }
           : ev.payload,
     }));
 
     return res.json({ ok: true, events: enriched });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[timeline GET] error:', err);
     return res.status(500).json({ error: err?.message || 'Internal error' });
   }

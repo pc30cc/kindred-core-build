@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle, ArrowRight, CheckCircle2, CloudUpload, Copy, Crown, Database,
-  ExternalLink, Info, Power, RefreshCw, TestTube, Trash2,
+  ExternalLink, Info, Power, RefreshCw, ShieldAlert, TestTube, Trash2, XCircle,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -57,33 +57,83 @@ function initialValuesOf(entry: AdminStorageProviderDto | undefined): Record<str
   return out;
 }
 
-function SyncReportView({ report }: { report: AdminStorageSyncReport }) {
+/**
+ * A sync is a sequence of bounded batches, not one request. The panel
+ * therefore has to say which of three things happened — a batch landed and
+ * more remains, the walk finished, or it stopped on failures — because
+ * reporting "synchronized" after batch one is exactly the lie that would
+ * let someone promote a half-copied mirror.
+ */
+type SyncPhase = 'idle' | 'running' | 'paused' | 'complete' | 'failed';
+
+interface SyncRun {
+  phase: SyncPhase;
+  batches: number;
+  report: AdminStorageSyncReport | null;
+  error: string | null;
+}
+
+const IDLE_SYNC: SyncRun = { phase: 'idle', batches: 0, report: null, error: null };
+
+/** Batches per click. A click must never turn into an unbounded run of HTTP requests. */
+const MAX_BATCHES_PER_RUN = 20;
+
+function SyncProgressView({ run }: { run: SyncRun }) {
   const { t } = useI18n();
-  const cells = [
-    { label: t('adminProviders.storage.sync.scanned'), value: report.scanned, tone: 'text-foreground' },
-    { label: t('adminProviders.storage.sync.copied'), value: report.copied, tone: 'text-emerald-400' },
-    { label: t('adminProviders.storage.sync.skipped'), value: report.skipped, tone: 'text-muted-foreground' },
-    { label: t('adminProviders.storage.sync.failed'), value: report.failed, tone: report.failed > 0 ? 'text-destructive' : 'text-muted-foreground' },
-  ];
+  const report = run.report;
+  if (!report && !run.error) return null;
+
+  const total = report?.total;
+  const cells = total
+    ? [
+        { label: t('adminProviders.storage.sync.scanned'), value: total.scanned, tone: 'text-foreground' },
+        { label: t('adminProviders.storage.sync.copied'), value: total.copied, tone: 'text-emerald-400' },
+        { label: t('adminProviders.storage.sync.skipped'), value: total.skipped, tone: 'text-muted-foreground' },
+        { label: t('adminProviders.storage.sync.failed'), value: total.failed, tone: total.failed > 0 ? 'text-destructive' : 'text-muted-foreground' },
+      ]
+    : [];
+
+  const banner =
+    run.phase === 'failed'
+      ? { icon: XCircle, tone: 'border-destructive/30 bg-destructive/5 text-destructive', text: run.error ?? t('adminProviders.storage.sync.failedState') }
+      : run.phase === 'complete'
+        ? report?.markedSynchronized
+          ? { icon: CheckCircle2, tone: 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400', text: t('adminProviders.storage.sync.completeFull') }
+          : { icon: CheckCircle2, tone: 'border-sky-500/30 bg-sky-500/5 text-sky-400', text: t('adminProviders.storage.sync.completePrefix') }
+        : run.phase === 'paused'
+          ? { icon: AlertTriangle, tone: 'border-amber-500/30 bg-amber-500/5 text-amber-400', text: t('adminProviders.storage.sync.more') }
+          : { icon: RefreshCw, tone: 'border-border bg-muted/20 text-muted-foreground', text: t('adminProviders.storage.sync.running') };
+
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-4 gap-px rounded-lg border border-border/60 bg-border/60 overflow-hidden">
-        {cells.map((c) => (
-          <div key={c.label} className="bg-card px-2 py-1.5 text-center">
-            <p className={cn('text-sm font-semibold', c.tone)}>{c.value}</p>
-            <p className="text-[10px] text-muted-foreground truncate">{c.label}</p>
-          </div>
-        ))}
+      <div className={cn('flex items-start gap-2 rounded-lg border p-2.5', banner.tone)}>
+        <banner.icon className={cn('h-3.5 w-3.5 mt-0.5 shrink-0', run.phase === 'running' && 'animate-spin')} />
+        <p className="text-[11px] leading-relaxed">{banner.text}</p>
       </div>
-      {report.errors.length > 0 && (
+
+      {cells.length > 0 && (
+        <div className="grid grid-cols-4 gap-px rounded-lg border border-border/60 bg-border/60 overflow-hidden">
+          {cells.map((c) => (
+            <div key={c.label} className="bg-card px-2 py-1.5 text-center">
+              <p className={cn('text-sm font-semibold', c.tone)}>{c.value}</p>
+              <p className="text-[10px] text-muted-foreground truncate">{c.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {run.batches > 0 && (
+        <p className="text-[10px] text-muted-foreground">
+          {t('adminProviders.storage.sync.batches', { count: run.batches })}
+        </p>
+      )}
+
+      {report && report.errors.length > 0 && (
         <ul className="space-y-1">
           {report.errors.map((e, i) => (
             <li key={i} className="text-[11px] text-destructive break-all">{e}</li>
           ))}
         </ul>
-      )}
-      {report.nextCursor && (
-        <p className="text-[11px] text-amber-400">{t('adminProviders.storage.sync.more')}</p>
       )}
     </div>
   );
@@ -100,7 +150,8 @@ export function AdminStorageProvidersPanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [syncPrefix, setSyncPrefix] = useState('');
-  const [syncReport, setSyncReport] = useState<AdminStorageSyncReport | null>(null);
+  const [syncRun, setSyncRun] = useState<SyncRun>(IDLE_SYNC);
+  const [forcePromoteOpen, setForcePromoteOpen] = useState(false);
 
   const { data: pool, isLoading } = useQuery({ queryKey: POOL_KEY, queryFn: adminGetStoragePool });
 
@@ -138,12 +189,14 @@ export function AdminStorageProvidersPanel() {
   });
 
   const promote = useMutation({
-    mutationFn: (name: string) => adminPromoteStorageProvider(name),
-    onSuccess: (next, name) => {
+    mutationFn: ({ name, force }: { name: string; force?: boolean }) =>
+      adminPromoteStorageProvider(name, force),
+    onSuccess: (next, vars) => {
       applyPool(next);
+      setForcePromoteOpen(false);
       toast({
         title: t('adminProviders.storage.promoted'),
-        description: t('adminProviders.storage.promotedDesc', { vendor: name }),
+        description: t('adminProviders.storage.promotedDesc', { vendor: vars.name }),
       });
     },
     onError,
@@ -166,19 +219,65 @@ export function AdminStorageProvidersPanel() {
     onError,
   });
 
-  const runSync = useMutation({
-    mutationFn: ({ target, prefix }: { target: string; prefix?: string }) =>
-      adminSyncStorageReplica({ target, prefix: prefix || undefined }),
-    onSuccess: ({ report }) => {
-      setSyncReport(report);
-      toast({
-        title: t('adminProviders.storage.sync.done'),
-        description: t('adminProviders.storage.sync.doneDesc', { copied: report.copied, failed: report.failed }),
-        variant: report.failed > 0 ? 'destructive' : 'default',
-      });
-    },
-    onError,
-  });
+  /**
+   * Walk the prefix in bounded batches. Each batch is one ordinary HTTP
+   * request; the server holds the cursor. The loop stops on completion, on
+   * the first batch that reports failures, or after MAX_BATCHES_PER_RUN —
+   * at which point the run is `paused` and the operator can continue it.
+   */
+  const runSyncBatches = useCallback(async (target: string, restart: boolean) => {
+    setSyncRun((prev) => ({
+      phase: 'running',
+      batches: restart ? 0 : prev.batches,
+      report: restart ? null : prev.report,
+      error: null,
+    }));
+
+    let batches = 0;
+    try {
+      for (let i = 0; i < MAX_BATCHES_PER_RUN; i++) {
+        const { report } = await adminSyncStorageReplica({
+          target,
+          prefix: syncPrefix || undefined,
+          restart: restart && i === 0,
+        });
+        batches++;
+        const failedNow = report.batch.failed > 0;
+        const finished = report.done;
+        setSyncRun((prev) => ({
+          phase: failedNow ? 'failed' : finished ? 'complete' : 'running',
+          batches: (restart ? 0 : prev.batches) + batches,
+          report,
+          error: failedNow ? t('adminProviders.storage.sync.failedState') : null,
+        }));
+        if (failedNow) {
+          toast({
+            title: t('adminProviders.storage.sync.failedState'),
+            description: report.errors[0] ?? '',
+            variant: 'destructive',
+          });
+          return;
+        }
+        if (finished) {
+          toast({
+            title: t('adminProviders.storage.sync.done'),
+            description: report.markedSynchronized
+              ? t('adminProviders.storage.sync.completeFull')
+              : t('adminProviders.storage.sync.completePrefix'),
+          });
+          qc.invalidateQueries({ queryKey: POOL_KEY });
+          return;
+        }
+      }
+      // Batch budget spent with objects still left — never report success.
+      setSyncRun((prev) => ({ ...prev, phase: 'paused' }));
+      qc.invalidateQueries({ queryKey: POOL_KEY });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setSyncRun((prev) => ({ ...prev, phase: 'failed', error: message }));
+      onError(err instanceof Error ? err : new Error(message));
+    }
+  }, [syncPrefix, t, qc, onError]);
 
   const test = useCallback(async (name: string) => {
     setBusy(name);
@@ -198,10 +297,14 @@ export function AdminStorageProvidersPanel() {
     }
   }, [t, onError]);
 
+  const syncing = syncRun.phase === 'running';
   const vendorSchema: ProviderVendor | undefined = vendors.find((v) => v.name === selected);
   const entry = entryOf(pool, selected);
   const isPrimary = !!entry?.isPrimary;
   const isMirror = !!entry && !entry.isPrimary && entry.enabled;
+  // Readiness comes from the pool the server serialized, never from this
+  // session's memory of a sync it just ran.
+  const canPromote = !!entry && entry.enabled && entry.synchronized;
   const primaryEntry = pool?.primary ? entryOf(pool, pool.primary) : undefined;
   const primaryVendor = vendors.find((v) => v.name === pool?.primary);
   const mirrors = (pool?.providers ?? []).filter((p) => !p.isPrimary && p.enabled);
@@ -322,7 +425,7 @@ export function AdminStorageProvidersPanel() {
             <ProviderVendorRail
               vendors={vendors}
               selected={selected}
-              onSelect={(name) => { setSelected(name); setSyncReport(null); }}
+              onSelect={(name) => { setSelected(name); setSyncRun(IDLE_SYNC); }}
               stateOf={stateOf}
               badgeLabel={badgeLabel}
             />
@@ -392,17 +495,59 @@ export function AdminStorageProvidersPanel() {
                   </p>
                 </div>
 
+                {entry && !isPrimary && (
+                  <div
+                    className={cn(
+                      'flex items-start gap-2 rounded-lg border p-2.5',
+                      entry.synchronized
+                        ? 'border-emerald-500/25 bg-emerald-500/5'
+                        : 'border-amber-500/25 bg-amber-500/5',
+                    )}
+                  >
+                    {entry.synchronized
+                      ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 mt-0.5 shrink-0" />
+                      : <ShieldAlert className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0" />}
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      {entry.synchronized
+                        ? t('adminProviders.storage.readiness.ready')
+                        : t('adminProviders.storage.readiness.notReady')}
+                    </p>
+                  </div>
+                )}
+
                 {/* Vendor-level controls */}
                 {entry && (
                   <div className="flex flex-wrap items-center gap-2">
+                    {/*
+                      Promotion redirects every read to this vendor, so an
+                      object it never received stops being downloadable. The
+                      ordinary button is therefore only live once the SERVER
+                      has recorded a completed whole-namespace sync from the
+                      current primary; the forced path is a separate,
+                      confirmed recovery action. The server enforces both —
+                      this is the honest presentation of that rule, not the
+                      rule itself.
+                    */}
                     {!isPrimary && (
                       <Button
                         size="sm" variant="outline"
-                        onClick={() => promote.mutate(selected)}
-                        disabled={promote.isPending}
+                        onClick={() => promote.mutate({ name: selected })}
+                        disabled={promote.isPending || !canPromote}
+                        title={canPromote ? undefined : t('adminProviders.storage.promoteBlocked')}
                       >
                         <Crown className="h-3.5 w-3.5 me-1.5" />
                         {t('adminProviders.storage.makePrimary')}
+                      </Button>
+                    )}
+                    {!isPrimary && !canPromote && (
+                      <Button
+                        size="sm" variant="ghost"
+                        className="text-amber-400 hover:text-amber-400 hover:bg-amber-500/10"
+                        onClick={() => setForcePromoteOpen(true)}
+                        disabled={promote.isPending}
+                      >
+                        <ShieldAlert className="h-3.5 w-3.5 me-1.5" />
+                        {t('adminProviders.storage.forcePromote')}
                       </Button>
                     )}
                     {!isPrimary && (
@@ -474,24 +619,52 @@ export function AdminStorageProvidersPanel() {
                           dir="ltr"
                           value={syncPrefix}
                           onChange={(e) => setSyncPrefix(e.target.value)}
-                          placeholder="workspace/"
+                          placeholder={t('adminProviders.storage.sync.prefixPlaceholder')}
+                          disabled={syncing}
                           className="h-8 text-xs font-mono"
                         />
                       </div>
                       <Button
                         size="sm"
-                        onClick={() => runSync.mutate({ target: selected, prefix: syncPrefix })}
-                        disabled={runSync.isPending || !pool?.primary}
+                        onClick={() => void runSyncBatches(selected, true)}
+                        disabled={syncing || !pool?.primary}
                       >
-                        {runSync.isPending
+                        {syncing
                           ? <RefreshCw className="h-3.5 w-3.5 me-1.5 animate-spin" />
                           : <ArrowRight className={cn('h-3.5 w-3.5 me-1.5', rtl && 'rotate-180')} />}
-                        {runSync.isPending
+                        {syncing
                           ? t('adminProviders.storage.sync.running')
                           : t('adminProviders.storage.sync.run')}
                       </Button>
+                      {/* Only a run that stopped with objects still queued offers "continue". */}
+                      {syncRun.phase === 'paused' && (
+                        <Button
+                          size="sm" variant="outline"
+                          onClick={() => void runSyncBatches(selected, false)}
+                          disabled={syncing}
+                        >
+                          <ArrowRight className={cn('h-3.5 w-3.5 me-1.5', rtl && 'rotate-180')} />
+                          {t('adminProviders.storage.sync.continue')}
+                        </Button>
+                      )}
                     </div>
-                    {syncReport && <SyncReportView report={syncReport} />}
+
+                    {/* Where the server thinks this walk stands, independent of this browser session. */}
+                    {entry.sync && syncRun.phase === 'idle' && (
+                      <p className="text-[11px] text-muted-foreground">
+                        {entry.sync.hasMore
+                          ? t('adminProviders.storage.sync.storedIncomplete', {
+                              prefix: entry.sync.prefix || '/',
+                              copied: entry.sync.total.copied,
+                            })
+                          : t('adminProviders.storage.sync.storedComplete', {
+                              prefix: entry.sync.prefix || '/',
+                              copied: entry.sync.total.copied,
+                            })}
+                      </p>
+                    )}
+
+                    <SyncProgressView run={syncRun} />
                   </div>
                 )}
               </>
@@ -499,6 +672,31 @@ export function AdminStorageProvidersPanel() {
           </CardContent>
         </Card>
       </div>
+
+      <AlertDialog open={forcePromoteOpen} onOpenChange={setForcePromoteOpen}>
+        <AlertDialogContent className="admin-scope bg-card border-border text-foreground">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-foreground flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 text-amber-400" />
+              {t('adminProviders.storage.forcePromoteTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground">
+              {t('adminProviders.storage.forcePromoteDesc', { vendor: vendorSchema?.label ?? selected })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-border text-foreground hover:bg-muted">
+              {t('adminProviders.form.cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => promote.mutate({ name: selected, force: true })}
+              disabled={promote.isPending}
+            >
+              {t('adminProviders.storage.forcePromote')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={removeOpen} onOpenChange={setRemoveOpen}>
         <AlertDialogContent className="admin-scope bg-card border-border text-foreground">

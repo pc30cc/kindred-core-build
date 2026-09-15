@@ -27,6 +27,16 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** Server-recorded progress of a back-fill walk. Never client state. */
+export interface AdminStorageSyncState {
+  prefix: string;
+  from: string;
+  done: boolean;
+  hasMore: boolean;
+  total: { scanned: number; copied: number; skipped: number; failed: number };
+  updatedAt: string;
+}
+
 export interface AdminStorageProviderDto {
   name: string;
   enabled: boolean;
@@ -36,6 +46,10 @@ export interface AdminStorageProviderDto {
   /** Credential fields the server holds — never the values themselves. */
   secretKeys: string[];
   updatedAt: string | null;
+  /** Proven to hold everything the current primary holds — the promotion gate. */
+  synchronized: boolean;
+  syncedAt: string | null;
+  sync: AdminStorageSyncState | null;
 }
 
 export interface AdminStoragePoolDto {
@@ -45,15 +59,26 @@ export interface AdminStoragePoolDto {
   providers: AdminStorageProviderDto[];
 }
 
-export interface AdminStorageSyncReport {
-  target: string;
-  prefix: string;
+export interface AdminStorageSyncCounts {
   scanned: number;
   copied: number;
   skipped: number;
   failed: number;
+}
+
+export interface AdminStorageSyncReport {
+  target: string;
+  prefix: string;
+  /** What this one call did. */
+  batch: AdminStorageSyncCounts;
+  /** The whole walk so far, as recorded by the server. */
+  total: AdminStorageSyncCounts;
   errors: string[];
+  /** Opaque; null ONLY when the walk is genuinely exhausted. */
   nextCursor: string | null;
+  done: boolean;
+  /** The walk covered the whole namespace with no failures — the vendor may now be promoted. */
+  markedSynchronized: boolean;
 }
 
 export function adminGetStoragePool() {
@@ -78,10 +103,16 @@ export function adminSetStorageProviderEnabled(providerName: string, enabled: bo
   });
 }
 
-export function adminPromoteStorageProvider(providerName: string) {
-  return request<AdminStoragePoolDto>(`${BASE}/${encodeURIComponent(providerName)}/primary`, {
-    method: 'POST',
-  });
+/**
+ * `force` is the recovery path only: the server refuses a normal promotion
+ * of a vendor it has not recorded as fully synchronized with the current
+ * primary.
+ */
+export function adminPromoteStorageProvider(providerName: string, force?: boolean) {
+  return request<AdminStoragePoolDto & { forced?: boolean }>(
+    `${BASE}/${encodeURIComponent(providerName)}/primary`,
+    { method: 'POST', body: JSON.stringify({ force: force === true }) },
+  );
 }
 
 export function adminRemoveStorageProvider(providerName: string) {
@@ -104,12 +135,16 @@ export function adminSetStorageReplication(enabled: boolean, mirrorDeletes?: boo
   });
 }
 
-/** Copy objects the mirror is missing from the primary, one bounded page at a time. */
+/**
+ * Copy one bounded batch of what the mirror is missing. The walk position
+ * lives on the server: pass `restart` to begin again, otherwise the call
+ * continues wherever the last batch stopped.
+ */
 export function adminSyncStorageReplica(payload: {
   target: string;
   prefix?: string;
   limit?: number;
-  cursor?: string;
+  restart?: boolean;
 }) {
   return request<{ report: AdminStorageSyncReport }>(`${BASE}/sync`, {
     method: 'POST',

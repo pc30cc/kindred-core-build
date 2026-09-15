@@ -135,7 +135,7 @@ export interface WorkspaceStorageAuditReport {
 async function listScopeFully(
   config: ServerConfig,
   workspaceId: string,
-  scopeConfig: Awaited<ReturnType<ReturnType<typeof workspaceStorageScopes>[number]['resolve']>>,
+  scopeConfig: Awaited<ReturnType<Awaited<ReturnType<typeof workspaceStorageScopes>>[number]['resolve']>>,
 ): Promise<{ keys: Set<string> } | { error: string }> {
   if (!scopeConfig.configured) return { keys: new Set() };
   const keys = new Set<string>();
@@ -154,7 +154,7 @@ export async function auditWorkspaceStorage(config: ServerConfig, workspaceId: s
   const sb = getServiceClient(config);
   const root = workspaceScopePrefix(workspaceId);
 
-  const scopes = workspaceStorageScopes(config, workspaceId);
+  const scopes = await workspaceStorageScopes(config, workspaceId);
   const scopeKeys = new Map<WorkspaceStorageScopeName, Set<string>>();
   const scopeInfo = {} as Record<WorkspaceStorageScopeName, WorkspaceScopeAuditInfo>;
   const fingerprintOwner = new Map<string, WorkspaceStorageScopeName>();

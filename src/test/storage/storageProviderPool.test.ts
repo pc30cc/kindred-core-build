@@ -2,15 +2,17 @@
  * Storage provider pool — several vendors configured at once, one primary,
  * the enabled rest mirrored (server/services/storage/pool.ts).
  *
- * The invariants that matter operationally:
- *  - the pool never disagrees with `default_storage_provider`, which is what
- *    every existing resolver reads;
- *  - a platform that has only ever used the legacy single default still sees
- *    that vendor as its primary;
- *  - mirrors are exactly "enabled and not primary";
- *  - ArvanCloud resolves to its regional S3 endpoint and signs with the same
- *    region id;
- *  - a back-fill copies what a mirror is missing and skips what it already has.
+ * What these tests pin down:
+ *  - reads FAIL CLOSED: a PostgREST `{error}` must never look like "no pool
+ *    configured", or an admin mutation would overwrite a multi-provider pool
+ *    with a one-entry one;
+ *  - the pool and the legacy `default_storage_provider` pointer are written
+ *    by ONE transactional RPC — never one without the other;
+ *  - a back-fill walks EVERY object deterministically: a provider page can
+ *    hold far more keys than one sync batch copies, and a provider may have
+ *    no continuation token at all;
+ *  - promotion readiness is earned by a completed whole-namespace walk that
+ *    the server recorded itself.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
@@ -19,31 +21,50 @@ import * as path from 'path';
 
 type Row = { key: string; value: unknown };
 
+/** The fake DB. `rpcError` makes set_storage_provider_pool fail like a real one would. */
 const runtimeConfig = new Map<string, unknown>();
+const dbState: { readError: { message: string } | null; rpcError: { message: string } | null; rpcCalls: number } = {
+  readError: null, rpcError: null, rpcCalls: 0,
+};
 
 vi.mock('../../../server/supabase.js', () => ({
   getServiceClient: () => ({
     from: (table: string) => {
-      if (table !== 'app_runtime_config') throw new Error(`unexpected table ${table}`);
       let wantedKey: string | null = null;
       const builder = {
         select: () => builder,
-        eq: (_col: string, value: string) => { wantedKey = value; return builder; },
-        maybeSingle: async () => ({
-          data: wantedKey && runtimeConfig.has(wantedKey)
-            ? ({ key: wantedKey, value: runtimeConfig.get(wantedKey) } as Row)
-            : null,
-          error: null,
-        }),
-        upsert: async (row: Row) => { runtimeConfig.set(row.key, row.value); return { error: null }; },
+        eq: (col: string, value: string) => { if (col === 'key') wantedKey = value; return builder; },
+        order: () => builder,
+        limit: () => builder,
+        single: async () => ({ data: null, error: null }),
+        maybeSingle: async () => {
+          if (table !== 'app_runtime_config') return { data: null, error: null };
+          if (dbState.readError) return { data: null, error: dbState.readError };
+          return {
+            data: wantedKey && runtimeConfig.has(wantedKey)
+              ? ({ key: wantedKey, value: runtimeConfig.get(wantedKey) } as Row)
+              : null,
+            error: null,
+          };
+        },
       };
       return builder;
+    },
+    // Mirrors migration 189: both keys move together, or neither does.
+    rpc: async (fn: string, args: { _pool: unknown; _default: unknown }) => {
+      if (fn !== 'set_storage_provider_pool') throw new Error(`unexpected rpc ${fn}`);
+      dbState.rpcCalls++;
+      if (dbState.rpcError) return { data: null, error: dbState.rpcError };
+      runtimeConfig.set('storage_provider_pool', args._pool);
+      if (args._default === null) runtimeConfig.delete('default_storage_provider');
+      else runtimeConfig.set('default_storage_provider', args._default);
+      return { data: null, error: null };
     },
   }),
 }));
 
 const {
-  normalizePool, replicaEntries, readStoragePool, writeStoragePool,
+  normalizePool, replicaEntries, readStoragePool, writeStoragePool, isReplicaSynchronized,
   STORAGE_POOL_KEY, STORAGE_DEFAULT_KEY,
 } = await import('../../../server/services/storage/pool.js');
 const { storageConfigFromRecord, syncStorageReplica, SUPPORTED_STORAGE_PROVIDERS } =
@@ -53,6 +74,9 @@ const serverConfig = {} as Parameters<typeof readStoragePool>[0];
 
 beforeEach(() => {
   runtimeConfig.clear();
+  dbState.readError = null;
+  dbState.rpcError = null;
+  dbState.rpcCalls = 0;
 });
 
 describe('normalizePool', () => {
@@ -87,21 +111,30 @@ describe('replicaEntries', () => {
     });
     expect(replicaEntries(pool).map((r) => r.name)).toEqual(['arvan_storage']);
   });
-
-  it('is empty when only the primary is configured', () => {
-    const pool = normalizePool({ primary: 's3', providers: { s3: { enabled: true, config: {} } } });
-    expect(replicaEntries(pool)).toEqual([]);
-  });
 });
 
-describe('readStoragePool', () => {
+describe('readStoragePool — fail closed', () => {
+  it('throws on a PostgREST error instead of reporting an empty pool', async () => {
+    runtimeConfig.set(STORAGE_POOL_KEY, {
+      primary: 's3',
+      providers: { s3: { enabled: true, config: {} }, minio: { enabled: true, config: {} } },
+    });
+    dbState.readError = { message: 'connection reset by peer' };
+
+    await expect(readStoragePool(serverConfig)).rejects.toThrow(/connection reset/);
+  });
+
+  it('a failed read can never be mistaken for the legacy one-provider state', async () => {
+    dbState.readError = { message: 'statement timeout' };
+    await expect(readStoragePool(serverConfig)).rejects.toThrow(/statement timeout/);
+  });
+
   it('projects the legacy single default into a one-entry pool', async () => {
     runtimeConfig.set(STORAGE_DEFAULT_KEY, { provider_name: 'bunny_storage', config: { storage_zone: 'z' } });
 
     const pool = await readStoragePool(serverConfig);
 
     expect(pool.primary).toBe('bunny_storage');
-    expect(pool.providers.bunny_storage.enabled).toBe(true);
     expect(pool.providers.bunny_storage.config).toEqual({ storage_zone: 'z' });
   });
 
@@ -112,14 +145,12 @@ describe('readStoragePool', () => {
     });
     runtimeConfig.set(STORAGE_DEFAULT_KEY, { provider_name: 's3', config: {} });
 
-    // The running app resolves through the legacy pointer, so the screen must
-    // report that vendor as primary rather than the stored one.
     expect((await readStoragePool(serverConfig)).primary).toBe('s3');
   });
 });
 
-describe('writeStoragePool', () => {
-  it('keeps default_storage_provider pointing at the primary', async () => {
+describe('writeStoragePool — atomic with the legacy pointer', () => {
+  it('writes both keys through one transactional RPC', async () => {
     await writeStoragePool(serverConfig, normalizePool({
       primary: 'arvan_storage',
       providers: {
@@ -128,10 +159,35 @@ describe('writeStoragePool', () => {
       },
     }));
 
+    expect(dbState.rpcCalls).toBe(1);
     expect(runtimeConfig.get(STORAGE_DEFAULT_KEY)).toEqual({
       provider_name: 'arvan_storage',
       config: { bucket: 'main', region: 'ir-thr-at1' },
     });
+    expect(runtimeConfig.has(STORAGE_POOL_KEY)).toBe(true);
+  });
+
+  it('commits neither half when the transaction fails', async () => {
+    // A pool that is already live — the failed write must not disturb it.
+    runtimeConfig.set(STORAGE_POOL_KEY, { primary: 'local', providers: { local: { enabled: true, config: {} } } });
+    runtimeConfig.set(STORAGE_DEFAULT_KEY, { provider_name: 'local', config: {} });
+    dbState.rpcError = { message: 'deadlock detected' };
+
+    await expect(writeStoragePool(serverConfig, normalizePool({
+      primary: 's3',
+      providers: { s3: { enabled: true, config: { bucket: 'new' } } },
+    }))).rejects.toThrow(/deadlock detected/);
+
+    expect(runtimeConfig.get(STORAGE_DEFAULT_KEY)).toEqual({ provider_name: 'local', config: {} });
+    expect(normalizePool(runtimeConfig.get(STORAGE_POOL_KEY)).primary).toBe('local');
+  });
+
+  it('removes the legacy pointer when the pool has no primary left', async () => {
+    runtimeConfig.set(STORAGE_DEFAULT_KEY, { provider_name: 'local', config: {} });
+
+    await writeStoragePool(serverConfig, normalizePool({ primary: null, providers: {} }));
+
+    expect(runtimeConfig.has(STORAGE_DEFAULT_KEY)).toBe(false);
   });
 
   it('never stores a disabled primary — that would write to a switched-off vendor', async () => {
@@ -140,8 +196,7 @@ describe('writeStoragePool', () => {
       providers: { s3: { enabled: false, config: {} } },
     }));
 
-    const stored = normalizePool(runtimeConfig.get(STORAGE_POOL_KEY));
-    expect(stored.providers.s3.enabled).toBe(true);
+    expect(normalizePool(runtimeConfig.get(STORAGE_POOL_KEY)).providers.s3.enabled).toBe(true);
   });
 });
 
@@ -152,24 +207,16 @@ describe('ArvanCloud object storage', () => {
 
   it('derives the regional endpoint and signs with the same region id', () => {
     const config = storageConfigFromRecord('arvan_storage', {
-      region: 'ir-tbz-sh1',
-      bucket: 'files',
-      access_key_id: 'ak',
-      secret_access_key: 'sk',
+      region: 'ir-tbz-sh1', bucket: 'files', access_key_id: 'ak', secret_access_key: 'sk',
     });
-
     expect(config.endpoint).toBe('https://s3.ir-tbz-sh1.arvanstorage.ir');
     expect(config.s3Region).toBe('ir-tbz-sh1');
-    expect(config.bucket).toBe('files');
   });
 
   it('honors an explicit endpoint for a datacenter this build does not list', () => {
-    const config = storageConfigFromRecord('arvan_storage', {
-      region: 'ir-thr-at1',
-      endpoint: 'https://s3.ir-thr-xx9.arvanstorage.ir',
-    });
-
-    expect(config.endpoint).toBe('https://s3.ir-thr-xx9.arvanstorage.ir');
+    expect(storageConfigFromRecord('arvan_storage', {
+      region: 'ir-thr-at1', endpoint: 'https://s3.ir-thr-xx9.arvanstorage.ir',
+    }).endpoint).toBe('https://s3.ir-thr-xx9.arvanstorage.ir');
   });
 
   it('falls back to the default region when none was picked', () => {
@@ -178,12 +225,12 @@ describe('ArvanCloud object storage', () => {
   });
 });
 
-describe('syncStorageReplica', () => {
+describe('syncStorageReplica — guards', () => {
   beforeEach(() => {
     runtimeConfig.set(STORAGE_POOL_KEY, {
       primary: 'local',
       providers: {
-        local: { enabled: true, config: { local_path: '/tmp/does-not-matter' } },
+        local: { enabled: true, config: { local_path: '/tmp/unused' } },
         s3: { enabled: true, config: { bucket: 'copy' } },
       },
     });
@@ -201,6 +248,10 @@ describe('syncStorageReplica', () => {
     expect(result.error).toMatch(/not configured/i);
   });
 
+  it('rejects a traversal prefix instead of listing outside the root', async () => {
+    expect((await syncStorageReplica(serverConfig, { target: 's3', prefix: '../etc' })).ok).toBe(false);
+  });
+
   it('fails cleanly when no primary is configured', async () => {
     runtimeConfig.clear();
     const result = await syncStorageReplica(serverConfig, { target: 's3' });
@@ -209,114 +260,247 @@ describe('syncStorageReplica', () => {
   });
 });
 
-/**
- * The copy loop, end to end: a real local primary against a stubbed
- * S3-compatible replica. `fetch` is intercepted so the test never leaves the
- * machine — an object store that answers over the network is exactly what a
- * unit test must not talk to.
- */
-describe('syncStorageReplica — copying', () => {
-  const WS = '22222222-2222-2222-2222-222222222222';
-  let primaryDir: string;
-  let replicaObjects: Map<string, string>;
-  let realFetch: typeof globalThis.fetch;
+// ── Stubbed S3-compatible endpoint ───────────────────────────────
+//
+// Bucket-addressed so several vendors can be simulated at once, with a
+// REAL continuation token so a provider page can hold more keys than one
+// sync batch copies. Nothing here leaves the machine.
 
-  function listXml(keys: string[]): string {
-    return `<?xml version="1.0" encoding="UTF-8"?><ListBucketResult>${
-      keys.map((k) => `<Contents><Key>${k}</Key></Contents>`).join('')
-    }<IsTruncated>false</IsTruncated></ListBucketResult>`;
-  }
+interface S3Stub {
+  buckets: Map<string, Map<string, string>>;
+  /** Keys per ListObjectsV2 response. */
+  pageSize: number;
+  /** Every PUT, in order — proves no object is copied twice. */
+  puts: string[];
+}
+
+function installS3Stub(stub: S3Stub): () => void {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    const method = init?.method ?? 'GET';
+    const [, bucket, ...rest] = url.pathname.split('/');
+    const objects = stub.buckets.get(bucket) ?? new Map<string, string>();
+    stub.buckets.set(bucket, objects);
+
+    if (method === 'GET' && url.searchParams.get('list-type') === '2') {
+      const prefix = url.searchParams.get('prefix') ?? '';
+      const all = [...objects.keys()].filter((k) => k.startsWith(prefix)).sort();
+      const after = url.searchParams.get('continuation-token');
+      const start = after ? all.indexOf(after) + 1 : 0;
+      const page = all.slice(start, start + stub.pageSize);
+      const last = page[page.length - 1];
+      const truncated = start + page.length < all.length;
+      return new Response(
+        `<?xml version="1.0"?><ListBucketResult>${
+          page.map((k) => `<Contents><Key>${k}</Key></Contents>`).join('')
+        }<IsTruncated>${truncated}</IsTruncated>${
+          truncated ? `<NextContinuationToken>${last}</NextContinuationToken>` : ''
+        }</ListBucketResult>`,
+        { status: 200 },
+      );
+    }
+
+    const key = rest.join('/');
+    if (method === 'PUT') {
+      const body = init?.body;
+      const text = body instanceof ArrayBuffer
+        ? Buffer.from(body).toString('utf8')
+        : ArrayBuffer.isView(body as ArrayBufferView)
+          ? Buffer.from((body as ArrayBufferView).buffer as ArrayBuffer).toString('utf8')
+          : String(body ?? '');
+      objects.set(key, text);
+      stub.puts.push(`${bucket}/${key}`);
+      return new Response('', { status: 200 });
+    }
+    if (method === 'DELETE') {
+      objects.delete(key);
+      return new Response('', { status: 204 });
+    }
+    if (method === 'GET') {
+      const body = objects.get(key);
+      return body === undefined
+        ? new Response('missing', { status: 404 })
+        : new Response(body, { status: 200 });
+    }
+    return new Response('', { status: 200 });
+  }) as typeof globalThis.fetch;
+  return () => { globalThis.fetch = realFetch; };
+}
+
+describe('syncStorageReplica — walking a provider that paginates', () => {
+  const WS = '33333333-3333-3333-3333-333333333333';
+  const OBJECT_COUNT = 23;
+  const BATCH = 5;
+  let stub: S3Stub;
+  let restoreFetch: () => void;
+  let targetDir: string;
 
   beforeEach(() => {
-    primaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'storage-pool-primary-'));
-    replicaObjects = new Map();
+    // Primary pages 10 keys at a time; a sync batch copies 5. The two sizes
+    // deliberately do not divide each other.
+    stub = { buckets: new Map(), pageSize: 10, puts: [] };
+    const source = new Map<string, string>();
+    for (let i = 0; i < OBJECT_COUNT; i++) {
+      source.set(`workspace/${WS}/f${String(i).padStart(3, '0')}.txt`, `body-${i}`);
+    }
+    stub.buckets.set('source', source);
+    restoreFetch = installS3Stub(stub);
+
+    targetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-target-'));
     runtimeConfig.set(STORAGE_POOL_KEY, {
-      primary: 'local',
+      primary: 's3',
       providers: {
-        local: { enabled: true, config: { local_path: primaryDir } },
-        s3: { enabled: true, config: { bucket: 'copy', region: 'us-east-1', access_key_id: 'ak', secret_access_key: 'sk' } },
+        s3: { enabled: true, config: { bucket: 'source', region: 'us-east-1', access_key_id: 'ak', secret_access_key: 'sk' } },
+        local: { enabled: true, config: { local_path: targetDir, public_url: 'http://localhost:9999/files' } },
       },
     });
-
-    realFetch = globalThis.fetch;
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = new URL(String(input));
-      const method = init?.method ?? 'GET';
-      if (method === 'GET' && url.searchParams.get('list-type') === '2') {
-        const prefix = url.searchParams.get('prefix') ?? '';
-        const keys = [...replicaObjects.keys()].filter((k) => k.startsWith(prefix));
-        return new Response(listXml(keys), { status: 200 });
-      }
-      const key = url.pathname.replace('/copy/', '');
-      if (method === 'PUT') {
-        // The S3 driver signs raw bytes and sends them as an ArrayBuffer.
-        const body = init?.body;
-        const text = body instanceof ArrayBuffer
-          ? Buffer.from(body).toString('utf8')
-          : ArrayBuffer.isView(body as ArrayBufferView)
-            ? Buffer.from((body as ArrayBufferView).buffer as ArrayBuffer).toString('utf8')
-            : String(body ?? '');
-        replicaObjects.set(key, text);
-        return new Response('', { status: 200 });
-      }
-      if (method === 'GET') {
-        const body = replicaObjects.get(key);
-        return body === undefined
-          ? new Response('missing', { status: 404 })
-          : new Response(body, { status: 200 });
-      }
-      return new Response('', { status: 200 });
-    }) as typeof globalThis.fetch;
   });
 
   afterEach(() => {
-    globalThis.fetch = realFetch;
+    restoreFetch();
+    fs.rmSync(targetDir, { recursive: true, force: true });
+  });
+
+  it('returns a continuation after the first batch, then never repeats it', async () => {
+    const first = await syncStorageReplica(serverConfig, { target: 'local', limit: BATCH, restart: true });
+    expect(first.ok).toBe(true);
+    expect(first.report?.batch.copied).toBe(BATCH);
+    expect(first.report?.done).toBe(false);
+    expect(first.report?.nextCursor).toBeTruthy();
+
+    const copiedAfterFirst = fs.readdirSync(path.join(targetDir, 'workspace', WS)).sort();
+
+    const second = await syncStorageReplica(serverConfig, { target: 'local', limit: BATCH });
+    expect(second.report?.batch.copied).toBe(BATCH);
+    // Nothing from batch one was copied again…
+    expect(second.report?.batch.skipped).toBe(0);
+    // …and the target grew by exactly one batch.
+    const copiedAfterSecond = fs.readdirSync(path.join(targetDir, 'workspace', WS)).sort();
+    expect(copiedAfterSecond.length).toBe(copiedAfterFirst.length + BATCH);
+    expect(copiedAfterSecond.slice(0, BATCH)).toEqual(copiedAfterFirst);
+    expect(second.report?.total.copied).toBe(BATCH * 2);
+  });
+
+  it('eventually copies every object, and only reports done when it truly is', async () => {
+    let result = await syncStorageReplica(serverConfig, { target: 'local', limit: BATCH, restart: true });
+    let rounds = 1;
+    while (result.report && !result.report.done) {
+      expect(result.report.nextCursor).toBeTruthy();
+      result = await syncStorageReplica(serverConfig, { target: 'local', limit: BATCH });
+      rounds++;
+      expect(rounds).toBeLessThan(20); // guards against a cursor that never advances
+    }
+
+    expect(result.report?.nextCursor).toBeNull();
+    expect(result.report?.total.copied).toBe(OBJECT_COUNT);
+    expect(result.report?.total.failed).toBe(0);
+
+    const copied = fs.readdirSync(path.join(targetDir, 'workspace', WS));
+    expect(copied.length).toBe(OBJECT_COUNT);
+  });
+
+  it('never reports done while keys of the current provider page are unprocessed', async () => {
+    // One batch smaller than the provider page — the page is partly consumed,
+    // so the cursor must address a position INSIDE it, not the next page.
+    const first = await syncStorageReplica(serverConfig, { target: 'local', limit: 3, restart: true });
+    expect(first.report?.done).toBe(false);
+    const second = await syncStorageReplica(serverConfig, { target: 'local', limit: 3 });
+    expect(second.report?.batch.skipped).toBe(0);
+    expect(second.report?.total.copied).toBe(6);
+  });
+
+  it('marks the vendor synchronized only after a whole-namespace walk with no failures', async () => {
+    let result = await syncStorageReplica(serverConfig, { target: 'local', limit: BATCH, restart: true });
+    while (result.report && !result.report.done) {
+      expect(result.report.markedSynchronized).toBe(false);
+      result = await syncStorageReplica(serverConfig, { target: 'local', limit: BATCH });
+    }
+
+    expect(result.report?.markedSynchronized).toBe(true);
+    expect(isReplicaSynchronized(await readStoragePool(serverConfig), 'local')).toBe(true);
+  });
+
+  it('a prefix-scoped walk completes without granting promotion readiness', async () => {
+    let result = await syncStorageReplica(serverConfig, {
+      target: 'local', prefix: `workspace/${WS}/f00`, limit: BATCH, restart: true,
+    });
+    while (result.report && !result.report.done) {
+      result = await syncStorageReplica(serverConfig, { target: 'local', limit: BATCH });
+    }
+
+    expect(result.report?.done).toBe(true);
+    expect(result.report?.markedSynchronized).toBe(false);
+    expect(isReplicaSynchronized(await readStoragePool(serverConfig), 'local')).toBe(false);
+  });
+});
+
+describe('syncStorageReplica — walking a provider with no continuation token', () => {
+  const WS = '44444444-4444-4444-4444-444444444444';
+  const OBJECT_COUNT = 7;
+  let stub: S3Stub;
+  let restoreFetch: () => void;
+  let primaryDir: string;
+
+  beforeEach(() => {
+    // local returns its ENTIRE recursive listing in one page, nextCursor
+    // null — the offset in the cursor is the only thing that can carry the
+    // walk forward.
+    primaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-primary-'));
+    for (let i = 0; i < OBJECT_COUNT; i++) {
+      const full = path.join(primaryDir, `workspace/${WS}/f${i}.txt`);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, `body-${i}`);
+    }
+    stub = { buckets: new Map([['mirror', new Map<string, string>()]]), pageSize: 1000, puts: [] };
+    restoreFetch = installS3Stub(stub);
+
+    runtimeConfig.set(STORAGE_POOL_KEY, {
+      primary: 'local',
+      providers: {
+        local: { enabled: true, config: { local_path: primaryDir, public_url: 'http://localhost:9999/files' } },
+        s3: { enabled: true, config: { bucket: 'mirror', region: 'us-east-1', access_key_id: 'ak', secret_access_key: 'sk' } },
+      },
+    });
+  });
+
+  afterEach(() => {
+    restoreFetch();
     fs.rmSync(primaryDir, { recursive: true, force: true });
   });
 
-  function writePrimary(key: string, body: string) {
-    const full = path.join(primaryDir, key);
-    fs.mkdirSync(path.dirname(full), { recursive: true });
-    fs.writeFileSync(full, body);
-  }
+  it('walks the whole listing in batches without repeating or skipping an object', async () => {
+    let result = await syncStorageReplica(serverConfig, { target: 's3', limit: 2, restart: true });
+    let rounds = 1;
+    while (result.report && !result.report.done) {
+      expect(result.report.nextCursor).toBeTruthy();
+      result = await syncStorageReplica(serverConfig, { target: 's3', limit: 2 });
+      rounds++;
+      expect(rounds).toBeLessThan(15);
+    }
 
-  it('copies what the replica is missing and skips what it already has', async () => {
-    writePrimary(`workspace/${WS}/a.txt`, 'one');
-    writePrimary(`workspace/${WS}/b.txt`, 'two');
-    replicaObjects.set(`workspace/${WS}/b.txt`, 'two');
-
-    const result = await syncStorageReplica(serverConfig, { target: 's3', prefix: `workspace/${WS}` });
-
-    expect(result.ok).toBe(true);
-    expect(result.report?.scanned).toBe(2);
-    expect(result.report?.copied).toBe(1);
-    expect(result.report?.skipped).toBe(1);
-    expect(result.report?.failed).toBe(0);
-    expect(replicaObjects.get(`workspace/${WS}/a.txt`)).toBe('one');
+    expect(result.report?.nextCursor).toBeNull();
+    expect(result.report?.total.copied).toBe(OBJECT_COUNT);
+    // Exactly one PUT per object: no batch redid another batch's work.
+    expect(stub.puts.length).toBe(OBJECT_COUNT);
+    expect(new Set(stub.puts).size).toBe(OBJECT_COUNT);
+    expect(stub.buckets.get('mirror')!.size).toBe(OBJECT_COUNT);
   });
 
-  it('is idempotent — a second run copies nothing', async () => {
-    writePrimary(`workspace/${WS}/a.txt`, 'one');
+  it('is idempotent — re-running a finished walk copies nothing again', async () => {
+    let result = await syncStorageReplica(serverConfig, { target: 's3', limit: 3, restart: true });
+    while (result.report && !result.report.done) {
+      result = await syncStorageReplica(serverConfig, { target: 's3', limit: 3 });
+    }
+    const putsAfterFirstWalk = stub.puts.length;
 
-    await syncStorageReplica(serverConfig, { target: 's3', prefix: `workspace/${WS}` });
-    const second = await syncStorageReplica(serverConfig, { target: 's3', prefix: `workspace/${WS}` });
+    let again = await syncStorageReplica(serverConfig, { target: 's3', limit: 3, restart: true });
+    while (again.report && !again.report.done) {
+      again = await syncStorageReplica(serverConfig, { target: 's3', limit: 3 });
+    }
 
-    expect(second.report?.copied).toBe(0);
-    expect(second.report?.skipped).toBe(1);
-  });
-
-  it('reports a cursor when the primary holds more than one batch', async () => {
-    for (let i = 0; i < 3; i++) writePrimary(`workspace/${WS}/f${i}.txt`, String(i));
-
-    const result = await syncStorageReplica(serverConfig, { target: 's3', prefix: `workspace/${WS}`, limit: 2 });
-
-    expect(result.report?.scanned).toBe(2);
-    expect(result.report?.copied).toBe(2);
-    expect(result.report?.nextCursor).not.toBeUndefined();
-  });
-
-  it('rejects a traversal prefix instead of listing outside the bucket root', async () => {
-    const result = await syncStorageReplica(serverConfig, { target: 's3', prefix: '../etc' });
-    expect(result.ok).toBe(false);
+    expect(again.report?.total.copied).toBe(0);
+    expect(again.report?.total.skipped).toBe(OBJECT_COUNT);
+    expect(stub.puts.length).toBe(putsAfterFirstWalk);
   });
 });

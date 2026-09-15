@@ -13,8 +13,18 @@
 import type { ServerConfig } from '../../config.js';
 import { resolveStorageConfigForOwner, type StorageConfig } from './index.js';
 import { resolvePrivacyStoragePolicy, PrivacyStorageNotConfigured } from '../privacy/storageResolver.js';
+import { storagePoolScopes } from './poolScopes.js';
 
-export type UserStorageScopeName = 'default' | 'privacy_export';
+export type UserStorageScopeName =
+  | 'default'
+  | 'privacy_export'
+  /**
+   * One per enabled storage-pool vendor. `users/<id>/...` objects are
+   * written through the global default provider and therefore mirrored to
+   * the pool's replicas exactly like workspace objects — account deletion
+   * must erase them there too, whatever `mirrorDeletes` says.
+   */
+  | `replica:${string}`;
 
 export type UserScopeResolution =
   | { configured: true; config: StorageConfig }
@@ -30,8 +40,9 @@ export function userScopePrefix(userId: string): string {
   return `users/${userId}/`;
 }
 
-export function userStorageScopes(config: ServerConfig, userId: string): UserStorageScope[] {
-  return [
+/** Async for the same reason as workspaceStorageScopes: the pool is a DB read, and a failed read must throw, never silently drop replica scopes. */
+export async function userStorageScopes(config: ServerConfig, userId: string): Promise<UserStorageScope[]> {
+  const scopes: UserStorageScope[] = [
     {
       name: 'default',
       async resolve(): Promise<UserScopeResolution> {
@@ -57,4 +68,10 @@ export function userStorageScopes(config: ServerConfig, userId: string): UserSto
       },
     },
   ];
+
+  for (const replica of await storagePoolScopes(config)) {
+    scopes.push({ name: replica.name as UserStorageScopeName, resolve: replica.resolve });
+  }
+
+  return scopes;
 }

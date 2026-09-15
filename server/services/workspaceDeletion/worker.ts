@@ -351,7 +351,16 @@ export async function runStorageCleanup(config: ServerConfig, job: WorkspaceDele
     return;
   }
 
-  const scopes = workspaceStorageScopes(config, job.workspace_id);
+  // Building the scope list now reads the storage pool (its enabled
+  // vendors are physical deletion scopes). A failed read must retry the
+  // tick, never proceed with a short list that misses a replica.
+  let scopes;
+  try {
+    scopes = await workspaceStorageScopes(config, job.workspace_id);
+  } catch (err) {
+    await retryOrFail(config, job, job.storage_scopes ?? {}, `storage scope resolution failed: ${errMessage(err)}`);
+    return;
+  }
   const state: ScopeCleanupState = { ...(job.storage_scopes ?? {}) };
   const leaseToken = job.lease_token!;
 

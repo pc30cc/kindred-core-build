@@ -235,7 +235,15 @@ async function purgeUser(config: ServerConfig, job: UserDeletionJobRow): Promise
   const sb = getServiceClient(config);
   const state: ScopeCleanupState = { ...(job.storage_scopes ?? {}) };
   const leaseToken = job.lease_token!;
-  const scopes = userStorageScopes(config, job.user_id);
+  // Same as workspace deletion: the pool's enabled vendors are physical
+  // scopes, and a failed pool read must retry rather than silently skip them.
+  let scopes;
+  try {
+    scopes = await userStorageScopes(config, job.user_id);
+  } catch (err) {
+    await retryOrFail(config, job, `storage scope resolution failed: ${err instanceof Error ? err.message : String(err)}`, { storage_scopes: state });
+    return;
+  }
 
   const outcome = await runScopeCleanupTick({
     scopes,

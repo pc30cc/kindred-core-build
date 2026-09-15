@@ -20,7 +20,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { assertOwnerScopedKey, assertSafeStorageKey, isKnownLegacyStorageKey, LEGACY_USER_AVATAR_PATTERN, ownerRoot, StorageKeyError, type StorageOwner } from './keys.js';
 import { withOwnerWriteLease } from './writerLease.js';
-import { readStoragePool, replicaEntries } from './pool.js';
+import { readStoragePool, writeStoragePool, replicaEntries } from './pool.js';
 
 export type { StorageOwner };
 
@@ -1637,22 +1637,83 @@ async function replicateDelete(
   );
 }
 
+/**
+ * One page of a back-fill walk.
+ *
+ * `batch` counts what THIS call did; `total` is the cumulative state of the
+ * whole walk, which lives in the pool entry (never in the browser) so a
+ * resumed or restarted session cannot invent progress it did not make.
+ */
 export interface ReplicaSyncReport {
   target: string;
   prefix: string;
-  /** Keys listed on the primary in this page. */
-  scanned: number;
-  copied: number;
-  /** Already present on the replica. */
-  skipped: number;
-  failed: number;
+  batch: { scanned: number; copied: number; skipped: number; failed: number };
+  total: { scanned: number; copied: number; skipped: number; failed: number };
   errors: string[];
-  /** Pass back as `cursor` to continue; null when the prefix is exhausted. */
+  /** Opaque resume token. `null` ONLY when the walk is genuinely exhausted. */
   nextCursor: string | null;
+  /** True when nextCursor is null — the prefix has been fully walked. */
+  done: boolean;
+  /** Set when this walk completed the vendor's whole namespace with zero failures. */
+  markedSynchronized: boolean;
+}
+
+/**
+ * Resume position inside a walk.
+ *
+ * A provider page and a sync batch are NOT the same size: S3's
+ * ListObjectsV2 hands back up to 1000 keys while a batch may copy 100, and
+ * local/Bunny return the entire recursive listing in one page with no
+ * continuation token at all. So a cursor has to address a position INSIDE
+ * a page, not just the page:
+ *
+ *   p — the provider's own continuation token (null = first/only page)
+ *   o — how many keys of that page have already been processed
+ *
+ * Keys are sorted before slicing, so the offset means the same thing on
+ * every re-listing regardless of the order a provider walks its objects
+ * in. Re-running a batch is harmless anyway: a key already present on the
+ * target is skipped, and re-copying one writes identical bytes.
+ */
+interface ReplicaSyncCursor {
+  p: string | null;
+  o: number;
+}
+
+function encodeSyncCursor(cursor: ReplicaSyncCursor): string {
+  return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
+}
+
+function decodeSyncCursor(raw: string | null | undefined): ReplicaSyncCursor {
+  if (!raw) return { p: null, o: 0 };
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as Partial<ReplicaSyncCursor>;
+    const offset = typeof parsed.o === 'number' && parsed.o >= 0 ? Math.floor(parsed.o) : 0;
+    return { p: typeof parsed.p === 'string' && parsed.p ? parsed.p : null, o: offset };
+  } catch {
+    // An unreadable cursor restarts the walk rather than skipping objects.
+    return { p: null, o: 0 };
+  }
+}
+
+export interface ReplicaSyncOptions {
+  target: string;
+  prefix?: string;
+  limit?: number;
+  /** Ignore any stored progress and walk the prefix from the beginning. */
+  restart?: boolean;
+}
+
+export interface ReplicaSyncResult {
+  ok: boolean;
+  report?: ReplicaSyncReport;
+  error?: string;
 }
 
 const SYNC_DEFAULT_LIMIT = 100;
 const SYNC_MAX_LIMIT = 500;
+/** Pages of the TARGET listing consulted to decide what it already holds. Bounded: exceeding it only costs a re-copy, never a skipped object. */
+const EXISTING_SCAN_MAX_PAGES = 10;
 
 const CONTENT_TYPE_BY_EXT: Record<string, string> = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
@@ -1667,29 +1728,32 @@ function contentTypeForKey(key: string): string {
   return CONTENT_TYPE_BY_EXT[ext] ?? 'application/octet-stream';
 }
 
+/** Keys the target already holds under `prefix`, over a bounded number of pages. */
+async function listExistingKeys(config: StorageConfig, prefix: string): Promise<Set<string>> {
+  const existing = new Set<string>();
+  let cursor: string | undefined;
+  for (let page = 0; page < EXISTING_SCAN_MAX_PAGES; page++) {
+    const listed = await listWithConfig(config, prefix, cursor);
+    if (!listed.success) break; // treat as "holds nothing known" — copies, never skips
+    for (const key of listed.keys ?? []) existing.add(key);
+    if (!listed.nextCursor) break;
+    cursor = listed.nextCursor;
+  }
+  return existing;
+}
+
 /**
- * Backfill an existing replica from the primary — the catch-up counterpart
- * to mirror-on-write, for objects that predate the replica or were written
- * while it was unreachable.
+ * Back-fill an existing replica from the primary — the catch-up
+ * counterpart to mirror-on-write, for objects that predate the replica or
+ * were written while it was unreachable.
  *
- * One call handles at most `limit` objects and returns a cursor, so a large
- * bucket is walked in bounded steps by the caller instead of tying up a
- * request for an unbounded time. Objects already present on the replica are
- * skipped, so re-running is cheap and safe.
+ * One call copies at most `limit` objects and then returns; the walk's
+ * position and running totals are PERSISTED on the pool entry, so the
+ * caller only has to ask for the next batch. That keeps a huge bucket from
+ * tying up one request, survives a browser reload or a server restart, and
+ * means promotion readiness is decided from state the server recorded
+ * itself rather than a number a client sent back.
  */
-export interface ReplicaSyncOptions {
-  target: string;
-  prefix?: string;
-  limit?: number;
-  cursor?: string;
-}
-
-export interface ReplicaSyncResult {
-  ok: boolean;
-  report?: ReplicaSyncReport;
-  error?: string;
-}
-
 export async function syncStorageReplica(
   serverConfig: ServerConfig,
   opts: ReplicaSyncOptions,
@@ -1704,7 +1768,20 @@ export async function syncStorageReplica(
   const primaryConfig = mapDBConfigToStorage(pool.primary, pool.providers[pool.primary]?.config ?? {});
   const targetConfig = mapDBConfigToStorage(opts.target, targetEntry.config);
 
-  const prefix = (opts.prefix ?? '').replace(/^\/+/, '');
+  // An unfinished walk this same primary started is what "continue" means.
+  const stored = targetEntry.sync;
+  const continuable = !opts.restart && !!stored && !stored.done && stored.from === pool.primary;
+
+  // Asking to continue without naming a prefix resumes the walk that is
+  // actually in flight. Silently defaulting to '' instead would abandon a
+  // prefix-scoped walk halfway and start a whole-namespace one under the
+  // same name — which is how a partial walk could end up claiming the
+  // promotion readiness only a full one may grant.
+  const requestedPrefix =
+    opts.prefix !== undefined ? opts.prefix
+      : continuable ? stored!.prefix
+        : '';
+  const prefix = requestedPrefix.replace(/^\/+/, '');
   if (prefix) {
     try {
       assertSafeStorageKey(prefix);
@@ -1715,38 +1792,37 @@ export async function syncStorageReplica(
 
   const limit = Math.min(Math.max(opts.limit ?? SYNC_DEFAULT_LIMIT, 1), SYNC_MAX_LIMIT);
 
-  const listed = await listWithConfig(primaryConfig, prefix, opts.cursor);
+  // Continue only when it is genuinely the same walk — a different prefix
+  // starts over rather than resuming into an unrelated position.
+  const resumable = continuable && stored!.prefix === prefix;
+
+  const cursor = decodeSyncCursor(resumable ? stored!.cursor : null);
+  const runningTotal = resumable
+    ? { ...stored!.total }
+    : { scanned: 0, copied: 0, skipped: 0, failed: 0 };
+
+  const listed = await listWithConfig(primaryConfig, prefix, cursor.p ?? undefined);
   if (!listed.success) return { ok: false, error: listed.error ?? 'Listing the primary failed' };
 
-  const keys = (listed.keys ?? []).slice(0, limit);
-  // One listing of the replica is enough to skip what it already holds;
-  // re-copying is correct but wastes bandwidth on every re-run.
-  const existing = new Set<string>();
-  const targetListed = await listWithConfig(targetConfig, prefix);
-  if (targetListed.success) for (const key of targetListed.keys ?? []) existing.add(key);
+  // Sorted so an offset into this page addresses the same key on any
+  // re-listing, whatever order the provider walked its objects in.
+  const pageKeys = (listed.keys ?? []).slice().sort();
+  const batchKeys = pageKeys.slice(cursor.o, cursor.o + limit);
 
-  const report: ReplicaSyncReport = {
-    target: opts.target,
-    prefix,
-    scanned: keys.length,
-    copied: 0,
-    skipped: 0,
-    failed: 0,
-    errors: [],
-    // More keys than this page could copy means the caller must come back
-    // for the rest even when the provider itself reported no continuation.
-    nextCursor: (listed.keys ?? []).length > keys.length ? (opts.cursor ?? null) : (listed.nextCursor ?? null),
-  };
+  const existing = await listExistingKeys(targetConfig, prefix);
 
-  for (const key of keys) {
+  const batch = { scanned: batchKeys.length, copied: 0, skipped: 0, failed: 0 };
+  const errors: string[] = [];
+
+  for (const key of batchKeys) {
     if (existing.has(key)) {
-      report.skipped++;
+      batch.skipped++;
       continue;
     }
     const downloaded = await downloadWithConfig(primaryConfig, key);
     if (!downloaded.success || !downloaded.data) {
-      report.failed++;
-      if (report.errors.length < 10) report.errors.push(`${key}: ${downloaded.error ?? 'download failed'}`);
+      batch.failed++;
+      if (errors.length < 10) errors.push(`${key}: ${downloaded.error ?? 'download failed'}`);
       continue;
     }
     const uploaded = await uploadWithConfig(targetConfig, {
@@ -1755,14 +1831,64 @@ export async function syncStorageReplica(
       contentType: contentTypeForKey(key),
     });
     if (uploaded.success) {
-      report.copied++;
+      batch.copied++;
     } else {
-      report.failed++;
-      if (report.errors.length < 10) report.errors.push(`${key}: ${uploaded.error ?? 'upload failed'}`);
+      batch.failed++;
+      if (errors.length < 10) errors.push(`${key}: ${uploaded.error ?? 'upload failed'}`);
     }
   }
 
-  return { ok: true, report };
+  // Where the next batch starts: further into this page while keys remain,
+  // otherwise the provider's next page, otherwise nowhere.
+  const consumed = cursor.o + batchKeys.length;
+  const nextCursor: ReplicaSyncCursor | null =
+    consumed < pageKeys.length
+      ? { p: cursor.p, o: consumed }
+      : listed.nextCursor
+        ? { p: listed.nextCursor, o: 0 }
+        : null;
+
+  const total = {
+    scanned: runningTotal.scanned + batch.scanned,
+    copied: runningTotal.copied + batch.copied,
+    skipped: runningTotal.skipped + batch.skipped,
+    failed: runningTotal.failed + batch.failed,
+  };
+
+  const done = nextCursor === null;
+  // Promotion readiness is only earned by a completed walk of the vendor's
+  // WHOLE namespace with nothing left unfixed — a prefix-scoped or partly
+  // failed walk proves nothing about the objects it never looked at.
+  const markedSynchronized = done && total.failed === 0 && prefix === '';
+
+  const entry = pool.providers[opts.target];
+  entry.sync = {
+    prefix,
+    from: pool.primary,
+    cursor: nextCursor ? encodeSyncCursor(nextCursor) : null,
+    total,
+    done,
+    updatedAt: new Date().toISOString(),
+  };
+  if (markedSynchronized) {
+    entry.syncedAt = new Date().toISOString();
+    entry.syncedFrom = pool.primary;
+  }
+  await writeStoragePool(serverConfig, pool);
+
+  return {
+    ok: true,
+    report: {
+      target: opts.target,
+      prefix,
+      batch,
+      total,
+      errors,
+      nextCursor: entry.sync.cursor,
+      done,
+      markedSynchronized,
+    },
+  };
 }
 
 /**

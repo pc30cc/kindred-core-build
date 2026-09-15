@@ -14,7 +14,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import {
-  readStoragePool, writeStoragePool, emptyPool,
+  readStoragePool, writeStoragePool, emptyPool, isReplicaSynchronized, clearSyncReadiness,
   type StoragePool,
 } from '../services/storage/pool.js';
 import {
@@ -129,6 +129,19 @@ function serializePool(pool: StoragePool) {
         config,
         secretKeys,
         updatedAt: entry.updatedAt ?? null,
+        /** Proven to hold everything the CURRENT primary holds. */
+        synchronized: name === pool.primary || isReplicaSynchronized(pool, name),
+        syncedAt: entry.syncedAt ?? null,
+        sync: entry.sync
+          ? {
+              prefix: entry.sync.prefix,
+              from: entry.sync.from,
+              done: entry.sync.done,
+              hasMore: !!entry.sync.cursor,
+              total: entry.sync.total,
+              updatedAt: entry.sync.updatedAt,
+            }
+          : null,
       };
     }),
   };
@@ -179,11 +192,14 @@ adminStorageProvidersRouter.put('/replication', async (req, res) => {
 
 // ─── Backfill an existing replica from the primary ───────────────
 
+// No cursor from the client: the walk's position lives on the pool entry,
+// so "give me the next batch" cannot be turned into "pretend I already
+// walked everything" by a crafted request.
 const syncSchema = z.object({
   target: z.string().min(2),
   prefix: z.string().max(512).optional(),
   limit: z.number().int().min(1).max(500).optional(),
-  cursor: z.string().max(4096).optional(),
+  restart: z.boolean().optional(),
 });
 
 adminStorageProvidersRouter.post('/sync', async (req, res) => {
@@ -199,7 +215,7 @@ adminStorageProvidersRouter.post('/sync', async (req, res) => {
       target: body.target,
       prefix: body.prefix,
       limit: body.limit,
-      cursor: body.cursor,
+      restart: body.restart,
     });
     if (!result.ok) return res.status(400).json({ error: result.error });
     res.json({ report: result.report });
@@ -232,7 +248,16 @@ adminStorageProvidersRouter.put('/:providerName', async (req, res) => {
       enabled: body.enabled ?? existing?.enabled ?? true,
       config: merged,
       updatedAt: new Date().toISOString(),
+      syncedAt: existing?.syncedAt ?? null,
+      syncedFrom: existing?.syncedFrom ?? null,
+      sync: existing?.sync ?? null,
     };
+
+    // New credentials can point at a different bucket entirely, so whatever
+    // an earlier back-fill proved about this vendor no longer holds.
+    if (JSON.stringify(merged) !== JSON.stringify(existing?.config ?? {})) {
+      clearSyncReadiness(pool.providers[name]);
+    }
 
     // First vendor ever saved becomes the primary — otherwise the platform
     // would hold credentials nothing actually writes through.
@@ -275,21 +300,76 @@ adminStorageProvidersRouter.patch('/:providerName', async (req, res) => {
 
 // ─── Promote a vendor to primary ─────────────────────────────────
 
+/**
+ * Promotion is not a label change: the new primary becomes the only
+ * provider reads resolve through, so an object the mirror never received
+ * stops being downloadable the moment it is promoted.
+ *
+ * A normal promotion therefore requires all three of:
+ *   1. the vendor is configured AND enabled,
+ *   2. its credentials answer right now (a real upload+delete round trip),
+ *   3. the server itself recorded a completed whole-namespace back-fill
+ *      from the CURRENT primary with zero failures.
+ *
+ * (3) is read from the pool entry the sync walk writes — never from a flag
+ * the browser sends. `force` exists for recovery (the current primary is
+ * gone and an incomplete mirror is better than nothing) and is the only way
+ * past it; it is logged and surfaced in the response.
+ */
 adminStorageProvidersRouter.post('/:providerName/primary', async (req, res) => {
   try {
     const name = providerNameOf(req, res);
     if (!name) return;
+    const body = z.object({ force: z.boolean().optional() }).parse(req.body ?? {});
     const serverConfig = ctx(req).serverConfig;
 
     const pool = await readStoragePool(serverConfig);
     const entry = pool.providers[name];
     if (!entry) return res.status(404).json({ error: 'Provider is not configured' });
 
+    if (name === pool.primary) return res.json(serializePool(pool));
+
+    if (!entry.enabled && !body.force) {
+      return res.status(409).json({
+        error: 'This vendor is switched off — enable it (and sync it) before making it primary',
+        reason: 'disabled',
+      });
+    }
+
+    // Nothing to be out of sync with when there is no primary yet.
+    const needsSyncProof = !!pool.primary;
+
+    if (!body.force) {
+      const reachable = await testStorageConnection(storageConfigFromRecord(name, entry.config));
+      if (!reachable.success) {
+        return res.status(409).json({
+          error: `This vendor did not answer a test write: ${reachable.error ?? 'unknown error'}`,
+          reason: 'unreachable',
+        });
+      }
+      if (needsSyncProof && !isReplicaSynchronized(pool, name)) {
+        return res.status(409).json({
+          error:
+            'This vendor has not been proven to hold everything the current primary holds. '
+            + 'Run a full sync (no prefix) until it reports complete, then promote it.',
+          reason: 'not_synchronized',
+        });
+      }
+    } else {
+      console.warn(
+        `[storage] FORCED promotion of ${name} to primary by admin ${adminId(req) ?? 'unknown'} `
+        + '— objects the previous primary held may be unavailable until a sync completes.',
+      );
+    }
+
     pool.primary = name;
     entry.enabled = true;
     await writeStoragePool(serverConfig, pool);
-    res.json(serializePool(await readStoragePool(serverConfig)));
-  } catch (e) { fail(res, e); }
+    res.json({ ...serializePool(await readStoragePool(serverConfig)), forced: body.force === true });
+  } catch (e) {
+    if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
+    fail(res, e);
+  }
 });
 
 // ─── Remove a vendor from the pool ───────────────────────────────

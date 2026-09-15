@@ -8373,6 +8373,7 @@ export type Database = {
           created_at: string | null
           id: string
           metadata: Json | null
+          reply_to_message_id: string | null
           seen_at: string | null
           sender_id: string | null
           sender_type: Database["public"]["Enums"]["sender_type"]
@@ -8383,6 +8384,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           metadata?: Json | null
+          reply_to_message_id?: string | null
           seen_at?: string | null
           sender_id?: string | null
           sender_type: Database["public"]["Enums"]["sender_type"]
@@ -8393,6 +8395,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           metadata?: Json | null
+          reply_to_message_id?: string | null
           seen_at?: string | null
           sender_id?: string | null
           sender_type?: Database["public"]["Enums"]["sender_type"]
@@ -8403,6 +8406,13 @@ export type Database = {
             columns: ["conversation_id"]
             isOneToOne: false
             referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversation_messages_reply_to_message_id_fkey"
+            columns: ["reply_to_message_id"]
+            isOneToOne: false
+            referencedRelation: "conversation_messages"
             referencedColumns: ["id"]
           },
         ]

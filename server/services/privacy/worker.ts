@@ -28,7 +28,7 @@ import {
   resolvePrivacyStoragePolicy,
   PrivacyStorageNotConfigured,
 } from './storageResolver.js';
-import { uploadWithConfig, type StorageOwner } from '../storage/index.js';
+import { uploadWithConfig, logWorkspaceStorageUsage, type StorageOwner } from '../storage/index.js';
 import { privacyExportKey } from '../storage/keys.js';
 import type { PrivacyJobRow } from './types.js';
 
@@ -109,6 +109,26 @@ export async function processJob(config: ServerConfig, job: PrivacyJobRow): Prom
     });
     if (!upload.success) {
       throw new Error(`Privacy artifact upload failed via ${policy.provider}: ${upload.error || 'unknown'}`);
+    }
+
+    // Privacy exports bypass uploadForOwner() entirely (they need the
+    // dedicated privacy provider-policy resolver, not the standard
+    // per-owner one), so they don't get storage_usage_logs participation
+    // for free the way every other workspace-owned upload does. Log it
+    // explicitly here for workspace-owned jobs only — user-subject jobs
+    // (job.workspace_id null) are never attributed to any workspace's
+    // quota. See server/services/storage/categoryPolicy.ts's
+    // 'privacy_export' entry.
+    if (job.workspace_id) {
+      await logWorkspaceStorageUsage(config, {
+        workspaceId: job.workspace_id,
+        providerName: policy.provider,
+        operation: 'upload',
+        fileKey: objectKey,
+        fileSize: buffer.length,
+        contentType: 'application/zip',
+        success: true,
+      });
     }
 
     const expiresAt = new Date(Date.now() + ARTIFACT_TTL_MS).toISOString();

@@ -724,12 +724,49 @@ function mapDBConfigToStorage(provider: string, c: Record<string, unknown>): Sto
 }
 
 /**
+ * The single writer path to `storage_usage_logs` — every route through
+ * this module that should meter a byte against a workspace's storage_gb
+ * quota (server/services/storage/categoryPolicy.ts decides which
+ * categories those are) goes through this one function. Never insert into
+ * storage_usage_logs anywhere else; the trigger
+ * `trg_storage_usage_logs_apply` (docs/STORAGE_COUNTER_ARCHITECTURE.md) is
+ * the only writer of `workspace_usage_counters.storage_bytes`, and this is
+ * the only writer of the log rows that trigger reads.
+ */
+export async function logWorkspaceStorageUsage(
+  serverConfig: ServerConfig,
+  params: {
+    workspaceId: string;
+    providerName: string;
+    operation: 'upload' | 'delete';
+    fileKey: string;
+    fileSize?: number | null;
+    contentType?: string;
+    success: boolean;
+    errorMessage?: string;
+  },
+): Promise<void> {
+  await getServiceClient(serverConfig).from('storage_usage_logs').insert({
+    workspace_id: params.workspaceId,
+    provider_name: params.providerName,
+    operation: params.operation,
+    file_key: params.fileKey,
+    file_size: params.fileSize ?? null,
+    content_type: params.contentType,
+    success: params.success,
+    error_message: params.errorMessage,
+  });
+}
+
+/**
  * Upload a file through the storage provider resolved for its owner.
  * Workspace-owned uploads participate in storage_usage_logs (the single
  * writer of workspace_usage_counters.storage_bytes); user- and
- * platform-owned uploads are not workspace quota, so they don't — same
- * policy uploadWithConfig already applies to privacy exports and platform
- * ringback audio (docs/STORAGE_LIMIT_POLICY.md).
+ * platform-owned uploads are not workspace quota, so they don't. See
+ * server/services/storage/categoryPolicy.ts for the full per-category
+ * breakdown, including categories that intentionally bypass this function
+ * (privacy exports, platform ringback audio) and log through
+ * logWorkspaceStorageUsage() directly instead.
  */
 export async function uploadForOwner(
   serverConfig: ServerConfig,
@@ -759,28 +796,28 @@ export async function uploadForOwner(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     if (req.owner.kind === 'workspace') {
-      await getServiceClient(serverConfig).from('storage_usage_logs').insert({
-        workspace_id: req.owner.workspaceId,
-        provider_name: storageConfig.provider,
+      await logWorkspaceStorageUsage(serverConfig, {
+        workspaceId: req.owner.workspaceId,
+        providerName: storageConfig.provider,
         operation: 'upload',
-        file_key: req.fileKey,
+        fileKey: req.fileKey,
         success: false,
-        error_message: message,
+        errorMessage: message,
       });
     }
     return { success: false, error: message };
   }
 
   if (req.owner.kind === 'workspace') {
-    await getServiceClient(serverConfig).from('storage_usage_logs').insert({
-      workspace_id: req.owner.workspaceId,
-      provider_name: storageConfig.provider,
+    await logWorkspaceStorageUsage(serverConfig, {
+      workspaceId: req.owner.workspaceId,
+      providerName: storageConfig.provider,
       operation: 'upload',
-      file_key: req.fileKey,
-      file_size: req.data.length,
-      content_type: req.contentType,
+      fileKey: req.fileKey,
+      fileSize: req.data.length,
+      contentType: req.contentType,
       success: result.success,
-      error_message: result.error,
+      errorMessage: result.error,
     });
   }
 
@@ -850,14 +887,14 @@ export async function deleteForOwner(
           freedBytes = priorFileSize;
         }
       }
-      await sb.from('storage_usage_logs').insert({
-        workspace_id: owner.workspaceId,
-        provider_name: storageConfig.provider,
+      await logWorkspaceStorageUsage(serverConfig, {
+        workspaceId: owner.workspaceId,
+        providerName: storageConfig.provider,
         operation: 'delete',
-        file_key: fileKey,
-        file_size: freedBytes,
+        fileKey,
+        fileSize: freedBytes,
         success: result.success,
-        error_message: result.error,
+        errorMessage: result.error,
       });
     }
     return result;

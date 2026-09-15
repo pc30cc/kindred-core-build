@@ -7,7 +7,7 @@
  * primitives yet).
  */
 
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import * as crypto from 'crypto';
 import type { ServerConfig } from '../config.js';
@@ -17,7 +17,7 @@ import { issueReauthToken, consumeReauthToken } from '../services/privacy/reauth
 import { writePrivacyAudit } from '../services/privacy/audit.js';
 import { readLegacyArtifact, deleteLegacyArtifact } from '../services/privacy/artifactStore.js';
 import { resolvePrivacyStoragePolicy } from '../services/privacy/storageResolver.js';
-import { downloadWithConfig, deleteWithConfig } from '../services/storage/index.js';
+import { downloadWithConfig, deleteWithConfig, logWorkspaceStorageUsage } from '../services/storage/index.js';
 import type { PrivacyAction, PrivacySubjectType } from '../services/privacy/types.js';
 import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
 import { findIdentityById } from '../services/auth/identity.js';
@@ -25,8 +25,10 @@ import { verifyPassword } from '../services/auth/password.js';
 
 export const privacyRouter = Router();
 
+type ReqWithConfig = Request & { serverConfig: ServerConfig };
+
 // ─── Auth helper ───────────────────────────────────────────────────
-async function authUser(req: any, res: any, config: ServerConfig): Promise<{ userId: string; email: string | null } | null> {
+async function authUser(req: Request, res: Response, config: ServerConfig): Promise<{ userId: string; email: string | null } | null> {
   const userId = await requireSessionUser(req, res);
   if (!userId) return null;
   const identity = await findIdentityById(config, userId);
@@ -72,7 +74,7 @@ const reauthSchema = z.object({
 });
 
 privacyRouter.post('/reauth', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as ReqWithConfig).serverConfig;
   const me = await authUser(req, res, config);
   if (!me) return;
 
@@ -110,7 +112,7 @@ const createSchema = z.object({
 });
 
 privacyRouter.post('/jobs', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as ReqWithConfig).serverConfig;
   const me = await authUser(req, res, config);
   if (!me) return;
 
@@ -177,10 +179,10 @@ privacyRouter.post('/jobs', async (req, res) => {
       subject_type: body.subject_type,
       subject_id: body.subject_id,
       subject_email_hash: subjectEmailHash,
-      resolved_identity: resolved as any,
+      resolved_identity: resolved,
       action: body.action as PrivacyAction,
       status: 'pending',
-      scope: (body.scope as any) || {},
+      scope: body.scope || {},
     })
     .select('*')
     .single();
@@ -200,7 +202,7 @@ privacyRouter.post('/jobs', async (req, res) => {
 
 // ─── GET /api/privacy/jobs ──────────────────────────────────────────
 privacyRouter.get('/jobs', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as ReqWithConfig).serverConfig;
   const me = await authUser(req, res, config);
   if (!me) return;
 
@@ -224,7 +226,7 @@ privacyRouter.get('/jobs', async (req, res) => {
 
 // ─── GET /api/privacy/jobs/:id ──────────────────────────────────────
 privacyRouter.get('/jobs/:id', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as ReqWithConfig).serverConfig;
   const me = await authUser(req, res, config);
   if (!me) return;
 
@@ -243,13 +245,13 @@ privacyRouter.get('/jobs/:id', async (req, res) => {
   }
 
   // Strip download_token_hash from response — it's a secret.
-  const { download_token_hash, ...safe } = job as any;
+  const { download_token_hash, ...safe } = job;
   return res.json({ job: safe });
 });
 
 // ─── POST /api/privacy/jobs/:id/cancel ──────────────────────────────
 privacyRouter.post('/jobs/:id/cancel', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as ReqWithConfig).serverConfig;
   const me = await authUser(req, res, config);
   if (!me) return;
 
@@ -293,7 +295,7 @@ privacyRouter.post('/jobs/:id/cancel', async (req, res) => {
 // Operators call this once the job is completed. We mint a single-use,
 // short-lived token and store its hash in the job row.
 privacyRouter.post('/jobs/:id/download-token', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as ReqWithConfig).serverConfig;
   const me = await authUser(req, res, config);
   if (!me) return;
 
@@ -329,7 +331,7 @@ privacyRouter.post('/jobs/:id/download-token', async (req, res) => {
 
 // ─── GET /api/privacy/exports/:job_id/download ─────────────────────
 privacyRouter.get('/exports/:job_id/download', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as ReqWithConfig).serverConfig;
   const token = (req.query.token as string) || '';
   if (!token) return res.status(400).json({ error: 'token required' });
 
@@ -398,6 +400,18 @@ privacyRouter.get('/exports/:job_id/download', async (req, res) => {
       const policy = await resolvePrivacyStoragePolicy(config, job.workspace_id);
       if (policy.provider === job.artifact_storage_provider) {
         await deleteWithConfig(policy.config, job.artifact_storage_key);
+        // Mirror expirySweep.ts's symmetric delete-side logging — see
+        // server/services/storage/categoryPolicy.ts's 'privacy_export' entry.
+        if (job.workspace_id) {
+          await logWorkspaceStorageUsage(config, {
+            workspaceId: job.workspace_id,
+            providerName: policy.provider,
+            operation: 'delete',
+            fileKey: job.artifact_storage_key,
+            fileSize: job.artifact_size_bytes ?? null,
+            success: true,
+          });
+        }
       }
     } catch {
       // best-effort delete; TTL sweep will retry later

@@ -78,8 +78,9 @@ interface JobUpdateCall {
 
 function makeSupabaseStub() {
   const updateCalls: JobUpdateCall[] = [];
+  const insertCalls: Array<{ table: string; row: Record<string, unknown> }> = [];
   const client = {
-    from: () => ({
+    from: (table: string) => ({
       update: (patch: Record<string, unknown>) => {
         const filters: Array<[string, unknown]> = [];
         const chain = {
@@ -91,9 +92,13 @@ function makeSupabaseStub() {
         };
         return chain;
       },
+      insert: async (row: Record<string, unknown>) => {
+        insertCalls.push({ table, row });
+        return { data: null, error: null };
+      },
     }),
   };
-  return { client, updateCalls };
+  return { client, updateCalls, insertCalls };
 }
 
 vi.mock('../../../server/supabase.js', () => ({
@@ -169,5 +174,36 @@ describe('processJob (export action) — canonical key + no fake workspaceId', (
 
     const [, req] = uploadWithConfigMock.mock.calls[0];
     expect(req.fileKey.startsWith('privacy-exports/')).toBe(false);
+  });
+});
+
+describe('processJob (export action) — storage_usage_logs quota participation', () => {
+  it('a workspace-owned job (contact/visitor) writes a storage_usage_logs upload row for that workspace', async () => {
+    currentStub = makeSupabaseStub();
+    uploadWithConfigMock.mockClear();
+    const job = baseJob({ workspace_id: WS_A, subject_type: 'contact', subject_id: 'contact-1' });
+
+    await processJob({} as never, job);
+
+    const usageInserts = currentStub.insertCalls.filter((c) => c.table === 'storage_usage_logs');
+    expect(usageInserts).toHaveLength(1);
+    expect(usageInserts[0].row).toMatchObject({
+      workspace_id: WS_A,
+      operation: 'upload',
+      file_key: `workspace/${WS_A}/exports/privacy/${JOB_ID}.zip`,
+      file_size: Buffer.from('zip-bytes').length,
+      success: true,
+    });
+  });
+
+  it('a user-subject job (no workspace_id) never writes to storage_usage_logs — no workspace to attribute it to', async () => {
+    currentStub = makeSupabaseStub();
+    uploadWithConfigMock.mockClear();
+    const job = baseJob({ workspace_id: null, subject_type: 'user', subject_id: USER_A });
+
+    await processJob({} as never, job);
+
+    const usageInserts = currentStub.insertCalls.filter((c) => c.table === 'storage_usage_logs');
+    expect(usageInserts).toHaveLength(0);
   });
 });

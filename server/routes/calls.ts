@@ -81,6 +81,7 @@ interface CallSessionRow {
   context_id: string | null;
   call_type: string;
   recording_enabled: boolean;
+  metadata: Record<string, unknown> | null;
 }
 
 function errMessage(e: unknown): string {
@@ -812,8 +813,20 @@ callsRouter.post('/:id/recording/start', async (req, res) => {
       workspaceId: ctx.session.workspace_id,
       callSessionId: ctx.session.id,
     });
-    await ctx.sb.from('call_sessions').update({ recording_enabled: true, recording_state: 'recording' })
-      .eq('id', ctx.session.id);
+    // recording_id is persisted on call_sessions.metadata (not only logged
+    // to call_events, which — unlike call_sessions — is hosted-only and
+    // absent on self-host) so it's reliably resolvable later from a
+    // single, chain-agnostic source. server/services/workspaceDeletion/
+    // worker.ts's LiveKit-egress-quiesce step (third corrective pass) needs
+    // this to stop an in-flight chat-widget recording during workspace
+    // deletion — mirrors the shape server/services/callCenter/
+    // recordingControl.ts's patchRecordingMeta() already uses for Call
+    // Center recordings.
+    await ctx.sb.from('call_sessions').update({
+      recording_enabled: true,
+      recording_state: 'recording',
+      metadata: { ...(ctx.session.metadata || {}), recording: { recording_id: handle.recordingId } },
+    }).eq('id', ctx.session.id);
     await recordEvent(ctx.sb, ctx.session.id, 'recording_start', 'operator', ctx.userId, { recording_id: handle.recordingId });
     emitCallMetric((req as unknown as ReqWithConfig).serverConfig, {
       metric: 'call.recording.start.success',

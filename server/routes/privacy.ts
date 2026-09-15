@@ -17,7 +17,7 @@ import { issueReauthToken, consumeReauthToken } from '../services/privacy/reauth
 import { writePrivacyAudit } from '../services/privacy/audit.js';
 import { readLegacyArtifact, deleteLegacyArtifact } from '../services/privacy/artifactStore.js';
 import { resolvePrivacyStoragePolicy } from '../services/privacy/storageResolver.js';
-import { downloadWithConfig, deleteWithConfig, logWorkspaceStorageUsage, isWorkspaceDeleting } from '../services/storage/index.js';
+import { downloadWithConfig, deleteWithConfig, logWorkspaceStorageUsage, isWorkspaceWritable, isUserWritable } from '../services/storage/index.js';
 import type { PrivacyAction, PrivacySubjectType } from '../services/privacy/types.js';
 import { requireUser as requireSessionUser } from '../lib/workspaceAuth.js';
 import { findIdentityById } from '../services/auth/identity.js';
@@ -131,14 +131,19 @@ privacyRouter.post('/jobs', async (req, res) => {
     if (!ok) return res.status(403).json({ error: 'Workspace admin required' });
   }
 
-  // Second corrective pass, P0: a workspace already mid-deletion must
-  // never accept a NEW privacy job — its eventual artifact upload would
-  // race the deletion worker's storage-cleanup scan (uploadWithConfigForOwner
-  // in server/services/privacy/worker.ts blocks the write itself, but
-  // rejecting at job-creation time fails fast instead of queueing work
-  // that can only ever end in a failed job).
-  if (body.workspace_id && (await isWorkspaceDeleting(config, body.workspace_id))) {
+  // Second/third corrective pass, P0: a workspace or account already
+  // mid-deletion must never accept a NEW privacy job — its eventual
+  // artifact upload would race the deletion worker's storage-cleanup scan
+  // (uploadWithConfigForOwner in server/services/privacy/worker.ts blocks
+  // the write itself, fail-closed including a missing owner row — see
+  // isWorkspaceWritable()/isUserWritable()'s doc comments — but rejecting
+  // at job-creation time fails fast instead of queueing work that can
+  // only ever end in a failed job).
+  if (body.workspace_id && !(await isWorkspaceWritable(config, body.workspace_id))) {
     return res.status(409).json({ error: 'Workspace is being deleted; new privacy jobs are disabled' });
+  }
+  if (body.subject_type === 'user' && !(await isUserWritable(config, body.subject_id))) {
+    return res.status(409).json({ error: 'Account is being deleted; new privacy jobs are disabled' });
   }
 
   // ─── Reauth requirement ───────────────────────────────────────

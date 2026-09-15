@@ -34,7 +34,7 @@ import {
   LiveKitTwirpError,
 } from '../livekitTwirp.js';
 import { callRecordingKey } from '../../storage/keys.js';
-import { isWorkspaceDeleting } from '../../storage/index.js';
+import { isWorkspaceWritable } from '../../storage/index.js';
 
 interface ResolvedLk {
   baseUrl: string;
@@ -363,11 +363,16 @@ export const livekitProvider: CallProvider = {
     // Second corrective pass, P0: LiveKit Egress writes recordings
     // DIRECTLY to recording_storage — never through this module's own
     // upload handlers — so the workspace-deletion write lock
-    // (server/services/storage/index.ts's isWorkspaceDeleting) has to be
-    // checked HERE, before ever instructing Egress to start, or a
-    // recording already in flight when deletion begins could write a new
-    // object after its scope had already been swept.
-    if (await isWorkspaceDeleting(config, opts.workspaceId)) {
+    // (server/services/storage/index.ts's isWorkspaceWritable) has to be
+    // checked HERE, before ever instructing Egress to start, or a NEW
+    // recording could be started after deletion began. This only blocks
+    // NEW recordings — an Egress already running when deletion began is
+    // separately quiesced (stopped and awaited) by
+    // server/services/workspaceDeletion/worker.ts before it trusts the
+    // livekit_recording scope's storage listing at all (third corrective
+    // pass) — that's the piece that actually prevents an ALREADY-RUNNING
+    // recording from finalizing and uploading after cleanup.
+    if (!(await isWorkspaceWritable(config, opts.workspaceId))) {
       throw new CallProviderNotReadyError('livekit', 'Workspace is being deleted; recording is disabled.');
     }
 

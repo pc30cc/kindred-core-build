@@ -136,35 +136,88 @@ function enforceWorkspaceScope(workspaceId: string, fileKey: string, allowLegacy
 }
 
 /**
- * Write-lock check for uploadForOwner() — see
- * database/migrations/180_workspace_deletion_lifecycle.sql's workspaces.status
- * column. FAILS CLOSED: when the workspace's deletion state cannot be
- * reliably established (a DB error, a thrown exception), this returns
- * `true` (treat as deleting, reject the upload) rather than silently
- * assuming the workspace is active. A workspace-owned upload racing a
- * cleanup walk that's already passed it would otherwise be silently
- * orphaned the moment the workspace's DB rows and pointers are purged —
- * that outcome is worse than a transient false-positive 502 on an upload,
- * which the caller can simply retry. A row genuinely absent (no error, no
- * data — the workspace doesn't exist at all) is a different, unrelated
- * concern this guard doesn't own, so that case still resolves to `false`.
+ * Fail-closed writability check for every workspace-owned write barrier
+ * consumer (uploadForOwner, uploadWithConfigForOwner,
+ * livekitProvider.ts's startRecording). A workspace-owned write may
+ * proceed ONLY when the workspace row exists AND is explicitly
+ * `status = 'active'` — every other outcome rejects the write:
  *
- * Exported (second corrective pass, P0) so every workspace-owned write
- * path shares this ONE guard rather than each reimplementing it — see
- * uploadWithConfigForOwner() below (privacy exports) and
- * server/services/calls/providers/livekitProvider.ts's startRecording()
- * (LiveKit Egress writes, which never go through this module's upload
- * handlers at all — LiveKit itself writes the bytes — so the guard must
- * run before the recording is even started).
+ *   - status === 'active'         -> true (write allowed)
+ *   - status === 'deleting'       -> false
+ *   - any other/unknown status    -> false
+ *   - workspace row missing       -> false
+ *   - DB error                    -> false
+ *   - thrown exception            -> false
+ *
+ * Third corrective pass, P0: the prior `isWorkspaceDeleting()` asked the
+ * wrong question. It returned `true` (reject) only when the row said
+ * 'deleting', which meant a MISSING row resolved to `false` ("not
+ * deleting" -> allowed) — exactly backwards for the race this guards
+ * against. `admin_delete_workspace()` (server/services/workspaceDeletion/
+ * worker.ts's db_cleanup step) hard-deletes the workspace row itself as
+ * its LAST action, strictly after storage cleanup has already been
+ * verified empty. A producer that started before deletion (a privacy
+ * export mid-ZIP-build, say) and only reaches its write call AFTER that
+ * row is gone would, under the old "missing -> allowed" semantics, sail
+ * straight through and create `workspace/<alreadyDeletedId>/...` — an
+ * orphan created after deletion had already fully completed, not before
+ * it. Asking "is this workspace explicitly writable right now" instead of
+ * "is it explicitly marked deleting" closes that gap: nothing about a
+ * missing row, an error, or an unrecognized status is ever treated as
+ * permission to write.
  */
-export async function isWorkspaceDeleting(serverConfig: ServerConfig, workspaceId: string): Promise<boolean> {
+export async function isWorkspaceWritable(serverConfig: ServerConfig, workspaceId: string): Promise<boolean> {
   try {
     const sb = getServiceClient(serverConfig);
     const { data, error } = await sb.from('workspaces').select('status').eq('id', workspaceId).maybeSingle();
-    if (error) return true;
-    return (data as { status?: string } | null)?.status === 'deleting';
+    if (error || !data) return false;
+    return (data as { status?: string }).status === 'active';
   } catch {
+    return false;
+  }
+}
+
+/**
+ * User-level counterpart to isWorkspaceWritable() — third corrective pass,
+ * P0: the prior code had NO write barrier at all for `users/<id>/...`
+ * writes, so a user-subject privacy export (or a future user-owned
+ * producer) that started before an account deletion began could still
+ * write a new object after `user_deletion_jobs`' own final verification
+ * pass had already confirmed the scope empty, or even after
+ * `admin_delete_user` had hard-deleted the profile row. Uses the SAME
+ * `user_deletion_jobs` lifecycle table server/services/userDeletion/
+ * worker.ts already maintains as the single source of truth — not a
+ * separate in-memory flag — so it's correct across process restarts and
+ * multiple worker instances exactly like the workspace equivalent.
+ *
+ * Fails closed:
+ *   - profile row missing        -> false
+ *   - an ACTIVE user_deletion_jobs row exists for this user (status in
+ *     collecting_workspaces/awaiting_workspace_deletions/purging_user)
+ *                                 -> false
+ *   - DB error on either lookup  -> false
+ *   - thrown exception           -> false
+ *   - otherwise                  -> true
+ */
+export async function isUserWritable(serverConfig: ServerConfig, userId: string): Promise<boolean> {
+  try {
+    const sb = getServiceClient(serverConfig);
+    const [profileResult, activeJobResult] = await Promise.all([
+      sb.from('profiles').select('id').eq('id', userId).maybeSingle(),
+      sb
+        .from('user_deletion_jobs')
+        .select('id')
+        .eq('user_id', userId)
+        .in('status', ['collecting_workspaces', 'awaiting_workspace_deletions', 'purging_user'])
+        .limit(1)
+        .maybeSingle(),
+    ]);
+    if (profileResult.error || activeJobResult.error) return false;
+    if (!profileResult.data) return false;
+    if (activeJobResult.data) return false;
     return true;
+  } catch {
+    return false;
   }
 }
 
@@ -964,15 +1017,31 @@ export async function uploadForOwner(
   if (scopeError) return { success: false, error: scopeError };
 
   if (req.owner.kind === 'workspace') {
-    const deleting = await isWorkspaceDeleting(serverConfig, req.owner.workspaceId);
-    if (deleting) {
-      // A workspace mid-deletion (server/services/workspaceDeletion/worker.ts)
-      // must never receive new bytes — a write racing the cleanup walk
-      // would either land in an object the walk already passed (silently
-      // orphaned once the workspace row and all its DB pointers are
-      // purged) or, worse, resurrect the workspace's storage footprint
-      // after cleanup reported it empty.
-      return { success: false, error: 'Workspace is being deleted; uploads are disabled' };
+    const writable = await isWorkspaceWritable(serverConfig, req.owner.workspaceId);
+    if (!writable) {
+      // A workspace that is not explicitly 'active' right now — deleting,
+      // its row already purged, or its state couldn't be confirmed — must
+      // never receive new bytes. A write racing the cleanup walk would
+      // otherwise either land in an object the walk already passed
+      // (silently orphaned once the workspace row and every DB pointer
+      // are gone) or, worse, arrive AFTER the row itself was hard-deleted
+      // (admin_delete_workspace's last step), creating
+      // workspace/<alreadyDeletedId>/... once deletion has fully
+      // completed — see isWorkspaceWritable()'s doc comment.
+      return { success: false, error: 'Workspace is being deleted or is otherwise unavailable; uploads are disabled' };
+    }
+  }
+
+  if (req.owner.kind === 'user') {
+    const writable = await isUserWritable(serverConfig, req.owner.userId);
+    if (!writable) {
+      // A user-owned write barrier — third corrective pass, P0. Same
+      // rationale as the workspace guard above: a user-subject producer
+      // (privacy export, account avatar) that started before deletion
+      // began must never land bytes after the account's scopes have been
+      // verified empty or its profile row purged — see isUserWritable()'s
+      // doc comment.
+      return { success: false, error: 'Account is being deleted or is otherwise unavailable; uploads are disabled' };
     }
   }
 
@@ -1237,13 +1306,17 @@ export function getFileUrlWithConfig(storageConfig: StorageConfig, fileKey: stri
  * Owner-aware counterpart to uploadWithConfig() — for a feature that needs
  * BOTH a dedicated provider-policy resolver (bypassing the generic
  * resolveStorageConfigForOwner) AND the standard owner-scope enforcement
- * and workspace-deletion write lock every other workspace-owned write
- * gets via uploadForOwner(). Second corrective pass, P0: privacy exports
+ * and deletion write lock every other owned write gets via
+ * uploadForOwner(). Second corrective pass, P0: privacy exports
  * previously called uploadWithConfig() directly, which enforces neither —
- * an in-flight privacy export could write a new object to a workspace
- * AFTER its deletion scope had already been swept, orphaning it right
- * before the DB purge. This is the single place that check now lives;
- * callers (server/services/privacy/worker.ts) never duplicate it.
+ * an in-flight privacy export could write a new object to a workspace OR
+ * a user AFTER its deletion scope had already been swept, orphaning it
+ * right before the DB purge. Third corrective pass, P0: extended to cover
+ * user-owned exports too (isUserWritable, not just workspaces), and both
+ * checks now fail closed on a missing owner row, not just an explicit
+ * 'deleting' status — see isWorkspaceWritable()/isUserWritable()'s doc
+ * comments. This is the single place either check lives; callers
+ * (server/services/privacy/worker.ts) never duplicate it.
  */
 export async function uploadWithConfigForOwner(
   serverConfig: ServerConfig,
@@ -1255,9 +1328,15 @@ export async function uploadWithConfigForOwner(
   if (scopeError) return { success: false, error: scopeError };
 
   if (owner.kind === 'workspace') {
-    const deleting = await isWorkspaceDeleting(serverConfig, owner.workspaceId);
-    if (deleting) {
-      return { success: false, error: 'Workspace is being deleted; uploads are disabled' };
+    const writable = await isWorkspaceWritable(serverConfig, owner.workspaceId);
+    if (!writable) {
+      return { success: false, error: 'Workspace is being deleted or is otherwise unavailable; uploads are disabled' };
+    }
+  }
+  if (owner.kind === 'user') {
+    const writable = await isUserWritable(serverConfig, owner.userId);
+    if (!writable) {
+      return { success: false, error: 'Account is being deleted or is otherwise unavailable; uploads are disabled' };
     }
   }
 

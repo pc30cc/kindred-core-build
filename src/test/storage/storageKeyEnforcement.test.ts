@@ -23,6 +23,7 @@ interface MockQueryBuilder {
   order: (...args: unknown[]) => MockQueryBuilder;
   limit: (...args: unknown[]) => MockQueryBuilder;
   not: (...args: unknown[]) => MockQueryBuilder;
+  in: (...args: unknown[]) => MockQueryBuilder;
   single: () => Promise<{ data: unknown }>;
   maybeSingle: () => Promise<{ data: unknown; error?: unknown }>;
   insert: (...args: unknown[]) => Promise<{ data: unknown; error: unknown }>;
@@ -31,14 +32,27 @@ interface MockQueryBuilder {
 export const mockInsertCalls: Array<{ table: string; row: unknown }> = [];
 
 // Mutable — read by the mocked `workspaces` table lookup inside
-// isWorkspaceDeleting() (server/services/storage/index.ts). null means "no
-// workspace row" (every existing test in this file never set it, matching
-// the pre-existing default { data: null } behavior below, so this is
-// backward compatible).
-export const mockWorkspaceStatus = { current: null as string | null };
+// isWorkspaceWritable() (server/services/storage/index.ts, third
+// corrective pass — replaced isWorkspaceDeleting()'s fail-open semantics).
+// Defaults to 'active' so every pre-existing test in this file (none of
+// which care about workspace lifecycle) keeps uploading successfully, same
+// as before isWorkspaceWritable() existed; the dedicated
+// 'workspace deletion write-lock' describe block below overrides this
+// per-test. The missing-row (null) and DB-error fail-closed cases have
+// their own focused coverage in writeBarrierLateWrites.test.ts.
+export const mockWorkspaceStatus = { current: 'active' as string | null };
 // When true, the mocked `workspaces` lookup returns a query error instead
-// of a row — proves isWorkspaceDeleting()'s fail-closed behavior.
+// of a row — proves isWorkspaceWritable()'s fail-closed behavior.
 export const mockWorkspaceStatusError = { current: false };
+
+// Read by isUserWritable()'s `profiles`/`user_deletion_jobs` lookups.
+// Defaults to "an active user with no in-flight deletion job" for the same
+// backward-compatibility reason as mockWorkspaceStatus above — user-owned
+// upload tests in this file are exercising key-scoping/legacy-shape logic,
+// not the deletion write barrier (that has its own dedicated coverage in
+// writeBarrierLateWrites.test.ts).
+export const mockUserProfileExists = { current: true };
+export const mockUserHasActiveDeletionJob = { current: false };
 
 vi.mock('../../../server/supabase.js', () => {
   // No workspace-level provider_configs override; app_runtime_config
@@ -53,6 +67,7 @@ vi.mock('../../../server/supabase.js', () => {
       order: () => builder,
       limit: () => builder,
       not: () => builder,
+      in: () => builder,
       single: async () => {
         if (table === 'app_runtime_config') {
           return { data: { value: { provider_name: 'local', config: { local_path: '/tmp/storage', public_url: 'http://local.test' } } } };
@@ -69,6 +84,12 @@ vi.mock('../../../server/supabase.js', () => {
         if (table === 'workspaces') {
           if (mockWorkspaceStatusError.current) return { data: null, error: { message: 'connection reset' } };
           return { data: mockWorkspaceStatus.current ? { status: mockWorkspaceStatus.current } : null };
+        }
+        if (table === 'profiles') {
+          return { data: mockUserProfileExists.current ? { id: 'user' } : null };
+        }
+        if (table === 'user_deletion_jobs') {
+          return { data: mockUserHasActiveDeletionJob.current ? { id: 'job' } : null };
         }
         return { data: null };
       },
@@ -407,7 +428,7 @@ describe('uploadForOwner / downloadForOwner / deleteForOwner / getFileUrlForOwne
 
 describe('uploadForOwner — workspace deletion write-lock', () => {
   afterEach(() => {
-    mockWorkspaceStatus.current = null;
+    mockWorkspaceStatus.current = 'active';
     mockWorkspaceStatusError.current = false;
   });
 

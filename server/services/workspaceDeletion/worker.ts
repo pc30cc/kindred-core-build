@@ -83,6 +83,7 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { workspaceStorageScopes, workspaceScopePrefix } from '../storage/workspaceScopes.js';
 import { runScopeCleanupTick, type ScopeCleanupState } from '../storage/scopeCleanupEngine.js';
+import { livekitProvider } from '../calls/providers/livekitProvider.js';
 import type { WorkspaceDeletionJobRow } from './types.js';
 
 const POLL_INTERVAL_MS = 5_000;
@@ -174,14 +175,114 @@ async function retryOrFail(
   });
 }
 
+interface NonTerminalRecordingRow {
+  id: string;
+  recording_state: string;
+  metadata: Record<string, unknown> | null;
+}
+
+// Non-terminal call_recording_state values — Egress can still produce bytes
+// for a session in one of these. Every other value ('available', 'failed',
+// 'disabled') means it cannot; queried directly (an allowlist, not the
+// inverse of a separately maintained terminal set) so there is exactly one
+// place that has to change if the enum ever grows.
+const NON_TERMINAL_RECORDING_STATES = ['pending', 'recording', 'finalizing'];
+
+async function findNonTerminalRecordings(config: ServerConfig, workspaceId: string): Promise<NonTerminalRecordingRow[]> {
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('call_sessions')
+    .select('id, recording_state, metadata')
+    .eq('workspace_id', workspaceId)
+    .eq('provider', 'livekit') // only LiveKit writes recordings directly to storage — other providers are stubs (see recordingStorageResolver.ts's doc comment)
+    .in('recording_state', NON_TERMINAL_RECORDING_STATES);
+  if (error) throw new Error(`failed to check active LiveKit recordings: ${error.message}`);
+  return (data ?? []) as NonTerminalRecordingRow[];
+}
+
+/**
+ * Ensures no LiveKit Egress can still be producing bytes for this
+ * workspace before its livekit_recording scope's storage listing is ever
+ * trusted. Third corrective pass, P0: the recording-start write barrier
+ * (livekitProvider.ts's startRecording) only stops NEW recordings — it
+ * does nothing for one that was already running when deletion began.
+ * Egress finalizes and uploads its output asynchronously (via the LiveKit
+ * webhook, server/routes/livekitWebhook.ts, well after StopEgress
+ * returns), so "we called stop" is not the same as "it can no longer
+ * write" — only a terminal `recording_state` (available/failed/disabled)
+ * means that.
+ *
+ * Returns `true` once every recording session for this workspace is
+ * terminal (nothing left to wait for). Returns `false` while still
+ * waiting — NOT an error; the caller must not touch ANY storage scope
+ * this tick (per the review's explicit ordering: stop Egress and wait for
+ * it FIRST, only THEN run storage cleanup/verification — never the
+ * reverse). Throws if a stop request itself fails or a session's
+ * recording id can't be resolved at all — the caller must treat that as a
+ * real job failure (retry/backoff), never silently proceed as if
+ * quiescent.
+ */
+async function quiesceLiveKitEgress(config: ServerConfig, workspaceId: string): Promise<boolean> {
+  const nonTerminal = await findNonTerminalRecordings(config, workspaceId);
+  if (nonTerminal.length === 0) return true;
+
+  const sb = getServiceClient(config);
+  for (const row of nonTerminal) {
+    if (row.recording_state === 'finalizing') continue; // already stop-requested — waiting on the webhook to reach a terminal state
+    const recordingId = (row.metadata?.recording as Record<string, unknown> | undefined)?.recording_id;
+    if (typeof recordingId !== 'string' || !recordingId) {
+      // No recoverable LiveKit egress id — we cannot confirm Egress is
+      // stopped, so we cannot safely proceed. Both recording-start call
+      // sites (server/routes/calls.ts, server/services/callCenter/
+      // recordingControl.ts) persist this in call_sessions.metadata —
+      // its absence here means a producer wrote recording_state without
+      // it, a bug elsewhere, not something safe to paper over.
+      throw new Error(`workspace ${workspaceId}: call_session ${row.id} has recording_state=${row.recording_state} but no recoverable LiveKit recording id in metadata — cannot confirm Egress is stopped`);
+    }
+    // Stop first; only a later terminal recording_state (set by the
+    // webhook once Egress actually finalizes) means storage is safe to
+    // trust — never the other way around.
+    const handle = await livekitProvider.stopRecording(config, recordingId);
+    const newState = handle.status === 'available' ? 'available' : handle.status === 'failed' ? 'failed' : 'finalizing';
+    await sb.from('call_sessions').update({ recording_state: newState }).eq('id', row.id);
+  }
+  return false; // just issued stop(s), or some were already 'finalizing' — never claim quiescent on the same tick a stop was issued; the next tick re-checks
+}
+
 /**
  * Processes exactly ONE unit of work (one listing page, one verification
  * pass, or one dedup) via the shared scopeCleanupEngine — deliberately not
  * a loop draining every scope/page in one invocation, see the module doc
  * comment. Advances the job to 'db_cleanup' once every scope is settled
  * (done AND verified, or skipped_not_configured).
+ *
+ * Before ANY scope is touched, quiesceLiveKitEgress() must report the
+ * workspace's LiveKit recordings are all terminal — storage cleanup
+ * (including scopes unrelated to LiveKit) simply does not run on a tick
+ * where Egress is still capable of producing bytes. This is deliberately
+ * conservative (a slow-to-finalize recording delays the whole job, not
+ * just the livekit_recording scope) in exchange for a simple, obviously
+ * correct invariant: cleanup never starts before every producer is either
+ * write-barriered (attachment/privacy_export — see uploadForOwner/
+ * uploadWithConfigForOwner) or fully quiesced (livekit_recording).
  */
 export async function runStorageCleanup(config: ServerConfig, job: WorkspaceDeletionJobRow): Promise<void> {
+  let quiescent: boolean;
+  try {
+    quiescent = await quiesceLiveKitEgress(config, job.workspace_id);
+  } catch (err) {
+    await retryOrFail(config, job, job.storage_scopes ?? {}, `LiveKit egress quiesce failed: ${errMessage(err)}`);
+    return;
+  }
+  if (!quiescent) {
+    // Still waiting for an in-flight Egress to reach a terminal state —
+    // not a failure, just not ready. Release the lease without bumping
+    // attempt_count so this never counts toward MAX_JOB_ATTEMPTS; a later
+    // tick (by any worker) re-checks. No storage scope is touched.
+    await persistFenced(config, job.id, job.lease_token!, { locked_by: null, lease_expires_at: null });
+    return;
+  }
+
   const scopes = workspaceStorageScopes(config, job.workspace_id);
   const state: ScopeCleanupState = { ...(job.storage_scopes ?? {}) };
   const leaseToken = job.lease_token!;

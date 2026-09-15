@@ -45,9 +45,10 @@ const WS_A = '11111111-1111-1111-1111-111111111111';
 const JOB_1 = '77777777-7777-7777-7777-777777777771';
 const ACTOR = '99999999-9999-9999-9999-999999999999';
 
-const { runScopeCleanupTickMock, workspaceStorageScopesMock } = vi.hoisted(() => ({
+const { runScopeCleanupTickMock, workspaceStorageScopesMock, stopRecordingMock } = vi.hoisted(() => ({
   runScopeCleanupTickMock: vi.fn<(ctx: ScopeCleanupContext) => Promise<ScopeCleanupOutcome>>(),
   workspaceStorageScopesMock: vi.fn<(config: unknown, workspaceId: string) => WorkspaceStorageScope[]>(),
+  stopRecordingMock: vi.fn<(config: unknown, recordingId: string) => Promise<{ recordingId: string; status: string }>>(),
 }));
 
 // worker.ts no longer talks to storage/index.js directly for listing/
@@ -62,6 +63,14 @@ vi.mock('../../../server/services/storage/scopeCleanupEngine.js', () => ({
 vi.mock('../../../server/services/storage/workspaceScopes.js', () => ({
   workspaceStorageScopes: workspaceStorageScopesMock,
   workspaceScopePrefix: (workspaceId: string) => `workspace/${workspaceId}/`,
+}));
+
+// The LiveKit-Egress-quiescence step (third corrective pass) calls
+// livekitProvider.stopRecording() directly — mocked so its outcome
+// (a still-finalizing vs. an immediately-terminal stop) is controllable
+// without a real LiveKit connection.
+vi.mock('../../../server/services/calls/providers/livekitProvider.js', () => ({
+  livekitProvider: { stopRecording: stopRecordingMock },
 }));
 
 type Row = Record<string, unknown>;
@@ -81,32 +90,46 @@ let claimTokenCounter = 0;
 
 /**
  * `.from('workspace_deletion_jobs').update(patch).eq('id', x).eq('lease_token', y).select('id')`
- * must actually check EVERY `.eq()` predicate against the in-memory row
- * (not just the first one) — that's what lets the lease-fencing tests below
- * prove a stale worker's write is rejected once lease_token no longer
+ * must actually check EVERY `.eq()`/`.in()` predicate against the in-memory
+ * row (not just the first one) — that's what lets the lease-fencing tests
+ * below prove a stale worker's write is rejected once lease_token no longer
  * matches, exactly as the real Postgres `UPDATE ... WHERE id = $1 AND
  * lease_token = $2` would.
+ *
+ * Both the select and update chains are thenable so a caller can `await`
+ * them directly without a trailing `.maybeSingle()`/`.select()` call —
+ * exactly what `findNonTerminalRecordings()` (a bare `.select().eq().eq()
+ * .in()`) and `quiesceLiveKitEgress()`'s `call_sessions` update (a bare
+ * `.update().eq()`, no `.select()`) do against the real supabase-js client.
  */
 function makeBuilder(table: string) {
   const rows = (db[table] || (db[table] = [])) as Row[];
   return {
     select: (_cols?: string) => {
       const filters: Array<(r: Row) => boolean> = [];
-      const chain = {
+      const chain: Record<string, unknown> = {
         eq: (col: string, val: unknown) => {
           filters.push((r) => r[col] === val);
+          return chain;
+        },
+        in: (col: string, vals: unknown[]) => {
+          filters.push((r) => vals.includes(r[col]));
           return chain;
         },
         maybeSingle: async () => {
           const matched = rows.filter((r) => filters.every((f) => f(r)));
           return { data: matched[0] ?? null, error: null };
         },
+        then: (resolve: (v: { data: Row[]; error: null }) => void) => {
+          const matched = rows.filter((r) => filters.every((f) => f(r)));
+          resolve({ data: matched, error: null });
+        },
       };
       return chain;
     },
     update: (patch: Row) => {
       const filters: Array<(r: Row) => boolean> = [];
-      const chain = {
+      const chain: Record<string, unknown> = {
         eq: (col: string, val: unknown) => {
           filters.push((r) => r[col] === val);
           return chain;
@@ -115,6 +138,11 @@ function makeBuilder(table: string) {
           const matched = rows.filter((r) => filters.every((f) => f(r)));
           for (const r of matched) Object.assign(r, patch);
           return { data: matched.map((r) => ({ id: r.id })), error: null };
+        },
+        then: (resolve: (v: { data: null; error: null }) => void) => {
+          const matched = rows.filter((r) => filters.every((f) => f(r)));
+          for (const r of matched) Object.assign(r, patch);
+          resolve({ data: null, error: null });
         },
       };
       return chain;
@@ -208,12 +236,24 @@ beforeEach(() => {
   runScopeCleanupTickMock.mockReset();
   workspaceStorageScopesMock.mockReset();
   workspaceStorageScopesMock.mockReturnValue([]);
+  stopRecordingMock.mockReset();
   rpcCalls.length = 0;
   claimResponseOverride = null;
   renewResponseOverride = null;
   adminDeleteResponse = { data: null, error: null };
   claimTokenCounter = 0;
 });
+
+function callSessionRow(overrides: Partial<Row> = {}): Row {
+  return {
+    id: 'cs-1',
+    workspace_id: WS_A,
+    provider: 'livekit',
+    recording_state: 'recording',
+    metadata: { recording: { recording_id: 'egress-1' } },
+    ...overrides,
+  };
+}
 
 describe('claimNext', () => {
   it('returns the claimed job (including lease_token) when the RPC reports ok with a job', async () => {
@@ -357,6 +397,140 @@ describe('runStorageCleanup — engine wiring', () => {
     // Another worker reclaims the job — id still matches, lease_token does not.
     currentJobRow().lease_token = 'someone-elses-token';
     await expect(ctx.persist(newState)).rejects.toThrow(LeaseFencedError);
+  });
+});
+
+describe('runStorageCleanup — LiveKit Egress quiescence (third corrective pass, P0 #3)', () => {
+  it('no active recordings for the workspace: quiescent immediately, storage cleanup proceeds on the same tick', async () => {
+    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'progress' });
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup' })];
+    db.call_sessions = [];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup' }));
+
+    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
+    expect(stopRecordingMock).not.toHaveBeenCalled();
+  });
+
+  it('already-running LiveKit Egress (recording_state=recording) at deletion start: stop is requested, storage cleanup does NOT run this tick, and the job stays in storage_cleanup without bumping attempt_count', async () => {
+    db.call_sessions = [callSessionRow({ recording_state: 'recording' })];
+    stopRecordingMock.mockResolvedValueOnce({ recordingId: 'egress-1', status: 'finalizing' });
+    db.workspace_deletion_jobs = [
+      baseJob({ status: 'storage_cleanup', locked_by: 'worker-x', lease_expires_at: new Date().toISOString(), attempt_count: 0 }),
+    ];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup', attempt_count: 0 }));
+
+    expect(stopRecordingMock).toHaveBeenCalledWith({}, 'egress-1');
+    expect(runScopeCleanupTickMock).not.toHaveBeenCalled();
+    const call = (db.call_sessions[0] as Row);
+    expect(call.recording_state).toBe('finalizing'); // stop requested, not yet confirmed terminal by the webhook
+    const row = currentJobRow();
+    expect(row.status).toBe('storage_cleanup'); // never advanced while Egress is still capable of producing bytes
+    expect(row.attempt_count).toBe(0); // not a failure — released the lease and waits for a later tick, doesn't count toward MAX_JOB_ATTEMPTS
+    expect(row.locked_by).toBeNull();
+    expect(row.lease_expires_at).toBeNull();
+  });
+
+  it('a recording already in recording_state=finalizing (stop already requested by a prior tick) is left alone — no redundant stop call — and storage cleanup still does not run until the webhook marks it terminal', async () => {
+    db.call_sessions = [callSessionRow({ recording_state: 'finalizing' })];
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup' })];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup' }));
+
+    expect(stopRecordingMock).not.toHaveBeenCalled();
+    expect(runScopeCleanupTickMock).not.toHaveBeenCalled();
+    expect(currentJobRow().status).toBe('storage_cleanup');
+  });
+
+  it('once the webhook has already marked every recording terminal (available/failed/disabled), quiescence is immediate and storage cleanup runs — this is the "only trust final verification after quiescence" ordering', async () => {
+    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'advance' });
+    db.call_sessions = [
+      callSessionRow({ id: 'cs-1', recording_state: 'available' }),
+      callSessionRow({ id: 'cs-2', recording_state: 'failed' }),
+    ];
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup' })];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup' }));
+
+    expect(stopRecordingMock).not.toHaveBeenCalled();
+    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
+    expect(currentJobRow().status).toBe('db_cleanup');
+  });
+
+  it('Egress shutdown/finalization ordering: a recording resolves to terminal only across ticks, never on the same tick a stop was issued — trusting storage never happens before that', async () => {
+    db.call_sessions = [callSessionRow({ recording_state: 'recording' })];
+    stopRecordingMock.mockResolvedValueOnce({ recordingId: 'egress-1', status: 'finalizing' });
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup' })];
+
+    // Tick 1: stop requested, still not quiescent — storage untouched.
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup' }));
+    expect(runScopeCleanupTickMock).not.toHaveBeenCalled();
+    expect((db.call_sessions[0] as Row).recording_state).toBe('finalizing');
+
+    // The webhook lands between ticks and marks it terminal.
+    (db.call_sessions[0] as Row).recording_state = 'available';
+
+    // Tick 2: now quiescent — storage cleanup finally runs.
+    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'progress' });
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup' }));
+    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a call_session with a non-terminal recording_state but no recoverable LiveKit recording id in metadata fails the tick (retryable) rather than silently proceeding — storage cleanup never runs', async () => {
+    db.call_sessions = [callSessionRow({ recording_state: 'recording', metadata: {} })];
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup', attempt_count: 0 })];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup', attempt_count: 0 }));
+
+    expect(stopRecordingMock).not.toHaveBeenCalled();
+    expect(runScopeCleanupTickMock).not.toHaveBeenCalled();
+    const row = currentJobRow();
+    expect(row.status).toBe('storage_cleanup'); // retry path, never advances and never purges
+    expect(row.attempt_count).toBe(1);
+    expect(row.error_message).toMatch(/cannot confirm Egress is stopped/);
+  });
+
+  it('Egress shutdown failure prevents DB purge: a stopRecording() failure is a retryable job error, never treated as quiescent, and storage cleanup does not run that tick', async () => {
+    db.call_sessions = [callSessionRow({ recording_state: 'recording' })];
+    stopRecordingMock.mockRejectedValueOnce(new Error('livekit_egress_unreachable'));
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup', attempt_count: 0 })];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup', attempt_count: 0 }));
+
+    expect(runScopeCleanupTickMock).not.toHaveBeenCalled();
+    const row = currentJobRow();
+    expect(row.status).toBe('storage_cleanup');
+    expect(row.attempt_count).toBe(1);
+    expect(row.error_message).toMatch(/livekit_egress_unreachable/);
+  });
+
+  it('Egress shutdown failure exhausting MAX_JOB_ATTEMPTS terminally fails the job — it still never reaches db_cleanup, so admin_delete_workspace (the DB purge) is never called while Egress could still produce a workspace-owned recording', async () => {
+    db.call_sessions = [callSessionRow({ recording_state: 'recording' })];
+    stopRecordingMock.mockRejectedValueOnce(new Error('livekit_egress_unreachable'));
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup', attempt_count: 4 })];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup', attempt_count: 4 }));
+
+    expect(runScopeCleanupTickMock).not.toHaveBeenCalled();
+    const row = currentJobRow();
+    expect(row.status).toBe('failed'); // terminal — a human must intervene, but this is not the same as purging the DB
+    expect(rpcCalls.some((c) => c.fn === 'admin_delete_workspace')).toBe(false);
+  });
+
+  it('only recordings belonging to THIS workspace and provider=livekit gate quiescence — an unrelated workspace or a non-LiveKit provider row never blocks storage cleanup', async () => {
+    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'progress' });
+    const OTHER_WS = '44444444-4444-4444-4444-444444444444';
+    db.call_sessions = [
+      callSessionRow({ id: 'cs-other-ws', workspace_id: OTHER_WS, recording_state: 'recording' }),
+      callSessionRow({ id: 'cs-other-provider', provider: 'twilio', recording_state: 'recording' }),
+    ];
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup' })];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup' }));
+
+    expect(stopRecordingMock).not.toHaveBeenCalled();
+    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
   });
 });
 

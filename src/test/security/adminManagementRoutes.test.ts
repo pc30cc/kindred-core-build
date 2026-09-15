@@ -413,7 +413,7 @@ describe('workspace deletion — async, storage-aware enqueue', () => {
 
     expect(second.status).toBe(202);
     expect(second.json.started).toBe(false);
-    expect(second.json.job.id).toBe(first.json.job.id);
+    expect((second.json.job as { id: string }).id).toBe((first.json.job as { id: string }).id);
     expect(db.workspace_deletion_jobs).toHaveLength(1); // never a second row
   });
 

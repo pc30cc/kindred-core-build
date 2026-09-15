@@ -100,7 +100,7 @@ const { requestTelegramMediaFetch, persistInboundAttachment, HARD_MAX_BYTES } = 
   '../../../server/services/channels/telegram/mediaIngest.js'
 );
 
-const CONFIG: Record<string, unknown> = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' };
+const CONFIG = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' } as unknown as import('../../../server/config.js').ServerConfig;
 const TOKEN = '123456:AAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKK';
 
 const baseInput = {

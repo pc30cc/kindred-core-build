@@ -8373,6 +8373,7 @@ export type Database = {
           created_at: string | null
           id: string
           metadata: Json | null
+          reply_to_message_id: string | null
           seen_at: string | null
           sender_id: string | null
           sender_type: Database["public"]["Enums"]["sender_type"]
@@ -8383,6 +8384,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           metadata?: Json | null
+          reply_to_message_id?: string | null
           seen_at?: string | null
           sender_id?: string | null
           sender_type: Database["public"]["Enums"]["sender_type"]
@@ -8393,6 +8395,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           metadata?: Json | null
+          reply_to_message_id?: string | null
           seen_at?: string | null
           sender_id?: string | null
           sender_type?: Database["public"]["Enums"]["sender_type"]
@@ -8403,6 +8406,13 @@ export type Database = {
             columns: ["conversation_id"]
             isOneToOne: false
             referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversation_messages_reply_to_message_id_fkey"
+            columns: ["reply_to_message_id"]
+            isOneToOne: false
+            referencedRelation: "conversation_messages"
             referencedColumns: ["id"]
           },
         ]
@@ -8678,6 +8688,7 @@ export type Database = {
           message_id: string
           size_bytes: number | null
           storage_key: string
+          workspace_id: string
         }
         Insert: {
           content_id?: string | null
@@ -8688,6 +8699,7 @@ export type Database = {
           message_id: string
           size_bytes?: number | null
           storage_key: string
+          workspace_id: string
         }
         Update: {
           content_id?: string | null
@@ -8698,6 +8710,7 @@ export type Database = {
           message_id?: string
           size_bytes?: number | null
           storage_key?: string
+          workspace_id?: string
         }
         Relationships: [
           {
@@ -8705,6 +8718,13 @@ export type Database = {
             columns: ["message_id"]
             isOneToOne: false
             referencedRelation: "email_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_attachments_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
         ]
@@ -10080,6 +10100,39 @@ export type Database = {
         }
         Relationships: []
       }
+      owner_write_leases: {
+        Row: {
+          created_at: string
+          heartbeat_at: string | null
+          id: string
+          lease_expires_at: string
+          lease_token: string
+          owner_id: string
+          owner_kind: string
+          purpose: string
+        }
+        Insert: {
+          created_at?: string
+          heartbeat_at?: string | null
+          id?: string
+          lease_expires_at: string
+          lease_token?: string
+          owner_id: string
+          owner_kind: string
+          purpose: string
+        }
+        Update: {
+          created_at?: string
+          heartbeat_at?: string | null
+          id?: string
+          lease_expires_at?: string
+          lease_token?: string
+          owner_id?: string
+          owner_kind?: string
+          purpose?: string
+        }
+        Relationships: []
+      }
       phone_verification_challenges: {
         Row: {
           attempt_count: number
@@ -11011,6 +11064,7 @@ export type Database = {
       profiles: {
         Row: {
           ai_mode: string | null
+          avatar_storage_key: string | null
           avatar_url: string | null
           company_name: string | null
           created_at: string | null
@@ -11027,6 +11081,7 @@ export type Database = {
         }
         Insert: {
           ai_mode?: string | null
+          avatar_storage_key?: string | null
           avatar_url?: string | null
           company_name?: string | null
           created_at?: string | null
@@ -11043,6 +11098,7 @@ export type Database = {
         }
         Update: {
           ai_mode?: string | null
+          avatar_storage_key?: string | null
           avatar_url?: string | null
           company_name?: string | null
           created_at?: string | null
@@ -14120,6 +14176,72 @@ export type Database = {
           },
         ]
       }
+      user_deletion_jobs: {
+        Row: {
+          attempt_count: number
+          avatar_cleanup_done: boolean
+          completed_at: string | null
+          error_message: string | null
+          id: string
+          lease_expires_at: string | null
+          locked_by: string | null
+          next_retry_at: string | null
+          purge_result: Json | null
+          requested_at: string
+          requested_by: string
+          retried_at: string | null
+          retried_by: string | null
+          started_at: string | null
+          status: string
+          storage_scopes: Json
+          user_email: string | null
+          user_id: string
+          workspace_ids: string[]
+        }
+        Insert: {
+          attempt_count?: number
+          avatar_cleanup_done?: boolean
+          completed_at?: string | null
+          error_message?: string | null
+          id?: string
+          lease_expires_at?: string | null
+          locked_by?: string | null
+          next_retry_at?: string | null
+          purge_result?: Json | null
+          requested_at?: string
+          requested_by: string
+          retried_at?: string | null
+          retried_by?: string | null
+          started_at?: string | null
+          status?: string
+          storage_scopes?: Json
+          user_email?: string | null
+          user_id: string
+          workspace_ids?: string[]
+        }
+        Update: {
+          attempt_count?: number
+          avatar_cleanup_done?: boolean
+          completed_at?: string | null
+          error_message?: string | null
+          id?: string
+          lease_expires_at?: string | null
+          locked_by?: string | null
+          next_retry_at?: string | null
+          purge_result?: Json | null
+          requested_at?: string
+          requested_by?: string
+          retried_at?: string | null
+          retried_by?: string | null
+          started_at?: string | null
+          status?: string
+          storage_scopes?: Json
+          user_email?: string | null
+          user_id?: string
+          workspace_ids?: string[]
+        }
+        Relationships: []
+      }
       user_notification_prefs: {
         Row: {
           created_at: string
@@ -16179,6 +16301,7 @@ export type Database = {
           footer_text: string | null
           id: string
           legal_name: string | null
+          logo_storage_key: string | null
           logo_url: string | null
           meta_description: string | null
           meta_title: string | null
@@ -16206,6 +16329,7 @@ export type Database = {
           footer_text?: string | null
           id?: string
           legal_name?: string | null
+          logo_storage_key?: string | null
           logo_url?: string | null
           meta_description?: string | null
           meta_title?: string | null
@@ -16233,6 +16357,7 @@ export type Database = {
           footer_text?: string | null
           id?: string
           legal_name?: string | null
+          logo_storage_key?: string | null
           logo_url?: string | null
           meta_description?: string | null
           meta_title?: string | null
@@ -16365,6 +16490,60 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      workspace_deletion_jobs: {
+        Row: {
+          completed_at: string | null
+          db_cleanup_completed_at: string | null
+          error_message: string | null
+          id: string
+          requested_at: string
+          requested_by: string
+          started_at: string | null
+          status: string
+          storage_cleanup_error: string | null
+          storage_cursor: string | null
+          storage_objects_deleted: number
+          storage_objects_found: number | null
+          workspace_id: string
+          workspace_name: string
+          workspace_slug: string
+        }
+        Insert: {
+          completed_at?: string | null
+          db_cleanup_completed_at?: string | null
+          error_message?: string | null
+          id?: string
+          requested_at?: string
+          requested_by: string
+          started_at?: string | null
+          status?: string
+          storage_cleanup_error?: string | null
+          storage_cursor?: string | null
+          storage_objects_deleted?: number
+          storage_objects_found?: number | null
+          workspace_id: string
+          workspace_name: string
+          workspace_slug: string
+        }
+        Update: {
+          completed_at?: string | null
+          db_cleanup_completed_at?: string | null
+          error_message?: string | null
+          id?: string
+          requested_at?: string
+          requested_by?: string
+          started_at?: string | null
+          status?: string
+          storage_cleanup_error?: string | null
+          storage_cursor?: string | null
+          storage_objects_deleted?: number
+          storage_objects_found?: number | null
+          workspace_id?: string
+          workspace_name?: string
+          workspace_slug?: string
+        }
+        Relationships: []
       }
       workspace_department_members: {
         Row: {
@@ -18140,6 +18319,7 @@ export type Database = {
           owner_id: string
           panel_locale: string | null
           slug: string
+          status: string
           updated_at: string | null
           widget_locale: string | null
         }
@@ -18152,6 +18332,7 @@ export type Database = {
           owner_id: string
           panel_locale?: string | null
           slug: string
+          status?: string
           updated_at?: string | null
           widget_locale?: string | null
         }
@@ -18164,6 +18345,7 @@ export type Database = {
           owner_id?: string
           panel_locale?: string | null
           slug?: string
+          status?: string
           updated_at?: string | null
           widget_locale?: string | null
         }
@@ -18347,6 +18529,15 @@ export type Database = {
       account_revoke_auth_sessions: {
         Args: { _all_except?: string; _session_id?: string; _user_id: string }
         Returns: number
+      }
+      acquire_owner_write_lease: {
+        Args: {
+          _lease_seconds?: number
+          _owner_id: string
+          _owner_kind: string
+          _purpose: string
+        }
+        Returns: Json
       }
       activate_auto_actions: { Args: never; Returns: Json }
       admin_apply_schema: {
@@ -19751,6 +19942,14 @@ export type Database = {
         Args: { _limit: number }
         Returns: number
       }
+      has_active_owner_write_leases: {
+        Args: {
+          _owner_id: string
+          _owner_kind: string
+          _reconciliation_grace_seconds?: number
+        }
+        Returns: Json
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -20049,6 +20248,18 @@ export type Database = {
       release_channel_provider_account: {
         Args: { _integration_id: string }
         Returns: undefined
+      }
+      release_owner_write_lease: {
+        Args: { _lease_id: string; _lease_token: string }
+        Returns: Json
+      }
+      renew_owner_write_lease: {
+        Args: {
+          _lease_id: string
+          _lease_seconds?: number
+          _lease_token: string
+        }
+        Returns: Json
       }
       resend_invitation_email_v2: {
         Args: {

@@ -310,7 +310,7 @@ describe('runScopeCleanupTick — error paths', () => {
 
   it('reports an error after exhausting per-key delete retries', async () => {
     listWithConfigMock.mockResolvedValueOnce({ success: true, keys: [`${PREFIX}stuck.pdf`], nextCursor: null });
-    deleteWithConfigMock.mockResolvedValue({ success: false, error: 'permission_denied' });
+    deleteWithConfigMock.mockResolvedValue({ success: false, error: 'permission_denied' } as unknown as { success: boolean });
     const state: ScopeCleanupState = {};
     const outcome = await runScopeCleanupTick({ scopes: [scope('attachment', CFG_A)], prefix: PREFIX, state, maxDeleteAttemptsPerKey: 3, heartbeat: async () => true, persist });
     expect(outcome.kind).toBe('error');

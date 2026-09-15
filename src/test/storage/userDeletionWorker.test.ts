@@ -277,7 +277,7 @@ describe('claimNext', () => {
 describe('collecting_workspaces (via a single tick)', () => {
   it('enqueues one workspace deletion per owned workspace and advances with exactly those ids', async () => {
     const job = baseJob({ status: 'collecting_workspaces' });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     db.workspaces = [
       { id: WS_A, owner_id: USER_A },
       { id: WS_B, owner_id: USER_A },
@@ -299,7 +299,7 @@ describe('collecting_workspaces (via a single tick)', () => {
 
   it('advances straight to awaiting_workspace_deletions with an empty list when the user owns nothing', async () => {
     const job = baseJob({ status: 'collecting_workspaces' });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     db.workspaces = [];
     rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
 
@@ -313,7 +313,7 @@ describe('collecting_workspaces (via a single tick)', () => {
 
   it('treats a SQL-successful enqueue that reports {ok:false, error:"workspace_stuck_no_active_job"} as a real failure — retries, never advances', async () => {
     const job = baseJob({ status: 'collecting_workspaces', attempt_count: 0 });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     db.workspaces = [{ id: WS_A, owner_id: USER_A }];
     rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
     rpcHandlers.enqueue_workspace_deletion = () => ({ data: { ok: false, error: 'workspace_stuck_no_active_job' }, error: null });
@@ -332,7 +332,7 @@ describe('collecting_workspaces (via a single tick)', () => {
 
   it('treats {ok:false, error:"workspace_not_found"} as a benign race, not a failure — continues the loop and advances normally', async () => {
     const job = baseJob({ status: 'collecting_workspaces' });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     db.workspaces = [
       { id: WS_A, owner_id: USER_A },
       { id: WS_B, owner_id: USER_A },
@@ -356,7 +356,7 @@ describe('collecting_workspaces (via a single tick)', () => {
 
   it('retries with backoff (does not fail immediately or advance) when an enqueue RPC call has a genuine transport error', async () => {
     const job = baseJob({ status: 'collecting_workspaces', attempt_count: 0 });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     db.workspaces = [
       { id: WS_A, owner_id: USER_A },
       { id: WS_B, owner_id: USER_A },
@@ -378,7 +378,7 @@ describe('collecting_workspaces (via a single tick)', () => {
 describe('awaiting_workspace_deletions (via a single tick)', () => {
   it('advances to purging_user once every owned workspace is gone from workspaces', async () => {
     const job = baseJob({ status: 'awaiting_workspace_deletions', workspace_ids: [WS_A, WS_B] });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     db.workspaces = [];
     rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
 
@@ -396,7 +396,7 @@ describe('awaiting_workspace_deletions (via a single tick)', () => {
       locked_by: 'someone',
       lease_expires_at: new Date().toISOString(),
     });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     db.workspaces = [{ id: WS_A, owner_id: USER_A }]; // WS_B done, WS_A still in flight
     db.workspace_deletion_jobs = [{ workspace_id: WS_A, status: 'storage_cleanup', requested_at: new Date().toISOString() }];
     rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
@@ -416,7 +416,7 @@ describe('awaiting_workspace_deletions (via a single tick)', () => {
       workspace_ids: [WS_A, WS_B],
       attempt_count: 1,
     });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     db.workspaces = [{ id: WS_A, owner_id: USER_A }]; // WS_B already gone
     // Two jobs for WS_A — only the LATEST (by requested_at desc) should count.
     db.workspace_deletion_jobs = [
@@ -440,7 +440,7 @@ describe('awaiting_workspace_deletions (via a single tick)', () => {
       workspace_ids: [WS_A],
       attempt_count: 4, // MAX_JOB_ATTEMPTS = 5 -> next attempt (5) is terminal
     });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     db.workspaces = [{ id: WS_A, owner_id: USER_A }];
     db.workspace_deletion_jobs = [{ workspace_id: WS_A, status: 'failed', requested_at: new Date().toISOString() }];
     rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
@@ -454,7 +454,7 @@ describe('awaiting_workspace_deletions (via a single tick)', () => {
 
   it('goes straight to purging_user without ever querying workspaces when workspace_ids is empty', async () => {
     const job = baseJob({ status: 'awaiting_workspace_deletions', workspace_ids: [] });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
 
     workerMod.startUserDeletionWorker({} as never);
@@ -468,7 +468,7 @@ describe('awaiting_workspace_deletions (via a single tick)', () => {
 describe('purging_user (via a single tick) — multi-provider storage_scopes cleanup', () => {
   it('calls runScopeCleanupTick with the scopes from userStorageScopes(config, job.user_id) and the correct prefix/constants', async () => {
     const job = baseJob({ status: 'purging_user', lease_token: 'lease-token-1' });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     const fakeScopes = [
       { name: 'default', resolve: vi.fn() },
       { name: 'privacy_export', resolve: vi.fn() },
@@ -493,7 +493,7 @@ describe('purging_user (via a single tick) — multi-provider storage_scopes cle
 
   it("'advance': persists storage_scopes, then calls admin_delete_user and marks the job completed with its returned purge_result", async () => {
     const job = baseJob({ status: 'purging_user' });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
     rpcHandlers.admin_delete_user = () => ({ data: { purged_workspaces: 0 }, error: null });
     runScopeCleanupTickMock.mockImplementationOnce(async (ctx: { state: Record<string, unknown> }) => {
@@ -514,7 +514,7 @@ describe('purging_user (via a single tick) — multi-provider storage_scopes cle
 
   it("'progress': persists storage_scopes and releases the lock, but does NOT call admin_delete_user yet (re-claimed next tick)", async () => {
     const job = baseJob({ status: 'purging_user', locked_by: 'worker-x', lease_expires_at: new Date().toISOString() });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
     runScopeCleanupTickMock.mockImplementationOnce(async (ctx: { state: Record<string, unknown> }) => {
       ctx.state.default = { status: 'in_progress', cursor: 'tok-1' };
@@ -533,7 +533,7 @@ describe('purging_user (via a single tick) — multi-provider storage_scopes cle
 
   it("'error': retries with backoff (does not fail immediately), persisting whatever storage_scopes progress was made", async () => {
     const job = baseJob({ status: 'purging_user', attempt_count: 0 });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
     runScopeCleanupTickMock.mockImplementationOnce(async (ctx: { state: Record<string, unknown> }) => {
       ctx.state.privacy_export = { status: 'failed', error: 'storage_config_changed' };
@@ -553,7 +553,7 @@ describe('purging_user (via a single tick) — multi-provider storage_scopes cle
 
   it("'error': pushes the job to terminal failed once attempt_count is already at the exhaustion threshold", async () => {
     const job = baseJob({ status: 'purging_user', attempt_count: 4 });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
     runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'error', message: 'scope default: listing failed' });
 
@@ -566,7 +566,7 @@ describe('purging_user (via a single tick) — multi-provider storage_scopes cle
 
   it('idempotent recovery: admin_delete_user errors but the profile is already gone — still completes', async () => {
     const job = baseJob({ status: 'purging_user' });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     db.profiles = []; // already purged by a prior crashed run
     rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
     rpcHandlers.admin_delete_user = () => ({ data: null, error: { message: 'user not found' } });
@@ -580,7 +580,7 @@ describe('purging_user (via a single tick) — multi-provider storage_scopes cle
 
   it('real failure: admin_delete_user errors and the profile still exists — retries with backoff, not a terminal failure', async () => {
     const job = baseJob({ status: 'purging_user', attempt_count: 0 });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     db.profiles = [{ id: USER_A }];
     rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
     rpcHandlers.admin_delete_user = () => ({ data: null, error: { message: 'not authorized' } });
@@ -597,7 +597,7 @@ describe('purging_user (via a single tick) — multi-provider storage_scopes cle
 
   it('marks the job terminally failed once attempt_count is already at the retry threshold (admin_delete_user real failure)', async () => {
     const job = baseJob({ status: 'purging_user', attempt_count: 4 });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     db.profiles = [{ id: USER_A }];
     rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
     rpcHandlers.admin_delete_user = () => ({ data: null, error: { message: 'not authorized' } });
@@ -614,7 +614,7 @@ describe('purging_user (via a single tick) — multi-provider storage_scopes cle
 describe('purgeUser — owner write lease drain (fourth corrective pass, P0 — TOCTOU close)', () => {
   it('an outstanding owner_write_lease for this user blocks the ENTIRE tick — no scope cleanup runs, no admin_delete_user call — and releases the job lease without bumping attempt_count', async () => {
     const job = baseJob({ status: 'purging_user', locked_by: 'worker-x', lease_expires_at: new Date().toISOString(), attempt_count: 0 });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     db.owner_write_leases = [{
       id: 'lease-1', lease_token: 'lease-tok-1', owner_kind: 'user', owner_id: USER_A,
       purpose: 'upload', lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
@@ -634,7 +634,7 @@ describe('purgeUser — owner write lease drain (fourth corrective pass, P0 — 
 
   it('a lease that only JUST passed its nominal expiry (well within the 600s reconciliation grace period) still blocks the tick — fifth corrective pass, P0 #1: nominal TTL expiry alone is never proof the external write actually stopped', async () => {
     const job = baseJob({ status: 'purging_user', locked_by: 'worker-x', lease_expires_at: new Date().toISOString(), attempt_count: 0 });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     db.owner_write_leases = [{
       id: 'lease-1', lease_token: 'lease-tok-1', owner_kind: 'user', owner_id: USER_A,
       purpose: 'upload', lease_expires_at: new Date(Date.now() - 60_000).toISOString(),
@@ -651,7 +651,7 @@ describe('purgeUser — owner write lease drain (fourth corrective pass, P0 — 
 
   it('an owner_write_lease expired well beyond the reconciliation grace period (crashed producer, long gone) does not block — a crash never wedges account deletion forever', async () => {
     const job = baseJob({ status: 'purging_user' });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     db.owner_write_leases = [{
       id: 'lease-1', lease_token: 'lease-tok-1', owner_kind: 'user', owner_id: USER_A,
       purpose: 'upload', lease_expires_at: new Date(Date.now() - 700_000).toISOString(),
@@ -667,7 +667,7 @@ describe('purgeUser — owner write lease drain (fourth corrective pass, P0 — 
 
   it('sixth corrective pass: a lease that appears AFTER the top-of-function drain check but BEFORE admin_delete_user is caught by the pre-purge recheck — admin_delete_user is never called, and the job is released (not purged) without bumping attempt_count, symmetric with workspaceDeletion/worker.ts\'s reassertSafeToPurge()', async () => {
     const job = baseJob({ status: 'purging_user', attempt_count: 0 });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     db.owner_write_leases = [];
     rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
     rpcHandlers.admin_delete_user = () => ({ data: { ok: true }, error: null });
@@ -695,7 +695,7 @@ describe('purgeUser — owner write lease drain (fourth corrective pass, P0 — 
 
   it('an owner_write_lease for a DIFFERENT user never blocks this one', async () => {
     const job = baseJob({ status: 'purging_user' });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     const OTHER_USER = '44444444-4444-4444-4444-444444444444';
     db.owner_write_leases = [{
       id: 'lease-1', lease_token: 'lease-tok-1', owner_kind: 'user', owner_id: OTHER_USER,
@@ -712,7 +712,7 @@ describe('purgeUser — owner write lease drain (fourth corrective pass, P0 — 
 
   it('a lease for this same user_id under owner_kind "workspace" (a different owner namespace) never blocks the user-owned tick', async () => {
     const job = baseJob({ status: 'purging_user' });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     db.owner_write_leases = [{
       id: 'lease-1', lease_token: 'lease-tok-1', owner_kind: 'workspace', owner_id: USER_A,
       purpose: 'upload', lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
@@ -731,7 +731,7 @@ describe('lease fencing — a stale worker can never clobber a job reclaimed by 
   it('worker A finishes purging_user late (after worker B has already reclaimed the lease): the final completion write is rejected, LeaseFencedError is raised, and the row is provably unchanged by A', async () => {
     // 1. Worker A claims the job, minted lease_token 'token-A'.
     const job = baseJob({ status: 'purging_user', lease_token: 'token-A', locked_by: 'worker-A' });
-    db.user_deletion_jobs = [job];
+    db.user_deletion_jobs = [job as unknown as Row];
     rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
     runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'advance' });
 

@@ -99,7 +99,7 @@ describe('purgeOne — symmetric delete-side storage_usage_logs write', () => {
 
   it('does not log when the underlying delete fails', async () => {
     insertCalls.length = 0;
-    deleteWithConfigMock.mockResolvedValueOnce({ success: false, error: 'boom' });
+    deleteWithConfigMock.mockResolvedValueOnce({ success: false, error: 'boom' } as unknown as { success: boolean });
     const job = baseJob({});
 
     const result = await purgeOne({} as never, job);

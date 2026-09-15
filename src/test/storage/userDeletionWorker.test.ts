@@ -59,7 +59,7 @@ vi.mock('../../../server/services/storage/userScopes.js', () => ({
   userScopePrefix: (userId: string) => `users/${userId}/`,
 }));
 
-type Row = Record<string, unknown> | object;
+type Row = Record<string, unknown>;
 const db: Record<string, Row[]> = {};
 const rpcCalls: Array<{ fn: string; args: unknown }> = [];
 const fromCalls: string[] = [];

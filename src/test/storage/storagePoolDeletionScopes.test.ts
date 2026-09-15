@@ -23,42 +23,12 @@ const WS_B = '22222222-2222-2222-2222-222222222222';
 const USER_A = '33333333-3333-3333-3333-333333333333';
 const USER_B = '44444444-4444-4444-4444-444444444444';
 
-const runtimeConfig = new Map<string, unknown>();
-const dbState: { readError: { message: string } | null } = { readError: null };
+import { runtimeConfig, dbState, resetFakeStoragePool } from './fakeStoragePool';
 
-vi.mock('../../../server/supabase.js', () => ({
-  getServiceClient: () => ({
-    from: (table: string) => {
-      let wantedKey: string | null = null;
-      const builder = {
-        select: () => builder,
-        eq: (col: string, value: string) => { if (col === 'key') wantedKey = value; return builder; },
-        order: () => builder,
-        limit: () => builder,
-        // provider_configs (workspace override) — none in these tests
-        single: async () => builder.maybeSingle(),
-        maybeSingle: async () => {
-          if (table === 'app_runtime_config' && dbState.readError) {
-            return { data: null, error: dbState.readError };
-          }
-          return {
-            data: table === 'app_runtime_config' && wantedKey && runtimeConfig.has(wantedKey)
-              ? { key: wantedKey, value: runtimeConfig.get(wantedKey) }
-              : null,
-            error: null,
-          };
-        },
-      };
-      return builder;
-    },
-    rpc: async (_fn: string, args: { _pool: unknown; _default: unknown }) => {
-      runtimeConfig.set('storage_provider_pool', args._pool);
-      if (args._default === null) runtimeConfig.delete('default_storage_provider');
-      else runtimeConfig.set('default_storage_provider', args._default);
-      return { data: null, error: null };
-    },
-  }),
-}));
+vi.mock('../../../server/supabase.js', async () => {
+  const { makeFakeSupabaseClient } = await import('./fakeStoragePool');
+  return { getServiceClient: () => makeFakeSupabaseClient() };
+});
 
 // The privacy-export and LiveKit-recording scopes have their own resolvers
 // and their own tests; here they are deliberately unconfigured so the
@@ -144,6 +114,12 @@ function primaryHas(key: string): boolean {
   return fs.existsSync(path.join(primaryDir, key));
 }
 
+/** Switch a vendor off the way the admin PATCH does. */
+function retire(name: string) {
+  const pool = runtimeConfig.get('storage_provider_pool') as { providers: Record<string, { enabled: boolean }> };
+  pool.providers[name].enabled = false;
+}
+
 /** Drives the walker to completion the way a worker's ticks would. Takes either owner's scope list. */
 async function drain(
   scopes: Parameters<typeof runScopeCleanupTick>[0]['scopes'],
@@ -166,8 +142,7 @@ async function drain(
 }
 
 beforeEach(() => {
-  runtimeConfig.clear();
-  dbState.readError = null;
+  resetFakeStoragePool();
   primaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'deletion-primary-'));
   buckets = { mirror_one: new Map(), mirror_two: new Map() };
   undeletableBuckets = new Set();
@@ -194,8 +169,8 @@ afterEach(() => {
   fs.rmSync(primaryDir, { recursive: true, force: true });
 });
 
-describe('workspace deletion — every enabled pool vendor is a scope', () => {
-  it('lists one replica scope per enabled vendor, on top of the static scopes', async () => {
+describe('workspace deletion — every configured pool vendor is a scope', () => {
+  it('lists one replica scope per configured vendor, on top of the static scopes', async () => {
     const scopes = await workspaceStorageScopes(serverConfig, WS_A);
     const names = scopes.map((s) => s.name);
 
@@ -207,13 +182,15 @@ describe('workspace deletion — every enabled pool vendor is a scope', () => {
     expect(names).toContain('replica:minio');
   });
 
-  it('omits a vendor the operator switched off', async () => {
-    const pool = runtimeConfig.get('storage_provider_pool') as { providers: Record<string, { enabled: boolean }> };
-    pool.providers.minio.enabled = false;
+  it('KEEPS a vendor the operator switched off — it still holds what it received', async () => {
+    // Retiring a mirror stops new writes; it does not empty the bucket. A
+    // retired vendor that dropped out of the scope list would keep this
+    // owner's objects forever, which is the whole failure this guards.
+    retire('minio');
 
     const names = (await workspaceStorageScopes(serverConfig, WS_A)).map((s) => s.name);
     expect(names).toContain('replica:s3');
-    expect(names).not.toContain('replica:minio');
+    expect(names).toContain('replica:minio');
   });
 
   it('throws rather than dropping replica scopes when the pool cannot be read', async () => {
@@ -279,6 +256,37 @@ describe('workspace deletion — every enabled pool vendor is a scope', () => {
     expect(state['replica:local'].status).toBe('done');
   });
 
+  it('cleans and verifies a RETIRED mirror, with mirrorDeletes off', async () => {
+    const key = `workspace/${WS_A}/attachments/a.txt`;
+    seedPrimary(key);
+    buckets.mirror_one.set(key, 'x');
+    buckets.mirror_two.set(key, 'x');
+    // Received the object while enabled, then switched off.
+    retire('minio');
+
+    const scopes = await workspaceStorageScopes(serverConfig, WS_A);
+    const { outcome, state } = await drain(scopes, workspaceScopePrefix(WS_A));
+
+    expect(outcome.kind).toBe('advance');
+    expect(buckets.mirror_two.has(key)).toBe(false);
+    expect(state['replica:minio'].status).toBe('done');
+    expect(state['replica:minio'].verified).toBe(true);
+  });
+
+  it('stays blocked when a retired mirror cannot be emptied, rather than reporting success', async () => {
+    const key = `workspace/${WS_A}/attachments/a.txt`;
+    seedPrimary(key);
+    buckets.mirror_two.set(key, 'x');
+    retire('minio');
+    undeletableBuckets.add('mirror_two');
+
+    const scopes = await workspaceStorageScopes(serverConfig, WS_A);
+    const { outcome } = await drain(scopes, workspaceScopePrefix(WS_A));
+
+    expect(outcome.kind).toBe('error');
+    expect(buckets.mirror_two.has(key)).toBe(true);
+  });
+
   it('never touches another workspace, on any provider', async () => {
     const mine = `workspace/${WS_A}/attachments/a.txt`;
     const theirs = `workspace/${WS_B}/attachments/b.txt`;
@@ -298,7 +306,7 @@ describe('workspace deletion — every enabled pool vendor is a scope', () => {
   });
 });
 
-describe('user deletion — every enabled pool vendor is a scope', () => {
+describe('user deletion — every configured pool vendor is a scope', () => {
   it('lists one replica scope per enabled vendor', async () => {
     const names = (await userStorageScopes(serverConfig, USER_A)).map((s) => s.name);
     expect(names).toContain('default');
@@ -323,6 +331,20 @@ describe('user deletion — every enabled pool vendor is a scope', () => {
     for (const name of ['replica:s3', 'replica:minio']) {
       expect(state[name].verified).toBe(true);
     }
+  });
+
+  it('cleans and verifies a RETIRED mirror for users/<id>/… too', async () => {
+    const key = `users/${USER_A}/avatar/a.png`;
+    seedPrimary(key);
+    buckets.mirror_two.set(key, 'x');
+    retire('minio');
+
+    const scopes = await userStorageScopes(serverConfig, USER_A);
+    const { outcome, state } = await drain(scopes, userScopePrefix(USER_A));
+
+    expect(outcome.kind).toBe('advance');
+    expect(buckets.mirror_two.has(key)).toBe(false);
+    expect(state['replica:minio'].verified).toBe(true);
   });
 
   it('never touches another account, on any provider', async () => {

@@ -12,7 +12,16 @@
  * about ORDINARY object deletion (an operator deleting one attachment
  * should be able to keep a backup copy on a mirror). Owner lifecycle
  * deletion is a different contract: it must leave nothing anywhere, so it
- * always walks every enabled pool vendor regardless of that flag.
+ * always walks every configured pool vendor regardless of that flag.
+ *
+ * And why `enabled` is irrelevant here too. Switching a vendor off stops it
+ * receiving NEW mirrored writes; it does not remove the objects it already
+ * holds. A retired mirror that is skipped by deletion keeps that owner's
+ * private data forever, which is the exact failure this module exists to
+ * prevent — so every CONFIGURED vendor is a scope, enabled or not. A vendor
+ * only stops being walked when its entry is removed from the pool, and
+ * removal is itself gated on the vendor being verified free of managed data
+ * (see the admin route's DELETE handler).
  *
  * Each vendor becomes its own named scope (`replica:<vendor>`); the shared
  * cleanup walker (./scopeCleanupEngine.ts) then gives it the same
@@ -40,7 +49,8 @@ export function poolScopeName(providerName: string): string {
 }
 
 /**
- * Every enabled vendor in the pool, as deletion scopes.
+ * Every CONFIGURED vendor in the pool, as deletion scopes — including the
+ * ones that are switched off.
  *
  * The primary is included too: it normally resolves to the same physical
  * location as the ordinary 'attachment'/'default' scope and is then
@@ -49,13 +59,15 @@ export function poolScopeName(providerName: string): string {
  * invariant "every physical provider that can hold this prefix" true.
  *
  * Throws if the pool cannot be read. Callers must treat that as "this tick
- * failed", never as "there are no replicas" — see readStoragePool.
+ * failed", never as "there are no replicas" — see readStoragePool. The same
+ * reasoning applies to a retired vendor that is unreachable: the deletion
+ * job stays blocked and retryable rather than reporting success while the
+ * data survives somewhere else.
  */
 export async function storagePoolScopes(config: ServerConfig): Promise<PoolStorageScope[]> {
   const pool = await readStoragePool(config);
 
   return Object.entries(pool.providers)
-    .filter(([, entry]) => entry.enabled)
     .map(([name, entry]) => ({
       name: poolScopeName(name),
       async resolve(): Promise<PoolScopeResolution> {

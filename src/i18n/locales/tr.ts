@@ -6078,7 +6078,12 @@ const tr: TranslationKeys = {
       readiness: {
         ready: 'Mevcut birinciddeki her şeye sahip olduğu kanıtlandı — birincil yapmak güvenli.',
         notReady: 'Birincil ile eşitliği henüz kanıtlanmadı. Tam bir eşitleme (öneki boş bırakın) tamamlanana kadar çalıştırın.',
+        dirty: 'Son eşitlemeden bu yana bu sağlayıcıya yapılan bir aynalı yazma başarısız oldu; en az bir nesne eksik. Birincil yapmadan önce tam eşitlemeyi yeniden çalıştırın.',
       },
+      retiredNote: 'Kapalı: yeni aynalı yazma almaz ama elindekini korur — bu yüzden çalışma alanı ve hesap silme işlemleri onu yine de temizler. Kaldırmak yerine emekliye ayırmak bu nedenle daha güvenlidir.',
+      forceRemoveTitle: 'Bu sağlayıcı yine de unutulsun mu?',
+      forceRemoveDesc: 'Kaldırmak, çalışma alanı ve hesap silmenin ona ulaşmasını sağlayan kimlik bilgilerini siler. Üzerinde kalan sahip verileri kalıcı olarak erişilemez olur. Emin değilseniz kaldırmak yerine kapatın.',
+      forceRemove: 'Sağlayıcıyı unut (yıkıcı)',
       state: {
         primary: 'Bu sağlayıcı birincil — şu anda tüm okuma ve yazmaları o karşılıyor.',
         mirror: 'Bu sağlayıcı bir ayna: birincile yapılan her yazmanın kopyasını alır ve istediğiniz an birincil yapılabilir.',

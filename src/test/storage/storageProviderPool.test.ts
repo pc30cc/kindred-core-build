@@ -19,49 +19,14 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-type Row = { key: string; value: unknown };
+import {
+  runtimeConfig, dbState, resetFakeStoragePool, getEntry,
+} from './fakeStoragePool';
 
-/** The fake DB. `rpcError` makes set_storage_provider_pool fail like a real one would. */
-const runtimeConfig = new Map<string, unknown>();
-const dbState: { readError: { message: string } | null; rpcError: { message: string } | null; rpcCalls: number } = {
-  readError: null, rpcError: null, rpcCalls: 0,
-};
-
-vi.mock('../../../server/supabase.js', () => ({
-  getServiceClient: () => ({
-    from: (table: string) => {
-      let wantedKey: string | null = null;
-      const builder = {
-        select: () => builder,
-        eq: (col: string, value: string) => { if (col === 'key') wantedKey = value; return builder; },
-        order: () => builder,
-        limit: () => builder,
-        single: async () => ({ data: null, error: null }),
-        maybeSingle: async () => {
-          if (table !== 'app_runtime_config') return { data: null, error: null };
-          if (dbState.readError) return { data: null, error: dbState.readError };
-          return {
-            data: wantedKey && runtimeConfig.has(wantedKey)
-              ? ({ key: wantedKey, value: runtimeConfig.get(wantedKey) } as Row)
-              : null,
-            error: null,
-          };
-        },
-      };
-      return builder;
-    },
-    // Mirrors migration 189: both keys move together, or neither does.
-    rpc: async (fn: string, args: { _pool: unknown; _default: unknown }) => {
-      if (fn !== 'set_storage_provider_pool') throw new Error(`unexpected rpc ${fn}`);
-      dbState.rpcCalls++;
-      if (dbState.rpcError) return { data: null, error: dbState.rpcError };
-      runtimeConfig.set('storage_provider_pool', args._pool);
-      if (args._default === null) runtimeConfig.delete('default_storage_provider');
-      else runtimeConfig.set('default_storage_provider', args._default);
-      return { data: null, error: null };
-    },
-  }),
-}));
+vi.mock('../../../server/supabase.js', async () => {
+  const { makeFakeSupabaseClient: make } = await import('./fakeStoragePool');
+  return { getServiceClient: () => make() };
+});
 
 const {
   normalizePool, replicaEntries, readStoragePool, writeStoragePool, isReplicaSynchronized,
@@ -73,10 +38,7 @@ const { storageConfigFromRecord, syncStorageReplica, SUPPORTED_STORAGE_PROVIDERS
 const serverConfig = {} as Parameters<typeof readStoragePool>[0];
 
 beforeEach(() => {
-  runtimeConfig.clear();
-  dbState.readError = null;
-  dbState.rpcError = null;
-  dbState.rpcCalls = 0;
+  resetFakeStoragePool();
 });
 
 describe('normalizePool', () => {
@@ -159,7 +121,7 @@ describe('writeStoragePool — atomic with the legacy pointer', () => {
       },
     }));
 
-    expect(dbState.rpcCalls).toBe(1);
+    expect(dbState.poolWrites).toBe(1);
     expect(runtimeConfig.get(STORAGE_DEFAULT_KEY)).toEqual({
       provider_name: 'arvan_storage',
       config: { bucket: 'main', region: 'ir-thr-at1' },

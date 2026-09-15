@@ -20,7 +20,9 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { assertOwnerScopedKey, assertSafeStorageKey, isKnownLegacyStorageKey, LEGACY_USER_AVATAR_PATTERN, ownerRoot, StorageKeyError, type StorageOwner } from './keys.js';
 import { withOwnerWriteLease } from './writerLease.js';
-import { readStoragePool, writeStoragePool, replicaEntries } from './pool.js';
+import {
+  readStoragePool, replicaEntries, persistReplicaSync, markReplicaDirty, markReplicationUncertain,
+} from './pool.js';
 
 export type { StorageOwner };
 
@@ -1553,7 +1555,7 @@ export async function listWithConfig(
 async function resolveReplicaConfigs(
   serverConfig: ServerConfig,
   primaryProvider: string,
-): Promise<{ configs: StorageConfig[]; mirrorDeletes: boolean }> {
+): Promise<{ configs: StorageConfig[]; mirrorDeletes: boolean; unresolved?: string }> {
   try {
     const pool = await readStoragePool(serverConfig);
     if (!pool.replication.enabled) return { configs: [], mirrorDeletes: false };
@@ -1562,8 +1564,13 @@ async function resolveReplicaConfigs(
       .map((entry) => mapDBConfigToStorage(entry.name, entry.config));
     return { configs, mirrorDeletes: pool.replication.mirrorDeletes };
   } catch (err: unknown) {
-    console.error('[storage] replica resolution failed', err instanceof Error ? err.message : err);
-    return { configs: [], mirrorDeletes: false };
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[storage] replica resolution failed', message);
+    // The write landed on the primary but we never reached the replicas —
+    // every one of them may now be missing this object, and none may be
+    // trusted as promotable until a fresh walk proves otherwise. Recorded
+    // server-side, without needing the pool read that just failed.
+    return { configs: [], mirrorDeletes: false, unresolved: message };
   }
 }
 
@@ -1591,10 +1598,14 @@ async function replicateUpload(
   req: ProviderUploadRequest,
   primaryProvider: string,
 ): Promise<MirrorOutcome[]> {
-  const { configs } = await resolveReplicaConfigs(serverConfig, primaryProvider);
+  const { configs, unresolved } = await resolveReplicaConfigs(serverConfig, primaryProvider);
+  if (unresolved) {
+    await markReplicationUncertain(serverConfig, `replication_unresolved: ${unresolved}`);
+    return [];
+  }
   if (configs.length === 0) return [];
 
-  return Promise.all(
+  const outcomes = await Promise.all(
     configs.map((config) => {
       const handler = uploadHandlers[config.provider];
       if (!handler) {
@@ -1607,6 +1618,17 @@ async function replicateUpload(
       return runMirror('upload', config, () => handler(config, req));
     }),
   );
+
+  // A mirror that missed this object is no longer a candidate for promotion.
+  // Recorded durably here rather than merely reported in the response: the
+  // browser is not part of this decision, and nothing else would notice.
+  for (const outcome of outcomes) {
+    if (!outcome.success) {
+      await markReplicaDirty(serverConfig, outcome.provider, `mirror_upload_failed: ${outcome.error ?? 'unknown'}`);
+    }
+  }
+
+  return outcomes;
 }
 
 /**
@@ -1800,6 +1822,9 @@ export async function syncStorageReplica(
   const runningTotal = resumable
     ? { ...stored!.total }
     : { scanned: 0, copied: 0, skipped: 0, failed: 0 };
+  // The whole walk — not this batch — is what readiness is judged against, so
+  // a gap recorded at any point during it must invalidate the proof.
+  const walkStartedAt = resumable ? stored!.startedAt : new Date().toISOString();
 
   const listed = await listWithConfig(primaryConfig, prefix, cursor.p ?? undefined);
   if (!listed.success) return { ok: false, error: listed.error ?? 'Listing the primary failed' };
@@ -1861,20 +1886,43 @@ export async function syncStorageReplica(
   // failed walk proves nothing about the objects it never looked at.
   const markedSynchronized = done && total.failed === 0 && prefix === '';
 
-  const entry = pool.providers[opts.target];
-  entry.sync = {
+  // Persist through the targeted writer, not a whole-pool write: this batch
+  // has been doing provider I/O for a while, and the pool snapshot it started
+  // from may be stale. The RPC refuses if the vendor's credentials changed
+  // under it, if the primary moved, or if a replication gap was recorded
+  // since the walk began — so an old-config walk can never mark a new bucket
+  // synchronized.
+  const nextSync = {
     prefix,
     from: pool.primary,
+    startedAt: walkStartedAt,
     cursor: nextCursor ? encodeSyncCursor(nextCursor) : null,
     total,
     done,
     updatedAt: new Date().toISOString(),
   };
-  if (markedSynchronized) {
-    entry.syncedAt = new Date().toISOString();
-    entry.syncedFrom = pool.primary;
+
+  const persisted = await persistReplicaSync(serverConfig, {
+    provider: opts.target,
+    sync: nextSync,
+    markSynced: markedSynchronized,
+    expectedConfig: targetEntry.config,
+    expectedPrimary: pool.primary,
+    walkStartedAt,
+  });
+
+  if (!persisted.ok) {
+    return {
+      ok: false,
+      error: persisted.error === 'config_changed'
+        ? 'This vendor\u2019s settings changed while the sync was running — the walk was abandoned. Start it again.'
+        : persisted.error === 'primary_changed'
+          ? 'The primary changed while the sync was running — the walk was abandoned. Start it again.'
+          : persisted.error === 'replication_gap_during_walk'
+            ? 'A mirrored write failed while this sync was running, so the walk cannot prove the vendor is complete. Run it again.'
+            : `Could not record sync progress: ${persisted.error}`,
+    };
   }
-  await writeStoragePool(serverConfig, pool);
 
   return {
     ok: true,
@@ -1884,7 +1932,7 @@ export async function syncStorageReplica(
       batch,
       total,
       errors,
-      nextCursor: entry.sync.cursor,
+      nextCursor: nextSync.cursor,
       done,
       markedSynchronized,
     },

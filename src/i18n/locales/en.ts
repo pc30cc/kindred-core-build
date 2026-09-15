@@ -6093,7 +6093,12 @@ const en = {
       readiness: {
         ready: 'Proven to hold everything the current primary holds — safe to promote.',
         notReady: 'Not yet proven to match the primary. Run a full sync (leave the prefix empty) until it reports complete.',
+        dirty: 'A mirrored write to this vendor failed since its last sync, so it is missing at least one object. Run a full sync again before promoting it.',
       },
+      retiredNote: 'Switched off: it receives no new mirrored writes, but it keeps what it already holds — so workspace and account deletion still purge it. That is why retiring is safer than removing.',
+      forceRemoveTitle: 'Forget this vendor anyway?',
+      forceRemoveDesc: 'Removing it deletes the credentials that let workspace and account deletion reach it. Any owner data it still holds becomes unreachable forever. Switch it off instead unless you are certain.',
+      forceRemove: 'Forget vendor (destructive)',
       state: {
         primary: 'This vendor is the primary — it serves every read and every write right now.',
         mirror: 'This vendor is a mirror: it receives a copy of every write to the primary, and can be promoted at any time.',

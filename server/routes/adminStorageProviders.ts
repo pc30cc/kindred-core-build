@@ -15,6 +15,7 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import {
   readStoragePool, writeStoragePool, emptyPool, isReplicaSynchronized, clearSyncReadiness,
+  StoragePoolConflictError,
   type StoragePool,
 } from '../services/storage/pool.js';
 import {
@@ -22,6 +23,7 @@ import {
   storageConfigFromRecord,
   testStorageConnection,
   syncStorageReplica,
+  listWithConfig,
 } from '../services/storage/index.js';
 
 export const adminStorageProvidersRouter = Router();
@@ -40,6 +42,16 @@ function adminId(req: Request): string | null {
 }
 
 function fail(res: Response, err: unknown): void {
+  // A lost compare-and-set is not a server fault: somebody else changed the
+  // pool while this request was in flight. The caller re-reads and retries
+  // rather than having its stale snapshot written.
+  if (err instanceof StoragePoolConflictError) {
+    res.status(409).json({
+      error: 'The storage pool changed while this request was in flight — reload and try again.',
+      reason: 'revision_conflict',
+    });
+    return;
+  }
   const message = err instanceof Error ? err.message : 'Unexpected error';
   res.status(500).json({ error: message });
 }
@@ -120,6 +132,7 @@ function serializePool(pool: StoragePool) {
     primary: pool.primary,
     replication: pool.replication,
     supported: SUPPORTED_STORAGE_PROVIDERS,
+    revision: pool.revision,
     providers: Object.entries(pool.providers).map(([name, entry]) => {
       const { config, secretKeys } = redactConfig(entry.config);
       return {
@@ -132,6 +145,15 @@ function serializePool(pool: StoragePool) {
         /** Proven to hold everything the CURRENT primary holds. */
         synchronized: name === pool.primary || isReplicaSynchronized(pool, name),
         syncedAt: entry.syncedAt ?? null,
+        /** A known replication gap — clears readiness until a fresh full walk. */
+        dirtyAt: entry.dirtyAt ?? null,
+        dirtyReason: entry.dirtyReason ?? null,
+        /**
+         * Switched off: receives no new mirrored writes, but is STILL walked
+         * by workspace/user deletion, because it keeps whatever it already
+         * holds.
+         */
+        retired: !entry.enabled && name !== pool.primary,
         sync: entry.sync
           ? {
               prefix: entry.sync.prefix,
@@ -373,26 +395,89 @@ adminStorageProvidersRouter.post('/:providerName/primary', async (req, res) => {
 });
 
 // ─── Remove a vendor from the pool ───────────────────────────────
+//
+// Removing an entry does not delete anything on the vendor — it deletes the
+// platform's KNOWLEDGE of it: the credentials and the pool entry that make it
+// a lifecycle-deletion scope. A vendor that ever received mirrored writes and
+// is then forgotten keeps `workspace/...` and `users/...` objects that no
+// future workspace or account deletion can ever reach.
+//
+// So the ordinary path is not "remove", it is RETIRE: switch the vendor off
+// (PATCH enabled:false). It then receives no new writes while remaining a
+// deletion scope, which is what keeps owner deletion honest.
+//
+// Hard removal is allowed only when the vendor is verifiably free of managed
+// data, and "cannot verify" counts as "not free". `force: true` is the named
+// destructive escape hatch for recovery, and says plainly what it costs.
+
+/** Owner-scoped roots the platform writes. Anything under them is managed data. */
+const MANAGED_PREFIXES = ['workspace/', 'users/'];
+
+/**
+ * Does this vendor still hold managed objects? A listing that fails is
+ * reported as unverifiable — never as empty.
+ */
+async function managedDataCheck(
+  provider: string,
+  config: Record<string, unknown>,
+): Promise<{ clean: boolean; reason?: string; sample?: string }> {
+  const storageConfig = storageConfigFromRecord(provider, config);
+  for (const prefix of MANAGED_PREFIXES) {
+    const listed = await listWithConfig(storageConfig, prefix);
+    if (!listed.success) {
+      return { clean: false, reason: `could not list ${prefix}: ${listed.error ?? 'unknown error'}` };
+    }
+    const keys = listed.keys ?? [];
+    if (keys.length > 0) {
+      return { clean: false, reason: `still holds objects under ${prefix}`, sample: keys[0] };
+    }
+  }
+  return { clean: true };
+}
 
 adminStorageProvidersRouter.delete('/:providerName', async (req, res) => {
   try {
     const name = providerNameOf(req, res);
     if (!name) return;
+    const body = z.object({ force: z.boolean().optional() }).parse(req.body ?? {});
     const serverConfig = ctx(req).serverConfig;
 
     const pool = await readStoragePool(serverConfig);
-    if (!pool.providers[name]) return res.status(404).json({ error: 'Provider is not configured' });
+    const entry = pool.providers[name];
+    if (!entry) return res.status(404).json({ error: 'Provider is not configured' });
     if (pool.primary === name && Object.keys(pool.providers).length > 1) {
       return res.status(400).json({
         error: 'Promote another vendor to primary before removing this one',
       });
     }
 
+    if (!body.force) {
+      const check = await managedDataCheck(name, entry.config);
+      if (!check.clean) {
+        return res.status(409).json({
+          error:
+            `This vendor cannot be removed: ${check.reason}. Removing it would leave that data `
+            + 'unreachable by workspace and account deletion forever. Switch it off instead — a '
+            + 'retired vendor receives no new writes but is still purged when an owner is deleted.',
+          reason: 'managed_data_present',
+          sample: check.sample ?? null,
+        });
+      }
+    } else {
+      console.warn(
+        `[storage] FORCED removal of storage vendor ${name} by admin ${adminId(req) ?? 'unknown'} `
+        + '— any workspace/user objects it still holds are now unreachable by owner deletion.',
+      );
+    }
+
     delete pool.providers[name];
     if (pool.primary === name) pool.primary = null;
     await writeStoragePool(serverConfig, pool);
-    res.json(serializePool(await readStoragePool(serverConfig)));
-  } catch (e) { fail(res, e); }
+    res.json({ ...serializePool(await readStoragePool(serverConfig)), forced: body.force === true });
+  } catch (e) {
+    if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
+    fail(res, e);
+  }
 });
 
 // ─── Test one vendor's credentials (real upload + delete) ────────

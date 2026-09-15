@@ -152,6 +152,8 @@ export function AdminStorageProvidersPanel() {
   const [syncPrefix, setSyncPrefix] = useState('');
   const [syncRun, setSyncRun] = useState<SyncRun>(IDLE_SYNC);
   const [forcePromoteOpen, setForcePromoteOpen] = useState(false);
+  const [forceRemoveOpen, setForceRemoveOpen] = useState(false);
+  const [removeBlockedReason, setRemoveBlockedReason] = useState<string | null>(null);
 
   const { data: pool, isLoading } = useQuery({ queryKey: POOL_KEY, queryFn: adminGetStoragePool });
 
@@ -203,13 +205,22 @@ export function AdminStorageProvidersPanel() {
   });
 
   const remove = useMutation({
-    mutationFn: (name: string) => adminRemoveStorageProvider(name),
+    mutationFn: ({ name, force }: { name: string; force?: boolean }) =>
+      adminRemoveStorageProvider(name, force),
     onSuccess: (next) => {
       applyPool(next);
       setRemoveOpen(false);
+      setForceRemoveOpen(false);
       toast({ title: t('adminProviders.storage.removed') });
     },
-    onError,
+    onError: (err: Error) => {
+      // The server refuses while the vendor may still hold owner data. That
+      // is the useful answer, not an error to bury in a toast: offer the
+      // named destructive path instead of pretending Remove is retryable.
+      setRemoveOpen(false);
+      setForceRemoveOpen(true);
+      setRemoveBlockedReason(err.message);
+    },
   });
 
   const setReplication = useMutation({
@@ -510,7 +521,20 @@ export function AdminStorageProvidersPanel() {
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
                       {entry.synchronized
                         ? t('adminProviders.storage.readiness.ready')
-                        : t('adminProviders.storage.readiness.notReady')}
+                        : entry.dirtyAt
+                          ? t('adminProviders.storage.readiness.dirty')
+                          : t('adminProviders.storage.readiness.notReady')}
+                    </p>
+                  </div>
+                )}
+
+                {/* A retired vendor is still purged when an owner is deleted —
+                    that is the whole point of retiring instead of removing. */}
+                {entry?.retired && (
+                  <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/20 p-2.5">
+                    <Info className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      {t('adminProviders.storage.retiredNote')}
                     </p>
                   </div>
                 )}
@@ -673,6 +697,32 @@ export function AdminStorageProvidersPanel() {
         </Card>
       </div>
 
+      <AlertDialog open={forceRemoveOpen} onOpenChange={setForceRemoveOpen}>
+        <AlertDialogContent className="admin-scope bg-card border-border text-foreground">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-foreground flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 text-destructive" />
+              {t('adminProviders.storage.forceRemoveTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground space-y-2">
+              <span className="block">{removeBlockedReason}</span>
+              <span className="block">{t('adminProviders.storage.forceRemoveDesc')}</span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-border text-foreground hover:bg-muted">
+              {t('adminProviders.form.cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => remove.mutate({ name: selected, force: true })}
+              disabled={remove.isPending}
+            >
+              {t('adminProviders.storage.forceRemove')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={forcePromoteOpen} onOpenChange={setForcePromoteOpen}>
         <AlertDialogContent className="admin-scope bg-card border-border text-foreground">
           <AlertDialogHeader>
@@ -712,7 +762,7 @@ export function AdminStorageProvidersPanel() {
             <AlertDialogCancel className="border-border text-foreground hover:bg-muted">
               {t('adminProviders.form.cancel')}
             </AlertDialogCancel>
-            <AlertDialogAction onClick={() => remove.mutate(selected)} disabled={remove.isPending}>
+            <AlertDialogAction onClick={() => remove.mutate({ name: selected })} disabled={remove.isPending}>
               {t('adminProviders.storage.remove')}
             </AlertDialogAction>
           </AlertDialogFooter>

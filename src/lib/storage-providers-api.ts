@@ -49,11 +49,18 @@ export interface AdminStorageProviderDto {
   /** Proven to hold everything the current primary holds — the promotion gate. */
   synchronized: boolean;
   syncedAt: string | null;
+  /** A known replication gap recorded server-side; blocks promotion until a fresh full sync. */
+  dirtyAt: string | null;
+  dirtyReason: string | null;
+  /** Switched off: no new mirrored writes, but still purged by owner deletion. */
+  retired: boolean;
   sync: AdminStorageSyncState | null;
 }
 
 export interface AdminStoragePoolDto {
   primary: string | null;
+  /** Compare-and-set token; bumped by every committed pool write. */
+  revision: number;
   replication: { enabled: boolean; mirrorDeletes: boolean };
   supported: string[];
   providers: AdminStorageProviderDto[];
@@ -115,10 +122,17 @@ export function adminPromoteStorageProvider(providerName: string, force?: boolea
   );
 }
 
-export function adminRemoveStorageProvider(providerName: string) {
-  return request<AdminStoragePoolDto>(`${BASE}/${encodeURIComponent(providerName)}`, {
-    method: 'DELETE',
-  });
+/**
+ * Removing a vendor deletes the platform's knowledge of it, not its objects.
+ * The server refuses while it still holds `workspace/...` or `users/...`
+ * data (or cannot verify that it doesn't); `force` is the named destructive
+ * override.
+ */
+export function adminRemoveStorageProvider(providerName: string, force?: boolean) {
+  return request<AdminStoragePoolDto & { forced?: boolean }>(
+    `${BASE}/${encodeURIComponent(providerName)}`,
+    { method: 'DELETE', body: JSON.stringify({ force: force === true }) },
+  );
 }
 
 export function adminTestStorageProvider(providerName: string) {

@@ -20,35 +20,12 @@ import * as os from 'os';
 import * as path from 'path';
 import type { Router } from 'express';
 
-const runtimeConfig = new Map<string, unknown>();
+import { runtimeConfig, resetFakeStoragePool, getEntry } from './fakeStoragePool';
 
-vi.mock('../../../server/supabase.js', () => ({
-  getServiceClient: () => ({
-    from: (table: string) => {
-      let wantedKey: string | null = null;
-      const builder = {
-        select: () => builder,
-        eq: (col: string, value: string) => { if (col === 'key') wantedKey = value; return builder; },
-        order: () => builder,
-        limit: () => builder,
-        single: async () => builder.maybeSingle(),
-        maybeSingle: async () => ({
-          data: table === 'app_runtime_config' && wantedKey && runtimeConfig.has(wantedKey)
-            ? { key: wantedKey, value: runtimeConfig.get(wantedKey) }
-            : null,
-          error: null,
-        }),
-      };
-      return builder;
-    },
-    rpc: async (_fn: string, args: { _pool: unknown; _default: unknown }) => {
-      runtimeConfig.set('storage_provider_pool', args._pool);
-      if (args._default === null) runtimeConfig.delete('default_storage_provider');
-      else runtimeConfig.set('default_storage_provider', args._default);
-      return { data: null, error: null };
-    },
-  }),
-}));
+vi.mock('../../../server/supabase.js', async () => {
+  const { makeFakeSupabaseClient } = await import('./fakeStoragePool');
+  return { getServiceClient: () => makeFakeSupabaseClient() };
+});
 
 const { adminStorageProvidersRouter, __resetStorageAdminRateLimit } =
   await import('../../../server/routes/adminStorageProviders.js');
@@ -167,7 +144,7 @@ async function fullSync(target: string) {
 
 beforeEach(() => {
   __resetStorageAdminRateLimit();
-  runtimeConfig.clear();
+  resetFakeStoragePool();
   primaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'promote-primary-'));
   mirrorObjects = new Map();
   mirrorReachable = true;

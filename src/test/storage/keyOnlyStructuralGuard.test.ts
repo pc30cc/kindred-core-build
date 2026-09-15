@@ -115,8 +115,6 @@ describe('URL derivation has exactly one home', () => {
       'server/services/storage/index.ts',          // defines it
       RESOLVER,                                     // the one derivation layer
       'server/routes/callCenter.ts',                // platform ringback upload, explicit config
-      'server/services/storage/consistencyAudit.ts',
-      'server/services/storage/legacyMigration/engine.ts',
     ]);
     const offenders = walk('server')
       .filter((rel) => !ALLOWED.has(rel))

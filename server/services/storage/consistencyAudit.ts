@@ -108,6 +108,12 @@ const POINTER_SOURCES: PointerSource[] = [
     legacyPattern: LEGACY_BRANDING_PATTERN, legacyUrlColumn: 'logo_url',
     legacyUrlMarker: (workspaceId) => `/branding/${workspaceId}/`,
   },
+  // Contact avatars ingested from a channel. The key column arrived with
+  // migration 190; before it, the row held only an absolute URL, so a
+  // pre-migration row that the conservative backfill could not prove
+  // simply has no key and is invisible here — correctly, since there is
+  // nothing to verify a listing against.
+  { category: 'contact_avatar', table: 'contacts', column: 'avatar_storage_key', scope: 'attachment' },
 ];
 
 export interface WorkspaceScopeAuditInfo {

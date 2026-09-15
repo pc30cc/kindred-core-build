@@ -132,21 +132,32 @@ export function createStorageUrlResolver(serverConfig: ServerConfig): StorageUrl
   const byWorkspace = new Map<string, Promise<StorageConfig | null>>();
   let global: Promise<StorageConfig | null> | null = null;
 
+  /**
+   * A provider-resolution failure degrades to "no URL", never to a thrown
+   * read: a broken storage config must not take down the conversation list
+   * that merely wanted an avatar. The try/catch covers a synchronous throw
+   * too, not only a rejected promise.
+   */
+  async function safely(load: () => Promise<StorageConfig | null>): Promise<StorageConfig | null> {
+    try {
+      return (await load()) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   function workspaceConfig(workspaceId: string): Promise<StorageConfig | null> {
     const cacheKey = workspaceId.toLowerCase();
     let pending = byWorkspace.get(cacheKey);
     if (!pending) {
-      // A provider-resolution failure degrades to "no URL", never to a
-      // thrown read: a broken storage config must not take down the
-      // conversation list that merely wanted an avatar.
-      pending = resolveStorageConfig(serverConfig, workspaceId).catch(() => null);
+      pending = safely(() => resolveStorageConfig(serverConfig, workspaceId));
       byWorkspace.set(cacheKey, pending);
     }
     return pending;
   }
 
   function globalConfig(): Promise<StorageConfig | null> {
-    if (!global) global = resolveGlobalStorageConfig(serverConfig).catch(() => null);
+    if (!global) global = safely(() => resolveGlobalStorageConfig(serverConfig));
     return global;
   }
 

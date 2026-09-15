@@ -278,20 +278,26 @@ export function assertOwnerScopedKey(owner: StorageOwner, key: unknown): asserts
 
 // ─── Legacy shape allowlist (migration window only) ─────────────────
 //
-// Known pre-canonicalization key shapes that predate the
+// Known pre-canonicalization WORKSPACE key shapes that predate the
 // workspace/users/platform namespace convention. Each pattern here maps to
 // a specific, still-open migration tracked in
 // docs/STORAGE_ARCHITECTURE_AUDIT.md, so the small number of legacy
-// producers (account avatar, workspace branding, LiveKit egress
-// recordings, and reads of email attachments written before the
-// email-attachments/ -> canonical migration) keep working under strict
-// service-layer enforcement without their call sites needing their own
-// escape hatch. New code must NEVER produce a key matching one of these —
-// always build keys with one of the functions above. Remove an entry only
-// once its producer has fully migrated; never add a new entry to route
-// around enforcement — that defeats the point.
+// producers (workspace branding, LiveKit egress recordings, and reads of
+// email attachments written before the email-attachments/ -> canonical
+// migration) keep working under strict service-layer enforcement without
+// their call sites needing their own escape hatch. New code must NEVER
+// produce a key matching one of these — always build keys with one of the
+// functions above. Remove an entry only once its producer has fully
+// migrated; never add a new entry to route around enforcement — that
+// defeats the point.
+//
+// Note: `avatars/<userId>/...` (the account avatar legacy shape) is
+// intentionally NOT here — it was never workspace-owned. Its
+// migration-window bypass is scoped to user owners only, in
+// server/services/storage/index.ts's enforceOwnerScope, so a
+// workspace-resolved or platform-resolved call can never smuggle a key
+// through this shape.
 const LEGACY_KEY_PATTERNS: RegExp[] = [
-  /^avatars\/[0-9a-f-]{36}\//i, // account.ts user avatar (target: users/<userId>/avatar/...)
   /^branding\/[0-9a-f-]{36}\//i, // account.ts workspace icon (target: workspace/<id>/branding/...)
   /^email-attachments\/[0-9a-f-]{36}\//i, // pre-migration email_attachments.storage_key rows (writers already migrated)
   /^gs_[0-9a-f]{8}_[0-9a-f-]{1,24}\//i, // LiveKit egress recordings (target: workspace/<id>/calls/recordings/<sessionId>/...)

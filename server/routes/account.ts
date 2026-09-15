@@ -2,21 +2,29 @@
  * ACCOUNT ROUTES — self-service for the currently authenticated user.
  *
  * Auth: first-party session cookie (server/lib/workspaceAuth.ts).
- * Storage: avatars are uploaded through the active workspace storage
- *   provider (BunnyCDN / S3 / local) using the existing storage service,
- *   so secrets never reach the browser.
- * Object key convention: `avatars/<userId>/<timestamp>-<rand>.<ext>`
+ * Storage: the account avatar is a global, user-owned asset — it is
+ *   uploaded through the owner-resolved storage primitives
+ *   (uploadForOwner/deleteForOwner with owner: {kind:'user', userId}),
+ *   which resolve the platform-wide default provider (no dependency on
+ *   any workspace membership). Object key convention:
+ *   `users/<userId>/avatar/<uuid>.<ext>` (server/services/storage/keys.ts's
+ *   userAvatarKey()). See docs/STORAGE_ARCHITECTURE_AUDIT.md §4/§9.
+ *
+ *   Workspace icon/branding remains workspace-owned and unchanged by this
+ *   pass (`branding/<workspaceId>/...` — a registered legacy shape in
+ *   server/services/storage/keys.ts pending its own migration).
  *
  * Backward compatibility: this router is purely additive; existing
  * profile reads via Supabase RLS continue to work.
  */
 
-import { Router } from 'express';
+import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 import crypto from 'crypto';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { uploadFile, deleteFile } from '../services/storage/index.js';
+import { uploadFile, deleteFile, uploadForOwner, deleteForOwner } from '../services/storage/index.js';
+import { userAvatarKey } from '../services/storage/keys.js';
 import { resolveVisitorGeo } from '../services/geo/index.js';
 import { hashIp, getClientIp } from '../utils/clientIp.js';
 import { issueVerificationEmail } from '../services/auth-email.js';
@@ -28,20 +36,45 @@ import { readSessionToken } from '../lib/sessionTransport.js';
 
 export const accountRouter = Router();
 
+// ── Shared request/row shapes ───────────────────────────────────────
+// Express's base Request has no knowledge of the fields this router's own
+// middleware attaches — declared here instead of scattering `as any`.
+
+interface AuthUser {
+  id: string;
+  email: string | null;
+  phone: string | null;
+  email_confirmed_at: string | null;
+  created_at: string;
+  user_metadata: { full_name: string | null };
+}
+
+type AuthedRequest = Request & {
+  serverConfig: ServerConfig;
+  authUser: AuthUser;
+  currentSessionId?: string | null;
+};
+
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback;
+}
+
 // ── Auth middleware ───────────────────────────────────────────────
 // Builds a `req.authUser` shaped like the old Supabase Auth user object
 // (id/email/phone/email_confirmed_at/user_metadata.full_name) so downstream
 // handlers below didn't need individual rewrites — but every field now
 // comes from `profiles`/`user_credentials`, not `auth.users`.
-async function requireUser(req: any, res: any, next: any) {
-  const config: ServerConfig = req.serverConfig;
+async function requireUser(req: Request, res: Response, next: NextFunction) {
+  const authedReq = req as AuthedRequest;
+  const config = authedReq.serverConfig;
   const userId = await requireSessionUser(req, res);
   if (!userId) return;
   const identity = await findIdentityById(config, userId);
   if (!identity) {
-    return res.status(401).json({ error: 'Account not found' });
+    res.status(401).json({ error: 'Account not found' });
+    return;
   }
-  req.authUser = {
+  authedReq.authUser = {
     id: identity.id,
     email: identity.email,
     phone: identity.phone,
@@ -55,13 +88,16 @@ async function requireUser(req: any, res: any, next: any) {
   // Never re-derived from a JWT payload — this is the same server-side
   // validateSessionToken() every other authenticated route already trusts.
   const session = await validateSessionToken(config, readSessionToken(req).token);
-  req.currentSessionId = session?.sessionId ?? null;
+  authedReq.currentSessionId = session?.sessionId ?? null;
   next();
 }
 
 accountRouter.use(requireUser);
 
-// ── Helper: get user's primary workspace for storage scoping ──────
+// ── Helper: get user's primary workspace ──────────────────────────
+// Only used now as a fallback for cleaning up pre-migration avatar objects
+// (see cleanupPreviousAvatar) — new avatar uploads no longer depend on
+// workspace membership at all.
 async function getUserPrimaryWorkspaceId(config: ServerConfig, userId: string): Promise<string | null> {
   const sb = getServiceClient(config);
   const { data } = await sb
@@ -71,14 +107,14 @@ async function getUserPrimaryWorkspaceId(config: ServerConfig, userId: string): 
     .order('created_at', { ascending: true })
     .limit(1)
     .maybeSingle();
-  return data?.workspace_id ?? null;
+  return (data as { workspace_id?: string } | null)?.workspace_id ?? null;
 }
 
 // ── GET /api/account/me ───────────────────────────────────────────
 accountRouter.get('/me', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const user = (req as any).authUser;
+    const config = (req as AuthedRequest).serverConfig;
+    const user = (req as AuthedRequest).authUser;
     const sb = getServiceClient(config);
 
     const { data: profile } = await sb
@@ -95,8 +131,8 @@ accountRouter.get('/me', async (req, res) => {
       created_at: user.created_at,
       profile: profile ?? null,
     });
-  } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Failed to load account' });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: errorMessage(err, 'Failed to load account') });
   }
 });
 
@@ -113,8 +149,8 @@ const updateProfileSchema = z.object({
 
 accountRouter.patch('/me', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const user = (req as any).authUser;
+    const config = (req as AuthedRequest).serverConfig;
+    const user = (req as AuthedRequest).authUser;
     const parsed = updateProfileSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
@@ -161,8 +197,8 @@ accountRouter.patch('/me', async (req, res) => {
       .maybeSingle();
 
     return res.json({ success: true, profile });
-  } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Failed to update profile' });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: errorMessage(err, 'Failed to update profile') });
   }
 });
 
@@ -181,7 +217,17 @@ function extFromContentType(ct: string): string {
   return 'jpg';
 }
 
-async function ensureProfileRow(config: ServerConfig, user: any) {
+interface ProfileRow {
+  id: string;
+  email: string;
+  full_name: string | null;
+  avatar_url: string | null;
+  avatar_storage_key: string | null;
+  updated_at: string;
+  [key: string]: unknown;
+}
+
+async function ensureProfileRow(config: ServerConfig, user: AuthUser): Promise<ProfileRow> {
   const sb = getServiceClient(config);
   const { data: profile, error } = await sb
     .from('profiles')
@@ -193,12 +239,12 @@ async function ensureProfileRow(config: ServerConfig, user: any) {
     throw new Error(`Failed to load profile row: ${error.message}`);
   }
 
-  if (profile) return profile;
+  if (profile) return profile as ProfileRow;
 
   const seed = {
     id: user.id,
     email: user.email ?? '',
-    full_name: (user.user_metadata?.full_name as string | undefined)?.trim() || null,
+    full_name: user.user_metadata?.full_name?.trim() || null,
     avatar_url: null,
     updated_at: new Date().toISOString(),
   };
@@ -217,13 +263,47 @@ async function ensureProfileRow(config: ServerConfig, user: any) {
     throw new Error('Profile row could not be created');
   }
 
-  return inserted;
+  return inserted as ProfileRow;
+}
+
+/**
+ * Best-effort delete of the previous avatar object.
+ *
+ * Rows written by the canonical uploader carry avatar_storage_key and are
+ * deleted through the user-owned storage path (deleteForOwner) — no
+ * workspace involved. Rows from before this migration only have the old
+ * `avatars/<userId>/...` URL, which was originally written through
+ * whichever workspace happened to be the user's primary membership at
+ * upload time — so it must still be deleted the same way (allowLegacyKey)
+ * until the object itself is replaced or backfilled.
+ */
+async function cleanupPreviousAvatar(
+  config: ServerConfig,
+  userId: string,
+  prevProfile: Pick<ProfileRow, 'avatar_url' | 'avatar_storage_key'> | null,
+): Promise<void> {
+  const prevKey = prevProfile?.avatar_storage_key;
+  if (prevKey) {
+    await deleteForOwner(config, { kind: 'user', userId }, prevKey).catch(() => undefined);
+    return;
+  }
+
+  const prevUrl = prevProfile?.avatar_url;
+  if (!prevUrl) return;
+  const marker = `/avatars/${userId}/`;
+  const idx = prevUrl.indexOf(marker);
+  if (idx < 0) return;
+  const oldKey = prevUrl.slice(idx + 1); // strip leading slash
+  if (!oldKey) return;
+  const workspaceId = await getUserPrimaryWorkspaceId(config, userId);
+  if (!workspaceId) return;
+  await deleteFile(config, workspaceId, oldKey, { allowLegacyKey: true }).catch(() => undefined);
 }
 
 accountRouter.post('/avatar', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const user = (req as any).authUser;
+    const config = (req as AuthedRequest).serverConfig;
+    const user = (req as AuthedRequest).authUser;
     const parsed = avatarSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
@@ -237,18 +317,13 @@ accountRouter.post('/avatar', async (req, res) => {
       return res.status(413).json({ error: 'Avatar must be smaller than 10 MB' });
     }
 
-    const workspaceId = await getUserPrimaryWorkspaceId(config, user.id);
-    if (!workspaceId) {
-      return res.status(400).json({ error: 'No workspace available for storage routing' });
-    }
-
     const existingProfile = await ensureProfileRow(config, user);
 
     const ext = extFromContentType(parsed.data.contentType);
-    const fileKey = `avatars/${user.id}/${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
+    const fileKey = userAvatarKey({ userId: user.id, ext });
 
-    const result = await uploadFile(config, {
-      workspaceId,
+    const result = await uploadForOwner(config, {
+      owner: { kind: 'user', userId: user.id },
       fileKey,
       data: buffer,
       contentType: parsed.data.contentType,
@@ -260,21 +335,15 @@ accountRouter.post('/avatar', async (req, res) => {
 
     const sb = getServiceClient(config);
 
-    const prev = existingProfile?.avatar_url;
-    if (prev && typeof prev === 'string') {
-      const marker = `/avatars/${user.id}/`;
-      const idx = prev.indexOf(marker);
-      if (idx >= 0) {
-        const oldKey = prev.slice(idx + 1); // strip leading slash
-        if (oldKey && oldKey !== fileKey) {
-          await deleteFile(config, workspaceId, oldKey).catch(() => undefined);
-        }
-      }
-    }
+    await cleanupPreviousAvatar(config, user.id, existingProfile);
 
     const { data: savedProfile, error: saveError } = await sb
       .from('profiles')
-      .update({ avatar_url: result.url, updated_at: new Date().toISOString() })
+      .update({
+        avatar_url: result.url,
+        avatar_storage_key: result.fileKey ?? fileKey,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', user.id)
       .select('id, avatar_url')
       .maybeSingle();
@@ -295,44 +364,35 @@ accountRouter.post('/avatar', async (req, res) => {
       fileKey: result.fileKey,
       provider: 'resolved',
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[account] avatar upload error:', err);
-    return res.status(500).json({ error: err?.message || 'Avatar upload failed' });
+    return res.status(500).json({ error: errorMessage(err, 'Avatar upload failed') });
   }
 });
 
 // ── DELETE /api/account/avatar ────────────────────────────────────
 accountRouter.delete('/avatar', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const user = (req as any).authUser;
+    const config = (req as AuthedRequest).serverConfig;
+    const user = (req as AuthedRequest).authUser;
     const sb = getServiceClient(config);
 
-    const workspaceId = await getUserPrimaryWorkspaceId(config, user.id);
     const { data: prevProfile } = await sb
       .from('profiles')
-      .select('avatar_url')
+      .select('avatar_url, avatar_storage_key')
       .eq('id', user.id)
       .maybeSingle();
 
-    const prev = prevProfile?.avatar_url;
-    if (prev && workspaceId && typeof prev === 'string') {
-      const marker = `/avatars/${user.id}/`;
-      const idx = prev.indexOf(marker);
-      if (idx >= 0) {
-        const oldKey = prev.slice(idx + 1);
-        if (oldKey) await deleteFile(config, workspaceId, oldKey).catch(() => undefined);
-      }
-    }
+    await cleanupPreviousAvatar(config, user.id, prevProfile as Pick<ProfileRow, 'avatar_url' | 'avatar_storage_key'> | null);
 
     await sb
       .from('profiles')
-      .update({ avatar_url: null, updated_at: new Date().toISOString() })
+      .update({ avatar_url: null, avatar_storage_key: null, updated_at: new Date().toISOString() })
       .eq('id', user.id);
 
     return res.json({ success: true });
-  } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Failed to remove avatar' });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: errorMessage(err, 'Failed to remove avatar') });
   }
 });
 
@@ -357,9 +417,9 @@ const changePasswordSchema = z.object({
 
 accountRouter.post('/change-password', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const user = (req as any).authUser;
-    const currentSessionId: string | null = (req as any).currentSessionId ?? null;
+    const config = (req as AuthedRequest).serverConfig;
+    const user = (req as AuthedRequest).authUser;
+    const currentSessionId: string | null = (req as AuthedRequest).currentSessionId ?? null;
     const parsed = changePasswordSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'New password must be at least 8 characters' });
@@ -402,8 +462,8 @@ accountRouter.post('/change-password', async (req, res) => {
     }
 
     return res.json({ success: true, revoked_sessions: revokedCount ?? 0 });
-  } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Failed to change password' });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: errorMessage(err, 'Failed to change password') });
   }
 });
 
@@ -425,9 +485,9 @@ const RESEND_MIN_INTERVAL_MS = 60_000;
 
 accountRouter.post('/resend-verification', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const user = (req as any).authUser;
-    const email: string | undefined = user?.email;
+    const config = (req as AuthedRequest).serverConfig;
+    const user = (req as AuthedRequest).authUser;
+    const email: string | undefined = user?.email ?? undefined;
     if (!email) return res.status(400).json({ error: 'Account has no email' });
 
     // Canonical verification state, set by this router's own requireUser
@@ -476,8 +536,8 @@ accountRouter.post('/resend-verification', async (req, res) => {
     }
 
     return res.json({ success: true, sent: true, email });
-  } catch (err: any) {
-    console.error('[account] resend-verification error:', err?.message || err);
+  } catch (err: unknown) {
+    console.error('[account] resend-verification error:', errorMessage(err, String(err)));
     return res.status(500).json({ error: 'Failed to send verification email' });
   }
 });
@@ -555,9 +615,9 @@ async function enrichIpForDisplay(config: ServerConfig, rawIp: string | null) {
  */
 accountRouter.get('/security/sessions', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const user = (req as any).authUser;
-    const currentSessionId: string | null = (req as any).currentSessionId ?? null;
+    const config = (req as AuthedRequest).serverConfig;
+    const user = (req as AuthedRequest).authUser;
+    const currentSessionId: string | null = (req as AuthedRequest).currentSessionId ?? null;
 
     const rows = await listActiveSessions(config, user.id);
 
@@ -587,9 +647,9 @@ accountRouter.get('/security/sessions', async (req, res) => {
     }));
 
     return res.json({ sessions: enriched, current_session_id: currentSessionId });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[account/security] sessions error:', err);
-    return res.status(500).json({ error: err?.message || 'Failed to load sessions' });
+    return res.status(500).json({ error: errorMessage(err, 'Failed to load sessions') });
   }
 });
 
@@ -606,9 +666,10 @@ accountRouter.get('/security/sessions', async (req, res) => {
  */
 accountRouter.delete('/security/sessions/:id', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const user = (req as any).authUser;
-    const currentSessionId: string | null = (req as any).currentSessionId ?? null;
+    const authedReq = req as unknown as AuthedRequest;
+    const config = authedReq.serverConfig;
+    const user = authedReq.authUser;
+    const currentSessionId: string | null = authedReq.currentSessionId ?? null;
     const sessionId = String(req.params.id || '').trim();
     const all = req.query.all === '1' || req.query.all === 'true';
 
@@ -627,15 +688,15 @@ accountRouter.delete('/security/sessions/:id', async (req, res) => {
       .select('id, user_id')
       .eq('id', sessionId)
       .maybeSingle();
-    if (!target || (target as any).user_id !== user.id) {
+    if (!target || (target as { user_id?: string }).user_id !== user.id) {
       return res.status(404).json({ error: 'Session not found' });
     }
 
     await revokeSession(config, sessionId, 'logout');
     return res.json({ success: true });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[account/security] revoke error:', err);
-    return res.status(500).json({ error: err?.message || 'Failed to revoke session' });
+    return res.status(500).json({ error: errorMessage(err, 'Failed to revoke session') });
   }
 });
 
@@ -646,8 +707,8 @@ accountRouter.delete('/security/sessions/:id', async (req, res) => {
  */
 accountRouter.get('/security/login-history', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const user = (req as any).authUser;
+    const config = (req as AuthedRequest).serverConfig;
+    const user = (req as AuthedRequest).authUser;
     if (!user.email) return res.json({ entries: [] });
     const sb = getServiceClient(config);
 
@@ -665,7 +726,14 @@ accountRouter.get('/security/login-history', async (req, res) => {
       return res.status(500).json({ error: 'Failed to load login history' });
     }
 
-    const entries = await Promise.all((data ?? []).map(async (row: any) => {
+    interface LoginAttemptRow {
+      id: string;
+      created_at: string;
+      success: boolean;
+      ip_address: string | null;
+    }
+
+    const entries = await Promise.all(((data ?? []) as LoginAttemptRow[]).map(async (row) => {
       const geo = await enrichIpForDisplay(config, row.ip_address);
       return {
         id: row.id,
@@ -680,18 +748,23 @@ accountRouter.get('/security/login-history', async (req, res) => {
     }));
 
     return res.json({ entries });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[account/security] login-history error:', err);
-    return res.status(500).json({ error: err?.message || 'Failed to load login history' });
+    return res.status(500).json({ error: errorMessage(err, 'Failed to load login history') });
   }
 });
 
 // ─── WORKSPACE ICON UPLOAD ──────────────────────────────────────
 //
-// Mirrors the avatar upload flow but writes to the workspace-scoped
+// Mirrors the (former) avatar upload flow but writes to the workspace-scoped
 // `branding/<workspaceId>/icon-...` key and persists the resulting URL
 // to `workspace_branding.logo_url`. Caller must be a member of the
 // workspace (any role) — verified by RLS via service-role lookup.
+//
+// Unlike account avatar, this IS genuinely workspace-owned — left as-is by
+// the account-avatar-ownership pass. `branding/<workspaceId>/...` is a
+// registered legacy shape (server/services/storage/keys.ts) pending its
+// own migration to workspace/<id>/branding/...
 
 const workspaceIconSchema = z.object({
   workspaceId: z.string().uuid(),
@@ -713,8 +786,8 @@ async function userIsWorkspaceMember(config: ServerConfig, userId: string, works
 
 accountRouter.post('/workspace-icon', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const user = (req as any).authUser;
+    const config = (req as AuthedRequest).serverConfig;
+    const user = (req as AuthedRequest).authUser;
     const parsed = workspaceIconSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
@@ -739,6 +812,7 @@ accountRouter.post('/workspace-icon', async (req, res) => {
       fileKey,
       data: buffer,
       contentType,
+      allowLegacyKey: true,
     });
     if (!result.success || !result.url) {
       return res.status(500).json({ error: result.error || 'Upload failed' });
@@ -759,7 +833,7 @@ accountRouter.post('/workspace-icon', async (req, res) => {
       if (idx >= 0) {
         const oldKey = prev.slice(idx + 1);
         if (oldKey && oldKey !== fileKey) {
-          await deleteFile(config, workspaceId, oldKey).catch(() => undefined);
+          await deleteFile(config, workspaceId, oldKey, { allowLegacyKey: true }).catch(() => undefined);
         }
       }
     }
@@ -775,16 +849,16 @@ accountRouter.post('/workspace-icon', async (req, res) => {
     }
 
     return res.json({ success: true, url: result.url, fileKey: result.fileKey });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[account] workspace icon upload error:', err);
-    return res.status(500).json({ error: err?.message || 'Workspace icon upload failed' });
+    return res.status(500).json({ error: errorMessage(err, 'Workspace icon upload failed') });
   }
 });
 
 accountRouter.delete('/workspace-icon', async (req, res) => {
   try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const user = (req as any).authUser;
+    const config = (req as AuthedRequest).serverConfig;
+    const user = (req as AuthedRequest).authUser;
     const workspaceId = String(req.query.workspaceId || '').trim();
     if (!workspaceId) return res.status(400).json({ error: 'Missing workspaceId' });
     if (!(await userIsWorkspaceMember(config, user.id, workspaceId))) {
@@ -803,7 +877,7 @@ accountRouter.delete('/workspace-icon', async (req, res) => {
       const idx = prev.indexOf(marker);
       if (idx >= 0) {
         const oldKey = prev.slice(idx + 1);
-        if (oldKey) await deleteFile(config, workspaceId, oldKey).catch(() => undefined);
+        if (oldKey) await deleteFile(config, workspaceId, oldKey, { allowLegacyKey: true }).catch(() => undefined);
       }
     }
 
@@ -813,18 +887,19 @@ accountRouter.delete('/workspace-icon', async (req, res) => {
       .eq('workspace_id', workspaceId);
 
     return res.json({ success: true });
-  } catch (err: any) {
-    return res.status(500).json({ error: err?.message || 'Failed to remove workspace icon' });
+  } catch (err: unknown) {
+    return res.status(500).json({ error: errorMessage(err, 'Failed to remove workspace icon') });
   }
 });
+
 // ── Global provider defaults (non-secret selection metadata) ────────────
 // Replaces the browser-direct `app_runtime_config` SELECT in
 // src/providers/sync.ts. Only `default_<type>_provider` keys are exposed,
 // and only the provider NAME — never the stored config/credentials.
-accountRouter.get('/provider-defaults', async (req: any, res) => {
+accountRouter.get('/provider-defaults', async (req, res) => {
   const userId = await requireSessionUser(req, res);
   if (!userId) return;
-  const config: ServerConfig = req.serverConfig;
+  const config = (req as AuthedRequest).serverConfig;
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('app_runtime_config')
@@ -832,13 +907,13 @@ accountRouter.get('/provider-defaults', async (req: any, res) => {
     .like('key', 'default_%_provider');
   if (error) return res.status(500).json({ error: error.message });
   const defaults: Record<string, string> = {};
-  for (const row of (data ?? []) as Array<{ key: string; value: any }>) {
+  for (const row of (data ?? []) as Array<{ key: string; value: unknown }>) {
     const match = row.key.match(/^default_(\w+)_provider$/);
     if (!match) continue;
     // Auth is never DB-switchable — first-party gs_session auth is the sole
     // identity system; never surface a `default_auth_provider` row.
     if (match[1] === 'auth') continue;
-    const name = row.value?.provider_name;
+    const name = (row.value as Record<string, unknown> | null)?.provider_name;
     if (typeof name === 'string' && name) defaults[match[1]] = name;
   }
   return res.json({ defaults });

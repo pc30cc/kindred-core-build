@@ -15,7 +15,7 @@
 import * as crypto from 'crypto';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { deleteFile } from '../storage/index.js';
+import { deleteFile, deleteForOwner } from '../storage/index.js';
 import { scrubPii } from './scrub.js';
 import type { PrivacyJobRow, ResolvedSubject } from './types.js';
 
@@ -69,6 +69,23 @@ export async function runAnonymize(
     const anonHash = `anon_${crypto.createHash('sha256').update(`u:${userId}`).digest('hex').slice(0, 16)}`;
     // Soft-revoke active sessions
     await sb.from('auth_sessions').update({ revoked_at: new Date().toISOString() }).eq('user_id', userId).is('revoked_at', null);
+
+    // Avatar is a user-owned storage object (docs/STORAGE_ARCHITECTURE_AUDIT.md
+    // §4/§9) — anonymizing PII means actually deleting the image, not just
+    // clearing the DB pointer. avatar_storage_key covers rows written by the
+    // canonical uploader; legacy pre-migration rows (no avatar_storage_key,
+    // only the old avatars/<userId>/... URL) are left as a known orphan here
+    // — same acceptance as the rest of this migration's legacy window.
+    const { data: priorProfile } = await sb
+      .from('profiles')
+      .select('avatar_storage_key')
+      .eq('id', userId)
+      .maybeSingle();
+    const avatarKey = (priorProfile as { avatar_storage_key?: string | null } | null)?.avatar_storage_key;
+    if (avatarKey) {
+      await deleteForOwner(config, { kind: 'user', userId }, avatarKey).catch(() => undefined);
+    }
+
     // Clear PII from profile
     await sb
       .from('profiles')
@@ -76,6 +93,7 @@ export async function runAnonymize(
         full_name: null,
         company_name: null,
         avatar_url: null,
+        avatar_storage_key: null,
         website_domain: null,
         signup_ip: null,
         // email kept hashed for FK integrity if referenced; replace with synthetic
@@ -99,7 +117,7 @@ export async function runAnonymize(
       .select('id')
       .eq('workspace_id', wsId)
       .or(orParts.join(','));
-    sessionIds = (data || []).map((r: any) => r.id);
+    sessionIds = (data || []).map((r: { id: string }) => r.id);
   }
 
   let conversationIds: string[] = [];
@@ -112,7 +130,7 @@ export async function runAnonymize(
       .select('id')
       .eq('workspace_id', wsId)
       .or(orParts.join(','));
-    conversationIds = (data || []).map((r: any) => r.id);
+    conversationIds = (data || []).map((r: { id: string }) => r.id);
   }
 
   // ─── 1. Redact contact-authored messages (idempotent) ──────────

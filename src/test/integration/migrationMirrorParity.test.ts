@@ -185,6 +185,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/165_email_messages_delivery_status.sql',
     hosted: 'supabase/migrations/20260912130000_email_messages_delivery_status.sql',
   },
+  {
+    label: '177 — Account avatar ownership (profiles.avatar_storage_key)',
+    selfHost: 'database/migrations/177_profiles_avatar_storage_key.sql',
+    hosted: 'supabase/migrations/20260915073000_profiles_avatar_storage_key.sql',
+  },
 
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered

@@ -28,6 +28,8 @@ interface MockQueryBuilder {
   insert: (...args: unknown[]) => Promise<{ data: unknown; error: unknown }>;
 }
 
+export const mockInsertCalls: Array<{ table: string; row: unknown }> = [];
+
 vi.mock('../../../server/supabase.js', () => {
   // No workspace-level provider_configs override; app_runtime_config
   // resolves to a fully-configured local provider (publicUrl set, so
@@ -47,8 +49,19 @@ vi.mock('../../../server/supabase.js', () => {
         }
         return { data: null };
       },
-      maybeSingle: async () => ({ data: null }),
-      insert: async () => ({ data: null, error: null }),
+      maybeSingle: async () => {
+        // resolveGlobalStorageConfig() (used for user/platform owners, since
+        // there's no workspace to derive a provider from) queries via
+        // maybeSingle, not single — mirror the same local+publicUrl config.
+        if (table === 'app_runtime_config') {
+          return { data: { value: { provider_name: 'local', config: { local_path: '/tmp/storage', public_url: 'http://local.test' } } } };
+        }
+        return { data: null };
+      },
+      insert: async (row: unknown) => {
+        mockInsertCalls.push({ table, row });
+        return { data: null, error: null };
+      },
     };
     return builder;
   };
@@ -56,7 +69,7 @@ vi.mock('../../../server/supabase.js', () => {
 });
 
 import * as storage from '../../../server/services/storage/index';
-import { chatAttachmentKey } from '../../../server/services/storage/keys';
+import { chatAttachmentKey, userAvatarKey } from '../../../server/services/storage/keys';
 import type { ServerConfig } from '../../../server/config';
 
 const WS_A = '11111111-1111-1111-1111-111111111111';
@@ -128,9 +141,8 @@ describe('uploadFile — workspace scope enforcement', () => {
     rmSync(join('/tmp/storage', key), { force: true });
   });
 
-  it('automatically permits the small, registered set of pre-canonicalization legacy shapes (avatars/, branding/, email-attachments/, LiveKit gs_ rooms) without callers needing an explicit flag', async () => {
+  it('automatically permits the small, registered set of pre-canonicalization WORKSPACE legacy shapes (branding/, email-attachments/, LiveKit gs_ rooms) without callers needing an explicit flag', async () => {
     const legacyKeys = [
-      `avatars/${USER_A}/x.png`,
       `branding/${WS_A}/icon.png`,
       `email-attachments/${WS_A}/2026/01/x.pdf`,
       'gs_11111111_222222222222/12345.mp4',
@@ -236,6 +248,145 @@ describe('downloadFile / downloadFileRange / getFileUrl — workspace scope enfo
     const r = await storage.downloadFile({} as unknown as ServerConfig, WS_A, key);
     expect(r.success).toBe(true);
     expect(r.data?.equals(PNG_BYTES)).toBe(true);
+    rmSync(join('/tmp/storage', key), { force: true });
+  });
+});
+
+describe('uploadForOwner / downloadForOwner / deleteForOwner / getFileUrlForOwner — owner-generic operations', () => {
+  it('accepts a canonical users/<userId>/... key for a user owner and round-trips through the local provider', async () => {
+    const key = userAvatarKey({ userId: USER_A, ext: 'png' });
+    const uploaded = await storage.uploadForOwner({} as unknown as ServerConfig, {
+      owner: { kind: 'user', userId: USER_A },
+      fileKey: key,
+      data: PNG_BYTES,
+      contentType: 'image/png',
+    });
+    expect(uploaded.success).toBe(true);
+    expect(existsSync(join('/tmp/storage', key))).toBe(true);
+
+    const downloaded = await storage.downloadForOwner({} as unknown as ServerConfig, { kind: 'user', userId: USER_A }, key);
+    expect(downloaded.success).toBe(true);
+    expect(downloaded.data?.equals(PNG_BYTES)).toBe(true);
+
+    const url = await storage.getFileUrlForOwner({} as unknown as ServerConfig, { kind: 'user', userId: USER_A }, key);
+    expect(url).toBe(`http://local.test/${key}`);
+
+    const deleted = await storage.deleteForOwner({} as unknown as ServerConfig, { kind: 'user', userId: USER_A }, key);
+    expect(deleted.success).toBe(true);
+    expect(existsSync(join('/tmp/storage', key))).toBe(false);
+  });
+
+  it('rejects a user-owned upload scoped to a different user', async () => {
+    const r = await storage.uploadForOwner({} as unknown as ServerConfig, {
+      owner: { kind: 'user', userId: USER_A },
+      fileKey: `users/${WS_A}/avatar/x.png`,
+      data: PNG_BYTES,
+      contentType: 'image/png',
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects a user-owned call writing into workspace/ or platform/', async () => {
+    const a = await storage.uploadForOwner({} as unknown as ServerConfig, {
+      owner: { kind: 'user', userId: USER_A },
+      fileKey: `workspace/${WS_A}/attachments/chat/x.png`,
+      data: PNG_BYTES,
+      contentType: 'image/png',
+    });
+    expect(a.success).toBe(false);
+
+    const b = await storage.uploadForOwner({} as unknown as ServerConfig, {
+      owner: { kind: 'user', userId: USER_A },
+      fileKey: 'platform/call-center/ringback/x.mp3',
+      data: PNG_BYTES,
+      contentType: 'image/png',
+    });
+    expect(b.success).toBe(false);
+  });
+
+  it('automatically permits the legacy avatars/<userId>/... shape for a user owner (account avatar migration window)', async () => {
+    const legacyKey = `avatars/${USER_A}/old-avatar.png`;
+    const r = await storage.uploadForOwner({} as unknown as ServerConfig, {
+      owner: { kind: 'user', userId: USER_A },
+      fileKey: legacyKey,
+      data: PNG_BYTES,
+      contentType: 'image/png',
+    });
+    expect(r.success).toBe(true);
+    rmSync(join('/tmp/storage', legacyKey), { force: true });
+  });
+
+  it('does NOT permit the legacy avatars/ shape for a workspace or platform owner (the bypass is user-owner-specific)', async () => {
+    const a = await storage.uploadForOwner({} as unknown as ServerConfig, {
+      owner: { kind: 'workspace', workspaceId: WS_A },
+      fileKey: `avatars/${USER_A}/x.png`,
+      data: PNG_BYTES,
+      contentType: 'image/png',
+    });
+    expect(a.success).toBe(false);
+
+    const b = await storage.uploadForOwner({} as unknown as ServerConfig, {
+      owner: { kind: 'platform' },
+      fileKey: `avatars/${USER_A}/x.png`,
+      data: PNG_BYTES,
+      contentType: 'image/png',
+    });
+    expect(b.success).toBe(false);
+  });
+
+  it('accepts a canonical platform/... key for a platform owner', async () => {
+    const key = 'platform/call-center/ringback/queue-1/tone.mp3';
+    const r = await storage.uploadForOwner({} as unknown as ServerConfig, {
+      owner: { kind: 'platform' },
+      fileKey: key,
+      data: PNG_BYTES,
+      contentType: 'image/png',
+    });
+    expect(r.success).toBe(true);
+    rmSync(join('/tmp/storage', key), { force: true });
+  });
+
+  it('rejects a platform-owned call writing into workspace/ or users/', async () => {
+    const a = await storage.uploadForOwner({} as unknown as ServerConfig, {
+      owner: { kind: 'platform' },
+      fileKey: `workspace/${WS_A}/attachments/chat/x.png`,
+      data: PNG_BYTES,
+      contentType: 'image/png',
+    });
+    expect(a.success).toBe(false);
+
+    const b = await storage.uploadForOwner({} as unknown as ServerConfig, {
+      owner: { kind: 'platform' },
+      fileKey: `users/${USER_A}/avatar/x.png`,
+      data: PNG_BYTES,
+      contentType: 'image/png',
+    });
+    expect(b.success).toBe(false);
+  });
+
+  it('never writes to storage_usage_logs for user/platform-owned uploads (not workspace quota)', async () => {
+    mockInsertCalls.length = 0;
+    const key = userAvatarKey({ userId: USER_A, ext: 'png' });
+    await storage.uploadForOwner({} as unknown as ServerConfig, {
+      owner: { kind: 'user', userId: USER_A },
+      fileKey: key,
+      data: PNG_BYTES,
+      contentType: 'image/png',
+    });
+    expect(mockInsertCalls.some((c) => c.table === 'storage_usage_logs')).toBe(false);
+    rmSync(join('/tmp/storage', key), { force: true });
+  });
+
+  it('still writes to storage_usage_logs for workspace-owned uploads (unchanged single-writer quota behavior)', async () => {
+    mockInsertCalls.length = 0;
+    const key = chatAttachmentKey({ workspaceId: WS_A, fileName: 'quota-check.png' });
+    await storage.uploadForOwner({} as unknown as ServerConfig, {
+      owner: { kind: 'workspace', workspaceId: WS_A },
+      fileKey: key,
+      data: PNG_BYTES,
+      contentType: 'image/png',
+    });
+    expect(mockInsertCalls.some((c) => c.table === 'storage_usage_logs')).toBe(true);
     rmSync(join('/tmp/storage', key), { force: true });
   });
 });

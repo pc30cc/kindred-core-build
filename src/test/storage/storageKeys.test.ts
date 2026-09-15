@@ -229,11 +229,14 @@ describe('assertWorkspaceScopedKey / assertUserScopedKey / assertPlatformScopedK
 });
 
 describe('isKnownLegacyStorageKey', () => {
-  it('recognizes the small, registered set of pre-canonicalization shapes', () => {
-    expect(isKnownLegacyStorageKey(`avatars/${USER_A}/x.png`)).toBe(true);
+  it('recognizes the small, registered set of pre-canonicalization WORKSPACE shapes', () => {
     expect(isKnownLegacyStorageKey(`branding/${WS_A}/icon.png`)).toBe(true);
     expect(isKnownLegacyStorageKey(`email-attachments/${WS_A}/2026/01/x.pdf`)).toBe(true);
     expect(isKnownLegacyStorageKey('gs_11111111_222222222222/12345.mp4')).toBe(true);
+  });
+
+  it('does NOT recognize avatars/ — that legacy shape was never workspace-owned; its bypass is scoped to user owners only in server/services/storage/index.ts', () => {
+    expect(isKnownLegacyStorageKey(`avatars/${USER_A}/x.png`)).toBe(false);
   });
 
   it('does not recognize canonical keys or arbitrary non-canonical roots', () => {

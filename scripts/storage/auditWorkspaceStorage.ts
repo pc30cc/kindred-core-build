@@ -27,18 +27,24 @@ function parseArgs(argv: string[]): Record<string, string | boolean> {
 }
 
 function printReport(report: WorkspaceStorageAuditReport): void {
-  if (report.listingError) {
-    console.error(`[${report.workspaceId}] LISTING FAILED: ${report.listingError} — every other field below is unreliable`);
-    return;
+  const scopeErrors = Object.entries(report.scopes).filter(([, info]) => info.listingError);
+  if (scopeErrors.length > 0) {
+    for (const [name, info] of scopeErrors) {
+      console.error(`[${report.workspaceId}] scope '${name}' LISTING FAILED: ${info.listingError} — categories on this scope are excluded below, not misreported`);
+    }
   }
   const clean =
     report.orphanedObjects.length === 0 &&
     report.danglingPointers.length === 0 &&
     report.wrongPrefixRows.length === 0;
+  const scopeSummary = Object.entries(report.scopes)
+    .map(([name, info]) => `${name}=${info.configured ? info.objectCount : 'unconfigured'}${info.dedupOf ? `(dedup of ${info.dedupOf})` : ''}`)
+    .join(' ');
   console.log(
-    `[${report.workspaceId}] objects=${report.storageObjectCount} pointers=${report.dbPointerCount} ` +
+    `[${report.workspaceId}] scopes[${scopeSummary}] objects=${report.storageObjectCount} pointers=${report.dbPointerCount} ` +
       `orphaned=${report.orphanedObjects.length} dangling=${report.danglingPointers.length} ` +
       `wrongPrefix=${report.wrongPrefixRows.length} legacy=${JSON.stringify(report.legacyShapeCounts)}` +
+      (report.unreliableCategories.length ? ` unreliable=${report.unreliableCategories.join(',')}` : '') +
       (clean ? ' — clean' : ''),
   );
   if (report.wrongPrefixRows.length > 0) {
@@ -47,11 +53,11 @@ function printReport(report: WorkspaceStorageAuditReport): void {
   }
   if (report.danglingPointers.length > 0) {
     console.warn(`[${report.workspaceId}] dangling pointers (DB row, no object):`);
-    for (const r of report.danglingPointers) console.warn(`  ${r.table}#${r.id} (${r.category}): ${r.key}`);
+    for (const r of report.danglingPointers) console.warn(`  ${r.table}#${r.id} (${r.category}, scope ${r.scope}): ${r.key}`);
   }
   if (report.orphanedObjects.length > 0) {
     console.warn(`[${report.workspaceId}] orphaned objects (object, no DB row):`);
-    for (const key of report.orphanedObjects) console.warn(`  ${key}`);
+    for (const o of report.orphanedObjects) console.warn(`  [${o.scope}] ${o.key}`);
   }
 }
 

@@ -24,7 +24,7 @@ interface MockQueryBuilder {
   limit: (...args: unknown[]) => MockQueryBuilder;
   not: (...args: unknown[]) => MockQueryBuilder;
   single: () => Promise<{ data: unknown }>;
-  maybeSingle: () => Promise<{ data: unknown }>;
+  maybeSingle: () => Promise<{ data: unknown; error?: unknown }>;
   insert: (...args: unknown[]) => Promise<{ data: unknown; error: unknown }>;
 }
 
@@ -36,6 +36,9 @@ export const mockInsertCalls: Array<{ table: string; row: unknown }> = [];
 // the pre-existing default { data: null } behavior below, so this is
 // backward compatible).
 export const mockWorkspaceStatus = { current: null as string | null };
+// When true, the mocked `workspaces` lookup returns a query error instead
+// of a row — proves isWorkspaceDeleting()'s fail-closed behavior.
+export const mockWorkspaceStatusError = { current: false };
 
 vi.mock('../../../server/supabase.js', () => {
   // No workspace-level provider_configs override; app_runtime_config
@@ -64,6 +67,7 @@ vi.mock('../../../server/supabase.js', () => {
           return { data: { value: { provider_name: 'local', config: { local_path: '/tmp/storage', public_url: 'http://local.test' } } } };
         }
         if (table === 'workspaces') {
+          if (mockWorkspaceStatusError.current) return { data: null, error: { message: 'connection reset' } };
           return { data: mockWorkspaceStatus.current ? { status: mockWorkspaceStatus.current } : null };
         }
         return { data: null };
@@ -404,6 +408,7 @@ describe('uploadForOwner / downloadForOwner / deleteForOwner / getFileUrlForOwne
 describe('uploadForOwner — workspace deletion write-lock', () => {
   afterEach(() => {
     mockWorkspaceStatus.current = null;
+    mockWorkspaceStatusError.current = false;
   });
 
   it('rejects an upload for a workspace whose status is deleting', async () => {
@@ -450,5 +455,43 @@ describe('uploadForOwner — workspace deletion write-lock', () => {
 
     expect(r.success).toBe(true);
     rmSync(join('/tmp/storage', key), { force: true });
+  });
+
+  it('fails CLOSED (rejects the upload) when the deletion-state lookup itself errors — never assumes active on an unreliable check', async () => {
+    mockWorkspaceStatusError.current = true;
+    const key = chatAttachmentKey({ workspaceId: WS_A, fileName: 'unreliable-lookup.png' });
+
+    const r = await storage.uploadForOwner({} as unknown as ServerConfig, {
+      owner: { kind: 'workspace', workspaceId: WS_A },
+      fileKey: key,
+      data: PNG_BYTES,
+      contentType: 'image/png',
+    });
+
+    expect(r.success).toBe(false);
+    expect(existsSync(join('/tmp/storage', key))).toBe(false);
+  });
+
+  it('race: once a workspace enters deleting mid-flight, every subsequent workspace-owned upload attempt fails — none land after that point', async () => {
+    const attempts = 20;
+    const results: boolean[] = [];
+    for (let i = 0; i < attempts; i++) {
+      // Simulates the cleanup worker flipping status exactly halfway
+      // through a burst of concurrent upload attempts racing the deletion.
+      if (i === Math.floor(attempts / 2)) mockWorkspaceStatus.current = 'deleting';
+      const key = chatAttachmentKey({ workspaceId: WS_A, fileName: `race-${i}.png` });
+      const r = await storage.uploadForOwner({} as unknown as ServerConfig, {
+        owner: { kind: 'workspace', workspaceId: WS_A },
+        fileKey: key,
+        data: PNG_BYTES,
+        contentType: 'image/png',
+      });
+      results.push(r.success);
+      if (r.success) rmSync(join('/tmp/storage', key), { force: true });
+    }
+
+    const firstDeletingIndex = Math.floor(attempts / 2);
+    expect(results.slice(0, firstDeletingIndex).every((ok) => ok === true)).toBe(true);
+    expect(results.slice(firstDeletingIndex).every((ok) => ok === false)).toBe(true);
   });
 });

@@ -138,19 +138,25 @@ function enforceWorkspaceScope(workspaceId: string, fileKey: string, allowLegacy
 /**
  * Write-lock check for uploadForOwner() — see
  * database/migrations/180_workspace_deletion_lifecycle.sql's workspaces.status
- * column. Fails open (returns false) on a lookup error so a transient DB
- * hiccup never blocks every upload for every workspace; the deletion
- * worker's own storage-cleanup walk is the actual safety net against
- * orphaned bytes, this is best-effort defense against a race, not the
- * sole guard.
+ * column. FAILS CLOSED: when the workspace's deletion state cannot be
+ * reliably established (a DB error, a thrown exception), this returns
+ * `true` (treat as deleting, reject the upload) rather than silently
+ * assuming the workspace is active. A workspace-owned upload racing a
+ * cleanup walk that's already passed it would otherwise be silently
+ * orphaned the moment the workspace's DB rows and pointers are purged —
+ * that outcome is worse than a transient false-positive 502 on an upload,
+ * which the caller can simply retry. A row genuinely absent (no error, no
+ * data — the workspace doesn't exist at all) is a different, unrelated
+ * concern this guard doesn't own, so that case still resolves to `false`.
  */
 async function isWorkspaceDeleting(serverConfig: ServerConfig, workspaceId: string): Promise<boolean> {
   try {
     const sb = getServiceClient(serverConfig);
-    const { data } = await sb.from('workspaces').select('status').eq('id', workspaceId).maybeSingle();
+    const { data, error } = await sb.from('workspaces').select('status').eq('id', workspaceId).maybeSingle();
+    if (error) return true;
     return (data as { status?: string } | null)?.status === 'deleting';
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -1240,6 +1246,24 @@ export async function downloadWithConfig(
   const handler = downloadHandlers[storageConfig.provider];
   if (!handler) return { success: false, error: `Unsupported provider: ${storageConfig.provider}` };
   return handler(storageConfig, fileKey);
+}
+
+/**
+ * Ranged download through an explicit, caller-resolved StorageConfig —
+ * the explicit-config counterpart to downloadFileRange() (which resolves
+ * the workspace's ordinary attachment provider). Used for object shapes
+ * that physically live in a different provider account than the
+ * workspace's default one, e.g. LiveKit call recordings
+ * (server/services/calls/recordingStorageResolver.ts).
+ */
+export async function downloadRangeWithConfig(
+  storageConfig: StorageConfig,
+  fileKey: string,
+  rangeHeader?: string,
+): Promise<RangedDownloadResult> {
+  const handler = rangedDownloadHandlers[storageConfig.provider];
+  if (!handler) return { success: false, error: `Unsupported provider: ${storageConfig.provider}` };
+  return handler(storageConfig, fileKey, rangeHeader);
 }
 
 export async function deleteWithConfig(

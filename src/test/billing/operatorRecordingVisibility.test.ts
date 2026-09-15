@@ -55,11 +55,16 @@ vi.mock('../../../server/services/auth/sessions.js', () => ({
   verifyOriginForMutation: () => true,
 }));
 vi.mock('../../../server/services/storage/index.js', async () => {
-  // Only `downloadFile` is exercised by the archive route in this test file.
-  // Every other export is stubbed to a harmless no-op so importing the
-  // call-center router does not blow up.
+  // The archive routes resolve LiveKit's own recording-storage config via
+  // recordingStorageResolver.js (mocked below) and then read bytes through
+  // downloadWithConfig — every other export is stubbed to a harmless no-op
+  // so importing the call-center router does not blow up.
   return {
     downloadFile: async (_cfg: any, _ws: string, key: string) => {
+      if (key === 'missing.mp4') return { success: false, error: 'gone' };
+      return { success: true, data: Buffer.from(`bytes:${key}`) };
+    },
+    downloadWithConfig: async (_cfg: any, key: string) => {
       if (key === 'missing.mp4') return { success: false, error: 'gone' };
       return { success: true, data: Buffer.from(`bytes:${key}`) };
     },
@@ -70,6 +75,13 @@ vi.mock('../../../server/services/storage/index.js', async () => {
     uploadWithConfig: async () => ({ success: false, error: 'noop' }),
     deleteWithConfig: async () => ({ success: false, error: 'noop' }),
     getFileUrlWithConfig: () => null,
+  };
+});
+vi.mock('../../../server/services/calls/recordingStorageResolver.js', async () => {
+  const actual = await vi.importActual<any>('../../../server/services/calls/recordingStorageResolver.js');
+  return {
+    ...actual,
+    resolveRecordingStorageConfig: async () => ({ provider: 's3', accessKeyId: 'k', secretAccessKey: 's', bucket: 'recordings-test' }),
   };
 });
 

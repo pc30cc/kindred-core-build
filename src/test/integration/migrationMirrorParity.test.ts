@@ -205,6 +205,21 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/180_workspace_deletion_lifecycle.sql',
     hosted: 'supabase/migrations/20260915093000_workspace_deletion_lifecycle.sql',
   },
+  {
+    label: '181 — Workspace deletion: multi-provider scopes, atomic enqueue, retry, leased claim',
+    selfHost: 'database/migrations/181_workspace_deletion_multi_provider.sql',
+    hosted: 'supabase/migrations/20260915094000_workspace_deletion_multi_provider.sql',
+  },
+  {
+    label: '183 — User deletion storage-aware lifecycle',
+    selfHost: 'database/migrations/183_user_deletion_lifecycle.sql',
+    hosted: 'supabase/migrations/20260915095000_user_deletion_lifecycle.sql',
+  },
+  {
+    label: '184 — Workspace branding ownership (workspace_branding.logo_storage_key)',
+    selfHost: 'database/migrations/184_workspace_branding_storage_key.sql',
+    hosted: 'supabase/migrations/20260915100000_workspace_branding_storage_key.sql',
+  },
 
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered
@@ -213,6 +228,18 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
   // FK-bearing tables for 026 vs. hosted's 11, since hosted has later
   // features self-host's bootstrap chain never received), so the SQL is
   // intentionally asymmetric, not a drift bug.
+
+  // NOTE: 182 (database/migrations/182_admin_purge_workspaces_selfhost.sql)
+  // is deliberately NOT registered as a mirror pair. It is a self-host-only
+  // migration: admin_purge_workspaces/admin_delete_workspace/
+  // admin_delete_user already exist on the hosted chain (supabase/
+  // migrations/20260910162747_...sql, predating this corrective pass) — 182
+  // ports those SAME function bodies to self-host, which never had them, so
+  // there is no NEW hosted file to pair it with. See 182's own header
+  // comment for why its two admin_delete_* bodies additionally inline
+  // `PERFORM set_config('app.billing_purge', 'on', true)` that the hosted
+  // originals get from 155's dynamic injection instead (155 already ran,
+  // against functions that didn't exist yet, before 182 existed).
 ];
 
 /** Strips line comments, block comments and collapses whitespace. */

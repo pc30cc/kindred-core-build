@@ -16,6 +16,7 @@ import {
   accountAvatarsMigrationProvider,
   privacyExportsMigrationProvider,
   callRecordingsMigrationProvider,
+  workspaceBrandingMigrationProvider,
 } from '../../../server/services/storage/legacyMigration/categories';
 
 const WS_A = '11111111-1111-1111-1111-111111111111';
@@ -64,6 +65,14 @@ function makeBuilder(table: string) {
     },
     neq: (col: string, val: unknown) => {
       filters.push((r) => r[col] !== val);
+      return builder;
+    },
+    is: (col: string, val: null) => {
+      filters.push((r) => (r[col] ?? null) === val);
+      return builder;
+    },
+    not: (col: string, _op: string, val: unknown) => {
+      filters.push((r) => (r[col] ?? null) !== val);
       return builder;
     },
     eq: (col: string, val: unknown) => {
@@ -212,5 +221,49 @@ describe('callRecordingsMigrationProvider', () => {
     const provider = callRecordingsMigrationProvider({} as never);
 
     expect(await provider.fetchBatch(10)).toHaveLength(0);
+  });
+});
+
+describe('workspaceBrandingMigrationProvider', () => {
+  it('parses the legacy branding/<workspaceId>/... marker out of logo_url and builds the canonical key', async () => {
+    db.workspace_branding = [{
+      id: 'wb-1', workspace_id: WS_A, logo_storage_key: null,
+      logo_url: `https://cdn.example.com/branding/${WS_A}/icon-1700000000-ab12.png`,
+    }];
+    const provider = workspaceBrandingMigrationProvider({} as never);
+
+    const batch = await provider.fetchBatch(10);
+
+    expect(batch).toHaveLength(1);
+    expect(batch[0].id).toBe(WS_A);
+    expect(batch[0].oldKey).toBe(`branding/${WS_A}/icon-1700000000-ab12.png`);
+    expect(batch[0].newKey).toMatch(new RegExp(`^workspace/${WS_A}/branding/[0-9a-f-]{36}-icon-1700000000-ab12\\.png$`));
+
+    await provider.resolveStorageConfig(WS_A);
+    expect(resolveStorageConfigForOwnerMock).toHaveBeenCalledWith({}, { kind: 'workspace', workspaceId: WS_A });
+  });
+
+  it('skips a row that already has logo_storage_key set (already migrated)', async () => {
+    const key = `workspace/${WS_A}/branding/existing.png`;
+    db.workspace_branding = [{ id: 'wb-1', workspace_id: WS_A, logo_storage_key: key, logo_url: `https://cdn/${key}` }];
+    const provider = workspaceBrandingMigrationProvider({} as never);
+
+    expect(await provider.fetchBatch(10)).toHaveLength(0);
+  });
+
+  it('skips a row with no logo_url at all (nothing to migrate)', async () => {
+    db.workspace_branding = [{ id: 'wb-1', workspace_id: WS_A, logo_storage_key: null, logo_url: null }];
+    const provider = workspaceBrandingMigrationProvider({} as never);
+
+    expect(await provider.fetchBatch(10)).toHaveLength(0);
+  });
+
+  it('commitNewKey writes logo_storage_key and readBackKey reads it back (bare-key column, not the URL column)', async () => {
+    db.workspace_branding = [{ id: 'wb-1', workspace_id: WS_A, logo_storage_key: null, logo_url: `https://cdn.example.com/branding/${WS_A}/old.png` }];
+    const provider = workspaceBrandingMigrationProvider({} as never);
+
+    await provider.commitNewKey(WS_A, `workspace/${WS_A}/branding/new.png`);
+
+    expect(await provider.readBackKey(WS_A)).toBe(`workspace/${WS_A}/branding/new.png`);
   });
 });

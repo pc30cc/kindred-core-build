@@ -202,6 +202,11 @@ export function platformCallCenterRingbackKey(opts: { slot: string; fileName: st
   return `platform/call-center/ringback/${safePathSegment(opts.slot)}/${newUuid()}-${safeFileName(opts.fileName)}`;
 }
 
+/** Workspace icon/logo — target shape for the legacy `branding/<workspaceId>/...` producer (account.ts's workspace-icon routes). */
+export function workspaceBrandingKey(opts: { workspaceId: string; fileName: string }): string {
+  return `${workspaceRoot(opts.workspaceId)}/branding/${newUuid()}-${safeFileName(opts.fileName)}`;
+}
+
 // ─── Validators ──────────────────────────────────────────────────────
 
 const MAX_KEY_LENGTH = 1024;

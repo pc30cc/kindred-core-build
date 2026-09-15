@@ -91,6 +91,7 @@ import { ensureInvitationSecrets } from './services/invitations/secretBootstrap.
 
 import { startPrivacyExpirySweep } from './services/privacy/expirySweep.js';
 import { startWorkspaceDeletionWorker } from './services/workspaceDeletion/worker.js';
+import { startUserDeletionWorker } from './services/userDeletion/worker.js';
 import { startAiBillingRecovery } from './services/ai-billing/recoveryTicker.js';
 import { startBillingV2Schedulers } from './services/billing/scheduler/ticker.js';
 import { startAlertingTicker } from './services/observability/alertingTicker.js';
@@ -627,6 +628,10 @@ app.listen(config.port, () => {
   // storage object before the existing DB purge runs. See
   // docs/STORAGE_ARCHITECTURE_AUDIT.md and server/services/workspaceDeletion/worker.ts.
   startWorkspaceDeletionWorker(config);
+  // Storage-aware account deletion — routes every owned workspace through
+  // the SAME machinery above before purging the user's own DB row and
+  // global users/<id>/ storage. See server/services/userDeletion/worker.ts.
+  startUserDeletionWorker(config);
 
   // AI billing — automatic, idempotent recovery/reconciliation pass.
   startAiBillingRecovery(config);

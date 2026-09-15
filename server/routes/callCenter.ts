@@ -4,6 +4,7 @@
  * Uses existing call_sessions / call_queue_entries / callback_requests tables.
  */
 import { Router } from 'express';
+import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
@@ -15,6 +16,7 @@ import {
   updatePlatformCallCenterSettings,
   invalidatePlatformCallCenterCache,
 } from '../services/callCenter/settings.js';
+import type { WorkspaceCallCenterSettings, PlatformCallCenterSettings } from '../services/callCenter/settings.js';
 import { isGlobalAdmin } from '../middleware/adminBypass.js';
 import { resolveEffectiveCallProvider } from '../services/calls/providerResolver.js';
 import { publishQueueEvent, publishCallEvent } from '../services/callCenter/realtime.js';
@@ -33,7 +35,8 @@ import {
 } from '../services/callCenter/recordingControl.js';
 import { mintPlaybackToken } from '../services/calls/recordingPlaybackToken.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
-import { uploadFile, deleteFile, resolveStorageConfig, resolveGlobalStorageConfig, uploadWithConfig, deleteWithConfig, getFileUrlWithConfig, downloadFile } from '../services/storage/index.js';
+import { uploadFile, deleteFile, resolveStorageConfig, resolveGlobalStorageConfig, uploadWithConfig, deleteWithConfig, getFileUrlWithConfig, downloadWithConfig } from '../services/storage/index.js';
+import { resolveRecordingStorageConfig, RecordingStorageNotConfigured } from '../services/calls/recordingStorageResolver.js';
 import { buildStoreZip, safeArchiveName } from '../services/calls/zipStore.js';
 import {
   listDepartments, getDepartment, createDepartment, updateDepartment, deleteDepartment,
@@ -61,7 +64,67 @@ import {
 
 export const callCenterRouter = Router();
 
-function handleDeptErr(e: any, res: any, fallbackCode: string): boolean {
+type ReqWithConfig = Request & { serverConfig: ServerConfig };
+
+// ── Shared row shapes (narrow — only the fields this file reads/writes) ────
+interface CallRatingRow {
+  call_session_id: string;
+  rating: number;
+  comment: string | null;
+  created_at: string;
+}
+interface CallSessionRow {
+  id?: string;
+  state?: string | null;
+  assigned_agent_id?: string | null;
+  provider?: string | null;
+  provider_room_id?: string | null;
+  call_type?: string | null;
+  connected_at?: string | null;
+  started_at?: string | null;
+  created_at?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+interface QueueEntryRow {
+  id?: string;
+  offered_to_user_id?: string | null;
+  accepted_at?: string | null;
+}
+interface RecordingWithSessionRow {
+  id: string;
+  call_session_id: string;
+  storage_path: string | null;
+  recording_type?: string | null;
+  created_at?: string | null;
+  call_sessions?: { workspace_id: string } | null;
+}
+interface CallRecordingListRow {
+  id: string;
+  recording_type: string | null;
+  duration_seconds: number | null;
+  size_bytes: number | null;
+  storage_path: string | null;
+  created_at: string | null;
+}
+interface WorkspaceRecordingListRow {
+  id: string;
+  call_session_id: string;
+  recording_type: string | null;
+  duration_seconds: number | null;
+  size_bytes: number | null;
+  storage_path: string | null;
+  created_at: string | null;
+  call_sessions: {
+    visitor_name: string | null;
+    visitor_email: string | null;
+    call_type: string | null;
+    created_at: string | null;
+    ended_at: string | null;
+    duration_seconds: number | null;
+  } | null;
+}
+
+function handleDeptErr(e: unknown, res: Response, fallbackCode: string): boolean {
   if (e instanceof DepartmentException) {
     if (e.code === 'management_moved') {
       res.status(410).json({
@@ -85,25 +148,25 @@ function handleDeptErr(e: any, res: any, fallbackCode: string): boolean {
 interface AuthLookup {
   user: { id: string } | null;
 }
-async function lookupUser(req: any, config: ServerConfig): Promise<AuthLookup> {
-  const token = readSessionToken(req as any).token;
+async function lookupUser(req: Request, config: ServerConfig): Promise<AuthLookup> {
+  const token = readSessionToken(req).token;
   const session = await validateSessionToken(config, token);
   return { user: session ? { id: session.userId } : null };
 }
 
-async function getUser(req: any, config: ServerConfig) {
+async function getUser(req: Request, config: ServerConfig) {
   const r = await lookupUser(req, config);
   return r.user;
 }
 
-async function requireMember(req: any, res: any, workspaceId: string) {
-  const config = (req as any).serverConfig as ServerConfig;
+async function requireMember(req: Request, res: Response, workspaceId: string) {
+  const config = (req as ReqWithConfig).serverConfig;
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId);
   if (!auth) return null;
   return { userId: auth.userId, config };
 }
 
-async function requireWorkspaceAdmin(req: any, res: any, workspaceId: string) {
+async function requireWorkspaceAdmin(req: Request, res: Response, workspaceId: string) {
   const ctx = await requireMember(req, res, workspaceId);
   if (!ctx) return null;
   const sb = getServiceClient(ctx.config);
@@ -148,11 +211,23 @@ interface OwnershipDecision {
   isAssignedToMe: boolean;
   isTakeover: boolean;
 }
+interface HttpStatusError extends Error {
+  httpStatus: number;
+}
+function isHttpStatusError(e: unknown): e is HttpStatusError {
+  return e instanceof Error && typeof (e as { httpStatus?: unknown }).httpStatus === 'number';
+}
+function makeHttpStatusError(message: string, httpStatus: number): HttpStatusError {
+  const err = new Error(message) as HttpStatusError;
+  err.httpStatus = httpStatus;
+  return err;
+}
+
 async function canOperateCall(
   config: ServerConfig,
   workspaceId: string,
   userId: string,
-  call: any,
+  call: { assigned_agent_id?: string | null } | null | undefined,
   action: CallAction,
   queueRow?: { offered_to_user_id?: string | null } | null,
 ): Promise<OwnershipDecision> {
@@ -163,9 +238,7 @@ async function canOperateCall(
 
   if (assigned && assigned !== userId) {
     if (!isElevated) {
-      const err: any = new Error('call_assigned_to_another_operator');
-      err.httpStatus = 403;
-      throw err;
+      throw makeHttpStatusError('call_assigned_to_another_operator', 403);
     }
     return { role, isElevated, isAssignedToMe: false, isTakeover: true };
   }
@@ -179,23 +252,21 @@ async function canOperateCall(
     // currently being offered the call in the queue.
     const offeredToMe = !!queueRow && queueRow.offered_to_user_id === userId;
     if (!isElevated && !offeredToMe) {
-      const err: any = new Error('operator_permission_required');
-      err.httpStatus = 403;
-      throw err;
+      throw makeHttpStatusError('operator_permission_required', 403);
     }
   }
   return { role, isElevated, isAssignedToMe, isTakeover: false };
 }
 
-function sendOwnershipError(res: any, e: any): boolean {
-  if (e && typeof e.httpStatus === 'number' && typeof e.message === 'string') {
+function sendOwnershipError(res: Response, e: unknown): boolean {
+  if (isHttpStatusError(e)) {
     res.status(e.httpStatus).json({ error: e.message });
     return true;
   }
   return false;
 }
 
-async function requireCallOperator(req: any, res: any, workspaceId: string) {
+async function requireCallOperator(req: Request, res: Response, workspaceId: string) {
   const ctx = await requireMember(req, res, workspaceId);
   if (!ctx) return null;
   // Global admin bypass
@@ -211,8 +282,8 @@ async function requireCallOperator(req: any, res: any, workspaceId: string) {
   return ctx;
 }
 
-async function requireGlobalAdmin(req: any, res: any) {
-  const config = (req as any).serverConfig as ServerConfig;
+async function requireGlobalAdmin(req: Request, res: Response) {
+  const config = (req as ReqWithConfig).serverConfig;
   const userId = await requirePlatformAdmin(req, res);
   if (!userId) return null;
   return { userId, config };
@@ -240,7 +311,7 @@ callCenterRouter.get('/capabilities', async (req, res) => {
   const viewerRole = await getWorkspaceRole(ctx.config, wid, ctx.userId);
   const viewerManages = ['owner', 'admin'].includes(String(viewerRole));
   const effective = row
-    ? computeEffectiveCallCenterCaps(platform, row as any)
+    ? computeEffectiveCallCenterCaps(platform, row as WorkspaceCallCenterSettings)
     : {
         call_center_enabled: false,
         workspace_call_center_visible: platform.call_center_enabled,
@@ -261,7 +332,7 @@ callCenterRouter.get('/capabilities', async (req, res) => {
     settings_exists: !!row,
     effective,
     recording: row
-      ? await computeRecordingCapability(ctx.config, wid, platform, row as any)
+      ? await computeRecordingCapability(ctx.config, wid, platform, row as WorkspaceCallCenterSettings)
       : disabledRecordingCapability(),
   });
 });
@@ -321,7 +392,7 @@ callCenterRouter.put('/settings', async (req, res) => {
   if (!ctx) return;
   const parsed = settingsPatchSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
-  const settingsRaw = await updateWorkspaceSettings(ctx.config, wid, parsed.data as any);
+  const settingsRaw = await updateWorkspaceSettings(ctx.config, wid, parsed.data);
   // Sanitize: never expose avatar_storage_path to clients
   const { avatar_storage_path: _, ...settings } = settingsRaw;
   res.json({ settings });
@@ -354,7 +425,7 @@ callCenterRouter.post('/settings/avatar', async (req, res) => {
     .select('avatar_storage_path')
     .eq('workspace_id', wid)
     .maybeSingle();
-  const previousPath = (prevRow as any)?.avatar_storage_path as string | null;
+  const previousPath = (prevRow?.avatar_storage_path as string | null | undefined) ?? null;
   const safe = String(fileName).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
   const fileKey = `workspace/${wid}/call-center/avatar/${crypto.randomUUID()}-${safe}`;
   const result = await uploadFile(ctx.config, {
@@ -365,7 +436,7 @@ callCenterRouter.post('/settings/avatar', async (req, res) => {
   }
   const updated = await updateWorkspaceSettings(ctx.config, wid, {
     avatar_url: result.url, avatar_storage_path: fileKey,
-  } as any);
+  });
   // Best-effort cleanup of the previous avatar; failures must not fail the
   // upload and must not be exposed to the client.
   if (previousPath && previousPath !== fileKey) {
@@ -387,10 +458,10 @@ callCenterRouter.delete('/settings/avatar', async (req, res) => {
     .select('avatar_storage_path')
     .eq('workspace_id', wid)
     .maybeSingle();
-  const previousPath = (prevRow as any)?.avatar_storage_path as string | null;
+  const previousPath = (prevRow?.avatar_storage_path as string | null | undefined) ?? null;
   await updateWorkspaceSettings(ctx.config, wid, {
     avatar_url: null, avatar_storage_path: null,
-  } as any);
+  });
   if (previousPath) {
     try { await deleteFile(ctx.config, wid, previousPath); } catch { /* best-effort */ }
   }
@@ -451,21 +522,21 @@ callCenterRouter.get('/calls', async (req, res) => {
   // Attach the latest visitor rating per call (best-effort, single roundtrip)
   const calls = data || [];
   if (calls.length > 0) {
-    const ids = calls.map((c: any) => c.id);
+    const ids = calls.map((c) => c.id);
     const { data: ratings } = await sb.from('call_ratings')
       .select('call_session_id, rating, comment, created_at')
       .eq('workspace_id', wid)
       .in('call_session_id', ids);
-    const map = new Map<string, any>();
-    for (const r of ratings || []) {
-      const prev = map.get((r as any).call_session_id);
-      if (!prev || new Date((r as any).created_at) > new Date(prev.created_at)) {
-        map.set((r as any).call_session_id, r);
+    const map = new Map<string, CallRatingRow>();
+    for (const r of (ratings || []) as CallRatingRow[]) {
+      const prev = map.get(r.call_session_id);
+      if (!prev || new Date(r.created_at) > new Date(prev.created_at)) {
+        map.set(r.call_session_id, r);
       }
     }
     for (const c of calls) {
-      const r = map.get((c as any).id);
-      (c as any).rating = r ? { rating: r.rating, comment: r.comment, created_at: r.created_at } : null;
+      const r = map.get(c.id);
+      c.rating = r ? { rating: r.rating, comment: r.comment, created_at: r.created_at } : null;
     }
   }
   res.json({ calls });
@@ -531,37 +602,39 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
   if (!ctx) return;
   try {
     const sb = getServiceClient(ctx.config);
-    const { data: call } = await sb.from('call_sessions').select('*')
+    const { data: callRaw } = await sb.from('call_sessions').select('*')
       .eq('id', req.params.id).eq('workspace_id', wid)
       .eq('entry_source', 'call_widget').maybeSingle();
-    if (!call) return res.status(404).json({ error: 'not_found' });
-    const prevState = String((call as any).state || '');
+    if (!callRaw) return res.status(404).json({ error: 'not_found' });
+    const call = callRaw as CallSessionRow;
+    const prevState = String(call.state || '');
     if (['ended', 'cancelled', 'failed', 'missed'].includes(prevState)) {
       return res.status(409).json({ error: 'call_not_active' });
     }
-    const { data: queueRow } = await sb.from('call_queue_entries')
+    const { data: queueRowRaw } = await sb.from('call_queue_entries')
       .select('id, offered_to_user_id, accepted_at')
       .eq('call_session_id', req.params.id).eq('workspace_id', wid).maybeSingle();
+    const queueRow = queueRowRaw as QueueEntryRow | null;
     let decision: OwnershipDecision;
     try {
-      decision = await canOperateCall(ctx.config, wid, ctx.userId, call, 'accept', queueRow as any);
-    } catch (e: any) {
+      decision = await canOperateCall(ctx.config, wid, ctx.userId, call, 'accept', queueRow);
+    } catch (e) {
       if (sendOwnershipError(res, e)) return;
       throw e;
     }
-    const previousAssigned = ((call as any).assigned_agent_id as string | null) || null;
+    const previousAssigned = (call.assigned_agent_id as string | null) || null;
     const wasAlreadyActiveForMe =
       previousAssigned === ctx.userId &&
       ['active', 'ringing', 'connecting'].includes(prevState);
 
     // Resolve provider and create room if needed
     const { id: providerId, provider } = await resolveEffectiveCallProvider(ctx.config, wid);
-    let providerRoomId = (call as any).provider_room_id as string | null;
+    let providerRoomId = call.provider_room_id as string | null;
     if (!providerRoomId) {
       const room = await provider.createRoom(ctx.config, {
         workspaceId: wid,
         callSessionId: req.params.id,
-        callType: ((call as any).call_type === 'video' ? 'video' : 'audio'),
+        callType: (call.call_type === 'video' ? 'video' : 'audio'),
         maxParticipants: 4,
         recordingEnabled: false,
       });
@@ -582,7 +655,7 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
       provider_room_id: providerRoomId,
       assigned_agent_id: ctx.userId,
     };
-    if (!(call as any).connected_at) {
+    if (!call.connected_at) {
       acceptPatch.connected_at = new Date().toISOString();
     }
     await transitionCall(ctx.config, wid, req.params.id, acceptPatch, 'call_accepted', ctx.userId);
@@ -593,7 +666,7 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
       offered_to_user_id: ctx.userId,
       assigned_agent_id: ctx.userId,
     };
-    if (queueRow && !(queueRow as any).accepted_at) {
+    if (queueRow && !queueRow.accepted_at) {
       queuePatch.accepted_at = new Date().toISOString();
     }
     await sb.from('call_queue_entries').update(queuePatch)
@@ -643,9 +716,9 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
       idempotent: wasAlreadyActiveForMe,
       takeover: decision.isTakeover,
     });
-  } catch (e: any) {
+  } catch (e) {
     if (sendOwnershipError(res, e)) return;
-    res.status(500).json({ error: 'accept_failed', message: String(e?.message || e) });
+    res.status(500).json({ error: 'accept_failed', message: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -655,21 +728,23 @@ callCenterRouter.post('/calls/:id/reject', async (req, res) => {
   if (!ctx) return;
   try {
     const sb = getServiceClient(ctx.config);
-    const { data: existing } = await sb.from('call_sessions')
+    const { data: existingRaw } = await sb.from('call_sessions')
       .select('id, entry_source, assigned_agent_id, state')
       .eq('id', req.params.id).eq('workspace_id', wid)
       .eq('entry_source', 'call_widget').maybeSingle();
-    if (!existing) return res.status(404).json({ error: 'not_found' });
-    const prevState = String((existing as any).state || '');
+    if (!existingRaw) return res.status(404).json({ error: 'not_found' });
+    const existing = existingRaw as CallSessionRow;
+    const prevState = String(existing.state || '');
     if (['ended', 'cancelled', 'failed'].includes(prevState)) {
       return res.status(409).json({ error: 'call_not_active' });
     }
-    const { data: qRow } = await sb.from('call_queue_entries')
+    const { data: qRowRaw } = await sb.from('call_queue_entries')
       .select('id, offered_to_user_id')
       .eq('call_session_id', req.params.id).eq('workspace_id', wid).maybeSingle();
+    const qRow = qRowRaw as QueueEntryRow | null;
     try {
-      await canOperateCall(ctx.config, wid, ctx.userId, existing, 'reject', qRow as any);
-    } catch (e: any) {
+      await canOperateCall(ctx.config, wid, ctx.userId, existing, 'reject', qRow);
+    } catch (e) {
       if (sendOwnershipError(res, e)) return;
       throw e;
     }
@@ -683,7 +758,7 @@ callCenterRouter.post('/calls/:id/reject', async (req, res) => {
     // Annotate detailed reason in metadata (constraint allows 4 canonical values only).
     try {
       const { data: prev } = await sb.from('call_sessions').select('metadata').eq('id', req.params.id).maybeSingle();
-      const meta = (prev?.metadata as any) || {};
+      const meta = (prev?.metadata as Record<string, unknown> | null) || {};
       await sb.from('call_sessions').update({
         metadata: { ...meta, call_center_reason: 'operator_rejected' },
       }).eq('id', req.params.id);
@@ -694,15 +769,15 @@ callCenterRouter.post('/calls/:id/reject', async (req, res) => {
     // Reject only decrements active_call_count if this operator had actually
     // accepted the call previously (call was in active/connecting/ringing
     // and assigned to them). Pre-accept reject does NOT touch the counter.
-    const assigned = ((existing as any).assigned_agent_id as string | null) || null;
+    const assigned = (existing.assigned_agent_id as string | null) || null;
     if (assigned === ctx.userId && ['active', 'connecting', 'ringing'].includes(prevState)) {
       try { await decrementAgentActiveCallCount(ctx.config, wid, ctx.userId); }
       catch {/* best-effort */}
     }
     res.json({ ok: true });
-  } catch (e: any) {
+  } catch (e) {
     if (sendOwnershipError(res, e)) return;
-    res.status(500).json({ error: 'reject_failed', message: String(e?.message || e) });
+    res.status(500).json({ error: 'reject_failed', message: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -712,29 +787,31 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
   if (!ctx) return;
   try {
     const sb = getServiceClient(ctx.config);
-    const { data: call } = await sb.from('call_sessions').select('*')
+    const { data: callRaw } = await sb.from('call_sessions').select('*')
       .eq('id', req.params.id).eq('workspace_id', wid)
       .eq('entry_source', 'call_widget').maybeSingle();
-    if (!call) return res.status(404).json({ error: 'not_found' });
-    const prevState = String((call as any).state || '');
+    if (!callRaw) return res.status(404).json({ error: 'not_found' });
+    const call = callRaw as CallSessionRow;
+    const prevState = String(call.state || '');
     if (['ended', 'cancelled', 'failed'].includes(prevState)) {
       return res.status(409).json({ error: 'call_not_active' });
     }
-    const { data: qRow } = await sb.from('call_queue_entries')
+    const { data: qRowRaw } = await sb.from('call_queue_entries')
       .select('id, offered_to_user_id')
       .eq('call_session_id', req.params.id).eq('workspace_id', wid).maybeSingle();
+    const qRow = qRowRaw as QueueEntryRow | null;
     try {
-      await canOperateCall(ctx.config, wid, ctx.userId, call, 'end', qRow as any);
-    } catch (e: any) {
+      await canOperateCall(ctx.config, wid, ctx.userId, call, 'end', qRow);
+    } catch (e) {
       if (sendOwnershipError(res, e)) return;
       throw e;
     }
-    const startedAt = (call as any).connected_at || (call as any).started_at || (call as any).created_at;
+    const startedAt = call.connected_at || call.started_at || call.created_at;
     const duration = startedAt ? Math.max(0, Math.round((Date.now() - new Date(startedAt).getTime()) / 1000)) : 0;
-    if ((call as any).provider && (call as any).provider_room_id) {
+    if (call.provider && call.provider_room_id) {
       try {
         const { provider } = await resolveEffectiveCallProvider(ctx.config, wid);
-        await provider.closeRoom(ctx.config, (call as any).provider_room_id);
+        await provider.closeRoom(ctx.config, call.provider_room_id);
       } catch {/* best effort */}
     }
     await transitionCall(ctx.config, wid, req.params.id, {
@@ -747,7 +824,7 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
     }, 'call_ended', ctx.userId);
     // Decrement presence counter only for an operator who actually owned an
     // active call. Floor-at-zero is enforced inside the helper.
-    const assigned = ((call as any).assigned_agent_id as string | null) || null;
+    const assigned = (call.assigned_agent_id as string | null) || null;
     const wasActive = ['active', 'connecting', 'ringing'].includes(prevState);
     let owner: string | null = null;
     if (assigned && wasActive) owner = assigned;
@@ -757,9 +834,9 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
       catch {/* best-effort */}
     }
     res.json({ ok: true });
-  } catch (e: any) {
+  } catch (e) {
     if (sendOwnershipError(res, e)) return;
-    res.status(500).json({ error: 'end_failed', message: String(e?.message || e) });
+    res.status(500).json({ error: 'end_failed', message: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -793,11 +870,11 @@ callCenterRouter.post('/calls/:id/recording/start', async (req, res) => {
       recordingType: recType.data,
     });
     res.json(r);
-  } catch (e: any) {
+  } catch (e) {
     if (e instanceof RecordingControlException) {
       return res.status(e.httpStatus).json({ error: e.code });
     }
-    res.status(500).json({ error: 'recording_start_failed', message: String(e?.message || e) });
+    res.status(500).json({ error: 'recording_start_failed', message: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -812,11 +889,11 @@ callCenterRouter.post('/calls/:id/recording/stop', async (req, res) => {
       actorUserId: ctx.userId,
     });
     res.json(r);
-  } catch (e: any) {
+  } catch (e) {
     if (e instanceof RecordingControlException) {
       return res.status(e.httpStatus).json({ error: e.code });
     }
-    res.status(500).json({ error: 'recording_stop_failed', message: String(e?.message || e) });
+    res.status(500).json({ error: 'recording_stop_failed', message: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -830,11 +907,11 @@ callCenterRouter.get('/calls/:id/recording/status', async (req, res) => {
       callId: req.params.id,
     });
     res.json(s);
-  } catch (e: any) {
+  } catch (e) {
     if (e instanceof RecordingControlException) {
       return res.status(e.httpStatus).json({ error: e.code });
     }
-    res.status(500).json({ error: 'recording_status_failed', message: String(e?.message || e) });
+    res.status(500).json({ error: 'recording_status_failed', message: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -866,7 +943,8 @@ callCenterRouter.get('/calls/:id/recordings', async (req, res) => {
     .eq('id', callId)
     .maybeSingle();
   if (sessErr) return res.status(500).json({ error: sessErr.message });
-  if (!session || (session as any).workspace_id !== wid) {
+  const sessionRow = session as { id: string; workspace_id: string } | null;
+  if (!sessionRow || sessionRow.workspace_id !== wid) {
     return res.status(404).json({ error: 'not_found' });
   }
   const { data: rows, error } = await sb
@@ -877,7 +955,7 @@ callCenterRouter.get('/calls/:id/recordings', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   // Strip storage_path / provider metadata from the public shape — operators
   // only need to know whether the artifact is playable.
-  const recordings = (rows || []).map((r: any) => ({
+  const recordings = ((rows || []) as unknown as CallRecordingListRow[]).map((r) => ({
     id: r.id,
     recording_type: r.recording_type,
     duration_seconds: r.duration_seconds ?? null,
@@ -916,7 +994,7 @@ callCenterRouter.get('/recordings', async (req, res) => {
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
   if (error) return res.status(500).json({ error: error.message });
-  const recordings = (data || []).map((r: any) => ({
+  const recordings = ((data || []) as unknown as WorkspaceRecordingListRow[]).map((r) => ({
     id: r.id,
     call_id: r.call_session_id,
     recording_type: r.recording_type,
@@ -957,9 +1035,10 @@ callCenterRouter.post('/calls/:id/recordings/:recordingId/playback-token', async
   // Uniform 404 for any workspace/session/recording mismatch — never leak
   // existence of a recording that belongs to another workspace.
   if (!row) return res.status(404).json({ error: 'not_found' });
-  if ((row as any).call_session_id !== callId) return res.status(404).json({ error: 'not_found' });
-  if ((row as any)?.call_sessions?.workspace_id !== wid) return res.status(404).json({ error: 'not_found' });
-  if (!(row as any).storage_path) return res.status(410).json({ error: 'missing_storage_path' });
+  const recRow = row as unknown as RecordingWithSessionRow;
+  if (recRow.call_session_id !== callId) return res.status(404).json({ error: 'not_found' });
+  if (recRow.call_sessions?.workspace_id !== wid) return res.status(404).json({ error: 'not_found' });
+  if (!recRow.storage_path) return res.status(410).json({ error: 'missing_storage_path' });
 
   // Operator surface is inline-only — attachment disposition is reserved
   // for super-admin tooling. The streaming route enforces the disposition
@@ -1013,9 +1092,10 @@ callCenterRouter.post('/calls/:id/recordings/:recordingId/download-token', async
   // Same uniform 404 behavior as the inline mint — never leak existence of
   // a recording outside the caller's workspace or on a different call.
   if (!row) return res.status(404).json({ error: 'not_found' });
-  if ((row as any).call_session_id !== callId) return res.status(404).json({ error: 'not_found' });
-  if ((row as any)?.call_sessions?.workspace_id !== wid) return res.status(404).json({ error: 'not_found' });
-  if (!(row as any).storage_path) return res.status(410).json({ error: 'missing_storage_path' });
+  const recRow = row as unknown as RecordingWithSessionRow;
+  if (recRow.call_session_id !== callId) return res.status(404).json({ error: 'not_found' });
+  if (recRow.call_sessions?.workspace_id !== wid) return res.status(404).json({ error: 'not_found' });
+  if (!recRow.storage_path) return res.status(410).json({ error: 'missing_storage_path' });
 
   const minted = mintPlaybackToken(ctx.config, { recordingId, disposition: 'attachment' });
   const url =
@@ -1095,9 +1175,10 @@ callCenterRouter.post('/calls/:id/recordings/bulk-download-tokens', async (req, 
       .maybeSingle();
     if (error) { results.push({ recording_id: recordingId, error: 'lookup_failed' }); continue; }
     if (!row) { results.push({ recording_id: recordingId, error: 'not_found' }); continue; }
-    if ((row as any).call_session_id !== callId) { results.push({ recording_id: recordingId, error: 'not_found' }); continue; }
-    if ((row as any)?.call_sessions?.workspace_id !== wid) { results.push({ recording_id: recordingId, error: 'not_found' }); continue; }
-    if (!(row as any).storage_path) { results.push({ recording_id: recordingId, error: 'missing_storage_path' }); continue; }
+    const recRow = row as unknown as RecordingWithSessionRow;
+    if (recRow.call_session_id !== callId) { results.push({ recording_id: recordingId, error: 'not_found' }); continue; }
+    if (recRow.call_sessions?.workspace_id !== wid) { results.push({ recording_id: recordingId, error: 'not_found' }); continue; }
+    if (!recRow.storage_path) { results.push({ recording_id: recordingId, error: 'missing_storage_path' }); continue; }
 
     const minted = mintPlaybackToken(ctx.config, { recordingId, disposition: 'attachment' });
     const url =
@@ -1153,7 +1234,7 @@ callCenterRouter.post('/calls/:id/recordings/bulk-download-tokens', async (req, 
 const ARCHIVE_LIMIT = 25;
 const ARCHIVE_MAX_TOTAL_BYTES = 500 * 1024 * 1024; // 500 MB
 
-function archiveExtForContentType(row: any): string {
+function archiveExtForContentType(row: RecordingWithSessionRow): string {
   const path = String(row?.storage_path || '').toLowerCase();
   const ext = path.includes('.') ? path.split('.').pop() || '' : '';
   const allowed = new Set(['mp4', 'webm', 'mkv', 'ogg', 'm4a', 'mp3', 'wav', 'opus']);
@@ -1187,6 +1268,13 @@ callCenterRouter.post('/calls/:id/recordings/archive', async (req, res) => {
   }
 
   const sb = getServiceClient(ctx.config);
+  let recordingStorageConfig;
+  try {
+    recordingStorageConfig = await resolveRecordingStorageConfig(ctx.config);
+  } catch (err) {
+    if (err instanceof RecordingStorageNotConfigured) return res.status(502).json({ error: 'recording_storage_not_configured' });
+    throw err;
+  }
   const entries: Array<{ name: string; data: Buffer }> = [];
   const manifest: string[] = [
     `# Call recording archive`,
@@ -1207,18 +1295,19 @@ callCenterRouter.post('/calls/:id/recordings/archive', async (req, res) => {
       .maybeSingle();
     if (error) { manifest.push(`EXCLUDED ${recordingId}  reason=lookup_failed`); excluded++; continue; }
     if (!row) { manifest.push(`EXCLUDED ${recordingId}  reason=not_found`); excluded++; continue; }
-    if ((row as any).call_session_id !== callId) {
+    const recRow = row as unknown as RecordingWithSessionRow;
+    if (recRow.call_session_id !== callId) {
       manifest.push(`EXCLUDED ${recordingId}  reason=not_found`); excluded++; continue;
     }
-    if ((row as any)?.call_sessions?.workspace_id !== wid) {
+    if (recRow.call_sessions?.workspace_id !== wid) {
       manifest.push(`EXCLUDED ${recordingId}  reason=not_found`); excluded++; continue;
     }
-    const storagePath = (row as any).storage_path as string | null;
+    const storagePath = recRow.storage_path;
     if (!storagePath) {
       manifest.push(`EXCLUDED ${recordingId}  reason=missing_storage_path`); excluded++; continue;
     }
 
-    const dl = await downloadFile(ctx.config, wid, storagePath);
+    const dl = await downloadWithConfig(recordingStorageConfig, storagePath);
     if (!dl.success || !dl.data) {
       manifest.push(`EXCLUDED ${recordingId}  reason=download_failed`);
       excluded++;
@@ -1230,12 +1319,12 @@ callCenterRouter.post('/calls/:id/recordings/archive', async (req, res) => {
       continue;
     }
 
-    const ext = archiveExtForContentType(row);
-    const ts = (row as any).created_at
-      ? new Date((row as any).created_at).toISOString().replace(/[:.]/g, '-')
+    const ext = archiveExtForContentType(recRow);
+    const ts = recRow.created_at
+      ? new Date(recRow.created_at).toISOString().replace(/[:.]/g, '-')
       : 'recording';
     const base = safeArchiveName(
-      `call-recording-${String((row as any).id || 'unknown').slice(0, 12)}-${ts}.${ext}`,
+      `call-recording-${String(recRow.id || 'unknown').slice(0, 12)}-${ts}.${ext}`,
       `recording-${recordingId.slice(0, 8)}.${ext}`,
     );
     entries.push({ name: base, data: dl.data });
@@ -1321,6 +1410,13 @@ callCenterRouter.post('/workspaces/recordings/archive', async (req, res) => {
   }
 
   const sb = getServiceClient(ctx.config);
+  let recordingStorageConfig;
+  try {
+    recordingStorageConfig = await resolveRecordingStorageConfig(ctx.config);
+  } catch (err) {
+    if (err instanceof RecordingStorageNotConfigured) return res.status(502).json({ error: 'recording_storage_not_configured' });
+    throw err;
+  }
   const entries: Array<{ name: string; data: Buffer }> = [];
   const manifest: string[] = [
     `# Workspace recording archive`,
@@ -1341,18 +1437,19 @@ callCenterRouter.post('/workspaces/recordings/archive', async (req, res) => {
       .maybeSingle();
     if (error) { manifest.push(`EXCLUDED call=${callId} rec=${recordingId}  reason=lookup_failed`); excluded++; continue; }
     if (!row) { manifest.push(`EXCLUDED call=${callId} rec=${recordingId}  reason=not_found`); excluded++; continue; }
-    if ((row as any).call_session_id !== callId) {
+    const recRow = row as unknown as RecordingWithSessionRow;
+    if (recRow.call_session_id !== callId) {
       manifest.push(`EXCLUDED call=${callId} rec=${recordingId}  reason=not_found`); excluded++; continue;
     }
-    if ((row as any)?.call_sessions?.workspace_id !== wid) {
+    if (recRow.call_sessions?.workspace_id !== wid) {
       manifest.push(`EXCLUDED call=${callId} rec=${recordingId}  reason=not_found`); excluded++; continue;
     }
-    const storagePath = (row as any).storage_path as string | null;
+    const storagePath = recRow.storage_path;
     if (!storagePath) {
       manifest.push(`EXCLUDED call=${callId} rec=${recordingId}  reason=missing_storage_path`); excluded++; continue;
     }
 
-    const dl = await downloadFile(ctx.config, wid, storagePath);
+    const dl = await downloadWithConfig(recordingStorageConfig, storagePath);
     if (!dl.success || !dl.data) {
       manifest.push(`EXCLUDED call=${callId} rec=${recordingId}  reason=download_failed`);
       excluded++;
@@ -1364,12 +1461,12 @@ callCenterRouter.post('/workspaces/recordings/archive', async (req, res) => {
       continue;
     }
 
-    const ext = archiveExtForContentType(row);
-    const ts = (row as any).created_at
-      ? new Date((row as any).created_at).toISOString().replace(/[:.]/g, '-')
+    const ext = archiveExtForContentType(recRow);
+    const ts = recRow.created_at
+      ? new Date(recRow.created_at).toISOString().replace(/[:.]/g, '-')
       : 'recording';
     const base = safeArchiveName(
-      `recording-${String((row as any).id || 'unknown').slice(0, 12)}-${ts}.${ext}`,
+      `recording-${String(recRow.id || 'unknown').slice(0, 12)}-${ts}.${ext}`,
       `recording-${recordingId.slice(0, 8)}.${ext}`,
     );
     const dir = `call-${callId.slice(0, 8)}`;
@@ -1560,7 +1657,7 @@ callCenterRouter.put('/admin/platform', async (req, res) => {
   if (!ctx) return;
   const parsed = platformPatchSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
-  const updated = await updatePlatformCallCenterSettings(ctx.config, parsed.data as any);
+  const updated = await updatePlatformCallCenterSettings(ctx.config, parsed.data);
   // Audit-on-save (best-effort, no new audit system)
   try {
     const sb = getServiceClient(ctx.config);
@@ -1568,9 +1665,9 @@ callCenterRouter.put('/admin/platform', async (req, res) => {
       user_id: ctx.userId,
       action: 'platform_call_center.update',
       entity_type: 'platform_call_center_settings',
-      entity_id: (updated as any).id ?? null,
+      entity_id: (updated as unknown as { id?: string }).id ?? null,
       new_value: parsed.data,
-    } as any);
+    });
   } catch {/* audit_logs may not exist; ignore */}
   res.json({ settings: updated });
 });
@@ -1607,7 +1704,7 @@ callCenterRouter.post('/admin/platform/ringback-audio', async (req, res) => {
   const url = uploaded.url || getFileUrlWithConfig(storage, fileKey);
   if (!uploaded.success || !url) return res.status(500).json({ error: 'audio_upload_failed', details: uploaded.error });
   const current = await getPlatformCallCenterSettings(ctx.config);
-  const patch: Record<string, unknown> = {};
+  const patch: Partial<PlatformCallCenterSettings> = {};
   let previousPath: string | null = null;
   if (input.kind === 'music') {
     previousPath = current.ringback_music_path;
@@ -1624,7 +1721,7 @@ callCenterRouter.post('/admin/platform/ringback-audio', async (req, res) => {
     map[String(input.queue_position)] = fileKey;
     patch.ringback_queue_audio_paths = map;
   }
-  const updated = await updatePlatformCallCenterSettings(ctx.config, patch as any);
+  const updated = await updatePlatformCallCenterSettings(ctx.config, patch);
   if (previousPath && previousPath !== fileKey) {
     try { await deleteWithConfig(storage, previousPath); } catch { /* best-effort */ }
   }
@@ -1671,8 +1768,8 @@ callCenterRouter.get('/departments', async (req, res) => {
   try {
     const departments = await listDepartments(ctx.config, wid);
     res.json({ departments });
-  } catch (e: any) {
-    res.status(500).json({ error: 'list_failed', message: String(e?.message || e) });
+  } catch (e) {
+    res.status(500).json({ error: 'list_failed', message: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -1684,11 +1781,11 @@ callCenterRouter.post('/departments', async (req, res) => {
   const parsed = departmentInputSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
   try {
-    const department = await createDepartment(ctx.config, wid, parsed.data as any);
+    const department = await createDepartment(ctx.config, wid, parsed.data);
     res.status(201).json({ department });
-  } catch (e: any) {
+  } catch (e) {
     if (handleDeptErr(e, res, 'create_failed')) return;
-    res.status(500).json({ error: 'create_failed', message: String(e?.message || e) });
+    res.status(500).json({ error: 'create_failed', message: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -1713,9 +1810,9 @@ callCenterRouter.patch('/departments/:id', async (req, res) => {
     const department = await updateDepartment(ctx.config, wid, req.params.id, parsed.data);
     if (!department) return res.status(404).json({ error: 'department_not_found' });
     res.json({ department });
-  } catch (e: any) {
+  } catch (e) {
     if (handleDeptErr(e, res, 'update_failed')) return;
-    res.status(500).json({ error: 'update_failed', message: String(e?.message || e) });
+    res.status(500).json({ error: 'update_failed', message: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -1727,8 +1824,8 @@ callCenterRouter.delete('/departments/:id', async (req, res) => {
   try {
     await deleteDepartment(ctx.config, wid, req.params.id);
     res.json({ ok: true });
-  } catch (e: any) {
-    res.status(500).json({ error: 'delete_failed', message: String(e?.message || e) });
+  } catch (e) {
+    res.status(500).json({ error: 'delete_failed', message: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -1752,9 +1849,9 @@ callCenterRouter.get('/departments/:id/agents', async (req, res) => {
   try {
     const agents = await listDepartmentAgents(ctx.config, wid, req.params.id);
     res.json({ agents });
-  } catch (e: any) {
+  } catch (e) {
     if (handleDeptErr(e, res, 'list_failed')) return;
-    res.status(500).json({ error: 'list_failed', message: String(e?.message || e) });
+    res.status(500).json({ error: 'list_failed', message: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -1770,9 +1867,9 @@ callCenterRouter.post('/departments/:id/agents', async (req, res) => {
       ctx.config, wid, req.params.id, parsed.data.user_id, parsed.data,
     );
     res.status(201).json({ agent });
-  } catch (e: any) {
+  } catch (e) {
     if (handleDeptErr(e, res, 'add_failed')) return;
-    res.status(500).json({ error: 'add_failed', message: String(e?.message || e) });
+    res.status(500).json({ error: 'add_failed', message: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -1789,9 +1886,9 @@ callCenterRouter.patch('/departments/:id/agents/:userId', async (req, res) => {
     );
     if (!agent) return res.status(404).json({ error: 'agent_not_found' });
     res.json({ agent });
-  } catch (e: any) {
+  } catch (e) {
     if (handleDeptErr(e, res, 'update_failed')) return;
-    res.status(500).json({ error: 'update_failed', message: String(e?.message || e) });
+    res.status(500).json({ error: 'update_failed', message: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -1803,9 +1900,9 @@ callCenterRouter.delete('/departments/:id/agents/:userId', async (req, res) => {
   try {
     await removeDepartmentAgent(ctx.config, wid, req.params.id, req.params.userId);
     res.json({ ok: true });
-  } catch (e: any) {
+  } catch (e) {
     if (handleDeptErr(e, res, 'remove_failed')) return;
-    res.status(500).json({ error: 'remove_failed', message: String(e?.message || e) });
+    res.status(500).json({ error: 'remove_failed', message: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -1823,8 +1920,8 @@ callCenterRouter.get('/agents/presence', async (req, res) => {
   try {
     const presence = await getAgentPresence(ctx.config, wid);
     res.json({ presence });
-  } catch (e: any) {
-    res.status(500).json({ error: 'list_failed', message: String(e?.message || e) });
+  } catch (e) {
+    res.status(500).json({ error: 'list_failed', message: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -1840,8 +1937,8 @@ callCenterRouter.put('/agents/me/presence', async (req, res) => {
       ctx.config, wid, ctx.userId, parsed.data.status, parsed.data.status_message,
     );
     res.json({ presence });
-  } catch (e: any) {
-    res.status(500).json({ error: 'update_failed', message: String(e?.message || e) });
+  } catch (e) {
+    res.status(500).json({ error: 'update_failed', message: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -1867,9 +1964,9 @@ callCenterRouter.post('/calls/:id/assign', async (req, res) => {
       actorId: ctx.userId,
     });
     res.json(r);
-  } catch (e: any) {
+  } catch (e) {
     if (e instanceof RoutingException) return res.status(e.httpStatus).json({ error: e.code });
-    res.status(500).json({ error: 'assign_failed', message: String(e?.message || e) });
+    res.status(500).json({ error: 'assign_failed', message: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -1900,9 +1997,9 @@ callCenterRouter.post('/calls/:id/transfer', async (req, res) => {
       actorId: ctx.userId,
     });
     res.json(r);
-  } catch (e: any) {
+  } catch (e) {
     if (e instanceof RoutingException) return res.status(e.httpStatus).json({ error: e.code });
-    res.status(500).json({ error: 'transfer_failed', message: String(e?.message || e) });
+    res.status(500).json({ error: 'transfer_failed', message: e instanceof Error ? e.message : String(e) });
   }
 });
 
@@ -1921,8 +2018,9 @@ async function probeUrl(url: string, timeoutMs = 3000): Promise<{ status: number
   try {
     const r = await fetch(url, { method: 'GET', signal: controller.signal });
     return { status: r.status, error: null };
-  } catch (err: any) {
-    return { status: null, error: String(err?.code || err?.name || err?.message || 'fetch_failed') };
+  } catch (err) {
+    const e = err as { code?: unknown; name?: unknown; message?: unknown } | undefined;
+    return { status: null, error: String(e?.code || e?.name || e?.message || 'fetch_failed') };
   } finally {
     clearTimeout(t);
   }
@@ -1931,7 +2029,7 @@ async function probeUrl(url: string, timeoutMs = 3000): Promise<{ status: number
 callCenterRouter.get('/diagnostics/livekit', async (req, res) => {
   const wid = String(req.query.workspaceId || '');
   if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = (req as ReqWithConfig).serverConfig;
   const auth = await authorizeWorkspaceAccess(req, res, wid);
   if (!auth) return;
   if (!auth.isAdmin && !(auth.role && DIAG_ROLES.has(auth.role))) {

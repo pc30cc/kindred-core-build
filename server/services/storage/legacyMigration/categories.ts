@@ -9,6 +9,7 @@ import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import {
   resolveStorageConfigForOwner,
+  getFileUrlWithConfig,
   type StorageConfig,
 } from '../index.js';
 import {
@@ -16,14 +17,16 @@ import {
   userAvatarKey,
   callRecordingKey,
   privacyExportKey,
+  workspaceBrandingKey,
   LEGACY_EMAIL_ATTACHMENT_PATTERN,
   LEGACY_USER_AVATAR_PATTERN,
   LEGACY_LIVEKIT_RECORDING_PATTERN,
   LEGACY_PRIVACY_EXPORT_PATTERN,
+  LEGACY_BRANDING_PATTERN,
 } from '../keys.js';
 import { resolvePrivacyStoragePolicy } from '../../privacy/storageResolver.js';
 import { ownerForJob } from '../../privacy/worker.js';
-import { loadLiveKitConfig } from '../../calls/livekitConfig.js';
+import { resolveRecordingStorageConfig } from '../../calls/recordingStorageResolver.js';
 import type { LegacyMigrationCandidate, LegacyMigrationProvider } from './engine.js';
 
 function extFromFileName(name: string): string {
@@ -179,22 +182,6 @@ export function privacyExportsMigrationProvider(config: ServerConfig): LegacyMig
   };
 }
 
-function livekitRecordingStorageConfig(rs: {
-  bucket: string | null; region: string | null; endpoint: string | null; access_key: string | null; secret_key: string | null;
-}): StorageConfig {
-  if (!rs.bucket || !rs.access_key || !rs.secret_key) {
-    throw new Error('LiveKit recording storage (bucket / access_key / secret_key) is not configured.');
-  }
-  return {
-    provider: 's3',
-    accessKeyId: rs.access_key,
-    secretAccessKey: rs.secret_key,
-    bucket: rs.bucket,
-    s3Region: rs.region ?? undefined,
-    endpoint: rs.endpoint ?? undefined,
-  };
-}
-
 /**
  * call_recordings.storage_path: the old <providerRoomId>/<ts>.mp4 shape
  * (LiveKit's own room-naming convention, no workspace prefix at all) ->
@@ -234,8 +221,7 @@ export function callRecordingsMigrationProvider(config: ServerConfig): LegacyMig
       return candidates;
     },
     async resolveStorageConfig() {
-      const lk = await loadLiveKitConfig(config);
-      return livekitRecordingStorageConfig(lk.recording_storage);
+      return resolveRecordingStorageConfig(config);
     },
     async commitNewKey(candidateId, newKey) {
       const { error } = await sb.from('call_recordings').update({ storage_path: newKey }).eq('id', candidateId);
@@ -248,11 +234,74 @@ export function callRecordingsMigrationProvider(config: ServerConfig): LegacyMig
   };
 }
 
+/**
+ * workspace_branding.logo_url: the legacy `branding/<workspaceId>/...` shape
+ * -> workspace/<id>/branding/.... The column stores a full URL rather than a
+ * bare key (same shape problem 177/accountAvatarsMigrationProvider solved
+ * for profiles.avatar_url/avatar_storage_key) — 184_workspace_branding_
+ * storage_key.sql added the logo_storage_key sibling column this provider
+ * commits/reads back; discovery still parses logo_url because that's the
+ * only place a legacy row's key survives (logo_storage_key is NULL for
+ * every row written before that column existed).
+ */
+export function workspaceBrandingMigrationProvider(config: ServerConfig): LegacyMigrationProvider {
+  const sb = getServiceClient(config);
+  return {
+    category: 'workspace_branding',
+    async fetchBatch(limit) {
+      const { data, error } = await sb
+        .from('workspace_branding')
+        .select('workspace_id, logo_url, logo_storage_key')
+        .is('logo_storage_key', null)
+        .not('logo_url', 'is', null)
+        .order('workspace_id', { ascending: true })
+        .limit(limit);
+      if (error) throw new Error(error.message);
+      const rows = (data ?? []) as Array<{ workspace_id: string; logo_url: string | null; logo_storage_key: string | null }>;
+      const candidates: LegacyMigrationCandidate[] = [];
+      for (const row of rows) {
+        if (!row.logo_url) continue;
+        const marker = `/branding/${row.workspace_id}/`;
+        const idx = row.logo_url.indexOf(marker);
+        if (idx < 0) continue; // not the legacy shape — nothing to migrate for this row
+        const oldKey = row.logo_url.slice(idx + 1);
+        if (!LEGACY_BRANDING_PATTERN.test(oldKey)) continue;
+        const fileName = oldKey.split('/').pop() || `icon-${Date.now()}.bin`;
+        candidates.push({
+          id: row.workspace_id,
+          oldKey,
+          newKey: workspaceBrandingKey({ workspaceId: row.workspace_id, fileName }),
+        });
+      }
+      return candidates;
+    },
+    async resolveStorageConfig(candidateId) {
+      const cfg: StorageConfig | null = await resolveStorageConfigForOwner(config, { kind: 'workspace', workspaceId: candidateId });
+      if (!cfg) throw new Error(`No storage provider configured for workspace ${candidateId}`);
+      return cfg;
+    },
+    async commitNewKey(candidateId, newKey) {
+      const cfg: StorageConfig | null = await resolveStorageConfigForOwner(config, { kind: 'workspace', workspaceId: candidateId });
+      const url = cfg ? getFileUrlWithConfig(cfg, newKey) : null;
+      const { error } = await sb
+        .from('workspace_branding')
+        .update({ logo_storage_key: newKey, ...(url ? { logo_url: url } : {}) })
+        .eq('workspace_id', candidateId);
+      if (error) throw new Error(error.message);
+    },
+    async readBackKey(candidateId) {
+      const { data } = await sb.from('workspace_branding').select('logo_storage_key').eq('workspace_id', candidateId).maybeSingle();
+      return (data as { logo_storage_key?: string } | null)?.logo_storage_key ?? null;
+    },
+  };
+}
+
 export function allLegacyMigrationProviders(config: ServerConfig): LegacyMigrationProvider[] {
   return [
     emailAttachmentsMigrationProvider(config),
     accountAvatarsMigrationProvider(config),
     privacyExportsMigrationProvider(config),
     callRecordingsMigrationProvider(config),
+    workspaceBrandingMigrationProvider(config),
   ];
 }

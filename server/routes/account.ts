@@ -10,9 +10,13 @@
  *   `users/<userId>/avatar/<uuid>.<ext>` (server/services/storage/keys.ts's
  *   userAvatarKey()). See docs/STORAGE_ARCHITECTURE_AUDIT.md §4/§9.
  *
- *   Workspace icon/branding remains workspace-owned and unchanged by this
- *   pass (`branding/<workspaceId>/...` — a registered legacy shape in
- *   server/services/storage/keys.ts pending its own migration).
+ *   Workspace icon/branding is workspace-owned, uploaded through
+ *   uploadForOwner/deleteForOwner with owner:{kind:'workspace', workspaceId},
+ *   under the canonical `workspace/<workspaceId>/branding/<uuid>-<name>`
+ *   shape (workspaceBrandingKey()). The pre-migration `branding/<workspaceId>/...`
+ *   shape (no `workspace/` root) remains a registered legacy pattern in
+ *   server/services/storage/keys.ts for READS/CLEANUP of icons uploaded
+ *   before this migration only — no producer writes it anymore.
  *
  * Backward compatibility: this router is purely additive; existing
  * profile reads via Supabase RLS continue to work.
@@ -20,11 +24,10 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
-import crypto from 'crypto';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { uploadFile, deleteFile, uploadForOwner, deleteForOwner } from '../services/storage/index.js';
-import { userAvatarKey } from '../services/storage/keys.js';
+import { userAvatarKey, workspaceBrandingKey } from '../services/storage/keys.js';
 import { resolveVisitorGeo } from '../services/geo/index.js';
 import { hashIp, getClientIp } from '../utils/clientIp.js';
 import { issueVerificationEmail } from '../services/auth-email.js';
@@ -756,15 +759,21 @@ accountRouter.get('/security/login-history', async (req, res) => {
 
 // ─── WORKSPACE ICON UPLOAD ──────────────────────────────────────
 //
-// Mirrors the (former) avatar upload flow but writes to the workspace-scoped
-// `branding/<workspaceId>/icon-...` key and persists the resulting URL
-// to `workspace_branding.logo_url`. Caller must be a member of the
-// workspace (any role) — verified by RLS via service-role lookup.
+// Mirrors the (former) avatar upload flow but writes to the canonical
+// workspace-scoped `workspace/<workspaceId>/branding/...` key
+// (server/services/storage/keys.ts's workspaceBrandingKey()) and persists
+// the resulting URL to `workspace_branding.logo_url`. Caller must be a
+// member of the workspace (any role) — verified by RLS via service-role
+// lookup.
 //
-// Unlike account avatar, this IS genuinely workspace-owned — left as-is by
-// the account-avatar-ownership pass. `branding/<workspaceId>/...` is a
-// registered legacy shape (server/services/storage/keys.ts) pending its
-// own migration to workspace/<id>/branding/...
+// Uploaded/deleted through uploadForOwner/deleteForOwner with
+// owner:{kind:'workspace', workspaceId} — the SAME owner-scoped enforcement
+// path every other workspace-owned producer uses, which also means a
+// workspace mid-deletion correctly rejects new icon uploads (the fail-closed
+// write-lock in isWorkspaceDeleting()). The legacy `branding/<workspaceId>/...`
+// shape (no `workspace/` root) is still recognized for CLEANUP ONLY, so an
+// icon uploaded before this migration is still found and deleted when
+// replaced/removed; new uploads never produce that shape again.
 
 const workspaceIconSchema = z.object({
   workspaceId: z.string().uuid(),
@@ -805,14 +814,13 @@ accountRouter.post('/workspace-icon', async (req, res) => {
     }
 
     const ext = extFromContentType(contentType);
-    const fileKey = `branding/${workspaceId}/icon-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
+    const fileKey = workspaceBrandingKey({ workspaceId, fileName: `icon-${Date.now()}.${ext}` });
 
-    const result = await uploadFile(config, {
-      workspaceId,
+    const result = await uploadForOwner(config, {
+      owner: { kind: 'workspace', workspaceId },
       fileKey,
       data: buffer,
       contentType,
-      allowLegacyKey: true,
     });
     if (!result.success || !result.url) {
       return res.status(500).json({ error: result.error || 'Upload failed' });
@@ -820,27 +828,37 @@ accountRouter.post('/workspace-icon', async (req, res) => {
 
     const sb = getServiceClient(config);
 
-    // Best-effort cleanup of the previous icon
+    // Best-effort cleanup of the previous icon. logo_storage_key (184) is
+    // authoritative when present; only a row from before that column
+    // existed falls back to parsing logo_url for the legacy
+    // branding/<id>/... marker.
     const { data: prevBranding } = await sb
       .from('workspace_branding')
-      .select('logo_url')
+      .select('logo_url, logo_storage_key')
       .eq('workspace_id', workspaceId)
       .maybeSingle();
-    const prev = prevBranding?.logo_url;
-    if (prev && typeof prev === 'string') {
-      const marker = `/branding/${workspaceId}/`;
-      const idx = prev.indexOf(marker);
-      if (idx >= 0) {
-        const oldKey = prev.slice(idx + 1);
-        if (oldKey && oldKey !== fileKey) {
-          await deleteFile(config, workspaceId, oldKey, { allowLegacyKey: true }).catch(() => undefined);
+    const prevKey = prevBranding?.logo_storage_key;
+    if (prevKey && typeof prevKey === 'string') {
+      if (prevKey !== fileKey) {
+        await deleteForOwner(config, { kind: 'workspace', workspaceId }, prevKey).catch(() => undefined);
+      }
+    } else {
+      const prev = prevBranding?.logo_url;
+      if (prev && typeof prev === 'string') {
+        const legacyMarker = `/branding/${workspaceId}/`;
+        const legacyIdx = prev.indexOf(legacyMarker);
+        if (legacyIdx >= 0) {
+          const oldKey = prev.slice(legacyIdx + 1);
+          if (oldKey) {
+            await deleteFile(config, workspaceId, oldKey, { allowLegacyKey: true }).catch(() => undefined);
+          }
         }
       }
     }
 
     const { error: saveError } = await sb
       .from('workspace_branding')
-      .update({ logo_url: result.url, updated_at: new Date().toISOString() })
+      .update({ logo_url: result.url, logo_storage_key: fileKey, updated_at: new Date().toISOString() })
       .eq('workspace_id', workspaceId);
 
     if (saveError) {
@@ -868,22 +886,27 @@ accountRouter.delete('/workspace-icon', async (req, res) => {
     const sb = getServiceClient(config);
     const { data: prevBranding } = await sb
       .from('workspace_branding')
-      .select('logo_url')
+      .select('logo_url, logo_storage_key')
       .eq('workspace_id', workspaceId)
       .maybeSingle();
-    const prev = prevBranding?.logo_url;
-    if (prev && typeof prev === 'string') {
-      const marker = `/branding/${workspaceId}/`;
-      const idx = prev.indexOf(marker);
-      if (idx >= 0) {
-        const oldKey = prev.slice(idx + 1);
-        if (oldKey) await deleteFile(config, workspaceId, oldKey, { allowLegacyKey: true }).catch(() => undefined);
+    const prevKey = prevBranding?.logo_storage_key;
+    if (prevKey && typeof prevKey === 'string') {
+      await deleteForOwner(config, { kind: 'workspace', workspaceId }, prevKey).catch(() => undefined);
+    } else {
+      const prev = prevBranding?.logo_url;
+      if (prev && typeof prev === 'string') {
+        const legacyMarker = `/branding/${workspaceId}/`;
+        const legacyIdx = prev.indexOf(legacyMarker);
+        if (legacyIdx >= 0) {
+          const oldKey = prev.slice(legacyIdx + 1);
+          if (oldKey) await deleteFile(config, workspaceId, oldKey, { allowLegacyKey: true }).catch(() => undefined);
+        }
       }
     }
 
     await sb
       .from('workspace_branding')
-      .update({ logo_url: null, updated_at: new Date().toISOString() })
+      .update({ logo_url: null, logo_storage_key: null, updated_at: new Date().toISOString() })
       .eq('workspace_id', workspaceId);
 
     return res.json({ success: true });

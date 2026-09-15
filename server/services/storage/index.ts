@@ -20,6 +20,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { assertOwnerScopedKey, assertSafeStorageKey, isKnownLegacyStorageKey, LEGACY_USER_AVATAR_PATTERN, ownerRoot, StorageKeyError, type StorageOwner } from './keys.js';
 import { withOwnerWriteLease } from './writerLease.js';
+import { readStoragePool, replicaEntries } from './pool.js';
 
 export type { StorageOwner };
 
@@ -70,6 +71,19 @@ export interface StorageResult {
   success: boolean;
   url?: string;
   fileKey?: string;
+  error?: string;
+  /**
+   * Per-replica outcome when the write was mirrored (see replicateUpload).
+   * A failed mirror never fails the operation — the primary already holds
+   * the object — but it is reported so an operator can re-sync.
+   */
+  mirrors?: MirrorOutcome[];
+}
+
+/** Result of mirroring one object to one replica vendor. */
+export interface MirrorOutcome {
+  provider: string;
+  success: boolean;
   error?: string;
 }
 
@@ -715,6 +729,7 @@ async function localDownloadRange(
 const rangedDownloadHandlers: Record<string, (c: StorageConfig, k: string, r?: string) => Promise<RangedDownloadResult>> = {
   bunny_storage: bunnyDownloadRange,
   s3: s3DownloadRange,
+  arvan_storage: s3DownloadRange,
   cloudflare_r2: s3DownloadRange,
   minio: s3DownloadRange,
   do_spaces: s3DownloadRange,
@@ -780,6 +795,7 @@ async function localDownload(config: StorageConfig, fileKey: string): Promise<Do
 const downloadHandlers: Record<string, (config: StorageConfig, key: string) => Promise<DownloadResult>> = {
   bunny_storage: bunnyDownload,
   s3: s3Download,
+  arvan_storage: s3Download,
   cloudflare_r2: s3Download,
   minio: s3Download,
   do_spaces: s3Download,
@@ -806,6 +822,7 @@ export async function downloadFile(
 const uploadHandlers: Record<string, (config: StorageConfig, req: ProviderUploadRequest) => Promise<StorageResult>> = {
   bunny_storage: bunnyUpload,
   s3: s3Upload,
+  arvan_storage: s3Upload,
   cloudflare_r2: s3Upload,
   minio: s3Upload,
   do_spaces: s3Upload,
@@ -817,6 +834,7 @@ const uploadHandlers: Record<string, (config: StorageConfig, req: ProviderUpload
 const deleteHandlers: Record<string, (config: StorageConfig, key: string) => Promise<StorageResult>> = {
   bunny_storage: bunnyDelete,
   s3: s3Delete,
+  arvan_storage: s3Delete,
   cloudflare_r2: s3Delete,
   minio: s3Delete,
   do_spaces: s3Delete,
@@ -834,6 +852,7 @@ const deleteHandlers: Record<string, (config: StorageConfig, key: string) => Pro
 const listHandlers: Record<string, (config: StorageConfig, prefix: string, cursor?: string) => Promise<ListResult>> = {
   bunny_storage: bunnyList,
   s3: s3List,
+  arvan_storage: s3List,
   cloudflare_r2: s3List,
   minio: s3List,
   do_spaces: s3List,
@@ -843,6 +862,7 @@ const listHandlers: Record<string, (config: StorageConfig, prefix: string, curso
 const urlHandlers: Record<string, (config: StorageConfig, key: string) => string> = {
   bunny_storage: bunnyGetUrl,
   s3: s3GetUrl,
+  arvan_storage: s3GetUrl,
   cloudflare_r2: s3GetUrl,
   minio: s3GetUrl,
   do_spaces: s3GetUrl,
@@ -921,6 +941,34 @@ function asString(v: unknown): string | undefined {
 }
 
 /**
+ * Every storage vendor this backend can actually drive. The admin API
+ * refuses to store credentials for anything outside this list, so a typo in
+ * the UI can never produce a pool entry that silently never uploads.
+ */
+export const SUPPORTED_STORAGE_PROVIDERS = Object.keys(uploadHandlers);
+
+/**
+ * Build a StorageConfig from a raw stored config record — the same mapping
+ * every resolver uses, exposed so the admin API can test a vendor's
+ * credentials without duplicating the field aliases.
+ */
+export function storageConfigFromRecord(provider: string, config: Record<string, unknown>): StorageConfig {
+  return mapDBConfigToStorage(provider, config);
+}
+
+/**
+ * ArvanCloud Object Storage is Ceph RGW behind an S3-compatible API, one
+ * endpoint per datacenter (https://s3.<region>.arvanstorage.ir). The region
+ * id doubles as the SigV4 signing region, so both are derived from the same
+ * value the operator picks in the UI.
+ */
+const ARVAN_DEFAULT_REGION = 'ir-thr-at1';
+
+function arvanEndpoint(region?: string): string {
+  return `https://s3.${region?.trim() || ARVAN_DEFAULT_REGION}.arvanstorage.ir`;
+}
+
+/**
  * `app_runtime_config.value` is untyped jsonb — normalizes it into a
  * provider name + config object, whether the row stores
  * `{provider_name, config}` or the provider fields flattened at the top
@@ -942,17 +990,22 @@ function mapDBConfigToStorage(provider: string, c: Record<string, unknown>): Sto
   const bunnyZone = asString(c.storage_zone) ?? asString(c.username);
   const bunnyEndpoint = asString(c.endpoint) ?? asString(c.hostname);
   const maxFileSize = c.max_file_size;
+  const isArvan = provider === 'arvan_storage';
+  const region = asString(c.region);
+  // Arvan's endpoint is fully determined by the region; an explicit endpoint
+  // is only an escape hatch for a datacenter this build predates.
+  const endpoint = isArvan ? (asString(c.endpoint)?.trim() || arvanEndpoint(region)) : bunnyEndpoint;
   return {
     provider,
     apiKey: bunnyApiKey,
     storageZone: bunnyZone,
-    region: asString(c.region),
+    region,
     cdnUrl: asString(c.cdn_url) ?? asString(c.cdn_endpoint) ?? asString(c.public_url),
     accessKeyId: asString(c.access_key_id) ?? asString(c.access_key),
     secretAccessKey: asString(c.secret_access_key) ?? asString(c.secret_key),
     bucket: asString(c.bucket) ?? asString(c.container),
-    s3Region: asString(c.region),
-    endpoint: bunnyEndpoint,
+    s3Region: isArvan ? (region || ARVAN_DEFAULT_REGION) : region,
+    endpoint,
     localPath: asString(c.local_path) ?? asString(c.path),
     publicUrl: asString(c.public_url) ?? asString(c.publicUrl),
     maxFileSizeMB:
@@ -1115,6 +1168,13 @@ export async function uploadForOwner(
     }
     logStorageOperation({ operation: 'upload', owner: req.owner, provider: storageConfig.provider, success: result.success, durationMs: Date.now() - startedAt, error: result.error });
 
+    // Mirror to the enabled replicas. Never changes `result.success`: the
+    // object is already on the primary, which is what serves every read.
+    if (result.success) {
+      const mirrors = await replicateUpload(serverConfig, req, storageConfig.provider);
+      if (mirrors.length > 0) result = { ...result, mirrors };
+    }
+
     return result;
   };
 
@@ -1276,6 +1336,11 @@ export async function deleteForOwner(
       });
     }
     logStorageOperation({ operation: 'delete', owner, provider: storageConfig.provider, success: result.success, durationMs: Date.now() - startedAt, error: result.error });
+
+    if (result.success) {
+      const mirrors = await replicateDelete(serverConfig, fileKey, storageConfig.provider);
+      if (mirrors.length > 0) return { ...result, mirrors };
+    }
     return result;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1468,6 +1533,236 @@ export async function listWithConfig(
   const handler = listHandlers[storageConfig.provider];
   if (!handler) return { success: false, error: `Unsupported provider for listing: ${storageConfig.provider}` };
   return handler(storageConfig, prefix, cursor);
+}
+
+// ─── Replication: primary → enabled replicas ─────────────────────
+//
+// The platform can hold credentials for several vendors at once (see
+// ./pool.ts). One is the primary — it alone serves reads and is the one
+// `default_storage_provider` points at. Every other enabled vendor is a
+// mirror: a successful primary write is copied there so the same object
+// exists in more than one place.
+//
+// Mirroring is deliberately best-effort. The primary write has already
+// succeeded and its result is what the caller gets; a replica that is down,
+// misconfigured or out of quota is reported in `mirrors` and left for the
+// operator to re-sync (syncStorageReplica), never turned into a user-facing
+// upload failure.
+
+/** Resolved mirror targets for the current pool, primary excluded. */
+async function resolveReplicaConfigs(
+  serverConfig: ServerConfig,
+  primaryProvider: string,
+): Promise<{ configs: StorageConfig[]; mirrorDeletes: boolean }> {
+  try {
+    const pool = await readStoragePool(serverConfig);
+    if (!pool.replication.enabled) return { configs: [], mirrorDeletes: false };
+    const configs = replicaEntries(pool)
+      .filter((entry) => entry.name !== primaryProvider)
+      .map((entry) => mapDBConfigToStorage(entry.name, entry.config));
+    return { configs, mirrorDeletes: pool.replication.mirrorDeletes };
+  } catch (err: unknown) {
+    console.error('[storage] replica resolution failed', err instanceof Error ? err.message : err);
+    return { configs: [], mirrorDeletes: false };
+  }
+}
+
+async function runMirror(
+  operation: 'upload' | 'delete',
+  config: StorageConfig,
+  run: () => Promise<StorageResult>,
+): Promise<MirrorOutcome> {
+  try {
+    const result = await run();
+    if (!result.success) {
+      console.warn(`[storage] mirror ${operation} failed on ${config.provider}: ${result.error ?? 'unknown error'}`);
+    }
+    return { provider: config.provider, success: result.success, error: result.error };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[storage] mirror ${operation} threw on ${config.provider}: ${message}`);
+    return { provider: config.provider, success: false, error: message };
+  }
+}
+
+/** Copy one just-written object to every enabled replica. */
+async function replicateUpload(
+  serverConfig: ServerConfig,
+  req: ProviderUploadRequest,
+  primaryProvider: string,
+): Promise<MirrorOutcome[]> {
+  const { configs } = await resolveReplicaConfigs(serverConfig, primaryProvider);
+  if (configs.length === 0) return [];
+
+  return Promise.all(
+    configs.map((config) => {
+      const handler = uploadHandlers[config.provider];
+      if (!handler) {
+        return Promise.resolve<MirrorOutcome>({
+          provider: config.provider,
+          success: false,
+          error: `Unsupported storage provider: ${config.provider}`,
+        });
+      }
+      return runMirror('upload', config, () => handler(config, req));
+    }),
+  );
+}
+
+/**
+ * Propagate a delete to the replicas — only when the operator asked for it.
+ * With `mirrorDeletes` off a replica keeps objects the primary has dropped,
+ * which is exactly what makes it usable as a backup.
+ */
+async function replicateDelete(
+  serverConfig: ServerConfig,
+  fileKey: string,
+  primaryProvider: string,
+): Promise<MirrorOutcome[]> {
+  const { configs, mirrorDeletes } = await resolveReplicaConfigs(serverConfig, primaryProvider);
+  if (!mirrorDeletes || configs.length === 0) return [];
+
+  return Promise.all(
+    configs.map((config) => {
+      const handler = deleteHandlers[config.provider];
+      if (!handler) {
+        return Promise.resolve<MirrorOutcome>({
+          provider: config.provider,
+          success: false,
+          error: `Unsupported storage provider: ${config.provider}`,
+        });
+      }
+      return runMirror('delete', config, () => handler(config, fileKey));
+    }),
+  );
+}
+
+export interface ReplicaSyncReport {
+  target: string;
+  prefix: string;
+  /** Keys listed on the primary in this page. */
+  scanned: number;
+  copied: number;
+  /** Already present on the replica. */
+  skipped: number;
+  failed: number;
+  errors: string[];
+  /** Pass back as `cursor` to continue; null when the prefix is exhausted. */
+  nextCursor: string | null;
+}
+
+const SYNC_DEFAULT_LIMIT = 100;
+const SYNC_MAX_LIMIT = 500;
+
+const CONTENT_TYPE_BY_EXT: Record<string, string> = {
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+  webp: 'image/webp', svg: 'image/svg+xml', pdf: 'application/pdf',
+  txt: 'text/plain', csv: 'text/csv', json: 'application/json',
+  zip: 'application/zip', mp3: 'audio/mpeg', wav: 'audio/wav',
+  ogg: 'audio/ogg', mp4: 'video/mp4', webm: 'video/webm',
+};
+
+function contentTypeForKey(key: string): string {
+  const ext = key.split('.').pop()?.toLowerCase() ?? '';
+  return CONTENT_TYPE_BY_EXT[ext] ?? 'application/octet-stream';
+}
+
+/**
+ * Backfill an existing replica from the primary — the catch-up counterpart
+ * to mirror-on-write, for objects that predate the replica or were written
+ * while it was unreachable.
+ *
+ * One call handles at most `limit` objects and returns a cursor, so a large
+ * bucket is walked in bounded steps by the caller instead of tying up a
+ * request for an unbounded time. Objects already present on the replica are
+ * skipped, so re-running is cheap and safe.
+ */
+export interface ReplicaSyncOptions {
+  target: string;
+  prefix?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface ReplicaSyncResult {
+  ok: boolean;
+  report?: ReplicaSyncReport;
+  error?: string;
+}
+
+export async function syncStorageReplica(
+  serverConfig: ServerConfig,
+  opts: ReplicaSyncOptions,
+): Promise<ReplicaSyncResult> {
+  const pool = await readStoragePool(serverConfig);
+  if (!pool.primary) return { ok: false, error: 'No primary storage provider is configured' };
+  if (opts.target === pool.primary) return { ok: false, error: 'The primary cannot be synced onto itself' };
+
+  const targetEntry = pool.providers[opts.target];
+  if (!targetEntry) return { ok: false, error: `Storage provider ${opts.target} is not configured` };
+
+  const primaryConfig = mapDBConfigToStorage(pool.primary, pool.providers[pool.primary]?.config ?? {});
+  const targetConfig = mapDBConfigToStorage(opts.target, targetEntry.config);
+
+  const prefix = (opts.prefix ?? '').replace(/^\/+/, '');
+  if (prefix) {
+    try {
+      assertSafeStorageKey(prefix);
+    } catch (err) {
+      return { ok: false, error: err instanceof StorageKeyError ? err.message : 'Invalid sync prefix' };
+    }
+  }
+
+  const limit = Math.min(Math.max(opts.limit ?? SYNC_DEFAULT_LIMIT, 1), SYNC_MAX_LIMIT);
+
+  const listed = await listWithConfig(primaryConfig, prefix, opts.cursor);
+  if (!listed.success) return { ok: false, error: listed.error ?? 'Listing the primary failed' };
+
+  const keys = (listed.keys ?? []).slice(0, limit);
+  // One listing of the replica is enough to skip what it already holds;
+  // re-copying is correct but wastes bandwidth on every re-run.
+  const existing = new Set<string>();
+  const targetListed = await listWithConfig(targetConfig, prefix);
+  if (targetListed.success) for (const key of targetListed.keys ?? []) existing.add(key);
+
+  const report: ReplicaSyncReport = {
+    target: opts.target,
+    prefix,
+    scanned: keys.length,
+    copied: 0,
+    skipped: 0,
+    failed: 0,
+    errors: [],
+    // More keys than this page could copy means the caller must come back
+    // for the rest even when the provider itself reported no continuation.
+    nextCursor: (listed.keys ?? []).length > keys.length ? (opts.cursor ?? null) : (listed.nextCursor ?? null),
+  };
+
+  for (const key of keys) {
+    if (existing.has(key)) {
+      report.skipped++;
+      continue;
+    }
+    const downloaded = await downloadWithConfig(primaryConfig, key);
+    if (!downloaded.success || !downloaded.data) {
+      report.failed++;
+      if (report.errors.length < 10) report.errors.push(`${key}: ${downloaded.error ?? 'download failed'}`);
+      continue;
+    }
+    const uploaded = await uploadWithConfig(targetConfig, {
+      fileKey: key,
+      data: downloaded.data,
+      contentType: contentTypeForKey(key),
+    });
+    if (uploaded.success) {
+      report.copied++;
+    } else {
+      report.failed++;
+      if (report.errors.length < 10) report.errors.push(`${key}: ${uploaded.error ?? 'upload failed'}`);
+    }
+  }
+
+  return { ok: true, report };
 }
 
 /**

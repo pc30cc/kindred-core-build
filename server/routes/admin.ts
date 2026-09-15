@@ -4,7 +4,7 @@
  * All require global admin role verified via service client.
  */
 
-import { Router } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { z } from 'zod';
@@ -21,6 +21,7 @@ import { adminEnforcementRouter } from './adminEnforcement.js';
 import { adminCallsRouter } from './adminCalls.js';
 import { adminAdvancedRoutingRouter } from './adminAdvancedRouting.js';
 import { adminSmsProvidersRouter } from './adminSmsProviders.js';
+import { adminStorageProvidersRouter } from './adminStorageProviders.js';
 import { adminSeoBacklinksProviderRouter } from './adminSeoBacklinksProvider.js';
 import { adminSeoKeywordsProviderRouter } from './adminSeoKeywordsProvider.js';
 import { adminSeoRankTrackingProviderRouter } from './adminSeoRankTrackingProvider.js';
@@ -43,13 +44,31 @@ import { issueImpersonationToken } from '../services/auth/impersonation.js';
 export const adminRouter = Router();
 
 /**
+ * Everything the admin middlewares attach to a request. Handlers read it
+ * through `ctx(req)` instead of casting at each call site.
+ */
+interface AdminRequestContext {
+  serverConfig: ServerConfig;
+  adminUser?: { id: string };
+}
+
+function ctx(req: Request): AdminRequestContext {
+  return req as Request & AdminRequestContext;
+}
+
+/** Message of an unknown throwable, for a JSON error body. */
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback;
+}
+
+/**
  * Resolve the canonical app base URL without falling back to `localhost`.
  * Order: platform_domains.app_base_url → APP_BASE_URL env →
  *        first non-wildcard CORS origin → request origin → null.
  * Callers MUST handle a null result (multi-domain deploys without a
  * configured app base must not silently link visitors to localhost).
  */
-export async function resolveAppBaseUrl(config: ServerConfig, req: any): Promise<string | null> {
+export async function resolveAppBaseUrl(config: ServerConfig, req: Request): Promise<string | null> {
   const sb = getServiceClient(config);
   const { data: domains } = await sb
     .from('platform_domains')
@@ -75,10 +94,10 @@ export async function resolveAppBaseUrl(config: ServerConfig, req: any): Promise
 }
 
 // Middleware: verify caller is a global admin
-async function requireAdmin(req: any, res: any, next: any) {
+async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const userId = await requirePlatformAdmin(req, res);
   if (!userId) return;
-  (req as any).adminUser = { id: userId };
+  ctx(req).adminUser = { id: userId };
   next();
 }
 
@@ -135,6 +154,10 @@ adminRouter.use('/advanced-routing', adminAdvancedRoutingRouter);
 // service-role-only table and never returned to the browser.
 adminRouter.use('/providers/sms', adminSmsProvidersRouter);
 
+// Storage provider pool — several vendors at once, one primary, the rest
+// mirrored (super admin only; credentials never leave the server).
+adminRouter.use('/providers/storage', adminStorageProvidersRouter);
+
 // SEO Backlinks / Keyword Research / Rank Tracking — platform data
 // providers (DataForSEO). Same singleton-credential shape as the SMS
 // provider above; each module can point at a different vendor.
@@ -166,7 +189,7 @@ const resetLinkSchema = z.object({
 adminRouter.post('/send-reset-link', async (req, res) => {
   try {
     const { email } = resetLinkSchema.parse(req.body);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = ctx(req).serverConfig;
     const sb = getServiceClient(config);
 
     // Fully self-hosted recovery: custom token table + configured email provider.
@@ -198,8 +221,8 @@ adminRouter.post('/send-reset-link', async (req, res) => {
     }
 
     res.json({ success: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Failed to send reset link' });
+  } catch (err: unknown) {
+    res.status(400).json({ error: errorMessage(err, 'Failed to send reset link') });
   }
 });
 
@@ -212,7 +235,7 @@ const changePasswordSchema = z.object({
 adminRouter.post('/change-password', async (req, res) => {
   try {
     const { userId, newPassword } = changePasswordSchema.parse(req.body);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = ctx(req).serverConfig;
     const sb = getServiceClient(config);
 
     let passwordHash: string;
@@ -239,8 +262,8 @@ adminRouter.post('/change-password', async (req, res) => {
     }
 
     res.json({ success: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Failed to change password' });
+  } catch (err: unknown) {
+    res.status(400).json({ error: errorMessage(err, 'Failed to change password') });
   }
 });
 
@@ -253,7 +276,7 @@ const blockSchema = z.object({
 adminRouter.post('/block-user', async (req, res) => {
   try {
     const { userId, blocked } = blockSchema.parse(req.body);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = ctx(req).serverConfig;
     const sb = getServiceClient(config);
 
     // Status flip + (when blocking) full session revocation in one atomic
@@ -269,8 +292,8 @@ adminRouter.post('/block-user', async (req, res) => {
     }
 
     res.json({ success: true, blocked });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Failed to update user' });
+  } catch (err: unknown) {
+    res.status(400).json({ error: errorMessage(err, 'Failed to update user') });
   }
 });
 
@@ -282,7 +305,7 @@ const userStatusSchema = z.object({
 adminRouter.post('/user-status', async (req, res) => {
   try {
     const { userId } = userStatusSchema.parse(req.body);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = ctx(req).serverConfig;
     const sb = getServiceClient(config);
 
     const identity = await findIdentityById(config, userId);
@@ -306,8 +329,8 @@ adminRouter.post('/user-status', async (req, res) => {
       last_sign_in_at: cred?.last_login_at ?? null,
       created_at: identity.createdAt,
     });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Failed to get user status' });
+  } catch (err: unknown) {
+    res.status(400).json({ error: errorMessage(err, 'Failed to get user status') });
   }
 });
 
@@ -322,7 +345,7 @@ const impersonateSchema = z.object({
 adminRouter.post('/impersonate', async (req, res) => {
   try {
     const { userId } = impersonateSchema.parse(req.body);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = ctx(req).serverConfig;
 
     const identity = await findIdentityById(config, userId);
     if (!identity) {
@@ -337,13 +360,13 @@ adminRouter.post('/impersonate', async (req, res) => {
       });
     }
 
-    const adminUserId = (req as any).adminUser?.id as string;
+    const adminUserId = ctx(req).adminUser?.id as string;
     const rawToken = await issueImpersonationToken(config, userId, adminUserId);
     const url = `${redirectBase}/api/auth/impersonate?token=${encodeURIComponent(rawToken)}`;
 
     res.json({ url });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Failed to impersonate user' });
+  } catch (err: unknown) {
+    res.status(400).json({ error: errorMessage(err, 'Failed to impersonate user') });
   }
 });
 
@@ -354,7 +377,7 @@ adminRouter.post('/impersonate', async (req, res) => {
 adminRouter.delete('/users/:userId/avatar', async (req, res) => {
   try {
     const userId = z.string().uuid().parse(req.params.userId);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = ctx(req).serverConfig;
     const sb = getServiceClient(config);
 
     const { data: profile, error: profileError } = await sb
@@ -389,8 +412,8 @@ adminRouter.delete('/users/:userId/avatar', async (req, res) => {
     if (updateError) return res.status(500).json({ error: updateError.message });
 
     res.json({ success: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || 'Failed to remove avatar' });
+  } catch (err: unknown) {
+    res.status(400).json({ error: errorMessage(err, 'Failed to remove avatar') });
   }
 });
 
@@ -409,12 +432,12 @@ adminRouter.patch('/users/:userId/profile', async (req, res) => {
   try {
     const userId = z.string().uuid().parse(req.params.userId);
     const body = adminProfilePatchSchema.parse(req.body ?? {});
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = ctx(req).serverConfig;
     const sb = getServiceClient(config);
 
     const patch: Record<string, unknown> = {};
     for (const key of ['full_name', 'company_name', 'website_domain', 'preferred_locale'] as const) {
-      if (key in body) patch[key] = (body as any)[key] || null;
+      if (key in body) patch[key] = (body as Record<string, unknown>)[key] || null;
     }
 
     if (Object.keys(patch).length > 0) {
@@ -437,7 +460,7 @@ adminRouter.patch('/users/:userId/profile', async (req, res) => {
         // Postgres 23505 = unique_violation: the normalized new email
         // already belongs to another profile (profiles_email_normalized_
         // unique_idx, 032/036) — a clean 409, not a raw DB error leak.
-        if ((error as any).code === '23505') {
+        if ((error as { code?: string }).code === '23505') {
           return res.status(409).json({ error: 'An account with this email already exists' });
         }
         return res.status(500).json({ error: error.message });
@@ -447,8 +470,8 @@ adminRouter.patch('/users/:userId/profile', async (req, res) => {
     }
 
     res.json({ success: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || 'Failed to update user' });
+  } catch (err: unknown) {
+    res.status(400).json({ error: errorMessage(err, 'Failed to update user') });
   }
 });
 
@@ -457,7 +480,7 @@ adminRouter.post('/users/:userId/email-verification', async (req, res) => {
   try {
     const userId = z.string().uuid().parse(req.params.userId);
     const { verified } = z.object({ verified: z.boolean() }).parse(req.body ?? {});
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = ctx(req).serverConfig;
     const sb = getServiceClient(config);
 
     const { error } = await sb.from('user_credentials').upsert(
@@ -467,8 +490,8 @@ adminRouter.post('/users/:userId/email-verification', async (req, res) => {
     if (error) return res.status(400).json({ error: error.message });
 
     res.json({ success: true, verified });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || 'Failed to update email verification' });
+  } catch (err: unknown) {
+    res.status(400).json({ error: errorMessage(err, 'Failed to update email verification') });
   }
 });
 
@@ -481,7 +504,7 @@ adminRouter.put('/users/:userId/phone', async (req, res) => {
     const { phone, country } = z
       .object({ phone: z.string().trim().min(4).max(32), country: z.string().trim().min(2).max(2).default('IR') })
       .parse(req.body ?? {});
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = ctx(req).serverConfig;
     const sb = getServiceClient(config);
 
     const normalized = normalizePhoneToE164(phone, country.toUpperCase());
@@ -504,21 +527,21 @@ adminRouter.put('/users/:userId/phone', async (req, res) => {
     if (error) return res.status(500).json({ error: error.message });
 
     res.json({ success: true, phone: normalized.e164, country: normalized.country });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || 'Failed to save phone' });
+  } catch (err: unknown) {
+    res.status(400).json({ error: errorMessage(err, 'Failed to save phone') });
   }
 });
 
 adminRouter.delete('/users/:userId/phone', async (req, res) => {
   try {
     const userId = z.string().uuid().parse(req.params.userId);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = ctx(req).serverConfig;
     const sb = getServiceClient(config);
     const { error } = await sb.from('user_phone_verifications').delete().eq('user_id', userId);
     if (error) return res.status(500).json({ error: error.message });
     res.json({ success: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || 'Failed to remove phone' });
+  } catch (err: unknown) {
+    res.status(400).json({ error: errorMessage(err, 'Failed to remove phone') });
   }
 });
 
@@ -529,7 +552,7 @@ adminRouter.get('/users/:userId/messages', async (req, res) => {
   try {
     const userId = z.string().uuid().parse(req.params.userId);
     const limit = Math.min(Number(req.query.limit) || 50, 200);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = ctx(req).serverConfig;
     const sb = getServiceClient(config);
 
     const { data: profile } = await sb
@@ -550,7 +573,7 @@ adminRouter.get('/users/:userId/messages', async (req, res) => {
       : null;
 
     const [emailsRes, smsRes] = await Promise.all([
-      emailsQuery ? emailsQuery : Promise.resolve({ data: [], error: null } as any),
+      emailsQuery ?? Promise.resolve({ data: [] as Record<string, unknown>[], error: null }),
       sb
         .from('phone_verification_challenges')
         .select('id, purpose, delivery_status, provider_name, provider_message_id, created_by, sent_at, created_at, consumed_at, expires_at, phone_e164')
@@ -571,7 +594,7 @@ adminRouter.get('/users/:userId/messages', async (req, res) => {
 
     res.json({
       emails: emailsRes.data ?? [],
-      sms: (smsRes.data ?? []).map((s: any) => ({
+      sms: (smsRes.data ?? []).map((s: Record<string, unknown>) => ({
         id: s.id,
         purpose: s.purpose,
         delivery_status: s.delivery_status,
@@ -582,11 +605,11 @@ adminRouter.get('/users/:userId/messages', async (req, res) => {
         created_at: s.created_at,
         consumed_at: s.consumed_at,
         expires_at: s.expires_at,
-        phone_masked: maskPhone(s.phone_e164 ?? null),
+        phone_masked: maskPhone((s.phone_e164 as string | null) ?? null),
       })),
     });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || 'Failed to load messages' });
+  } catch (err: unknown) {
+    res.status(400).json({ error: errorMessage(err, 'Failed to load messages') });
   }
 });
 
@@ -595,7 +618,7 @@ adminRouter.get('/users/:userId/billing', async (req, res) => {
   try {
     const userId = z.string().uuid().parse(req.params.userId);
     const limit = Math.min(Number(req.query.limit) || 100, 500);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = ctx(req).serverConfig;
     const sb = getServiceClient(config);
 
     const { data: memberships, error: memErr } = await sb
@@ -604,7 +627,9 @@ adminRouter.get('/users/:userId/billing', async (req, res) => {
       .eq('user_id', userId);
     if (memErr) return res.status(500).json({ error: memErr.message });
 
-    const workspaceIds = Array.from(new Set((memberships ?? []).map((m: any) => m.workspace_id))).filter(Boolean);
+    const workspaceIds = Array.from(
+      new Set((memberships ?? []).map((m: { workspace_id: string }) => m.workspace_id)),
+    ).filter(Boolean);
     if (workspaceIds.length === 0) {
       return res.json({ payments: [], events: [], subscriptions: [], planChanges: [], workspaces: [], plans: [], gateways: [] });
     }
@@ -630,12 +655,13 @@ adminRouter.get('/users/:userId/billing', async (req, res) => {
         .in('provider_type', ['billing', 'payment', 'payments']),
     ]);
 
-    const firstError = [wsRes, payRes, evRes, subRes, chgRes, planRes, gwRes].find((r: any) => r.error);
-    if (firstError) return res.status(500).json({ error: (firstError as any).error.message });
+    const firstError = [wsRes, payRes, evRes, subRes, chgRes, planRes, gwRes]
+      .find((r: { error: { message: string } | null }) => r.error);
+    if (firstError?.error) return res.status(500).json({ error: firstError.error.message });
 
     // Never leak provider secrets — only expose which config keys are set.
     const SECRET_KEY_RE = /(secret|key|token|password|pin|signature)/i;
-    const gateways = (gwRes.data ?? []).map((g: any) => {
+    const gateways = (gwRes.data ?? []).map((g: Record<string, unknown>) => {
       const cfg = (g.config ?? {}) as Record<string, unknown>;
       return {
         id: g.id,
@@ -665,7 +691,7 @@ adminRouter.get('/users/:userId/billing', async (req, res) => {
       plans: planRes.data ?? [],
       gateways,
     });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || 'Failed to load billing data' });
+  } catch (err: unknown) {
+    res.status(400).json({ error: errorMessage(err, 'Failed to load billing data') });
   }
 });

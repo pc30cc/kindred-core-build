@@ -18,6 +18,7 @@ import { getServiceClient } from '../../supabase.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { assertWorkspaceScopedKey, assertSafeStorageKey, isKnownLegacyStorageKey, StorageKeyError } from './keys.js';
 
 export interface StorageConfig {
   provider: string;
@@ -44,6 +45,13 @@ export interface UploadRequest {
   fileKey: string;
   data: Buffer;
   contentType: string;
+  /**
+   * Rarely needed: known legacy shapes (see ./keys.js's
+   * isKnownLegacyStorageKey) already pass automatically. Set this only for
+   * a one-off case that doesn't warrant a new shared pattern — never to
+   * route around enforcement for a key shape a real caller will reuse.
+   */
+  allowLegacyKey?: boolean;
 }
 
 export interface StorageResult {
@@ -51,6 +59,43 @@ export interface StorageResult {
   url?: string;
   fileKey?: string;
   error?: string;
+}
+
+/**
+ * Ownership enforcement for every workspace-resolved operation
+ * (uploadFile / downloadFile / downloadFileRange / deleteFile / getFileUrl).
+ *
+ * Fail closed: `fileKey` must start with `workspace/<workspaceId>/` exactly
+ * — a mismatched workspace id, or a key under any other root (avatars/,
+ * branding/, email-attachments/, etc.) is rejected here, in the service
+ * layer, regardless of what a route-level validator already checked. This
+ * closes the internal-caller loophole documented in
+ * docs/STORAGE_ARCHITECTURE_AUDIT.md §1: route-level checks are
+ * defense-in-depth, not the only guard.
+ *
+ * The one exception is a short, explicit, centrally-reviewed list of
+ * pre-canonicalization key shapes (./keys.js's isKnownLegacyStorageKey) —
+ * this lets the still-migrating producers (account avatar, workspace
+ * branding, LiveKit recordings, pre-migration email attachment rows) keep
+ * working without every one of their call sites carrying its own bypass.
+ * Legacy keys still go through assertSafeStorageKey — traversal/injection
+ * protection is never skipped, only the workspace-prefix requirement is.
+ */
+function enforceWorkspaceScope(workspaceId: string, fileKey: string, allowLegacyKey?: boolean): string | null {
+  try {
+    assertWorkspaceScopedKey(workspaceId, fileKey);
+    return null;
+  } catch (err) {
+    if (allowLegacyKey || isKnownLegacyStorageKey(fileKey)) {
+      try {
+        assertSafeStorageKey(fileKey);
+        return null;
+      } catch (err2) {
+        return err2 instanceof StorageKeyError ? err2.message : 'Invalid file key';
+      }
+    }
+    return err instanceof StorageKeyError ? err.message : 'Invalid file key';
+  }
 }
 
 // ─── Allowed file types ──────────────────────────────────────────
@@ -412,8 +457,8 @@ async function localDownloadRange(
     } finally {
       fs.closeSync(fd);
     }
-  } catch (err: any) {
-    return { success: false, error: err.message };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -439,7 +484,10 @@ export async function downloadFileRange(
   workspaceId: string,
   fileKey: string,
   rangeHeader?: string,
+  opts?: { allowLegacyKey?: boolean },
 ): Promise<RangedDownloadResult> {
+  const scopeError = enforceWorkspaceScope(workspaceId, fileKey, opts?.allowLegacyKey);
+  if (scopeError) return { success: false, error: scopeError };
   const storageConfig = await resolveStorageConfig(serverConfig, workspaceId);
   if (!storageConfig) return { success: false, error: 'No storage provider configured' };
   const handler = rangedDownloadHandlers[storageConfig.provider];
@@ -474,8 +522,8 @@ async function localDownload(config: StorageConfig, fileKey: string): Promise<Do
     const filePath = path.join(config.localPath || '/tmp/storage', fileKey);
     const data = fs.readFileSync(filePath);
     return { success: true, data };
-  } catch (err: any) {
-    return { success: false, error: err.message };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -498,7 +546,10 @@ export async function downloadFile(
   serverConfig: ServerConfig,
   workspaceId: string,
   fileKey: string,
+  opts?: { allowLegacyKey?: boolean },
 ): Promise<DownloadResult> {
+  const scopeError = enforceWorkspaceScope(workspaceId, fileKey, opts?.allowLegacyKey);
+  if (scopeError) return { success: false, error: scopeError };
   const storageConfig = await resolveStorageConfig(serverConfig, workspaceId);
   if (!storageConfig) return { success: false, error: 'No storage provider configured' };
   const handler = downloadHandlers[storageConfig.provider];
@@ -555,7 +606,7 @@ export async function resolveStorageConfig(serverConfig: ServerConfig, workspace
     .single();
 
   if (wsConfig?.config) {
-    return mapDBConfigToStorage(wsConfig.provider_name, wsConfig.config as any);
+    return mapDBConfigToStorage(wsConfig.provider_name, wsConfig.config as Record<string, unknown>);
   }
 
   // 2. Global default
@@ -566,9 +617,7 @@ export async function resolveStorageConfig(serverConfig: ServerConfig, workspace
     .single();
 
   if (globalConfig?.value) {
-    const c = globalConfig.value as any;
-    const providerName = c.provider_name || c.provider || 'local';
-    const providerConfig = c.config && typeof c.config === 'object' ? c.config : c;
+    const { providerName, providerConfig } = splitProviderNameAndConfig(globalConfig.value);
     return mapDBConfigToStorage(providerName, providerConfig);
   }
 
@@ -589,34 +638,53 @@ export async function resolveGlobalStorageConfig(serverConfig: ServerConfig): Pr
     .maybeSingle();
 
   if (!globalConfig?.value) return null;
-  const c = globalConfig.value as any;
-  const providerName = c.provider_name || c.provider || 'local';
-  const providerConfig = c.config && typeof c.config === 'object' ? c.config : c;
+  const { providerName, providerConfig } = splitProviderNameAndConfig(globalConfig.value);
   return mapDBConfigToStorage(providerName, providerConfig);
 }
 
-function mapDBConfigToStorage(provider: string, c: any): StorageConfig {
+function asString(v: unknown): string | undefined {
+  return typeof v === 'string' ? v : undefined;
+}
+
+/**
+ * `app_runtime_config.value` is untyped jsonb — normalizes it into a
+ * provider name + config object, whether the row stores
+ * `{provider_name, config}` or the provider fields flattened at the top
+ * level.
+ */
+function splitProviderNameAndConfig(value: unknown): { providerName: string; providerConfig: Record<string, unknown> } {
+  const c = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  const providerName = asString(c.provider_name) ?? asString(c.provider) ?? 'local';
+  const providerConfig = c.config && typeof c.config === 'object' ? (c.config as Record<string, unknown>) : c;
+  return { providerName, providerConfig };
+}
+
+function mapDBConfigToStorage(provider: string, c: Record<string, unknown>): StorageConfig {
   // Bunny Storage now ships with FTP-style fields in the admin UI
   // (username / hostname / connection_type / port / password). Map them
   // to the existing storage primitives so upload/delete handlers keep
   // working without provider-specific code paths.
-  const bunnyApiKey = c.api_key || c.password;
-  const bunnyZone = c.storage_zone || c.username;
-  const bunnyEndpoint = c.endpoint || c.hostname;
+  const bunnyApiKey = asString(c.api_key) ?? asString(c.password);
+  const bunnyZone = asString(c.storage_zone) ?? asString(c.username);
+  const bunnyEndpoint = asString(c.endpoint) ?? asString(c.hostname);
+  const maxFileSize = c.max_file_size;
   return {
     provider,
     apiKey: bunnyApiKey,
     storageZone: bunnyZone,
-    region: c.region,
-    cdnUrl: c.cdn_url || c.cdn_endpoint || c.public_url,
-    accessKeyId: c.access_key_id || c.access_key,
-    secretAccessKey: c.secret_access_key || c.secret_key,
-    bucket: c.bucket || c.container,
-    s3Region: c.region,
+    region: asString(c.region),
+    cdnUrl: asString(c.cdn_url) ?? asString(c.cdn_endpoint) ?? asString(c.public_url),
+    accessKeyId: asString(c.access_key_id) ?? asString(c.access_key),
+    secretAccessKey: asString(c.secret_access_key) ?? asString(c.secret_key),
+    bucket: asString(c.bucket) ?? asString(c.container),
+    s3Region: asString(c.region),
     endpoint: bunnyEndpoint,
-    localPath: c.local_path || c.path,
-    publicUrl: c.public_url || c.publicUrl,
-    maxFileSizeMB: c.max_file_size ? parseInt(c.max_file_size) : undefined,
+    localPath: asString(c.local_path) ?? asString(c.path),
+    publicUrl: asString(c.public_url) ?? asString(c.publicUrl),
+    maxFileSizeMB:
+      typeof maxFileSize === 'number' || typeof maxFileSize === 'string'
+        ? parseInt(String(maxFileSize), 10)
+        : undefined,
   };
 }
 
@@ -627,6 +695,9 @@ export async function uploadFile(
   serverConfig: ServerConfig,
   req: UploadRequest
 ): Promise<StorageResult> {
+  const scopeError = enforceWorkspaceScope(req.workspaceId, req.fileKey, req.allowLegacyKey);
+  if (scopeError) return { success: false, error: scopeError };
+
   const storageConfig = await resolveStorageConfig(serverConfig, req.workspaceId);
   if (!storageConfig) {
     return { success: false, error: 'No storage provider configured' };
@@ -659,16 +730,17 @@ export async function uploadFile(
       success: result.success,
       error_message: result.error,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     await sb.from('storage_usage_logs').insert({
       workspace_id: req.workspaceId,
       provider_name: storageConfig.provider,
       operation: 'upload',
       file_key: req.fileKey,
       success: false,
-      error_message: err.message,
+      error_message: message,
     });
-    return { success: false, error: err.message };
+    return { success: false, error: message };
   }
 
   return result;
@@ -680,8 +752,12 @@ export async function uploadFile(
 export async function deleteFile(
   serverConfig: ServerConfig,
   workspaceId: string,
-  fileKey: string
+  fileKey: string,
+  opts?: { allowLegacyKey?: boolean },
 ): Promise<StorageResult> {
+  const scopeError = enforceWorkspaceScope(workspaceId, fileKey, opts?.allowLegacyKey);
+  if (scopeError) return { success: false, error: scopeError };
+
   const storageConfig = await resolveStorageConfig(serverConfig, workspaceId);
   if (!storageConfig) return { success: false, error: 'No storage provider configured' };
 
@@ -710,8 +786,9 @@ export async function deleteFile(
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (prior && typeof (prior as any).file_size === 'number') {
-        freedBytes = (prior as any).file_size as number;
+      const priorFileSize = (prior as { file_size?: unknown } | null)?.file_size;
+      if (typeof priorFileSize === 'number') {
+        freedBytes = priorFileSize;
       }
     }
     await sb.from('storage_usage_logs').insert({
@@ -724,8 +801,8 @@ export async function deleteFile(
       error_message: result.error,
     });
     return result;
-  } catch (err: any) {
-    return { success: false, error: err.message };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -735,8 +812,12 @@ export async function deleteFile(
 export async function getFileUrl(
   serverConfig: ServerConfig,
   workspaceId: string,
-  fileKey: string
+  fileKey: string,
+  opts?: { allowLegacyKey?: boolean },
 ): Promise<string | null> {
+  const scopeError = enforceWorkspaceScope(workspaceId, fileKey, opts?.allowLegacyKey);
+  if (scopeError) return null;
+
   const storageConfig = await resolveStorageConfig(serverConfig, workspaceId);
   if (!storageConfig) return null;
   const handler = urlHandlers[storageConfig.provider];
@@ -820,7 +901,7 @@ export async function testStorageConnection(config: StorageConfig): Promise<{
     if (delHandler) await delHandler(config, testKey);
 
     return { success: true, latencyMs: Date.now() - start };
-  } catch (err: any) {
-    return { success: false, latencyMs: Date.now() - start, error: err.message };
+  } catch (err: unknown) {
+    return { success: false, latencyMs: Date.now() - start, error: err instanceof Error ? err.message : String(err) };
   }
 }

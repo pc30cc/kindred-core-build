@@ -63,7 +63,7 @@ import { botProvider } from '../../shared/channels/botProviders.js';
 import { handleTelegramCallbackQuery } from '../services/channels/telegram/runtime.js';
 import { publishOperatorEvent } from '../services/realtime/publish.js';
 import { uploadFile } from '../services/storage/index.js';
-import { randomUUID } from 'node:crypto';
+import { emailAttachmentKey } from '../services/storage/keys.js';
 
 export const internalChannelsRouter = Router();
 
@@ -537,8 +537,7 @@ internalChannelsRouter.post(
       const bytes = Buffer.isBuffer(req.body) ? (req.body as Buffer) : Buffer.alloc(0);
       if (!bytes.byteLength) return res.status(400).json({ error: 'empty_body' });
 
-      const now = new Date();
-      const fileKey = `email-attachments/${message.workspace_id}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${randomUUID()}-${filename}`;
+      const fileKey = emailAttachmentKey({ workspaceId: message.workspace_id, fileName: filename });
       const uploadResult = await uploadFile(config, { workspaceId: message.workspace_id, fileKey, data: bytes, contentType });
       if (!uploadResult.success || !uploadResult.fileKey) {
         return res.status(502).json({ error: 'attachment_upload_failed', details: uploadResult.error });
@@ -843,8 +842,7 @@ internalChannelsRouter.post(
       const bytes = Buffer.isBuffer(req.body) ? (req.body as Buffer) : Buffer.alloc(0);
       if (!bytes.byteLength) return res.status(400).json({ error: 'empty_body' });
 
-      const now = new Date();
-      const fileKey = `email-attachments/${message.workspace_id}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${randomUUID()}-${filename}`;
+      const fileKey = emailAttachmentKey({ workspaceId: message.workspace_id, fileName: filename });
       const uploadResult = await uploadFile(config, { workspaceId: message.workspace_id, fileKey, data: bytes, contentType });
       if (!uploadResult.success || !uploadResult.fileKey) {
         return res.status(502).json({ error: 'attachment_upload_failed', details: uploadResult.error });

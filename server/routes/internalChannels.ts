@@ -545,6 +545,7 @@ internalChannelsRouter.post(
 
       const { error: insertError } = await sb.from('email_attachments').insert({
         message_id: messageId,
+        workspace_id: message.workspace_id,
         filename,
         content_type: contentType,
         size_bytes: bytes.byteLength,
@@ -850,6 +851,7 @@ internalChannelsRouter.post(
 
       const { error: insertError } = await sb.from('email_attachments').insert({
         message_id: messageId,
+        workspace_id: message.workspace_id,
         filename,
         content_type: contentType,
         size_bytes: bytes.byteLength,

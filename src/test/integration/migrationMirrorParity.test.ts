@@ -190,6 +190,16 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/177_profiles_avatar_storage_key.sql',
     hosted: 'supabase/migrations/20260915073000_profiles_avatar_storage_key.sql',
   },
+  {
+    label: '178 — Email attachment storage-key workspace scoping',
+    selfHost: 'database/migrations/178_email_attachments_workspace_scope.sql',
+    hosted: 'supabase/migrations/20260915090000_email_attachments_workspace_scope.sql',
+  },
+  {
+    label: '179 — profiles.avatar_storage_key user-scope guard',
+    selfHost: 'database/migrations/179_profiles_avatar_storage_key_scope_check.sql',
+    hosted: 'supabase/migrations/20260915090500_profiles_avatar_storage_key_scope_check.sql',
+  },
 
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered

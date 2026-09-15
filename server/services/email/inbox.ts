@@ -466,6 +466,7 @@ export async function composeReply(
   for (const att of input.attachments ?? []) {
     const { error: attError } = await sb.from('email_attachments').insert({
       message_id: messageRow.id,
+      workspace_id: workspaceId,
       filename: att.filename,
       content_type: att.contentType,
       size_bytes: att.sizeBytes,

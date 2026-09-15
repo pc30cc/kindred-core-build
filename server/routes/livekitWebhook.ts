@@ -298,6 +298,7 @@ export async function applyEvent(
           }
           await sb.from('call_recordings').insert({
             call_session_id: session.id,
+            workspace_id: session.workspace_id,
             provider: session.provider,
             provider_recording_id: egId,
             recording_type: 'composite',

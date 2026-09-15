@@ -16202,6 +16202,7 @@ export type Database = {
           footer_text: string | null
           id: string
           legal_name: string | null
+          logo_storage_key: string | null
           logo_url: string | null
           meta_description: string | null
           meta_title: string | null
@@ -16229,6 +16230,7 @@ export type Database = {
           footer_text?: string | null
           id?: string
           legal_name?: string | null
+          logo_storage_key?: string | null
           logo_url?: string | null
           meta_description?: string | null
           meta_title?: string | null
@@ -16256,6 +16258,7 @@ export type Database = {
           footer_text?: string | null
           id?: string
           legal_name?: string | null
+          logo_storage_key?: string | null
           logo_url?: string | null
           meta_description?: string | null
           meta_title?: string | null
@@ -16388,6 +16391,60 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      workspace_deletion_jobs: {
+        Row: {
+          completed_at: string | null
+          db_cleanup_completed_at: string | null
+          error_message: string | null
+          id: string
+          requested_at: string
+          requested_by: string
+          started_at: string | null
+          status: string
+          storage_cleanup_error: string | null
+          storage_cursor: string | null
+          storage_objects_deleted: number
+          storage_objects_found: number | null
+          workspace_id: string
+          workspace_name: string
+          workspace_slug: string
+        }
+        Insert: {
+          completed_at?: string | null
+          db_cleanup_completed_at?: string | null
+          error_message?: string | null
+          id?: string
+          requested_at?: string
+          requested_by: string
+          started_at?: string | null
+          status?: string
+          storage_cleanup_error?: string | null
+          storage_cursor?: string | null
+          storage_objects_deleted?: number
+          storage_objects_found?: number | null
+          workspace_id: string
+          workspace_name: string
+          workspace_slug: string
+        }
+        Update: {
+          completed_at?: string | null
+          db_cleanup_completed_at?: string | null
+          error_message?: string | null
+          id?: string
+          requested_at?: string
+          requested_by?: string
+          started_at?: string | null
+          status?: string
+          storage_cleanup_error?: string | null
+          storage_cursor?: string | null
+          storage_objects_deleted?: number
+          storage_objects_found?: number | null
+          workspace_id?: string
+          workspace_name?: string
+          workspace_slug?: string
+        }
+        Relationships: []
       }
       workspace_department_members: {
         Row: {
@@ -18163,6 +18220,7 @@ export type Database = {
           owner_id: string
           panel_locale: string | null
           slug: string
+          status: string
           updated_at: string | null
           widget_locale: string | null
         }
@@ -18175,6 +18233,7 @@ export type Database = {
           owner_id: string
           panel_locale?: string | null
           slug: string
+          status?: string
           updated_at?: string | null
           widget_locale?: string | null
         }
@@ -18187,6 +18246,7 @@ export type Database = {
           owner_id?: string
           panel_locale?: string | null
           slug?: string
+          status?: string
           updated_at?: string | null
           widget_locale?: string | null
         }

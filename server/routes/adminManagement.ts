@@ -19,11 +19,11 @@
  * would make it uncallable by definition.
  */
 import { Router } from 'express';
+import type { Request } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
-import { deleteFile } from '../services/storage/index.js';
 import { parseWorkspaceDomainInput, type DomainInputResult } from '../utils/workspaceDomainInput.js';
 import { invalidateOriginHostCache, invalidateWorkspaceOriginCache } from '../services/widget/public.js';
 import { invalidateSignupPolicyCache } from '../services/auth/signupPolicy.js';
@@ -32,8 +32,10 @@ import { invalidateSignupPlanCache } from '../services/billing/signupPlan.js';
 
 export const adminManagementRouter = Router();
 
-function serverConfigOf(req: any): ServerConfig {
-  return req.serverConfig as ServerConfig;
+type ReqWithConfig = Request & { serverConfig: ServerConfig };
+
+function serverConfigOf(req: Request): ServerConfig {
+  return (req as unknown as ReqWithConfig).serverConfig;
 }
 
 // NOTE: "am I a platform admin" and "bootstrap the first admin" are NOT
@@ -140,10 +142,21 @@ adminManagementRouter.delete('/users/:userId/roles/:role', async (req, res) => {
 });
 
 /**
- * Hard-delete a user: every workspace they own (with all its data), every
- * row across the schema that points at them, their stored files, and the
- * profile itself. Storage objects are removed first (best-effort) because
- * the DB purge destroys the rows that carry the object keys.
+ * Deletion is asynchronous and storage-aware (docs/STORAGE_ARCHITECTURE_AUDIT.md,
+ * database/migrations/183_user_deletion_lifecycle.sql): this route only
+ * atomically enqueues a user_deletion_jobs row (enqueue_user_deletion RPC —
+ * idempotent, one active job per user via a partial unique index).
+ * server/services/userDeletion/worker.ts does the actual work: enqueues a
+ * workspace_deletion_jobs row for every workspace the user owns (reusing
+ * the full multi-provider storage-aware machinery workspace deletion
+ * already has — no separate, narrower storage sweep), waits for all of
+ * them to fully complete (storage AND DB), cleans up the user's own
+ * global users/<id>/ storage (e.g. the account avatar), and only then
+ * calls admin_delete_user for the final DB purge. DB ownership rows are
+ * never purged before storage cleanup completes.
+ *
+ * Returns 202 with the job id rather than a synchronous result — the
+ * caller polls GET .../deletion-status, exactly like workspace deletion.
  */
 adminManagementRouter.delete('/users/:userId', async (req, res) => {
   const actorId = await requirePlatformAdmin(req, res);
@@ -152,58 +165,79 @@ adminManagementRouter.delete('/users/:userId', async (req, res) => {
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
 
-  if (userId === actorId) {
-    return res.status(400).json({ error: 'Cannot delete your own account' });
-  }
-
-  // 1. Collect storage objects belonging to the user's owned workspaces.
-  const storageFailures: string[] = [];
-  try {
-    const { data: owned } = await sb.from('workspaces').select('id').eq('owner_id', userId);
-    const workspaceIds = (owned ?? []).map((w: any) => w.id as string);
-    if (workspaceIds.length > 0) {
-      const keyed: Array<{ workspaceId: string; key: string }> = [];
-      const collect = async (table: string, column: string) => {
-        const { data } = await sb.from(table).select(`workspace_id, ${column}`).in('workspace_id', workspaceIds).limit(5000);
-        for (const row of (data ?? []) as any[]) {
-          const key = row?.[column];
-          if (typeof key === 'string' && key) keyed.push({ workspaceId: row.workspace_id, key });
-        }
-      };
-      await collect('conversation_attachments', 'storage_path');
-      await collect('call_recordings', 'storage_path');
-      await collect('privacy_jobs', 'artifact_storage_key');
-
-      for (const item of keyed) {
-        try {
-          const result = await deleteFile(config, item.workspaceId, item.key);
-          if (!result.success) storageFailures.push(item.key);
-        } catch {
-          storageFailures.push(item.key);
-        }
-      }
-    }
-  } catch (err: any) {
-    console.error('[admin] storage purge failed for user', userId, err?.message);
-  }
-
-  // 2. Purge the database.
-  const { data, error } = await sb.rpc('admin_delete_user', {
-    _actor_user_id: actorId,
+  const { data, error } = await sb.rpc('enqueue_user_deletion', {
     _user_id: userId,
+    _actor_user_id: actorId,
   });
-  if (error) return res.status(400).json({ error: error.message });
+  if (error) return res.status(500).json({ error: error.message });
 
-  await sb.from('audit_logs').insert({
-    workspace_id: null,
-    user_id: actorId,
-    action: 'admin.user.deleted',
-    entity_type: 'user',
-    entity_id: userId,
-    new_value: { summary: data, storage_failures: storageFailures.length },
-  } as any);
+  if (!data?.ok) {
+    if (data?.error === 'user_not_found') return res.status(404).json({ error: 'User not found' });
+    if (data?.error === 'cannot_delete_self') return res.status(400).json({ error: 'Cannot delete your own account' });
+    return res.status(409).json({ error: data?.error ?? 'enqueue_failed' });
+  }
 
-  return res.json({ success: true, summary: data, storageFailures: storageFailures.length });
+  if (data.started) {
+    await sb.from('audit_logs').insert({
+      workspace_id: null,
+      user_id: actorId,
+      action: 'admin.user.deletion_requested',
+      entity_type: 'user',
+      entity_id: userId,
+      new_value: { job_id: data.job?.id },
+    });
+  }
+
+  return res.status(202).json({ started: data.started, job: data.job });
+});
+
+adminManagementRouter.get('/users/:userId/deletion-status', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  const config = serverConfigOf(req);
+  const sb = getServiceClient(config);
+  const { data: job, error } = await sb
+    .from('user_deletion_jobs')
+    .select('*')
+    .eq('user_id', req.params.userId)
+    .order('requested_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ job });
+});
+
+/**
+ * Manual retry for a terminally-failed account deletion job (automatic
+ * retries with backoff are exhausted). Resumes from wherever it left off —
+ * never re-enqueues a workspace deletion job already completed, never
+ * re-runs avatar cleanup once avatar_cleanup_done is true.
+ */
+adminManagementRouter.post('/users/:userId/deletion-retry', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  const config = serverConfigOf(req);
+  const sb = getServiceClient(config);
+
+  const { data: job, error: jobLookupError } = await sb
+    .from('user_deletion_jobs')
+    .select('id')
+    .eq('user_id', req.params.userId)
+    .eq('status', 'failed')
+    .order('requested_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (jobLookupError) return res.status(500).json({ error: jobLookupError.message });
+  if (!job) return res.status(404).json({ error: 'No failed deletion job found for this user' });
+
+  const { data, error } = await sb.rpc('retry_user_deletion_job', {
+    _job_id: job.id,
+    _actor_user_id: actorId,
+  });
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data?.ok) return res.status(409).json({ error: data?.error ?? 'retry_failed' });
+
+  return res.json({ retried: true, job_id: job.id });
 });
 
 // ── Workspaces ──────────────────────────────────────────────────────────
@@ -263,17 +297,97 @@ adminManagementRouter.get('/workspaces/:workspaceId', async (req, res) => {
   return res.json(data);
 });
 
+/**
+ * Deletion is asynchronous and storage-aware (docs/STORAGE_ARCHITECTURE_AUDIT.md):
+ * this route only atomically flips the workspace to 'deleting' and
+ * enqueues a workspace_deletion_jobs row (via the enqueue_workspace_deletion
+ * RPC — one transaction, so a job-creation failure can never leave the
+ * workspace stuck 'deleting' with no job, and a DB-level partial unique
+ * index guarantees at most one active job per workspace even under
+ * concurrent requests); server/services/workspaceDeletion/worker.ts does
+ * the actual work (walk + delete every physical storage scope that can
+ * hold workspace/<id>/ objects, then run the existing admin_delete_workspace
+ * DB purge). Returns 202 with the job id rather than 200 with a
+ * synchronous result — the caller polls GET .../deletion-status.
+ *
+ * Never returns 202 with job: null — a workspace stuck 'deleting' with no
+ * active job (every prior attempt exhausted its automatic retries) is a
+ * distinct 409, pointing at POST .../deletion-retry.
+ */
 adminManagementRouter.delete('/workspaces/:workspaceId', async (req, res) => {
   const actorId = await requirePlatformAdmin(req, res);
   if (!actorId) return;
   const config = serverConfigOf(req);
   const sb = getServiceClient(config);
-  const { data, error } = await sb.rpc('admin_delete_workspace', {
+  const workspaceId = req.params.workspaceId;
+
+  const { data, error } = await sb.rpc('enqueue_workspace_deletion', {
+    _workspace_id: workspaceId,
     _actor_user_id: actorId,
-    _workspace_id: req.params.workspaceId,
   });
-  if (error) return res.status(400).json({ error: error.message });
-  return res.json({ success: data as boolean });
+  if (error) return res.status(500).json({ error: error.message });
+
+  if (!data?.ok) {
+    if (data?.error === 'workspace_not_found') return res.status(404).json({ error: 'Workspace not found' });
+    if (data?.error === 'workspace_stuck_no_active_job') {
+      return res.status(409).json({
+        error: 'Workspace is in a deleting state with no active job — every previous attempt exhausted its retries',
+        retry_endpoint: `/api/admin/management/workspaces/${workspaceId}/deletion-retry`,
+      });
+    }
+    return res.status(409).json({ error: data?.error ?? 'enqueue_failed', status: data?.status });
+  }
+
+  return res.status(202).json({ started: data.started, job: data.job });
+});
+
+adminManagementRouter.get('/workspaces/:workspaceId/deletion-status', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  const config = serverConfigOf(req);
+  const sb = getServiceClient(config);
+  const { data: job, error } = await sb
+    .from('workspace_deletion_jobs')
+    .select('*')
+    .eq('workspace_id', req.params.workspaceId)
+    .order('requested_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ job });
+});
+
+/**
+ * Manual retry for a terminally-failed deletion job (automatic retries
+ * with backoff are exhausted — server/services/workspaceDeletion/worker.ts's
+ * MAX_JOB_ATTEMPTS). Resumes from wherever storage_scopes progress left
+ * off; never restarts a scope already marked done.
+ */
+adminManagementRouter.post('/workspaces/:workspaceId/deletion-retry', async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  const config = serverConfigOf(req);
+  const sb = getServiceClient(config);
+
+  const { data: job, error: jobLookupError } = await sb
+    .from('workspace_deletion_jobs')
+    .select('id')
+    .eq('workspace_id', req.params.workspaceId)
+    .eq('status', 'failed')
+    .order('requested_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (jobLookupError) return res.status(500).json({ error: jobLookupError.message });
+  if (!job) return res.status(404).json({ error: 'No failed deletion job found for this workspace' });
+
+  const { data, error } = await sb.rpc('retry_workspace_deletion_job', {
+    _job_id: job.id,
+    _actor_user_id: actorId,
+  });
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data?.ok) return res.status(409).json({ error: data?.error ?? 'retry_failed' });
+
+  return res.json({ retried: true, job_id: job.id });
 });
 
 // ── Feature flags (platform-wide, workspace_id IS NULL) ────────────────
@@ -327,23 +441,23 @@ adminManagementRouter.get('/audit-logs', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
 
   const logs = data || [];
-  const userIds = [...new Set(logs.map((l: any) => l.user_id).filter(Boolean))];
-  const workspaceIds = [...new Set(logs.map((l: any) => l.workspace_id).filter(Boolean))];
+  const userIds = [...new Set(logs.map((l) => l.user_id).filter(Boolean))];
+  const workspaceIds = [...new Set(logs.map((l) => l.workspace_id).filter(Boolean))];
 
   const [profiles, workspaces, facets] = await Promise.all([
     userIds.length
       ? sb.from('profiles').select('id, email, full_name').in('id', userIds)
-      : Promise.resolve({ data: [] as any[] }),
+      : Promise.resolve({ data: [] as { id: string; email: string; full_name: string }[] }),
     workspaceIds.length
       ? sb.from('workspaces').select('id, name, slug').in('id', workspaceIds)
-      : Promise.resolve({ data: [] as any[] }),
+      : Promise.resolve({ data: [] as { id: string; name: string; slug: string }[] }),
     sb.from('audit_logs').select('action, entity_type').order('created_at', { ascending: false }).limit(1000),
   ]);
 
-  const profileById = new Map((profiles.data || []).map((p: any) => [p.id, p]));
-  const workspaceById = new Map((workspaces.data || []).map((w: any) => [w.id, w]));
+  const profileById = new Map((profiles.data || []).map((p) => [p.id, p]));
+  const workspaceById = new Map((workspaces.data || []).map((w) => [w.id, w]));
 
-  const enriched = logs.map((l: any) => ({
+  const enriched = logs.map((l) => ({
     ...l,
     actor_email: profileById.get(l.user_id)?.email ?? null,
     actor_name: profileById.get(l.user_id)?.full_name ?? null,
@@ -354,8 +468,8 @@ adminManagementRouter.get('/audit-logs', async (req, res) => {
     logs: enriched,
     total: count ?? enriched.length,
     facets: {
-      actions: [...new Set((facets.data || []).map((r: any) => r.action).filter(Boolean))].sort(),
-      entityTypes: [...new Set((facets.data || []).map((r: any) => r.entity_type).filter(Boolean))].sort(),
+      actions: [...new Set((facets.data || []).map((r) => r.action).filter(Boolean))].sort(),
+      entityTypes: [...new Set((facets.data || []).map((r) => r.entity_type).filter(Boolean))].sort(),
     },
   });
 });
@@ -515,7 +629,7 @@ adminManagementRouter.put('/platform-settings', async (req, res) => {
   if (lookupError) return res.status(500).json({ error: lookupError.message });
   const q = existing
     ? sb.from('platform_settings').update(payload).eq('id', (existing as { id: string }).id).select('*').single()
-    : sb.from('platform_settings').insert(payload as any).select('*').single();
+    : sb.from('platform_settings').insert(payload).select('*').single();
   const { data: savedSettings, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
   // The signup policy is memoised for 30s in the auth path — drop it now so
@@ -556,7 +670,7 @@ adminManagementRouter.put('/platform-domains', async (req, res) => {
         .eq('id', (existing as { id: string }).id)
         .select()
         .maybeSingle()
-    : await sb.from('platform_domains').insert(payload as any).select().maybeSingle();
+    : await sb.from('platform_domains').insert(payload).select().maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ domains: data });
 });
@@ -586,7 +700,7 @@ adminManagementRouter.put('/platform-branding', async (req, res) => {
         .eq('id', (existing as { id: string }).id)
         .select()
         .maybeSingle()
-    : await sb.from('platform_branding').insert(payload as any).select().maybeSingle();
+    : await sb.from('platform_branding').insert(payload).select().maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ branding: data });
 });
@@ -627,7 +741,7 @@ adminManagementRouter.put('/platform-branding-localized', async (req, res) => {
         .eq('id', (existing as { id: string }).id)
         .select()
         .maybeSingle()
-    : await sb.from('platform_branding_localized').insert(payload as any).select().maybeSingle();
+    : await sb.from('platform_branding_localized').insert(payload).select().maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ branding: data });
 });
@@ -660,7 +774,7 @@ adminManagementRouter.put('/email-settings', async (req, res) => {
         .from('email_settings')
         .update({ ...parsed.data, updated_at: new Date().toISOString() })
         .eq('id', (existing as { id: string }).id)
-    : await sb.from('email_settings').insert({ ...parsed.data, workspace_id: null } as any);
+    : await sb.from('email_settings').insert({ ...parsed.data, workspace_id: null });
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ success: true });
 });
@@ -699,7 +813,7 @@ adminManagementRouter.put('/email-settings-localized', async (req, res) => {
     .maybeSingle();
   const { error } = existing
     ? await sb.from('email_settings_localized').update(payload).eq('id', (existing as { id: string }).id)
-    : await sb.from('email_settings_localized').insert(payload as any);
+    : await sb.from('email_settings_localized').insert(payload);
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ success: true });
 });
@@ -762,6 +876,7 @@ adminManagementRouter.patch('/domains/:id', async (req, res) => {
     .eq('id', req.params.id)
     .maybeSingle();
   if (!existing) return res.status(404).json({ error: 'Domain not found' });
+  const existingDomain = existing as { id: string; domain: string; workspace_id: string };
 
   const update: Record<string, unknown> = {};
   let nextDomain: string | null = null;
@@ -780,7 +895,7 @@ adminManagementRouter.patch('/domains/:id', async (req, res) => {
     await sb
       .from('workspace_domains')
       .update({ is_primary: false })
-      .eq('workspace_id', (existing as any).workspace_id);
+      .eq('workspace_id', existingDomain.workspace_id);
   }
 
   const { data, error } = await sb
@@ -790,14 +905,14 @@ adminManagementRouter.patch('/domains/:id', async (req, res) => {
     .select('*, workspaces(name)')
     .maybeSingle();
   if (error) {
-    if ((error as any).code === '23505') {
+    if (error.code === '23505') {
       return res.status(409).json({ error: 'This domain is already registered.', code: 'DOMAIN_TAKEN' });
     }
     return res.status(500).json({ error: error.message });
   }
 
-  invalidateWorkspaceOriginCache((existing as any).workspace_id);
-  if ((existing as any).domain) invalidateOriginHostCache((existing as any).domain);
+  invalidateWorkspaceOriginCache(existingDomain.workspace_id);
+  if (existingDomain.domain) invalidateOriginHostCache(existingDomain.domain);
   if (nextDomain) invalidateOriginHostCache(nextDomain);
   return res.json({ domain: data });
 });
@@ -856,7 +971,7 @@ adminManagementRouter.put('/runtime-config/:key', async (req, res) => {
   const { error } = await sb
     .from('app_runtime_config')
     .upsert(
-      { key: req.params.key, value: body.value as any, updated_at: new Date().toISOString() },
+      { key: req.params.key, value: body.value, updated_at: new Date().toISOString() },
       { onConflict: 'key' },
     );
   if (error) return res.status(500).json({ error: error.message });

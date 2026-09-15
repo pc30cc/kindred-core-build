@@ -2,7 +2,7 @@
  * Phase 8A — Admin (super-admin) routes for call control plane.
  * Mounted under /api/admin/calls. Auth+role enforced by parent admin router.
  */
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import {
@@ -17,8 +17,13 @@ import {
   saveRtcEndpoints,
   invalidateRtcCache,
 } from '../services/calls/rtcResolver.js';
-import { resolveCallProviderOrder, getCallProvider } from '../services/calls/providerResolver.js';
-import { downloadFile, downloadFileRange } from '../services/storage/index.js';
+import {
+  resolveCallProviderOrder,
+  getCallProvider,
+} from '../services/calls/providerResolver.js';
+import type { CallRtcConfig } from '../services/calls/rtcResolver.js';
+import { downloadFile, downloadRangeWithConfig } from '../services/storage/index.js';
+import { resolveRecordingStorageConfig, RecordingStorageNotConfigured } from '../services/calls/recordingStorageResolver.js';
 import {
   mintPlaybackToken,
   type PlaybackDisposition,
@@ -31,11 +36,13 @@ import {
   loadAgoraConfig,
   saveAgoraConfig,
   toPublicView,
+  type AgoraConfig,
 } from '../services/calls/agoraConfig.js';
 import {
   loadLiveKitConfig,
   saveLiveKitConfig,
   toPublicView as toLiveKitPublicView,
+  type LiveKitConfig,
 } from '../services/calls/livekitConfig.js';
 import {
   probeLiveKitProvisioning,
@@ -53,10 +60,38 @@ import { resolveCallProvider } from '../services/calls/providerResolver.js';
 
 export const adminCallsRouter = Router();
 
+type AdminRequest = Request & {
+  serverConfig: ServerConfig;
+  adminUser?: { id: string };
+};
+
+/**
+ * Shared shape for `call_recordings` rows across this file's handlers.
+ * Different queries select different subsets of these columns (and the
+ * `call_sessions!inner(workspace_id)` join is typed here as the single
+ * object the inner join actually returns), so every field but `id` is
+ * optional — mirrors the pattern in recordingPlayback.ts's CallRecordingRow.
+ */
+interface CallRecordingRow {
+  id: string;
+  call_session_id?: string;
+  provider?: string | null;
+  recording_type?: string | null;
+  storage_provider?: string | null;
+  storage_path?: string | null;
+  duration_seconds?: number | null;
+  size_bytes?: number | null;
+  retention_policy?: string | null;
+  retention_expires_at?: string | null;
+  legal_hold?: boolean | null;
+  created_at?: string | null;
+  call_sessions?: { workspace_id: string } | null;
+}
+
 const PROVIDERS: CallProviderId[] = ['livekit', 'jitsi', 'janus', 'agora_cloud', 'disabled'];
 
 adminCallsRouter.get('/control-plane', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
   const cp = await loadCallControlPlane(config, true);
   const network = await getCallNetworkBundle(config);
   // Probe readiness for each provider id (no DB writes).
@@ -89,15 +124,15 @@ adminCallsRouter.get('/control-plane', async (req, res) => {
  * workspaces). Used by Voice & Video Center → Callbacks tab summary cards.
  */
 adminCallsRouter.get('/callbacks/summary', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
   try {
     const counts = await getPlatformCallbackCounts(config);
     const open = counts.requested + counts.scheduled + counts.in_progress;
     const total = open + counts.completed + counts.cancelled;
     const completion_rate = total > 0 ? counts.completed / total : 0;
     res.json({ counts, open, total, completion_rate });
-  } catch (e: any) {
-    res.status(500).json({ error: e?.message || 'failed' });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'failed' });
   }
 });
 
@@ -107,7 +142,7 @@ adminCallsRouter.get('/callbacks/summary', async (req, res) => {
  * are still open. Used by Voice & Video Center → Callbacks tab.
  */
 adminCallsRouter.get('/callbacks/upcoming', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
   try {
     const sb = getServiceClient(config);
     const { data } = await sb
@@ -121,8 +156,8 @@ adminCallsRouter.get('/callbacks/upcoming', async (req, res) => {
     const items = data ?? [];
     const scheduled_count = items.length;
     res.json({ items, scheduled_count });
-  } catch (e: any) {
-    res.status(500).json({ error: e?.message || 'failed' });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'failed' });
   }
 });
 
@@ -151,11 +186,11 @@ const cpUpdateSchema = z.object({
 adminCallsRouter.put('/control-plane', async (req, res) => {
   try {
     const body = cpUpdateSchema.parse(req.body);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
     const merged = await saveCallControlPlane(config, body);
     res.json({ control_plane: merged });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || 'update_failed' });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'update_failed' });
   }
 });
 
@@ -177,17 +212,17 @@ const rtcSchema = z.object({
 adminCallsRouter.put('/rtc-endpoints', async (req, res) => {
   try {
     const body = rtcSchema.parse(req.body);
-    const config: ServerConfig = (req as any).serverConfig;
-    await saveRtcEndpoints(config, body as any);
+    const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
+    await saveRtcEndpoints(config, body as Partial<CallRtcConfig>);
     invalidateRtcCache();
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || 'update_failed' });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'update_failed' });
   }
 });
 
 adminCallsRouter.get('/probe/:workspace_id', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
   const order = await resolveCallProviderOrder(config, req.params.workspace_id);
   res.json({ workspace_id: req.params.workspace_id, provider_order: order });
 });
@@ -198,7 +233,7 @@ adminCallsRouter.get('/probe/:workspace_id', async (req, res) => {
 // existing values, passing empty string clears them.
 // ────────────────────────────────────────────────────────────────────────
 adminCallsRouter.get('/agora', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
   const cfg = await loadAgoraConfig(config, true);
   res.json({ agora: toPublicView(cfg) });
 });
@@ -223,16 +258,16 @@ const agoraSchema = z.object({
 adminCallsRouter.put('/agora', async (req, res) => {
   try {
     const body = agoraSchema.parse(req.body);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
     // Only persist secret fields when the caller actually included them
     // (presence-based, not value-based, so an empty string explicitly clears).
     const patch: Record<string, unknown> = { ...body };
     if (!('app_certificate' in body)) delete patch.app_certificate;
     if (!('token_secret' in body)) delete patch.token_secret;
-    const merged = await saveAgoraConfig(config, patch as any);
+    const merged = await saveAgoraConfig(config, patch as Partial<AgoraConfig>);
     res.json({ agora: toPublicView(merged) });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || 'update_failed' });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'update_failed' });
   }
 });
 
@@ -241,7 +276,7 @@ adminCallsRouter.put('/agora', async (req, res) => {
 // Writes use presence-aware semantics: omit to preserve, "" to clear.
 // ────────────────────────────────────────────────────────────────────────
 adminCallsRouter.get('/livekit', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
   const cfg = await loadLiveKitConfig(config, true);
   res.json({ livekit: toLiveKitPublicView(cfg) });
 });
@@ -273,7 +308,7 @@ const livekitSchema = z.object({
 adminCallsRouter.put('/livekit', async (req, res) => {
   try {
     const body = livekitSchema.parse(req.body);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
     // Strip absent secret fields so they remain preserved (presence-based).
     const patch: Record<string, unknown> = { ...body };
     if (!('api_key' in body)) delete patch.api_key;
@@ -285,16 +320,19 @@ adminCallsRouter.put('/livekit', async (req, res) => {
       if (!('secret_key' in body.recording_storage)) delete s.secret_key;
       patch.recording_storage = s;
     }
-    const merged = await saveLiveKitConfig(config, patch as any);
+    const merged = await saveLiveKitConfig(config, patch as Partial<LiveKitConfig>);
     // Pass 1 — kill the cached real-readiness state so the next admin probe
     // reflects the freshly-saved credentials immediately.
     invalidateLiveKitReadinessCache();
     res.json({ livekit: toLiveKitPublicView(merged) });
-  } catch (err: any) {
+  } catch (err) {
     // Surface zod issues so the UI can show the offending field.
-    const detail = err?.issues
-      ? err.issues.map((i: any) => `${(i.path || []).join('.')}: ${i.message}`).join('; ')
-      : err?.message || 'update_failed';
+    const detail =
+      err instanceof z.ZodError
+        ? err.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+        : err instanceof Error
+          ? err.message
+          : 'update_failed';
     res.status(400).json({ error: detail });
   }
 });
@@ -306,7 +344,7 @@ adminCallsRouter.put('/livekit', async (req, res) => {
  * call flow depends on).
  */
 adminCallsRouter.post('/livekit/test', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
   try {
     const cfg = await loadLiveKitConfig(config, true);
     if (!cfg.enabled) {
@@ -327,11 +365,13 @@ adminCallsRouter.post('/livekit/test', async (req, res) => {
       rtc_url: probe.rtcUrl,
       message: 'LiveKit created and deleted a probe room successfully.',
     });
-  } catch (err: any) {
+  } catch (err) {
     const msg =
       err instanceof CallProviderNotReadyError
         ? err.message
-        : err?.message || 'Unknown error contacting LiveKit.';
+        : err instanceof Error
+          ? err.message
+          : 'Unknown error contacting LiveKit.';
     res.status(502).json({ ok: false, error: msg });
   }
 });
@@ -344,7 +384,7 @@ adminCallsRouter.post('/livekit/test', async (req, res) => {
 const ROLES = ['owner', 'admin', 'agent', 'viewer'] as const;
 
 adminCallsRouter.get('/role-permissions', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('role_permissions')
@@ -374,7 +414,7 @@ const rolePermPatchSchema = z.object({
 adminCallsRouter.put('/role-permissions', async (req, res) => {
   try {
     const body = rolePermPatchSchema.parse(req.body);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
     const sb = getServiceClient(config);
     // Upsert by (workspace_id IS NULL, role_slug, permission_key). Because
     // the unique index uses COALESCE on workspace_id, we match the same
@@ -395,8 +435,8 @@ adminCallsRouter.put('/role-permissions', async (req, res) => {
     if (insErr) return res.status(500).json({ error: insErr.message });
     invalidatePermissionCache();
     res.json({ ok: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err?.message || 'update_failed' });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'update_failed' });
   }
 });
 
@@ -420,7 +460,7 @@ adminCallsRouter.put('/role-permissions', async (req, res) => {
 // backfill action in this phase. Operators who want to manage them
 // can still apply a legal hold; the janitor still ignores NULL.
 
-function retentionStatus(row: any): 'on_hold' | 'expired' | 'expires_at' | 'legacy_unmanaged' {
+function retentionStatus(row: CallRecordingRow): 'on_hold' | 'expired' | 'expires_at' | 'legacy_unmanaged' {
   if (row?.legal_hold) return 'on_hold';
   if (!row?.retention_expires_at) return 'legacy_unmanaged';
   const exp = new Date(row.retention_expires_at).getTime();
@@ -429,7 +469,7 @@ function retentionStatus(row: any): 'on_hold' | 'expired' | 'expires_at' | 'lega
 }
 
 adminCallsRouter.get('/recordings', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
   const sb = getServiceClient(config);
   const Q = z.object({
     workspace_id: z.string().uuid().optional(),
@@ -462,7 +502,8 @@ adminCallsRouter.get('/recordings', async (req, res) => {
 
   const { data, error, count } = await q;
   if (error) return res.status(500).json({ error: error.message });
-  const items = (data || []).map((r: any) => ({
+  const rows = (data || []) as unknown as CallRecordingRow[];
+  const items = rows.map((r) => ({
     id: r.id,
     call_session_id: r.call_session_id,
     workspace_id: r.call_sessions?.workspace_id ?? null,
@@ -512,7 +553,7 @@ const BulkLegalHoldBody = z.object({
 });
 
 adminCallsRouter.post('/recordings/legal-hold/bulk', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
   const sb = getServiceClient(config);
   const parsed = BulkLegalHoldBody.safeParse(req.body);
   if (!parsed.success) {
@@ -530,7 +571,8 @@ adminCallsRouter.post('/recordings/legal-hold/bulk', async (req, res) => {
     .in('id', ids);
   if (priorErr) return res.status(500).json({ error: priorErr.message });
 
-  const priorById = new Map<string, any>((prior || []).map((r: any) => [r.id, r]));
+  const priorRows = (prior || []) as unknown as CallRecordingRow[];
+  const priorById = new Map<string, CallRecordingRow>(priorRows.map((r) => [r.id, r]));
   const presentIds = ids.filter((id) => priorById.has(id));
   const missingIds = ids.filter((id) => !priorById.has(id));
 
@@ -551,7 +593,7 @@ adminCallsRouter.post('/recordings/legal-hold/bulk', async (req, res) => {
       // than partially-applying an unknown subset.
       for (const id of presentIds) failures.push({ id, error: updErr.message });
     } else {
-      const updatedIds = new Set((updated || []).map((r: any) => r.id));
+      const updatedIds = new Set((updated || []).map((r: { id: string }) => r.id));
       for (const id of presentIds) {
         if (updatedIds.has(id)) succeeded.push(id);
         else failures.push({ id, error: 'update_skipped' });
@@ -560,7 +602,7 @@ adminCallsRouter.post('/recordings/legal-hold/bulk', async (req, res) => {
       const action = enabled
         ? 'call_recording.legal_hold.enable'
         : 'call_recording.legal_hold.disable';
-      const adminId = (req as any).adminUser?.id ?? null;
+      const adminId = (req as unknown as AdminRequest).adminUser?.id ?? null;
       const rows = succeeded.map((id) => {
         const p = priorById.get(id);
         const wsId =
@@ -571,12 +613,12 @@ adminCallsRouter.post('/recordings/legal-hold/bulk', async (req, res) => {
           entity_id: id,
           user_id: adminId,
           workspace_id: wsId,
-          old_value: { legal_hold: !!p?.legal_hold } as any,
-          new_value: { legal_hold: enabled, reason: reason ?? null, bulk: true } as any,
+          old_value: { legal_hold: !!p?.legal_hold },
+          new_value: { legal_hold: enabled, reason: reason ?? null, bulk: true },
         };
       });
       if (rows.length > 0) {
-        await sb.from('audit_logs').insert(rows as any).then(() => {}, () => {});
+        await sb.from('audit_logs').insert(rows).then(() => {}, () => {});
       }
     }
   }
@@ -590,7 +632,7 @@ adminCallsRouter.post('/recordings/legal-hold/bulk', async (req, res) => {
 });
 
 adminCallsRouter.post('/recordings/:id/legal-hold', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
   const sb = getServiceClient(config);
   const id = String(req.params.id || '');
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
@@ -606,6 +648,7 @@ adminCallsRouter.post('/recordings/:id/legal-hold', async (req, res) => {
     .maybeSingle();
   if (priorErr) return res.status(500).json({ error: priorErr.message });
   if (!prior) return res.status(404).json({ error: 'not_found' });
+  const priorRow = prior as unknown as CallRecordingRow;
 
   // Toggle ONLY `legal_hold`. retention_expires_at is never touched
   // here — this surface cannot delete or shorten retention.
@@ -615,16 +658,16 @@ adminCallsRouter.post('/recordings/:id/legal-hold', async (req, res) => {
     .eq('id', id);
   if (updErr) return res.status(500).json({ error: updErr.message });
 
-  const wsId = (prior as any)?.call_sessions?.workspace_id ?? '00000000-0000-0000-0000-000000000000';
+  const wsId = priorRow.call_sessions?.workspace_id ?? '00000000-0000-0000-0000-000000000000';
   await sb.from('audit_logs').insert({
     action: parsed.data.enabled ? 'call_recording.legal_hold.enable' : 'call_recording.legal_hold.disable',
     entity_type: 'call_recording',
     entity_id: id,
-    user_id: (req as any).adminUser?.id ?? null,
+    user_id: (req as unknown as AdminRequest).adminUser?.id ?? null,
     workspace_id: wsId,
-    old_value: { legal_hold: !!(prior as any).legal_hold } as any,
-    new_value: { legal_hold: parsed.data.enabled, reason: parsed.data.reason ?? null } as any,
-  } as any).then(() => {}, () => {});
+    old_value: { legal_hold: !!priorRow.legal_hold },
+    new_value: { legal_hold: parsed.data.enabled, reason: parsed.data.reason ?? null },
+  }).then(() => {}, () => {});
 
   res.json({ id, legal_hold: parsed.data.enabled });
 });
@@ -646,7 +689,7 @@ adminCallsRouter.post('/recordings/:id/legal-hold', async (req, res) => {
 //   • 404 storage_object_missing — provider could not locate the object
 //   • 502 provider_download_failed — generic provider read failure
 //   • 200 stream                — raw bytes with derived Content-Type
-function guessContentType(row: any): string {
+function guessContentType(row: CallRecordingRow): string {
   const path = String(row?.storage_path || '').toLowerCase();
   const ext = path.includes('.') ? path.split('.').pop() || '' : '';
   const byExt: Record<string, string> = {
@@ -665,7 +708,7 @@ function guessContentType(row: any): string {
   return 'application/octet-stream';
 }
 
-function downloadFileName(row: any, ct: string): string {
+function downloadFileName(row: CallRecordingRow, ct: string): string {
   const ts = row?.created_at ? new Date(row.created_at).toISOString().replace(/[:.]/g, '-') : 'recording';
   const extFromCt: Record<string, string> = {
     'video/mp4': 'mp4',
@@ -681,7 +724,7 @@ function downloadFileName(row: any, ct: string): string {
 }
 
 adminCallsRouter.get('/recordings/:id/file', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
   const sb = getServiceClient(config);
   const id = String(req.params.id || '');
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
@@ -693,14 +736,22 @@ adminCallsRouter.get('/recordings/:id/file', async (req, res) => {
     .maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   if (!row) return res.status(404).json({ error: 'not_found' });
+  const recordingRow = row as unknown as CallRecordingRow;
 
-  const storagePath = (row as any).storage_path as string | null;
-  const workspaceId = (row as any)?.call_sessions?.workspace_id as string | undefined;
+  const storagePath = recordingRow.storage_path ?? null;
+  const workspaceId = recordingRow.call_sessions?.workspace_id;
   if (!storagePath) return res.status(410).json({ error: 'missing_storage_path' });
   if (!workspaceId) return res.status(409).json({ error: 'orphan_session' });
 
   const rangeHeader = typeof req.headers.range === 'string' ? req.headers.range : undefined;
-  const dl = await downloadFileRange(config, workspaceId, storagePath, rangeHeader);
+  let recordingStorageConfig;
+  try {
+    recordingStorageConfig = await resolveRecordingStorageConfig(config);
+  } catch (err) {
+    if (err instanceof RecordingStorageNotConfigured) return res.status(502).json({ error: 'recording_storage_not_configured' });
+    throw err;
+  }
+  const dl = await downloadRangeWithConfig(recordingStorageConfig, storagePath, rangeHeader);
   if (!dl.success || !dl.data) {
     if (dl.status === 416) {
       if (dl.totalSize != null) res.setHeader('Content-Range', `bytes */${dl.totalSize}`);
@@ -713,9 +764,9 @@ adminCallsRouter.get('/recordings/:id/file', async (req, res) => {
     return res.status(502).json({ error: 'provider_download_failed', detail: dl.error || null });
   }
 
-  const ct = guessContentType(row);
+  const ct = guessContentType(recordingRow);
   const wantAttachment = String(req.query.disposition || '').toLowerCase() === 'attachment';
-  const fname = downloadFileName(row, ct);
+  const fname = downloadFileName(recordingRow, ct);
 
   res.setHeader('Content-Type', ct);
   res.setHeader('Cache-Control', 'private, no-store');
@@ -755,7 +806,7 @@ adminCallsRouter.get('/recordings/:id/file', async (req, res) => {
 // path.
 // ─────────────────────────────────────────────────────────────────────────
 adminCallsRouter.post('/recordings/:id/playback-token', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
   const id = String(req.params.id || '');
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
 
@@ -775,7 +826,7 @@ adminCallsRouter.post('/recordings/:id/playback-token', async (req, res) => {
     .maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   if (!row) return res.status(404).json({ error: 'not_found' });
-  if (!(row as any).storage_path) return res.status(410).json({ error: 'missing_storage_path' });
+  if (!(row as unknown as CallRecordingRow).storage_path) return res.status(410).json({ error: 'missing_storage_path' });
 
   const minted = mintPlaybackToken(config, { recordingId: id, disposition });
   // Build a path the browser can use directly as <audio src>/<video src>.
@@ -846,7 +897,7 @@ const RetentionOverrideBody = z.discriminatedUnion('mode', [
 ]);
 
 adminCallsRouter.post('/recordings/:id/retention-override', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
   const sb = getServiceClient(config);
   const id = String(req.params.id || '');
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
@@ -866,6 +917,7 @@ adminCallsRouter.post('/recordings/:id/retention-override', async (req, res) => 
     .maybeSingle();
   if (priorErr) return res.status(500).json({ error: priorErr.message });
   if (!prior) return res.status(404).json({ error: 'not_found' });
+  const priorRow = prior as unknown as CallRecordingRow;
 
   let nextExpiresAt: string | null;
   let nextPolicy: string;
@@ -892,27 +944,26 @@ adminCallsRouter.post('/recordings/:id/retention-override', async (req, res) => 
     .eq('id', id);
   if (updErr) return res.status(500).json({ error: updErr.message });
 
-  const wsId =
-    (prior as any)?.call_sessions?.workspace_id ?? '00000000-0000-0000-0000-000000000000';
+  const wsId = priorRow.call_sessions?.workspace_id ?? '00000000-0000-0000-0000-000000000000';
   await sb
     .from('audit_logs')
     .insert({
       action: 'call_recording.retention.override',
       entity_type: 'call_recording',
       entity_id: id,
-      user_id: (req as any).adminUser?.id ?? null,
+      user_id: (req as unknown as AdminRequest).adminUser?.id ?? null,
       workspace_id: wsId,
       old_value: {
-        retention_policy: (prior as any).retention_policy ?? null,
-        retention_expires_at: (prior as any).retention_expires_at ?? null,
-      } as any,
+        retention_policy: priorRow.retention_policy ?? null,
+        retention_expires_at: priorRow.retention_expires_at ?? null,
+      },
       new_value: {
         mode: parsed.data.mode,
         retention_policy: nextPolicy,
         retention_expires_at: nextExpiresAt,
         reason: parsed.data.reason ?? null,
-      } as any,
-    } as any)
+      },
+    })
     .then(
       () => {},
       () => {},
@@ -922,7 +973,7 @@ adminCallsRouter.post('/recordings/:id/retention-override', async (req, res) => 
     id,
     retention_policy: nextPolicy,
     retention_expires_at: nextExpiresAt,
-    legal_hold: !!(prior as any).legal_hold,
+    legal_hold: !!priorRow.legal_hold,
   });
 });
 
@@ -955,7 +1006,7 @@ const RetentionRestoreBody = z.object({
 });
 
 adminCallsRouter.post('/recordings/:id/retention-restore', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
   const sb = getServiceClient(config);
   const id = String(req.params.id || '');
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
@@ -975,8 +1026,9 @@ adminCallsRouter.post('/recordings/:id/retention-restore', async (req, res) => {
     .maybeSingle();
   if (priorErr) return res.status(500).json({ error: priorErr.message });
   if (!prior) return res.status(404).json({ error: 'not_found' });
+  const priorRow = prior as unknown as CallRecordingRow;
 
-  const currentPolicy: string | null = (prior as any).retention_policy ?? null;
+  const currentPolicy: string | null = priorRow.retention_policy ?? null;
   if (!currentPolicy || !currentPolicy.startsWith('override:')) {
     return res.status(409).json({
       error: 'not_overridden',
@@ -986,8 +1038,8 @@ adminCallsRouter.post('/recordings/:id/retention-restore', async (req, res) => {
     });
   }
 
-  const wsId = (prior as any)?.call_sessions?.workspace_id as string | undefined;
-  const createdAt = (prior as any)?.created_at as string | undefined;
+  const wsId = priorRow.call_sessions?.workspace_id;
+  const createdAt = priorRow.created_at ?? undefined;
   if (!wsId || !createdAt) {
     return res.status(500).json({ error: 'row_missing_anchor_fields' });
   }
@@ -1011,27 +1063,27 @@ adminCallsRouter.post('/recordings/:id/retention-restore', async (req, res) => {
       action: 'call_recording.retention.restore',
       entity_type: 'call_recording',
       entity_id: id,
-      user_id: (req as any).adminUser?.id ?? null,
+      user_id: (req as unknown as AdminRequest).adminUser?.id ?? null,
       workspace_id: wsId,
       old_value: {
         retention_policy: currentPolicy,
-        retention_expires_at: (prior as any).retention_expires_at ?? null,
-      } as any,
+        retention_expires_at: priorRow.retention_expires_at ?? null,
+      },
       new_value: {
         retention_policy: nextPolicy,
         retention_expires_at: nextExpiresAt,
         inherited_source: eff.source,
         inherited_days: eff.days,
         reason: parsed.data.reason ?? null,
-      } as any,
-    } as any)
+      },
+    })
     .then(() => {}, () => {});
 
   res.json({
     id,
     retention_policy: nextPolicy,
     retention_expires_at: nextExpiresAt,
-    legal_hold: !!(prior as any).legal_hold,
+    legal_hold: !!priorRow.legal_hold,
     inherited_source: eff.source,
     inherited_days: eff.days,
   });
@@ -1067,7 +1119,7 @@ const RetentionAdoptBody = z.object({
 });
 
 adminCallsRouter.post('/recordings/:id/retention-adopt', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as AdminRequest).serverConfig;
   const sb = getServiceClient(config);
   const id = String(req.params.id || '');
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
@@ -1087,9 +1139,10 @@ adminCallsRouter.post('/recordings/:id/retention-adopt', async (req, res) => {
     .maybeSingle();
   if (priorErr) return res.status(500).json({ error: priorErr.message });
   if (!prior) return res.status(404).json({ error: 'not_found' });
+  const priorRow = prior as unknown as CallRecordingRow;
 
-  const currentPolicy: string | null = (prior as any).retention_policy ?? null;
-  const currentExpiry: string | null = (prior as any).retention_expires_at ?? null;
+  const currentPolicy: string | null = priorRow.retention_policy ?? null;
+  const currentExpiry: string | null = priorRow.retention_expires_at ?? null;
   if (currentPolicy !== null || currentExpiry !== null) {
     return res.status(409).json({
       error: 'not_legacy',
@@ -1100,8 +1153,8 @@ adminCallsRouter.post('/recordings/:id/retention-adopt', async (req, res) => {
     });
   }
 
-  const wsId = (prior as any)?.call_sessions?.workspace_id as string | undefined;
-  const createdAt = (prior as any)?.created_at as string | undefined;
+  const wsId = priorRow.call_sessions?.workspace_id;
+  const createdAt = priorRow.created_at ?? undefined;
   if (!wsId || !createdAt) {
     return res.status(500).json({ error: 'row_missing_anchor_fields' });
   }
@@ -1125,27 +1178,27 @@ adminCallsRouter.post('/recordings/:id/retention-adopt', async (req, res) => {
       action: 'call_recording.retention.adopt',
       entity_type: 'call_recording',
       entity_id: id,
-      user_id: (req as any).adminUser?.id ?? null,
+      user_id: (req as unknown as AdminRequest).adminUser?.id ?? null,
       workspace_id: wsId,
       old_value: {
         retention_policy: null,
         retention_expires_at: null,
-      } as any,
+      },
       new_value: {
         retention_policy: nextPolicy,
         retention_expires_at: nextExpiresAt,
         inherited_source: eff.source,
         inherited_days: eff.days,
         reason: parsed.data.reason ?? null,
-      } as any,
-    } as any)
+      },
+    })
     .then(() => {}, () => {});
 
   res.json({
     id,
     retention_policy: nextPolicy,
     retention_expires_at: nextExpiresAt,
-    legal_hold: !!(prior as any).legal_hold,
+    legal_hold: !!priorRow.legal_hold,
     inherited_source: eff.source,
     inherited_days: eff.days,
     already_expired: nextExpiresAt !== null && new Date(nextExpiresAt).getTime() <= Date.now(),

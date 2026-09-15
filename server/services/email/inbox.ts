@@ -16,13 +16,14 @@
  * of the two, if either, is connected for this workspace) and `composeReply`
  * (which job type/payload shape to enqueue) branch on `integration.provider`.
  */
-import { randomUUID, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { getInstallation } from '../plugins/state.js';
 import { getIntegrationForInstallation, type ChannelIntegration } from '../channels/integrations.js';
 import { enqueueChannelJob } from '../channels/jobs.js';
 import { uploadFile, getFileUrl } from '../storage/index.js';
+import { emailAttachmentKey } from '../storage/keys.js';
 import { GMAIL_PLUGIN_ID } from '../channels/gmail/oauth.js';
 import { YAHOO_PLUGIN_ID } from '../../../shared/channels/yahooKeys.js';
 
@@ -52,6 +53,50 @@ export interface EmailAttachmentView {
   sizeBytes: number | null;
   contentId: string | null;
   url: string | null;
+}
+
+interface EmailThreadRow {
+  id: string;
+  provider: string;
+  subject: string | null;
+  participants: unknown;
+  last_message_at: string | null;
+  is_read: boolean;
+  is_starred: boolean;
+  labels: string[] | null;
+}
+
+interface EmailMessageSnippetRow {
+  thread_id: string;
+  snippet: string | null;
+  sent_at: string;
+}
+
+interface EmailAttachmentRow {
+  id: string;
+  message_id: string;
+  filename: string;
+  content_type: string | null;
+  size_bytes: number | null;
+  storage_key: string;
+  content_id: string | null;
+}
+
+interface EmailMessageRow {
+  id: string;
+  external_message_id: string;
+  direction: 'inbound' | 'outbound';
+  from_address: string;
+  to_addresses: unknown;
+  cc_addresses: unknown;
+  bcc_addresses: unknown;
+  text_body: string | null;
+  html_body: string | null;
+  snippet: string | null;
+  is_read: boolean;
+  delivery_status: 'queued' | 'sent' | 'failed';
+  delivery_error: string | null;
+  sent_at: string;
 }
 
 export interface EmailMessageView {
@@ -113,7 +158,7 @@ export async function listThreads(
   const { data, error } = await query;
   if (error) throw new EmailInboxError('email_provider_error', error.message);
 
-  const rows = (data ?? []) as any[];
+  const rows = (data ?? []) as EmailThreadRow[];
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
 
@@ -125,7 +170,7 @@ export async function listThreads(
       .select('thread_id, snippet, sent_at')
       .in('thread_id', threadIds)
       .order('sent_at', { ascending: false });
-    for (const m of (lastMessages ?? []) as any[]) {
+    for (const m of (lastMessages ?? []) as EmailMessageSnippetRow[]) {
       if (!snippetByThread.has(m.thread_id)) snippetByThread.set(m.thread_id, m.snippet ?? null);
     }
   }
@@ -148,7 +193,7 @@ export async function listThreads(
 async function resolveAttachmentUrls(
   config: ServerConfig,
   workspaceId: string,
-  attachments: any[],
+  attachments: EmailAttachmentRow[],
 ): Promise<EmailAttachmentView[]> {
   return Promise.all(
     attachments.map(async (a) => ({
@@ -157,6 +202,10 @@ async function resolveAttachmentUrls(
       contentType: a.content_type,
       sizeBytes: a.size_bytes,
       contentId: a.content_id,
+      // Rows written before the email-attachments/ -> canonical
+      // workspace/<id>/attachments/email/ migration may still carry the old
+      // key shape until backfilled — the storage service recognizes that
+      // legacy shape automatically (see server/services/storage/keys.ts).
       url: await getFileUrl(config, workspaceId, a.storage_key).catch(() => null),
     })),
   );
@@ -184,15 +233,15 @@ export async function getThread(
     .order('sent_at', { ascending: true });
   if (messagesError) throw new EmailInboxError('email_provider_error', messagesError.message);
 
-  const messageRows = (messages ?? []) as any[];
+  const messageRows = (messages ?? []) as EmailMessageRow[];
   const messageIds = messageRows.map((m) => m.id);
-  const attachmentsByMessage = new Map<string, any[]>();
+  const attachmentsByMessage = new Map<string, EmailAttachmentRow[]>();
   if (messageIds.length) {
     const { data: attachments } = await sb
       .from('email_attachments')
       .select('id, message_id, filename, content_type, size_bytes, storage_key, content_id')
       .in('message_id', messageIds);
-    for (const a of (attachments ?? []) as any[]) {
+    for (const a of (attachments ?? []) as EmailAttachmentRow[]) {
       const list = attachmentsByMessage.get(a.message_id) ?? [];
       list.push(a);
       attachmentsByMessage.set(a.message_id, list);
@@ -274,9 +323,8 @@ export async function stageComposeAttachment(
   contentType: string,
   bytes: Buffer,
 ): Promise<StagedAttachment> {
-  const safeName = filename.replace(/[^\w.\-]+/g, '_').slice(0, 150) || 'attachment';
-  const now = new Date();
-  const fileKey = `email-attachments/${workspaceId}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${randomUUID()}-${safeName}`;
+  const safeName = filename.replace(/[^\w.-]+/g, '_').slice(0, 150) || 'attachment';
+  const fileKey = emailAttachmentKey({ workspaceId, fileName: safeName });
   const result = await uploadFile(config, { workspaceId, fileKey, data: bytes, contentType });
   if (!result.success || !result.fileKey) throw new EmailInboxError('email_attachment_upload_failed', result.error);
   return { storageKey: result.fileKey, filename: safeName, contentType, sizeBytes: bytes.byteLength };
@@ -418,6 +466,7 @@ export async function composeReply(
   for (const att of input.attachments ?? []) {
     const { error: attError } = await sb.from('email_attachments').insert({
       message_id: messageRow.id,
+      workspace_id: workspaceId,
       filename: att.filename,
       content_type: att.contentType,
       size_bytes: att.sizeBytes,

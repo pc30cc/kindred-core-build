@@ -127,11 +127,51 @@ export interface CallProvider {
     providerParticipantId: string,
   ): Promise<void>;
 
-  /** Start composite/individual recording. */
+  /**
+   * Start composite/individual recording.
+   *
+   * workspaceId/callSessionId are required so the provider can write the
+   * recording under the canonical workspace/<id>/calls/recordings/<id>/...
+   * storage key (server/services/storage/keys.ts's callRecordingKey()) —
+   * see docs/STORAGE_ARCHITECTURE_AUDIT.md §11. A provider with no
+   * recording-storage concept of its own (jitsi/janus stubs, agora) may
+   * ignore these fields.
+   *
+   * `onStarted` (fourth corrective pass, P0): for a provider whose start
+   * call is itself the external write-lease-holding operation (LiveKit —
+   * see livekitProvider.ts's startRecording()), the caller's own
+   * durable-persistence step (writing recording_id/recording_state onto
+   * call_sessions) runs INSIDE this callback, while the provider still
+   * holds its workspace write lease — never after startRecording()
+   * returns, which would leave a window where Egress is running but
+   * nothing in the DB records it, undiscoverable by workspaceDeletion/
+   * worker.ts's quiesce step. If `onStarted` throws, a real provider
+   * attempts a compensating stop before rethrowing. A provider with no
+   * lease concept (every non-LiveKit provider today) may ignore this
+   * field entirely — the caller falls back to persisting after the call
+   * returns for those, which is fine since they don't hold an external
+   * write in flight the way LiveKit does.
+   *
+   * `onStarting` (fifth corrective pass, P0): called BEFORE the actual
+   * provider start call, while the write lease is held — this is where
+   * the caller persists a durable, phase-1 "recording is about to start"
+   * intent (a non-terminal recording_state with no recording_id yet) so
+   * it survives even if `onStarted` (phase 2, after the provider call
+   * returns) never runs at all — e.g. the provider call itself never
+   * completes for reasons unrelated to its own success/failure. See
+   * livekitProvider.ts's startRecording() for why this matters even
+   * with `onStarted`'s own compensation logic already in place.
+   */
   startRecording(
     config: ServerConfig,
     providerRoomId: string,
-    opts: { recordingType: 'composite' | 'individual' | 'audio_only' },
+    opts: {
+      recordingType: 'composite' | 'individual' | 'audio_only';
+      workspaceId: string;
+      callSessionId: string;
+      onStarting?: () => Promise<void>;
+      onStarted?: (handle: RecordingHandle) => Promise<void>;
+    },
   ): Promise<RecordingHandle>;
 
   /** Stop a running recording. */
@@ -149,7 +189,21 @@ export interface CallProvider {
 
 /** Sentinel error: provider not configured / cannot operate. */
 export class CallProviderNotReadyError extends Error {
-  constructor(public readonly providerId: CallProviderId, message: string) {
+  constructor(
+    public readonly providerId: CallProviderId,
+    message: string,
+    /**
+     * Fifth corrective pass, P0: set ONLY by livekitProvider.ts's
+     * startRecording() double-failure case (Egress started, durable
+     * persistence failed, AND the compensating stop also failed — see
+     * that function's doc comment). A caller catching this must NOT
+     * reset call_sessions.recording_state to a terminal value: the
+     * Egress may still be running and workspaceDeletion/worker.ts's
+     * quiescence reconciliation (findActiveEgressForRoom) needs the
+     * existing non-terminal marker to still find and resolve it.
+     */
+    public readonly needsReconciliation: boolean = false,
+  ) {
     super(message);
     this.name = 'CallProviderNotReadyError';
   }

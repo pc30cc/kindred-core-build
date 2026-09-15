@@ -18,6 +18,10 @@ import { getServiceClient } from '../../supabase.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { assertOwnerScopedKey, assertSafeStorageKey, isKnownLegacyStorageKey, LEGACY_USER_AVATAR_PATTERN, ownerRoot, StorageKeyError, type StorageOwner } from './keys.js';
+import { withOwnerWriteLease } from './writerLease.js';
+
+export type { StorageOwner };
 
 export interface StorageConfig {
   provider: string;
@@ -39,11 +43,27 @@ export interface StorageConfig {
   maxFileSizeMB?: number;
 }
 
-export interface UploadRequest {
-  workspaceId: string;
+/** The bytes a provider handler actually needs — never carries ownership context. */
+export interface ProviderUploadRequest {
   fileKey: string;
   data: Buffer;
   contentType: string;
+}
+
+export interface UploadRequest extends ProviderUploadRequest {
+  workspaceId: string;
+  /**
+   * Rarely needed: known legacy shapes (see ./keys.js's
+   * isKnownLegacyStorageKey) already pass automatically. Set this only for
+   * a one-off case that doesn't warrant a new shared pattern — never to
+   * route around enforcement for a key shape a real caller will reuse.
+   */
+  allowLegacyKey?: boolean;
+}
+
+export interface OwnerUploadRequest extends ProviderUploadRequest {
+  owner: StorageOwner;
+  allowLegacyKey?: boolean;
 }
 
 export interface StorageResult {
@@ -51,6 +71,155 @@ export interface StorageResult {
   url?: string;
   fileKey?: string;
   error?: string;
+}
+
+export interface ListResult {
+  success: boolean;
+  keys?: string[];
+  /**
+   * Opaque continuation token for a provider that supports true pagination
+   * (currently only S3-compatible, via ListObjectsV2's continuation token).
+   * `null` means the listing is complete. local/BunnyCDN always return the
+   * complete result in one call (recursive walk on our side) and so always
+   * report `null` here — see listWithConfig()'s doc comment.
+   */
+  nextCursor?: string | null;
+  error?: string;
+}
+
+/**
+ * Ownership enforcement for every owner-resolved operation (uploadForOwner /
+ * downloadForOwner / deleteForOwner / getFileUrlForOwner, and — via the
+ * workspace-only wrappers below — uploadFile / downloadFile /
+ * downloadFileRange / deleteFile / getFileUrl).
+ *
+ * Fail closed: `fileKey` must be scoped to the given owner exactly
+ * (`workspace/<id>/...`, `users/<id>/...`, or `platform/...`) — a
+ * mismatched id, or a key under any other root (avatars/, branding/,
+ * email-attachments/, etc.), is rejected here, in the service layer,
+ * regardless of what a route-level validator already checked. This closes
+ * the internal-caller loophole documented in
+ * docs/STORAGE_ARCHITECTURE_AUDIT.md §1: route-level checks are
+ * defense-in-depth, not the only guard.
+ *
+ * The one exception is a short, explicit, centrally-reviewed list of
+ * pre-canonicalization key shapes (./keys.js's isKnownLegacyStorageKey for
+ * workspace owners; LEGACY_USER_AVATAR_PATTERN for user owners) — this lets
+ * the still-migrating producers (account avatar, workspace branding,
+ * LiveKit recordings, pre-migration email attachment rows) keep working
+ * without every one of their call sites carrying its own bypass. Legacy
+ * keys still go through assertSafeStorageKey — traversal/injection
+ * protection is never skipped, only the ownership-prefix requirement is.
+ */
+function enforceOwnerScope(owner: StorageOwner, fileKey: string, allowLegacyKey?: boolean): string | null {
+  try {
+    assertOwnerScopedKey(owner, fileKey);
+    return null;
+  } catch (err) {
+    const autoLegacyOk =
+      owner.kind === 'workspace'
+        ? isKnownLegacyStorageKey(fileKey)
+        : owner.kind === 'user' && LEGACY_USER_AVATAR_PATTERN.test(fileKey);
+    if (allowLegacyKey || autoLegacyOk) {
+      try {
+        assertSafeStorageKey(fileKey);
+        return null;
+      } catch (err2) {
+        return err2 instanceof StorageKeyError ? err2.message : 'Invalid file key';
+      }
+    }
+    return err instanceof StorageKeyError ? err.message : 'Invalid file key';
+  }
+}
+
+function enforceWorkspaceScope(workspaceId: string, fileKey: string, allowLegacyKey?: boolean): string | null {
+  return enforceOwnerScope({ kind: 'workspace', workspaceId }, fileKey, allowLegacyKey);
+}
+
+/**
+ * Fail-closed writability check for every workspace-owned write barrier
+ * consumer (uploadForOwner, uploadWithConfigForOwner,
+ * livekitProvider.ts's startRecording). A workspace-owned write may
+ * proceed ONLY when the workspace row exists AND is explicitly
+ * `status = 'active'` — every other outcome rejects the write:
+ *
+ *   - status === 'active'         -> true (write allowed)
+ *   - status === 'deleting'       -> false
+ *   - any other/unknown status    -> false
+ *   - workspace row missing       -> false
+ *   - DB error                    -> false
+ *   - thrown exception            -> false
+ *
+ * Third corrective pass, P0: the prior `isWorkspaceDeleting()` asked the
+ * wrong question. It returned `true` (reject) only when the row said
+ * 'deleting', which meant a MISSING row resolved to `false` ("not
+ * deleting" -> allowed) — exactly backwards for the race this guards
+ * against. `admin_delete_workspace()` (server/services/workspaceDeletion/
+ * worker.ts's db_cleanup step) hard-deletes the workspace row itself as
+ * its LAST action, strictly after storage cleanup has already been
+ * verified empty. A producer that started before deletion (a privacy
+ * export mid-ZIP-build, say) and only reaches its write call AFTER that
+ * row is gone would, under the old "missing -> allowed" semantics, sail
+ * straight through and create `workspace/<alreadyDeletedId>/...` — an
+ * orphan created after deletion had already fully completed, not before
+ * it. Asking "is this workspace explicitly writable right now" instead of
+ * "is it explicitly marked deleting" closes that gap: nothing about a
+ * missing row, an error, or an unrecognized status is ever treated as
+ * permission to write.
+ */
+export async function isWorkspaceWritable(serverConfig: ServerConfig, workspaceId: string): Promise<boolean> {
+  try {
+    const sb = getServiceClient(serverConfig);
+    const { data, error } = await sb.from('workspaces').select('status').eq('id', workspaceId).maybeSingle();
+    if (error || !data) return false;
+    return (data as { status?: string }).status === 'active';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * User-level counterpart to isWorkspaceWritable() — third corrective pass,
+ * P0: the prior code had NO write barrier at all for `users/<id>/...`
+ * writes, so a user-subject privacy export (or a future user-owned
+ * producer) that started before an account deletion began could still
+ * write a new object after `user_deletion_jobs`' own final verification
+ * pass had already confirmed the scope empty, or even after
+ * `admin_delete_user` had hard-deleted the profile row. Uses the SAME
+ * `user_deletion_jobs` lifecycle table server/services/userDeletion/
+ * worker.ts already maintains as the single source of truth — not a
+ * separate in-memory flag — so it's correct across process restarts and
+ * multiple worker instances exactly like the workspace equivalent.
+ *
+ * Fails closed:
+ *   - profile row missing        -> false
+ *   - an ACTIVE user_deletion_jobs row exists for this user (status in
+ *     collecting_workspaces/awaiting_workspace_deletions/purging_user)
+ *                                 -> false
+ *   - DB error on either lookup  -> false
+ *   - thrown exception           -> false
+ *   - otherwise                  -> true
+ */
+export async function isUserWritable(serverConfig: ServerConfig, userId: string): Promise<boolean> {
+  try {
+    const sb = getServiceClient(serverConfig);
+    const [profileResult, activeJobResult] = await Promise.all([
+      sb.from('profiles').select('id').eq('id', userId).maybeSingle(),
+      sb
+        .from('user_deletion_jobs')
+        .select('id')
+        .eq('user_id', userId)
+        .in('status', ['collecting_workspaces', 'awaiting_workspace_deletions', 'purging_user'])
+        .limit(1)
+        .maybeSingle(),
+    ]);
+    if (profileResult.error || activeJobResult.error) return false;
+    if (!profileResult.data) return false;
+    if (activeJobResult.data) return false;
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ─── Allowed file types ──────────────────────────────────────────
@@ -75,13 +244,46 @@ function validateFile(data: Buffer, contentType: string, maxSizeMB?: number): st
   return null;
 }
 
+/**
+ * Fifth corrective pass, P0: `writerLease.ts`'s `hasActiveOwnerWriteLeases`
+ * only trusts a lease as genuinely gone once a RECONCILIATION GRACE
+ * PERIOD (600s) has passed beyond its nominal expiry — long enough to
+ * guarantee the write that lease covered can no longer land bytes. That
+ * guarantee is only real if every network provider call this module
+ * makes has a HARD ceiling — without one, `fetch()` can hang past any
+ * assumed bound on a stalled connection, and the whole reconciliation
+ * argument collapses. Every provider PUT (s3Upload/bunnyUpload) races
+ * against this timeout via AbortController; a call that exceeds it is
+ * aborted and reported as a failed upload, never left to hang
+ * indefinitely. 120s comfortably covers this project's MAX_FILE_SIZE
+ * ceilings (see categoryPolicy.ts) even on a slow connection, with the
+ * reconciliation grace period (600s) leaving ~5x headroom on top of that
+ * for heartbeat-interval slack and DB round-trip latency.
+ */
+const PROVIDER_UPLOAD_TIMEOUT_MS = 120_000;
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number = PROVIDER_UPLOAD_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`provider request timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ─── BunnyCDN Storage ────────────────────────────────────────────
 
-async function bunnyUpload(config: StorageConfig, req: UploadRequest): Promise<StorageResult> {
+async function bunnyUpload(config: StorageConfig, req: ProviderUploadRequest): Promise<StorageResult> {
   const regionPrefix = config.region && config.region !== 'de' ? `${config.region}.` : '';
   const baseUrl = `https://${regionPrefix}storage.bunnycdn.com/${config.storageZone}`;
 
-  const res = await fetch(`${baseUrl}/${req.fileKey}`, {
+  const res = await fetchWithTimeout(`${baseUrl}/${req.fileKey}`, {
     method: 'PUT',
     headers: {
       'AccessKey': config.apiKey!,
@@ -117,6 +319,49 @@ async function bunnyDelete(config: StorageConfig, fileKey: string): Promise<Stor
 function bunnyGetUrl(config: StorageConfig, fileKey: string): string {
   const cdnBase = config.cdnUrl || `https://${config.storageZone}.b-cdn.net`;
   return `${cdnBase}/${fileKey}`;
+}
+
+interface BunnyListEntry {
+  ObjectName: string;
+  IsDirectory: boolean;
+}
+
+/**
+ * Bunny Storage's listing endpoint is per-directory only (one level, no
+ * recursion, no continuation token) — so a full-prefix listing has to walk
+ * subdirectories itself. Returns every object key under `prefix` in one
+ * call; there is no cursor to hand back for this provider (see
+ * listForOwner()'s doc comment for why that's an accepted limitation).
+ */
+async function bunnyList(config: StorageConfig, prefix: string): Promise<ListResult> {
+  const regionPrefix = config.region && config.region !== 'de' ? `${config.region}.` : '';
+  const baseUrl = `https://${regionPrefix}storage.bunnycdn.com/${config.storageZone}`;
+  const keys: string[] = [];
+  const dirsToWalk = [prefix.endsWith('/') ? prefix : `${prefix}/`];
+  const MAX_DIRS = 5000; // guard against a pathological/looping directory structure
+  let walked = 0;
+
+  while (dirsToWalk.length > 0) {
+    if (++walked > MAX_DIRS) {
+      return { success: false, error: `bunnyList exceeded ${MAX_DIRS} directory walks under ${prefix}` };
+    }
+    const dir = dirsToWalk.shift()!;
+    const res = await fetch(`${baseUrl}/${dir}`, {
+      method: 'GET',
+      headers: { AccessKey: config.apiKey!, Accept: 'application/json' },
+    });
+    if (!res.ok) {
+      if (res.status === 404) continue; // empty/nonexistent directory — nothing under it
+      return { success: false, error: `BunnyCDN list failed: ${res.status} ${res.statusText}` };
+    }
+    const entries = (await res.json().catch(() => [])) as BunnyListEntry[];
+    for (const entry of entries) {
+      const childPath = `${dir}${entry.ObjectName}`;
+      if (entry.IsDirectory) dirsToWalk.push(`${childPath}/`);
+      else keys.push(childPath);
+    }
+  }
+  return { success: true, keys, nextCursor: null };
 }
 
 // ─── S3-Compatible Storage ───────────────────────────────────────
@@ -184,12 +429,12 @@ function signS3Request(
   return headers;
 }
 
-async function s3Upload(config: StorageConfig, req: UploadRequest): Promise<StorageResult> {
+async function s3Upload(config: StorageConfig, req: ProviderUploadRequest): Promise<StorageResult> {
   const endpoint = getS3Endpoint(config);
   const url = `${endpoint}/${config.bucket}/${req.fileKey}`;
   const headers = signS3Request('PUT', url, config, req.contentType, req.data);
 
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     method: 'PUT',
     headers: { ...headers, 'Content-Type': req.contentType },
     // Same as bunnyUpload: an `ArrayBuffer` holding the identical bytes that
@@ -224,13 +469,41 @@ function s3GetUrl(config: StorageConfig, fileKey: string): string {
   return `${endpoint}/${config.bucket}/${fileKey}`;
 }
 
+/** Minimal ListObjectsV2 XML extraction — no XML parser dependency in this project, and the response shape is fixed/well-known enough for a targeted regex to be reliable. */
+function extractXmlTags(xml: string, tag: string): string[] {
+  const re = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'g');
+  const out: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml))) out.push(m[1]);
+  return out;
+}
+
+async function s3List(config: StorageConfig, prefix: string, cursor?: string): Promise<ListResult> {
+  const endpoint = getS3Endpoint(config);
+  const params = new URLSearchParams({ 'list-type': '2', prefix, 'max-keys': '1000' });
+  if (cursor) params.set('continuation-token', cursor);
+  const url = `${endpoint}/${config.bucket}?${params.toString()}`;
+  const headers = signS3Request('GET', url, config);
+
+  const res = await fetch(url, { method: 'GET', headers });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    return { success: false, error: `S3 list failed: ${res.status} ${text.slice(0, 200)}` };
+  }
+  const xml = await res.text();
+  const keys = extractXmlTags(xml, 'Key');
+  const isTruncated = extractXmlTags(xml, 'IsTruncated')[0] === 'true';
+  const nextToken = extractXmlTags(xml, 'NextContinuationToken')[0];
+  return { success: true, keys, nextCursor: isTruncated && nextToken ? nextToken : null };
+}
+
 // ─── Local Storage (dev fallback) ────────────────────────────────
 
 function ensureLocalDir(dir: string) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
-async function localUpload(config: StorageConfig, req: UploadRequest): Promise<StorageResult> {
+async function localUpload(config: StorageConfig, req: ProviderUploadRequest): Promise<StorageResult> {
   const basePath = config.localPath || '/tmp/storage';
   const filePath = path.join(basePath, req.fileKey);
   ensureLocalDir(path.dirname(filePath));
@@ -261,6 +534,28 @@ function localGetUrl(config: StorageConfig, fileKey: string): string {
   // instead of silently pointing visitors at the operator's loopback.
   if (!base) return `/storage/${fileKey}`;
   return `${base}/${fileKey}`;
+}
+
+async function localList(config: StorageConfig, prefix: string): Promise<ListResult> {
+  const basePath = config.localPath || '/tmp/storage';
+  const dirPath = path.join(basePath, prefix);
+  const keys: string[] = [];
+
+  function walk(dir: string, relPrefix: string) {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return; // directory doesn't exist — nothing under this prefix
+    }
+    for (const entry of entries) {
+      const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) walk(path.join(dir, entry.name), rel);
+      else keys.push(`${prefix.replace(/\/$/, '')}/${rel}`);
+    }
+  }
+  walk(dirPath, '');
+  return { success: true, keys, nextCursor: null };
 }
 
 // ─── Download (server-side proxy fetch) ──────────────────────────
@@ -412,8 +707,8 @@ async function localDownloadRange(
     } finally {
       fs.closeSync(fd);
     }
-  } catch (err: any) {
-    return { success: false, error: err.message };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -439,7 +734,10 @@ export async function downloadFileRange(
   workspaceId: string,
   fileKey: string,
   rangeHeader?: string,
+  opts?: { allowLegacyKey?: boolean },
 ): Promise<RangedDownloadResult> {
+  const scopeError = enforceWorkspaceScope(workspaceId, fileKey, opts?.allowLegacyKey);
+  if (scopeError) return { success: false, error: scopeError };
   const storageConfig = await resolveStorageConfig(serverConfig, workspaceId);
   if (!storageConfig) return { success: false, error: 'No storage provider configured' };
   const handler = rangedDownloadHandlers[storageConfig.provider];
@@ -474,8 +772,8 @@ async function localDownload(config: StorageConfig, fileKey: string): Promise<Do
     const filePath = path.join(config.localPath || '/tmp/storage', fileKey);
     const data = fs.readFileSync(filePath);
     return { success: true, data };
-  } catch (err: any) {
-    return { success: false, error: err.message };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -498,17 +796,14 @@ export async function downloadFile(
   serverConfig: ServerConfig,
   workspaceId: string,
   fileKey: string,
+  opts?: { allowLegacyKey?: boolean },
 ): Promise<DownloadResult> {
-  const storageConfig = await resolveStorageConfig(serverConfig, workspaceId);
-  if (!storageConfig) return { success: false, error: 'No storage provider configured' };
-  const handler = downloadHandlers[storageConfig.provider];
-  if (!handler) return { success: false, error: `Unsupported provider: ${storageConfig.provider}` };
-  return handler(storageConfig, fileKey);
+  return downloadForOwner(serverConfig, { kind: 'workspace', workspaceId }, fileKey, opts);
 }
 
 // ─── Provider Router ─────────────────────────────────────────────
 
-const uploadHandlers: Record<string, (config: StorageConfig, req: UploadRequest) => Promise<StorageResult>> = {
+const uploadHandlers: Record<string, (config: StorageConfig, req: ProviderUploadRequest) => Promise<StorageResult>> = {
   bunny_storage: bunnyUpload,
   s3: s3Upload,
   cloudflare_r2: s3Upload,
@@ -526,6 +821,23 @@ const deleteHandlers: Record<string, (config: StorageConfig, key: string) => Pro
   minio: s3Delete,
   do_spaces: s3Delete,
   local: localDelete,
+};
+
+// Deliberately narrower than uploadHandlers: gcs/azure_blob are mapped to
+// s3Upload/s3Delete there as an optimistic "S3-compatible interop" best
+// effort, but s3List() parses a specific XML dialect (ListObjectsV2) that
+// isn't guaranteed to match those providers' native listing response
+// shape. A destructive workflow (workspace deletion) silently trusting a
+// wrong parse is worse than clearly failing with "unsupported provider" —
+// see listForOwner()'s callers, which must treat an unsupported provider
+// as "cannot verify complete cleanup", never as "nothing to delete".
+const listHandlers: Record<string, (config: StorageConfig, prefix: string, cursor?: string) => Promise<ListResult>> = {
+  bunny_storage: bunnyList,
+  s3: s3List,
+  cloudflare_r2: s3List,
+  minio: s3List,
+  do_spaces: s3List,
+  local: localList,
 };
 
 const urlHandlers: Record<string, (config: StorageConfig, key: string) => string> = {
@@ -555,7 +867,7 @@ export async function resolveStorageConfig(serverConfig: ServerConfig, workspace
     .single();
 
   if (wsConfig?.config) {
-    return mapDBConfigToStorage(wsConfig.provider_name, wsConfig.config as any);
+    return mapDBConfigToStorage(wsConfig.provider_name, wsConfig.config as Record<string, unknown>);
   }
 
   // 2. Global default
@@ -566,9 +878,7 @@ export async function resolveStorageConfig(serverConfig: ServerConfig, workspace
     .single();
 
   if (globalConfig?.value) {
-    const c = globalConfig.value as any;
-    const providerName = c.provider_name || c.provider || 'local';
-    const providerConfig = c.config && typeof c.config === 'object' ? c.config : c;
+    const { providerName, providerConfig } = splitProviderNameAndConfig(globalConfig.value);
     return mapDBConfigToStorage(providerName, providerConfig);
   }
 
@@ -589,159 +899,454 @@ export async function resolveGlobalStorageConfig(serverConfig: ServerConfig): Pr
     .maybeSingle();
 
   if (!globalConfig?.value) return null;
-  const c = globalConfig.value as any;
-  const providerName = c.provider_name || c.provider || 'local';
-  const providerConfig = c.config && typeof c.config === 'object' ? c.config : c;
+  const { providerName, providerConfig } = splitProviderNameAndConfig(globalConfig.value);
   return mapDBConfigToStorage(providerName, providerConfig);
 }
 
-function mapDBConfigToStorage(provider: string, c: any): StorageConfig {
+/**
+ * Resolve the storage provider for any StorageOwner. Workspace owners keep
+ * their per-workspace override (resolveStorageConfig); user- and
+ * platform-owned objects have no workspace to derive a provider from, so
+ * they always use the app-wide default (resolveGlobalStorageConfig) — the
+ * same provider platform-owned assets like call-center ringback audio
+ * already use. No parallel provider-resolution path is introduced.
+ */
+export async function resolveStorageConfigForOwner(serverConfig: ServerConfig, owner: StorageOwner): Promise<StorageConfig | null> {
+  if (owner.kind === 'workspace') return resolveStorageConfig(serverConfig, owner.workspaceId);
+  return resolveGlobalStorageConfig(serverConfig);
+}
+
+function asString(v: unknown): string | undefined {
+  return typeof v === 'string' ? v : undefined;
+}
+
+/**
+ * `app_runtime_config.value` is untyped jsonb — normalizes it into a
+ * provider name + config object, whether the row stores
+ * `{provider_name, config}` or the provider fields flattened at the top
+ * level.
+ */
+function splitProviderNameAndConfig(value: unknown): { providerName: string; providerConfig: Record<string, unknown> } {
+  const c = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  const providerName = asString(c.provider_name) ?? asString(c.provider) ?? 'local';
+  const providerConfig = c.config && typeof c.config === 'object' ? (c.config as Record<string, unknown>) : c;
+  return { providerName, providerConfig };
+}
+
+function mapDBConfigToStorage(provider: string, c: Record<string, unknown>): StorageConfig {
   // Bunny Storage now ships with FTP-style fields in the admin UI
   // (username / hostname / connection_type / port / password). Map them
   // to the existing storage primitives so upload/delete handlers keep
   // working without provider-specific code paths.
-  const bunnyApiKey = c.api_key || c.password;
-  const bunnyZone = c.storage_zone || c.username;
-  const bunnyEndpoint = c.endpoint || c.hostname;
+  const bunnyApiKey = asString(c.api_key) ?? asString(c.password);
+  const bunnyZone = asString(c.storage_zone) ?? asString(c.username);
+  const bunnyEndpoint = asString(c.endpoint) ?? asString(c.hostname);
+  const maxFileSize = c.max_file_size;
   return {
     provider,
     apiKey: bunnyApiKey,
     storageZone: bunnyZone,
-    region: c.region,
-    cdnUrl: c.cdn_url || c.cdn_endpoint || c.public_url,
-    accessKeyId: c.access_key_id || c.access_key,
-    secretAccessKey: c.secret_access_key || c.secret_key,
-    bucket: c.bucket || c.container,
-    s3Region: c.region,
+    region: asString(c.region),
+    cdnUrl: asString(c.cdn_url) ?? asString(c.cdn_endpoint) ?? asString(c.public_url),
+    accessKeyId: asString(c.access_key_id) ?? asString(c.access_key),
+    secretAccessKey: asString(c.secret_access_key) ?? asString(c.secret_key),
+    bucket: asString(c.bucket) ?? asString(c.container),
+    s3Region: asString(c.region),
     endpoint: bunnyEndpoint,
-    localPath: c.local_path || c.path,
-    publicUrl: c.public_url || c.publicUrl,
-    maxFileSizeMB: c.max_file_size ? parseInt(c.max_file_size) : undefined,
+    localPath: asString(c.local_path) ?? asString(c.path),
+    publicUrl: asString(c.public_url) ?? asString(c.publicUrl),
+    maxFileSizeMB:
+      typeof maxFileSize === 'number' || typeof maxFileSize === 'string'
+        ? parseInt(String(maxFileSize), 10)
+        : undefined,
   };
 }
 
 /**
+ * The single writer path to `storage_usage_logs` — every route through
+ * this module that should meter a byte against a workspace's storage_gb
+ * quota (server/services/storage/categoryPolicy.ts decides which
+ * categories those are) goes through this one function. Never insert into
+ * storage_usage_logs anywhere else; the trigger
+ * `trg_storage_usage_logs_apply` (docs/STORAGE_COUNTER_ARCHITECTURE.md) is
+ * the only writer of `workspace_usage_counters.storage_bytes`, and this is
+ * the only writer of the log rows that trigger reads.
+ */
+export async function logWorkspaceStorageUsage(
+  serverConfig: ServerConfig,
+  params: {
+    workspaceId: string;
+    providerName: string;
+    operation: 'upload' | 'delete';
+    fileKey: string;
+    fileSize?: number | null;
+    contentType?: string;
+    success: boolean;
+    errorMessage?: string;
+  },
+): Promise<void> {
+  await getServiceClient(serverConfig).from('storage_usage_logs').insert({
+    workspace_id: params.workspaceId,
+    provider_name: params.providerName,
+    operation: params.operation,
+    file_key: params.fileKey,
+    file_size: params.fileSize ?? null,
+    content_type: params.contentType,
+    success: params.success,
+    error_message: params.errorMessage,
+  });
+}
+
+function ownerLabel(owner: StorageOwner): string {
+  if (owner.kind === 'workspace') return `workspace:${owner.workspaceId}`;
+  if (owner.kind === 'user') return `user:${owner.userId}`;
+  return 'platform';
+}
+
+/**
+ * Structured, ops-facing telemetry for every owner-resolved storage
+ * operation — one JSON line per call, covering ALL owner kinds (unlike
+ * logWorkspaceStorageUsage, which is workspace-quota-only by design).
+ * This is the gap docs/STORAGE_ARCHITECTURE_AUDIT.md's observability
+ * requirement calls out: today a user-owned avatar upload/delete or any
+ * listForOwner() call produces nothing a log aggregator can key off of.
+ * Deliberately just a structured console line, not a new DB table or
+ * external metrics dependency — matches every other background job in
+ * this codebase (privacy expiry sweep, recording retention janitor).
+ */
+function logStorageOperation(params: {
+  operation: 'upload' | 'delete' | 'list';
+  owner: StorageOwner;
+  provider: string;
+  success: boolean;
+  durationMs: number;
+  error?: string;
+}): void {
+  console.log(JSON.stringify({
+    component: 'storage',
+    op: params.operation,
+    owner: ownerLabel(params.owner),
+    provider: params.provider,
+    success: params.success,
+    duration_ms: params.durationMs,
+    error: params.error,
+  }));
+}
+
+/**
+ * Upload a file through the storage provider resolved for its owner.
+ * Workspace-owned uploads participate in storage_usage_logs (the single
+ * writer of workspace_usage_counters.storage_bytes); user- and
+ * platform-owned uploads are not workspace quota, so they don't. See
+ * server/services/storage/categoryPolicy.ts for the full per-category
+ * breakdown, including categories that intentionally bypass this function
+ * (privacy exports, platform ringback audio) and log through
+ * logWorkspaceStorageUsage() directly instead.
+ *
+ * Fourth corrective pass, P0: a point-in-time isWorkspaceWritable()/
+ * isUserWritable() read is not a write BARRIER — deletion can start in
+ * the gap between that read returning `true` and the actual provider PUT
+ * completing a moment later. For workspace/user owners, the entire
+ * validate-through-provider-call sequence below now runs INSIDE an
+ * owner_write_lease (server/services/storage/writerLease.ts,
+ * acquireOwnerWriteLease()'s own atomic check-and-lease RPC replaces the
+ * separate isWorkspaceWritable()/isUserWritable() call — same fail-closed
+ * semantics, now with a durable, cross-process record that a write is
+ * in flight), held until the provider call has definitively returned and
+ * released only in a `finally`. A deletion worker that starts while this
+ * lease is held will see it and wait before trusting any storage listing
+ * — see workspaceDeletion/worker.ts's/userDeletion/worker.ts's own doc
+ * comments for the wait-then-proceed ordering this makes safe.
+ */
+export async function uploadForOwner(
+  serverConfig: ServerConfig,
+  req: OwnerUploadRequest,
+): Promise<StorageResult> {
+  const scopeError = enforceOwnerScope(req.owner, req.fileKey, req.allowLegacyKey);
+  if (scopeError) return { success: false, error: scopeError };
+
+  const doUpload = async (): Promise<StorageResult> => {
+    const storageConfig = await resolveStorageConfigForOwner(serverConfig, req.owner);
+    if (!storageConfig) {
+      return { success: false, error: 'No storage provider configured' };
+    }
+
+    const validationError = validateFile(req.data, req.contentType, storageConfig.maxFileSizeMB);
+    if (validationError) {
+      return { success: false, error: validationError };
+    }
+
+    const handler = uploadHandlers[storageConfig.provider];
+    if (!handler) {
+      return { success: false, error: `Unsupported storage provider: ${storageConfig.provider}` };
+    }
+
+    const startedAt = Date.now();
+    let result: StorageResult;
+    try {
+      result = await handler(storageConfig, req);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (req.owner.kind === 'workspace') {
+        await logWorkspaceStorageUsage(serverConfig, {
+          workspaceId: req.owner.workspaceId,
+          providerName: storageConfig.provider,
+          operation: 'upload',
+          fileKey: req.fileKey,
+          success: false,
+          errorMessage: message,
+        });
+      }
+      logStorageOperation({ operation: 'upload', owner: req.owner, provider: storageConfig.provider, success: false, durationMs: Date.now() - startedAt, error: message });
+      return { success: false, error: message };
+    }
+
+    if (req.owner.kind === 'workspace') {
+      await logWorkspaceStorageUsage(serverConfig, {
+        workspaceId: req.owner.workspaceId,
+        providerName: storageConfig.provider,
+        operation: 'upload',
+        fileKey: req.fileKey,
+        fileSize: req.data.length,
+        contentType: req.contentType,
+        success: result.success,
+        errorMessage: result.error,
+      });
+    }
+    logStorageOperation({ operation: 'upload', owner: req.owner, provider: storageConfig.provider, success: result.success, durationMs: Date.now() - startedAt, error: result.error });
+
+    return result;
+  };
+
+  if (req.owner.kind === 'workspace') {
+    const leased = await withOwnerWriteLease(serverConfig, 'workspace', req.owner.workspaceId, 'upload', doUpload);
+    if (!leased.ok) {
+      return { success: false, error: leaseFailureMessage(leased.error, 'Workspace') };
+    }
+    return leased.result!;
+  }
+
+  if (req.owner.kind === 'user') {
+    const leased = await withOwnerWriteLease(serverConfig, 'user', req.owner.userId, 'upload', doUpload);
+    if (!leased.ok) {
+      return { success: false, error: leaseFailureMessage(leased.error, 'Account') };
+    }
+    return leased.result!;
+  }
+
+  return doUpload();
+}
+
+/**
+ * Fifth corrective pass: `withOwnerWriteLease`'s failure has two distinct
+ * causes an operator/caller should be able to tell apart in logs/error
+ * responses — acquisition was refused (not 'active' right now — deleting,
+ * its row already purged, or its state couldn't be confirmed; see
+ * acquireOwnerWriteLease()'s doc comment / 187's migration header) versus
+ * the write itself completed but the lease covering it was lost partway
+ * through (see withOwnerWriteLease()'s own doc comment) — the write's
+ * actual disposition (landed or not) is unknown, and it's caught by
+ * deletion's reconciliation-grace verification instead, not by this
+ * response.
+ */
+function leaseFailureMessage(error: string | undefined, ownerNoun: 'Workspace' | 'Account'): string {
+  const subject = ownerNoun === 'Workspace' ? 'the workspace' : 'the account';
+  if (error === 'lease_lost_during_write') {
+    return `Upload could not be confirmed safe — the write lease for ${subject} was lost mid-operation; treat this upload as failed and retry`;
+  }
+  return `${ownerNoun} is being deleted or is otherwise unavailable; uploads are disabled`;
+}
+
+/**
  * Upload a file through the resolved storage provider.
+ * Thin workspace-owner wrapper over uploadForOwner.
  */
 export async function uploadFile(
   serverConfig: ServerConfig,
   req: UploadRequest
 ): Promise<StorageResult> {
-  const storageConfig = await resolveStorageConfig(serverConfig, req.workspaceId);
-  if (!storageConfig) {
-    return { success: false, error: 'No storage provider configured' };
-  }
+  return uploadForOwner(serverConfig, {
+    owner: { kind: 'workspace', workspaceId: req.workspaceId },
+    fileKey: req.fileKey,
+    data: req.data,
+    contentType: req.contentType,
+    allowLegacyKey: req.allowLegacyKey,
+  });
+}
 
-  // Validate file
-  const validationError = validateFile(req.data, req.contentType, storageConfig.maxFileSizeMB);
-  if (validationError) {
-    return { success: false, error: validationError };
-  }
-
-  const handler = uploadHandlers[storageConfig.provider];
-  if (!handler) {
-    return { success: false, error: `Unsupported storage provider: ${storageConfig.provider}` };
-  }
-
-  const sb = getServiceClient(serverConfig);
-  let result: StorageResult;
-
+/**
+ * List every object key under `prefixSuffix` (default: the owner's whole
+ * root — `workspace/<id>/`, `users/<id>/`, or `platform/`) through the
+ * storage provider resolved for that owner. Fail-closed the same way every
+ * other *ForOwner primitive does: the resolved prefix is asserted
+ * owner-scoped before any provider call, so a caller can never be tricked
+ * into listing (and a workspace-deletion caller into subsequently
+ * deleting) anything outside the owner's own root — most importantly,
+ * `users/` and `platform/` can never be reached through a workspace owner
+ * here, matching docs/STORAGE_ARCHITECTURE_AUDIT.md's requirement that
+ * workspace deletion cleanup never touches those namespaces.
+ */
+export async function listForOwner(
+  serverConfig: ServerConfig,
+  owner: StorageOwner,
+  prefixSuffix?: string,
+  cursor?: string,
+): Promise<ListResult> {
+  const root = ownerRoot(owner);
+  const prefix = prefixSuffix ? `${root}/${prefixSuffix.replace(/^\/+/, '')}` : `${root}/`;
   try {
-    result = await handler(storageConfig, req);
-
-    await sb.from('storage_usage_logs').insert({
-      workspace_id: req.workspaceId,
-      provider_name: storageConfig.provider,
-      operation: 'upload',
-      file_key: req.fileKey,
-      file_size: req.data.length,
-      content_type: req.contentType,
-      success: result.success,
-      error_message: result.error,
-    });
-  } catch (err: any) {
-    await sb.from('storage_usage_logs').insert({
-      workspace_id: req.workspaceId,
-      provider_name: storageConfig.provider,
-      operation: 'upload',
-      file_key: req.fileKey,
-      success: false,
-      error_message: err.message,
-    });
-    return { success: false, error: err.message };
+    assertSafeStorageKey(prefix);
+  } catch (err) {
+    return { success: false, error: err instanceof StorageKeyError ? err.message : 'Invalid list prefix' };
+  }
+  if (!prefix.startsWith(`${root}/`)) {
+    // Defense in depth against a prefixSuffix containing `../` or an
+    // absolute-looking segment that could otherwise escape the owner's
+    // root despite passing assertSafeStorageKey's generic traversal check.
+    return { success: false, error: `Resolved list prefix escapes owner root: ${prefix}` };
   }
 
+  const storageConfig = await resolveStorageConfigForOwner(serverConfig, owner);
+  if (!storageConfig) return { success: false, error: 'No storage provider configured' };
+
+  const handler = listHandlers[storageConfig.provider];
+  if (!handler) return { success: false, error: `Unsupported provider for listing: ${storageConfig.provider}` };
+
+  const startedAt = Date.now();
+  const result = await handler(storageConfig, prefix, cursor);
+  logStorageOperation({ operation: 'list', owner, provider: storageConfig.provider, success: result.success, durationMs: Date.now() - startedAt, error: result.error });
   return result;
 }
 
 /**
- * Delete a file through the resolved storage provider.
+ * Delete a file through the storage provider resolved for its owner.
  */
-export async function deleteFile(
+export async function deleteForOwner(
   serverConfig: ServerConfig,
-  workspaceId: string,
-  fileKey: string
+  owner: StorageOwner,
+  fileKey: string,
+  opts?: { allowLegacyKey?: boolean },
 ): Promise<StorageResult> {
-  const storageConfig = await resolveStorageConfig(serverConfig, workspaceId);
+  const scopeError = enforceOwnerScope(owner, fileKey, opts?.allowLegacyKey);
+  if (scopeError) return { success: false, error: scopeError };
+
+  const storageConfig = await resolveStorageConfigForOwner(serverConfig, owner);
   if (!storageConfig) return { success: false, error: 'No storage provider configured' };
 
   const handler = deleteHandlers[storageConfig.provider];
   if (!handler) return { success: false, error: `Unsupported provider: ${storageConfig.provider}` };
 
-  const sb = getServiceClient(serverConfig);
+  const startedAt = Date.now();
   try {
     const result = await handler(storageConfig, fileKey);
-    // Resolve freed bytes from the latest successful upload log for this
-    // (workspace, file_key). The canonical storage_bytes producer (DB trigger
-    // on storage_usage_logs) decrements only when file_size is present, so
-    // missing this lookup would silently leak counter occupancy. We never
-    // guess sizes — if no prior upload row is found, file_size stays null
-    // and the trigger correctly skips the decrement.
-    let freedBytes: number | null = null;
-    if (result.success) {
-      const { data: prior } = await sb
-        .from('storage_usage_logs')
-        .select('file_size')
-        .eq('workspace_id', workspaceId)
-        .eq('file_key', fileKey)
-        .eq('operation', 'upload')
-        .eq('success', true)
-        .not('file_size', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (prior && typeof (prior as any).file_size === 'number') {
-        freedBytes = (prior as any).file_size as number;
+    if (owner.kind === 'workspace') {
+      const sb = getServiceClient(serverConfig);
+      // Resolve freed bytes from the latest successful upload log for this
+      // (workspace, file_key). The canonical storage_bytes producer (DB trigger
+      // on storage_usage_logs) decrements only when file_size is present, so
+      // missing this lookup would silently leak counter occupancy. We never
+      // guess sizes — if no prior upload row is found, file_size stays null
+      // and the trigger correctly skips the decrement.
+      let freedBytes: number | null = null;
+      if (result.success) {
+        const { data: prior } = await sb
+          .from('storage_usage_logs')
+          .select('file_size')
+          .eq('workspace_id', owner.workspaceId)
+          .eq('file_key', fileKey)
+          .eq('operation', 'upload')
+          .eq('success', true)
+          .not('file_size', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const priorFileSize = (prior as { file_size?: unknown } | null)?.file_size;
+        if (typeof priorFileSize === 'number') {
+          freedBytes = priorFileSize;
+        }
       }
+      await logWorkspaceStorageUsage(serverConfig, {
+        workspaceId: owner.workspaceId,
+        providerName: storageConfig.provider,
+        operation: 'delete',
+        fileKey,
+        fileSize: freedBytes,
+        success: result.success,
+        errorMessage: result.error,
+      });
     }
-    await sb.from('storage_usage_logs').insert({
-      workspace_id: workspaceId,
-      provider_name: storageConfig.provider,
-      operation: 'delete',
-      file_key: fileKey,
-      file_size: freedBytes,
-      success: result.success,
-      error_message: result.error,
-    });
+    logStorageOperation({ operation: 'delete', owner, provider: storageConfig.provider, success: result.success, durationMs: Date.now() - startedAt, error: result.error });
     return result;
-  } catch (err: any) {
-    return { success: false, error: err.message };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    logStorageOperation({ operation: 'delete', owner, provider: storageConfig.provider, success: false, durationMs: Date.now() - startedAt, error: message });
+    return { success: false, error: message };
   }
 }
 
 /**
- * Get public URL for a file.
+ * Delete a file through the resolved storage provider.
+ * Thin workspace-owner wrapper over deleteForOwner.
  */
-export async function getFileUrl(
+export async function deleteFile(
   serverConfig: ServerConfig,
   workspaceId: string,
-  fileKey: string
+  fileKey: string,
+  opts?: { allowLegacyKey?: boolean },
+): Promise<StorageResult> {
+  return deleteForOwner(serverConfig, { kind: 'workspace', workspaceId }, fileKey, opts);
+}
+
+/**
+ * Download a file's bytes through the storage provider resolved for its
+ * owner (backend-only).
+ */
+export async function downloadForOwner(
+  serverConfig: ServerConfig,
+  owner: StorageOwner,
+  fileKey: string,
+  opts?: { allowLegacyKey?: boolean },
+): Promise<DownloadResult> {
+  const scopeError = enforceOwnerScope(owner, fileKey, opts?.allowLegacyKey);
+  if (scopeError) return { success: false, error: scopeError };
+  const storageConfig = await resolveStorageConfigForOwner(serverConfig, owner);
+  if (!storageConfig) return { success: false, error: 'No storage provider configured' };
+  const handler = downloadHandlers[storageConfig.provider];
+  if (!handler) return { success: false, error: `Unsupported provider: ${storageConfig.provider}` };
+  return handler(storageConfig, fileKey);
+}
+
+/**
+ * Get public URL for a file through the storage provider resolved for its
+ * owner.
+ */
+export async function getFileUrlForOwner(
+  serverConfig: ServerConfig,
+  owner: StorageOwner,
+  fileKey: string,
+  opts?: { allowLegacyKey?: boolean },
 ): Promise<string | null> {
-  const storageConfig = await resolveStorageConfig(serverConfig, workspaceId);
+  const scopeError = enforceOwnerScope(owner, fileKey, opts?.allowLegacyKey);
+  if (scopeError) return null;
+
+  const storageConfig = await resolveStorageConfigForOwner(serverConfig, owner);
   if (!storageConfig) return null;
   const handler = urlHandlers[storageConfig.provider];
   if (!handler) return null;
   return handler(storageConfig, fileKey);
+}
+
+/**
+ * Get public URL for a file.
+ * Thin workspace-owner wrapper over getFileUrlForOwner.
+ */
+export async function getFileUrl(
+  serverConfig: ServerConfig,
+  workspaceId: string,
+  fileKey: string,
+  opts?: { allowLegacyKey?: boolean },
+): Promise<string | null> {
+  return getFileUrlForOwner(serverConfig, { kind: 'workspace', workspaceId }, fileKey, opts);
 }
 
 export function getFileUrlWithConfig(storageConfig: StorageConfig, fileKey: string): string | null {
@@ -757,9 +1362,57 @@ export function getFileUrlWithConfig(storageConfig: StorageConfig, fileKey: stri
 // feature that needs a dedicated provider policy. No file-type whitelist
 // is enforced because the caller fully controls the upload (e.g. ZIP).
 
+/**
+ * Owner-aware counterpart to uploadWithConfig() — for a feature that needs
+ * BOTH a dedicated provider-policy resolver (bypassing the generic
+ * resolveStorageConfigForOwner) AND the standard owner-scope enforcement
+ * and deletion write lock every other owned write gets via
+ * uploadForOwner(). Second corrective pass, P0: privacy exports
+ * previously called uploadWithConfig() directly, which enforces neither —
+ * an in-flight privacy export could write a new object to a workspace OR
+ * a user AFTER its deletion scope had already been swept, orphaning it
+ * right before the DB purge. Third corrective pass, P0: extended to cover
+ * user-owned exports too (isUserWritable, not just workspaces), and both
+ * checks now fail closed on a missing owner row, not just an explicit
+ * 'deleting' status. Fourth corrective pass, P0: the point-in-time check
+ * itself was still a TOCTOU gap — replaced with an owner_write_lease
+ * (writerLease.ts) held for the entire upload, not just checked before it
+ * — see uploadForOwner()'s doc comment for the full rationale, identical
+ * here. This is the single place either check lives; callers
+ * (server/services/privacy/worker.ts) never duplicate it.
+ */
+export async function uploadWithConfigForOwner(
+  serverConfig: ServerConfig,
+  owner: StorageOwner,
+  storageConfig: StorageConfig,
+  req: ProviderUploadRequest & { allowLegacyKey?: boolean },
+): Promise<StorageResult> {
+  const scopeError = enforceOwnerScope(owner, req.fileKey, req.allowLegacyKey);
+  if (scopeError) return { success: false, error: scopeError };
+
+  const doUpload = () => uploadWithConfig(storageConfig, req);
+
+  if (owner.kind === 'workspace') {
+    const leased = await withOwnerWriteLease(serverConfig, 'workspace', owner.workspaceId, 'upload_with_config', doUpload);
+    if (!leased.ok) {
+      return { success: false, error: leaseFailureMessage(leased.error, 'Workspace') };
+    }
+    return leased.result!;
+  }
+  if (owner.kind === 'user') {
+    const leased = await withOwnerWriteLease(serverConfig, 'user', owner.userId, 'upload_with_config', doUpload);
+    if (!leased.ok) {
+      return { success: false, error: leaseFailureMessage(leased.error, 'Account') };
+    }
+    return leased.result!;
+  }
+
+  return doUpload();
+}
+
 export async function uploadWithConfig(
   storageConfig: StorageConfig,
-  req: UploadRequest,
+  req: ProviderUploadRequest & { workspaceId?: string; allowLegacyKey?: boolean },
 ): Promise<StorageResult> {
   const handler = uploadHandlers[storageConfig.provider];
   if (!handler) return { success: false, error: `Unsupported storage provider: ${storageConfig.provider}` };
@@ -780,6 +1433,24 @@ export async function downloadWithConfig(
   return handler(storageConfig, fileKey);
 }
 
+/**
+ * Ranged download through an explicit, caller-resolved StorageConfig —
+ * the explicit-config counterpart to downloadFileRange() (which resolves
+ * the workspace's ordinary attachment provider). Used for object shapes
+ * that physically live in a different provider account than the
+ * workspace's default one, e.g. LiveKit call recordings
+ * (server/services/calls/recordingStorageResolver.ts).
+ */
+export async function downloadRangeWithConfig(
+  storageConfig: StorageConfig,
+  fileKey: string,
+  rangeHeader?: string,
+): Promise<RangedDownloadResult> {
+  const handler = rangedDownloadHandlers[storageConfig.provider];
+  if (!handler) return { success: false, error: `Unsupported provider: ${storageConfig.provider}` };
+  return handler(storageConfig, fileKey, rangeHeader);
+}
+
 export async function deleteWithConfig(
   storageConfig: StorageConfig,
   fileKey: string,
@@ -787,6 +1458,16 @@ export async function deleteWithConfig(
   const handler = deleteHandlers[storageConfig.provider];
   if (!handler) return { success: false, error: `Unsupported provider: ${storageConfig.provider}` };
   return handler(storageConfig, fileKey);
+}
+
+export async function listWithConfig(
+  storageConfig: StorageConfig,
+  prefix: string,
+  cursor?: string,
+): Promise<ListResult> {
+  const handler = listHandlers[storageConfig.provider];
+  if (!handler) return { success: false, error: `Unsupported provider for listing: ${storageConfig.provider}` };
+  return handler(storageConfig, prefix, cursor);
 }
 
 /**
@@ -808,7 +1489,6 @@ export async function testStorageConnection(config: StorageConfig): Promise<{
 
   try {
     const result = await handler(config, {
-      workspaceId: 'test',
       fileKey: testKey,
       data: testData,
       contentType: 'text/plain',
@@ -820,7 +1500,7 @@ export async function testStorageConnection(config: StorageConfig): Promise<{
     if (delHandler) await delHandler(config, testKey);
 
     return { success: true, latencyMs: Date.now() - start };
-  } catch (err: any) {
-    return { success: false, latencyMs: Date.now() - start, error: err.message };
+  } catch (err: unknown) {
+    return { success: false, latencyMs: Date.now() - start, error: err instanceof Error ? err.message : String(err) };
   }
 }

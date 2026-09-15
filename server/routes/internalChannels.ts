@@ -11,6 +11,7 @@
  */
 
 import { Router, raw } from 'express';
+import type { Request } from 'express';
 import { z } from 'zod';
 import {
   INTERNAL_SECRET_HEADER,
@@ -18,6 +19,7 @@ import {
   requireInternalService,
 } from '../lib/internalAuth.js';
 import { serverConfigOf } from '../lib/workspaceAuth.js';
+import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import {
   getIntegrationById,
@@ -49,6 +51,7 @@ import {
   persistContactAvatar,
   persistInboundAttachment,
   recordMediaOutcomes,
+  type TelegramMediaOutcome,
 } from '../services/channels/telegram/mediaIngest.js';
 import { markAvatarChecked } from '../services/channels/telegram/avatarSync.js';
 import { botJobType, enqueueChannelJob, queueMetrics } from '../services/channels/jobs.js';
@@ -63,7 +66,7 @@ import { botProvider } from '../../shared/channels/botProviders.js';
 import { handleTelegramCallbackQuery } from '../services/channels/telegram/runtime.js';
 import { publishOperatorEvent } from '../services/realtime/publish.js';
 import { uploadFile } from '../services/storage/index.js';
-import { randomUUID } from 'node:crypto';
+import { emailAttachmentKey } from '../services/storage/keys.js';
 
 export const internalChannelsRouter = Router();
 
@@ -81,7 +84,7 @@ export const internalChannelsRouter = Router();
  * No secret, and no part of one, is ever returned: the caller sends a
  * truncated salted SHA-256 and receives a boolean.
  */
-internalChannelsRouter.get('/auth-diagnostic', (req: any, res) => {
+internalChannelsRouter.get('/auth-diagnostic', (req: Request, res) => {
   const expected = serverConfigOf(req)?.coreInternalSecret;
   const presentedFingerprint =
     typeof req.query?.fingerprint === 'string' ? req.query.fingerprint.trim() : '';
@@ -122,7 +125,7 @@ const ingestSchema = z.object({
   received_at: z.string().optional(),
 });
 
-internalChannelsRouter.post('/ingest', async (req: any, res) => {
+internalChannelsRouter.post('/ingest', async (req: Request, res) => {
   const parsed = ingestSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
 
@@ -141,9 +144,9 @@ internalChannelsRouter.post('/ingest', async (req: any, res) => {
     const dialect = botProvider(parsed.data.provider).dialect;
     const updates =
       dialect === 'whatsapp-cloud'
-        ? whatsappToBotUpdates(parsed.data.update as Record<string, any>)
+        ? whatsappToBotUpdates(parsed.data.update)
         : dialect === 'instagram-graph'
-          ? instagramToBotUpdates(parsed.data.update as Record<string, any>)
+          ? instagramToBotUpdates(parsed.data.update)
           : [parsed.data.update];
 
 
@@ -152,7 +155,7 @@ internalChannelsRouter.post('/ingest', async (req: any, res) => {
     // pipeline (no conversation resume, no unread, no AI routing). Handled
     // inline because Core owns the write and no provider call is needed.
     if (dialect === 'whatsapp-cloud') {
-      const statuses = extractWhatsAppDeliveryStatuses(parsed.data.update as Record<string, any>);
+      const statuses = extractWhatsAppDeliveryStatuses(parsed.data.update);
       if (statuses.length) {
         await applyProviderDeliveryStatuses(config, {
           provider: parsed.data.provider,
@@ -199,7 +202,7 @@ const processSchema = z.object({
   update: z.record(z.unknown()),
 });
 
-internalChannelsRouter.post('/process-inbound', async (req: any, res) => {
+internalChannelsRouter.post('/process-inbound', async (req: Request, res) => {
   const parsed = processSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
 
@@ -212,7 +215,7 @@ internalChannelsRouter.post('/process-inbound', async (req: any, res) => {
       await handleTelegramCallbackQuery(config, {
         workspaceId: parsed.data.workspace_id,
         provider: parsed.data.provider,
-        update: parsed.data.update as Record<string, any>,
+        update: parsed.data.update,
       });
       return res.json({ status: 'menu_handled' });
     }
@@ -248,7 +251,7 @@ const rescheduleXPollSchema = z.object({
   delay_ms: z.number().int().min(1_000).max(600_000).optional(),
 });
 
-internalChannelsRouter.post('/x/reschedule-poll', async (req: any, res) => {
+internalChannelsRouter.post('/x/reschedule-poll', async (req: Request, res) => {
   const parsed = rescheduleXPollSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
 
@@ -284,7 +287,14 @@ const outboundResultSchema = z.object({
   error_code: z.string().max(120).nullable().optional(),
 });
 
-internalChannelsRouter.post('/outbound-result', async (req: any, res) => {
+/** Row shape read back from `conversation_messages` for a delivery-result update. */
+interface ConversationMessageRow {
+  id: string;
+  conversation_id: string;
+  metadata: Record<string, unknown> | null;
+}
+
+internalChannelsRouter.post('/outbound-result', async (req: Request, res) => {
   const parsed = outboundResultSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
   const data = parsed.data;
@@ -293,15 +303,16 @@ internalChannelsRouter.post('/outbound-result', async (req: any, res) => {
     const config = serverConfigOf(req);
     const sb = getServiceClient(config);
 
-    const { data: existing, error: readError } = await sb
+    const { data: existingRow, error: readError } = await sb
       .from('conversation_messages')
       .select('id, conversation_id, metadata')
       .eq('id', data.message_id)
       .maybeSingle();
     if (readError) throw new Error(readError.message);
-    if (!existing) return res.status(404).json({ error: 'unknown_message' });
+    if (!existingRow) return res.status(404).json({ error: 'unknown_message' });
+    const existing = existingRow as unknown as ConversationMessageRow;
 
-    const previousMetadata = (((existing as any).metadata ?? {}) as Record<string, unknown>);
+    const previousMetadata = ((existing.metadata ?? {}) as Record<string, unknown>);
     const previousOutcome = String(previousMetadata.channel_delivery ?? '');
 
     // IDEMPOTENCY — the worker can legitimately report the same terminal
@@ -347,7 +358,7 @@ internalChannelsRouter.post('/outbound-result', async (req: any, res) => {
       // from the message stream, so the Inbox only has to re-fetch — no
       // column, no backfill. `reason` tells the client to invalidate rather
       // than to patch a field it cannot recompute locally.
-      const conversationId = (existing as any)?.conversation_id ?? null;
+      const conversationId = existing.conversation_id ?? null;
       if (conversationId) {
         void publishOperatorEvent(config, {
           kind: 'conversation_updated',
@@ -358,7 +369,7 @@ internalChannelsRouter.post('/outbound-result', async (req: any, res) => {
           reason: 'outbound_delivery_failed',
           message_id: data.message_id,
           updated_at: new Date().toISOString(),
-        } as any);
+        });
       }
     }
 
@@ -417,7 +428,7 @@ const gmailUpsertSchema = z.object({
  * message id twice (overlapping pages, a retried job) and this must never
  * duplicate it.
  */
-internalChannelsRouter.post('/gmail/upsert-thread-message', async (req: any, res) => {
+internalChannelsRouter.post('/gmail/upsert-thread-message', async (req: Request, res) => {
   const parsed = gmailUpsertSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
   const data = parsed.data;
@@ -489,7 +500,7 @@ internalChannelsRouter.post('/gmail/upsert-thread-message', async (req: any, res
     if (insertError) {
       // 23505 = unique_violation on (thread_id, external_message_id) — this
       // exact message was already stored by an earlier/overlapping sync.
-      if ((insertError as any).code === '23505') {
+      if (insertError.code === '23505') {
         const { data: existingMessage } = await sb
           .from('email_messages')
           .select('id')
@@ -517,7 +528,7 @@ internalChannelsRouter.post('/gmail/upsert-thread-message', async (req: any, res
 internalChannelsRouter.post(
   '/gmail/attachment-ingest',
   raw({ type: '*/*', limit: '25mb' }),
-  async (req: any, res) => {
+  async (req: Request, res) => {
     try {
       const config = serverConfigOf(req);
       const messageId = String(req.query.message_id || '');
@@ -537,8 +548,7 @@ internalChannelsRouter.post(
       const bytes = Buffer.isBuffer(req.body) ? (req.body as Buffer) : Buffer.alloc(0);
       if (!bytes.byteLength) return res.status(400).json({ error: 'empty_body' });
 
-      const now = new Date();
-      const fileKey = `email-attachments/${message.workspace_id}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${randomUUID()}-${filename}`;
+      const fileKey = emailAttachmentKey({ workspaceId: message.workspace_id, fileName: filename });
       const uploadResult = await uploadFile(config, { workspaceId: message.workspace_id, fileKey, data: bytes, contentType });
       if (!uploadResult.success || !uploadResult.fileKey) {
         return res.status(502).json({ error: 'attachment_upload_failed', details: uploadResult.error });
@@ -546,6 +556,7 @@ internalChannelsRouter.post(
 
       const { error: insertError } = await sb.from('email_attachments').insert({
         message_id: messageId,
+        workspace_id: message.workspace_id,
         filename,
         content_type: contentType,
         size_bytes: bytes.byteLength,
@@ -573,7 +584,7 @@ const gmailCheckpointSchema = z.object({
   history_id: z.string().min(1),
 });
 
-internalChannelsRouter.post('/gmail/history-checkpoint', async (req: any, res) => {
+internalChannelsRouter.post('/gmail/history-checkpoint', async (req: Request, res) => {
   const parsed = gmailCheckpointSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
 
@@ -609,7 +620,7 @@ const gmailOutboundResultSchema = z.object({
   gmail_thread_id: z.string().min(1).nullable().optional(),
 });
 
-internalChannelsRouter.post('/gmail/outbound-result', async (req: any, res) => {
+internalChannelsRouter.post('/gmail/outbound-result', async (req: Request, res) => {
   const parsed = gmailOutboundResultSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
   const data = parsed.data;
@@ -667,7 +678,7 @@ const rescheduleYahooPollSchema = z.object({
   delay_ms: z.number().int().min(1_000).max(600_000).optional(),
 });
 
-internalChannelsRouter.post('/yahoo/reschedule-poll', async (req: any, res) => {
+internalChannelsRouter.post('/yahoo/reschedule-poll', async (req: Request, res) => {
   const parsed = rescheduleYahooPollSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
 
@@ -724,7 +735,7 @@ const yahooUpsertSchema = z.object({
   }),
 });
 
-internalChannelsRouter.post('/yahoo/upsert-thread-message', async (req: any, res) => {
+internalChannelsRouter.post('/yahoo/upsert-thread-message', async (req: Request, res) => {
   const parsed = yahooUpsertSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
   const data = parsed.data;
@@ -799,7 +810,7 @@ internalChannelsRouter.post('/yahoo/upsert-thread-message', async (req: any, res
       .single();
 
     if (insertError) {
-      if ((insertError as any).code === '23505') {
+      if (insertError.code === '23505') {
         const { data: existingMessage } = await sb
           .from('email_messages')
           .select('id')
@@ -823,7 +834,7 @@ internalChannelsRouter.post('/yahoo/upsert-thread-message', async (req: any, res
 internalChannelsRouter.post(
   '/yahoo/attachment-ingest',
   raw({ type: '*/*', limit: '25mb' }),
-  async (req: any, res) => {
+  async (req: Request, res) => {
     try {
       const config = serverConfigOf(req);
       const messageId = String(req.query.message_id || '');
@@ -843,8 +854,7 @@ internalChannelsRouter.post(
       const bytes = Buffer.isBuffer(req.body) ? (req.body as Buffer) : Buffer.alloc(0);
       if (!bytes.byteLength) return res.status(400).json({ error: 'empty_body' });
 
-      const now = new Date();
-      const fileKey = `email-attachments/${message.workspace_id}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${randomUUID()}-${filename}`;
+      const fileKey = emailAttachmentKey({ workspaceId: message.workspace_id, fileName: filename });
       const uploadResult = await uploadFile(config, { workspaceId: message.workspace_id, fileKey, data: bytes, contentType });
       if (!uploadResult.success || !uploadResult.fileKey) {
         return res.status(502).json({ error: 'attachment_upload_failed', details: uploadResult.error });
@@ -852,6 +862,7 @@ internalChannelsRouter.post(
 
       const { error: insertError } = await sb.from('email_attachments').insert({
         message_id: messageId,
+        workspace_id: message.workspace_id,
         filename,
         content_type: contentType,
         size_bytes: bytes.byteLength,
@@ -877,7 +888,7 @@ const yahooCheckpointSchema = z.object({
   last_uid: z.number().int().positive(),
 });
 
-internalChannelsRouter.post('/yahoo/poll-checkpoint', async (req: any, res) => {
+internalChannelsRouter.post('/yahoo/poll-checkpoint', async (req: Request, res) => {
   const parsed = yahooCheckpointSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
 
@@ -903,7 +914,7 @@ const yahooOutboundResultSchema = z.object({
   error_message: z.string().max(1000).nullable().optional(),
 });
 
-internalChannelsRouter.post('/yahoo/outbound-result', async (req: any, res) => {
+internalChannelsRouter.post('/yahoo/outbound-result', async (req: Request, res) => {
   const parsed = yahooOutboundResultSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
   const data = parsed.data;
@@ -949,7 +960,7 @@ const heartbeatSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 
-internalChannelsRouter.post('/heartbeat', async (req: any, res) => {
+internalChannelsRouter.post('/heartbeat', async (req: Request, res) => {
   const parsed = heartbeatSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
 
@@ -974,7 +985,7 @@ internalChannelsRouter.post('/heartbeat', async (req: any, res) => {
 });
 
 /** GET /health — queue depth + lag for the Super Admin runtime panel. */
-internalChannelsRouter.get('/health', async (req: any, res) => {
+internalChannelsRouter.get('/health', async (req: Request, res) => {
   try {
     const metrics = await queueMetrics(getServiceClient(serverConfigOf(req)));
     res.json({ ok: true, queue: metrics });
@@ -1016,7 +1027,7 @@ internalChannelsRouter.get('/ready', (_req, res) => {
  */
 
 /** GET /operations/:id — the operation record for a claimed job. No secrets. */
-internalChannelsRouter.get('/operations/:id', async (req: any, res) => {
+internalChannelsRouter.get('/operations/:id', async (req: Request, res) => {
   try {
     const operation = await getOperation(serverConfigOf(req), String(req.params.id));
     if (!operation) return res.status(404).json({ error: 'unknown_operation' });
@@ -1038,7 +1049,7 @@ const preflightSchema = z.object({
   bot_id: z.union([z.string(), z.number()]),
 });
 
-internalChannelsRouter.post('/connect-preflight', async (req: any, res) => {
+internalChannelsRouter.post('/connect-preflight', async (req: Request, res) => {
   const parsed = preflightSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
 
@@ -1068,7 +1079,7 @@ internalChannelsRouter.post('/connect-preflight', async (req: any, res) => {
  */
 const webhookContractSchema = z.object({ operation_id: z.string().uuid() });
 
-internalChannelsRouter.post('/webhook-contract', async (req: any, res) => {
+internalChannelsRouter.post('/webhook-contract', async (req: Request, res) => {
   const parsed = webhookContractSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
 
@@ -1096,6 +1107,31 @@ internalChannelsRouter.post('/webhook-contract', async (req: any, res) => {
  * data. The response may carry a `rollback` instruction the Worker must
  * execute on the provider (Core cannot).
  */
+/**
+ * Shape of the free-form `result` bag the Worker reports back on
+ * /operation-result. Every field is provider/operation-specific and
+ * optional — only the branch matching `operation.operation` reads any of
+ * them.
+ */
+interface OperationResultPayload {
+  bot_id?: unknown;
+  username?: string | null;
+  first_name?: string | null;
+  webhook_url?: string | null;
+  webhook_removed?: boolean;
+  error_code?: string | null;
+  error_message?: string | null;
+  repaired?: boolean;
+  pending_update_count?: unknown;
+  last_error_message?: string | null;
+  last_error_at?: string | null;
+  applied?: unknown;
+  name?: string | null;
+  outcomes?: unknown;
+  no_photo?: boolean;
+  [key: string]: unknown;
+}
+
 const operationResultSchema = z.object({
   operation_id: z.string().uuid(),
   status: z.enum(['succeeded', 'failed']),
@@ -1104,7 +1140,7 @@ const operationResultSchema = z.object({
   result: z.record(z.unknown()).optional(),
 });
 
-internalChannelsRouter.post('/operation-result', async (req: any, res) => {
+internalChannelsRouter.post('/operation-result', async (req: Request, res) => {
   const parsed = operationResultSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
 
@@ -1117,7 +1153,7 @@ internalChannelsRouter.post('/operation-result', async (req: any, res) => {
       return res.json({ ok: true, duplicate: true });
     }
 
-    const payload = (parsed.data.result ?? {}) as any;
+    const payload = (parsed.data.result ?? {}) as unknown as OperationResultPayload;
 
     if (parsed.data.status === 'failed') {
       await applyOperationFailure(config, operation, {
@@ -1172,15 +1208,15 @@ internalChannelsRouter.post('/operation-result', async (req: any, res) => {
         return res.json({ ok: true });
       }
       case 'media_fetch': {
-        const messageId = String((operation.request as any)?.message_id ?? '');
+        const messageId = String(operation.request.message_id ?? '');
         if (messageId && Array.isArray(payload.outcomes)) {
-          await recordMediaOutcomes(config, messageId, payload.outcomes);
+          await recordMediaOutcomes(config, messageId, payload.outcomes as TelegramMediaOutcome[]);
         }
         await completeOperation(config, operation.id, { status: 'succeeded', result: {} });
         return res.json({ ok: true });
       }
       case 'avatar_fetch': {
-        const contactId = String((operation.request as any)?.contact_id ?? '');
+        const contactId = String(operation.request.contact_id ?? '');
         if (contactId && payload.no_photo === true) await markAvatarChecked(config, contactId);
         await completeOperation(config, operation.id, { status: 'succeeded', result: {} });
         return res.json({ ok: true });
@@ -1198,7 +1234,7 @@ internalChannelsRouter.post('/operation-result', async (req: any, res) => {
 
 /** Applies a provider failure to canonical state, per operation kind. */
 async function applyOperationFailure(
-  config: any,
+  config: ServerConfig,
   operation: ProviderOperation,
   failure: { errorCode: string; errorMessage?: string },
 ): Promise<void> {
@@ -1241,7 +1277,7 @@ async function applyOperationFailure(
 internalChannelsRouter.post(
   '/media-ingest',
   raw({ type: '*/*', limit: '30mb' }),
-  async (req: any, res) => {
+  async (req: Request, res) => {
     try {
       const config = serverConfigOf(req);
       const operationId = String(req.query.operation_id || '');
@@ -1252,18 +1288,18 @@ internalChannelsRouter.post(
       if (!bytes.byteLength) return res.status(400).json({ error: 'empty_body' });
 
       if (String(req.query.kind || '') === 'avatar') {
-        const contactId = String((operation.request as any)?.contact_id ?? '');
+        const contactId = String(operation.request.contact_id ?? '');
         if (!contactId) return res.status(400).json({ error: 'unknown_contact' });
         await persistContactAvatar(config, {
           workspaceId: operation.workspace_id,
           contactId,
-          fileKeyHint: String(req.query.file_key_hint || 'photo').replace(/[^\w.\-]+/g, '_').slice(0, 120),
+          fileKeyHint: String(req.query.file_key_hint || 'photo').replace(/[^\w.-]+/g, '_').slice(0, 120),
           bytes,
         });
         return res.json({ ok: true });
       }
 
-      const request = (operation.request ?? {}) as any;
+      const request = operation.request;
       const outcome = await persistInboundAttachment(config, {
         workspaceId: operation.workspace_id,
         conversationId: String(request.conversation_id ?? ''),

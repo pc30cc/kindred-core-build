@@ -36,7 +36,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { resolvePrivacyStoragePolicy, PrivacyStorageNotConfigured } from './storageResolver.js';
-import { deleteWithConfig } from '../storage/index.js';
+import { deleteWithConfig, logWorkspaceStorageUsage } from '../storage/index.js';
 import { deleteLegacyArtifact, legacyArtifactExists } from './artifactStore.js';
 import { writePrivacyAudit } from './audit.js';
 
@@ -45,17 +45,18 @@ const BATCH_SIZE = 100;
 
 let started = false;
 
-interface ExpiredJobRow {
+export interface ExpiredJobRow {
   id: string;
   workspace_id: string | null;
   actor_user_id: string;
   artifact_storage_provider: string | null;
   artifact_storage_key: string | null;
   artifact_path: string | null;
+  artifact_size_bytes: number | null;
   expires_at: string | null;
 }
 
-async function purgeOne(config: ServerConfig, job: ExpiredJobRow): Promise<{ ok: boolean; reason?: string; provider?: string }> {
+export async function purgeOne(config: ServerConfig, job: ExpiredJobRow): Promise<{ ok: boolean; reason?: string; provider?: string }> {
   // (A) Provider-based artifact
   if (job.artifact_storage_provider && job.artifact_storage_key) {
     try {
@@ -70,6 +71,20 @@ async function purgeOne(config: ServerConfig, job: ExpiredJobRow): Promise<{ ok:
       const r = await deleteWithConfig(policy.config, job.artifact_storage_key);
       if (!r.success) {
         return { ok: false, provider: policy.provider, reason: r.error || 'delete_failed' };
+      }
+      // Mirror worker.ts's upload-side logWorkspaceStorageUsage() call so a
+      // workspace-owned export's bytes are freed from storage_bytes the
+      // same way any other deleted upload is — see
+      // server/services/storage/categoryPolicy.ts's 'privacy_export' entry.
+      if (job.workspace_id) {
+        await logWorkspaceStorageUsage(config, {
+          workspaceId: job.workspace_id,
+          providerName: policy.provider,
+          operation: 'delete',
+          fileKey: job.artifact_storage_key,
+          fileSize: job.artifact_size_bytes,
+          success: true,
+        });
       }
       return { ok: true, provider: policy.provider };
     } catch (err) {
@@ -93,7 +108,7 @@ async function tick(config: ServerConfig): Promise<void> {
 
   const { data: rows, error } = await sb
     .from('privacy_jobs')
-    .select('id, workspace_id, actor_user_id, artifact_storage_provider, artifact_storage_key, artifact_path, expires_at')
+    .select('id, workspace_id, actor_user_id, artifact_storage_provider, artifact_storage_key, artifact_path, artifact_size_bytes, expires_at')
     .eq('action', 'export')
     .eq('status', 'completed')
     .not('artifact_path', 'is', null)

@@ -33,6 +33,12 @@ import {
   mintParticipantToken,
   LiveKitTwirpError,
 } from '../livekitTwirp.js';
+import { callRecordingKey } from '../../storage/keys.js';
+import { acquireOwnerWriteLease, releaseOwnerWriteLease } from '../../storage/writerLease.js';
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 interface ResolvedLk {
   baseUrl: string;
@@ -166,7 +172,7 @@ export async function getLiveKitReadinessState(
     let cfg;
     try {
       cfg = await loadLiveKitConfig(config, true);
-    } catch (err: any) {
+    } catch (err: unknown) {
       const v: LiveKitReadinessState = {
         ready: false,
         configured: false,
@@ -174,7 +180,7 @@ export async function getLiveKitReadinessState(
         lastProbeAt: Date.now(),
         latencyMs: null,
         errorCode: 'config_load_failed',
-        errorMessage: err?.message || 'Failed to load LiveKit config',
+        errorMessage: err instanceof Error ? err.message : 'Failed to load LiveKit config',
       };
       cachedReadiness = { value: v, loadedAt: Date.now() };
       return v;
@@ -206,7 +212,7 @@ export async function getLiveKitReadinessState(
       };
       cachedReadiness = { value: v, loadedAt: Date.now() };
       return v;
-    } catch (err: any) {
+    } catch (err: unknown) {
       const code = err instanceof CallProviderNotReadyError ? 'provider_not_ready' : 'probe_failed';
       const v: LiveKitReadinessState = {
         ready: false,
@@ -215,7 +221,7 @@ export async function getLiveKitReadinessState(
         lastProbeAt: Date.now(),
         latencyMs: null,
         errorCode: code,
-        errorMessage: err?.message || 'LiveKit probe failed',
+        errorMessage: err instanceof Error ? err.message : 'LiveKit probe failed',
       };
       cachedReadiness = { value: v, loadedAt: Date.now() };
       return v;
@@ -358,63 +364,168 @@ export const livekitProvider: CallProvider = {
   },
 
   async startRecording(config, providerRoomId, opts): Promise<RecordingHandle> {
-    const { baseUrl, apiKey, apiSecret } = await resolveLk(config);
-    const cfg = await loadLiveKitConfig(config);
-    if (!cfg.egress_enabled) {
-      throw new CallProviderNotReadyError('livekit', 'LiveKit egress is disabled in config.');
+    // Fourth corrective pass, P0: a point-in-time isWorkspaceWritable()
+    // check (third pass) still left a TOCTOU gap — deletion could begin
+    // in the window between that check returning true and
+    // StartRoomCompositeEgress actually completing, and workspaceDeletion/
+    // worker.ts's quiesce step had nothing to find (no call_sessions row
+    // yet says Egress is running) until this function's caller persisted
+    // it, well after the external write had already started. An
+    // owner_write_lease (writerLease.ts) closes this: acquisition is
+    // atomic with the SAME writability check (187_owner_write_leases.sql),
+    // and the lease is held through BOTH the Egress start call AND the
+    // caller's durable persistence of recording_id/recording_state (via
+    // `opts.onStarted`, called below while still holding the lease) —
+    // not just released the instant this function returns. A deletion
+    // worker that starts while this lease is outstanding sees it and
+    // waits before ever running quiesceLiveKitEgress() or touching any
+    // storage scope — see workspaceDeletion/worker.ts's doc comment.
+    const lease = await acquireOwnerWriteLease(config, 'workspace', opts.workspaceId, 'livekit_recording_start');
+    if (!lease.ok || !lease.leaseId || !lease.leaseToken) {
+      throw new CallProviderNotReadyError('livekit', 'Workspace is being deleted; recording is disabled.');
     }
-    const storage = cfg.recording_storage;
-    if (!storage.bucket || !storage.access_key || !storage.secret_key) {
-      throw new CallProviderNotReadyError(
-        'livekit',
-        'LiveKit recording storage (bucket / access_key / secret_key) is not configured.',
-      );
-    }
-    // S3 / S3-compatible output. LiveKit Egress accepts the same fields for
-    // any provider (R2, MinIO, etc.) by setting `endpoint` and `force_path_style`.
-    const filepath = providerRoomId + '/' + Date.now() + '.mp4';
-    const body: Record<string, unknown> = {
-      room_name: providerRoomId,
-      file_outputs: [
-        {
-          file_type: 'MP4',
-          filepath,
-          s3: {
-            access_key: storage.access_key,
-            secret: storage.secret_key,
-            bucket: storage.bucket,
-            region: storage.region ?? '',
-            ...(storage.endpoint ? { endpoint: storage.endpoint } : {}),
-            ...(storage.force_path_style ? { force_path_style: true } : {}),
-          },
-        },
-      ],
-      // Composite layout is the LiveKit default; we only ship composite in 8B.
-      layout: opts.recordingType === 'audio_only' ? 'audio-only' : 'speaker',
-      audio_only: opts.recordingType === 'audio_only',
-    };
+    const leaseId = lease.leaseId;
+    const leaseToken = lease.leaseToken;
+    let releaseLeaseNow = true;
+
     try {
-      const result = await twirp<{ egress_id?: string; status?: string }>({
-        baseUrl: cfg.egress_url || baseUrl,
-        apiKey,
-        apiSecret,
-        service: 'livekit.Egress',
-        method: 'StartRoomCompositeEgress',
-        body,
-        room: providerRoomId,
-      });
-      return {
-        recordingId: result.egress_id || ('egr_' + Date.now().toString(36)),
-        status: result.status === 'EGRESS_ACTIVE' ? 'recording' : 'pending',
-      };
-    } catch (err) {
-      if (err instanceof LiveKitTwirpError) {
+      // Fifth corrective pass, P0: a DURABLE recording-start intent must
+      // exist BEFORE StartRoomCompositeEgress is ever called — not just
+      // after it returns (opts.onStarted, below). If Egress starts but
+      // BOTH the post-start persistence AND its compensating stop fail
+      // (the double-failure case handled further down), this phase-1
+      // marker is what lets workspaceDeletion/worker.ts's
+      // quiesceLiveKitEgress() discover the call still needs
+      // reconciling — via LiveKit's own ListEgress — even though it has
+      // no recording_id to go on. Both real call sites persist this as
+      // recording_state='pending' (an EXISTING, already-non-terminal enum
+      // value — see findNonTerminalRecordings()'s doc comment) with no
+      // recording_id yet; opts.onStarted upgrades it once the egress_id
+      // is known. A provider with no lease concept may ignore this.
+      if (opts.onStarting) {
+        await opts.onStarting();
+      }
+
+      const { baseUrl, apiKey, apiSecret } = await resolveLk(config);
+      const cfg = await loadLiveKitConfig(config);
+      if (!cfg.egress_enabled) {
+        throw new CallProviderNotReadyError('livekit', 'LiveKit egress is disabled in config.');
+      }
+      const storage = cfg.recording_storage;
+      if (!storage.bucket || !storage.access_key || !storage.secret_key) {
         throw new CallProviderNotReadyError(
           'livekit',
-          'LiveKit StartRoomCompositeEgress failed: ' + err.code + ' / ' + err.message,
+          'LiveKit recording storage (bucket / access_key / secret_key) is not configured.',
         );
       }
-      throw err;
+      // S3 / S3-compatible output. LiveKit Egress accepts the same fields for
+      // any provider (R2, MinIO, etc.) by setting `endpoint` and `force_path_style`.
+      // Canonical workspace-scoped key — see docs/STORAGE_ARCHITECTURE_AUDIT.md
+      // §11. The webhook validates the filename LiveKit actually reports
+      // against this same prefix before it's ever persisted (fail closed).
+      const filepath = callRecordingKey({
+        workspaceId: opts.workspaceId,
+        callSessionId: opts.callSessionId,
+        fileName: `${Date.now()}.mp4`,
+      });
+      const body: Record<string, unknown> = {
+        room_name: providerRoomId,
+        file_outputs: [
+          {
+            file_type: 'MP4',
+            filepath,
+            s3: {
+              access_key: storage.access_key,
+              secret: storage.secret_key,
+              bucket: storage.bucket,
+              region: storage.region ?? '',
+              ...(storage.endpoint ? { endpoint: storage.endpoint } : {}),
+              ...(storage.force_path_style ? { force_path_style: true } : {}),
+            },
+          },
+        ],
+        // Composite layout is the LiveKit default; we only ship composite in 8B.
+        layout: opts.recordingType === 'audio_only' ? 'audio-only' : 'speaker',
+        audio_only: opts.recordingType === 'audio_only',
+      };
+      let handle: RecordingHandle;
+      try {
+        const result = await twirp<{ egress_id?: string; status?: string }>({
+          baseUrl: cfg.egress_url || baseUrl,
+          apiKey,
+          apiSecret,
+          service: 'livekit.Egress',
+          method: 'StartRoomCompositeEgress',
+          body,
+          room: providerRoomId,
+        });
+        handle = {
+          recordingId: result.egress_id || ('egr_' + Date.now().toString(36)),
+          status: result.status === 'EGRESS_ACTIVE' ? 'recording' : 'pending',
+        };
+      } catch (err) {
+        if (err instanceof LiveKitTwirpError) {
+          throw new CallProviderNotReadyError(
+            'livekit',
+            'LiveKit StartRoomCompositeEgress failed: ' + err.code + ' / ' + err.message,
+          );
+        }
+        throw err;
+      }
+
+      if (opts.onStarted) {
+        try {
+          await opts.onStarted(handle);
+        } catch (persistErr) {
+          // Egress is now running, but we failed to durably record that
+          // fact — a deletion worker has nothing to see and wait on. Try
+          // to stop it so it can't finalize/upload an object nothing will
+          // ever reference.
+          let stopStatus: string | null = null;
+          let stopErr: unknown = null;
+          try {
+            stopStatus = (await livekitProvider.stopRecording(config, handle.recordingId)).status;
+          } catch (e) {
+            stopErr = e;
+          }
+          if (stopErr !== null) {
+            // Compensation itself failed — we cannot confirm Egress is
+            // stopped. Do NOT release the lease: let it expire naturally
+            // so workspace deletion keeps waiting rather than trusting
+            // storage while an unaccounted-for Egress might still write.
+            releaseLeaseNow = false;
+            throw new CallProviderNotReadyError(
+              'livekit',
+              `LiveKit recording started but could not be durably recorded (${errMessage(persistErr)}), and compensating stop also failed (${errMessage(stopErr)}) — write lease held until expiry`,
+              true, // needsReconciliation — see this class's doc comment; the caller must NOT clear its non-terminal marker
+            );
+          }
+          // Sixth corrective pass, P0: a StopEgress call that does not
+          // THROW is not the same as Egress being terminal —
+          // stopRecording() itself returns status:'finalizing' on the
+          // ordinary success path (only its own not_found branch reports
+          // 'available'); either way LiveKit can still asynchronously
+          // finalize/upload after this call returns. Persistence never
+          // happened, so there is still no durable recording_id on
+          // record — needsReconciliation=true here too (not only on a
+          // compensation FAILURE) so the caller leaves the phase-1
+          // 'pending' marker in place instead of marking the row
+          // 'failed'. workspaceDeletion/worker.ts's
+          // quiesceLiveKitEgress() discovers it by room via
+          // findActiveEgressForRoom() and only trusts storage once
+          // LiveKit itself confirms a terminal/no longer active state —
+          // never merely because this Stop call returned without error.
+          throw new CallProviderNotReadyError(
+            'livekit',
+            `LiveKit recording started but could not be durably recorded (${errMessage(persistErr)}); compensating stop was issued (status: ${stopStatus}) but that alone does not confirm Egress is terminal — reconciliation required`,
+            true, // needsReconciliation
+          );
+        }
+      }
+
+      return handle;
+    } finally {
+      if (releaseLeaseNow) await releaseOwnerWriteLease(config, leaseId, leaseToken);
     }
   },
 
@@ -471,3 +582,41 @@ export const livekitProvider: CallProvider = {
 
 /** Convenience for the resolver - re-export TURN reader. */
 export { getTurnConfig };
+
+export interface ActiveEgressInfo {
+  egressId: string;
+  status: string;
+}
+
+/**
+ * Fifth corrective pass, P0: provider-side reconciliation for an Egress
+ * whose recording_id was never durably persisted — the double-failure
+ * case in startRecording() (onStarted persistence fails AND the
+ * compensating stopRecording() also fails), where the write lease is
+ * deliberately held open rather than released. workspaceDeletion/
+ * worker.ts's quiesceLiveKitEgress() calls this when it finds a
+ * call_sessions row stuck non-terminal with no recording_id in
+ * metadata — asking LiveKit itself, the actual source of truth for
+ * what's running, rather than assuming the worst (permanently stuck) or
+ * the best (safe to ignore) from DB state alone.
+ *
+ * Returns an empty array ONLY when LiveKit affirmatively confirms no
+ * active egress exists for this room — never on a failure to reach
+ * LiveKit at all, which throws instead, so a caller can never mistake
+ * "couldn't ask" for "confirmed nothing running".
+ */
+export async function findActiveEgressForRoom(config: ServerConfig, roomName: string): Promise<ActiveEgressInfo[]> {
+  const { baseUrl, apiKey, apiSecret } = await resolveLk(config);
+  const cfg = await loadLiveKitConfig(config);
+  const result = await twirp<{ items?: Array<{ egress_id?: string; status?: string }> }>({
+    baseUrl: cfg.egress_url || baseUrl,
+    apiKey,
+    apiSecret,
+    service: 'livekit.Egress',
+    method: 'ListEgress',
+    body: { room_name: roomName, active: true },
+  });
+  return (result.items ?? [])
+    .filter((item): item is { egress_id: string; status?: string } => typeof item.egress_id === 'string' && item.egress_id.length > 0)
+    .map((item) => ({ egressId: item.egress_id, status: item.status ?? 'EGRESS_ACTIVE' }));
+}

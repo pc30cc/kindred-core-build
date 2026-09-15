@@ -185,6 +185,61 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/165_email_messages_delivery_status.sql',
     hosted: 'supabase/migrations/20260912130000_email_messages_delivery_status.sql',
   },
+  {
+    label: '177 — Account avatar ownership (profiles.avatar_storage_key)',
+    selfHost: 'database/migrations/177_profiles_avatar_storage_key.sql',
+    hosted: 'supabase/migrations/20260915073000_profiles_avatar_storage_key.sql',
+  },
+  {
+    label: '178 — Email attachment storage-key workspace scoping',
+    selfHost: 'database/migrations/178_email_attachments_workspace_scope.sql',
+    hosted: 'supabase/migrations/20260915090000_email_attachments_workspace_scope.sql',
+  },
+  {
+    label: '179 — profiles.avatar_storage_key user-scope guard',
+    selfHost: 'database/migrations/179_profiles_avatar_storage_key_scope_check.sql',
+    hosted: 'supabase/migrations/20260915090500_profiles_avatar_storage_key_scope_check.sql',
+  },
+  {
+    label: '180 — Workspace deletion storage-aware lifecycle',
+    selfHost: 'database/migrations/180_workspace_deletion_lifecycle.sql',
+    hosted: 'supabase/migrations/20260915093000_workspace_deletion_lifecycle.sql',
+  },
+  {
+    label: '181 — Workspace deletion: multi-provider scopes, atomic enqueue, retry, leased claim',
+    selfHost: 'database/migrations/181_workspace_deletion_multi_provider.sql',
+    hosted: 'supabase/migrations/20260915094000_workspace_deletion_multi_provider.sql',
+  },
+  {
+    label: '183 — User deletion storage-aware lifecycle',
+    selfHost: 'database/migrations/183_user_deletion_lifecycle.sql',
+    hosted: 'supabase/migrations/20260915095000_user_deletion_lifecycle.sql',
+  },
+  {
+    label: '184 — Workspace branding ownership (workspace_branding.logo_storage_key)',
+    selfHost: 'database/migrations/184_workspace_branding_storage_key.sql',
+    hosted: 'supabase/migrations/20260915100000_workspace_branding_storage_key.sql',
+  },
+  {
+    label: '185 — Deletion lease fencing (lease_token + renew RPCs)',
+    selfHost: 'database/migrations/185_deletion_lease_fencing.sql',
+    hosted: 'supabase/migrations/20260916083000_deletion_lease_fencing.sql',
+  },
+  {
+    label: '186 — User deletion multi-provider storage scopes',
+    selfHost: 'database/migrations/186_user_deletion_multi_provider.sql',
+    hosted: 'supabase/migrations/20260916084000_user_deletion_multi_provider.sql',
+  },
+  {
+    label: '187 — Owner write leases (TOCTOU write barrier)',
+    selfHost: 'database/migrations/187_owner_write_leases.sql',
+    hosted: 'supabase/migrations/20260916090000_owner_write_leases.sql',
+  },
+  {
+    label: '188 — Owner write lease hardening (no expired-lease renewal, DB-time-based active check with reconciliation grace)',
+    selfHost: 'database/migrations/188_owner_write_lease_hardening.sql',
+    hosted: 'supabase/migrations/20260916091000_owner_write_lease_hardening.sql',
+  },
 
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered
@@ -193,6 +248,18 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
   // FK-bearing tables for 026 vs. hosted's 11, since hosted has later
   // features self-host's bootstrap chain never received), so the SQL is
   // intentionally asymmetric, not a drift bug.
+
+  // NOTE: 182 (database/migrations/182_admin_purge_workspaces_selfhost.sql)
+  // is deliberately NOT registered as a mirror pair. It is a self-host-only
+  // migration: admin_purge_workspaces/admin_delete_workspace/
+  // admin_delete_user already exist on the hosted chain (supabase/
+  // migrations/20260910162747_...sql, predating this corrective pass) — 182
+  // ports those SAME function bodies to self-host, which never had them, so
+  // there is no NEW hosted file to pair it with. See 182's own header
+  // comment for why its two admin_delete_* bodies additionally inline
+  // `PERFORM set_config('app.billing_purge', 'on', true)` that the hosted
+  // originals get from 155's dynamic injection instead (155 already ran,
+  // against functions that didn't exist yet, before 182 existed).
 ];
 
 /** Strips line comments, block comments and collapses whitespace. */

@@ -24,11 +24,12 @@
  *
  * The retention janitor remains the sole deletion path.
  */
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { downloadFileRange } from '../services/storage/index.js';
+import { downloadRangeWithConfig } from '../services/storage/index.js';
 import { verifyPlaybackToken } from '../services/calls/recordingPlaybackToken.js';
+import { resolveRecordingStorageConfig, RecordingStorageNotConfigured } from '../services/calls/recordingStorageResolver.js';
 
 /**
  * Explicit narrowing helper: the server tsconfig runs with
@@ -44,9 +45,19 @@ function isPlaybackFailure(
   return verdict.ok === false;
 }
 
+type ReqWithConfig = Request & { serverConfig: ServerConfig };
+
+interface CallRecordingRow {
+  id: string;
+  storage_path: string | null;
+  recording_type: string | null;
+  created_at: string | null;
+  call_sessions: { workspace_id: string } | null;
+}
+
 export const recordingPlaybackRouter = Router();
 
-function guessContentType(row: any): string {
+function guessContentType(row: CallRecordingRow): string {
   const path = String(row?.storage_path || '').toLowerCase();
   const ext = path.includes('.') ? path.split('.').pop() || '' : '';
   const byExt: Record<string, string> = {
@@ -65,8 +76,8 @@ function guessContentType(row: any): string {
   return 'application/octet-stream';
 }
 
-function downloadFileName(row: any, ct: string): string {
-  const ts = row?.created_at ? new Date(row.created_at).toISOString().replace(/[:.]/g, '-') : 'recording';
+function downloadFileName(row: CallRecordingRow, ct: string): string {
+  const ts = row.created_at ? new Date(row.created_at).toISOString().replace(/[:.]/g, '-') : 'recording';
   const extFromCt: Record<string, string> = {
     'video/mp4': 'mp4',
     'video/webm': 'webm',
@@ -81,7 +92,7 @@ function downloadFileName(row: any, ct: string): string {
 }
 
 recordingPlaybackRouter.get('/:id', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as unknown as ReqWithConfig).serverConfig;
   const id = String(req.params.id || '');
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'invalid_id' });
 
@@ -105,14 +116,22 @@ recordingPlaybackRouter.get('/:id', async (req, res) => {
     .maybeSingle();
   if (error) return res.status(500).json({ error: error.message });
   if (!row) return res.status(404).json({ error: 'not_found' });
+  const recordingRow = row as unknown as CallRecordingRow;
 
-  const storagePath = (row as any).storage_path as string | null;
-  const workspaceId = (row as any)?.call_sessions?.workspace_id as string | undefined;
+  const storagePath = recordingRow.storage_path;
+  const workspaceId = recordingRow.call_sessions?.workspace_id;
   if (!storagePath) return res.status(410).json({ error: 'missing_storage_path' });
   if (!workspaceId) return res.status(409).json({ error: 'orphan_session' });
 
   const rangeHeader = typeof req.headers.range === 'string' ? req.headers.range : undefined;
-  const dl = await downloadFileRange(config, workspaceId, storagePath, rangeHeader);
+  let recordingStorageConfig;
+  try {
+    recordingStorageConfig = await resolveRecordingStorageConfig(config);
+  } catch (err) {
+    if (err instanceof RecordingStorageNotConfigured) return res.status(502).json({ error: 'recording_storage_not_configured' });
+    throw err;
+  }
+  const dl = await downloadRangeWithConfig(recordingStorageConfig, storagePath, rangeHeader);
   if (!dl.success || !dl.data) {
     if (dl.status === 416) {
       if (dl.totalSize != null) res.setHeader('Content-Range', `bytes */${dl.totalSize}`);
@@ -125,14 +144,14 @@ recordingPlaybackRouter.get('/:id', async (req, res) => {
     return res.status(502).json({ error: 'provider_download_failed', detail: dl.error || null });
   }
 
-  const ct = guessContentType(row);
+  const ct = guessContentType(recordingRow);
   // The token's disposition is the upper bound; query disposition can only
   // narrow inline (default) and never escalate inline-only tokens to a
   // forced download.
   const tokenAllowsAttachment = verdict.claims.disposition === 'attachment';
   const wantAttachment =
     tokenAllowsAttachment && String(req.query.disposition || '').toLowerCase() === 'attachment';
-  const fname = downloadFileName(row, ct);
+  const fname = downloadFileName(recordingRow, ct);
 
   res.setHeader('Content-Type', ct);
   res.setHeader('Cache-Control', 'private, no-store');

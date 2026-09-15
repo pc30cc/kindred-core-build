@@ -14,49 +14,119 @@ import http from 'node:http';
 import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
 
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
 const db: Record<string, Row[]> = {};
+
+interface ThenableResult<T> {
+  then: (resolve: (v: { data: T; error: { message: string } | null }) => void) => void;
+}
+interface UpdateBuilder extends ThenableResult<null> {
+  eq: (col: string, val: unknown) => UpdateBuilder;
+}
+interface InsertBuilder extends ThenableResult<Row> {
+  select: () => InsertBuilder;
+  single: () => Promise<{ data: Row; error: null }>;
+}
+interface DeleteBuilder extends ThenableResult<null> {
+  eq: (col: string, val: unknown) => DeleteBuilder;
+}
+interface QueryBuilder {
+  select: () => QueryBuilder;
+  eq: (col: string, val: unknown) => QueryBuilder;
+  is: (col: string, val: null) => QueryBuilder;
+  in: (col: string, vals: unknown[]) => QueryBuilder;
+  order: (col: string) => QueryBuilder;
+  limit: (n: number) => QueryBuilder;
+  maybeSingle: () => Promise<{ data: Row | null; error: null }>;
+  single: () => Promise<{ data: Row | null; error: { message: string } | null }>;
+  upsert: (row: Row) => Promise<{ error: null }>;
+  insert: (row: Row) => InsertBuilder;
+  update: (patch: Row) => UpdateBuilder;
+  delete: () => DeleteBuilder;
+  then: (resolve: (v: { data: Row[]; error: null }) => void) => void;
+}
 
 vi.mock('../../../server/supabase.js', () => ({
   getServiceClient: () => ({
-    from(table: string) {
+    from(table: string): QueryBuilder {
       const rows: Row[] = db[table] || (db[table] = []);
       const filters: Array<(r: Row) => boolean> = [];
       let orderCol: string | null = null;
-      const builder: any = {
+      const builder: QueryBuilder = {
         select: () => builder,
-        eq(col: string, val: any) { filters.push((r: Row) => r[col] === val); return builder; },
-        is(col: string, val: null) { filters.push((r: Row) => r[col] === val); return builder; },
-        order(col: string) { orderCol = col; return builder; },
+        eq(col, val) { filters.push((r) => r[col] === val); return builder; },
+        is(col, val) { filters.push((r) => r[col] === val); return builder; },
+        in(col, vals) { filters.push((r) => vals.includes(r[col])); return builder; },
+        order(col) { orderCol = col; return builder; },
+        limit() { return builder; },
         maybeSingle: async () => {
           const matched = rows.filter((r) => filters.every((f) => f(r)));
           return { data: matched[0] ?? null, error: null };
         },
-        upsert(row: Row) {
+        single: async () => {
+          const matched = rows.filter((r) => filters.every((f) => f(r)));
+          return { data: matched[0] ?? null, error: matched.length ? null : { message: 'no rows' } };
+        },
+        upsert(row) {
           const idx = rows.findIndex((r) => r.user_id === row.user_id && r.role === row.role);
           if (idx >= 0) Object.assign(rows[idx], row);
           else rows.push({ id: crypto.randomUUID(), ...row });
           return Promise.resolve({ error: null });
         },
-        delete() {
+        insert(row) {
+          const inserted: Row = { id: crypto.randomUUID(), ...row };
+          // Mirror the DB DEFAULT 'pending' on workspace_deletion_jobs.status
+          // (database/migrations/180_workspace_deletion_lifecycle.sql) — the
+          // production insert never sets this column explicitly.
+          if (table === 'workspace_deletion_jobs' && inserted.status === undefined) {
+            inserted.status = 'pending';
+          }
+          rows.push(inserted);
+          const insertBuilder: InsertBuilder = {
+            select: () => insertBuilder,
+            single: async () => ({ data: inserted, error: null }),
+            then: (resolve) => resolve({ data: inserted, error: null }),
+          };
+          return insertBuilder;
+        },
+        update(patch) {
           const scoped: Array<(r: Row) => boolean> = [...filters];
-          return {
-            eq(col: string, val: any) { scoped.push((r: Row) => r[col] === val); return this; },
-            then: (resolve: any) => {
-              db[table] = rows.filter((r) => !scoped.every((f) => f(r)));
-              return resolve({ data: null, error: null });
+          const updateBuilder: UpdateBuilder = {
+            eq(col, val) {
+              scoped.push((r) => r[col] === val);
+              return updateBuilder;
+            },
+            then: (resolve) => {
+              const matched = rows.filter((r) => scoped.every((f) => f(r)));
+              for (const r of matched) Object.assign(r, patch);
+              resolve({ data: null, error: null });
             },
           };
+          return updateBuilder;
         },
-        then(resolve: any) {
+        delete() {
+          const scoped: Array<(r: Row) => boolean> = [...filters];
+          const deleteBuilder: DeleteBuilder = {
+            eq(col, val) { scoped.push((r) => r[col] === val); return deleteBuilder; },
+            then: (resolve) => {
+              db[table] = rows.filter((r) => !scoped.every((f) => f(r)));
+              resolve({ data: null, error: null });
+            },
+          };
+          return deleteBuilder;
+        },
+        then(resolve) {
           let matched = rows.filter((r) => filters.every((f) => f(r)));
-          if (orderCol) matched = [...matched].sort((a, b) => (a[orderCol!] > b[orderCol!] ? 1 : -1));
-          return resolve({ data: matched, error: null });
+          if (orderCol) {
+            const col = orderCol;
+            matched = [...matched].sort((a, b) => ((a[col] as string) > (b[col] as string) ? 1 : -1));
+          }
+          resolve({ data: matched, error: null });
         },
       };
       return builder;
     },
-    rpc: async (name: string, args: any) => {
+    rpc: async (name: string, args: Record<string, unknown>) => {
       if (name === 'has_role') {
         const match = (db.user_roles || []).some((r) => r.user_id === args._user_id && r.role === args._role);
         return { data: match, error: null };
@@ -105,9 +175,13 @@ const { adminBootstrapRouter } = await import('../../../server/routes/adminBoots
 
 let currentInitialAdminEmail: string | undefined;
 
+interface ReqWithConfig extends express.Request {
+  serverConfig: Record<string, unknown>;
+}
+
 const app = express();
 app.use((req, _res, next) => {
-  (req as any).serverConfig = {
+  (req as ReqWithConfig).serverConfig = {
     supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'],
     initialAdminEmail: currentInitialAdminEmail,
   };
@@ -119,9 +193,9 @@ app.use('/api/admin', adminRouter);
 app.use('/api/admin-status', adminBootstrapRouter);
 
 const server = http.createServer(app).listen(0);
-const port = () => (server.address() as any).port;
+const port = () => (server.address() as { port: number }).port;
 
-function call(method: string, path: string, token: string | null, body?: unknown): Promise<{ status: number; json: any }> {
+function call(method: string, path: string, token: string | null, body?: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
   const payload = body === undefined ? null : JSON.stringify(body);
   const headers: Record<string, string> = {};
   if (token) headers.cookie = `gs_session=${token}`;
@@ -134,7 +208,7 @@ function call(method: string, path: string, token: string | null, body?: unknown
       let d = '';
       res.on('data', (c) => (d += c));
       res.on('end', () => {
-        let json: any = {};
+        let json: Record<string, unknown> = {};
         try { json = JSON.parse(d || '{}'); } catch { json = { raw: d }; }
         resolve({ status: res.statusCode || 0, json });
       });
@@ -297,5 +371,73 @@ describe('platform admin management routes — authorization', () => {
   it('an unauthenticated request is rejected at every management route', async () => {
     expect((await call('GET', '/api/admin/management/users', null)).status).toBe(401);
     expect((await call('DELETE', '/api/admin/management/workspaces/x', null)).status).toBe(401);
+  });
+});
+
+describe('workspace deletion — async, storage-aware enqueue', () => {
+  const WS_A = crypto.randomUUID();
+
+  beforeEach(() => {
+    db.user_roles = [{ id: crypto.randomUUID(), user_id: ADMIN_USER, role: 'admin' }];
+    db.workspaces = [{ id: WS_A, slug: 'acme', name: 'Acme', status: 'active' }];
+  });
+
+  it('flips the workspace to deleting and enqueues a pending job, returning 202', async () => {
+    const res = await call('DELETE', `/api/admin/management/workspaces/${WS_A}`, 'admin-token');
+
+    expect(res.status).toBe(202);
+    expect(res.json.started).toBe(true);
+    expect(res.json.job).toMatchObject({
+      workspace_id: WS_A, workspace_slug: 'acme', workspace_name: 'Acme', requested_by: ADMIN_USER, status: 'pending',
+    });
+    expect(db.workspaces.find((w: Row) => w.id === WS_A)?.status).toBe('deleting');
+    expect(db.workspace_deletion_jobs).toHaveLength(1);
+  });
+
+  it('does NOT synchronously delete the workspace row — it stays present with status=deleting', async () => {
+    await call('DELETE', `/api/admin/management/workspaces/${WS_A}`, 'admin-token');
+
+    expect(db.workspaces.some((w: Row) => w.id === WS_A)).toBe(true);
+  });
+
+  it('returns 404 for an unknown workspace and enqueues nothing', async () => {
+    const res = await call('DELETE', `/api/admin/management/workspaces/${crypto.randomUUID()}`, 'admin-token');
+
+    expect(res.status).toBe(404);
+    expect(db.workspace_deletion_jobs ?? []).toHaveLength(0);
+  });
+
+  it('is idempotent: a second delete request while one is already in flight reports the existing job instead of enqueueing a duplicate', async () => {
+    const first = await call('DELETE', `/api/admin/management/workspaces/${WS_A}`, 'admin-token');
+    const second = await call('DELETE', `/api/admin/management/workspaces/${WS_A}`, 'admin-token');
+
+    expect(second.status).toBe(202);
+    expect(second.json.started).toBe(false);
+    expect(second.json.job.id).toBe(first.json.job.id);
+    expect(db.workspace_deletion_jobs).toHaveLength(1); // never a second row
+  });
+
+  it('a non-admin cannot trigger workspace deletion', async () => {
+    const res = await call('DELETE', `/api/admin/management/workspaces/${WS_A}`, 'ordinary-token');
+
+    expect(res.status).toBe(403);
+    expect(db.workspaces.find((w: Row) => w.id === WS_A)?.status).toBe('active');
+    expect(db.workspace_deletion_jobs ?? []).toHaveLength(0);
+  });
+
+  it('GET deletion-status reports the most recent job for the workspace', async () => {
+    await call('DELETE', `/api/admin/management/workspaces/${WS_A}`, 'admin-token');
+
+    const res = await call('GET', `/api/admin/management/workspaces/${WS_A}/deletion-status`, 'admin-token');
+
+    expect(res.status).toBe(200);
+    expect(res.json.job).toMatchObject({ workspace_id: WS_A, status: 'pending' });
+  });
+
+  it('GET deletion-status returns a null job for a workspace that was never queued for deletion', async () => {
+    const res = await call('GET', `/api/admin/management/workspaces/${WS_A}/deletion-status`, 'admin-token');
+
+    expect(res.status).toBe(200);
+    expect(res.json.job).toBeNull();
   });
 });

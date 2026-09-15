@@ -25,6 +25,8 @@
     "worker:all": "WORKER_KIND=all tsx worker/index.ts",
     "channels:gateway": "tsx channels/server.ts",
     "worker:intelligence:legacy": "tsx worker/intelligence/index.ts",
+    "storage:migrate-legacy": "tsx scripts/storage/migrateLegacyStorage.ts",
+    "storage:audit": "tsx scripts/storage/auditWorkspaceStorage.ts",
     "lint:baseline": "node scripts/lint-baseline.mjs",
     "lint:baseline:update": "node scripts/lint-baseline.mjs --update",
     "test:e2e": "playwright test",

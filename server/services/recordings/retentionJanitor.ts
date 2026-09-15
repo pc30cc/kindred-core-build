@@ -12,9 +12,12 @@
  *     AND retention_expires_at IS NOT NULL
  *     AND retention_expires_at <= now()
  *
- * Workspace ownership is resolved per row via the join to
- * `call_sessions(workspace_id)` so the workspace's storage
- * provider deletes the underlying object.
+ * Recordings physically live in LiveKit's own recording_storage account
+ * (server/services/calls/recordingStorageResolver.ts), resolved once per
+ * sweep — never the per-workspace attachment provider `call_sessions`'s
+ * join would otherwise suggest. If recording_storage isn't configured,
+ * the entire sweep is skipped rather than risking a DB-row delete whose
+ * bytes were never actually freed.
  *
  * Failure handling:
  *   - Storage delete failure → row is left in place; next sweep
@@ -31,7 +34,8 @@
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { deleteFile } from '../storage/index.js';
+import { deleteWithConfig } from '../storage/index.js';
+import { resolveRecordingStorageConfig, RecordingStorageNotConfigured } from '../calls/recordingStorageResolver.js';
 
 const RUN_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const BOOT_DELAY_MS   = 2 * 60 * 1000;  // 2 minutes after boot
@@ -59,7 +63,8 @@ async function selectExpired(config: ServerConfig): Promise<ExpiredRow[]> {
     console.warn('[recordingRetentionJanitor] select failed:', error.message);
     return [];
   }
-  return (data || []).map((r: any) => ({
+  type SelectedRow = { id: string; call_session_id: string; storage_path: string | null; call_sessions?: { workspace_id: string } };
+  return ((data || []) as unknown as SelectedRow[]).map((r) => ({
     id: r.id,
     call_session_id: r.call_session_id,
     storage_path: r.storage_path ?? null,
@@ -79,13 +84,32 @@ export async function sweepRecordingRetention(config: ServerConfig): Promise<{
   let failures = 0;
   const sb = getServiceClient(config);
 
+  // Recordings physically live in LiveKit's own recording_storage account
+  // (server/services/calls/recordingStorageResolver.ts), never the
+  // workspace's ordinary attachment provider — resolved once per sweep
+  // since it's a single platform-wide config, not per-workspace. If it's
+  // unconfigured, no storage delete can be attempted safely for ANY row;
+  // skip the whole sweep rather than risk deleting DB rows whose bytes
+  // were never actually freed (the same "storage delete before row
+  // delete" invariant this janitor was built to guarantee).
+  let recordingStorageConfig;
+  try {
+    recordingStorageConfig = await resolveRecordingStorageConfig(config);
+  } catch (err) {
+    if (err instanceof RecordingStorageNotConfigured && rows.length) {
+      console.warn('[recordingRetentionJanitor] recording storage not configured — skipping sweep of', rows.length, 'row(s)');
+      return { scanned: rows.length, storage_deleted: 0, rows_deleted: 0, failures: rows.length };
+    }
+    return { scanned: 0, storage_deleted: 0, rows_deleted: 0, failures: 0 };
+  }
+
   for (const row of rows) {
     // Storage delete first — best-effort but required before row delete
     // so we never produce orphan storage objects.
     let storageOk = true;
-    if (row.storage_path && row.workspace_id) {
+    if (row.storage_path) {
       try {
-        const result = await deleteFile(config, row.workspace_id, row.storage_path);
+        const result = await deleteWithConfig(recordingStorageConfig, row.storage_path);
         if (result.success) {
           storageDeleted += 1;
         } else {
@@ -100,20 +124,15 @@ export async function sweepRecordingRetention(config: ServerConfig): Promise<{
             console.warn('[recordingRetentionJanitor] storage delete failed:', row.id, result.error);
           }
         }
-      } catch (err: any) {
+      } catch (err) {
         storageOk = false;
         failures += 1;
-        console.warn('[recordingRetentionJanitor] storage delete threw:', row.id, err?.message);
+        console.warn('[recordingRetentionJanitor] storage delete threw:', row.id, err instanceof Error ? err.message : err);
       }
-    } else if (!row.storage_path) {
+    } else {
       // Recording row never received a storage_path (e.g. egress failed
       // before writing the file). Safe to delete the DB row outright.
       storageOk = true;
-    } else if (!row.workspace_id) {
-      // Defensive — should not happen given the inner join.
-      failures += 1;
-      console.warn('[recordingRetentionJanitor] missing workspace_id for', row.id);
-      continue;
     }
 
     if (!storageOk) continue;

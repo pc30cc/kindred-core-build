@@ -16,9 +16,27 @@ const CALL_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const REC_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 
 // Per-table mock state — each describe sets these before invoking the route.
-const tableState: Record<string, any> = {};
+type TableOp = 'maybeSingle' | 'list';
+type TableRow = Record<string, unknown> | null;
+type TableHandler = (op: TableOp, eqs: Array<[string, unknown]>) => { data: TableRow | TableRow[]; error: null };
+const tableState: Record<string, TableHandler> = {};
 
-const sbMock: any = {
+interface QueryBuilder {
+  _eqs: Array<[string, unknown]>;
+  select(): QueryBuilder;
+  eq(col: string, val: unknown): QueryBuilder;
+  order(): QueryBuilder;
+  maybeSingle(): Promise<{ data: TableRow | TableRow[]; error: null }>;
+  then?: (resolve: (v: { data: TableRow | TableRow[]; error: null }) => void) => void;
+}
+
+interface SbMock {
+  auth: { getUser: () => Promise<{ data: { user: { id: string } }; error: null }> };
+  rpc: (name: string) => Promise<{ data: unknown; error: null }>;
+  from(name: string): QueryBuilder;
+}
+
+const sbMock: SbMock = {
   auth: { getUser: async () => ({ data: { user: { id: 'u-1' } }, error: null }) },
   rpc: async (name: string) => {
     if (name === 'is_workspace_member') return { data: true, error: null };
@@ -27,18 +45,17 @@ const sbMock: any = {
   },
   from(name: string) {
     const handler = tableState[name];
-    const builder: any = {
-      _eqs: [] as Array<[string, any]>,
+    const builder: QueryBuilder = {
+      _eqs: [],
       select() { return builder; },
-      eq(col: string, val: any) { builder._eqs.push([col, val]); return builder; },
+      eq(col: string, val: unknown) { builder._eqs.push([col, val]); return builder; },
       order() { return builder; },
       maybeSingle: async () => (handler ? handler('maybeSingle', builder._eqs) : { data: null, error: null }),
-      then: undefined,
     };
     // Allow `await sb.from(x).select().eq().order()` to resolve as a list.
-    builder[Symbol.toPrimitive] = undefined;
     Object.defineProperty(builder, 'then', {
-      value: (resolve: any) => resolve(handler ? handler('list', builder._eqs) : { data: [], error: null }),
+      value: (resolve: (v: { data: TableRow | TableRow[]; error: null }) => void) =>
+        resolve(handler ? handler('list', builder._eqs) : { data: [], error: null }),
     });
     return builder;
   },
@@ -55,11 +72,16 @@ vi.mock('../../../server/services/auth/sessions.js', () => ({
   verifyOriginForMutation: () => true,
 }));
 vi.mock('../../../server/services/storage/index.js', async () => {
-  // Only `downloadFile` is exercised by the archive route in this test file.
-  // Every other export is stubbed to a harmless no-op so importing the
-  // call-center router does not blow up.
+  // The archive routes resolve LiveKit's own recording-storage config via
+  // recordingStorageResolver.js (mocked below) and then read bytes through
+  // downloadWithConfig — every other export is stubbed to a harmless no-op
+  // so importing the call-center router does not blow up.
   return {
-    downloadFile: async (_cfg: any, _ws: string, key: string) => {
+    downloadFile: async (_cfg: unknown, _ws: string, key: string) => {
+      if (key === 'missing.mp4') return { success: false, error: 'gone' };
+      return { success: true, data: Buffer.from(`bytes:${key}`) };
+    },
+    downloadWithConfig: async (_cfg: unknown, key: string) => {
       if (key === 'missing.mp4') return { success: false, error: 'gone' };
       return { success: true, data: Buffer.from(`bytes:${key}`) };
     },
@@ -72,20 +94,80 @@ vi.mock('../../../server/services/storage/index.js', async () => {
     getFileUrlWithConfig: () => null,
   };
 });
+vi.mock('../../../server/services/calls/recordingStorageResolver.js', async () => {
+  const actual = await vi.importActual<Record<string, unknown>>('../../../server/services/calls/recordingStorageResolver.js');
+  return {
+    ...actual,
+    resolveRecordingStorageConfig: async () => ({ provider: 's3', accessKeyId: 'k', secretAccessKey: 's', bucket: 'recordings-test' }),
+  };
+});
 
 import { callCenterRouter } from '../../../server/routes/callCenter';
 
-function findHandler(method: string, path: string) {
-  const layer = callCenterRouter.stack.find(
-    (l: any) => l.route?.path === path && l.route.methods[method],
-  );
+// ── Minimal req/res + route-lookup mock types ─────────────────────────────
+interface MockReq {
+  params?: Record<string, string>;
+  query: Record<string, string>;
+  body: Record<string, unknown>;
+  headers: Record<string, string>;
+  cookies: Record<string, string>;
+  serverConfig: { supabaseUrl: string; supabaseServiceRoleKey: string };
+}
+
+interface RecordingListItem {
+  id: string;
+  recording_type: string;
+  duration_seconds: number;
+  size_bytes: number;
+  created_at: string;
+  has_storage: boolean;
+}
+
+interface TokenResult {
+  recording_id: string;
+  disposition?: string;
+  url?: string;
+  error?: string;
+}
+
+interface MockJsonBody {
+  recordings?: RecordingListItem[];
+  disposition?: string;
+  url?: string;
+  error?: string;
+  count?: number;
+  results?: TokenResult[];
+}
+
+interface MockRes {
+  status(code: number): MockRes;
+  json(body: MockJsonBody): MockRes;
+  setHeader?(key: string, value: unknown): void;
+  send?(body: Buffer | string): MockRes;
+}
+
+type Handler = (req: MockReq, res: MockRes) => Promise<void> | void;
+
+interface RouteLayer {
+  route?: {
+    path?: string;
+    methods?: Record<string, boolean>;
+    stack: Array<{ handle: Handler }>;
+  };
+}
+
+function findHandler(method: string, path: string): Handler {
+  const layer = callCenterRouter.stack.find((l) => {
+    const route = (l as unknown as RouteLayer).route;
+    return route?.path === path && !!route?.methods?.[method];
+  });
   if (!layer) throw new Error(`route ${method} ${path} not found`);
-  const stk = (layer as any).route.stack;
+  const stk = (layer as unknown as RouteLayer).route!.stack;
   return stk[stk.length - 1].handle;
 }
 
-function makeReqRes(opts: { params?: any; query?: any; body?: any } = {}) {
-  const req: any = {
+function makeReqRes(opts: { params?: Record<string, string>; query?: Record<string, string>; body?: Record<string, unknown> } = {}) {
+  const req: MockReq = {
     params: opts.params ?? {},
     query: opts.query ?? {},
     body: opts.body ?? {},
@@ -97,10 +179,10 @@ function makeReqRes(opts: { params?: any; query?: any; body?: any } = {}) {
     },
   };
   let statusCode = 200;
-  let jsonBody: any;
-  const res: any = {
+  let jsonBody: MockJsonBody = {};
+  const res: MockRes = {
     status(c: number) { statusCode = c; return res; },
-    json(b: any) { jsonBody = b; return res; },
+    json(b: MockJsonBody) { jsonBody = b; return res; },
   };
   return { req, res, get: () => ({ statusCode, jsonBody }) };
 }
@@ -131,8 +213,8 @@ describe('GET /calls/:id/recordings', () => {
     const { statusCode, jsonBody } = get();
     expect(statusCode).toBe(200);
     expect(jsonBody.recordings).toHaveLength(1);
-    expect(jsonBody.recordings[0].has_storage).toBe(true);
-    expect(jsonBody.recordings[0]).not.toHaveProperty('storage_path');
+    expect(jsonBody.recordings![0].has_storage).toBe(true);
+    expect(jsonBody.recordings![0]).not.toHaveProperty('storage_path');
     expect(JSON.stringify(jsonBody)).not.toContain('workspace/secret/path.mp4');
   });
 
@@ -298,16 +380,23 @@ describe('POST /calls/:id/recordings/bulk-download-tokens', () => {
   const REC_B = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
   const REC_OTHER_WS = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
 
+  interface RecordingFixture {
+    id: string;
+    storage_path: string;
+    call_session_id: string;
+    call_sessions: { workspace_id: string };
+  }
+
   it('mints attachment tokens per-id and isolates cross-workspace/cross-call rows', async () => {
-    const fixtures: Record<string, any> = {
+    const fixtures: Record<string, RecordingFixture> = {
       [REC_A]: { id: REC_A, storage_path: 'a.mp4', call_session_id: CALL_ID, call_sessions: { workspace_id: WS_OK } },
       [REC_B]: { id: REC_B, storage_path: 'b.mp4', call_session_id: CALL_ID, call_sessions: { workspace_id: WS_OK } },
       [REC_OTHER_WS]: { id: REC_OTHER_WS, storage_path: 'x.mp4', call_session_id: CALL_ID, call_sessions: { workspace_id: WS_OTHER } },
     };
-    tableState['call_recordings'] = (_op: string, eqs: Array<[string, any]>) => {
+    tableState['call_recordings'] = (_op: string, eqs: Array<[string, unknown]>) => {
       const idEq = eqs.find(([c]) => c === 'id');
-      const row = idEq ? fixtures[idEq[1]] : null;
-      return { data: row ?? null, error: null };
+      const row = idEq ? fixtures[idEq[1] as string] : null;
+      return { data: (row ?? null) as unknown as TableRow, error: null };
     };
     const { req, res, get } = makeReqRes({
       params: { id: CALL_ID },
@@ -319,8 +408,8 @@ describe('POST /calls/:id/recordings/bulk-download-tokens', () => {
     expect(statusCode).toBe(200);
     // deduped: 3 unique ids
     expect(jsonBody.count).toBe(3);
-    const byId: Record<string, any> = {};
-    for (const r of jsonBody.results) byId[r.recording_id] = r;
+    const byId: Record<string, TokenResult> = {};
+    for (const r of jsonBody.results ?? []) byId[r.recording_id] = r;
     expect(byId[REC_A].disposition).toBe('attachment');
     expect(byId[REC_A].url).toContain('disposition=attachment');
     expect(byId[REC_B].disposition).toBe('attachment');
@@ -373,31 +462,40 @@ describe('POST /calls/:id/recordings/archive', () => {
   const REC_A = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
   const REC_OTHER_WS = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
 
+  interface ArchiveRecordingFixture {
+    id: string;
+    storage_path: string;
+    recording_type: string;
+    created_at: string;
+    call_session_id: string;
+    call_sessions: { workspace_id: string };
+  }
+
   function makeRes() {
     let statusCode = 200;
-    let jsonBody: any;
-    let sent: any = null;
+    let jsonBody: MockJsonBody = {};
+    let sent: Buffer | string | null = null;
     const headers: Record<string, string> = {};
-    const res: any = {
+    const res: MockRes = {
       status(c: number) { statusCode = c; return res; },
-      json(b: any) { jsonBody = b; return res; },
-      setHeader(k: string, v: any) { headers[k.toLowerCase()] = String(v); },
-      send(b: any) { sent = b; return res; },
+      json(b: MockJsonBody) { jsonBody = b; return res; },
+      setHeader(k: string, v: unknown) { headers[k.toLowerCase()] = String(v); },
+      send(b: Buffer | string) { sent = b; return res; },
     };
     return { res, get: () => ({ statusCode, jsonBody, sent, headers }) };
   }
 
   it('returns a ZIP for authorized recordings and excludes cross-workspace rows via manifest', async () => {
-    const fixtures: Record<string, any> = {
+    const fixtures: Record<string, ArchiveRecordingFixture> = {
       [REC_A]: { id: REC_A, storage_path: 'a.mp4', recording_type: 'composite', created_at: '2025-01-01T00:00:00Z', call_session_id: CALL_ID, call_sessions: { workspace_id: WS_OK } },
       [REC_OTHER_WS]: { id: REC_OTHER_WS, storage_path: 'x.mp4', recording_type: 'composite', created_at: '2025-01-01T00:00:00Z', call_session_id: CALL_ID, call_sessions: { workspace_id: WS_OTHER } },
     };
-    tableState['call_recordings'] = (_op: string, eqs: Array<[string, any]>) => {
+    tableState['call_recordings'] = (_op: string, eqs: Array<[string, unknown]>) => {
       const idEq = eqs.find(([c]) => c === 'id');
-      const row = idEq ? fixtures[idEq[1]] : null;
-      return { data: row ?? null, error: null };
+      const row = idEq ? fixtures[idEq[1] as string] : null;
+      return { data: (row ?? null) as unknown as TableRow, error: null };
     };
-    const req: any = {
+    const req: MockReq = {
       params: { id: CALL_ID },
       query: { workspaceId: WS_OK },
       body: { recording_ids: [REC_A, REC_OTHER_WS] },
@@ -415,14 +513,14 @@ describe('POST /calls/:id/recordings/archive', () => {
     expect(headers['x-archive-excluded']).toBe('1');
     // PK\x03\x04 magic
     expect(Buffer.isBuffer(sent)).toBe(true);
-    expect(sent.slice(0, 4).toString('hex')).toBe('504b0304');
+    expect((sent as Buffer).slice(0, 4).toString('hex')).toBe('504b0304');
     // Storage path of cross-workspace row must not appear in the response.
-    expect(sent.toString('binary')).not.toContain('x.mp4');
+    expect((sent as Buffer).toString('binary')).not.toContain('x.mp4');
   });
 
   it('returns 404 when no recording could be packaged', async () => {
     tableState['call_recordings'] = () => ({ data: null, error: null });
-    const req: any = {
+    const req: MockReq = {
       params: { id: CALL_ID },
       query: { workspaceId: WS_OK },
       body: { recording_ids: [REC_A] },
@@ -438,7 +536,7 @@ describe('POST /calls/:id/recordings/archive', () => {
 
   it('rejects oversized batches and empty bodies before any lookup', async () => {
     {
-      const req: any = {
+      const req: MockReq = {
         params: { id: CALL_ID },
         query: { workspaceId: WS_OK },
         body: { recording_ids: [] },
@@ -455,7 +553,7 @@ describe('POST /calls/:id/recordings/archive', () => {
       const tooMany = Array.from({ length: 26 }, (_, i) =>
         `aaaaaaaa-aaaa-aaaa-aaaa-${String(i).padStart(12, '0')}`,
       );
-      const req: any = {
+      const req: MockReq = {
         params: { id: CALL_ID },
         query: { workspaceId: WS_OK },
         body: { recording_ids: tooMany },
@@ -479,32 +577,41 @@ describe('POST /workspaces/recordings/archive (multi-call)', () => {
   const REC_B1 = 'dddddddd-2222-dddd-dddd-dddddddddddd';
   const REC_OTHER_WS = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
 
+  interface ArchiveRecordingFixture {
+    id: string;
+    storage_path: string;
+    recording_type: string;
+    created_at: string;
+    call_session_id: string;
+    call_sessions: { workspace_id: string };
+  }
+
   function makeRes() {
     let statusCode = 200;
-    let jsonBody: any;
-    let sent: any = null;
+    let jsonBody: MockJsonBody = {};
+    let sent: Buffer | string | null = null;
     const headers: Record<string, string> = {};
-    const res: any = {
+    const res: MockRes = {
       status(c: number) { statusCode = c; return res; },
-      json(b: any) { jsonBody = b; return res; },
-      setHeader(k: string, v: any) { headers[k.toLowerCase()] = String(v); },
-      send(b: any) { sent = b; return res; },
+      json(b: MockJsonBody) { jsonBody = b; return res; },
+      setHeader(k: string, v: unknown) { headers[k.toLowerCase()] = String(v); },
+      send(b: Buffer | string) { sent = b; return res; },
     };
     return { res, get: () => ({ statusCode, jsonBody, sent, headers }) };
   }
 
   it('packages recordings across multiple calls and isolates cross-workspace items', async () => {
-    const fixtures: Record<string, any> = {
+    const fixtures: Record<string, ArchiveRecordingFixture> = {
       [REC_A1]: { id: REC_A1, storage_path: 'a1.mp4', recording_type: 'composite', created_at: '2025-01-01T00:00:00Z', call_session_id: CALL_A, call_sessions: { workspace_id: WS_OK } },
       [REC_B1]: { id: REC_B1, storage_path: 'b1.mp4', recording_type: 'composite', created_at: '2025-01-01T00:00:00Z', call_session_id: CALL_B, call_sessions: { workspace_id: WS_OK } },
       [REC_OTHER_WS]: { id: REC_OTHER_WS, storage_path: 'x.mp4', recording_type: 'composite', created_at: '2025-01-01T00:00:00Z', call_session_id: CALL_A, call_sessions: { workspace_id: WS_OTHER } },
     };
-    tableState['call_recordings'] = (_op: string, eqs: Array<[string, any]>) => {
+    tableState['call_recordings'] = (_op: string, eqs: Array<[string, unknown]>) => {
       const idEq = eqs.find(([c]) => c === 'id');
-      const row = idEq ? fixtures[idEq[1]] : null;
-      return { data: row ?? null, error: null };
+      const row = idEq ? fixtures[idEq[1] as string] : null;
+      return { data: (row ?? null) as unknown as TableRow, error: null };
     };
-    const req: any = {
+    const req: MockReq = {
       query: { workspaceId: WS_OK },
       body: { items: [
         { call_id: CALL_A, recording_id: REC_A1 },
@@ -524,9 +631,9 @@ describe('POST /workspaces/recordings/archive (multi-call)', () => {
     expect(headers['x-archive-excluded']).toBe('1');
     expect(headers['x-archive-calls']).toBe('2');
     expect(Buffer.isBuffer(sent)).toBe(true);
-    expect(sent.slice(0, 4).toString('hex')).toBe('504b0304');
+    expect((sent as Buffer).slice(0, 4).toString('hex')).toBe('504b0304');
     // Cross-workspace storage path must never appear in the ZIP bytes.
-    expect(sent.toString('binary')).not.toContain('x.mp4');
+    expect((sent as Buffer).toString('binary')).not.toContain('x.mp4');
   });
 
   it('rejects when a recording_id is bound to a different call than supplied (no cross-call leak)', async () => {
@@ -535,7 +642,7 @@ describe('POST /workspaces/recordings/archive (multi-call)', () => {
       data: { id: REC_B1, storage_path: 'b1.mp4', recording_type: 'composite', created_at: '2025-01-01T00:00:00Z', call_session_id: CALL_B, call_sessions: { workspace_id: WS_OK } },
       error: null,
     });
-    const req: any = {
+    const req: MockReq = {
       query: { workspaceId: WS_OK },
       body: { items: [{ call_id: CALL_A, recording_id: REC_B1 }] },
       headers: { authorization: 'Bearer t' },
@@ -550,7 +657,7 @@ describe('POST /workspaces/recordings/archive (multi-call)', () => {
 
   it('rejects empty, oversized, and malformed item lists', async () => {
     {
-      const req: any = {
+      const req: MockReq = {
         query: { workspaceId: WS_OK }, body: { items: [] },
         headers: { authorization: 'Bearer t' },
       cookies: { gs_session: 't' },
@@ -566,7 +673,7 @@ describe('POST /workspaces/recordings/archive (multi-call)', () => {
         call_id: CALL_A,
         recording_id: `dddddddd-dddd-dddd-dddd-${String(i).padStart(12, '0')}`,
       }));
-      const req: any = {
+      const req: MockReq = {
         query: { workspaceId: WS_OK }, body: { items },
         headers: { authorization: 'Bearer t' },
       cookies: { gs_session: 't' },
@@ -578,7 +685,7 @@ describe('POST /workspaces/recordings/archive (multi-call)', () => {
       expect(get().jsonBody.error).toBe('too_many_recordings');
     }
     {
-      const req: any = {
+      const req: MockReq = {
         query: { workspaceId: WS_OK },
         body: { items: [{ call_id: 'nope', recording_id: REC_A1 }] },
         headers: { authorization: 'Bearer t' },

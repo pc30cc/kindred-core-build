@@ -62,6 +62,7 @@ import { getManifestDiagnostics } from '../services/widget/manifest.js';
 import { loadLiveKitConfig, isMinimallyConfigured } from '../services/calls/livekitConfig.js';
 import { endCallSession, type EndCallReason } from '../services/calls/endSession.js';
 import { requireUser as requireSessionUser, authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { mustDb } from '../utils/mustDb.js';
 
 export const callsRouter = Router();
 
@@ -824,11 +825,24 @@ callsRouter.post('/:id/recording/start', async (req, res) => {
     // Center recordings.
     let persisted = false;
     const persistRecordingStart = async (h: { recordingId: string }) => {
-      await ctx.sb.from('call_sessions').update({
-        recording_enabled: true,
-        recording_state: 'recording',
-        metadata: { ...(ctx.session.metadata || {}), recording: { recording_id: h.recordingId } },
-      }).eq('id', ctx.session.id);
+      // Sixth corrective pass, P0: real Supabase/PostgREST resolves a
+      // failed UPDATE as `{ data, error }`, not a thrown exception. This
+      // write is the durable record startRecording()'s double-failure
+      // compensation logic depends on — `persisted=true` must only be
+      // set once the write is CONFIRMED, never merely attempted, or the
+      // provider believes durable persistence succeeded (skipping its own
+      // compensating stop / lease-held-open path) when in fact nothing
+      // was ever recorded. mustDb throws on `.error`, so a failure here
+      // propagates to startRecording()'s onStarted catch block exactly
+      // like a thrown exception always has.
+      await mustDb(
+        await ctx.sb.from('call_sessions').update({
+          recording_enabled: true,
+          recording_state: 'recording',
+          metadata: { ...(ctx.session.metadata || {}), recording: { recording_id: h.recordingId } },
+        }).eq('id', ctx.session.id),
+        'call_sessions.update:persistRecordingStart',
+      );
       persisted = true;
     };
     // Fifth corrective pass, P0: durable phase-1 intent, written BEFORE
@@ -844,7 +858,17 @@ callsRouter.post('/:id/recording/start', async (req, res) => {
       workspaceId: ctx.session.workspace_id,
       callSessionId: ctx.session.id,
       onStarting: async () => {
-        await ctx.sb.from('call_sessions').update({ recording_state: 'pending' }).eq('id', ctx.session.id);
+        // Sixth corrective pass, P0: this is the durable phase-1 marker
+        // the whole unknown-Egress reconciliation design (fifth pass)
+        // depends existing BEFORE StartRoomCompositeEgress is ever
+        // called. mustDb throws on a resolved `{error}` — livekitProvider.ts's
+        // startRecording() awaits onStarting() sequentially before
+        // issuing the Twirp call, so a thrown error here means Egress is
+        // never started with no durable intent on record.
+        await mustDb(
+          await ctx.sb.from('call_sessions').update({ recording_state: 'pending' }).eq('id', ctx.session.id),
+          'call_sessions.update:onStarting',
+        );
       },
       onStarted: persistRecordingStart,
     });

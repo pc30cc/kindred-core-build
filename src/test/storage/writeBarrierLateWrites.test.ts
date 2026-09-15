@@ -590,16 +590,30 @@ describe('delayed-write race — the lease is held for the FULL duration of the 
     expect(await hasActiveOwnerWriteLeases({} as never, 'user', USER_ACTIVE)).toBe(false);
   });
 
-  it('a write that THROWS still releases its lease (finally, not just on success) — a failed upload never wedges deletion', async () => {
+  it('MANDATORY (sixth corrective pass, P0): a write that THROWS does NOT release its lease — the outcome is ambiguous (the external write may have already landed on the provider despite the client-side error/timeout), so the lease is left outstanding for natural expiry+grace rather than deleted immediately', async () => {
     const { withOwnerWriteLease, hasActiveOwnerWriteLeases } = await import('../../../server/services/storage/writerLease');
 
     // withOwnerWriteLease() doesn't swallow fn()'s rejection (its caller,
     // e.g. uploadForOwner's own try/catch around the provider handler,
-    // is what turns that into a StorageResult) — but it MUST still
-    // release the lease in its `finally` before the rejection propagates.
+    // is what turns that into a StorageResult) — but it must NOT release
+    // the lease in that case. Sixth corrective pass: the fifth pass's
+    // fix only downgraded a RESOLVED-but-lease-lost outcome; a THROWN
+    // fn() (e.g. PROVIDER_UPLOAD_TIMEOUT_MS's AbortController firing) was
+    // still released unconditionally in the old `finally`, destroying
+    // the reconciliation evidence deletion depends on for exactly the
+    // ambiguous case a client-side timeout represents.
     await expect(
       withOwnerWriteLease({} as never, 'workspace', WS_ACTIVE, 'upload', async () => { throw new Error('provider_put_failed'); }),
     ).rejects.toThrow('provider_put_failed');
+    expect(await hasActiveOwnerWriteLeases({} as never, 'workspace', WS_ACTIVE)).toBe(true);
+  });
+
+  it('a write that RESOLVES successfully, with the lease provably held throughout, DOES cleanly release its lease immediately — the normal case is not made unnecessarily conservative', async () => {
+    const { withOwnerWriteLease, hasActiveOwnerWriteLeases } = await import('../../../server/services/storage/writerLease');
+
+    const outcome = await withOwnerWriteLease({} as never, 'workspace', WS_ACTIVE, 'upload', async () => 'ok');
+
+    expect(outcome).toEqual({ ok: true, result: 'ok' });
     expect(await hasActiveOwnerWriteLeases({} as never, 'workspace', WS_ACTIVE)).toBe(false);
   });
 
@@ -639,8 +653,80 @@ describe('delayed-write race — the lease is held for the FULL duration of the 
       // success, even though `fn` itself resolved normally — it cannot
       // prove the write was safe to trust.
       expect(result).toEqual(expect.objectContaining({ ok: false, error: 'lease_lost_during_write' }));
+
+      // Sixth corrective pass, P0: the fifth pass's test stopped here —
+      // it never proved deletion stays blocked AFTER withOwnerWriteLease()
+      // returns. The old `finally` released (deleted) the lease row
+      // unconditionally, which would make this assertion fail: deletion
+      // would see zero active leases the instant the function returned,
+      // even though the write's outcome was never provably safe.
+      expect(await hasActiveOwnerWriteLeases({} as never, 'workspace', WS_ACTIVE)).toBe(true);
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it('MANDATORY (sixth corrective pass, P0): full composed scenario — lease acquired, heartbeat fails, external write stays unresolved past nominal TTL, the write finally THROWS ambiguously, withOwnerWriteLease() exits, DB connectivity recovers — the stale reconciliation intent MUST still exist and hasActiveOwnerWriteLeases() MUST remain true for the full grace window, only clearing once nominal expiry + RECONCILIATION_GRACE_SECONDS has genuinely elapsed. Proven for BOTH workspace and user owner kinds.', async () => {
+    const { withOwnerWriteLease, hasActiveOwnerWriteLeases } = await import('../../../server/services/storage/writerLease');
+
+    for (const ownerKind of ['workspace', 'user'] as const) {
+      const ownerId = ownerKind === 'workspace' ? WS_ACTIVE : USER_ACTIVE;
+      activeLeases.length = 0; // isolate each owner kind's pass
+      renewShouldFail.current = false;
+
+      vi.useFakeTimers();
+      try {
+        // 1. lease acquired; 2. "deletion starts" (modeled by polling
+        // hasActiveOwnerWriteLeases throughout, exactly as a deletion
+        // worker's tick loop would).
+        let finishWrite!: (() => void) | ((err: Error) => void);
+        const blockedWrite = new Promise<void>((_resolve, reject) => { finishWrite = reject; });
+        const call = withOwnerWriteLease({} as never, ownerKind, ownerId, 'upload', async () => { await blockedWrite; });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(await hasActiveOwnerWriteLeases({} as never, ownerKind, ownerId)).toBe(true);
+
+        // 3. heartbeat DB calls begin failing.
+        renewShouldFail.current = true;
+
+        // 4. external write remains unresolved; 5. nominal TTL (120s)
+        // passes with zero successful renewals.
+        await vi.advanceTimersByTimeAsync(130_000);
+        expect(await hasActiveOwnerWriteLeases({} as never, ownerKind, ownerId)).toBe(true);
+
+        // 6. the write finally settles AMBIGUOUSLY — a throw, not a
+        // clean resolve (e.g. the provider call's own hard timeout
+        // firing without proof the remote side never received it).
+        (finishWrite as (err: Error) => void)(new Error('provider_call_timed_out'));
+        // 7. withOwnerWriteLease() exits.
+        await expect(call).rejects.toThrow('provider_call_timed_out');
+
+        // 8. DB connectivity is healthy again from this point on.
+        renewShouldFail.current = false;
+
+        // 9/10. the stale reconciliation intent MUST still exist —
+        // hasActiveOwnerWriteLeases() MUST remain true — immediately
+        // after exit, and MUST keep remaining true throughout the
+        // reconciliation grace window (600s past nominal expiry), even
+        // though DB connectivity has recovered and nothing is renewing
+        // it further (it was never released, so nothing needs to).
+        expect(await hasActiveOwnerWriteLeases({} as never, ownerKind, ownerId)).toBe(true);
+        await vi.advanceTimersByTimeAsync(500_000); // well within the 600s grace, past the 130s already elapsed
+        // 11. deletion cannot verify/purge during that window.
+        expect(await hasActiveOwnerWriteLeases({} as never, ownerKind, ownerId)).toBe(true);
+
+        // 12. only once nominal expiry + the full grace period has
+        // genuinely elapsed does the stale intent stop blocking — at
+        // that point a fresh storage listing is guaranteed to reflect
+        // reality (PROVIDER_UPLOAD_TIMEOUT_MS bounds how long the
+        // ambiguous write could still have been in flight; the grace
+        // period is provably longer — see writerLease.ts's own doc
+        // comment), so a subsequent full cleanup pass is safe to trust.
+        await vi.advanceTimersByTimeAsync(200_000); // total elapsed: 130s + 500s + 200s = 830s > 120s TTL + 600s grace
+        // 13. only then would purge be safe to run.
+        expect(await hasActiveOwnerWriteLeases({} as never, ownerKind, ownerId)).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
     }
   });
 });

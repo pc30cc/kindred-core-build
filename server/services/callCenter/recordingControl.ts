@@ -23,6 +23,7 @@ import {
 import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 import { resolveUsage } from '../billing/usageResolvers.js';
 import { CallProviderNotReadyError } from '../calls/providers/types.js';
+import { mustDb } from '../../utils/mustDb.js';
 
 export type RecordingType = 'composite' | 'individual' | 'audio_only';
 
@@ -116,6 +117,22 @@ function recMeta(call: CallRow): Record<string, unknown> {
   return (m.recording as Record<string, unknown>) || {};
 }
 
+/**
+ * Sixth corrective pass, P0: real Supabase/PostgREST resolves a failed
+ * query as `{ data, error }`, not a thrown exception. This function backs
+ * BOTH `onStarting` (the durable phase-1 'pending' intent, written before
+ * LiveKit's StartRoomCompositeEgress is ever called) and
+ * `persistRecordingStart` (`onStarted`, the post-start recording_id
+ * write) for the Call Center recording flow — an unchecked `.error` here
+ * defeats the entire two-phase durable-intent design: the caller would
+ * believe persistence succeeded (setting `persisted=true`, or letting
+ * StartRoomCompositeEgress proceed as if the phase-1 marker exists) when
+ * in fact nothing was ever recorded. Both the metadata read and the
+ * update now throw on `.error` via `mustDb`, so a failure here propagates
+ * exactly like a thrown exception always has — including into
+ * livekitProvider.ts's `onStarted` catch block, which is what triggers
+ * its compensating `StopEgress` call.
+ */
 async function patchRecordingMeta(
   config: ServerConfig,
   callId: string,
@@ -123,17 +140,19 @@ async function patchRecordingMeta(
   topLevel: Record<string, unknown> = {},
 ): Promise<void> {
   const sb = getServiceClient(config);
-  const { data: prev } = await sb
-    .from('call_sessions')
-    .select('metadata')
-    .eq('id', callId)
-    .maybeSingle();
+  const prev = await mustDb(
+    await sb.from('call_sessions').select('metadata').eq('id', callId).maybeSingle(),
+    'call_sessions.select:patchRecordingMeta',
+  );
   const meta = (prev?.metadata as Record<string, unknown>) || {};
   const recording = { ...((meta.recording as Record<string, unknown>) || {}), ...patch };
-  await sb
-    .from('call_sessions')
-    .update({ ...topLevel, metadata: { ...meta, recording } })
-    .eq('id', callId);
+  await mustDb(
+    await sb
+      .from('call_sessions')
+      .update({ ...topLevel, metadata: { ...meta, recording } })
+      .eq('id', callId),
+    'call_sessions.update:patchRecordingMeta',
+  );
 }
 
 async function logEvent(
@@ -331,10 +350,20 @@ export async function startCallCenterRecording(
     // non-terminal marker there would hide it from
     // quiesceLiveKitEgress()'s provider-side discovery.
     if (!(e instanceof CallProviderNotReadyError && e.needsReconciliation)) {
-      await patchRecordingMeta(config, args.callId, {
-        state: 'failed',
-        last_error: String(errCode(e) || errMessage(e) || 'start_failed').slice(0, 200),
-      }, { recording_state: 'failed' });
+      // Best-effort: this is cleanup after `e` was already thrown, not
+      // the primary write barrier — a secondary failure here must never
+      // mask the original error. Leaving the row at its current
+      // non-terminal state (rather than 'failed') on a failed cleanup
+      // write is also safe by design, not a regression: 'pending' stays
+      // discoverable by workspaceDeletion/worker.ts's
+      // findActiveEgressForRoom() reconciliation exactly like an
+      // unresolved double-failure case.
+      try {
+        await patchRecordingMeta(config, args.callId, {
+          state: 'failed',
+          last_error: String(errCode(e) || errMessage(e) || 'start_failed').slice(0, 200),
+        }, { recording_state: 'failed' });
+      } catch { /* see comment above */ }
     }
     await logEvent(config, args.workspaceId, args.callId, 'recording_failed', args.actorUserId, {
       phase: 'start',
@@ -395,10 +424,15 @@ export async function stopCallCenterRecording(
     const r = await resolveEffectiveCallProvider(config, args.workspaceId);
     handle = await r.provider.stopRecording(config, rid);
   } catch (e: unknown) {
-    await patchRecordingMeta(config, args.callId, {
-      state: 'failed',
-      last_error: String(errCode(e) || errMessage(e) || 'stop_failed').slice(0, 200),
-    }, { recording_state: 'failed' });
+    // Best-effort cleanup — see the matching comment in
+    // startCallCenterRecording's catch block: a secondary persistence
+    // failure here must never mask the original stop failure `e`.
+    try {
+      await patchRecordingMeta(config, args.callId, {
+        state: 'failed',
+        last_error: String(errCode(e) || errMessage(e) || 'stop_failed').slice(0, 200),
+      }, { recording_state: 'failed' });
+    } catch { /* see comment above */ }
     await logEvent(config, args.workspaceId, args.callId, 'recording_failed', args.actorUserId, {
       phase: 'stop',
       message: errMessage(e).slice(0, 200),

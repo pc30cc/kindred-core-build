@@ -224,13 +224,29 @@ export async function hasActiveOwnerWriteLeases(
  * A single trailing renewal, issued right after `fn()` resolves, is the
  * authoritative final check — it also catches the case where `fn()` ran
  * long enough to approach or pass the lease's expiry without a heartbeat
- * tick ever having fired. This does NOT by itself guarantee the external
- * write has stopped (see `hasActiveOwnerWriteLeases`'s reconciliation
- * grace period, which is what actually protects deletion in that case,
- * independent of whether the producer here ever notices) — it only stops
- * this function from lying about success. If `fn` itself throws, that
- * rejection propagates unchanged (the caller already knows it failed);
- * only a `fn` that RESOLVES is subject to the trailing lease check.
+ * tick ever having fired.
+ *
+ * Sixth corrective pass, P0: the fifth pass's downgrade only affected the
+ * RETURN VALUE — the `finally` block still released (deleted) the lease
+ * row unconditionally, including in every case above. That destroys the
+ * exact evidence `hasActiveOwnerWriteLeases`'s reconciliation grace
+ * period depends on: the instant the row is gone, deletion sees zero
+ * active leases and stops waiting, even though the write it covered may
+ * genuinely still be in flight. A clean release is now conditioned on
+ * `provablyComplete` — true ONLY when `fn()` resolved (not threw), no
+ * heartbeat ever reported the lease lost, AND the trailing renewal
+ * confirms it's still held. This also protects the ambiguous case where
+ * `fn()` itself THROWS (e.g. `PROVIDER_UPLOAD_TIMEOUT_MS`'s
+ * AbortController firing): a client-side timeout is not proof the
+ * provider never received the request — it may have already landed and
+ * be completing server-side — so that case must be treated exactly like
+ * a lost lease, not like "the write definitely didn't happen". Whenever
+ * `provablyComplete` stays false, the row is deliberately left as-is:
+ * its `lease_expires_at` (from acquisition or the last successful
+ * renewal) will pass, and `has_active_owner_write_leases` keeps counting
+ * it as active for `RECONCILIATION_GRACE_SECONDS` past that — the same
+ * natural-expiry mechanism that already makes a crashed producer safe,
+ * reused here rather than inventing a parallel "stale" state.
  */
 export async function withOwnerWriteLease<T>(
   serverConfig: ServerConfig,
@@ -249,6 +265,7 @@ export async function withOwnerWriteLease<T>(
   const leaseId = lease.leaseId;
   const leaseToken = lease.leaseToken;
   let leaseLost = false;
+  let provablyComplete = false;
 
   const heartbeat = setInterval(() => {
     void renewOwnerWriteLease(serverConfig, leaseId, leaseToken).then((stillHeld) => {
@@ -262,11 +279,20 @@ export async function withOwnerWriteLease<T>(
     const result = await fn();
     const stillHeldAtCompletion = await renewOwnerWriteLease(serverConfig, leaseId, leaseToken);
     if (leaseLost || !stillHeldAtCompletion) {
+      // Ownership cannot be proven continuous for the full operation —
+      // leave the row for natural expiry+grace (see finally below)
+      // rather than releasing it.
       return { ok: false, error: 'lease_lost_during_write' };
     }
+    provablyComplete = true;
     return { ok: true, result };
   } finally {
     clearInterval(heartbeat);
-    await releaseOwnerWriteLease(serverConfig, leaseId, leaseToken);
+    if (provablyComplete) {
+      await releaseOwnerWriteLease(serverConfig, leaseId, leaseToken);
+    }
+    // else: deliberately not released — see this function's doc comment.
+    // Covers both `fn()` throwing (ambiguous — the write may have still
+    // landed on the provider side) and a lost/unconfirmed lease.
   }
 }

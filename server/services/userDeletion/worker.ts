@@ -262,6 +262,21 @@ async function purgeUser(config: ServerConfig, job: UserDeletionJobRow): Promise
   // transition through here — 'purging_user' covers both halves).
   await persistFenced(config, job.id, leaseToken, { storage_scopes: state });
 
+  // Sixth corrective pass: defense-in-depth recheck immediately before
+  // the irreversible admin_delete_user purge, symmetric with
+  // workspaceDeletion/worker.ts's reassertSafeToPurge() before
+  // admin_delete_workspace. Not the primary guarantee (that remains the
+  // atomic no-new-user-lease invariant in 187_owner_write_leases.sql's
+  // acquire_owner_write_lease) — a regression guard against this check
+  // above and the purge below drifting apart in the future. If a lease
+  // somehow appears outstanding here, release without bumping
+  // attempt_count (same as the top-of-function check) so a later tick
+  // re-verifies rather than purging.
+  if (await hasActiveOwnerWriteLeases(config, 'user', job.user_id)) {
+    await releaseLease(config, job);
+    return;
+  }
+
   const { data, error } = await sb.rpc('admin_delete_user', {
     _actor_user_id: job.requested_by,
     _user_id: job.user_id,

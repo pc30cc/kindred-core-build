@@ -64,6 +64,16 @@ const applyShouldFail = { current: false };
 // error, never a throw).
 const dedupInsertShouldFailTransiently = { current: false };
 
+// Sixth corrective pass, P0 #3: toggles a RESOLVED (not thrown) PostgREST
+// error on the call_sessions SELECT that resolveCallSession() issues (the
+// provider_room_id lookup — these events carry no room.metadata, so the
+// metadata-embedded id lookup is never reached). Models a transient DB
+// failure on session resolution itself, which previously fell through
+// destructuring only `data` and was indistinguishable from "no matching
+// row" — silently returning session_not_found + HTTP 200 instead of
+// staying retryable.
+const sessionLookupShouldFail = { current: false };
+
 function makeBuilder(table: string) {
   const rows = db[table] || (db[table] = []);
   const filters: Array<(r: Row) => boolean> = [];
@@ -117,6 +127,10 @@ function makeBuilder(table: string) {
         resolve({ data: null, error: null });
         return;
       }
+      if (table === 'call_sessions' && single && sessionLookupShouldFail.current) {
+        resolve({ data: null, error: { message: 'transient_db_failure', code: '08006' } });
+        return;
+      }
       if (single) {
         resolve({ data: matched[0] ?? null, error: null });
         return;
@@ -138,6 +152,7 @@ beforeEach(async () => {
   for (const key of Object.keys(db)) delete db[key];
   applyShouldFail.current = false;
   dedupInsertShouldFailTransiently.current = false;
+  sessionLookupShouldFail.current = false;
   db.call_sessions = [{ id: SESSION_A, workspace_id: WS_A, provider: 'livekit', provider_room_id: 'room-1', recording_state: 'recording' }];
   ({ livekitWebhookRouter } = await import('../../../server/routes/livekitWebhook'));
 });
@@ -293,5 +308,35 @@ describe('LiveKit webhook — retry semantics (fourth corrective pass, P0)', () 
     expect(currentSession().recording_state).toBe('available');
     // Exactly one audit row for this event, not two.
     expect(db.livekit_webhook_events.filter((r) => r.event_id === eventId)).toHaveLength(1);
+  });
+
+  it('MANDATORY (sixth corrective pass, P0 #3): a valid terminal Egress webhook arrives, but the call_sessions lookup inside resolveCallSession() resolves { data: null, error: {...} } — the route MUST return non-2xx and MUST NOT mark the event permanently processed as if it were a genuine session_not_found; a retry once the DB lookup succeeds applies the terminal state and unblocks deletion quiescence', async () => {
+    sessionLookupShouldFail.current = true;
+    const { raw, token } = signedEgressEndedEvent({ eventId: 'ev-8' });
+
+    const res = await post(raw, token);
+
+    // Fail closed: a transient lookup failure must never be silently
+    // read as "no such session" — that would let the webhook route mark
+    // the event processed and return 200, permanently stranding this
+    // delivery's terminal state (LiveKit never retries a 200).
+    expect(res.status).not.toBe(200);
+    expect(res.body).not.toMatchObject({ applied: false, reason: 'session_not_found' });
+    expect(currentSession().recording_state).toBe('recording'); // untouched — applyEvent never got past session resolution
+    const row = db.livekit_webhook_events[0];
+    expect(row.processed_at).toBeNull(); // NOT permanently processed
+    expect(row.process_error).toBeTruthy();
+
+    // Retry once the DB lookup is healthy again — applies normally and
+    // unblocks deletion quiescence (recording_state reaches a terminal
+    // value, event marked processed).
+    sessionLookupShouldFail.current = false;
+    const retry = signedEgressEndedEvent({ eventId: 'ev-8' });
+    const retryRes = await post(retry.raw, retry.token);
+
+    expect(retryRes.status).toBe(200);
+    expect(retryRes.body).toMatchObject({ ok: true, applied: true });
+    expect(currentSession().recording_state).toBe('available');
+    expect(db.livekit_webhook_events[0].processed_at).toBeTruthy();
   });
 });

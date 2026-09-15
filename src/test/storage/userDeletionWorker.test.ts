@@ -665,6 +665,34 @@ describe('purgeUser — owner write lease drain (fourth corrective pass, P0 — 
     expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
   });
 
+  it('sixth corrective pass: a lease that appears AFTER the top-of-function drain check but BEFORE admin_delete_user is caught by the pre-purge recheck — admin_delete_user is never called, and the job is released (not purged) without bumping attempt_count, symmetric with workspaceDeletion/worker.ts\'s reassertSafeToPurge()', async () => {
+    const job = baseJob({ status: 'purging_user', attempt_count: 0 });
+    db.user_deletion_jobs = [job];
+    db.owner_write_leases = [];
+    rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
+    rpcHandlers.admin_delete_user = () => ({ data: { ok: true }, error: null });
+    // The top-of-function hasActiveOwnerWriteLeases() check passes (no
+    // leases yet) — a lease appears only once storage cleanup itself
+    // runs, modeling a producer that raced in between the two checks.
+    runScopeCleanupTickMock.mockImplementationOnce(async (ctx: { state: Record<string, unknown> }) => {
+      ctx.state.default = { status: 'done', verified: true };
+      db.owner_write_leases = [{
+        id: 'lease-late', lease_token: 'tok-late', owner_kind: 'user', owner_id: USER_A,
+        purpose: 'upload', lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
+      }];
+      return { kind: 'advance' };
+    });
+
+    workerMod.startUserDeletionWorker({} as never);
+    await flush();
+
+    expect(rpcCalls.filter((c) => c.fn === 'admin_delete_user')).toHaveLength(0);
+    const row = currentJobRow();
+    expect(row.status).toBe('purging_user'); // never purged
+    expect(row.attempt_count).toBe(0); // not a failure — released to re-verify next tick
+    expect(row.locked_by).toBeNull();
+  });
+
   it('an owner_write_lease for a DIFFERENT user never blocks this one', async () => {
     const job = baseJob({ status: 'purging_user' });
     db.user_deletion_jobs = [job];

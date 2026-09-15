@@ -36,6 +36,7 @@ import {
 } from '../services/recordings/recordingRetention.js';
 import { resolveStorageConfig } from '../services/storage/index.js';
 import { assertCallRecordingKey, StorageKeyError } from '../services/storage/keys.js';
+import { mustDb } from '../utils/mustDb.js';
 
 export const livekitWebhookRouter = Router();
 
@@ -103,17 +104,21 @@ function parseRoomMetadata(raw: string | undefined): {
  * throws, so the route's existing catch block (which marks the event
  * retryable and returns non-2xx) actually fires.
  */
-async function mustDb<T>(
-  result: { data: T; error: { message: string; code?: string } | null },
-  context: string,
-): Promise<T> {
-  if (result.error) {
-    throw new Error(`livekit_webhook_db_failed[${context}]: ${result.error.message}`);
-  }
-  return result.data;
-}
 
-/** Resolve a call session by either provider_room_id or metadata-embedded id. */
+/**
+ * Resolve a call session by either provider_room_id or metadata-embedded id.
+ *
+ * Sixth corrective pass, P0 #3: both lookups previously destructured only
+ * `data`, discarding `error` — a transient DB failure on this SELECT was
+ * therefore indistinguishable from "no matching row exists". The caller
+ * (`applyEvent`) would then return `{applied:false, reason:'session_not_found'}`,
+ * a result the webhook route treats as a successfully resolved delivery:
+ * the event gets marked processed and 200 is returned, so LiveKit never
+ * retries — for an `egress_ended` event this can permanently strand
+ * `call_sessions.recording_state` at a non-terminal value. Both lookups now
+ * throw on a genuine `{error}` (fail closed, non-2xx, retryable) and only
+ * return `null` when the query actually succeeded and found nothing.
+ */
 async function resolveCallSession(
   config: ServerConfig,
   ev: LiveKitWebhookEvent,
@@ -122,20 +127,26 @@ async function resolveCallSession(
   // Prefer the metadata-embedded id (deterministic, set at createRoom).
   const meta = parseRoomMetadata(ev.room?.metadata);
   if (meta.call_session_id) {
-    const { data } = await sb
-      .from('call_sessions')
-      .select('id, workspace_id, provider')
-      .eq('id', meta.call_session_id)
-      .maybeSingle();
+    const data = await mustDb(
+      await sb
+        .from('call_sessions')
+        .select('id, workspace_id, provider')
+        .eq('id', meta.call_session_id)
+        .maybeSingle(),
+      'call_sessions.select:resolveCallSession.byId',
+    );
     if (data) return data;
   }
   // Fall back to provider_room_id (the room name we set in createRoom).
   if (ev.room?.name) {
-    const { data } = await sb
-      .from('call_sessions')
-      .select('id, workspace_id, provider')
-      .eq('provider_room_id', ev.room.name)
-      .maybeSingle();
+    const data = await mustDb(
+      await sb
+        .from('call_sessions')
+        .select('id, workspace_id, provider')
+        .eq('provider_room_id', ev.room.name)
+        .maybeSingle(),
+      'call_sessions.select:resolveCallSession.byRoomName',
+    );
     if (data) return data;
   }
   return null;
@@ -293,13 +304,21 @@ export async function applyEvent(
           await sb.from('call_sessions').update({ recording_state: 'recording' }).eq('id', session.id),
           'call_sessions.update:egress_started',
         );
-        // Upsert by provider_recording_id when known.
-        const { data: existing } = await sb
-          .from('call_recordings')
-          .select('id')
-          .eq('call_session_id', session.id)
-          .eq('provider_recording_id', egId)
-          .maybeSingle();
+        // Upsert by provider_recording_id when known. Sixth corrective
+        // pass, P0: this lookup gates whether we INSERT a new
+        // call_recordings row — a swallowed `{error}` here would be
+        // misread as "no existing row" and risk a duplicate insert (or,
+        // worse, silently skip the row that egress_ended later needs to
+        // update). Fail closed.
+        const existing = await mustDb(
+          await sb
+            .from('call_recordings')
+            .select('id')
+            .eq('call_session_id', session.id)
+            .eq('provider_recording_id', egId)
+            .maybeSingle(),
+          'call_recordings.select:egress_started.existing',
+        );
         if (!existing) {
           // Stamp retention_expires_at at insert time using the workspace's
           // currently-effective recording_retention_days. This locks

@@ -92,10 +92,17 @@ export function adminGetStoragePool() {
   return request<AdminStoragePoolDto>(BASE);
 }
 
-/** Blank secret fields keep the stored credential. */
+/**
+ * Config only. Blank secret fields keep the stored credential.
+ *
+ * Enabling/disabling is `adminSetStorageProviderEnabled`, and promotion is
+ * `adminPromoteStorageProvider` — save has no path to either, so it cannot
+ * route around the readiness invalidation or the promotion gate. `force`
+ * covers only a repoint to a different physical location.
+ */
 export function adminSaveStorageProvider(
   providerName: string,
-  payload: { config: Record<string, string>; enabled?: boolean; makePrimary?: boolean },
+  payload: { config: Record<string, string>; force?: boolean },
 ) {
   return request<AdminStoragePoolDto>(`${BASE}/${encodeURIComponent(providerName)}`, {
     method: 'PUT',

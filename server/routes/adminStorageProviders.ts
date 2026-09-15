@@ -262,13 +262,24 @@ adminStorageProvidersRouter.post('/sync', async (req, res) => {
 
 // ─── Save one vendor's settings ──────────────────────────────────
 
+/**
+ * Save is CONFIG ONLY. Each control has exactly one entrance:
+ *
+ *   PUT    /:providerName          — credentials and settings
+ *   PATCH  /:providerName          — enable / disable (invalidates readiness)
+ *   POST   /:providerName/primary  — promotion (proof, live test, force, logging)
+ *
+ * `strict()` is deliberate: a request still carrying `makePrimary` or
+ * `enabled` is refused outright rather than silently ignored, because both
+ * were once a way around the promotion gate and the disable-invalidation,
+ * and a caller that still sends them is asking for something this endpoint
+ * must not do.
+ */
 const saveSchema = z.object({
   config: z.record(z.union([z.string(), z.number(), z.boolean()])).default({}),
-  enabled: z.boolean().optional(),
-  makePrimary: z.boolean().optional(),
   /** Repoint at a different physical location even though the old one is not verifiably empty. */
   force: z.boolean().optional(),
-});
+}).strict();
 
 adminStorageProvidersRouter.put('/:providerName', async (req, res) => {
   try {
@@ -318,7 +329,8 @@ adminStorageProvidersRouter.put('/:providerName', async (req, res) => {
     }
 
     pool.providers[name] = {
-      enabled: body.enabled ?? existing?.enabled ?? true,
+      // Enable state is PATCH's business — carried over untouched here.
+      enabled: existing?.enabled ?? true,
       config: merged,
       updatedAt: new Date().toISOString(),
       syncedAt: existing?.syncedAt ?? null,
@@ -338,9 +350,11 @@ adminStorageProvidersRouter.put('/:providerName', async (req, res) => {
       clearSyncReadiness(pool.providers[name]);
     }
 
-    // First vendor ever saved becomes the primary — otherwise the platform
-    // would hold credentials nothing actually writes through.
-    if (body.makePrimary || !pool.primary) pool.primary = name;
+    // The first vendor ever configured becomes the primary — there is no
+    // previous primary to be synchronized with, so nothing is being bypassed.
+    // Every later change of primary goes through POST /:providerName/primary
+    // and its gate; save can never promote an existing vendor.
+    if (!pool.primary) pool.primary = name;
 
     await writeStoragePool(serverConfig, pool);
     res.json(serializePool(await readStoragePool(serverConfig)));

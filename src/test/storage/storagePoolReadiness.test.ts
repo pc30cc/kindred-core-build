@@ -492,6 +492,87 @@ describe('stale whole-pool writes are rejected (compare-and-set)', () => {
   });
 });
 
+/**
+ * Each control has exactly one entrance. Save used to accept `makePrimary`
+ * and `enabled`, which let a caller promote an unsynchronized mirror or
+ * retire a synchronized one without passing the gate that belongs to each of
+ * those actions.
+ */
+describe('save is config only — it cannot promote or disable', () => {
+  it('cannot promote an unsynchronized mirror through the save endpoint', async () => {
+    expect((await readStoragePool(serverConfig)).primary).toBe('local');
+    expect(isReplicaSynchronized(await readStoragePool(serverConfig), 's3')).toBe(false);
+
+    const saved = await call('put', '/:providerName', { providerName: 's3' }, {
+      config: { bucket: 'mirror', region: 'us-east-1' },
+      makePrimary: true,
+    });
+
+    // Refused outright, and — the part that actually matters — the primary
+    // did not move.
+    expect(saved.statusCode).toBe(400);
+    expect((await readStoragePool(serverConfig)).primary).toBe('local');
+
+    // The only real entrance still applies its gate.
+    const promote = await call('post', '/:providerName/primary', { providerName: 's3' }, {});
+    expect(promote.statusCode).toBe(409);
+    expect((promote.body as { reason?: string }).reason).toBe('not_synchronized');
+  });
+
+  it('cannot disable a synchronized provider through the save endpoint', async () => {
+    fs.mkdirSync(path.join(primaryDir, `workspace/${WS}/attachments`), { recursive: true });
+    fs.writeFileSync(path.join(primaryDir, `workspace/${WS}/attachments/old.txt`), 'x');
+    expect((await fullSync('s3')).report?.markedSynchronized).toBe(true);
+
+    const saved = await call('put', '/:providerName', { providerName: 's3' }, {
+      config: { bucket: 'mirror', region: 'us-east-1' },
+      enabled: false,
+    });
+
+    expect(saved.statusCode).toBe(400);
+    const pool = await readStoragePool(serverConfig);
+    expect(pool.providers.s3.enabled).toBe(true);
+    // Nothing was disabled, so readiness is untouched — no silent bypass of
+    // the invalidation PATCH performs.
+    expect(isReplicaSynchronized(pool, 's3')).toBe(true);
+  });
+
+  it('PATCH remains the only way to disable, and still invalidates readiness', async () => {
+    fs.mkdirSync(path.join(primaryDir, `workspace/${WS}/attachments`), { recursive: true });
+    fs.writeFileSync(path.join(primaryDir, `workspace/${WS}/attachments/old.txt`), 'x');
+    await fullSync('s3');
+
+    expect((await call('patch', '/:providerName', { providerName: 's3' }, { enabled: false })).statusCode).toBe(200);
+
+    const pool = await readStoragePool(serverConfig);
+    expect(pool.providers.s3.enabled).toBe(false);
+    expect(isReplicaSynchronized(pool, 's3')).toBe(false);
+  });
+
+  it('an ordinary config-only save still works and leaves the primary alone', async () => {
+    const saved = await call('put', '/:providerName', { providerName: 's3' }, {
+      config: { bucket: 'mirror', region: 'us-east-1', secret_access_key: 'rotated' },
+    });
+
+    expect(saved.statusCode).toBe(200);
+    expect(getEntry('s3')!.config).toMatchObject({ secret_access_key: 'rotated' });
+    expect((await readStoragePool(serverConfig)).primary).toBe('local');
+  });
+
+  it('still bootstraps the very first vendor as primary — nothing to bypass there', async () => {
+    // An empty pool: the vendor being saved is the only candidate, and there
+    // is no previous primary to be synchronized with.
+    runtimeConfig.clear();
+
+    const saved = await call('put', '/:providerName', { providerName: 'local' }, {
+      config: { local_path: primaryDir, public_url: 'http://localhost:9999/files' },
+    });
+
+    expect(saved.statusCode).toBe(200);
+    expect((await readStoragePool(serverConfig)).primary).toBe('local');
+  });
+});
+
 describe('removing a vendor cannot silently forget owner data', () => {
   it('refuses while the vendor still holds workspace objects', async () => {
     mirrorObjects.set(`workspace/${WS}/attachments/a.txt`, 'x');

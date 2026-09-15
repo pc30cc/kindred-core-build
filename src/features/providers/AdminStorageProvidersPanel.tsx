@@ -171,8 +171,8 @@ export function AdminStorageProvidersPanel() {
   }, [t]);
 
   const save = useMutation({
-    mutationFn: ({ name, config, makePrimary }: { name: string; config: Record<string, string>; makePrimary?: boolean }) =>
-      adminSaveStorageProvider(name, { config, makePrimary }),
+    mutationFn: ({ name, config }: { name: string; config: Record<string, string> }) =>
+      adminSaveStorageProvider(name, { config }),
     onSuccess: (next, vars) => {
       applyPool(next);
       toast({
@@ -618,9 +618,7 @@ export function AdminStorageProvidersPanel() {
                     hideVendorHeader
                     isPending={save.isPending}
                     submitLabel={entry ? t('adminProviders.panel.saveChanges') : t('adminProviders.storage.saveAndAdd')}
-                    onSubmit={(config) =>
-                      save.mutate({ name: selected, config, makePrimary: !pool?.primary })
-                    }
+                    onSubmit={(config) => save.mutate({ name: selected, config })}
                   />
                 )}
 

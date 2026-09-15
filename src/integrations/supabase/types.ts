@@ -8688,6 +8688,7 @@ export type Database = {
           message_id: string
           size_bytes: number | null
           storage_key: string
+          workspace_id: string
         }
         Insert: {
           content_id?: string | null
@@ -8698,6 +8699,7 @@ export type Database = {
           message_id: string
           size_bytes?: number | null
           storage_key: string
+          workspace_id: string
         }
         Update: {
           content_id?: string | null
@@ -8708,6 +8710,7 @@ export type Database = {
           message_id?: string
           size_bytes?: number | null
           storage_key?: string
+          workspace_id?: string
         }
         Relationships: [
           {
@@ -8715,6 +8718,13 @@ export type Database = {
             columns: ["message_id"]
             isOneToOne: false
             referencedRelation: "email_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_attachments_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
         ]
@@ -11021,6 +11031,7 @@ export type Database = {
       profiles: {
         Row: {
           ai_mode: string | null
+          avatar_storage_key: string | null
           avatar_url: string | null
           company_name: string | null
           created_at: string | null
@@ -11037,6 +11048,7 @@ export type Database = {
         }
         Insert: {
           ai_mode?: string | null
+          avatar_storage_key?: string | null
           avatar_url?: string | null
           company_name?: string | null
           created_at?: string | null
@@ -11053,6 +11065,7 @@ export type Database = {
         }
         Update: {
           ai_mode?: string | null
+          avatar_storage_key?: string | null
           avatar_url?: string | null
           company_name?: string | null
           created_at?: string | null

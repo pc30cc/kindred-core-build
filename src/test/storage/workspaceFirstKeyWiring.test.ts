@@ -50,7 +50,7 @@ interface MockQueryBuilder {
 }
 
 const initRouteState: {
-  user: { data: { user: { id: string } } } | null;
+  user: { data: { user: { id: string } }; error?: null } | null;
   isMember: { data: boolean; error: null } | null;
   convo: Row | null;
   providerCfg: Row | null;

@@ -333,7 +333,7 @@ async function bunnyDelete(config: StorageConfig, fileKey: string): Promise<Stor
 }
 
 function bunnyGetUrl(config: StorageConfig, fileKey: string): string {
-  const cdnBase = config.cdnUrl || `https://${config.storageZone}.b-cdn.net`;
+  const cdnBase = config.cdnUrl ? publicBase(config.cdnUrl) : `https://${config.storageZone}.b-cdn.net`;
   return `${cdnBase}/${fileKey}`;
 }
 
@@ -385,6 +385,45 @@ async function bunnyList(config: StorageConfig, prefix: string): Promise<ListRes
 function getS3Endpoint(config: StorageConfig): string {
   if (config.endpoint) return config.endpoint;
   return `https://s3.${config.s3Region || 'us-east-1'}.amazonaws.com`;
+}
+
+/**
+ * The base every object URL hangs off — endpoint plus bucket, EXCEPT when the
+ * endpoint already carries the bucket.
+ *
+ * S3-compatible services accept two address styles: path style
+ * (`https://s3.region.host/bucket/key`) and virtual-host style
+ * (`https://bucket.s3.region.host/key`). ArvanCloud's own documentation shows
+ * the virtual-host form, so an operator naturally pastes that into the
+ * endpoint field — and if the driver then also prepends the bucket, every
+ * object lands under a duplicated `bucket/` segment: the same file that is
+ * `workspace/<id>/…` on every other provider becomes
+ * `bucket/workspace/<id>/…` here. That breaks reads after a promotion and
+ * hides the objects from every prefix-scoped check, owner deletion included.
+ *
+ * So the bucket is appended only when the endpoint does not already name it.
+ */
+function s3BucketBase(config: StorageConfig): string {
+  const endpoint = getS3Endpoint(config);
+  const bucket = config.bucket;
+  if (!bucket) return endpoint;
+  try {
+    const host = new URL(endpoint).hostname.toLowerCase();
+    const name = bucket.toLowerCase();
+    if (host === name || host.startsWith(`${name}.`)) return endpoint;
+  } catch {
+    // An unparseable endpoint falls through to path style — the historical
+    // behavior, and the only safe assumption when the host is unknown.
+  }
+  return `${endpoint}/${bucket}`;
+}
+
+/**
+ * A CDN/public base an operator typed without a scheme (`cdn.example.com`)
+ * is not a URL — anything rendering it would treat it as a relative path.
+ */
+function publicBase(base: string): string {
+  return /^https?:\/\//i.test(base) ? base : `https://${base}`;
 }
 
 function signS3Request(
@@ -446,8 +485,7 @@ function signS3Request(
 }
 
 async function s3Upload(config: StorageConfig, req: ProviderUploadRequest): Promise<StorageResult> {
-  const endpoint = getS3Endpoint(config);
-  const url = `${endpoint}/${config.bucket}/${req.fileKey}`;
+  const url = `${s3BucketBase(config)}/${req.fileKey}`;
   const headers = signS3Request('PUT', url, config, req.contentType, req.data);
 
   const res = await fetchWithTimeout(url, {
@@ -464,15 +502,14 @@ async function s3Upload(config: StorageConfig, req: ProviderUploadRequest): Prom
   }
 
   const publicUrl = config.cdnUrl
-    ? `${config.cdnUrl}/${req.fileKey}`
-    : `${endpoint}/${config.bucket}/${req.fileKey}`;
+    ? `${publicBase(config.cdnUrl)}/${req.fileKey}`
+    : `${s3BucketBase(config)}/${req.fileKey}`;
 
   return { success: true, url: publicUrl, fileKey: req.fileKey };
 }
 
 async function s3Delete(config: StorageConfig, fileKey: string): Promise<StorageResult> {
-  const endpoint = getS3Endpoint(config);
-  const url = `${endpoint}/${config.bucket}/${fileKey}`;
+  const url = `${s3BucketBase(config)}/${fileKey}`;
   const headers = signS3Request('DELETE', url, config);
 
   const res = await fetch(url, { method: 'DELETE', headers });
@@ -480,9 +517,8 @@ async function s3Delete(config: StorageConfig, fileKey: string): Promise<Storage
 }
 
 function s3GetUrl(config: StorageConfig, fileKey: string): string {
-  if (config.cdnUrl) return `${config.cdnUrl}/${fileKey}`;
-  const endpoint = getS3Endpoint(config);
-  return `${endpoint}/${config.bucket}/${fileKey}`;
+  if (config.cdnUrl) return `${publicBase(config.cdnUrl)}/${fileKey}`;
+  return `${s3BucketBase(config)}/${fileKey}`;
 }
 
 /** Minimal ListObjectsV2 XML extraction — no XML parser dependency in this project, and the response shape is fixed/well-known enough for a targeted regex to be reliable. */
@@ -495,10 +531,9 @@ function extractXmlTags(xml: string, tag: string): string[] {
 }
 
 async function s3List(config: StorageConfig, prefix: string, cursor?: string): Promise<ListResult> {
-  const endpoint = getS3Endpoint(config);
   const params = new URLSearchParams({ 'list-type': '2', prefix, 'max-keys': '1000' });
   if (cursor) params.set('continuation-token', cursor);
-  const url = `${endpoint}/${config.bucket}?${params.toString()}`;
+  const url = `${s3BucketBase(config)}?${params.toString()}`;
   const headers = signS3Request('GET', url, config);
 
   const res = await fetch(url, { method: 'GET', headers });
@@ -653,8 +688,7 @@ async function s3DownloadRange(
   fileKey: string,
   rangeHeader?: string,
 ): Promise<RangedDownloadResult> {
-  const endpoint = getS3Endpoint(config);
-  const url = `${endpoint}/${config.bucket}/${fileKey}`;
+  const url = `${s3BucketBase(config)}/${fileKey}`;
   const baseHeaders = signS3Request('GET', url, config);
   const headers: Record<string, string> = { ...baseHeaders };
   if (rangeHeader) headers['Range'] = rangeHeader;
@@ -775,8 +809,7 @@ async function bunnyDownload(config: StorageConfig, fileKey: string): Promise<Do
 }
 
 async function s3Download(config: StorageConfig, fileKey: string): Promise<DownloadResult> {
-  const endpoint = getS3Endpoint(config);
-  const url = `${endpoint}/${config.bucket}/${fileKey}`;
+  const url = `${s3BucketBase(config)}/${fileKey}`;
   const headers = signS3Request('GET', url, config);
   const res = await fetch(url, { method: 'GET', headers });
   if (!res.ok) return { success: false, error: `S3 download failed: ${res.status}` };

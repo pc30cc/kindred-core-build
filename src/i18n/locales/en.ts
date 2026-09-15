@@ -6114,6 +6114,7 @@ const en = {
         done: 'Sync finished',
         doneDesc: '{{copied}} copied, {{failed}} failed.',
         more: 'More objects are waiting — run the sync again to continue.',
+        primaryNote: 'This vendor is the primary — everything is copied FROM here. Open a mirror\u2019s tab to back-fill it.',
         prefixPlaceholder: 'empty = the whole namespace',
         continue: 'Continue sync',
         batches: '{{count}} batch(es) run in this session',

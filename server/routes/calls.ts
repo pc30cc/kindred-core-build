@@ -831,10 +831,21 @@ callsRouter.post('/:id/recording/start', async (req, res) => {
       }).eq('id', ctx.session.id);
       persisted = true;
     };
+    // Fifth corrective pass, P0: durable phase-1 intent, written BEFORE
+    // the provider is ever asked to start — see startRecording()'s own
+    // doc comment for why onStarted's compensation alone isn't enough
+    // (a double failure there leaves the write lease deliberately held
+    // open; this marker is what lets workspaceDeletion/worker.ts
+    // discover and reconcile the Egress via LiveKit's own ListEgress even
+    // with no recording_id ever recorded). 'pending' is an existing,
+    // already-non-terminal recording_state — no new enum value needed.
     const handle = await provider.startRecording((req as unknown as ReqWithConfig).serverConfig, ctx.session.provider_room_id, {
       recordingType: cp.recording_default_type,
       workspaceId: ctx.session.workspace_id,
       callSessionId: ctx.session.id,
+      onStarting: async () => {
+        await ctx.sb.from('call_sessions').update({ recording_state: 'pending' }).eq('id', ctx.session.id);
+      },
       onStarted: persistRecordingStart,
     });
     if (!persisted) await persistRecordingStart(handle);
@@ -847,6 +858,22 @@ callsRouter.post('/:id/recording/start', async (req, res) => {
     });
     res.json({ recording_id: handle.recordingId, status: handle.status });
   } catch (err) {
+    // Fifth corrective pass: onStarting's 'pending' marker (above) must
+    // never be left stuck if startRecording() throws before onStarted
+    // ever runs (e.g. egress disabled, storage misconfigured) — clean it
+    // up here so a future quiesceLiveKitEgress() reconciliation pass
+    // isn't spent discovering a recording that in fact never started.
+    // EXCEPT when the provider itself says reconciliation is still
+    // needed (needsReconciliation — the double-failure case where Egress
+    // may still be running): clearing the marker there would hide a
+    // genuinely unresolved recording from quiesceLiveKitEgress()'s
+    // provider-side discovery. Best-effort either way: this is cleanup,
+    // not the write barrier itself.
+    if (!(err instanceof CallProviderNotReadyError && err.needsReconciliation)) {
+      try {
+        await ctx.sb.from('call_sessions').update({ recording_state: 'failed' }).eq('id', ctx.session.id);
+      } catch { /* */ }
+    }
     try {
       emitCallMetric((req as unknown as ReqWithConfig).serverConfig, {
         metric: 'call.recording.start.failure',

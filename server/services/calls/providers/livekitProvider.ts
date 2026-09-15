@@ -389,6 +389,23 @@ export const livekitProvider: CallProvider = {
     let releaseLeaseNow = true;
 
     try {
+      // Fifth corrective pass, P0: a DURABLE recording-start intent must
+      // exist BEFORE StartRoomCompositeEgress is ever called — not just
+      // after it returns (opts.onStarted, below). If Egress starts but
+      // BOTH the post-start persistence AND its compensating stop fail
+      // (the double-failure case handled further down), this phase-1
+      // marker is what lets workspaceDeletion/worker.ts's
+      // quiesceLiveKitEgress() discover the call still needs
+      // reconciling — via LiveKit's own ListEgress — even though it has
+      // no recording_id to go on. Both real call sites persist this as
+      // recording_state='pending' (an EXISTING, already-non-terminal enum
+      // value — see findNonTerminalRecordings()'s doc comment) with no
+      // recording_id yet; opts.onStarted upgrades it once the egress_id
+      // is known. A provider with no lease concept may ignore this.
+      if (opts.onStarting) {
+        await opts.onStarting();
+      }
+
       const { baseUrl, apiKey, apiSecret } = await resolveLk(config);
       const cfg = await loadLiveKitConfig(config);
       if (!cfg.egress_enabled) {
@@ -475,6 +492,7 @@ export const livekitProvider: CallProvider = {
             throw new CallProviderNotReadyError(
               'livekit',
               `LiveKit recording started but could not be durably recorded (${errMessage(persistErr)}), and compensating stop also failed (${errMessage(stopErr)}) — write lease held until expiry`,
+              true, // needsReconciliation — see this class's doc comment; the caller must NOT clear its non-terminal marker
             );
           }
           throw new CallProviderNotReadyError(
@@ -543,3 +561,41 @@ export const livekitProvider: CallProvider = {
 
 /** Convenience for the resolver - re-export TURN reader. */
 export { getTurnConfig };
+
+export interface ActiveEgressInfo {
+  egressId: string;
+  status: string;
+}
+
+/**
+ * Fifth corrective pass, P0: provider-side reconciliation for an Egress
+ * whose recording_id was never durably persisted — the double-failure
+ * case in startRecording() (onStarted persistence fails AND the
+ * compensating stopRecording() also fails), where the write lease is
+ * deliberately held open rather than released. workspaceDeletion/
+ * worker.ts's quiesceLiveKitEgress() calls this when it finds a
+ * call_sessions row stuck non-terminal with no recording_id in
+ * metadata — asking LiveKit itself, the actual source of truth for
+ * what's running, rather than assuming the worst (permanently stuck) or
+ * the best (safe to ignore) from DB state alone.
+ *
+ * Returns an empty array ONLY when LiveKit affirmatively confirms no
+ * active egress exists for this room — never on a failure to reach
+ * LiveKit at all, which throws instead, so a caller can never mistake
+ * "couldn't ask" for "confirmed nothing running".
+ */
+export async function findActiveEgressForRoom(config: ServerConfig, roomName: string): Promise<ActiveEgressInfo[]> {
+  const { baseUrl, apiKey, apiSecret } = await resolveLk(config);
+  const cfg = await loadLiveKitConfig(config);
+  const result = await twirp<{ items?: Array<{ egress_id?: string; status?: string }> }>({
+    baseUrl: cfg.egress_url || baseUrl,
+    apiKey,
+    apiSecret,
+    service: 'livekit.Egress',
+    method: 'ListEgress',
+    body: { room_name: roomName, active: true },
+  });
+  return (result.items ?? [])
+    .filter((item): item is { egress_id: string; status?: string } => typeof item.egress_id === 'string' && item.egress_id.length > 0)
+    .map((item) => ({ egressId: item.egress_id, status: item.status ?? 'EGRESS_ACTIVE' }));
+}

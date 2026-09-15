@@ -151,6 +151,16 @@ export interface CallProvider {
    * field entirely — the caller falls back to persisting after the call
    * returns for those, which is fine since they don't hold an external
    * write in flight the way LiveKit does.
+   *
+   * `onStarting` (fifth corrective pass, P0): called BEFORE the actual
+   * provider start call, while the write lease is held — this is where
+   * the caller persists a durable, phase-1 "recording is about to start"
+   * intent (a non-terminal recording_state with no recording_id yet) so
+   * it survives even if `onStarted` (phase 2, after the provider call
+   * returns) never runs at all — e.g. the provider call itself never
+   * completes for reasons unrelated to its own success/failure. See
+   * livekitProvider.ts's startRecording() for why this matters even
+   * with `onStarted`'s own compensation logic already in place.
    */
   startRecording(
     config: ServerConfig,
@@ -159,6 +169,7 @@ export interface CallProvider {
       recordingType: 'composite' | 'individual' | 'audio_only';
       workspaceId: string;
       callSessionId: string;
+      onStarting?: () => Promise<void>;
       onStarted?: (handle: RecordingHandle) => Promise<void>;
     },
   ): Promise<RecordingHandle>;
@@ -178,7 +189,21 @@ export interface CallProvider {
 
 /** Sentinel error: provider not configured / cannot operate. */
 export class CallProviderNotReadyError extends Error {
-  constructor(public readonly providerId: CallProviderId, message: string) {
+  constructor(
+    public readonly providerId: CallProviderId,
+    message: string,
+    /**
+     * Fifth corrective pass, P0: set ONLY by livekitProvider.ts's
+     * startRecording() double-failure case (Egress started, durable
+     * persistence failed, AND the compensating stop also failed — see
+     * that function's doc comment). A caller catching this must NOT
+     * reset call_sessions.recording_state to a terminal value: the
+     * Egress may still be running and workspaceDeletion/worker.ts's
+     * quiescence reconciliation (findActiveEgressForRoom) needs the
+     * existing non-terminal marker to still find and resolve it.
+     */
+    public readonly needsReconciliation: boolean = false,
+  ) {
     super(message);
     this.name = 'CallProviderNotReadyError';
   }

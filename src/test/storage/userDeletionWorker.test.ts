@@ -212,6 +212,29 @@ beforeEach(async () => {
   rpcCalls.length = 0;
   fromCalls.length = 0;
   rpcHandlers = {};
+  // Fifth corrective pass, P0 #1: hasActiveOwnerWriteLeases() now calls the
+  // has_active_owner_write_leases RPC (DB-time-authoritative, grace-extended
+  // — see migration 188) instead of querying owner_write_leases directly.
+  // Mirror that RPC's logic here as the default handler so every test that
+  // doesn't care about lease-drain gating gets a real "no active leases"
+  // answer instead of silently fail-open-to-blocking on the generic
+  // {data:null,error:null} fallback (which would make hasActiveOwnerWriteLeases
+  // permanently report "leases outstanding" per its fail-toward-"wait" rule).
+  const RECONCILIATION_GRACE_SECONDS = 600;
+  rpcHandlers.has_active_owner_write_leases = (args) => {
+    const { _owner_kind, _owner_id, _reconciliation_grace_seconds } = args as {
+      _owner_kind: string; _owner_id: string; _reconciliation_grace_seconds?: number;
+    };
+    const grace = _reconciliation_grace_seconds ?? RECONCILIATION_GRACE_SECONDS;
+    const leases = (db.owner_write_leases ?? []) as Row[];
+    const now = Date.now();
+    const active = leases.some((l) =>
+      l.owner_kind === _owner_kind &&
+      l.owner_id === _owner_id &&
+      new Date(l.lease_expires_at as string).getTime() + grace * 1000 > now,
+    );
+    return { data: { ok: true, active }, error: null };
+  };
   runScopeCleanupTickMock.mockReset();
   runScopeCleanupTickMock.mockResolvedValue({ kind: 'advance' });
   userStorageScopesMock.mockReset();
@@ -609,12 +632,29 @@ describe('purgeUser — owner write lease drain (fourth corrective pass, P0 — 
     expect(currentJobRow().lease_expires_at).toBeNull();
   });
 
-  it('an EXPIRED owner_write_lease (crashed producer) does not block — a crash never wedges account deletion forever', async () => {
-    const job = baseJob({ status: 'purging_user' });
+  it('a lease that only JUST passed its nominal expiry (well within the 600s reconciliation grace period) still blocks the tick — fifth corrective pass, P0 #1: nominal TTL expiry alone is never proof the external write actually stopped', async () => {
+    const job = baseJob({ status: 'purging_user', locked_by: 'worker-x', lease_expires_at: new Date().toISOString(), attempt_count: 0 });
     db.user_deletion_jobs = [job];
     db.owner_write_leases = [{
       id: 'lease-1', lease_token: 'lease-tok-1', owner_kind: 'user', owner_id: USER_A,
       purpose: 'upload', lease_expires_at: new Date(Date.now() - 60_000).toISOString(),
+    }];
+    rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
+
+    workerMod.startUserDeletionWorker({} as never);
+    await flush();
+
+    expect(runScopeCleanupTickMock).not.toHaveBeenCalled();
+    expect(currentJobRow().status).toBe('purging_user');
+    expect(currentJobRow().attempt_count).toBe(0);
+  });
+
+  it('an owner_write_lease expired well beyond the reconciliation grace period (crashed producer, long gone) does not block — a crash never wedges account deletion forever', async () => {
+    const job = baseJob({ status: 'purging_user' });
+    db.user_deletion_jobs = [job];
+    db.owner_write_leases = [{
+      id: 'lease-1', lease_token: 'lease-tok-1', owner_kind: 'user', owner_id: USER_A,
+      purpose: 'upload', lease_expires_at: new Date(Date.now() - 700_000).toISOString(),
     }];
     rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
     runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'progress' });

@@ -83,7 +83,7 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { workspaceStorageScopes, workspaceScopePrefix } from '../storage/workspaceScopes.js';
 import { runScopeCleanupTick, type ScopeCleanupState } from '../storage/scopeCleanupEngine.js';
-import { livekitProvider } from '../calls/providers/livekitProvider.js';
+import { livekitProvider, findActiveEgressForRoom } from '../calls/providers/livekitProvider.js';
 import { hasActiveOwnerWriteLeases } from '../storage/writerLease.js';
 import type { WorkspaceDeletionJobRow } from './types.js';
 
@@ -180,6 +180,7 @@ interface NonTerminalRecordingRow {
   id: string;
   recording_state: string;
   metadata: Record<string, unknown> | null;
+  provider_room_id: string | null;
 }
 
 // Non-terminal call_recording_state values — Egress can still produce bytes
@@ -193,7 +194,7 @@ async function findNonTerminalRecordings(config: ServerConfig, workspaceId: stri
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('call_sessions')
-    .select('id, recording_state, metadata')
+    .select('id, recording_state, metadata, provider_room_id')
     .eq('workspace_id', workspaceId)
     .eq('provider', 'livekit') // only LiveKit writes recordings directly to storage — other providers are stubs (see recordingStorageResolver.ts's doc comment)
     .in('recording_state', NON_TERMINAL_RECORDING_STATES);
@@ -213,15 +214,33 @@ async function findNonTerminalRecordings(config: ServerConfig, workspaceId: stri
  * write" — only a terminal `recording_state` (available/failed/disabled)
  * means that.
  *
+ * Fifth corrective pass, P0: a `recording_state` row with no recoverable
+ * `recording_id` in metadata no longer means "give up, throw forever" —
+ * livekitProvider.ts's startRecording() now writes a durable phase-1
+ * 'pending' marker BEFORE ever calling StartRoomCompositeEgress (via
+ * `onStarting`), and can also leave a row stuck with no `recording_id` if
+ * BOTH the post-start persistence AND its own compensating stop failed
+ * (the double-failure case, write lease deliberately held open). Either
+ * way, this function now asks LiveKit itself —
+ * `livekitProvider.findActiveEgressForRoom()`, the actual source of
+ * truth for what Egress is running — instead of assuming the row can
+ * never be resolved. If LiveKit confirms an active egress for the room,
+ * its id is persisted (so future ticks don't need to re-discover it) and
+ * stopped exactly like a normally-resolved row. If LiveKit confirms
+ * NOTHING is active for that room, the row is resolved as terminal
+ * directly (nothing to stop). A failure to even REACH LiveKit for this
+ * discovery is treated exactly like any other quiesce failure — a
+ * retryable job error, never silently proceeding as if resolved.
+ *
  * Returns `true` once every recording session for this workspace is
  * terminal (nothing left to wait for). Returns `false` while still
  * waiting — NOT an error; the caller must not touch ANY storage scope
  * this tick (per the review's explicit ordering: stop Egress and wait for
  * it FIRST, only THEN run storage cleanup/verification — never the
- * reverse). Throws if a stop request itself fails or a session's
- * recording id can't be resolved at all — the caller must treat that as a
- * real job failure (retry/backoff), never silently proceed as if
- * quiescent.
+ * reverse). Throws if a stop request itself fails, provider-side
+ * discovery itself fails, or a session's recording id can't be resolved
+ * even after discovery — the caller must treat that as a real job
+ * failure (retry/backoff), never silently proceed as if quiescent.
  */
 async function quiesceLiveKitEgress(config: ServerConfig, workspaceId: string): Promise<boolean> {
   const nonTerminal = await findNonTerminalRecordings(config, workspaceId);
@@ -232,13 +251,34 @@ async function quiesceLiveKitEgress(config: ServerConfig, workspaceId: string): 
     if (row.recording_state === 'finalizing') continue; // already stop-requested — waiting on the webhook to reach a terminal state
     const recordingId = (row.metadata?.recording as Record<string, unknown> | undefined)?.recording_id;
     if (typeof recordingId !== 'string' || !recordingId) {
-      // No recoverable LiveKit egress id — we cannot confirm Egress is
-      // stopped, so we cannot safely proceed. Both recording-start call
-      // sites (server/routes/calls.ts, server/services/callCenter/
-      // recordingControl.ts) persist this in call_sessions.metadata —
-      // its absence here means a producer wrote recording_state without
-      // it, a bug elsewhere, not something safe to paper over.
-      throw new Error(`workspace ${workspaceId}: call_session ${row.id} has recording_state=${row.recording_state} but no recoverable LiveKit recording id in metadata — cannot confirm Egress is stopped`);
+      // No recoverable LiveKit egress id in our own DB state — ask
+      // LiveKit itself before giving up. Both recording-start call sites
+      // persist a durable 'pending' marker before ever starting Egress,
+      // so this row is expected to exist even when the id was never
+      // recorded; provider-side discovery is what actually resolves it.
+      if (!row.provider_room_id) {
+        throw new Error(`workspace ${workspaceId}: call_session ${row.id} has recording_state=${row.recording_state} but no provider_room_id — cannot look up LiveKit Egress for reconciliation`);
+      }
+      const discovered = await findActiveEgressForRoom(config, row.provider_room_id);
+      if (discovered.length === 0) {
+        // LiveKit affirmatively confirms nothing is active for this room
+        // — either Egress genuinely never started (e.g. a config error
+        // before the Twirp call), or it already finished. Either way,
+        // nothing can write to storage for this session any longer.
+        await sb.from('call_sessions').update({ recording_state: 'available' }).eq('id', row.id);
+        continue;
+      }
+      // Persist what we just learned (so a future tick doesn't need to
+      // rediscover it) and stop every active egress LiveKit reports for
+      // this room.
+      for (const eg of discovered) {
+        await sb.from('call_sessions').update({
+          metadata: { ...(row.metadata || {}), recording: { ...(row.metadata?.recording as Record<string, unknown> | undefined), recording_id: eg.egressId } },
+        }).eq('id', row.id);
+        await livekitProvider.stopRecording(config, eg.egressId);
+      }
+      await sb.from('call_sessions').update({ recording_state: 'finalizing' }).eq('id', row.id);
+      continue;
     }
     // Stop first; only a later terminal recording_state (set by the
     // webhook once Egress actually finalizes) means storage is safe to
@@ -247,7 +287,7 @@ async function quiesceLiveKitEgress(config: ServerConfig, workspaceId: string): 
     const newState = handle.status === 'available' ? 'available' : handle.status === 'failed' ? 'failed' : 'finalizing';
     await sb.from('call_sessions').update({ recording_state: newState }).eq('id', row.id);
   }
-  return false; // just issued stop(s), or some were already 'finalizing' — never claim quiescent on the same tick a stop was issued; the next tick re-checks
+  return false; // just issued stop(s), resolved a row via discovery, or some were already 'finalizing' — never claim quiescent on the same tick any of that happened; the next tick re-checks
 }
 
 /**
@@ -345,7 +385,56 @@ async function workspaceStillExists(config: ServerConfig, workspaceId: string): 
   return !!data;
 }
 
+/**
+ * Fifth corrective pass, P0, defense-in-depth: re-asserts the exact
+ * invariant runStorageCleanup() already enforced before ever advancing
+ * to 'db_cleanup' — zero outstanding owner_write_leases AND every
+ * LiveKit recording quiescent — one more time, immediately before the
+ * irreversible DB purge. Under the guarantees already proven elsewhere
+ * (acquireOwnerWriteLease() cannot succeed once a workspace enters
+ * 'deleting' — see 187's migration header; a job cannot reach
+ * 'db_cleanup' without runStorageCleanup() having already confirmed
+ * both), this should never actually fire in normal operation — it exists
+ * purely to catch a FUTURE regression that reintroduces a gap between
+ * those two checks, never to be relied on as the primary guarantee.
+ *
+ * Returns `true` if it's safe to proceed with the purge. If not, reverts
+ * the job back to 'storage_cleanup' (never purges) so the normal
+ * lease-drain/quiesce/verify path runs again from scratch on a later
+ * tick, rather than trying to cleverly patch just the specific thing
+ * that changed.
+ */
+async function reassertSafeToPurge(config: ServerConfig, job: WorkspaceDeletionJobRow): Promise<boolean> {
+  if (await hasActiveOwnerWriteLeases(config, 'workspace', job.workspace_id)) {
+    await persistFenced(config, job.id, job.lease_token!, {
+      status: 'storage_cleanup', locked_by: null, lease_expires_at: null,
+      error_message: 'pre-purge recheck found an outstanding owner write lease — returned to storage_cleanup for a fresh pass (this should not happen under normal operation)',
+    });
+    return false;
+  }
+  let quiescent: boolean;
+  try {
+    quiescent = await quiesceLiveKitEgress(config, job.workspace_id);
+  } catch (err) {
+    await persistFenced(config, job.id, job.lease_token!, {
+      status: 'storage_cleanup', locked_by: null, lease_expires_at: null,
+      error_message: `pre-purge recheck: LiveKit egress quiesce failed: ${errMessage(err)}`,
+    });
+    return false;
+  }
+  if (!quiescent) {
+    await persistFenced(config, job.id, job.lease_token!, {
+      status: 'storage_cleanup', locked_by: null, lease_expires_at: null,
+      error_message: 'pre-purge recheck found a non-terminal LiveKit recording — returned to storage_cleanup for a fresh pass (this should not happen under normal operation)',
+    });
+    return false;
+  }
+  return true;
+}
+
 export async function runDbCleanup(config: ServerConfig, job: WorkspaceDeletionJobRow): Promise<void> {
+  if (!(await reassertSafeToPurge(config, job))) return;
+
   const sb = getServiceClient(config);
   const { error } = await sb.rpc('admin_delete_workspace', {
     _actor_user_id: job.requested_by,

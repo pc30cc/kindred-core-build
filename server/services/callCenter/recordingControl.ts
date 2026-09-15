@@ -22,6 +22,7 @@ import {
 } from './settings.js';
 import { checkEntitlementFromDB } from '../../middleware/featureGating.js';
 import { resolveUsage } from '../billing/usageResolvers.js';
+import { CallProviderNotReadyError } from '../calls/providers/types.js';
 
 export type RecordingType = 'composite' | 'individual' | 'audio_only';
 
@@ -315,13 +316,26 @@ export async function startCallCenterRecording(
       recordingType: args.recordingType || 'composite',
       workspaceId: args.workspaceId,
       callSessionId: args.callId,
+      // Fifth corrective pass, P0: durable phase-1 intent written BEFORE
+      // the provider is asked to start — see livekitProvider.ts's
+      // startRecording() doc comment for why onStarted's own
+      // compensation isn't sufficient on its own.
+      onStarting: async () => {
+        await patchRecordingMeta(config, args.callId, {}, { recording_state: 'pending' });
+      },
       onStarted: persistRecordingStart,
     });
   } catch (e: unknown) {
-    await patchRecordingMeta(config, args.callId, {
-      state: 'failed',
-      last_error: String(errCode(e) || errMessage(e) || 'start_failed').slice(0, 200),
-    }, { recording_state: 'failed' });
+    // EXCEPT when the provider says reconciliation is still needed (the
+    // double-failure case — Egress may still be running): clearing the
+    // non-terminal marker there would hide it from
+    // quiesceLiveKitEgress()'s provider-side discovery.
+    if (!(e instanceof CallProviderNotReadyError && e.needsReconciliation)) {
+      await patchRecordingMeta(config, args.callId, {
+        state: 'failed',
+        last_error: String(errCode(e) || errMessage(e) || 'start_failed').slice(0, 200),
+      }, { recording_state: 'failed' });
+    }
     await logEvent(config, args.workspaceId, args.callId, 'recording_failed', args.actorUserId, {
       phase: 'start',
       message: errMessage(e).slice(0, 200),

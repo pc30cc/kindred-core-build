@@ -19,6 +19,16 @@
  * with a real signed JWT and body-hash, exactly as LiveKit would send it
  * — not a direct call to an internal function — so this proves the fix
  * at the actual trust boundary.
+ *
+ * Fifth corrective pass, P0 #3: every DB failure this file models is
+ * expressed as a RESOLVED `{ data: null, error: {...} }` PostgREST
+ * response, never a rejected/thrown promise. Real Supabase/PostgREST
+ * resolves queries this way and does not throw unless
+ * `.throwOnError()` is explicitly used — a mock that instead rejects
+ * would prove nothing about the code path that actually inspects
+ * `result.error` (server/routes/livekitWebhook.ts's `mustDb` helper and
+ * the dedup-insert error handling), since a thrown/rejected error was
+ * already being caught correctly even before that fix.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
@@ -37,12 +47,22 @@ vi.mock('../../../server/services/calls/livekitConfig.js', () => ({
 type Row = Record<string, unknown>;
 const db: Record<string, Row[]> = {};
 
-// Toggles a thrown error inside the call_recordings update the
-// egress_ended/egress_updated handler issues — models a transient DB
-// failure partway through applying an event's effects (the exact
-// scenario that must never be treated the same as a successfully
-// resolved delivery).
-const applyShouldThrow = { current: false };
+type DbError = { message: string; code?: string };
+
+// Toggles a RESOLVED (not thrown) PostgREST error inside the
+// call_recordings update the egress_ended/egress_updated handler issues —
+// models a transient DB failure partway through applying an event's
+// effects (the exact scenario that must never be treated the same as a
+// successfully resolved delivery). Real Supabase never throws for this;
+// it resolves `{ data: null, error: {...} }`.
+const applyShouldFail = { current: false };
+
+// Toggles a RESOLVED (not thrown) PostgREST error on the
+// livekit_webhook_events INSERT itself — models a transient DB failure on
+// the dedup/audit row write, distinct from a genuine unique-violation
+// (which the real unique index on event_id produces, also as a resolved
+// error, never a throw).
+const dedupInsertShouldFailTransiently = { current: false };
 
 function makeBuilder(table: string) {
   const rows = db[table] || (db[table] = []);
@@ -69,17 +89,22 @@ function makeBuilder(table: string) {
       updatePatch = patch;
       return builder;
     },
-    then(resolve: (v: { data: unknown; error: null }) => void, reject?: (err: unknown) => void) {
-      if (table === 'call_recordings' && updatePatch && applyShouldThrow.current) {
-        reject?.(new Error('transient_db_failure'));
+    then(resolve: (v: { data: unknown; error: DbError | null }) => void) {
+      if (table === 'call_recordings' && updatePatch && applyShouldFail.current) {
+        resolve({ data: null, error: { message: 'transient_db_failure', code: '08006' } });
         return;
       }
       if (insertRow) {
         // uq_livekit_webhook_events_event_id — a genuinely concurrent
         // second insert for the same event_id must fail, exactly as the
-        // real unique index would.
+        // real unique index would (Postgres unique_violation = 23505).
+        // Real PostgREST resolves this as `{error}`, never a throw.
         if (table === 'livekit_webhook_events' && rows.some((r) => r.event_id === insertRow!.event_id)) {
-          reject?.(new Error('duplicate key value violates unique constraint "uq_livekit_webhook_events_event_id"'));
+          resolve({ data: null, error: { message: 'duplicate key value violates unique constraint "uq_livekit_webhook_events_event_id"', code: '23505' } });
+          return;
+        }
+        if (table === 'livekit_webhook_events' && dedupInsertShouldFailTransiently.current) {
+          resolve({ data: null, error: { message: 'connection_reset', code: '08006' } });
           return;
         }
         rows.push({ id: `row-${rows.length + 1}`, ...insertRow });
@@ -111,7 +136,8 @@ let livekitWebhookRouter: import('express').Router;
 beforeEach(async () => {
   vi.resetModules();
   for (const key of Object.keys(db)) delete db[key];
-  applyShouldThrow.current = false;
+  applyShouldFail.current = false;
+  dedupInsertShouldFailTransiently.current = false;
   db.call_sessions = [{ id: SESSION_A, workspace_id: WS_A, provider: 'livekit', provider_room_id: 'room-1', recording_state: 'recording' }];
   ({ livekitWebhookRouter } = await import('../../../server/routes/livekitWebhook'));
 });
@@ -183,8 +209,8 @@ describe('LiveKit webhook — retry semantics (fourth corrective pass, P0)', () 
     expect(currentSession().recording_state).toBe('poisoned-to-prove-no-reapply');
   });
 
-  it('MANDATORY: first applyEvent() attempt fails with a transient DB error — the event is NOT considered permanently processed (non-2xx, so LiveKit retries; the row stays unprocessed)', async () => {
-    applyShouldThrow.current = true;
+  it('MANDATORY: first applyEvent() attempt hits a call_sessions terminal update that resolves { data: null, error: {...} } (real Supabase/PostgREST shape, not a thrown exception) — applyEvent must still fail, the event is NOT considered permanently processed (non-2xx, so LiveKit retries; the row stays unprocessed)', async () => {
+    applyShouldFail.current = true;
     const { raw, token } = signedEgressEndedEvent({ eventId: 'ev-3' });
 
     const res = await post(raw, token);
@@ -196,14 +222,14 @@ describe('LiveKit webhook — retry semantics (fourth corrective pass, P0)', () 
     expect(row.process_error).toMatch(/transient_db_failure/);
   });
 
-  it('MANDATORY: a retry of the SAME event after the transient failure clears re-applies successfully — recording_state becomes available/failed, deletion quiescence can now proceed', async () => {
-    applyShouldThrow.current = true;
+  it('MANDATORY: a retry of the SAME event after the resolved-error condition clears (error: null on the next delivery) re-applies successfully — recording_state becomes available/failed, event is marked processed, deletion quiescence can now proceed', async () => {
+    applyShouldFail.current = true;
     const failing = signedEgressEndedEvent({ eventId: 'ev-4' });
     const firstAttempt = await post(failing.raw, failing.token);
     expect(firstAttempt.status).not.toBe(200);
     expect(currentSession().recording_state).toBe('recording'); // still non-terminal — this is exactly the state quiesceLiveKitEgress() would otherwise wait on forever
 
-    applyShouldThrow.current = false;
+    applyShouldFail.current = false; // second delivery: the mocked DB op now resolves { data, error: null }
     const retry = signedEgressEndedEvent({ eventId: 'ev-4' });
     const retryRes = await post(retry.raw, retry.token);
 
@@ -213,6 +239,26 @@ describe('LiveKit webhook — retry semantics (fourth corrective pass, P0)', () 
     const row = db.livekit_webhook_events[0];
     expect(row.processed_at).toBeTruthy();
     expect(row.process_error).toBeNull();
+  });
+
+  it('MANDATORY: the livekit_webhook_events INSERT itself resolves { data: null, error: {...} } for a NON-unique-violation reason (e.g. a connection reset, code 08006) — this is NOT a duplicate delivery and must return non-2xx, leaving nothing recorded for this event so a genuine retry is not mistaken for a dedup hit', async () => {
+    dedupInsertShouldFailTransiently.current = true;
+    const { raw, token } = signedEgressEndedEvent({ eventId: 'ev-7' });
+
+    const res = await post(raw, token);
+
+    expect(res.status).not.toBe(200);
+    expect(res.body).not.toMatchObject({ dedup: true });
+    expect(db.livekit_webhook_events ?? []).toHaveLength(0); // never recorded — a later retry must not be treated as an already-seen duplicate
+    expect(currentSession().recording_state).toBe('recording'); // apply was never even reached
+
+    // A subsequent retry, once the transient condition clears, succeeds normally.
+    dedupInsertShouldFailTransiently.current = false;
+    const retry = signedEgressEndedEvent({ eventId: 'ev-7' });
+    const retryRes = await post(retry.raw, retry.token);
+    expect(retryRes.status).toBe(200);
+    expect(retryRes.body).toMatchObject({ ok: true, applied: true });
+    expect(currentSession().recording_state).toBe('available');
   });
 
   it('a failed egress event (EGRESS_FAILED) applies successfully and sets recording_state to failed — a terminal state that also unblocks quiescence', async () => {

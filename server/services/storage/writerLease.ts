@@ -16,21 +16,60 @@
  * comment for the full argument and a live-Postgres proof of the
  * serialization in both directions.
  *
+ * Fifth corrective pass, P0: closing acquisition's TOCTOU gap wasn't
+ * enough on its own — the lease's own EXPIRY was a second one.
+ * `renew_owner_write_lease()` (188_owner_write_lease_hardening.sql) can
+ * no longer resurrect an already-expired lease (a delayed heartbeat
+ * arriving after `lease_expires_at` gets `lease_expired`, never a fresh
+ * extension). And a lease going quiet (DB connectivity lost, the process
+ * crashed, a GC pause) does NOT mean the external write it was covering
+ * has actually stopped — that write is independent of the lease's DB-side
+ * bookkeeping and could still be landing bytes. `hasActiveOwnerWriteLeases`
+ * therefore no longer treats "past nominal expiry" as "safe to ignore":
+ * it calls `has_active_owner_write_leases()`, which keeps a lease
+ * counting as active for a RECONCILIATION GRACE PERIOD past its nominal
+ * expiry (`RECONCILIATION_GRACE_SECONDS`, default matches the DB
+ * function's own default) — long enough to guarantee any write that
+ * lease could have covered has either completed or been aborted by its
+ * own hard timeout (`PROVIDER_UPLOAD_TIMEOUT_MS` in
+ * server/services/storage/index.ts — see that constant's doc comment for
+ * why the grace period is provably sufficient, not just generous). The
+ * comparison itself runs entirely in Postgres, using `now()` — never an
+ * application-server wall clock — so this safety decision cannot be
+ * skewed by app-server/DB clock drift.
+ *
  * Usage: a producer acquires a lease BEFORE acting on a positive
  * writability result, holds it for the entire duration of the external
  * write (renewing/heartbeating if it might run long), and releases it —
  * in a `finally`, unconditionally — only once that write has definitively
  * completed (success OR failure; either way the external side effect, if
- * any, has already happened by the time we release). Deletion workers
- * (workspaceDeletion/worker.ts, userDeletion/worker.ts) query this table
- * directly and refuse to trust ANY storage listing for an owner while an
- * unexpired lease still exists for it — see those modules' own doc
- * comments.
+ * any, has already happened by the time we release). `withOwnerWriteLease`
+ * additionally tracks whether every heartbeat renewal succeeded and, if
+ * any failed, downgrades an otherwise-successful `fn()` result to a
+ * failure — a producer must not report its write as safely committed
+ * when it can no longer prove it held the lease the entire time; see that
+ * function's own doc comment. Deletion workers (workspaceDeletion/
+ * worker.ts, userDeletion/worker.ts) call `hasActiveOwnerWriteLeases` and
+ * refuse to trust ANY storage listing for an owner while it reports
+ * `true` — see those modules' own doc comments.
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 
 export type OwnerKind = 'workspace' | 'user';
+
+/**
+ * How long a lease keeps counting as "must still wait on this" past its
+ * own nominal `lease_expires_at`. MUST exceed the longest a provider
+ * write call can still be in flight after its last successful heartbeat
+ * — server/services/storage/index.ts's PROVIDER_UPLOAD_TIMEOUT_MS (2 min)
+ * plus the heartbeat interval below (30s) plus a comfortable margin for
+ * scheduling jitter and DB round-trip latency. 600s (10 min) is that
+ * bound with a wide safety margin, matching 188's own DB-side default —
+ * passed explicitly here (rather than relying on the RPC's default) so
+ * the two stay visibly in sync if either is ever tuned.
+ */
+const RECONCILIATION_GRACE_SECONDS = 600;
 
 /**
  * Deliberately a single flat shape (not a discriminated union) — this
@@ -126,14 +165,20 @@ export async function releaseOwnerWriteLease(
 }
 
 /**
- * True iff at least one UNEXPIRED write lease exists for this owner right
- * now. Deletion workers call this before trusting any storage listing —
- * a `true` result means a producer is somewhere between its writability
- * check and the completion of its actual write, and any listing taken
- * right now could miss the object it's about to create. Fails OPEN to
- * "still leases outstanding" (`true`) on a query error — the caller's
- * response to `true` is always "wait, don't touch storage yet", so a
- * transient DB error here must never be mistaken for "clear to proceed".
+ * True iff at least one write lease for this owner is still within its
+ * reconciliation window (unexpired, OR expired less than
+ * RECONCILIATION_GRACE_SECONDS ago — see this module's doc comment for
+ * why an expired-but-recent lease must still block). Deletion workers
+ * call this before trusting any storage listing — `true` means a
+ * producer is somewhere between its writability check and the PROVABLE
+ * completion of its actual write, and any listing taken right now could
+ * miss the object it's about to create. The active/expired-but-in-grace
+ * comparison runs entirely in Postgres via `now()` — never an
+ * application-server wall clock, so this can never be skewed by
+ * app-server/DB clock drift. Fails OPEN to "still active" (`true`) on an
+ * RPC error — the caller's response to `true` is always "wait, don't
+ * touch storage yet", so a transient DB error here must never be
+ * mistaken for "clear to proceed".
  */
 export async function hasActiveOwnerWriteLeases(
   serverConfig: ServerConfig,
@@ -142,16 +187,13 @@ export async function hasActiveOwnerWriteLeases(
 ): Promise<boolean> {
   try {
     const sb = getServiceClient(serverConfig);
-    const { data, error } = await sb
-      .from('owner_write_leases')
-      .select('id')
-      .eq('owner_kind', ownerKind)
-      .eq('owner_id', ownerId)
-      .gt('lease_expires_at', new Date().toISOString())
-      .limit(1)
-      .maybeSingle();
-    if (error) return true; // fail toward "wait" — see doc comment above
-    return !!data;
+    const { data, error } = await sb.rpc('has_active_owner_write_leases', {
+      _owner_kind: ownerKind,
+      _owner_id: ownerId,
+      _reconciliation_grace_seconds: RECONCILIATION_GRACE_SECONDS,
+    });
+    if (error || !data?.ok) return true; // fail toward "wait" — see doc comment above
+    return !!data.active;
   } catch {
     return true;
   }
@@ -168,7 +210,27 @@ export async function hasActiveOwnerWriteLeases(
  * this wrapper is for the common "acquire, do one write, release" case.
  *
  * On acquisition failure, returns `{ ok: false, error }` without calling
- * `fn` at all. On success, returns `{ ok: true, result }`.
+ * `fn` at all.
+ *
+ * Fifth corrective pass, P0: heartbeat renewal is no longer
+ * fire-and-forget. Every renewal's result is tracked; if ANY renewal
+ * fails while `fn` is running, the lease is no longer provably held, and
+ * `fn`'s eventual result — even a successful one — is downgraded to
+ * `{ ok: false, error: 'lease_lost_during_write' }`. This is deliberate:
+ * a producer that lost its lease mid-write cannot prove the write is
+ * safe to trust (the underlying provider call is independent of the
+ * lease's DB bookkeeping and may still be landing bytes after this
+ * function returns), so it must never report success to its own caller.
+ * A single trailing renewal, issued right after `fn()` resolves, is the
+ * authoritative final check — it also catches the case where `fn()` ran
+ * long enough to approach or pass the lease's expiry without a heartbeat
+ * tick ever having fired. This does NOT by itself guarantee the external
+ * write has stopped (see `hasActiveOwnerWriteLeases`'s reconciliation
+ * grace period, which is what actually protects deletion in that case,
+ * independent of whether the producer here ever notices) — it only stops
+ * this function from lying about success. If `fn` itself throws, that
+ * rejection propagates unchanged (the caller already knows it failed);
+ * only a `fn` that RESOLVES is subject to the trailing lease check.
  */
 export async function withOwnerWriteLease<T>(
   serverConfig: ServerConfig,
@@ -176,22 +238,32 @@ export async function withOwnerWriteLease<T>(
   ownerId: string,
   purpose: string,
   fn: () => Promise<T>,
-): Promise<{ ok: true; result: T } | { ok: false; error: string }> {
+  // Flat shape (not a discriminated union) for the same
+  // strictNullChecks:false narrowing-reliability reason as
+  // LeaseAcquisitionResult above — a caller checks `.ok` first.
+): Promise<{ ok: boolean; result?: T; error?: string }> {
   const lease = await acquireOwnerWriteLease(serverConfig, ownerKind, ownerId, purpose);
   if (!lease.ok || !lease.leaseId || !lease.leaseToken) {
     return { ok: false, error: lease.error || 'lease_acquisition_failed' };
   }
   const leaseId = lease.leaseId;
   const leaseToken = lease.leaseToken;
+  let leaseLost = false;
 
   const heartbeat = setInterval(() => {
-    void renewOwnerWriteLease(serverConfig, leaseId, leaseToken);
+    void renewOwnerWriteLease(serverConfig, leaseId, leaseToken).then((stillHeld) => {
+      if (!stillHeld) leaseLost = true;
+    });
   }, HEARTBEAT_INTERVAL_MS);
   // Never let the heartbeat timer itself keep the process alive.
   (heartbeat as unknown as { unref?: () => void }).unref?.();
 
   try {
     const result = await fn();
+    const stillHeldAtCompletion = await renewOwnerWriteLease(serverConfig, leaseId, leaseToken);
+    if (leaseLost || !stillHeldAtCompletion) {
+      return { ok: false, error: 'lease_lost_during_write' };
+    }
     return { ok: true, result };
   } finally {
     clearInterval(heartbeat);

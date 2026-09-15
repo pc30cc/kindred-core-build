@@ -244,13 +244,46 @@ function validateFile(data: Buffer, contentType: string, maxSizeMB?: number): st
   return null;
 }
 
+/**
+ * Fifth corrective pass, P0: `writerLease.ts`'s `hasActiveOwnerWriteLeases`
+ * only trusts a lease as genuinely gone once a RECONCILIATION GRACE
+ * PERIOD (600s) has passed beyond its nominal expiry — long enough to
+ * guarantee the write that lease covered can no longer land bytes. That
+ * guarantee is only real if every network provider call this module
+ * makes has a HARD ceiling — without one, `fetch()` can hang past any
+ * assumed bound on a stalled connection, and the whole reconciliation
+ * argument collapses. Every provider PUT (s3Upload/bunnyUpload) races
+ * against this timeout via AbortController; a call that exceeds it is
+ * aborted and reported as a failed upload, never left to hang
+ * indefinitely. 120s comfortably covers this project's MAX_FILE_SIZE
+ * ceilings (see categoryPolicy.ts) even on a slow connection, with the
+ * reconciliation grace period (600s) leaving ~5x headroom on top of that
+ * for heartbeat-interval slack and DB round-trip latency.
+ */
+const PROVIDER_UPLOAD_TIMEOUT_MS = 120_000;
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number = PROVIDER_UPLOAD_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`provider request timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ─── BunnyCDN Storage ────────────────────────────────────────────
 
 async function bunnyUpload(config: StorageConfig, req: ProviderUploadRequest): Promise<StorageResult> {
   const regionPrefix = config.region && config.region !== 'de' ? `${config.region}.` : '';
   const baseUrl = `https://${regionPrefix}storage.bunnycdn.com/${config.storageZone}`;
 
-  const res = await fetch(`${baseUrl}/${req.fileKey}`, {
+  const res = await fetchWithTimeout(`${baseUrl}/${req.fileKey}`, {
     method: 'PUT',
     headers: {
       'AccessKey': config.apiKey!,
@@ -401,7 +434,7 @@ async function s3Upload(config: StorageConfig, req: ProviderUploadRequest): Prom
   const url = `${endpoint}/${config.bucket}/${req.fileKey}`;
   const headers = signS3Request('PUT', url, config, req.contentType, req.data);
 
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     method: 'PUT',
     headers: { ...headers, 'Content-Type': req.contentType },
     // Same as bunnyUpload: an `ArrayBuffer` holding the identical bytes that
@@ -1088,26 +1121,40 @@ export async function uploadForOwner(
   if (req.owner.kind === 'workspace') {
     const leased = await withOwnerWriteLease(serverConfig, 'workspace', req.owner.workspaceId, 'upload', doUpload);
     if (!leased.ok) {
-      // Not 'active' right now — deleting, its row already purged, or its
-      // state couldn't be confirmed — must never receive new bytes. See
-      // acquireOwnerWriteLease()'s doc comment / 187's migration header.
-      return { success: false, error: 'Workspace is being deleted or is otherwise unavailable; uploads are disabled' };
+      return { success: false, error: leaseFailureMessage(leased.error, 'Workspace') };
     }
-    return leased.result;
+    return leased.result!;
   }
 
   if (req.owner.kind === 'user') {
     const leased = await withOwnerWriteLease(serverConfig, 'user', req.owner.userId, 'upload', doUpload);
     if (!leased.ok) {
-      // A user-owned write barrier — third corrective pass, P0; fourth
-      // corrective pass closes the point-in-time-check TOCTOU gap. Same
-      // rationale as the workspace guard above.
-      return { success: false, error: 'Account is being deleted or is otherwise unavailable; uploads are disabled' };
+      return { success: false, error: leaseFailureMessage(leased.error, 'Account') };
     }
-    return leased.result;
+    return leased.result!;
   }
 
   return doUpload();
+}
+
+/**
+ * Fifth corrective pass: `withOwnerWriteLease`'s failure has two distinct
+ * causes an operator/caller should be able to tell apart in logs/error
+ * responses — acquisition was refused (not 'active' right now — deleting,
+ * its row already purged, or its state couldn't be confirmed; see
+ * acquireOwnerWriteLease()'s doc comment / 187's migration header) versus
+ * the write itself completed but the lease covering it was lost partway
+ * through (see withOwnerWriteLease()'s own doc comment) — the write's
+ * actual disposition (landed or not) is unknown, and it's caught by
+ * deletion's reconciliation-grace verification instead, not by this
+ * response.
+ */
+function leaseFailureMessage(error: string | undefined, ownerNoun: 'Workspace' | 'Account'): string {
+  const subject = ownerNoun === 'Workspace' ? 'the workspace' : 'the account';
+  if (error === 'lease_lost_during_write') {
+    return `Upload could not be confirmed safe — the write lease for ${subject} was lost mid-operation; treat this upload as failed and retry`;
+  }
+  return `${ownerNoun} is being deleted or is otherwise unavailable; uploads are disabled`;
 }
 
 /**
@@ -1348,16 +1395,16 @@ export async function uploadWithConfigForOwner(
   if (owner.kind === 'workspace') {
     const leased = await withOwnerWriteLease(serverConfig, 'workspace', owner.workspaceId, 'upload_with_config', doUpload);
     if (!leased.ok) {
-      return { success: false, error: 'Workspace is being deleted or is otherwise unavailable; uploads are disabled' };
+      return { success: false, error: leaseFailureMessage(leased.error, 'Workspace') };
     }
-    return leased.result;
+    return leased.result!;
   }
   if (owner.kind === 'user') {
     const leased = await withOwnerWriteLease(serverConfig, 'user', owner.userId, 'upload_with_config', doUpload);
     if (!leased.ok) {
-      return { success: false, error: 'Account is being deleted or is otherwise unavailable; uploads are disabled' };
+      return { success: false, error: leaseFailureMessage(leased.error, 'Account') };
     }
-    return leased.result;
+    return leased.result!;
   }
 
   return doUpload();

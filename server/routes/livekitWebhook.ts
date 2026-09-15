@@ -88,6 +88,31 @@ function parseRoomMetadata(raw: string | undefined): {
   }
 }
 
+/**
+ * Fifth corrective pass, P0 #3: real Supabase/PostgREST resolves queries as
+ * `{ data, error }` — it does NOT throw on a failed write unless
+ * `.throwOnError()` is explicitly used. Every `await sb...` in this file is
+ * a thenable PostgREST builder, so an unchecked `await` silently swallows a
+ * failed UPDATE/INSERT: applyEvent() would keep going, return
+ * `{applied:true}`, and the webhook route would mark the event permanently
+ * processed even though (for example) `call_sessions.recording_state` never
+ * actually reached a terminal value — recreating the exact
+ * deletion-quiescence wedge workspaceDeletion/worker.ts's
+ * quiesceLiveKitEgress() depends on that column for. `mustDb` makes a
+ * failed PostgREST response behave exactly like a thrown exception: it
+ * throws, so the route's existing catch block (which marks the event
+ * retryable and returns non-2xx) actually fires.
+ */
+async function mustDb<T>(
+  result: { data: T; error: { message: string; code?: string } | null },
+  context: string,
+): Promise<T> {
+  if (result.error) {
+    throw new Error(`livekit_webhook_db_failed[${context}]: ${result.error.message}`);
+  }
+  return result.data;
+}
+
 /** Resolve a call session by either provider_room_id or metadata-embedded id. */
 async function resolveCallSession(
   config: ServerConfig,
@@ -130,13 +155,16 @@ export async function applyEvent(
   }
 
   const recordEvent = async (eventType: string, payload: Record<string, unknown> = {}) => {
-    await sb.from('call_events').insert({
-      call_session_id: session.id,
-      event_type: 'lk.' + eventType,
-      actor_type: 'internal',
-      actor_id: null,
-      payload: { ...payload, livekit_event_id: ev.id ?? null },
-    });
+    await mustDb(
+      await sb.from('call_events').insert({
+        call_session_id: session.id,
+        event_type: 'lk.' + eventType,
+        actor_type: 'internal',
+        actor_id: null,
+        payload: { ...payload, livekit_event_id: ev.id ?? null },
+      }),
+      `call_events.insert:${eventType}`,
+    );
   };
 
   switch (ev.event) {
@@ -165,10 +193,10 @@ export async function applyEvent(
       if (!(prev as { connected_at?: string | null } | null)?.connected_at) {
         patch.connected_at = startedIso;
       }
-      await sb
-        .from('call_sessions')
-        .update(patch)
-        .eq('id', session.id);
+      await mustDb(
+        await sb.from('call_sessions').update(patch).eq('id', session.id),
+        'call_sessions.update:room_started',
+      );
       await recordEvent('room_started', { sid: ev.room?.sid });
       return { applied: true };
     }
@@ -180,14 +208,17 @@ export async function applyEvent(
         .maybeSingle();
       const startedAt = cur?.started_at ? new Date(cur.started_at).getTime() : null;
       const duration = startedAt ? Math.round((Date.now() - startedAt) / 1000) : null;
-      await sb
-        .from('call_sessions')
-        .update({
-          state: 'ended',
-          ended_at: new Date().toISOString(),
-          ...(duration !== null ? { duration_seconds: duration } : {}),
-        })
-        .eq('id', session.id);
+      await mustDb(
+        await sb
+          .from('call_sessions')
+          .update({
+            state: 'ended',
+            ended_at: new Date().toISOString(),
+            ...(duration !== null ? { duration_seconds: duration } : {}),
+          })
+          .eq('id', session.id),
+        'call_sessions.update:room_finished',
+      );
       await recordEvent('room_finished', { sid: ev.room?.sid });
       // Phase 8D — release any operator availability locks tied to this session.
       try {
@@ -258,10 +289,10 @@ export async function applyEvent(
     case 'egress_started': {
       const egId = ev.egressInfo?.egressId;
       if (egId) {
-        await sb
-          .from('call_sessions')
-          .update({ recording_state: 'recording' })
-          .eq('id', session.id);
+        await mustDb(
+          await sb.from('call_sessions').update({ recording_state: 'recording' }).eq('id', session.id),
+          'call_sessions.update:egress_started',
+        );
         // Upsert by provider_recording_id when known.
         const { data: existing } = await sb
           .from('call_recordings')
@@ -296,22 +327,25 @@ export async function applyEvent(
             // Fall through with 'local' default — never block recording
             // ingest on provider resolution failure.
           }
-          await sb.from('call_recordings').insert({
-            call_session_id: session.id,
-            workspace_id: session.workspace_id,
-            provider: session.provider,
-            provider_recording_id: egId,
-            recording_type: 'composite',
-            storage_provider: resolvedProvider,
-            storage_path: '', // populated on egress_ended with file path
-            retention_policy: eff.days < 0 ? 'unlimited' : `${eff.days}d`,
-            retention_expires_at: retentionExpiresAt,
-            metadata: {
-              status: 'recording',
-              retention_source: eff.source,
-              storage_provider_source: 'workspace_effective',
-            },
-          });
+          await mustDb(
+            await sb.from('call_recordings').insert({
+              call_session_id: session.id,
+              workspace_id: session.workspace_id,
+              provider: session.provider,
+              provider_recording_id: egId,
+              recording_type: 'composite',
+              storage_provider: resolvedProvider,
+              storage_path: '', // populated on egress_ended with file path
+              retention_policy: eff.days < 0 ? 'unlimited' : `${eff.days}d`,
+              retention_expires_at: retentionExpiresAt,
+              metadata: {
+                status: 'recording',
+                retention_source: eff.source,
+                storage_provider_source: 'workspace_effective',
+              },
+            }),
+            'call_recordings.insert:egress_started',
+          );
         }
       }
       await recordEvent('egress_started', { egress_id: egId });
@@ -351,22 +385,35 @@ export async function applyEvent(
           isComplete = false;
         }
         if (Object.keys(patch).length || isComplete || isFailed) {
-          await sb
-            .from('call_recordings')
-            .update({
-              ...patch,
-              metadata: rejectedFilename
-                ? { status: 'rejected', error: 'untrusted_filename', reason: rejectedFilename }
-                : { status, error: ev.egressInfo?.error ?? null },
-            })
-            .eq('call_session_id', session.id)
-            .eq('provider_recording_id', egId);
+          await mustDb(
+            await sb
+              .from('call_recordings')
+              .update({
+                ...patch,
+                metadata: rejectedFilename
+                  ? { status: 'rejected', error: 'untrusted_filename', reason: rejectedFilename }
+                  : { status, error: ev.egressInfo?.error ?? null },
+              })
+              .eq('call_session_id', session.id)
+              .eq('provider_recording_id', egId),
+            'call_recordings.update:egress_ended',
+          );
         }
         if (isComplete || isFailed) {
-          await sb
-            .from('call_sessions')
-            .update({ recording_state: isFailed ? 'failed' : 'available' })
-            .eq('id', session.id);
+          // Fifth corrective pass, P0 #3: this write is THE terminal
+          // signal workspaceDeletion/worker.ts's quiesceLiveKitEgress()
+          // waits on. A silently-swallowed `{error}` here (unchecked
+          // `await`) would leave recording_state stuck non-terminal
+          // forever while the webhook route still marks the event
+          // processed and returns 200 — critical enough to throw on any
+          // failure rather than continue.
+          await mustDb(
+            await sb
+              .from('call_sessions')
+              .update({ recording_state: isFailed ? 'failed' : 'available' })
+              .eq('id', session.id),
+            'call_sessions.update:egress_ended_terminal',
+          );
         }
       }
       await recordEvent('egress_' + (isFailed ? 'failed' : isComplete ? 'ended' : 'updated'), {
@@ -451,11 +498,19 @@ livekitWebhookRouter.post(
     // this module's own doc comment).
     const sb = getServiceClient(config);
     const dedupKey = ev.id || expectedSha;
-    const { data: existingRow } = await sb
+    const { data: existingRow, error: existingRowError } = await sb
       .from('livekit_webhook_events')
       .select('id, processed_at, process_error')
       .eq('event_id', dedupKey)
       .maybeSingle();
+    if (existingRowError) {
+      // A transient failure on the dedup lookup itself must never be
+      // read as "no row yet" — that would fall through to the insert
+      // branch below and risk a spurious unique-violation race against a
+      // row that genuinely exists. Fail closed: non-2xx, LiveKit retries.
+      console.error('[livekit-webhook] dedup lookup failed:', existingRowError.message);
+      return res.status(500).json({ ok: false, error: 'dedup_lookup_failed' });
+    }
 
     const alreadyProcessed = !!existingRow && !!existingRow.processed_at && !existingRow.process_error;
     if (alreadyProcessed) {
@@ -472,8 +527,24 @@ livekitWebhookRouter.post(
       // genuinely concurrent duplicate delivery (racing this exact
       // insert, not a retry of a previously-failed attempt) backs off
       // instead of double-applying.
+      //
+      // Fifth corrective pass, P0 #3: real Supabase/PostgREST resolves
+      // this insert as `{ error }` rather than throwing — the previous
+      // try/catch here would never actually catch a unique-violation or
+      // any other DB failure in production, silently falling through as
+      // if the insert had succeeded. Explicitly inspect the error and
+      // differentiate: a unique violation on event_id (Postgres code
+      // 23505) is the genuine concurrent-duplicate race this branch is
+      // meant to catch — safe to treat as dedup. Any OTHER error (a
+      // transient DB failure, connection drop, etc.) is NOT a duplicate —
+      // treating it as one would silently drop an event that was never
+      // actually recorded or applied. The try/catch is kept as defense in
+      // depth for a genuine thrown exception (e.g. a network-level
+      // failure the client library does throw for), handled the same way
+      // as a non-unique-violation `{error}`: fail closed, non-2xx.
+      let insertError: { message: string; code?: string } | null = null;
       try {
-        await sb.from('livekit_webhook_events').insert({
+        const result = await sb.from('livekit_webhook_events').insert({
           event_id: dedupKey,
           event_type: ev.event,
           raw: ev as unknown as Record<string, unknown>,
@@ -482,18 +553,29 @@ livekitWebhookRouter.post(
           egress_id: ev.egressInfo?.egressId ?? null,
           signature_valid: true,
         });
-      } catch {
-        // Lost the insert race to a concurrent identical delivery — that
-        // request owns applying this event; back off rather than
-        // double-apply. If ITS apply fails, a later genuine LiveKit retry
-        // will find the row in a not-yet-processed state and reprocess,
-        // per the logic above.
-        emitCallMetric(config, {
-          metric: 'call.webhook.dedup',
-          provider: 'livekit',
-          extra: { event_type: ev.event, race: true },
-        });
-        return res.status(200).json({ ok: true, dedup: true });
+        insertError = result.error;
+      } catch (err: unknown) {
+        insertError = { message: err instanceof Error ? err.message : String(err) };
+      }
+      if (insertError) {
+        if (insertError.code === '23505') {
+          // Concurrent duplicate delivery — the request that landed
+          // first owns applying this event; back off rather than
+          // double-apply. If ITS apply fails, a later genuine LiveKit
+          // retry will find the row in a not-yet-processed state and
+          // reprocess, per the logic above.
+          emitCallMetric(config, {
+            metric: 'call.webhook.dedup',
+            provider: 'livekit',
+            extra: { event_type: ev.event, race: true },
+          });
+          return res.status(200).json({ ok: true, dedup: true });
+        }
+        // A transient/genuine DB failure, NOT a duplicate — this event
+        // was never recorded, so it must remain retryable rather than
+        // being silently swallowed as if deduped.
+        console.error('[livekit-webhook] dedup insert failed:', insertError.message);
+        return res.status(500).json({ ok: false, error: 'dedup_insert_failed' });
       }
     }
     // else: existingRow is present but not yet successfully processed —

@@ -45,10 +45,15 @@ const WS_A = '11111111-1111-1111-1111-111111111111';
 const JOB_1 = '77777777-7777-7777-7777-777777777771';
 const ACTOR = '99999999-9999-9999-9999-999999999999';
 
-const { runScopeCleanupTickMock, workspaceStorageScopesMock, stopRecordingMock } = vi.hoisted(() => ({
+const { runScopeCleanupTickMock, workspaceStorageScopesMock, stopRecordingMock, findActiveEgressForRoomMock } = vi.hoisted(() => ({
   runScopeCleanupTickMock: vi.fn<(ctx: ScopeCleanupContext) => Promise<ScopeCleanupOutcome>>(),
   workspaceStorageScopesMock: vi.fn<(config: unknown, workspaceId: string) => WorkspaceStorageScope[]>(),
   stopRecordingMock: vi.fn<(config: unknown, recordingId: string) => Promise<{ recordingId: string; status: string }>>(),
+  // Fifth corrective pass, P0: provider-side discovery for a call_session
+  // stuck with no recording_id in metadata — mocked so its outcome
+  // (found active egress(es) / confirmed none / unreachable) is
+  // controllable without a real LiveKit connection.
+  findActiveEgressForRoomMock: vi.fn<(config: unknown, roomName: string) => Promise<Array<{ egressId: string; status: string }>>>(),
 }));
 
 // worker.ts no longer talks to storage/index.js directly for listing/
@@ -71,6 +76,7 @@ vi.mock('../../../server/services/storage/workspaceScopes.js', () => ({
 // without a real LiveKit connection.
 vi.mock('../../../server/services/calls/providers/livekitProvider.js', () => ({
   livekitProvider: { stopRecording: stopRecordingMock },
+  findActiveEgressForRoom: findActiveEgressForRoomMock,
 }));
 
 type Row = Record<string, unknown>;
@@ -193,6 +199,21 @@ async function rpc(fn: string, args: Record<string, unknown>): Promise<RpcRespon
 
   if (fn === 'admin_delete_workspace') return adminDeleteResponse;
 
+  if (fn === 'has_active_owner_write_leases') {
+    // Mirrors 188_owner_write_lease_hardening.sql's DB-time,
+    // grace-extended comparison — a lease keeps counting as active
+    // until `lease_expires_at + reconciliation_grace_seconds`, not just
+    // `lease_expires_at`.
+    const ownerKind = args._owner_kind as string;
+    const ownerId = args._owner_id as string;
+    const graceSeconds = typeof args._reconciliation_grace_seconds === 'number' ? args._reconciliation_grace_seconds : 600;
+    const rows = (db.owner_write_leases || []) as Row[];
+    const nowMs = Date.now();
+    const active = rows.some((r) => r.owner_kind === ownerKind && r.owner_id === ownerId
+      && new Date(r.lease_expires_at as string).getTime() + graceSeconds * 1000 > nowMs);
+    return { data: { ok: true, active }, error: null };
+  }
+
   return { data: null, error: null };
 }
 
@@ -242,6 +263,8 @@ beforeEach(() => {
   workspaceStorageScopesMock.mockReset();
   workspaceStorageScopesMock.mockReturnValue([]);
   stopRecordingMock.mockReset();
+  findActiveEgressForRoomMock.mockReset();
+  findActiveEgressForRoomMock.mockResolvedValue([]);
   rpcCalls.length = 0;
   claimResponseOverride = null;
   renewResponseOverride = null;
@@ -254,6 +277,7 @@ function callSessionRow(overrides: Partial<Row> = {}): Row {
     id: 'cs-1',
     workspace_id: WS_A,
     provider: 'livekit',
+    provider_room_id: 'room-1',
     recording_state: 'recording',
     metadata: { recording: { recording_id: 'egress-1' } },
     ...overrides,
@@ -482,8 +506,63 @@ describe('runStorageCleanup — LiveKit Egress quiescence (third corrective pass
     expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
   });
 
-  it('a call_session with a non-terminal recording_state but no recoverable LiveKit recording id in metadata fails the tick (retryable) rather than silently proceeding — storage cleanup never runs', async () => {
+  it('a call_session with a non-terminal recording_state, no recoverable LiveKit recording id in metadata, AND no provider_room_id fails the tick (retryable) rather than silently proceeding — storage cleanup never runs', async () => {
+    // Cannot even ATTEMPT provider-side discovery without a room to ask
+    // LiveKit about — this is the one case fifth-pass reconciliation
+    // cannot resolve, and it must still fail loudly and retryably.
+    db.call_sessions = [callSessionRow({ recording_state: 'recording', metadata: {}, provider_room_id: null })];
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup', attempt_count: 0 })];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup', attempt_count: 0 }));
+
+    expect(stopRecordingMock).not.toHaveBeenCalled();
+    expect(findActiveEgressForRoomMock).not.toHaveBeenCalled();
+    expect(runScopeCleanupTickMock).not.toHaveBeenCalled();
+    const row = currentJobRow();
+    expect(row.status).toBe('storage_cleanup'); // retry path, never advances and never purges
+    expect(row.attempt_count).toBe(1);
+    expect(row.error_message).toMatch(/no provider_room_id/);
+  });
+
+  it('a call_session with a non-terminal recording_state and no recoverable recording id, but WITH a provider_room_id: provider-side discovery finds nothing active — resolved as terminal (available), storage cleanup still waits this same tick, and the job is not counted as a failed attempt', async () => {
+    db.call_sessions = [callSessionRow({ recording_state: 'recording', metadata: {} })]; // default provider_room_id: 'room-1'
+    findActiveEgressForRoomMock.mockResolvedValueOnce([]);
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup', attempt_count: 0 })];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup', attempt_count: 0 }));
+
+    expect(findActiveEgressForRoomMock).toHaveBeenCalledWith({}, 'room-1');
+    expect(stopRecordingMock).not.toHaveBeenCalled();
+    expect(runScopeCleanupTickMock).not.toHaveBeenCalled(); // resolved via discovery this tick — never trust storage on the same tick a row was just resolved
+    expect((db.call_sessions[0] as Row).recording_state).toBe('available');
+    const row = currentJobRow();
+    expect(row.status).toBe('storage_cleanup'); // not a failure — released and waits for the next tick
+    expect(row.attempt_count).toBe(0);
+    expect(row.error_message).toBeNull();
+  });
+
+  it('a call_session with a non-terminal recording_state and no recoverable recording id, but WITH a provider_room_id: provider-side discovery finds an active egress — its id is persisted, it is stopped, and the row is marked finalizing (never immediately trusted)', async () => {
     db.call_sessions = [callSessionRow({ recording_state: 'recording', metadata: {} })];
+    findActiveEgressForRoomMock.mockResolvedValueOnce([{ egressId: 'egress-discovered', status: 'active' }]);
+    stopRecordingMock.mockResolvedValueOnce({ recordingId: 'egress-discovered', status: 'finalizing' });
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup', attempt_count: 0 })];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup', attempt_count: 0 }));
+
+    expect(findActiveEgressForRoomMock).toHaveBeenCalledWith({}, 'room-1');
+    expect(stopRecordingMock).toHaveBeenCalledWith({}, 'egress-discovered');
+    expect(runScopeCleanupTickMock).not.toHaveBeenCalled();
+    const call = db.call_sessions[0] as Row;
+    expect(call.recording_state).toBe('finalizing');
+    expect((call.metadata as Row).recording).toMatchObject({ recording_id: 'egress-discovered' });
+    const row = currentJobRow();
+    expect(row.status).toBe('storage_cleanup');
+    expect(row.attempt_count).toBe(0); // discovering and stopping a real egress is not a job failure
+  });
+
+  it('provider-side discovery itself failing (LiveKit unreachable) is a retryable job error — never silently treated as "nothing active"', async () => {
+    db.call_sessions = [callSessionRow({ recording_state: 'recording', metadata: {} })];
+    findActiveEgressForRoomMock.mockRejectedValueOnce(new Error('livekit_list_egress_unreachable'));
     db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup', attempt_count: 0 })];
 
     await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup', attempt_count: 0 }));
@@ -491,9 +570,9 @@ describe('runStorageCleanup — LiveKit Egress quiescence (third corrective pass
     expect(stopRecordingMock).not.toHaveBeenCalled();
     expect(runScopeCleanupTickMock).not.toHaveBeenCalled();
     const row = currentJobRow();
-    expect(row.status).toBe('storage_cleanup'); // retry path, never advances and never purges
+    expect(row.status).toBe('storage_cleanup');
     expect(row.attempt_count).toBe(1);
-    expect(row.error_message).toMatch(/cannot confirm Egress is stopped/);
+    expect(row.error_message).toMatch(/livekit_list_egress_unreachable/);
   });
 
   it('Egress shutdown failure prevents DB purge: a stopRecording() failure is a retryable job error, never treated as quiescent, and storage cleanup does not run that tick', async () => {
@@ -563,14 +642,26 @@ describe('runStorageCleanup — owner write lease drain (fourth corrective pass,
     expect(row.lease_expires_at).toBeNull();
   });
 
-  it('an EXPIRED owner_write_lease (crashed producer) does not block — a crash never wedges deletion forever', async () => {
+  it('a lease expired well beyond the reconciliation grace period (600s) does not block — a crash never wedges deletion forever', async () => {
     runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'progress' });
-    db.owner_write_leases = [ownerWriteLeaseRow({ lease_expires_at: new Date(Date.now() - 60_000).toISOString() })];
+    db.owner_write_leases = [ownerWriteLeaseRow({ lease_expires_at: new Date(Date.now() - 700_000).toISOString() })];
     db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup' })];
 
     await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup' }));
 
     expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('MANDATORY: a lease that only JUST passed its nominal expiry (well within the 600s reconciliation grace period) still blocks the tick — nominal expiry alone is never proof the write has stopped', async () => {
+    db.owner_write_leases = [ownerWriteLeaseRow({ lease_expires_at: new Date(Date.now() - 60_000).toISOString() })];
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup', attempt_count: 0 })];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup', attempt_count: 0 }));
+
+    expect(runScopeCleanupTickMock).not.toHaveBeenCalled();
+    const row = currentJobRow();
+    expect(row.status).toBe('storage_cleanup');
+    expect(row.attempt_count).toBe(0);
   });
 
   it('an owner_write_lease for a DIFFERENT workspace never blocks this one', async () => {

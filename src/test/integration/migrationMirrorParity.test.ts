@@ -235,6 +235,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/187_owner_write_leases.sql',
     hosted: 'supabase/migrations/20260916090000_owner_write_leases.sql',
   },
+  {
+    label: '188 — Owner write lease hardening (no expired-lease renewal, DB-time-based active check with reconciliation grace)',
+    selfHost: 'database/migrations/188_owner_write_lease_hardening.sql',
+    hosted: 'supabase/migrations/20260916091000_owner_write_lease_hardening.sql',
+  },
 
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered

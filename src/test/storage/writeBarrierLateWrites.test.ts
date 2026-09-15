@@ -61,10 +61,16 @@ interface LeaseRow {
   expiresAtMs: number;
 }
 
-const { workspaceFixtures, userFixtures, activeLeases } = vi.hoisted(() => ({
+const { workspaceFixtures, userFixtures, activeLeases, rpcCallLog, renewShouldFail } = vi.hoisted(() => ({
   workspaceFixtures: new Map<string, WorkspaceFixture>(),
   userFixtures: new Map<string, UserFixture>(),
   activeLeases: [] as LeaseRow[],
+  rpcCallLog: [] as Array<{ fn: string; args: Record<string, unknown> }>,
+  // Toggled by the "heartbeat renewals fail while the write is still
+  // blocked" test to simulate a producer that lost DB connectivity —
+  // renew_owner_write_lease then fails WITHOUT extending expiresAtMs,
+  // exactly like a real transient DB error would.
+  renewShouldFail: { current: false },
 }));
 
 let leaseCounter = 0;
@@ -83,6 +89,7 @@ let leaseCounter = 0;
  * released, using the real production functions on both sides.
  */
 async function rpc(fn: string, args: Record<string, unknown>): Promise<{ data: unknown; error: unknown }> {
+  rpcCallLog.push({ fn, args });
   if (fn === 'acquire_owner_write_lease') {
     const ownerKind = args._owner_kind as string;
     const ownerId = args._owner_id as string;
@@ -105,8 +112,18 @@ async function rpc(fn: string, args: Record<string, unknown>): Promise<{ data: u
     return { data: { ok: true, lease_id: lease.id, lease_token: lease.token, lease_expires_at: new Date(lease.expiresAtMs).toISOString() }, error: null };
   }
   if (fn === 'renew_owner_write_lease') {
+    if (renewShouldFail.current) {
+      // Simulates a transient DB failure at heartbeat time — the lease
+      // row itself is untouched (no extension), exactly like a real
+      // failed renew_owner_write_lease() RPC call would leave it.
+      return { data: { ok: false, error: 'transient_db_failure' }, error: null };
+    }
+    // Fifth corrective pass, P0: mirrors 188's hardened
+    // renew_owner_write_lease() — a renewal arriving after the lease's
+    // OWN nominal expiry must never resurrect it.
     const lease = activeLeases.find((l) => l.id === args._lease_id && l.token === args._lease_token);
     if (!lease) return { data: { ok: false, error: 'lease_not_found' }, error: null };
+    if (lease.expiresAtMs <= Date.now()) return { data: { ok: false, error: 'lease_expired' }, error: null };
     const leaseSeconds = typeof args._lease_seconds === 'number' ? args._lease_seconds : 120;
     lease.expiresAtMs = Date.now() + leaseSeconds * 1000;
     return { data: { ok: true, lease_expires_at: new Date(lease.expiresAtMs).toISOString() }, error: null };
@@ -115,6 +132,16 @@ async function rpc(fn: string, args: Record<string, unknown>): Promise<{ data: u
     const idx = activeLeases.findIndex((l) => l.id === args._lease_id && l.token === args._lease_token);
     if (idx >= 0) activeLeases.splice(idx, 1);
     return { data: { ok: true }, error: null };
+  }
+  if (fn === 'has_active_owner_write_leases') {
+    // Fifth corrective pass, P0: mirrors 188's DB-time, grace-extended
+    // has_active_owner_write_leases() — a lease keeps counting as active
+    // until `expiresAtMs + graceSeconds`, not just `expiresAtMs`.
+    const ownerKind = args._owner_kind as string;
+    const ownerId = args._owner_id as string;
+    const graceSeconds = typeof args._reconciliation_grace_seconds === 'number' ? args._reconciliation_grace_seconds : 600;
+    const active = activeLeases.some((l) => l.ownerKind === ownerKind && l.ownerId === ownerId && l.expiresAtMs + graceSeconds * 1000 > Date.now());
+    return { data: { ok: true, active }, error: null };
   }
   return { data: null, error: null };
 }
@@ -216,6 +243,8 @@ beforeEach(() => {
   workspaceFixtures.clear();
   userFixtures.clear();
   activeLeases.length = 0;
+  rpcCallLog.length = 0;
+  renewShouldFail.current = false;
   workspaceFixtures.set(WS_ACTIVE, { status: 'active' });
   workspaceFixtures.set(WS_DELETING, { status: 'deleting' });
   workspaceFixtures.set(WS_MISSING, { missing: true });
@@ -573,18 +602,71 @@ describe('delayed-write race — the lease is held for the FULL duration of the 
     ).rejects.toThrow('provider_put_failed');
     expect(await hasActiveOwnerWriteLeases({} as never, 'workspace', WS_ACTIVE)).toBe(false);
   });
+
+  it('MANDATORY: heartbeat DB calls begin failing while the external write is still blocked/running and the lease\'s nominal expiration passes — deletion (hasActiveOwnerWriteLeases) MUST NOT report clear at any point, and the write is reported as unsafe once it finally resolves', async () => {
+    const { withOwnerWriteLease, hasActiveOwnerWriteLeases } = await import('../../../server/services/storage/writerLease');
+
+    vi.useFakeTimers();
+    try {
+      let finishWrite!: () => void;
+      const blockedWrite = new Promise<void>((resolve) => { finishWrite = resolve; });
+      const call = withOwnerWriteLease({} as never, 'workspace', WS_ACTIVE, 'upload', async () => { await blockedWrite; return 'landed'; });
+      await vi.advanceTimersByTimeAsync(0); // let acquisition settle
+
+      // Deletion would find this lease outstanding right now.
+      expect(await hasActiveOwnerWriteLeases({} as never, 'workspace', WS_ACTIVE)).toBe(true);
+
+      // DB connectivity is lost — every heartbeat renewal from here on
+      // fails, but the external provider PUT (the still-blocked `fn`
+      // above) keeps running regardless; it has no idea the lease is in
+      // trouble.
+      renewShouldFail.current = true;
+
+      // Advance well past the lease's nominal 120s TTL (four missed
+      // 30s heartbeats) — the write is STILL running the whole time.
+      await vi.advanceTimersByTimeAsync(130_000);
+
+      // The lease is now past its nominal expiry with zero successful
+      // renewals — but deletion must STILL see it as blocking, because
+      // 130s is nowhere near the 600s reconciliation grace period.
+      expect(await hasActiveOwnerWriteLeases({} as never, 'workspace', WS_ACTIVE)).toBe(true);
+
+      // The write finally completes.
+      finishWrite();
+      const result = await call;
+
+      // A producer that lost its lease mid-write must never report
+      // success, even though `fn` itself resolved normally — it cannot
+      // prove the write was safe to trust.
+      expect(result).toEqual(expect.objectContaining({ ok: false, error: 'lease_lost_during_write' }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
-describe('lease expiry — a crashed producer never wedges deletion forever', () => {
-  it('a lease row left behind by a crashed process (never released) stops counting as active once its lease_expires_at has passed', async () => {
+describe('lease expiry — a crashed producer never wedges deletion forever, but an expired lease is not IMMEDIATELY proof-of-safety either', () => {
+  it('MANDATORY: a lease that JUST passed its nominal expiry (crashed producer, heartbeat stopped) still counts as active — an expired-but-recent lease must not be treated as proof the external write has stopped', async () => {
     const { hasActiveOwnerWriteLeases } = await import('../../../server/services/storage/writerLease');
 
-    // Simulate a process that acquired a lease and then crashed before its
-    // `finally` ever ran — the row is never released, but it DOES expire.
+    // Simulate a process that acquired a lease and then lost DB
+    // connectivity (heartbeat renewals stopped) or crashed before its
+    // `finally` ever ran — the row is never released, and its nominal
+    // expiry has JUST passed. The external S3/Bunny PUT it was covering
+    // is entirely independent of this lease's DB bookkeeping and could
+    // still be landing bytes right now — fifth corrective pass, P0.
     activeLeases.push({ id: 'crashed-lease', token: 'tok', ownerKind: 'workspace', ownerId: WS_ACTIVE, expiresAtMs: Date.now() - 1_000 });
 
-    // A deletion worker checking now must NOT wait forever on a lease
-    // that will never be released — only UNEXPIRED leases count.
+    // A deletion worker checking now must STILL wait — nominal expiry
+    // alone proves nothing about whether the write actually stopped.
+    expect(await hasActiveOwnerWriteLeases({} as never, 'workspace', WS_ACTIVE)).toBe(true);
+  });
+
+  it('a lease expired well beyond the reconciliation grace period (600s) — long enough that the write it covered is GUARANTEED to have completed or been aborted by its own hard timeout — finally stops counting as active', async () => {
+    const { hasActiveOwnerWriteLeases } = await import('../../../server/services/storage/writerLease');
+
+    activeLeases.push({ id: 'long-dead-lease', token: 'tok', ownerKind: 'workspace', ownerId: WS_ACTIVE, expiresAtMs: Date.now() - 700_000 });
+
     expect(await hasActiveOwnerWriteLeases({} as never, 'workspace', WS_ACTIVE)).toBe(false);
   });
 
@@ -594,6 +676,65 @@ describe('lease expiry — a crashed producer never wedges deletion forever', ()
     activeLeases.push({ id: 'about-to-expire', token: 'tok', ownerKind: 'user', ownerId: USER_ACTIVE, expiresAtMs: Date.now() + 5_000 });
 
     expect(await hasActiveOwnerWriteLeases({} as never, 'user', USER_ACTIVE)).toBe(true);
+  });
+
+  it('MANDATORY: a delayed renewal call arriving AFTER the lease has already expired cannot resurrect it', async () => {
+    const { renewOwnerWriteLease } = await import('../../../server/services/storage/writerLease');
+
+    activeLeases.push({ id: 'delayed-renew', token: 'tok', ownerKind: 'workspace', ownerId: WS_ACTIVE, expiresAtMs: Date.now() - 500 });
+
+    const renewed = await renewOwnerWriteLease({} as never, 'delayed-renew', 'tok', 120);
+
+    expect(renewed).toBe(false);
+    // Not just a false return — the row itself must still show the
+    // ORIGINAL (past) expiry, never a fresh extension.
+    const row = activeLeases.find((l) => l.id === 'delayed-renew')!;
+    expect(row.expiresAtMs).toBeLessThan(Date.now());
+  });
+
+  it('MANDATORY: the active-lease safety decision is made entirely by the DB — the client never sends an app-computed timestamp for has_active_owner_write_leases to compare against', async () => {
+    const { hasActiveOwnerWriteLeases } = await import('../../../server/services/storage/writerLease');
+
+    await hasActiveOwnerWriteLeases({} as never, 'workspace', WS_ACTIVE);
+
+    const call = rpcCallLog.find((c) => c.fn === 'has_active_owner_write_leases');
+    expect(call).toBeTruthy();
+    // Only owner identity and a plain, pre-agreed grace-period NUMBER
+    // (not a "now" timestamp) ever leave the app server for this
+    // decision — an app-server/Postgres clock skew (however large) has
+    // nothing to act on, because the app never asserts what time it is;
+    // 188_owner_write_lease_hardening.sql's has_active_owner_write_leases()
+    // computes `now()` entirely inside Postgres.
+    expect(Object.keys(call!.args).sort()).toEqual(['_owner_id', '_owner_kind', '_reconciliation_grace_seconds']);
+    expect(typeof call!.args._reconciliation_grace_seconds).toBe('number');
+  });
+
+  it('an application clock skewed 5 minutes ahead of (or behind) real time cannot change the lease-safety result — Date.now() on the app server is faked, but the RPC args sent (and therefore the DB-side result) are provably unaffected', async () => {
+    activeLeases.push({ id: 'skew-test', token: 'tok', ownerKind: 'workspace', ownerId: WS_ACTIVE, expiresAtMs: Date.now() - 700_000 });
+    const { hasActiveOwnerWriteLeases } = await import('../../../server/services/storage/writerLease');
+
+    // Faking the app server's clock must not change what's sent to the
+    // DB (still just owner identity + a fixed grace-second count, per the
+    // test above) — proving the app-side result can only diverge from
+    // the DB's real answer if the MOCK itself is buggy enough to also
+    // evaluate Date.now() at call time (this in-process mock does, purely
+    // as a stand-in for Postgres's `now()` — a real Postgres backend has
+    // its own independent clock entirely, already exercised live for
+    // 188_owner_write_lease_hardening.sql in this pass).
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.now() + 5 * 60_000);
+      await hasActiveOwnerWriteLeases({} as never, 'workspace', WS_ACTIVE);
+      vi.setSystemTime(Date.now() - 10 * 60_000);
+      await hasActiveOwnerWriteLeases({} as never, 'workspace', WS_ACTIVE);
+    } finally {
+      vi.useRealTimers();
+    }
+    const calls = rpcCallLog.filter((c) => c.fn === 'has_active_owner_write_leases');
+    expect(calls).toHaveLength(2);
+    for (const c of calls) {
+      expect(Object.keys(c.args).sort()).toEqual(['_owner_id', '_owner_kind', '_reconciliation_grace_seconds']);
+    }
   });
 });
 

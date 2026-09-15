@@ -10100,6 +10100,39 @@ export type Database = {
         }
         Relationships: []
       }
+      owner_write_leases: {
+        Row: {
+          created_at: string
+          heartbeat_at: string | null
+          id: string
+          lease_expires_at: string
+          lease_token: string
+          owner_id: string
+          owner_kind: string
+          purpose: string
+        }
+        Insert: {
+          created_at?: string
+          heartbeat_at?: string | null
+          id?: string
+          lease_expires_at: string
+          lease_token?: string
+          owner_id: string
+          owner_kind: string
+          purpose: string
+        }
+        Update: {
+          created_at?: string
+          heartbeat_at?: string | null
+          id?: string
+          lease_expires_at?: string
+          lease_token?: string
+          owner_id?: string
+          owner_kind?: string
+          purpose?: string
+        }
+        Relationships: []
+      }
       phone_verification_challenges: {
         Row: {
           attempt_count: number
@@ -14142,6 +14175,72 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      user_deletion_jobs: {
+        Row: {
+          attempt_count: number
+          avatar_cleanup_done: boolean
+          completed_at: string | null
+          error_message: string | null
+          id: string
+          lease_expires_at: string | null
+          locked_by: string | null
+          next_retry_at: string | null
+          purge_result: Json | null
+          requested_at: string
+          requested_by: string
+          retried_at: string | null
+          retried_by: string | null
+          started_at: string | null
+          status: string
+          storage_scopes: Json
+          user_email: string | null
+          user_id: string
+          workspace_ids: string[]
+        }
+        Insert: {
+          attempt_count?: number
+          avatar_cleanup_done?: boolean
+          completed_at?: string | null
+          error_message?: string | null
+          id?: string
+          lease_expires_at?: string | null
+          locked_by?: string | null
+          next_retry_at?: string | null
+          purge_result?: Json | null
+          requested_at?: string
+          requested_by: string
+          retried_at?: string | null
+          retried_by?: string | null
+          started_at?: string | null
+          status?: string
+          storage_scopes?: Json
+          user_email?: string | null
+          user_id: string
+          workspace_ids?: string[]
+        }
+        Update: {
+          attempt_count?: number
+          avatar_cleanup_done?: boolean
+          completed_at?: string | null
+          error_message?: string | null
+          id?: string
+          lease_expires_at?: string | null
+          locked_by?: string | null
+          next_retry_at?: string | null
+          purge_result?: Json | null
+          requested_at?: string
+          requested_by?: string
+          retried_at?: string | null
+          retried_by?: string | null
+          started_at?: string | null
+          status?: string
+          storage_scopes?: Json
+          user_email?: string | null
+          user_id?: string
+          workspace_ids?: string[]
+        }
+        Relationships: []
       }
       user_notification_prefs: {
         Row: {
@@ -18431,6 +18530,15 @@ export type Database = {
         Args: { _all_except?: string; _session_id?: string; _user_id: string }
         Returns: number
       }
+      acquire_owner_write_lease: {
+        Args: {
+          _lease_seconds?: number
+          _owner_id: string
+          _owner_kind: string
+          _purpose: string
+        }
+        Returns: Json
+      }
       activate_auto_actions: { Args: never; Returns: Json }
       admin_apply_schema: {
         Args: { _actor_user_id: string; _statements: Json }
@@ -19834,6 +19942,14 @@ export type Database = {
         Args: { _limit: number }
         Returns: number
       }
+      has_active_owner_write_leases: {
+        Args: {
+          _owner_id: string
+          _owner_kind: string
+          _reconciliation_grace_seconds?: number
+        }
+        Returns: Json
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -20132,6 +20248,18 @@ export type Database = {
       release_channel_provider_account: {
         Args: { _integration_id: string }
         Returns: undefined
+      }
+      release_owner_write_lease: {
+        Args: { _lease_id: string; _lease_token: string }
+        Returns: Json
+      }
+      renew_owner_write_lease: {
+        Args: {
+          _lease_id: string
+          _lease_seconds?: number
+          _lease_token: string
+        }
+        Returns: Json
       }
       resend_invitation_email_v2: {
         Args: {

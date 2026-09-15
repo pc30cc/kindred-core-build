@@ -34,7 +34,11 @@ import {
   LiveKitTwirpError,
 } from '../livekitTwirp.js';
 import { callRecordingKey } from '../../storage/keys.js';
-import { isWorkspaceWritable } from '../../storage/index.js';
+import { acquireOwnerWriteLease, releaseOwnerWriteLease } from '../../storage/writerLease.js';
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 interface ResolvedLk {
   baseUrl: string;
@@ -360,86 +364,129 @@ export const livekitProvider: CallProvider = {
   },
 
   async startRecording(config, providerRoomId, opts): Promise<RecordingHandle> {
-    // Second corrective pass, P0: LiveKit Egress writes recordings
-    // DIRECTLY to recording_storage — never through this module's own
-    // upload handlers — so the workspace-deletion write lock
-    // (server/services/storage/index.ts's isWorkspaceWritable) has to be
-    // checked HERE, before ever instructing Egress to start, or a NEW
-    // recording could be started after deletion began. This only blocks
-    // NEW recordings — an Egress already running when deletion began is
-    // separately quiesced (stopped and awaited) by
-    // server/services/workspaceDeletion/worker.ts before it trusts the
-    // livekit_recording scope's storage listing at all (third corrective
-    // pass) — that's the piece that actually prevents an ALREADY-RUNNING
-    // recording from finalizing and uploading after cleanup.
-    if (!(await isWorkspaceWritable(config, opts.workspaceId))) {
+    // Fourth corrective pass, P0: a point-in-time isWorkspaceWritable()
+    // check (third pass) still left a TOCTOU gap — deletion could begin
+    // in the window between that check returning true and
+    // StartRoomCompositeEgress actually completing, and workspaceDeletion/
+    // worker.ts's quiesce step had nothing to find (no call_sessions row
+    // yet says Egress is running) until this function's caller persisted
+    // it, well after the external write had already started. An
+    // owner_write_lease (writerLease.ts) closes this: acquisition is
+    // atomic with the SAME writability check (187_owner_write_leases.sql),
+    // and the lease is held through BOTH the Egress start call AND the
+    // caller's durable persistence of recording_id/recording_state (via
+    // `opts.onStarted`, called below while still holding the lease) —
+    // not just released the instant this function returns. A deletion
+    // worker that starts while this lease is outstanding sees it and
+    // waits before ever running quiesceLiveKitEgress() or touching any
+    // storage scope — see workspaceDeletion/worker.ts's doc comment.
+    const lease = await acquireOwnerWriteLease(config, 'workspace', opts.workspaceId, 'livekit_recording_start');
+    if (!lease.ok || !lease.leaseId || !lease.leaseToken) {
       throw new CallProviderNotReadyError('livekit', 'Workspace is being deleted; recording is disabled.');
     }
+    const leaseId = lease.leaseId;
+    const leaseToken = lease.leaseToken;
+    let releaseLeaseNow = true;
 
-    const { baseUrl, apiKey, apiSecret } = await resolveLk(config);
-    const cfg = await loadLiveKitConfig(config);
-    if (!cfg.egress_enabled) {
-      throw new CallProviderNotReadyError('livekit', 'LiveKit egress is disabled in config.');
-    }
-    const storage = cfg.recording_storage;
-    if (!storage.bucket || !storage.access_key || !storage.secret_key) {
-      throw new CallProviderNotReadyError(
-        'livekit',
-        'LiveKit recording storage (bucket / access_key / secret_key) is not configured.',
-      );
-    }
-    // S3 / S3-compatible output. LiveKit Egress accepts the same fields for
-    // any provider (R2, MinIO, etc.) by setting `endpoint` and `force_path_style`.
-    // Canonical workspace-scoped key — see docs/STORAGE_ARCHITECTURE_AUDIT.md
-    // §11. The webhook validates the filename LiveKit actually reports
-    // against this same prefix before it's ever persisted (fail closed).
-    const filepath = callRecordingKey({
-      workspaceId: opts.workspaceId,
-      callSessionId: opts.callSessionId,
-      fileName: `${Date.now()}.mp4`,
-    });
-    const body: Record<string, unknown> = {
-      room_name: providerRoomId,
-      file_outputs: [
-        {
-          file_type: 'MP4',
-          filepath,
-          s3: {
-            access_key: storage.access_key,
-            secret: storage.secret_key,
-            bucket: storage.bucket,
-            region: storage.region ?? '',
-            ...(storage.endpoint ? { endpoint: storage.endpoint } : {}),
-            ...(storage.force_path_style ? { force_path_style: true } : {}),
-          },
-        },
-      ],
-      // Composite layout is the LiveKit default; we only ship composite in 8B.
-      layout: opts.recordingType === 'audio_only' ? 'audio-only' : 'speaker',
-      audio_only: opts.recordingType === 'audio_only',
-    };
     try {
-      const result = await twirp<{ egress_id?: string; status?: string }>({
-        baseUrl: cfg.egress_url || baseUrl,
-        apiKey,
-        apiSecret,
-        service: 'livekit.Egress',
-        method: 'StartRoomCompositeEgress',
-        body,
-        room: providerRoomId,
-      });
-      return {
-        recordingId: result.egress_id || ('egr_' + Date.now().toString(36)),
-        status: result.status === 'EGRESS_ACTIVE' ? 'recording' : 'pending',
-      };
-    } catch (err) {
-      if (err instanceof LiveKitTwirpError) {
+      const { baseUrl, apiKey, apiSecret } = await resolveLk(config);
+      const cfg = await loadLiveKitConfig(config);
+      if (!cfg.egress_enabled) {
+        throw new CallProviderNotReadyError('livekit', 'LiveKit egress is disabled in config.');
+      }
+      const storage = cfg.recording_storage;
+      if (!storage.bucket || !storage.access_key || !storage.secret_key) {
         throw new CallProviderNotReadyError(
           'livekit',
-          'LiveKit StartRoomCompositeEgress failed: ' + err.code + ' / ' + err.message,
+          'LiveKit recording storage (bucket / access_key / secret_key) is not configured.',
         );
       }
-      throw err;
+      // S3 / S3-compatible output. LiveKit Egress accepts the same fields for
+      // any provider (R2, MinIO, etc.) by setting `endpoint` and `force_path_style`.
+      // Canonical workspace-scoped key — see docs/STORAGE_ARCHITECTURE_AUDIT.md
+      // §11. The webhook validates the filename LiveKit actually reports
+      // against this same prefix before it's ever persisted (fail closed).
+      const filepath = callRecordingKey({
+        workspaceId: opts.workspaceId,
+        callSessionId: opts.callSessionId,
+        fileName: `${Date.now()}.mp4`,
+      });
+      const body: Record<string, unknown> = {
+        room_name: providerRoomId,
+        file_outputs: [
+          {
+            file_type: 'MP4',
+            filepath,
+            s3: {
+              access_key: storage.access_key,
+              secret: storage.secret_key,
+              bucket: storage.bucket,
+              region: storage.region ?? '',
+              ...(storage.endpoint ? { endpoint: storage.endpoint } : {}),
+              ...(storage.force_path_style ? { force_path_style: true } : {}),
+            },
+          },
+        ],
+        // Composite layout is the LiveKit default; we only ship composite in 8B.
+        layout: opts.recordingType === 'audio_only' ? 'audio-only' : 'speaker',
+        audio_only: opts.recordingType === 'audio_only',
+      };
+      let handle: RecordingHandle;
+      try {
+        const result = await twirp<{ egress_id?: string; status?: string }>({
+          baseUrl: cfg.egress_url || baseUrl,
+          apiKey,
+          apiSecret,
+          service: 'livekit.Egress',
+          method: 'StartRoomCompositeEgress',
+          body,
+          room: providerRoomId,
+        });
+        handle = {
+          recordingId: result.egress_id || ('egr_' + Date.now().toString(36)),
+          status: result.status === 'EGRESS_ACTIVE' ? 'recording' : 'pending',
+        };
+      } catch (err) {
+        if (err instanceof LiveKitTwirpError) {
+          throw new CallProviderNotReadyError(
+            'livekit',
+            'LiveKit StartRoomCompositeEgress failed: ' + err.code + ' / ' + err.message,
+          );
+        }
+        throw err;
+      }
+
+      if (opts.onStarted) {
+        try {
+          await opts.onStarted(handle);
+        } catch (persistErr) {
+          // Egress is now running, but we failed to durably record that
+          // fact — a deletion worker has nothing to see and wait on. Try
+          // to stop it so it can't finalize/upload an object nothing will
+          // ever reference.
+          try {
+            await livekitProvider.stopRecording(config, handle.recordingId);
+          } catch (stopErr) {
+            // Compensation itself failed — we cannot confirm Egress is
+            // stopped. Do NOT release the lease: let it expire naturally
+            // so workspace deletion keeps waiting rather than trusting
+            // storage while an unaccounted-for Egress might still write.
+            releaseLeaseNow = false;
+            throw new CallProviderNotReadyError(
+              'livekit',
+              `LiveKit recording started but could not be durably recorded (${errMessage(persistErr)}), and compensating stop also failed (${errMessage(stopErr)}) — write lease held until expiry`,
+            );
+          }
+          throw new CallProviderNotReadyError(
+            'livekit',
+            `LiveKit recording started but could not be durably recorded: ${errMessage(persistErr)}`,
+          );
+        }
+      }
+
+      return handle;
+    } finally {
+      if (releaseLeaseNow) await releaseOwnerWriteLease(config, leaseId, leaseToken);
     }
   },
 

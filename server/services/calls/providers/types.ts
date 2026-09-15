@@ -136,6 +136,21 @@ export interface CallProvider {
    * see docs/STORAGE_ARCHITECTURE_AUDIT.md §11. A provider with no
    * recording-storage concept of its own (jitsi/janus stubs, agora) may
    * ignore these fields.
+   *
+   * `onStarted` (fourth corrective pass, P0): for a provider whose start
+   * call is itself the external write-lease-holding operation (LiveKit —
+   * see livekitProvider.ts's startRecording()), the caller's own
+   * durable-persistence step (writing recording_id/recording_state onto
+   * call_sessions) runs INSIDE this callback, while the provider still
+   * holds its workspace write lease — never after startRecording()
+   * returns, which would leave a window where Egress is running but
+   * nothing in the DB records it, undiscoverable by workspaceDeletion/
+   * worker.ts's quiesce step. If `onStarted` throws, a real provider
+   * attempts a compensating stop before rethrowing. A provider with no
+   * lease concept (every non-LiveKit provider today) may ignore this
+   * field entirely — the caller falls back to persisting after the call
+   * returns for those, which is fine since they don't hold an external
+   * write in flight the way LiveKit does.
    */
   startRecording(
     config: ServerConfig,
@@ -144,6 +159,7 @@ export interface CallProvider {
       recordingType: 'composite' | 'individual' | 'audio_only';
       workspaceId: string;
       callSessionId: string;
+      onStarted?: (handle: RecordingHandle) => Promise<void>;
     },
   ): Promise<RecordingHandle>;
 

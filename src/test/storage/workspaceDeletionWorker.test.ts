@@ -116,6 +116,11 @@ function makeBuilder(table: string) {
           filters.push((r) => vals.includes(r[col]));
           return chain;
         },
+        gt: (col: string, val: unknown) => {
+          filters.push((r) => String(r[col]) > String(val));
+          return chain;
+        },
+        limit: (_n: number) => chain,
         maybeSingle: async () => {
           const matched = rows.filter((r) => filters.every((f) => f(r)));
           return { data: matched[0] ?? null, error: null };
@@ -531,6 +536,110 @@ describe('runStorageCleanup — LiveKit Egress quiescence (third corrective pass
 
     expect(stopRecordingMock).not.toHaveBeenCalled();
     expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+function ownerWriteLeaseRow(overrides: Partial<Row> = {}): Row {
+  return {
+    id: 'lease-1', lease_token: 'lease-tok-1', owner_kind: 'workspace', owner_id: WS_A,
+    purpose: 'upload', lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
+    ...overrides,
+  };
+}
+
+describe('runStorageCleanup — owner write lease drain (fourth corrective pass, P0 — TOCTOU close)', () => {
+  it('an outstanding owner_write_lease for this workspace blocks the ENTIRE tick — no LiveKit quiesce query, no scope cleanup — and releases the job lease without bumping attempt_count', async () => {
+    db.owner_write_leases = [ownerWriteLeaseRow()];
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup', locked_by: 'worker-x', lease_expires_at: new Date().toISOString(), attempt_count: 0 })];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup', attempt_count: 0 }));
+
+    expect(stopRecordingMock).not.toHaveBeenCalled();
+    expect(runScopeCleanupTickMock).not.toHaveBeenCalled();
+    const row = currentJobRow();
+    expect(row.status).toBe('storage_cleanup');
+    expect(row.attempt_count).toBe(0);
+    expect(row.locked_by).toBeNull();
+    expect(row.lease_expires_at).toBeNull();
+  });
+
+  it('an EXPIRED owner_write_lease (crashed producer) does not block — a crash never wedges deletion forever', async () => {
+    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'progress' });
+    db.owner_write_leases = [ownerWriteLeaseRow({ lease_expires_at: new Date(Date.now() - 60_000).toISOString() })];
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup' })];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup' }));
+
+    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('an owner_write_lease for a DIFFERENT workspace never blocks this one', async () => {
+    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'progress' });
+    const OTHER_WS = '33333333-3333-3333-3333-333333333333';
+    db.owner_write_leases = [ownerWriteLeaseRow({ owner_id: OTHER_WS })];
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup' })];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup' }));
+
+    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The exact race the review specified for LiveKit recording start vs.
+   * workspace deletion:
+   *   1. startRecording acquires its workspace write lease (purpose:
+   *      livekit_recording_start) — modeled here as a seeded
+   *      owner_write_leases row, since livekitProvider.ts's own
+   *      acquire/persist/release sequence is covered directly in
+   *      writeBarrierLateWrites.test.ts.
+   *   2. the writability check that gated it was valid (no 'deleting'
+   *      race at acquisition time)
+   *   3. the Twirp StartEgress call is "paused" — modeled by the lease
+   *      still being outstanding and NO call_sessions row existing yet
+   *   4. workspace deletion starts (irrelevant here — enqueue is a
+   *      separate RPC/module; this worker only sees storage_cleanup)
+   *   5. the deletion worker runs a tick
+   *   6. it MUST see the outstanding writer lease and MUST NOT query
+   *      call_sessions / touch any storage scope
+   *   7. StartEgress "returns" and recording_id/state is durably
+   *      persisted — modeled by adding the call_sessions row now
+   *   8. the start lease releases — modeled by clearing
+   *      db.owner_write_leases
+   *   9. the deletion worker's NEXT tick now sees the non-terminal
+   *      recording via quiesceLiveKitEgress()
+   *   10. it stops/quiesces Egress — only once THAT reaches a terminal
+   *       state (a later tick, not modeled further here — already
+   *       covered by the "LiveKit Egress quiescence" describe block
+   *       above) does storage cleanup ever run
+   */
+  it('LiveKit start-vs-delete race: an outstanding recording-start lease blocks the tick entirely; once it releases and the call_session row exists, the NEXT tick correctly falls through to quiescing the now-visible non-terminal recording', async () => {
+    // Steps 1-6: lease outstanding, no call_sessions row yet, no db_cleanup-
+    // eligible state — the tick must see the lease and stop cold.
+    db.owner_write_leases = [ownerWriteLeaseRow({ purpose: 'livekit_recording_start' })];
+    db.call_sessions = [];
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup' })];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup' }));
+
+    expect(runScopeCleanupTickMock).not.toHaveBeenCalled();
+    expect(stopRecordingMock).not.toHaveBeenCalled();
+    expect(currentJobRow().status).toBe('storage_cleanup');
+
+    // Steps 7-8: StartEgress returned, recording_id/state persisted
+    // durably, the start lease released.
+    db.owner_write_leases = [];
+    db.call_sessions = [callSessionRow({ recording_state: 'recording' })];
+    stopRecordingMock.mockResolvedValueOnce({ recordingId: 'egress-1', status: 'finalizing' });
+
+    // Steps 9-10: the next tick now passes the lease-drain gate, reaches
+    // quiesceLiveKitEgress(), sees the (now-visible) non-terminal
+    // recording, and requests a stop — storage cleanup STILL does not
+    // run this tick either, because Egress isn't terminal yet.
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup' }));
+
+    expect(stopRecordingMock).toHaveBeenCalledWith({}, 'egress-1');
+    expect(runScopeCleanupTickMock).not.toHaveBeenCalled();
+    expect((db.call_sessions[0] as Row).recording_state).toBe('finalizing');
   });
 });
 

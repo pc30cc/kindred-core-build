@@ -808,25 +808,36 @@ callsRouter.post('/:id/recording/start', async (req, res) => {
       return res.status(409).json({ error: 'provider_no_recording' });
     }
     const cp = await loadCallControlPlane((req as unknown as ReqWithConfig).serverConfig);
+    // Fourth corrective pass, P0: for a real (LiveKit) provider this
+    // persistence runs INSIDE startRecording() via `onStarted`, while it
+    // still holds its workspace write lease — never after the call
+    // returns, which would leave a window where Egress is running but
+    // nothing in the DB records it yet. `persisted` guards against a
+    // redundant second write for that case while still covering a
+    // provider (jitsi/agora stubs) that ignores `onStarted` entirely and
+    // needs the fallback below. recording_id is persisted on
+    // call_sessions.metadata (not only logged to call_events, which —
+    // unlike call_sessions — is hosted-only and absent on self-host) so
+    // it's reliably resolvable later from a single, chain-agnostic
+    // source — mirrors the shape server/services/callCenter/
+    // recordingControl.ts's patchRecordingMeta() already uses for Call
+    // Center recordings.
+    let persisted = false;
+    const persistRecordingStart = async (h: { recordingId: string }) => {
+      await ctx.sb.from('call_sessions').update({
+        recording_enabled: true,
+        recording_state: 'recording',
+        metadata: { ...(ctx.session.metadata || {}), recording: { recording_id: h.recordingId } },
+      }).eq('id', ctx.session.id);
+      persisted = true;
+    };
     const handle = await provider.startRecording((req as unknown as ReqWithConfig).serverConfig, ctx.session.provider_room_id, {
       recordingType: cp.recording_default_type,
       workspaceId: ctx.session.workspace_id,
       callSessionId: ctx.session.id,
+      onStarted: persistRecordingStart,
     });
-    // recording_id is persisted on call_sessions.metadata (not only logged
-    // to call_events, which — unlike call_sessions — is hosted-only and
-    // absent on self-host) so it's reliably resolvable later from a
-    // single, chain-agnostic source. server/services/workspaceDeletion/
-    // worker.ts's LiveKit-egress-quiesce step (third corrective pass) needs
-    // this to stop an in-flight chat-widget recording during workspace
-    // deletion — mirrors the shape server/services/callCenter/
-    // recordingControl.ts's patchRecordingMeta() already uses for Call
-    // Center recordings.
-    await ctx.sb.from('call_sessions').update({
-      recording_enabled: true,
-      recording_state: 'recording',
-      metadata: { ...(ctx.session.metadata || {}), recording: { recording_id: handle.recordingId } },
-    }).eq('id', ctx.session.id);
+    if (!persisted) await persistRecordingStart(handle);
     await recordEvent(ctx.sb, ctx.session.id, 'recording_start', 'operator', ctx.userId, { recording_id: handle.recordingId });
     emitCallMetric((req as unknown as ReqWithConfig).serverConfig, {
       metric: 'call.recording.start.success',

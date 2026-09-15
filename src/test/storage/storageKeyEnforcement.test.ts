@@ -24,9 +24,11 @@ interface MockQueryBuilder {
   limit: (...args: unknown[]) => MockQueryBuilder;
   not: (...args: unknown[]) => MockQueryBuilder;
   in: (...args: unknown[]) => MockQueryBuilder;
+  gt: (...args: unknown[]) => MockQueryBuilder;
   single: () => Promise<{ data: unknown }>;
   maybeSingle: () => Promise<{ data: unknown; error?: unknown }>;
   insert: (...args: unknown[]) => Promise<{ data: unknown; error: unknown }>;
+  rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
 }
 
 export const mockInsertCalls: Array<{ table: string; row: unknown }> = [];
@@ -54,6 +56,35 @@ export const mockWorkspaceStatusError = { current: false };
 export const mockUserProfileExists = { current: true };
 export const mockUserHasActiveDeletionJob = { current: false };
 
+/**
+ * acquire_owner_write_lease (server/services/storage/writerLease.ts,
+ * fourth corrective pass) replaces uploadForOwner()/
+ * uploadWithConfigForOwner()'s direct isWorkspaceWritable()/
+ * isUserWritable() calls with an atomic check-and-lease RPC — the same
+ * fixtures (mockWorkspaceStatus, mockWorkspaceStatusError,
+ * mockUserProfileExists, mockUserHasActiveDeletionJob) drive both, so
+ * every existing test in this file keeps its original intent unchanged.
+ */
+async function rpc(fn: string, args: Record<string, unknown>): Promise<{ data: unknown; error: unknown }> {
+  if (fn === 'acquire_owner_write_lease') {
+    if (args._owner_kind === 'workspace') {
+      if (mockWorkspaceStatusError.current) return { data: { ok: false, error: 'workspace_lookup_failed' }, error: null };
+      if (!mockWorkspaceStatus.current) return { data: { ok: false, error: 'workspace_not_found' }, error: null };
+      if (mockWorkspaceStatus.current !== 'active') return { data: { ok: false, error: 'workspace_not_writable' }, error: null };
+      return { data: { ok: true, lease_id: 'mock-lease-id', lease_token: 'mock-lease-token', lease_expires_at: new Date(Date.now() + 60_000).toISOString() }, error: null };
+    }
+    if (args._owner_kind === 'user') {
+      if (!mockUserProfileExists.current) return { data: { ok: false, error: 'user_not_found' }, error: null };
+      if (mockUserHasActiveDeletionJob.current) return { data: { ok: false, error: 'user_not_writable' }, error: null };
+      return { data: { ok: true, lease_id: 'mock-lease-id', lease_token: 'mock-lease-token', lease_expires_at: new Date(Date.now() + 60_000).toISOString() }, error: null };
+    }
+    return { data: { ok: false, error: 'invalid_owner_kind' }, error: null };
+  }
+  if (fn === 'renew_owner_write_lease') return { data: { ok: true, lease_expires_at: new Date(Date.now() + 60_000).toISOString() }, error: null };
+  if (fn === 'release_owner_write_lease') return { data: { ok: true }, error: null };
+  return { data: null, error: null };
+}
+
 vi.mock('../../../server/supabase.js', () => {
   // No workspace-level provider_configs override; app_runtime_config
   // resolves to a fully-configured local provider (publicUrl set, so
@@ -68,6 +99,8 @@ vi.mock('../../../server/supabase.js', () => {
       limit: () => builder,
       not: () => builder,
       in: () => builder,
+      gt: () => builder,
+      rpc,
       single: async () => {
         if (table === 'app_runtime_config') {
           return { data: { value: { provider_name: 'local', config: { local_path: '/tmp/storage', public_url: 'http://local.test' } } } };

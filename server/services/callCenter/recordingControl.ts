@@ -282,6 +282,32 @@ export async function startCallCenterRecording(
 
   let providerId: string;
   let handle;
+  // Fourth corrective pass, P0: for a real (LiveKit) provider this
+  // persistence runs INSIDE startRecording() via `onStarted`, while it
+  // still holds its workspace write lease — never after the call
+  // returns, which would leave a window where Egress is running but
+  // nothing in the DB records it yet. `persisted` guards against a
+  // redundant second write for that case while still covering a provider
+  // (jitsi/agora stubs) that ignores `onStarted` entirely.
+  let persisted = false;
+  let startedAt = '';
+  let newState: 'recording' | 'pending' = 'pending';
+  const persistRecordingStart = async (h: { recordingId: string; status: string }) => {
+    startedAt = new Date().toISOString();
+    // LiveKit may report 'pending' or 'recording' — only flip column to
+    // 'recording' when provider confirms. Pending stays as 'pending'.
+    newState = h.status === 'recording' ? 'recording' : 'pending';
+    await patchRecordingMeta(config, args.callId, {
+      state: newState,
+      started_at: startedAt,
+      stopped_at: null,
+      recording_id: h.recordingId,
+      artifact_id: h.recordingId,
+      provider: providerId,
+      last_error: null,
+    }, { recording_enabled: true, recording_state: newState });
+    persisted = true;
+  };
   try {
     const r = await resolveEffectiveCallProvider(config, args.workspaceId);
     providerId = r.id;
@@ -289,6 +315,7 @@ export async function startCallCenterRecording(
       recordingType: args.recordingType || 'composite',
       workspaceId: args.workspaceId,
       callSessionId: args.callId,
+      onStarted: persistRecordingStart,
     });
   } catch (e: unknown) {
     await patchRecordingMeta(config, args.callId, {
@@ -302,19 +329,7 @@ export async function startCallCenterRecording(
     throw new RecordingControlException('recording_start_failed', 502, errMessage(e));
   }
 
-  const startedAt = new Date().toISOString();
-  // LiveKit may report 'pending' or 'recording' — only flip column to 'recording'
-  // when provider confirms. Pending stays as 'pending'.
-  const newState: 'recording' | 'pending' = handle.status === 'recording' ? 'recording' : 'pending';
-  await patchRecordingMeta(config, args.callId, {
-    state: newState,
-    started_at: startedAt,
-    stopped_at: null,
-    recording_id: handle.recordingId,
-    artifact_id: handle.recordingId,
-    provider: providerId,
-    last_error: null,
-  }, { recording_enabled: true, recording_state: newState });
+  if (!persisted) await persistRecordingStart(handle);
 
   await logEvent(config, args.workspaceId, args.callId, 'recording_started', args.actorUserId, {
     recording_id_masked: maskRecordingId(handle.recordingId),

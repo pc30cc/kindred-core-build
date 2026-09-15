@@ -431,44 +431,74 @@ livekitWebhookRouter.post(
     }
 
     // 5. Dedup using livekit_webhook_events (event id + body hash).
+    //
+    // Fourth corrective pass, P0: a RECEIVED event and a SUCCESSFULLY
+    // APPLIED event are not the same state. The previous version treated
+    // "a row with this event_id exists" as permanent dedup — but the row
+    // is inserted BEFORE applyEvent() runs, so a transient DB failure
+    // inside applyEvent() (caught below, previously still answering 200)
+    // left a permanent row with no successful application, and every
+    // future retry of the SAME event (LiveKit does retry on non-2xx, but
+    // this handler always returned 200) would be silently swallowed as
+    // "already seen". For an egress_ended/egress_updated event this can
+    // permanently strand call_sessions.recording_state at 'finalizing' —
+    // which is exactly the state workspaceDeletion/worker.ts's
+    // quiesceLiveKitEgress() waits on — wedging workspace deletion
+    // forever. Only a row that is BOTH processed (processed_at set) AND
+    // error-free (process_error null) short-circuits as dedup; anything
+    // else (still in flight, or a prior attempt threw) is reprocessed —
+    // safe because every applyEvent() handler is itself idempotent (see
+    // this module's own doc comment).
     const sb = getServiceClient(config);
     const dedupKey = ev.id || expectedSha;
-    {
-      const { data: existing } = await sb
-        .from('livekit_webhook_events')
-        .select('id')
-        .eq('event_id', dedupKey)
-        .maybeSingle();
-      if (existing) {
+    const { data: existingRow } = await sb
+      .from('livekit_webhook_events')
+      .select('id, processed_at, process_error')
+      .eq('event_id', dedupKey)
+      .maybeSingle();
+
+    const alreadyProcessed = !!existingRow && !!existingRow.processed_at && !existingRow.process_error;
+    if (alreadyProcessed) {
+      emitCallMetric(config, {
+        metric: 'call.webhook.dedup',
+        provider: 'livekit',
+        extra: { event_type: ev.event },
+      });
+      return res.status(200).json({ ok: true, dedup: true });
+    }
+
+    if (!existingRow) {
+      // First delivery — insert the audit/dedup row before applying, so a
+      // genuinely concurrent duplicate delivery (racing this exact
+      // insert, not a retry of a previously-failed attempt) backs off
+      // instead of double-applying.
+      try {
+        await sb.from('livekit_webhook_events').insert({
+          event_id: dedupKey,
+          event_type: ev.event,
+          raw: ev as unknown as Record<string, unknown>,
+          room_name: ev.room?.name ?? null,
+          participant_identity: ev.participant?.identity ?? null,
+          egress_id: ev.egressInfo?.egressId ?? null,
+          signature_valid: true,
+        });
+      } catch {
+        // Lost the insert race to a concurrent identical delivery — that
+        // request owns applying this event; back off rather than
+        // double-apply. If ITS apply fails, a later genuine LiveKit retry
+        // will find the row in a not-yet-processed state and reprocess,
+        // per the logic above.
         emitCallMetric(config, {
           metric: 'call.webhook.dedup',
           provider: 'livekit',
-          extra: { event_type: ev.event },
+          extra: { event_type: ev.event, race: true },
         });
         return res.status(200).json({ ok: true, dedup: true });
       }
     }
-
-    // Insert dedup row first to make the handler idempotent under retries.
-    try {
-      await sb.from('livekit_webhook_events').insert({
-        event_id: dedupKey,
-        event_type: ev.event,
-        raw: ev as unknown as Record<string, unknown>,
-        room_name: ev.room?.name ?? null,
-        participant_identity: ev.participant?.identity ?? null,
-        egress_id: ev.egressInfo?.egressId ?? null,
-        signature_valid: true,
-      });
-    } catch {
-      // Race with a concurrent identical webhook - treat as dedup.
-      emitCallMetric(config, {
-        metric: 'call.webhook.dedup',
-        provider: 'livekit',
-        extra: { event_type: ev.event, race: true },
-      });
-      return res.status(200).json({ ok: true, dedup: true });
-    }
+    // else: existingRow is present but not yet successfully processed —
+    // reprocessing is safe (idempotent handlers); at worst two concurrent
+    // retries of a previously-failed event both re-apply harmlessly.
 
     emitCallMetric(config, {
       metric: 'call.webhook.received',
@@ -479,12 +509,12 @@ livekitWebhookRouter.post(
     // 6. Apply.
     try {
       const result = await applyEvent(config, ev);
+      // A non-throwing result (applied:true, or applied:false with a
+      // reason like 'unhandled_event_type'/'session_not_found') is a
+      // successfully resolved delivery either way — nothing to retry.
       await sb
         .from('livekit_webhook_events')
-        .update({
-          processed_at: new Date().toISOString(),
-          process_error: result.applied ? null : (result.reason ?? 'not_applied'),
-        })
+        .update({ processed_at: new Date().toISOString(), process_error: null })
         .eq('event_id', dedupKey);
       return res.status(200).json({ ok: true, applied: result.applied, reason: result.reason });
     } catch (err: unknown) {
@@ -493,13 +523,17 @@ livekitWebhookRouter.post(
       await sb
         .from('livekit_webhook_events')
         .update({
-          processed_at: new Date().toISOString(),
+          // processed_at stays NULL — this event is NOT permanently
+          // resolved, so the dedup check above will reprocess it on the
+          // next delivery attempt.
+          processed_at: null,
           process_error: message.slice(0, 500) || 'apply_error',
         })
         .eq('event_id', dedupKey);
-      // Still 200: LiveKit will retry on non-2xx. We have the dedup row so
-      // we won't double-process; the failed event is logged for ops review.
-      return res.status(200).json({ ok: true, applied: false, reason: 'apply_error' });
+      // Non-2xx so LiveKit retries. A transient DB failure must never
+      // permanently strand an event — e.g. recording_state stuck at
+      // 'finalizing' forever, wedging workspace-deletion quiescence.
+      return res.status(500).json({ ok: false, error: 'apply_error' });
     }
   },
 );

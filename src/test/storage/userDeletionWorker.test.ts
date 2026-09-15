@@ -95,6 +95,11 @@ function makeBuilder(table: string) {
       filters.push((r) => vals.includes(r[col]));
       return builder;
     },
+    gt: (col: string, val: unknown) => {
+      filters.push((r) => String(r[col]) > String(val));
+      return builder;
+    },
+    limit: (_n: number) => builder,
     order: (col: string, opts?: { ascending?: boolean }) => {
       orderBy = { col, ascending: opts?.ascending !== false };
       return builder;
@@ -580,6 +585,77 @@ describe('purging_user (via a single tick) — multi-provider storage_scopes cle
 
     expect(currentJobRow().status).toBe('failed'); // MAX_JOB_ATTEMPTS = 5
     expect(currentJobRow().attempt_count).toBe(5);
+  });
+});
+
+describe('purgeUser — owner write lease drain (fourth corrective pass, P0 — TOCTOU close)', () => {
+  it('an outstanding owner_write_lease for this user blocks the ENTIRE tick — no scope cleanup runs, no admin_delete_user call — and releases the job lease without bumping attempt_count', async () => {
+    const job = baseJob({ status: 'purging_user', locked_by: 'worker-x', lease_expires_at: new Date().toISOString(), attempt_count: 0 });
+    db.user_deletion_jobs = [job];
+    db.owner_write_leases = [{
+      id: 'lease-1', lease_token: 'lease-tok-1', owner_kind: 'user', owner_id: USER_A,
+      purpose: 'upload', lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
+    }];
+    rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
+
+    workerMod.startUserDeletionWorker({} as never);
+    await flush();
+
+    expect(runScopeCleanupTickMock).not.toHaveBeenCalled();
+    expect(rpcCalls.filter((c) => c.fn === 'admin_delete_user')).toHaveLength(0);
+    expect(currentJobRow().status).toBe('purging_user');
+    expect(currentJobRow().attempt_count).toBe(0);
+    expect(currentJobRow().locked_by).toBeNull();
+    expect(currentJobRow().lease_expires_at).toBeNull();
+  });
+
+  it('an EXPIRED owner_write_lease (crashed producer) does not block — a crash never wedges account deletion forever', async () => {
+    const job = baseJob({ status: 'purging_user' });
+    db.user_deletion_jobs = [job];
+    db.owner_write_leases = [{
+      id: 'lease-1', lease_token: 'lease-tok-1', owner_kind: 'user', owner_id: USER_A,
+      purpose: 'upload', lease_expires_at: new Date(Date.now() - 60_000).toISOString(),
+    }];
+    rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
+    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'progress' });
+
+    workerMod.startUserDeletionWorker({} as never);
+    await flush();
+
+    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('an owner_write_lease for a DIFFERENT user never blocks this one', async () => {
+    const job = baseJob({ status: 'purging_user' });
+    db.user_deletion_jobs = [job];
+    const OTHER_USER = '44444444-4444-4444-4444-444444444444';
+    db.owner_write_leases = [{
+      id: 'lease-1', lease_token: 'lease-tok-1', owner_kind: 'user', owner_id: OTHER_USER,
+      purpose: 'upload', lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
+    }];
+    rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
+    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'progress' });
+
+    workerMod.startUserDeletionWorker({} as never);
+    await flush();
+
+    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a lease for this same user_id under owner_kind "workspace" (a different owner namespace) never blocks the user-owned tick', async () => {
+    const job = baseJob({ status: 'purging_user' });
+    db.user_deletion_jobs = [job];
+    db.owner_write_leases = [{
+      id: 'lease-1', lease_token: 'lease-tok-1', owner_kind: 'workspace', owner_id: USER_A,
+      purpose: 'upload', lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
+    }];
+    rpcHandlers.claim_user_deletion_job = () => ({ data: { ok: true, job }, error: null });
+    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'progress' });
+
+    workerMod.startUserDeletionWorker({} as never);
+    await flush();
+
+    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
   });
 });
 

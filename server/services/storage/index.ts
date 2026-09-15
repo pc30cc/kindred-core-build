@@ -19,6 +19,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { assertOwnerScopedKey, assertSafeStorageKey, isKnownLegacyStorageKey, LEGACY_USER_AVATAR_PATTERN, ownerRoot, StorageKeyError, type StorageOwner } from './keys.js';
+import { withOwnerWriteLease } from './writerLease.js';
 
 export type { StorageOwner };
 
@@ -1008,6 +1009,21 @@ function logStorageOperation(params: {
  * breakdown, including categories that intentionally bypass this function
  * (privacy exports, platform ringback audio) and log through
  * logWorkspaceStorageUsage() directly instead.
+ *
+ * Fourth corrective pass, P0: a point-in-time isWorkspaceWritable()/
+ * isUserWritable() read is not a write BARRIER — deletion can start in
+ * the gap between that read returning `true` and the actual provider PUT
+ * completing a moment later. For workspace/user owners, the entire
+ * validate-through-provider-call sequence below now runs INSIDE an
+ * owner_write_lease (server/services/storage/writerLease.ts,
+ * acquireOwnerWriteLease()'s own atomic check-and-lease RPC replaces the
+ * separate isWorkspaceWritable()/isUserWritable() call — same fail-closed
+ * semantics, now with a durable, cross-process record that a write is
+ * in flight), held until the provider call has definitively returned and
+ * released only in a `finally`. A deletion worker that starts while this
+ * lease is held will see it and wait before trusting any storage listing
+ * — see workspaceDeletion/worker.ts's/userDeletion/worker.ts's own doc
+ * comments for the wait-then-proceed ordering this makes safe.
  */
 export async function uploadForOwner(
   serverConfig: ServerConfig,
@@ -1016,85 +1032,82 @@ export async function uploadForOwner(
   const scopeError = enforceOwnerScope(req.owner, req.fileKey, req.allowLegacyKey);
   if (scopeError) return { success: false, error: scopeError };
 
-  if (req.owner.kind === 'workspace') {
-    const writable = await isWorkspaceWritable(serverConfig, req.owner.workspaceId);
-    if (!writable) {
-      // A workspace that is not explicitly 'active' right now — deleting,
-      // its row already purged, or its state couldn't be confirmed — must
-      // never receive new bytes. A write racing the cleanup walk would
-      // otherwise either land in an object the walk already passed
-      // (silently orphaned once the workspace row and every DB pointer
-      // are gone) or, worse, arrive AFTER the row itself was hard-deleted
-      // (admin_delete_workspace's last step), creating
-      // workspace/<alreadyDeletedId>/... once deletion has fully
-      // completed — see isWorkspaceWritable()'s doc comment.
-      return { success: false, error: 'Workspace is being deleted or is otherwise unavailable; uploads are disabled' };
+  const doUpload = async (): Promise<StorageResult> => {
+    const storageConfig = await resolveStorageConfigForOwner(serverConfig, req.owner);
+    if (!storageConfig) {
+      return { success: false, error: 'No storage provider configured' };
     }
-  }
 
-  if (req.owner.kind === 'user') {
-    const writable = await isUserWritable(serverConfig, req.owner.userId);
-    if (!writable) {
-      // A user-owned write barrier — third corrective pass, P0. Same
-      // rationale as the workspace guard above: a user-subject producer
-      // (privacy export, account avatar) that started before deletion
-      // began must never land bytes after the account's scopes have been
-      // verified empty or its profile row purged — see isUserWritable()'s
-      // doc comment.
-      return { success: false, error: 'Account is being deleted or is otherwise unavailable; uploads are disabled' };
+    const validationError = validateFile(req.data, req.contentType, storageConfig.maxFileSizeMB);
+    if (validationError) {
+      return { success: false, error: validationError };
     }
-  }
 
-  const storageConfig = await resolveStorageConfigForOwner(serverConfig, req.owner);
-  if (!storageConfig) {
-    return { success: false, error: 'No storage provider configured' };
-  }
+    const handler = uploadHandlers[storageConfig.provider];
+    if (!handler) {
+      return { success: false, error: `Unsupported storage provider: ${storageConfig.provider}` };
+    }
 
-  const validationError = validateFile(req.data, req.contentType, storageConfig.maxFileSizeMB);
-  if (validationError) {
-    return { success: false, error: validationError };
-  }
+    const startedAt = Date.now();
+    let result: StorageResult;
+    try {
+      result = await handler(storageConfig, req);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (req.owner.kind === 'workspace') {
+        await logWorkspaceStorageUsage(serverConfig, {
+          workspaceId: req.owner.workspaceId,
+          providerName: storageConfig.provider,
+          operation: 'upload',
+          fileKey: req.fileKey,
+          success: false,
+          errorMessage: message,
+        });
+      }
+      logStorageOperation({ operation: 'upload', owner: req.owner, provider: storageConfig.provider, success: false, durationMs: Date.now() - startedAt, error: message });
+      return { success: false, error: message };
+    }
 
-  const handler = uploadHandlers[storageConfig.provider];
-  if (!handler) {
-    return { success: false, error: `Unsupported storage provider: ${storageConfig.provider}` };
-  }
-
-  const startedAt = Date.now();
-  let result: StorageResult;
-  try {
-    result = await handler(storageConfig, req);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
     if (req.owner.kind === 'workspace') {
       await logWorkspaceStorageUsage(serverConfig, {
         workspaceId: req.owner.workspaceId,
         providerName: storageConfig.provider,
         operation: 'upload',
         fileKey: req.fileKey,
-        success: false,
-        errorMessage: message,
+        fileSize: req.data.length,
+        contentType: req.contentType,
+        success: result.success,
+        errorMessage: result.error,
       });
     }
-    logStorageOperation({ operation: 'upload', owner: req.owner, provider: storageConfig.provider, success: false, durationMs: Date.now() - startedAt, error: message });
-    return { success: false, error: message };
-  }
+    logStorageOperation({ operation: 'upload', owner: req.owner, provider: storageConfig.provider, success: result.success, durationMs: Date.now() - startedAt, error: result.error });
+
+    return result;
+  };
 
   if (req.owner.kind === 'workspace') {
-    await logWorkspaceStorageUsage(serverConfig, {
-      workspaceId: req.owner.workspaceId,
-      providerName: storageConfig.provider,
-      operation: 'upload',
-      fileKey: req.fileKey,
-      fileSize: req.data.length,
-      contentType: req.contentType,
-      success: result.success,
-      errorMessage: result.error,
-    });
+    const leased = await withOwnerWriteLease(serverConfig, 'workspace', req.owner.workspaceId, 'upload', doUpload);
+    if (!leased.ok) {
+      // Not 'active' right now — deleting, its row already purged, or its
+      // state couldn't be confirmed — must never receive new bytes. See
+      // acquireOwnerWriteLease()'s doc comment / 187's migration header.
+      return { success: false, error: 'Workspace is being deleted or is otherwise unavailable; uploads are disabled' };
+    }
+    return leased.result;
   }
-  logStorageOperation({ operation: 'upload', owner: req.owner, provider: storageConfig.provider, success: result.success, durationMs: Date.now() - startedAt, error: result.error });
 
-  return result;
+  if (req.owner.kind === 'user') {
+    const leased = await withOwnerWriteLease(serverConfig, 'user', req.owner.userId, 'upload', doUpload);
+    if (!leased.ok) {
+      // A user-owned write barrier — third corrective pass, P0; fourth
+      // corrective pass closes the point-in-time-check TOCTOU gap. Same
+      // rationale as the workspace guard above.
+      return { success: false, error: 'Account is being deleted or is otherwise unavailable; uploads are disabled' };
+    }
+    return leased.result;
+  }
+
+  return doUpload();
 }
 
 /**
@@ -1314,8 +1327,11 @@ export function getFileUrlWithConfig(storageConfig: StorageConfig, fileKey: stri
  * right before the DB purge. Third corrective pass, P0: extended to cover
  * user-owned exports too (isUserWritable, not just workspaces), and both
  * checks now fail closed on a missing owner row, not just an explicit
- * 'deleting' status — see isWorkspaceWritable()/isUserWritable()'s doc
- * comments. This is the single place either check lives; callers
+ * 'deleting' status. Fourth corrective pass, P0: the point-in-time check
+ * itself was still a TOCTOU gap — replaced with an owner_write_lease
+ * (writerLease.ts) held for the entire upload, not just checked before it
+ * — see uploadForOwner()'s doc comment for the full rationale, identical
+ * here. This is the single place either check lives; callers
  * (server/services/privacy/worker.ts) never duplicate it.
  */
 export async function uploadWithConfigForOwner(
@@ -1327,20 +1343,24 @@ export async function uploadWithConfigForOwner(
   const scopeError = enforceOwnerScope(owner, req.fileKey, req.allowLegacyKey);
   if (scopeError) return { success: false, error: scopeError };
 
+  const doUpload = () => uploadWithConfig(storageConfig, req);
+
   if (owner.kind === 'workspace') {
-    const writable = await isWorkspaceWritable(serverConfig, owner.workspaceId);
-    if (!writable) {
+    const leased = await withOwnerWriteLease(serverConfig, 'workspace', owner.workspaceId, 'upload_with_config', doUpload);
+    if (!leased.ok) {
       return { success: false, error: 'Workspace is being deleted or is otherwise unavailable; uploads are disabled' };
     }
+    return leased.result;
   }
   if (owner.kind === 'user') {
-    const writable = await isUserWritable(serverConfig, owner.userId);
-    if (!writable) {
+    const leased = await withOwnerWriteLease(serverConfig, 'user', owner.userId, 'upload_with_config', doUpload);
+    if (!leased.ok) {
       return { success: false, error: 'Account is being deleted or is otherwise unavailable; uploads are disabled' };
     }
+    return leased.result;
   }
 
-  return uploadWithConfig(storageConfig, req);
+  return doUpload();
 }
 
 export async function uploadWithConfig(

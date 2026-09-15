@@ -230,6 +230,11 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     selfHost: 'database/migrations/186_user_deletion_multi_provider.sql',
     hosted: 'supabase/migrations/20260916084000_user_deletion_multi_provider.sql',
   },
+  {
+    label: '187 — Owner write leases (TOCTOU write barrier)',
+    selfHost: 'database/migrations/187_owner_write_leases.sql',
+    hosted: 'supabase/migrations/20260916090000_owner_write_leases.sql',
+  },
 
   // NOTE: 025 (auth_sessions/auth_reset_tokens/auth_verify_tokens) and 026
   // (repoint identity-root FKs to profiles) are deliberately NOT registered

@@ -84,6 +84,7 @@ import { getServiceClient } from '../../supabase.js';
 import { workspaceStorageScopes, workspaceScopePrefix } from '../storage/workspaceScopes.js';
 import { runScopeCleanupTick, type ScopeCleanupState } from '../storage/scopeCleanupEngine.js';
 import { livekitProvider } from '../calls/providers/livekitProvider.js';
+import { hasActiveOwnerWriteLeases } from '../storage/writerLease.js';
 import type { WorkspaceDeletionJobRow } from './types.js';
 
 const POLL_INTERVAL_MS = 5_000;
@@ -256,17 +257,44 @@ async function quiesceLiveKitEgress(config: ServerConfig, workspaceId: string): 
  * comment. Advances the job to 'db_cleanup' once every scope is settled
  * (done AND verified, or skipped_not_configured).
  *
- * Before ANY scope is touched, quiesceLiveKitEgress() must report the
- * workspace's LiveKit recordings are all terminal — storage cleanup
- * (including scopes unrelated to LiveKit) simply does not run on a tick
- * where Egress is still capable of producing bytes. This is deliberately
- * conservative (a slow-to-finalize recording delays the whole job, not
- * just the livekit_recording scope) in exchange for a simple, obviously
- * correct invariant: cleanup never starts before every producer is either
- * write-barriered (attachment/privacy_export — see uploadForOwner/
- * uploadWithConfigForOwner) or fully quiesced (livekit_recording).
+ * Before ANY scope is touched, TWO gates must both pass, in order:
+ *
+ *   1. Fourth corrective pass, P0: zero unexpired owner_write_leases for
+ *      this workspace (server/services/storage/writerLease.ts). A
+ *      point-in-time isWorkspaceWritable() check (third pass) is not a
+ *      write barrier — a producer that passed it a moment ago could still
+ *      be mid-write. A lease means exactly that: SOME producer is between
+ *      its writability check and the completion of its actual external
+ *      write, for THIS workspace, right now. Trusting a storage listing
+ *      while that's true could miss the object about to land. This gate
+ *      runs BEFORE quiesceLiveKitEgress() specifically because a LiveKit
+ *      recording-start lease (livekitProvider.ts's startRecording) is
+ *      itself one of these leases — waiting for it to drain here is what
+ *      guarantees quiesceLiveKitEgress() never runs against a call_session
+ *      row that hasn't been durably written yet.
+ *   2. quiesceLiveKitEgress() must report the workspace's LiveKit
+ *      recordings are all terminal — storage cleanup (including scopes
+ *      unrelated to LiveKit) simply does not run on a tick where Egress is
+ *      still capable of producing bytes.
+ *
+ * Both gates are deliberately conservative (they hold up the ENTIRE tick,
+ * not just the specific scope each protects) in exchange for one simple,
+ * obviously correct invariant: cleanup never starts before every producer
+ * is either write-barriered (attachment/privacy_export — see
+ * uploadForOwner/uploadWithConfigForOwner, both of which hold a lease for
+ * their entire write) or fully quiesced (livekit_recording).
  */
 export async function runStorageCleanup(config: ServerConfig, job: WorkspaceDeletionJobRow): Promise<void> {
+  if (await hasActiveOwnerWriteLeases(config, 'workspace', job.workspace_id)) {
+    // A producer is mid-write (or a crashed one hasn't hit its lease
+    // expiry yet) — not a failure, just not ready. Release the lease
+    // without bumping attempt_count so this never counts toward
+    // MAX_JOB_ATTEMPTS; a later tick (by any worker) re-checks. No
+    // storage scope, and no LiveKit quiesce query, runs this tick.
+    await persistFenced(config, job.id, job.lease_token!, { locked_by: null, lease_expires_at: null });
+    return;
+  }
+
   let quiescent: boolean;
   try {
     quiescent = await quiesceLiveKitEgress(config, job.workspace_id);

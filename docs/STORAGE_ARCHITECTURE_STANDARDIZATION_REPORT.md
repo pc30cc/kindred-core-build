@@ -1,9 +1,11 @@
 # Storage Architecture Standardization — Final Report
 
 Branch: `claude/storage-architecture-standardization-gtzt6p`
-Status: **Original 8 phases + three corrective passes complete.** The first version of this report claimed the Definition of Done was met; an independent review found real multi-provider correctness gaps, fixed in the first corrective pass (§2). A second independent review then found the deletion machinery itself was still unsafe under multi-instance/production conditions (lease expiry with no fencing, an incomplete write barrier, single-provider user deletion, unchecked business-level RPC failures, and no protection against a storage config changing mid-cleanup) — fixed in the second corrective pass, §7. A third independent review found the write barrier itself still failed **open** on a missing owner row (worse than a mid-deletion race — see §11), that user deletion had no write barrier at all (the second pass's report claim that final verification alone was sufficient for user deletion was **incorrect** and is corrected below), and that an already-running LiveKit Egress was never quiesced before trusting its storage listing — fixed in the third corrective pass, §11. **This document reflects the current, honest status** — see §3/§8/§13 for each pass's Definition-of-Done table, §4/§9/§14 for what still isn't covered.
+Status: **Original 8 phases + four corrective passes complete.** The first version of this report claimed the Definition of Done was met; an independent review found real multi-provider correctness gaps, fixed in the first corrective pass (§2). A second independent review then found the deletion machinery itself was still unsafe under multi-instance/production conditions (lease expiry with no fencing, an incomplete write barrier, single-provider user deletion, unchecked business-level RPC failures, and no protection against a storage config changing mid-cleanup) — fixed in the second corrective pass, §7. A third independent review found the write barrier itself still failed **open** on a missing owner row (worse than a mid-deletion race — see §11), that user deletion had no write barrier at all (the second pass's report claim that final verification alone was sufficient for user deletion was **incorrect** and is corrected below), and that an already-running LiveKit Egress was never quiesced before trusting its storage listing — fixed in the third corrective pass, §11. A fourth independent review found that even a fail-closed, atomically-locked write barrier is not enough if it's only a *point-in-time check*: deletion could still start in the gap between that check returning "writable" and the producer's actual external write (an S3 PUT, a LiveKit Egress start) completing a moment later — a genuine TOCTOU race. Fixed in the fourth corrective pass, §15, with a DB-backed owner write-lease held for the entire duration of every write, real multi-process concurrency proof against a live Postgres instance, and a companion fix to the LiveKit webhook's retry semantics that could otherwise permanently strand a recording's terminal state. **This document reflects the current, honest status** — see §3/§8/§13/§16 for each pass's Definition-of-Done table, §4/§9/§14/§17 for what still isn't covered.
 
 **Correction to this document's own prior claim**: §9 item 2 of this report previously stated "No write barrier exists for USER deletion... just not a pre-emptive block on new writes during the cleanup window" and represented final verification alone as an adequate safety net for user-owned storage. That claim was wrong — a final empty listing is only a point-in-time observation; if user-owned producers remain writable, a producer can write again after it. §11 below fixes this (`isUserWritable()`) and §11's "Why final verification is safe now, and only now" explains the corrected invariant precisely.
+
+**Second correction, fourth pass**: §11's own closing claim — "Only with every producer in that state [...] does a from-scratch empty listing actually mean 'nothing more can be written here'" — was itself still incomplete. It described the producer side (barriered or quiesced) but treated the barrier/check itself as instantaneous, when in reality `isWorkspaceWritable()`/`isUserWritable()` are a single DB read with a real (if small) window before the caller acts on the result. §15 closes that remaining window with a held lease, not just a check.
 
 ## 0. Why this report was rewritten
 
@@ -312,6 +314,110 @@ A broader run also covering `src/test/billing/` (69 files) and `src/test/securit
 3. **`userStorageScopes()` remains two scopes** (§9 item 3, unchanged) — the account-avatar/default scope and privacy-export scope; a future third physical user-storage integration still needs a developer to remember to register it, same caveat as `workspaceStorageScopes()`.
 4. **Drift reconciliation remains manual** (§9 item 4, unchanged this pass).
 
-## 14. Test coverage summary — all three corrective passes combined
+## 14. Test coverage summary — first three corrective passes combined
 
-319 tests passing (13 storage files/224 tests + 3 billing recording files + 3 security files + 49 migration-parity tests), full typecheck clean (server and full), `lint-changed.mjs` clean across all 55 files touched across all three passes. Exact commit SHA, final merge-safety verdict, and the explicit answer to whether any producer can still create `workspace/<deletedId>/...` or `users/<deletedId>/...` after owner deletion has started or completed are given directly to the user at the end of this pass.
+319 tests passing (13 storage files/224 tests + 3 billing recording files + 3 security files + 49 migration-parity tests), full typecheck clean (server and full), `lint-changed.mjs` clean across all 55 files touched across all three passes.
+
+## 15. Fourth corrective pass — closing the TOCTOU gap between a writability check and the write it gates
+
+An independent review of the third corrective pass's commit found the underlying model still unsafe:
+
+```
+check owner writable
+→ start external storage/provider operation
+→ operation completes later
+```
+
+Deletion can begin in the gap between the check and the operation completing. `isWorkspaceWritable()`/`isUserWritable()` (third pass) are real, fail-closed, and atomically consistent with the deletion RPCs' own row locks — but they are still a single point-in-time SELECT. Nothing stopped a workspace from entering `deleting` a moment after that SELECT returned `true` and before the caller's subsequent S3 PUT / LiveKit Egress start actually landed.
+
+### `owner_write_leases` — a DB-backed, cross-process writer registry
+
+`database/migrations/187_owner_write_leases.sql` (hosted mirror: `supabase/migrations/20260916090000_owner_write_leases.sql`) adds `owner_write_leases` (`id`, `lease_token`, `owner_kind`, `owner_id`, `purpose`, `lease_expires_at`, `heartbeat_at`) and three `SECURITY DEFINER` RPCs:
+
+- **`acquire_owner_write_lease(_owner_kind, _owner_id, _purpose, _lease_seconds)`** — the only way a lease is created. For a workspace: `SELECT status FROM workspaces WHERE id = _owner_id FOR UPDATE`, require `'active'`, then insert the lease — all in one transaction. For a user: the same shape against `profiles`, plus a check that no `user_deletion_jobs` row is in an active status. Critically, this locks the **exact same row** — `workspaces`/`profiles` — that `enqueue_workspace_deletion()`/`enqueue_user_deletion()` (181/183) lock `FOR UPDATE` before flipping the owner into its deletion lifecycle. Postgres row-level locks are mutually exclusive: whichever of the two transactions' `FOR UPDATE` commits first is authoritative, and the second necessarily observes that committed state. This makes "deletion started" and "a new writer lease was acquired after" structurally impossible to observe simultaneously — not just unlikely under normal timing.
+- **`renew_owner_write_lease(_lease_id, _lease_token, _lease_seconds)`** — heartbeat, same fencing shape as 185's job leases.
+- **`release_owner_write_lease(_lease_id, _lease_token)`** — best-effort, idempotent (a lease that's already gone, expired-and-swept or already released, is not an error).
+
+**Live-Postgres proof, both directions** (this session ran both against a real PostgreSQL 16 instance with genuinely concurrent connections, not just sequential SQL): Session A holds `SELECT ... FOR UPDATE` on a workspace row for 3-4s (simulating either an in-flight `acquire_owner_write_lease` or an in-flight `enqueue_workspace_deletion`) while Session B calls the other RPC — B's call **blocks** for the full duration A holds the lock (timed: B's call took 3.0s / 2.0s matching A's held-lock window in each direction), then resolves against whatever A actually committed:
+  - Direction 1 (lease first): A acquires a lease and commits; B's `enqueue_workspace_deletion` then blocks, and once it proceeds, succeeds (a lease never blocks deletion from *starting* — only from being trusted as complete) — but the lease row A created remains a durable, queryable record.
+  - Direction 2 (deletion first): A's `enqueue_workspace_deletion` flips status to `'deleting'` and commits; B's blocked `acquire_owner_write_lease` then proceeds and correctly fails with `workspace_not_writable` — no lease is ever created after deletion has started.
+
+### Producers hold the lease for the ENTIRE write, not just before it
+
+`server/services/storage/writerLease.ts` is the shared client-side module: `acquireOwnerWriteLease`, `renewOwnerWriteLease`, `releaseOwnerWriteLease`, `hasActiveOwnerWriteLeases` (a plain read: any unexpired lease row for this owner), and `withOwnerWriteLease(config, ownerKind, ownerId, purpose, fn)` — acquires, heartbeats every 30s while `fn` runs, and releases in a `finally` regardless of whether `fn` succeeds or throws.
+
+`uploadForOwner()` and `uploadWithConfigForOwner()` (`server/services/storage/index.ts`) now wrap their entire validate-through-provider-call sequence in `withOwnerWriteLease` for `workspace`/`user` owners — replacing the old direct `isWorkspaceWritable()`/`isUserWritable()` call-then-proceed shape. The lease is held through the actual provider handler call (the real S3/Bunny/local write), not released the instant the writability check passes.
+
+### LiveKit recording start: lease held through BOTH the Egress call AND durable persistence
+
+Egress writes directly to `recording_storage` and workspace deletion's quiescence gate can only see it once `call_sessions.recording_id`/`recording_state` is durably persisted — so `livekitProvider.ts`'s `startRecording()` must hold its lease across that persistence too, not just the `StartRoomCompositeEgress` call. It now:
+
+1. Acquires a workspace write lease (`purpose: 'livekit_recording_start'`) — fails with the same `CallProviderNotReadyError('...being deleted...')` as before if acquisition fails.
+2. Calls `StartRoomCompositeEgress`.
+3. Invokes a new optional `opts.onStarted(handle)` callback **while still holding the lease** — this is where the caller's durable persistence runs. `server/routes/calls.ts` and `server/services/callCenter/recordingControl.ts` (the two real call sites) moved their existing `call_sessions.metadata`/`recording_state` writes into this callback, with a `persisted` flag guarding an unconditional fallback call after `startRecording()` returns for the non-LiveKit stub providers (jitsi/agora), which don't implement `onStarted` at all.
+4. If `onStarted` throws (a DB write failure), attempts a compensating `stopRecording()` call. If compensation succeeds, releases the lease and rethrows a descriptive error. **If compensation ALSO fails, the lease is deliberately NOT released** — it's left to expire naturally, so workspace deletion keeps waiting rather than ever trusting storage while an unaccounted-for Egress might still be running.
+5. Releases the lease in a `finally` only when neither of the above "stay held" conditions applied.
+
+`server/services/calls/providers/types.ts`'s `startRecording` interface gained the optional `onStarted` field — additive, so the stub providers (agora/janus/jitsi, which ignore extra `opts` fields already) needed no changes.
+
+### Deletion workers wait for pre-existing leases to drain, BEFORE anything else
+
+`workspaceDeletion/worker.ts`'s `runStorageCleanup()` now calls `hasActiveOwnerWriteLeases(config, 'workspace', job.workspace_id)` as its **very first** gate — before `quiesceLiveKitEgress()`, before any scope is touched. If any unexpired lease exists, the tick releases the job lease (without bumping `attempt_count`) and returns — no LiveKit quiesce query, no storage listing, nothing. This is deliberately what makes the LiveKit recording-start race safe: a `livekit_recording_start` lease is caught by this SAME generic gate, so `quiesceLiveKitEgress()` never runs against a `call_sessions` row that hasn't been durably written yet — the ordering (drain leases → quiesce Egress → clean storage) falls out of one simple rule rather than a LiveKit-specific special case.
+
+`userDeletion/worker.ts`'s `purgeUser()` gets the identical gate for `hasActiveOwnerWriteLeases(config, 'user', job.user_id)`, run on every tick, before the scope-cleanup walk.
+
+Since `acquireOwnerWriteLease()` cannot succeed once a deletion job exists (the same row-lock argument above), the set of leases a deletion job can ever be waiting on is exactly the ones that existed at enqueue time — it can only shrink, never grow.
+
+### The exact race the review specified, traced through the code
+
+1. `startRecording()` acquires its workspace write lease.
+2. The writability check inside that acquisition was valid (workspace still `active`).
+3. `StartRoomCompositeEgress`'s Twirp call is in flight.
+4. Workspace deletion is requested (`enqueue_workspace_deletion` — a separate call, blocked on the SAME row lock per §15's live-Postgres proof above, so it can only proceed once the lease row is durably committed, and even then only flips status — it does not touch or care about the lease).
+5. The deletion worker's tick runs.
+6. `hasActiveOwnerWriteLeases()` sees the outstanding `livekit_recording_start` lease — the tick stops here. No `call_sessions` query, no scope touched.
+7. `StartRoomCompositeEgress` returns; `onStarted` persists `recording_id`/`recording_state` to `call_sessions` while the lease is still held.
+8. The lease releases.
+9. The deletion worker's NEXT tick passes the (now-drained) lease gate and reaches `quiesceLiveKitEgress()`, which now correctly finds the non-terminal `call_sessions` row (durably persisted in step 7) and requests a stop.
+10. Only once that reaches a terminal state (via the webhook, §11) does storage cleanup ever run.
+
+### LiveKit webhook retry semantics — a companion fix required for step 10 to actually terminate
+
+Quiescence depends on the webhook eventually setting `recording_state` to a terminal value. `server/routes/livekitWebhook.ts` previously treated "a `livekit_webhook_events` row with this `event_id` exists" as permanent dedup — but that row is inserted **before** `applyEvent()` runs, and the route always answered LiveKit with `200` even when `applyEvent()` threw (caught, logged as `process_error`, but still 200). A transient DB failure inside `applyEvent()` would then be silently swallowed as "already seen" on every future delivery of the same event — including LiveKit's own retries, which only fire on a non-2xx response — permanently stranding `recording_state` at `finalizing` and wedging step 10 (and therefore workspace deletion) forever.
+
+Fixed: dedup now requires the existing row to be **both** `processed_at IS NOT NULL` **and** `process_error IS NULL` — a row that's still in flight or previously failed is reprocessed (safe, since every `applyEvent()` handler is already idempotent) rather than skipped. A thrown `applyEvent()` error now returns a **non-2xx** (500) response instead of 200, so LiveKit's own retry mechanism redelivers it, and leaves `processed_at` null so the next delivery reprocesses rather than dedups. A non-throwing outcome (`applied: true`, or `applied: false` with a reason like `unhandled_event_type`/`session_not_found`) is still treated as fully resolved — only a genuine thrown exception is retryable. The insert-then-catch-as-dedup path for a genuinely concurrent duplicate delivery is preserved (a real unique-index violation on `event_id` still backs off as dedup, never double-applies).
+
+### Regression tests added this pass
+
+- `src/test/storage/writeBarrierLateWrites.test.ts` — extended (29 tests, up from 19): a "delayed-write race" describe block (5 tests) driving `withOwnerWriteLease`/`hasActiveOwnerWriteLeases` directly with an artificially blocked write for all four producer/owner combinations (workspace upload, workspace privacy export, user avatar, user privacy export) plus a throwing-write-still-releases test; a "lease expiry" describe block (2 tests) proving a crashed producer's abandoned lease stops counting once expired, and an unexpired one still counts regardless of future renewal; a "LiveKit recording-start write lease" describe block (3 tests) proving the lease is held through `StartRoomCompositeEgress` AND `onStarted` persistence with a real Twirp mock, the compensating-stop-on-persist-failure path, and the "retains the lease when compensation also fails" path.
+- `src/test/storage/workspaceDeletionWorker.test.ts` — extended (31 tests, up from 27): an "owner write lease drain" describe block (4 tests: outstanding lease blocks the entire tick / an expired lease doesn't / a different workspace's lease doesn't) plus the full LiveKit start-vs-delete race scenario traced above as a single composed test (lease outstanding + no `call_sessions` row yet → tick 1 sees nothing and stops cold; lease released + `call_sessions` row now present → tick 2 passes the drain gate and correctly falls through to `quiesceLiveKitEgress()`, which finds the now-visible non-terminal recording and requests a stop).
+- `src/test/storage/userDeletionWorker.test.ts` — extended (26 tests, up from 22): the same lease-drain gate proven for `purgeUser()` (4 tests: outstanding user lease blocks the tick / expired doesn't / a different user's lease doesn't / a `workspace`-kind lease under the same id doesn't cross owner-kind namespaces).
+- `src/test/storage/livekitWebhookRetry.test.ts` — new (6 tests), driving the REAL router end-to-end over HTTP via `supertest` with a genuine signed JWT and body-hash (not a direct internal-function call): first-delivery success sets `recording_state` to `available`/`failed` and marks the event processed; a replay of an already-processed event is deduped without re-touching `call_sessions`; the MANDATORY transient-failure test (first attempt throws → non-2xx, `processed_at` stays null); the MANDATORY retry-after-failure test (second attempt succeeds → `recording_state` reaches a terminal value, unblocking quiescence); an `EGRESS_FAILED` event correctly sets `recording_state` to `failed`; concurrent duplicate delivery of a brand-new event stays idempotent (exactly one audit row, one successful apply) via a real unique-constraint-violation simulation on the second insert.
+- `database/migrations/187_owner_write_leases.sql` mirrored to `supabase/migrations/20260916090000_owner_write_leases.sql`, registered in `src/test/integration/migrationMirrorParity.test.ts` — plus the live two-connection Postgres concurrency proof described above (not just a functional-SQL-equality check).
+
+**Totals, this fourth corrective pass**: 344 tests passing across the full targeted storage/billing/security regression suite (`src/test/storage/` — 14 files, 248 tests; `src/test/billing/{operatorRecordingVisibility,recordingStartRoutes,recordingStorageProvider}.test.ts`; `src/test/security/{accountAvatarOwnership,privacyExportOwnership,livekitRecordingKeyValidation}.test.ts`) plus 50 migration-parity tests, all passing. `npm run typecheck` and `npm run typecheck:server` both clean except the same pre-existing, unrelated `backupAgent.ts` error present before this session's work began. `node scripts/lint-changed.mjs`: `OK — 0 errors, 0 warnings across 57 changed files`.
+
+## 16. Definition of Done — fourth corrective pass
+
+| Requirement | Status |
+|---|---|
+| A DB-backed, cross-process writer lease (not an in-memory counter) | ✅ `owner_write_leases`, an actual table, read/written only through the three RPCs |
+| Lease acquisition is atomic with the writability check, and serializes against the deletion-enqueue RPCs on the SAME row lock | ✅ proven with genuine concurrent Postgres connections in both directions, not just sequential SQL |
+| `uploadForOwner`/`uploadWithConfigForOwner` hold the lease through the actual write, not just check before it | ✅ `withOwnerWriteLease` wraps the full validate-through-provider-call sequence |
+| LiveKit recording start holds its lease through Egress start AND durable persistence | ✅ `onStarted` callback runs before release; compensating stop on persistence failure |
+| A process crash never wedges deletion forever | ✅ leases expire; `hasActiveOwnerWriteLeases` only counts unexpired ones |
+| Deletion waits for ALL pre-existing leases to drain before touching storage or (for workspaces) quiescing LiveKit | ✅ `hasActiveOwnerWriteLeases` is the first gate in both `runStorageCleanup()` and `purgeUser()` |
+| The LiveKit start-vs-delete race is closed end-to-end | ✅ traced and tested step-by-step above |
+| The webhook's retry semantics never permanently strand a non-terminal recording state | ✅ dedup requires successful processing, not just receipt; a thrown error returns non-2xx |
+
+## 17. Known gaps — fourth corrective pass (deliberate scope decisions, narrow fixes only)
+
+1. **Heartbeat renewal for `withOwnerWriteLease` uses a fixed 30s interval with no jitter/backoff**, matching the existing pattern for job leases (`HEARTBEAT_INTERVAL_MS` in the deletion workers) — fine at this scale, but a future high-concurrency deployment might want jittered heartbeats to avoid thundering-herd renewal traffic.
+2. **`owner_write_leases` rows older than the opportunistic 1-hour cleanup window inside `acquire_owner_write_lease()` only get swept on the next acquisition call for ANY owner** — there's no dedicated cron sweep. This is bounded and harmless (expired rows are never counted as active regardless of whether they're physically deleted yet), but the table can accumulate stale rows indefinitely on a deployment with infrequent uploads.
+3. **The legacy migration tool (`legacyMigration/engine.ts`) still calls the bare `uploadWithConfig()`**, not lease-protected (§9 item 1, unchanged across all four passes) — an operational batch tool, out of scope per the original narrow-fix instruction.
+4. **`livekit_webhook_events` remains hosted-only** (confirmed absent from every self-host migration, a pre-existing gap this pass did not create or attempt to close — porting it is a larger, separate undertaking akin to `call_events`'s existing documented gap). The webhook route itself is therefore not self-host-functional today; this pass's retry-semantics fix applies once that table exists on both chains.
+5. **Workspace-config-drift (§7) and LiveKit-quiescence gating (§11) both remain per-tick, whole-job gates** rather than per-scope — unchanged trade-off from the prior passes, now joined by the lease-drain gate using the identical "gate the whole tick" philosophy for the same simplicity-over-throughput reason.
+
+## 18. Test coverage summary — all four corrective passes combined
+
+344 tests passing (14 storage files/248 tests + 3 billing recording files + 3 security files + 50 migration-parity tests), full typecheck clean (server and full), `lint-changed.mjs` clean across all 57 files touched across all four passes.

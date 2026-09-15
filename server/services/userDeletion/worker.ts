@@ -41,6 +41,7 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { userStorageScopes, userScopePrefix } from '../storage/userScopes.js';
 import { runScopeCleanupTick, type ScopeCleanupState } from '../storage/scopeCleanupEngine.js';
+import { hasActiveOwnerWriteLeases } from '../storage/writerLease.js';
 import type { UserDeletionJobRow } from './types.js';
 
 const POLL_INTERVAL_MS = 5_000;
@@ -213,7 +214,24 @@ async function checkWorkspaceDeletionsComplete(config: ServerConfig, job: UserDe
   await releaseLease(config, job);
 }
 
+/**
+ * Fourth corrective pass, P0: no user storage scope is ever touched while
+ * an owner_write_lease (server/services/storage/writerLease.ts) is still
+ * outstanding for this user — the same TOCTOU-closing gate
+ * workspaceDeletion/worker.ts's runStorageCleanup() applies. No NEW lease
+ * can be acquired once this job exists (acquireOwnerWriteLease() checks
+ * for an active user_deletion_jobs row, atomically, against the SAME
+ * profiles-row lock enqueue_user_deletion() used to create it — see
+ * 187_owner_write_leases.sql), so this can only ever be waiting on leases
+ * that were already in flight before the job began; it can only shrink
+ * from here, never grow.
+ */
 async function purgeUser(config: ServerConfig, job: UserDeletionJobRow): Promise<void> {
+  if (await hasActiveOwnerWriteLeases(config, 'user', job.user_id)) {
+    await releaseLease(config, job);
+    return;
+  }
+
   const sb = getServiceClient(config);
   const state: ScopeCleanupState = { ...(job.storage_scopes ?? {}) };
   const leaseToken = job.lease_token!;

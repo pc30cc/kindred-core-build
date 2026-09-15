@@ -270,6 +270,31 @@ describe('migration 190 backfills conservatively', () => {
     expect(body).toContain("fab_image_storage_key LIKE 'workspace/' || workspace_id::text || '/widget/%'");
   });
 
+  it('recovers legacy launcher keys, and only from the row\'s own workspace', () => {
+    const body = read(SQL);
+    // Without this backfill an existing WebYar-owned launcher stays pinned to
+    // whichever provider was primary when the browser uploaded it.
+    expect(body).toContain('SET fab_image_storage_key = substring(');
+    expect(body).toContain("'(workspace/' || w.workspace_id::text || '/widget/launcher-[0-9]+\\.[A-Za-z0-9]+)$'");
+    expect(body).toContain("split_part(split_part(w.fab_image_url, '#', 1), '?', 1)");
+    // Never a generic uuid match.
+    expect(body).not.toMatch(/widget\/launcher[^\n]*\[0-9a-fA-F-\]\{36\}/);
+  });
+
+  it('neither backfill clears the legacy URL column it read from', () => {
+    // 190 lands BEFORE the new backend, so the old code still needs them.
+    const body = read(SQL);
+    const upToConstraints = body.slice(0, body.indexOf('-- ─── 2.'));
+    expect(upToConstraints).not.toMatch(/SET[^;]*\bavatar_url\s*=/);
+    expect(upToConstraints).not.toMatch(/SET[^;]*\bfab_image_url\s*=/);
+  });
+
+  it('verifies after the fact that no backfilled key escaped its namespace', () => {
+    const body = read(SQL);
+    expect(body).toContain('contact avatar key(s) are not workspace-scoped');
+    expect(body).toContain('launcher image key(s) are not workspace-scoped');
+  });
+
   it('leaves migration 189 untouched by this change', () => {
     // 189 is already applied in production; editing it would silently skip
     // on every environment that has recorded it.

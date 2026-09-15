@@ -17,6 +17,8 @@
  * the rest of the key-only work is held to.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import http from 'node:http';
 import express from 'express';
 
@@ -444,5 +446,156 @@ describe('widget launcher image is key-only', () => {
     const res = await call('GET', `/api/widget-settings/${WS}`);
 
     expect(res.body.settings.fab_image_url).toBeNull();
+  });
+});
+
+// ── Legacy launcher-image backfill (migration 190) ────────────────
+
+/**
+ * The launcher image predates the key column: the browser uploaded it and
+ * PATCHed the returned provider URL into the row. Migration 190 recovers the
+ * key from that URL — conservatively — so an EXISTING WebYar-owned launcher
+ * stops being pinned to the provider that was primary when it was uploaded.
+ *
+ * The backfill is SQL, which this suite cannot execute, so instead of
+ * re-implementing it (which would drift silently) these tests READ THE
+ * PATTERNS OUT OF THE MIGRATION FILE and evaluate them. The subset used —
+ * `[0-9]`, `+`, `\.`, a character class, a capture group and `$` — means the
+ * same thing in POSIX ERE and in JavaScript, so evaluating the extracted
+ * pattern here is a faithful stand-in. If anybody loosens the SQL, these
+ * cases fail.
+ */
+function readFabBackfill(): { guard: (ws: string, url: string) => boolean; extract: (ws: string, url: string) => string | null } {
+  const sql = fs.readFileSync(path.resolve(process.cwd(), 'database/migrations/190_storage_key_ownership.sql'), 'utf8');
+
+  const regexTail = /from '\(workspace\/' \|\| w\.workspace_id::text \|\| '([^']+)'/.exec(sql);
+  const likeParts = /LIKE '([^']*)' \|\| w\.workspace_id::text \|\| '([^']*)';/.exec(sql);
+  if (!regexTail || !likeParts) throw new Error('migration 190: launcher backfill patterns not found');
+
+  // `split_part(split_part(url, '#', 1), '?', 1)`
+  const strip = (url: string) => url.split('#')[0].split('?')[0];
+  // `LIKE '%…%'` with no other wildcards is a substring test.
+  const likePrefix = likeParts[1].replace(/%/g, '');
+  const likeSuffix = likeParts[2].replace(/%/g, '');
+
+  return {
+    guard: (ws, url) => strip(url).includes(`${likePrefix}${ws}${likeSuffix}`),
+    extract: (ws, url) => {
+      const re = new RegExp(`(workspace/${ws}${regexTail[1]}`);
+      return re.exec(strip(url))?.[1] ?? null;
+    },
+  };
+}
+
+/** The whole UPDATE: guard, then extract. NULL when either refuses. */
+function backfill(ws: string, url: string | null): string | null {
+  if (!url) return null;
+  const { guard, extract } = readFabBackfill();
+  if (!guard(ws, url)) return null;
+  return extract(ws, url);
+}
+
+describe('migration 190 recovers a legacy launcher key, conservatively', () => {
+  const OTHER_WS = '11111111-1111-4111-8111-111111111111';
+
+  it('recovers the key a real pre-migration row can prove', () => {
+    // Exactly what src/pages/app/WidgetPage.tsx used to build and store.
+    const url = `https://old-provider.example/workspace/${WS}/widget/launcher-123456789.png`;
+
+    expect(backfill(WS, url)).toBe(`workspace/${WS}/widget/launcher-123456789.png`);
+  });
+
+  it('does NOT adopt a key that names another workspace', () => {
+    const url = `https://old-provider.example/workspace/${OTHER_WS}/widget/launcher-123456789.png`;
+
+    expect(backfill(WS, url)).toBeNull();
+    // …and not even when this row's id also appears elsewhere in the URL.
+    expect(backfill(WS, `https://cdn.example/${WS}/x/workspace/${OTHER_WS}/widget/launcher-1.png`)).toBeNull();
+  });
+
+  it('leaves an arbitrary external image NULL', () => {
+    for (const url of [
+      'https://external.example/some/avatar.jpg',
+      'https://external.example/workspace/not-a-uuid/widget/launcher-1.png',
+      `https://external.example/workspace/${WS}/branding/icon.png`,
+      `https://external.example/workspace/${WS}/widget/launcher/uuid-name.png`, // new shape, dash vs slash
+      `https://external.example/workspace/${WS}/widget/launcher-abc.png`,       // not an epoch
+    ]) {
+      expect(backfill(WS, url), url).toBeNull();
+    }
+  });
+
+  it('strips a query string and a fragment before extracting', () => {
+    const key = `workspace/${WS}/widget/launcher-1700000000000.webp`;
+
+    expect(backfill(WS, `https://cdn.example/${key}?v=2`)).toBe(key);
+    expect(backfill(WS, `https://cdn.example/${key}#frag`)).toBe(key);
+    expect(backfill(WS, `https://cdn.example/${key}?v=2#frag`)).toBe(key);
+  });
+
+  it('refuses a URL whose path continues past the key', () => {
+    // `$`-anchored: the key the uploader wrote was always last in the path.
+    expect(backfill(WS, `https://cdn.example/workspace/${WS}/widget/launcher-1.png/extra`)).toBeNull();
+  });
+
+  it('every key it does produce satisfies the ownership CHECK', () => {
+    const sql = fs.readFileSync(path.resolve(process.cwd(), 'database/migrations/190_storage_key_ownership.sql'), 'utf8');
+    expect(sql).toContain("fab_image_storage_key LIKE 'workspace/' || workspace_id::text || '/widget/%'");
+
+    for (const ext of ['png', 'jpg', 'webp']) {
+      const key = backfill(WS, `https://cdn.example/workspace/${WS}/widget/launcher-9.${ext}`);
+      expect(key).toBe(`workspace/${WS}/widget/launcher-9.${ext}`);
+      expect(key!.startsWith(`workspace/${WS}/widget/`)).toBe(true);
+    }
+  });
+
+  it('does not clear fab_image_url, so the old backend keeps working mid-deploy', () => {
+    const sql = fs.readFileSync(path.resolve(process.cwd(), 'database/migrations/190_storage_key_ownership.sql'), 'utf8');
+    const update = sql.slice(sql.indexOf('UPDATE public.widget_settings'), sql.indexOf('-- ─── 2.'));
+    expect(update).toContain('SET fab_image_storage_key =');
+    expect(update).not.toContain('fab_image_url =');
+  });
+});
+
+describe('a backfilled legacy launcher follows a promotion', () => {
+  it('serves the new provider on the next read, with no widget_settings update', async () => {
+    // The row exactly as migration 190 leaves it: key recovered, legacy URL
+    // still physically present for deploy compatibility.
+    const legacyUrl = `https://old-provider.example/workspace/${WS}/widget/launcher-123456789.png`;
+    const recovered = backfill(WS, legacyUrl);
+    expect(recovered).toBe(`workspace/${WS}/widget/launcher-123456789.png`);
+
+    db.widget_settings.fab_image_storage_key = recovered;
+    db.widget_settings.fab_image_url = legacyUrl;
+    db.updates = [];
+
+    // Before: the key wins over the stale URL, resolved on the old provider.
+    const before = await call('GET', `/api/widget-settings/${WS}`);
+    expect(before.body.settings?.fab_image_url).toBe(`${LOCAL_PUBLIC}/${recovered}`);
+
+    seedProvider('s3');
+
+    const after = await call('GET', `/api/widget-settings/${WS}`);
+    expect(after.body.settings?.fab_image_url).toBe(`${S3_CDN}/${recovered}`);
+    // Promotion rewrote nothing, and the legacy column is untouched.
+    expect(db.updates).toEqual([]);
+    expect(db.widget_settings.fab_image_url).toBe(legacyUrl);
+  });
+
+  it('an unprovable row still falls back to its legacy URL, read-only', async () => {
+    const external = 'https://external.example/some/launcher.png';
+    db.widget_settings.fab_image_storage_key = backfill(WS, external); // null
+    db.widget_settings.fab_image_url = external;
+
+    expect(db.widget_settings.fab_image_storage_key).toBeNull();
+
+    const before = await call('GET', `/api/widget-settings/${WS}`);
+    expect(before.body.settings?.fab_image_url).toBe(external);
+
+    // A promotion cannot help it — which is exactly why the backfill matters
+    // for the rows it CAN prove.
+    seedProvider('s3');
+    const after = await call('GET', `/api/widget-settings/${WS}`);
+    expect(after.body.settings?.fab_image_url).toBe(external);
   });
 });

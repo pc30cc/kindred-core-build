@@ -187,29 +187,40 @@ Not media at all, despite looking like it: `call_center_departments.icon` and
 `database/migrations/190_storage_key_ownership.sql` (mirrored to
 `supabase/migrations/20260916093000_storage_key_ownership.sql`) does two things:
 
-1. Adds `contacts.avatar_storage_key` and `widget_settings.fab_image_storage_key`.
-   The contact key is backfilled **conservatively and
-   per-row workspace-scoped**: a key is recovered only when the stored URL
-   contains that row's OWN workspace id under the exact prefix the ingest
-   writes. A generic `workspace/<any-uuid>/` match is deliberately not used —
-   `contacts.avatar_url` is also written by the CRM import API, and a URL that
-   merely mentions some workspace id must never be adopted as this row's key.
-   Query strings and fragments are stripped. Anything unprovable stays `NULL`,
-   which every reader already handles. The launcher image gets **no
-   backfill at all**: the browser used to choose its object key, so nothing
-   in the stored URL proves which key belongs to this workspace. Those rows
-   keep rendering from the legacy URL until an operator re-uploads.
-2. Adds ownership `CHECK` constraints, so a key naming another tenant is
-   unrepresentable in the schema and not only in the resolver. The two new
-   columns' constraints are validated (`contacts` because the backfill
-   provably satisfies it, `widget_settings` because it starts empty); the
-   pre-existing key columns get `NOT VALID` constraints, which still enforce
-   the rule on every new INSERT/UPDATE while the legacy-migration job works
-   through historical rows.
+1. Adds `contacts.avatar_storage_key` and `widget_settings.fab_image_storage_key`,
+   and backfills both **conservatively and per-row workspace-scoped**: a key
+   is recovered only when the stored URL, after query string and fragment are
+   stripped, names THIS row's OWN workspace id under a prefix the platform is
+   known to have written. A generic `workspace/<any-uuid>/` match is
+   deliberately never used — a URL that merely mentions some workspace id
+   must not be adopted as this row's key. Anything unprovable stays `NULL`
+   and keeps using the deprecated read-only URL fallback.
 
-It deliberately does **not** clear the now-derived `*_url` columns. Deployment
-order is `189 → 190 → backend → frontend`, so for the length of the deploy the
-old code is still reading them. Dropping them is a separate, later migration,
+   - **Contacts**: `workspace/<workspace_id>/avatars/telegram/…`, the exact
+     prefix the channel ingest writes.
+   - **Launcher image**: `workspace/<workspace_id>/widget/launcher-<epoch>.<ext>`,
+     anchored at the end of the path. That is the only shape the old browser
+     uploader ever built (`src/pages/app/WidgetPage.tsx`, verified against
+     that file's full history), so an existing WebYar-owned launcher does
+     NOT stay pinned to the provider that was primary when it was uploaded —
+     the recovered key lets the next read derive it from the new primary.
+     The newer server-side endpoint writes
+     `workspace/<id>/widget/launcher/<uuid>-<name>` (slash, not dash); both
+     satisfy the ownership CHECK, which requires only `workspace/<id>/widget/`.
+
+2. Adds ownership `CHECK` constraints, so a key naming another tenant is
+   unrepresentable in the schema and not only in the resolver. Both new
+   columns' constraints are validated — each backfill provably satisfies its
+   own; the pre-existing key columns get `NOT VALID` constraints, which still
+   enforce the rule on every new INSERT/UPDATE while the legacy-migration job
+   works through historical rows. A final `DO` block re-checks that neither
+   backfill produced an out-of-namespace key and aborts the migration if it
+   somehow did.
+
+It deliberately does **not** clear the now-derived `*_url` columns — not even
+for a row whose key it just recovered. Deployment order is
+`189 → 190 → backend → frontend`, so for the length of the deploy the old code
+is still reading them. Dropping them is a separate, later migration,
 once no running code reads a stored URL.
 
 ## Promotion requires a URL-capable vendor

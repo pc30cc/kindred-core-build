@@ -26,16 +26,20 @@
 --    returned straight back into the settings row, so the row recorded a
 --    vendor hostname and no key at all.
 --
---    The backfill is deliberately CONSERVATIVE and per-row workspace-scoped.
---    It recovers a key only when the stored URL contains this row's OWN
---    workspace id under the exact prefix the ingest writes
---    (`workspace/<workspace_id>/avatars/telegram/`). It does not trust a
---    generic `workspace/<any-uuid>/` match: `contacts.avatar_url` is also
---    written by the CRM import API with an integrator-supplied URL, and a
---    URL that merely mentions some workspace id must never be adopted as
---    THIS row's key. Anything unprovable stays NULL — a NULL key means
---    "not our object", which every read path already handles by falling
---    back to the externally supplied URL.
+--    Both backfills are deliberately CONSERVATIVE and per-row
+--    workspace-scoped: a key is recovered only when the stored URL contains
+--    THIS row's OWN workspace id under a prefix this platform is known to
+--    have written. A generic `workspace/<any-uuid>/` match is never
+--    trusted — `contacts.avatar_url` historically also received
+--    integrator-supplied URLs through the CRM import API (that writer is
+--    gone: the workspace-facing contact schemas no longer accept the field
+--    at all, so any such value is legacy historical data, not something new
+--    that can appear), and a URL that merely mentions some workspace id
+--    must never be adopted as this row's key.
+--
+--    Anything unprovable stays NULL — a NULL key means "we cannot prove
+--    this is our object", and every read path already handles it by falling
+--    back, read-only, to the stored URL.
 --
 --    Query strings and fragments are stripped: a CDN link may carry
 --    `?v=2` or `#x`, and neither is part of the object key.
@@ -83,18 +87,54 @@ WHERE c.avatar_storage_key IS NULL
 
 -- ─── 1b. widget_settings.fab_image_storage_key ─────────────────────
 --
--- No backfill is possible or attempted. The launcher image was uploaded by
--- the browser through the generic storage API with a client-chosen key, so
--- a row's `fab_image_url` is a provider URL whose key shape this migration
--- cannot prove belongs to the workspace. Existing rows therefore keep
--- rendering from the legacy URL (read-only) until an operator re-uploads
--- through the new endpoint, which stores the key and clears the URL.
+-- The launcher image was uploaded by the BROWSER through the generic
+-- storage API, which then PATCHed the provider URL it got back into the
+-- settings row — so the row recorded a vendor hostname and no key at all.
+--
+-- The key is nevertheless recoverable, because the browser only ever built
+-- it one way. `src/pages/app/WidgetPage.tsx` constructed exactly:
+--
+--     workspace/${workspace.id}/widget/launcher-${Date.now()}.${ext}
+--
+-- for the whole life of that code path (verified against the file's full
+-- history — no other launcher key shape was ever written by it), with
+-- `ext` restricted to png/webp/jpg by the uploader's own type check. That
+-- is a fixed, workspace-rooted shape: `launcher-<epoch millis>.<ext>`.
+--
+-- So the same conservative rule the contact backfill uses applies here. A
+-- key is adopted only when the stored URL, after query string and fragment
+-- are stripped, ENDS WITH that exact shape under THIS row's own workspace
+-- id. Anything else — a URL naming another workspace, an arbitrary
+-- external image, a path that merely starts like ours — stays NULL and
+-- keeps using the deprecated read-only URL fallback until the operator
+-- re-uploads through the new endpoint.
+--
+-- Why bother: without this, an existing WebYar-owned launcher image stays
+-- pinned to the provider that was primary when it was uploaded, and a
+-- promotion silently leaves it behind. Recovering the key is what lets the
+-- very next read derive it from the NEW primary with no row rewritten.
+--
+-- The new upload endpoint writes the canonical
+-- `workspace/<id>/widget/launcher/<uuid>-<name>` shape (note the slash, not
+-- the dash). Both satisfy the ownership CHECK below, which requires only
+-- `workspace/<workspace_id>/widget/`.
 
 ALTER TABLE public.widget_settings
   ADD COLUMN IF NOT EXISTS fab_image_storage_key text;
 
 COMMENT ON COLUMN public.widget_settings.fab_image_storage_key IS
-  'Canonical storage key of the widget launcher image (workspace/<workspace_id>/widget/launcher/...). The only persisted record of the file: its public URL is derived at read time for whichever storage provider is primary. Written solely by POST /api/widget-settings/:workspaceId/fab-image — never from the generic settings PATCH.';
+  'Canonical storage key of the widget launcher image (workspace/<workspace_id>/widget/...). The only persisted record of the file: its public URL is derived at read time for whichever storage provider is primary. Written solely by POST /api/widget-settings/:workspaceId/fab-image — never from the generic settings PATCH. NULL means the legacy fab_image_url could not be proven to name an object of this workspace.';
+
+UPDATE public.widget_settings AS w
+SET fab_image_storage_key = substring(
+      split_part(split_part(w.fab_image_url, '#', 1), '?', 1)
+      from '(workspace/' || w.workspace_id::text || '/widget/launcher-[0-9]+\.[A-Za-z0-9]+)$'
+    )
+WHERE w.fab_image_storage_key IS NULL
+  AND w.workspace_id IS NOT NULL
+  AND w.fab_image_url IS NOT NULL
+  AND split_part(split_part(w.fab_image_url, '#', 1), '?', 1)
+      LIKE '%workspace/' || w.workspace_id::text || '/widget/launcher-%';
 
 -- ─── 2. Ownership constraints ──────────────────────────────────────
 
@@ -200,13 +240,21 @@ BEGIN
     RAISE EXCEPTION 'storage_key_ownership: widget_settings.fab_image_storage_key missing';
   END IF;
 
-  -- The backfill must never have adopted another tenant's key.
+  -- Neither backfill may ever have adopted another tenant's key.
   SELECT count(*) INTO bad_rows
   FROM public.contacts
   WHERE avatar_storage_key IS NOT NULL
     AND avatar_storage_key NOT LIKE 'workspace/' || workspace_id::text || '/%';
   IF bad_rows > 0 THEN
     RAISE EXCEPTION 'storage_key_ownership: % contact avatar key(s) are not workspace-scoped', bad_rows;
+  END IF;
+
+  SELECT count(*) INTO bad_rows
+  FROM public.widget_settings
+  WHERE fab_image_storage_key IS NOT NULL
+    AND fab_image_storage_key NOT LIKE 'workspace/' || workspace_id::text || '/widget/%';
+  IF bad_rows > 0 THEN
+    RAISE EXCEPTION 'storage_key_ownership: % launcher image key(s) are not workspace-scoped', bad_rows;
   END IF;
 
   FOR bad_rows IN

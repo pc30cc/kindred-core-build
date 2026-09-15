@@ -6099,6 +6099,7 @@ const tr: TranslationKeys = {
         done: 'Eşitleme bitti',
         doneDesc: '{{copied}} kopyalandı, {{failed}} başarısız.',
         more: 'Bekleyen nesneler var — devam etmek için eşitlemeyi yeniden çalıştırın.',
+        primaryNote: 'Bu sağlayıcı birincil — her şey buradan kopyalanır. Doldurmak için bir aynanın sekmesini açın.',
         prefixPlaceholder: 'boş = tüm ad alanı',
         continue: 'Eşitlemeye devam et',
         batches: 'Bu oturumda {{count}} küme çalıştırıldı',

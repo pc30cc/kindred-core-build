@@ -543,6 +543,27 @@ export function AdminStorageProvidersPanel() {
                 {entry && (
                   <div className="flex flex-wrap items-center gap-2">
                     {/*
+                      The back-fill panel further down carries the prefix field
+                      and the progress report, but it sits below a long
+                      credentials form — so the action itself also lives up
+                      here, where a mirror's controls are. Same call: a
+                      whole-namespace walk in bounded batches.
+                    */}
+                    {!isPrimary && (
+                      <Button
+                        size="sm"
+                        onClick={() => void runSyncBatches(selected, true)}
+                        disabled={syncing || !pool?.primary}
+                      >
+                        {syncing
+                          ? <RefreshCw className="h-3.5 w-3.5 me-1.5 animate-spin" />
+                          : <CloudUpload className="h-3.5 w-3.5 me-1.5" />}
+                        {syncing
+                          ? t('adminProviders.storage.sync.running')
+                          : t('adminProviders.storage.sync.run')}
+                      </Button>
+                    )}
+                    {/*
                       Promotion redirects every read to this vendor, so an
                       object it never received stops being downloadable. The
                       ordinary button is therefore only live once the SERVER
@@ -620,6 +641,16 @@ export function AdminStorageProvidersPanel() {
                     submitLabel={entry ? t('adminProviders.panel.saveChanges') : t('adminProviders.storage.saveAndAdd')}
                     onSubmit={(config) => save.mutate({ name: selected, config })}
                   />
+                )}
+
+                {/* The primary is what everything is copied FROM — nothing to back-fill into. */}
+                {entry && isPrimary && (
+                  <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/10 p-2.5">
+                    <CloudUpload className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      {t('adminProviders.storage.sync.primaryNote')}
+                    </p>
+                  </div>
                 )}
 
                 {/* Back-fill a mirror from the primary */}

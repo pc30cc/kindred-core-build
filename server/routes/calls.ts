@@ -16,7 +16,7 @@
  *   POST /api/calls/:id/recording/start
  *   POST /api/calls/:id/recording/stop
  */
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
@@ -43,7 +43,7 @@ import {
   getCallNetworkBundle,
   normalizeClientWsUrl,
 } from '../services/calls/rtcResolver.js';
-import { CallProviderNotReadyError } from '../services/calls/providers/types.js';
+import { CallProviderNotReadyError, type CallProviderId } from '../services/calls/providers/types.js';
 import { mintTurnCreds } from '../services/calls/turnAuth.js';
 import { emitCallMetric } from '../services/calls/metrics.js';
 import { publishConversationEvent } from '../services/realtime/publish.js';
@@ -54,7 +54,10 @@ import {
   callErrorBody,
   callErrorFromUnknown,
 } from '../services/calls/errorCodes.js';
-import { getLiveKitReadinessState } from '../services/calls/providers/livekitProvider.js';
+import {
+  getLiveKitReadinessState,
+  type LiveKitReadinessState,
+} from '../services/calls/providers/livekitProvider.js';
 import { getManifestDiagnostics } from '../services/widget/manifest.js';
 import { loadLiveKitConfig, isMinimallyConfigured } from '../services/calls/livekitConfig.js';
 import { endCallSession, type EndCallReason } from '../services/calls/endSession.js';
@@ -62,10 +65,32 @@ import { requireUser as requireSessionUser, authorizeWorkspaceAccess } from '../
 
 export const callsRouter = Router();
 
+// ─── Local request/error typing helpers ────────────────────────────────
+// Express's base Request has no knowledge of `serverConfig`, attached by
+// this app's own middleware — declared once here instead of scattering
+// `as any` through the router.
+type ReqWithConfig = Request & { serverConfig: ServerConfig };
+
+// Minimal call_sessions row shape — only the fields this file actually
+// reads off a session object (not a model of the whole DB row).
+interface CallSessionRow {
+  id: string;
+  workspace_id: string;
+  provider: CallProviderId;
+  provider_room_id: string | null;
+  context_id: string | null;
+  call_type: string;
+  recording_enabled: boolean;
+}
+
+function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 // ─── auth helper — delegates to the central first-party session helper ────
 async function requireWorkspaceMember(
-  req: any,
-  res: any,
+  req: Request,
+  res: Response,
   _config: ServerConfig,
   workspaceId: string,
 ): Promise<{ userId: string } | null> {
@@ -75,8 +100,8 @@ async function requireWorkspaceMember(
 }
 
 async function loadSessionWithMembership(
-  req: any,
-  res: any,
+  req: Request,
+  res: Response,
   config: ServerConfig,
   callId: string,
 ) {
@@ -112,7 +137,7 @@ function recordEvent(
   });
 }
 
-function handleProviderError(res: any, err: unknown) {
+function handleProviderError(res: Response, err: unknown) {
   if (err instanceof CallProviderNotReadyError) {
     return res.status(CALL_ERROR_HTTP_STATUS.provider_not_ready).json(
       callErrorBody(
@@ -122,7 +147,7 @@ function handleProviderError(res: any, err: unknown) {
       ),
     );
   }
-  console.error('[calls] provider error:', (err as any)?.message || err);
+  console.error('[calls] provider error:', err instanceof Error ? err.message : err);
   return res.status(500).json({ error: 'internal_error' });
 }
 
@@ -135,7 +160,7 @@ function handleProviderError(res: any, err: unknown) {
 async function emitVisitorIncomingEnvelope(
   config: ServerConfig,
   sb: ReturnType<typeof getServiceClient>,
-  session: any,
+  session: CallSessionRow,
   inviterUserId: string,
 ): Promise<void> {
   if (!session.provider_room_id || !session.context_id) return;
@@ -166,7 +191,7 @@ async function emitVisitorIncomingEnvelope(
       .select('full_name')
       .eq('id', inviterUserId)
       .maybeSingle();
-    operatorName = (prof as any)?.full_name || null;
+    operatorName = (prof as { full_name: string | null } | null)?.full_name || null;
   } catch { /* */ }
 
   // Mint a fresh visitor participant token.
@@ -185,11 +210,11 @@ async function emitVisitorIncomingEnvelope(
       ttlSeconds: 600,
     });
     visitorToken = { token: minted.token, expiresAt: minted.expiresAt };
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Provider not ready → publish a degraded envelope so the widget can
     // surface the incoming call but the visitor will get token only via
     // the explicit accept path (state polling).
-    console.warn('[calls] visitor token mint failed during invite:', err?.message || err);
+    console.warn('[calls] visitor token mint failed during invite:', err instanceof Error ? err.message : err);
   }
 
   const { network, turn } = await buildTokenNetworkBundle(config, session.id, 600);
@@ -243,7 +268,8 @@ async function buildTokenNetworkBundle(
         .select('value')
         .eq('key', 'call_rtc_endpoints')
         .maybeSingle();
-      const sharedSecret = (rtcRow?.value as any)?.turn?.shared_secret;
+      const rtcValue = rtcRow?.value as Record<string, unknown> | undefined;
+      const sharedSecret = (rtcValue?.turn as Record<string, unknown> | undefined)?.shared_secret;
       if (typeof sharedSecret === 'string' && sharedSecret.length > 0) {
         const minted = mintTurnCreds({
           sharedSecret,
@@ -274,7 +300,7 @@ const createSchema = z.object({
 callsRouter.post('/create', async (req, res) => {
   try {
     const body = createSchema.parse(req.body);
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as ReqWithConfig).serverConfig;
     const auth = await requireWorkspaceMember(req, res, config, body.workspace_id);
     if (!auth) return;
 
@@ -406,9 +432,9 @@ callsRouter.post('/create', async (req, res) => {
       state: inserted.state,
     });
   } catch (err) {
-    const reason = (err as any)?.message || 'unknown';
+    const reason = err?.message || 'unknown';
     try {
-      const cfg: ServerConfig = (req as any).serverConfig;
+      const cfg: ServerConfig = (req as ReqWithConfig).serverConfig;
       emitCallMetric(cfg, {
         metric: err instanceof CallProviderNotReadyError ? 'call.provider.not_ready' : 'call.create.failure',
         provider: err instanceof CallProviderNotReadyError ? err.providerId : null,
@@ -442,7 +468,7 @@ const inviteSchema = z.object({
   reason: z.enum(['new', 'reissue']).optional(),
 });
 callsRouter.post('/:id/invite', async (req, res) => {
-  const ctx = await loadSessionWithMembership(req, res, (req as any).serverConfig, req.params.id);
+  const ctx = await loadSessionWithMembership(req, res, (req as unknown as ReqWithConfig).serverConfig, req.params.id);
   if (!ctx) return;
   try {
     const body = inviteSchema.parse(req.body);
@@ -456,7 +482,7 @@ callsRouter.post('/:id/invite', async (req, res) => {
     // eff.video_enabled, otherwise eff.voice_enabled. No new keys.
     if (reason === 'new') {
       const eff = await loadEffectiveCallEntitlements(
-        (req as any).serverConfig,
+        (req as unknown as ReqWithConfig).serverConfig,
         ctx.session.workspace_id,
       );
       const allowed =
@@ -497,7 +523,7 @@ callsRouter.post('/:id/invite', async (req, res) => {
       ctx.session.context_id
     ) {
       void emitVisitorIncomingEnvelope(
-        (req as any).serverConfig,
+        (req as unknown as ReqWithConfig).serverConfig,
         ctx.sb,
         ctx.session,
         ctx.userId,
@@ -514,7 +540,7 @@ callsRouter.post('/:id/invite', async (req, res) => {
 
 // ─── POST /api/calls/:id/accept ───────────────────────────────────────────
 callsRouter.post('/:id/accept', async (req, res) => {
-  const ctx = await loadSessionWithMembership(req, res, (req as any).serverConfig, req.params.id);
+  const ctx = await loadSessionWithMembership(req, res, (req as unknown as ReqWithConfig).serverConfig, req.params.id);
   if (!ctx) return;
   await ctx.sb
     .from('call_sessions')
@@ -522,14 +548,14 @@ callsRouter.post('/:id/accept', async (req, res) => {
     .eq('id', ctx.session.id);
   await recordEvent(ctx.sb, ctx.session.id, 'accepted', 'operator', ctx.userId);
   // Phase 8D — operator becomes busy automatically.
-  void markInCall((req as any).serverConfig, ctx.session.workspace_id, ctx.userId, ctx.session.id)
+  void markInCall((req as unknown as ReqWithConfig).serverConfig, ctx.session.workspace_id, ctx.userId, ctx.session.id)
     .catch(() => {/* never block accept on availability bookkeeping */});
   res.json({ ok: true });
 });
 
 // ─── POST /api/calls/:id/reject ───────────────────────────────────────────
 callsRouter.post('/:id/reject', async (req, res) => {
-  const ctx = await loadSessionWithMembership(req, res, (req as any).serverConfig, req.params.id);
+  const ctx = await loadSessionWithMembership(req, res, (req as unknown as ReqWithConfig).serverConfig, req.params.id);
   if (!ctx) return;
   await ctx.sb
     .from('call_sessions')
@@ -541,13 +567,13 @@ callsRouter.post('/:id/reject', async (req, res) => {
 
 // ─── POST /api/calls/:id/hangup ───────────────────────────────────────────
 callsRouter.post('/:id/hangup', async (req, res) => {
-  const ctx = await loadSessionWithMembership(req, res, (req as any).serverConfig, req.params.id);
+  const ctx = await loadSessionWithMembership(req, res, (req as unknown as ReqWithConfig).serverConfig, req.params.id);
   if (!ctx) return;
   // Pass A — delegate to the centralized idempotent end helper. Existing
   // callers expecting `{ ok: true }` keep working; new callers can read
   // duration_seconds + ended_by from the same response shape returned by
   // /end below.
-  const summary = await endCallSession((req as any).serverConfig, {
+  const summary = await endCallSession((req as unknown as ReqWithConfig).serverConfig, {
     callId: ctx.session.id,
     reason: 'operator_ended',
     endedBy: 'operator',
@@ -567,7 +593,7 @@ const endSchema = z.object({
     .optional(),
 });
 callsRouter.post('/:id/end', async (req, res) => {
-  const ctx = await loadSessionWithMembership(req, res, (req as any).serverConfig, req.params.id);
+  const ctx = await loadSessionWithMembership(req, res, (req as unknown as ReqWithConfig).serverConfig, req.params.id);
   if (!ctx) return;
   const parsed = endSchema.safeParse(req.body ?? {});
   const reason: EndCallReason = parsed.success && parsed.data.reason
@@ -576,7 +602,7 @@ callsRouter.post('/:id/end', async (req, res) => {
   // Operators may only attribute themselves or 'system_ended'/'failed'.
   const endedBy = reason === 'visitor_ended' ? 'visitor' :
     (reason === 'system_ended' || reason === 'failed') ? 'system' : 'operator';
-  const summary = await endCallSession((req as any).serverConfig, {
+  const summary = await endCallSession((req as unknown as ReqWithConfig).serverConfig, {
     callId: ctx.session.id,
     reason,
     endedBy,
@@ -594,7 +620,7 @@ const tokenSchema = z.object({
   ttl_seconds: z.number().int().min(60).max(3600).optional(),
 });
 callsRouter.post('/:id/token', async (req, res) => {
-  const ctx = await loadSessionWithMembership(req, res, (req as any).serverConfig, req.params.id);
+  const ctx = await loadSessionWithMembership(req, res, (req as unknown as ReqWithConfig).serverConfig, req.params.id);
   if (!ctx) return;
   const t0 = Date.now();
   try {
@@ -611,7 +637,7 @@ callsRouter.post('/:id/token', async (req, res) => {
     const provider = resolveCallProvider(ctx.session.provider);
     let token;
     try {
-      token = await provider.createParticipantToken((req as any).serverConfig, {
+      token = await provider.createParticipantToken((req as unknown as ReqWithConfig).serverConfig, {
         callSessionId: ctx.session.id,
         providerRoomId: ctx.session.provider_room_id,
         participantId: body.participant_id ?? ctx.userId,
@@ -629,7 +655,7 @@ callsRouter.post('/:id/token', async (req, res) => {
         provider: ctx.session.provider,
       });
       try {
-        emitCallMetric((req as any).serverConfig, {
+        emitCallMetric((req as unknown as ReqWithConfig).serverConfig, {
           metric: 'call.token.failure',
           workspaceId: ctx.session.workspace_id,
           provider: ctx.session.provider,
@@ -639,7 +665,7 @@ callsRouter.post('/:id/token', async (req, res) => {
       } catch { /* */ }
       return res.status(mapped.status).json(mapped.body);
     }
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as unknown as ReqWithConfig).serverConfig;
     const { network, turn } = await buildTokenNetworkBundle(
       config,
       ctx.session.id,
@@ -689,12 +715,12 @@ callsRouter.post('/:id/token', async (req, res) => {
     });
   } catch (err) {
     try {
-      emitCallMetric((req as any).serverConfig, {
+      emitCallMetric((req as unknown as ReqWithConfig).serverConfig, {
         metric: 'call.token.failure',
         workspaceId: ctx.session.workspace_id,
         provider: ctx.session.provider,
         callId: ctx.session.id,
-        reason: String((err as any)?.message || 'unknown').slice(0, 120),
+        reason: String(err?.message || 'unknown').slice(0, 120),
       });
     } catch { /* */ }
     return handleProviderError(res, err);
@@ -703,14 +729,14 @@ callsRouter.post('/:id/token', async (req, res) => {
 
 // ─── GET /api/calls/:id/state ─────────────────────────────────────────────
 callsRouter.get('/:id/state', async (req, res) => {
-  const ctx = await loadSessionWithMembership(req, res, (req as any).serverConfig, req.params.id);
+  const ctx = await loadSessionWithMembership(req, res, (req as unknown as ReqWithConfig).serverConfig, req.params.id);
   if (!ctx) return;
   try {
     let providerState = null;
     if (ctx.session.provider_room_id) {
       try {
         const provider = resolveCallProvider(ctx.session.provider);
-        providerState = await provider.getRoomState((req as any).serverConfig, ctx.session.provider_room_id);
+        providerState = await provider.getRoomState((req as unknown as ReqWithConfig).serverConfig, ctx.session.provider_room_id);
       } catch {
         providerState = null;
       }
@@ -725,7 +751,7 @@ callsRouter.get('/:id/state', async (req, res) => {
 
 // ─── POST /api/calls/:id/recording/start ──────────────────────────────────
 callsRouter.post('/:id/recording/start', async (req, res) => {
-  const ctx = await loadSessionWithMembership(req, res, (req as any).serverConfig, req.params.id);
+  const ctx = await loadSessionWithMembership(req, res, (req as unknown as ReqWithConfig).serverConfig, req.params.id);
   if (!ctx) return;
   try {
     // Phase: Call Route Enforcement Expansion — strict deny-on-create.
@@ -735,7 +761,7 @@ callsRouter.post('/:id/recording/start', async (req, res) => {
     // voice_video ∧ call_recording ∧ runtime.recording_enabled via the
     // canonical composer.
     const eff = await loadEffectiveCallEntitlements(
-      (req as any).serverConfig,
+      (req as unknown as ReqWithConfig).serverConfig,
       ctx.session.workspace_id,
     );
     if (!eff.recording_enabled) {
@@ -750,7 +776,7 @@ callsRouter.post('/:id/recording/start', async (req, res) => {
     {
       const { checkEntitlementFromDB } = await import('../middleware/featureGating.js');
       const { resolveUsage } = await import('../services/billing/usageResolvers.js');
-      const cfg = (req as any).serverConfig;
+      const cfg = (req as unknown as ReqWithConfig).serverConfig;
       const wsId = ctx.session.workspace_id;
       try {
         const countEnt = await checkEntitlementFromDB(cfg.supabaseUrl, cfg.supabaseServiceRoleKey, wsId, 'max_call_recordings');
@@ -767,11 +793,11 @@ callsRouter.post('/:id/recording/start', async (req, res) => {
             return res.status(403).json({ error: 'recording_storage_limit_reached', limit_mb: sizeEnt.limit, used_mb: u.value, upgrade_required: true });
           }
         }
-      } catch (e: any) {
-        return res.status(403).json({ error: 'recording_disabled', message: `entitlement_check_failed:${String(e?.message || e)}` });
+      } catch (e: unknown) {
+        return res.status(403).json({ error: 'recording_disabled', message: `entitlement_check_failed:${String(e instanceof Error ? e.message : e)}` });
       }
     }
-    const overrides = await loadWorkspaceCallOverrides((req as any).serverConfig, ctx.session.workspace_id);
+    const overrides = await loadWorkspaceCallOverrides((req as unknown as ReqWithConfig).serverConfig, ctx.session.workspace_id);
     if (!overrides.allow_recording) {
       return res.status(409).json({ error: 'recording_disabled_for_workspace' });
     }
@@ -780,14 +806,16 @@ callsRouter.post('/:id/recording/start', async (req, res) => {
     if (!provider.supportsRecording()) {
       return res.status(409).json({ error: 'provider_no_recording' });
     }
-    const cp = await loadCallControlPlane((req as any).serverConfig);
-    const handle = await provider.startRecording((req as any).serverConfig, ctx.session.provider_room_id, {
+    const cp = await loadCallControlPlane((req as unknown as ReqWithConfig).serverConfig);
+    const handle = await provider.startRecording((req as unknown as ReqWithConfig).serverConfig, ctx.session.provider_room_id, {
       recordingType: cp.recording_default_type,
+      workspaceId: ctx.session.workspace_id,
+      callSessionId: ctx.session.id,
     });
     await ctx.sb.from('call_sessions').update({ recording_enabled: true, recording_state: 'recording' })
       .eq('id', ctx.session.id);
     await recordEvent(ctx.sb, ctx.session.id, 'recording_start', 'operator', ctx.userId, { recording_id: handle.recordingId });
-    emitCallMetric((req as any).serverConfig, {
+    emitCallMetric((req as unknown as ReqWithConfig).serverConfig, {
       metric: 'call.recording.start.success',
       workspaceId: ctx.session.workspace_id,
       provider: ctx.session.provider,
@@ -796,12 +824,12 @@ callsRouter.post('/:id/recording/start', async (req, res) => {
     res.json({ recording_id: handle.recordingId, status: handle.status });
   } catch (err) {
     try {
-      emitCallMetric((req as any).serverConfig, {
+      emitCallMetric((req as unknown as ReqWithConfig).serverConfig, {
         metric: 'call.recording.start.failure',
         workspaceId: ctx.session.workspace_id,
         provider: ctx.session.provider,
         callId: ctx.session.id,
-        reason: String((err as any)?.message || 'unknown').slice(0, 120),
+        reason: String(err?.message || 'unknown').slice(0, 120),
       });
     } catch { /* */ }
     return handleProviderError(res, err);
@@ -811,16 +839,16 @@ callsRouter.post('/:id/recording/start', async (req, res) => {
 // ─── POST /api/calls/:id/recording/stop ───────────────────────────────────
 const stopSchema = z.object({ recording_id: z.string().min(1) });
 callsRouter.post('/:id/recording/stop', async (req, res) => {
-  const ctx = await loadSessionWithMembership(req, res, (req as any).serverConfig, req.params.id);
+  const ctx = await loadSessionWithMembership(req, res, (req as unknown as ReqWithConfig).serverConfig, req.params.id);
   if (!ctx) return;
   try {
     const body = stopSchema.parse(req.body);
     const provider = resolveCallProvider(ctx.session.provider);
-    const handle = await provider.stopRecording((req as any).serverConfig, body.recording_id);
+    const handle = await provider.stopRecording((req as unknown as ReqWithConfig).serverConfig, body.recording_id);
     await ctx.sb.from('call_sessions').update({ recording_state: 'finalizing' })
       .eq('id', ctx.session.id);
     await recordEvent(ctx.sb, ctx.session.id, 'recording_stop', 'operator', ctx.userId, { recording_id: body.recording_id });
-    emitCallMetric((req as any).serverConfig, {
+    emitCallMetric((req as unknown as ReqWithConfig).serverConfig, {
       metric: 'call.recording.stop.success',
       workspaceId: ctx.session.workspace_id,
       provider: ctx.session.provider,
@@ -829,12 +857,12 @@ callsRouter.post('/:id/recording/stop', async (req, res) => {
     res.json({ recording_id: handle.recordingId, status: handle.status });
   } catch (err) {
     try {
-      emitCallMetric((req as any).serverConfig, {
+      emitCallMetric((req as unknown as ReqWithConfig).serverConfig, {
         metric: 'call.recording.stop.failure',
         workspaceId: ctx.session.workspace_id,
         provider: ctx.session.provider,
         callId: ctx.session.id,
-        reason: String((err as any)?.message || 'unknown').slice(0, 120),
+        reason: String(err?.message || 'unknown').slice(0, 120),
       });
     } catch { /* */ }
     return handleProviderError(res, err);
@@ -862,7 +890,7 @@ callsRouter.post('/:id/recording/stop', async (req, res) => {
 //
 // Secrets are NEVER included. We only expose presence flags.
 callsRouter.get('/diagnostics', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = (req as ReqWithConfig).serverConfig;
   const sb = getServiceClient(config);
 
   // Verify the caller is at least a signed-in user.
@@ -901,7 +929,7 @@ callsRouter.get('/diagnostics', async (req, res) => {
   const wsNormalized = normalizeClientWsUrl(network.ws_url);
 
   // LiveKit real readiness — uses 30s cache so polling is cheap.
-  let livekitReadiness: any = null;
+  let livekitReadiness: LiveKitReadinessState | null = null;
   let livekitConfigured = false;
   try {
     const lk = await loadLiveKitConfig(config);
@@ -909,12 +937,15 @@ callsRouter.get('/diagnostics', async (req, res) => {
   } catch { livekitConfigured = false; }
   try {
     livekitReadiness = await getLiveKitReadinessState(config);
-  } catch (err: any) {
+  } catch (err: unknown) {
     livekitReadiness = {
       ready: false,
       configured: livekitConfigured,
+      rtcUrl: null,
+      lastProbeAt: null,
+      latencyMs: null,
       errorCode: 'probe_failed',
-      errorMessage: err?.message || 'Probe failed',
+      errorMessage: errMessage(err) || 'Probe failed',
     };
   }
 

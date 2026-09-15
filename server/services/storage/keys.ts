@@ -276,6 +276,24 @@ export function assertOwnerScopedKey(owner: StorageOwner, key: unknown): asserts
   }
 }
 
+/**
+ * Strict validator for LiveKit egress recording keys: the key must be
+ * scoped to the exact workspace AND the exact call session, not just
+ * `workspace/<id>/...` generally. Used by the LiveKit webhook to fail
+ * closed on a `fileResults[].filename` that doesn't match the room/session
+ * the event claims to be for — see docs/STORAGE_ARCHITECTURE_AUDIT.md §11.
+ * A webhook payload's `filename` is untrusted input; this is the boundary
+ * check before it's ever persisted to call_recordings.storage_path.
+ */
+export function assertCallRecordingKey(workspaceId: string, callSessionId: string, key: unknown): asserts key is string {
+  assertWorkspaceScopedKey(workspaceId, key);
+  const sessionId = requireUuid(callSessionId, 'callSessionId');
+  const prefix = `${workspaceRoot(workspaceId)}/calls/recordings/${sessionId}/`;
+  if (!(key as string).startsWith(prefix)) {
+    throw new StorageKeyError(`Storage key must be scoped to workspace/${workspaceId}/calls/recordings/${callSessionId}/`);
+  }
+}
+
 // ─── Legacy shape allowlist (migration window only) ─────────────────
 //
 // Known pre-canonicalization WORKSPACE key shapes that predate the

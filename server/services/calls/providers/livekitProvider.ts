@@ -33,6 +33,7 @@ import {
   mintParticipantToken,
   LiveKitTwirpError,
 } from '../livekitTwirp.js';
+import { callRecordingKey } from '../../storage/keys.js';
 
 interface ResolvedLk {
   baseUrl: string;
@@ -166,7 +167,7 @@ export async function getLiveKitReadinessState(
     let cfg;
     try {
       cfg = await loadLiveKitConfig(config, true);
-    } catch (err: any) {
+    } catch (err: unknown) {
       const v: LiveKitReadinessState = {
         ready: false,
         configured: false,
@@ -174,7 +175,7 @@ export async function getLiveKitReadinessState(
         lastProbeAt: Date.now(),
         latencyMs: null,
         errorCode: 'config_load_failed',
-        errorMessage: err?.message || 'Failed to load LiveKit config',
+        errorMessage: err instanceof Error ? err.message : 'Failed to load LiveKit config',
       };
       cachedReadiness = { value: v, loadedAt: Date.now() };
       return v;
@@ -206,7 +207,7 @@ export async function getLiveKitReadinessState(
       };
       cachedReadiness = { value: v, loadedAt: Date.now() };
       return v;
-    } catch (err: any) {
+    } catch (err: unknown) {
       const code = err instanceof CallProviderNotReadyError ? 'provider_not_ready' : 'probe_failed';
       const v: LiveKitReadinessState = {
         ready: false,
@@ -215,7 +216,7 @@ export async function getLiveKitReadinessState(
         lastProbeAt: Date.now(),
         latencyMs: null,
         errorCode: code,
-        errorMessage: err?.message || 'LiveKit probe failed',
+        errorMessage: err instanceof Error ? err.message : 'LiveKit probe failed',
       };
       cachedReadiness = { value: v, loadedAt: Date.now() };
       return v;
@@ -372,7 +373,14 @@ export const livekitProvider: CallProvider = {
     }
     // S3 / S3-compatible output. LiveKit Egress accepts the same fields for
     // any provider (R2, MinIO, etc.) by setting `endpoint` and `force_path_style`.
-    const filepath = providerRoomId + '/' + Date.now() + '.mp4';
+    // Canonical workspace-scoped key — see docs/STORAGE_ARCHITECTURE_AUDIT.md
+    // §11. The webhook validates the filename LiveKit actually reports
+    // against this same prefix before it's ever persisted (fail closed).
+    const filepath = callRecordingKey({
+      workspaceId: opts.workspaceId,
+      callSessionId: opts.callSessionId,
+      fileName: `${Date.now()}.mp4`,
+    });
     const body: Record<string, unknown> = {
       room_name: providerRoomId,
       file_outputs: [

@@ -29,6 +29,7 @@ import {
   assertUserScopedKey,
   assertPlatformScopedKey,
   assertOwnerScopedKey,
+  assertCallRecordingKey,
   classifyStorageKey,
   isKnownLegacyStorageKey,
 } from '../../../server/services/storage/keys';
@@ -225,6 +226,34 @@ describe('assertWorkspaceScopedKey / assertUserScopedKey / assertPlatformScopedK
     expect(() => assertOwnerScopedKey({ kind: 'user', userId: USER_A }, `users/${USER_A}/x`)).not.toThrow();
     expect(() => assertOwnerScopedKey({ kind: 'platform' }, `platform/x`)).not.toThrow();
     expect(() => assertOwnerScopedKey({ kind: 'workspace', workspaceId: WS_A }, `workspace/${WS_B}/x`)).toThrow(StorageKeyError);
+  });
+});
+
+describe('assertCallRecordingKey — LiveKit webhook filename validation boundary', () => {
+  it('accepts a key scoped to the exact workspace and call session', () => {
+    const key = callRecordingKey({ workspaceId: WS_A, callSessionId: CALL_SESSION, fileName: 'rec.mp4' });
+    expect(() => assertCallRecordingKey(WS_A, CALL_SESSION, key)).not.toThrow();
+  });
+
+  it('rejects a key belonging to a different call session in the same workspace', () => {
+    const otherSession = '66666666-6666-6666-6666-666666666666';
+    const key = callRecordingKey({ workspaceId: WS_A, callSessionId: otherSession, fileName: 'rec.mp4' });
+    expect(() => assertCallRecordingKey(WS_A, CALL_SESSION, key)).toThrow(StorageKeyError);
+  });
+
+  it('rejects a key belonging to a different workspace entirely', () => {
+    const key = callRecordingKey({ workspaceId: WS_B, callSessionId: CALL_SESSION, fileName: 'rec.mp4' });
+    expect(() => assertCallRecordingKey(WS_A, CALL_SESSION, key)).toThrow(StorageKeyError);
+  });
+
+  it('rejects the legacy LiveKit egress shape (gs_<room>/<timestamp>.mp4) — it is not workspace/call scoped', () => {
+    expect(() => assertCallRecordingKey(WS_A, CALL_SESSION, 'gs_11111111_222222222222/12345.mp4')).toThrow(StorageKeyError);
+  });
+
+  it('rejects traversal smuggled through an otherwise-matching prefix', () => {
+    expect(() =>
+      assertCallRecordingKey(WS_A, CALL_SESSION, `workspace/${WS_A}/calls/recordings/${CALL_SESSION}/../../../etc/passwd`),
+    ).toThrow(StorageKeyError);
   });
 });
 

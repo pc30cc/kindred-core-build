@@ -127,11 +127,24 @@ export interface CallProvider {
     providerParticipantId: string,
   ): Promise<void>;
 
-  /** Start composite/individual recording. */
+  /**
+   * Start composite/individual recording.
+   *
+   * workspaceId/callSessionId are required so the provider can write the
+   * recording under the canonical workspace/<id>/calls/recordings/<id>/...
+   * storage key (server/services/storage/keys.ts's callRecordingKey()) —
+   * see docs/STORAGE_ARCHITECTURE_AUDIT.md §11. A provider with no
+   * recording-storage concept of its own (jitsi/janus stubs, agora) may
+   * ignore these fields.
+   */
   startRecording(
     config: ServerConfig,
     providerRoomId: string,
-    opts: { recordingType: 'composite' | 'individual' | 'audio_only' },
+    opts: {
+      recordingType: 'composite' | 'individual' | 'audio_only';
+      workspaceId: string;
+      callSessionId: string;
+    },
   ): Promise<RecordingHandle>;
 
   /** Stop a running recording. */

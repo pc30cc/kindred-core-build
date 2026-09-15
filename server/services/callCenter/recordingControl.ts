@@ -60,7 +60,7 @@ interface CallRow {
   provider_room_id: string | null;
   recording_enabled: boolean;
   recording_state: string;
-  metadata: any;
+  metadata: Record<string, unknown>;
 }
 
 async function loadCall(
@@ -79,7 +79,7 @@ async function loadCall(
   if (data.entry_source !== 'call_widget') {
     throw new RecordingControlException('wrong_entry_source', 403);
   }
-  return data as any;
+  return data as CallRow;
 }
 
 async function loadCapability(
@@ -91,6 +91,18 @@ async function loadCapability(
   return computeRecordingCapability(config, workspaceId, platform, ws);
 }
 
+function asString(v: unknown): string | undefined {
+  return typeof v === 'string' ? v : undefined;
+}
+
+function errCode(e: unknown): string | undefined {
+  return e && typeof e === 'object' && 'code' in e ? String((e as { code: unknown }).code) : undefined;
+}
+
+function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 function maskRecordingId(id: string | null | undefined): string | null {
   if (!id) return null;
   const s = String(id);
@@ -98,9 +110,9 @@ function maskRecordingId(id: string | null | undefined): string | null {
   return s.slice(0, 4) + '…' + s.slice(-4);
 }
 
-function recMeta(call: CallRow): any {
-  const m = (call.metadata || {}) as any;
-  return m.recording || {};
+function recMeta(call: CallRow): Record<string, unknown> {
+  const m = call.metadata || {};
+  return (m.recording as Record<string, unknown>) || {};
 }
 
 async function patchRecordingMeta(
@@ -115,8 +127,8 @@ async function patchRecordingMeta(
     .select('metadata')
     .eq('id', callId)
     .maybeSingle();
-  const meta = ((prev?.metadata as any) || {}) as any;
-  const recording = { ...(meta.recording || {}), ...patch };
+  const meta = (prev?.metadata as Record<string, unknown>) || {};
+  const recording = { ...((meta.recording as Record<string, unknown>) || {}), ...patch };
   await sb
     .from('call_sessions')
     .update({ ...topLevel, metadata: { ...meta, recording } })
@@ -246,13 +258,13 @@ export async function startCallCenterRecording(
         );
       }
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     if (e instanceof RecordingControlException) throw e;
     // Fail-closed on entitlement RPC errors.
     throw new RecordingControlException(
       'recording_disabled',
       403,
-      `entitlement_check_failed:${String(e?.message || e)}`,
+      `entitlement_check_failed:${errMessage(e)}`,
     );
   }
 
@@ -275,17 +287,19 @@ export async function startCallCenterRecording(
     providerId = r.id;
     handle = await r.provider.startRecording(config, call.provider_room_id, {
       recordingType: args.recordingType || 'composite',
+      workspaceId: args.workspaceId,
+      callSessionId: args.callId,
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     await patchRecordingMeta(config, args.callId, {
       state: 'failed',
-      last_error: String(e?.code || e?.message || 'start_failed').slice(0, 200),
+      last_error: String(errCode(e) || errMessage(e) || 'start_failed').slice(0, 200),
     }, { recording_state: 'failed' });
     await logEvent(config, args.workspaceId, args.callId, 'recording_failed', args.actorUserId, {
       phase: 'start',
-      message: String(e?.message || e).slice(0, 200),
+      message: errMessage(e).slice(0, 200),
     });
-    throw new RecordingControlException('recording_start_failed', 502, String(e?.message || e));
+    throw new RecordingControlException('recording_start_failed', 502, errMessage(e));
   }
 
   const startedAt = new Date().toISOString();
@@ -351,16 +365,16 @@ export async function stopCallCenterRecording(
   try {
     const r = await resolveEffectiveCallProvider(config, args.workspaceId);
     handle = await r.provider.stopRecording(config, rid);
-  } catch (e: any) {
+  } catch (e: unknown) {
     await patchRecordingMeta(config, args.callId, {
       state: 'failed',
-      last_error: String(e?.code || e?.message || 'stop_failed').slice(0, 200),
+      last_error: String(errCode(e) || errMessage(e) || 'stop_failed').slice(0, 200),
     }, { recording_state: 'failed' });
     await logEvent(config, args.workspaceId, args.callId, 'recording_failed', args.actorUserId, {
       phase: 'stop',
-      message: String(e?.message || e).slice(0, 200),
+      message: errMessage(e).slice(0, 200),
     });
-    throw new RecordingControlException('recording_stop_failed', 502, String(e?.message || e));
+    throw new RecordingControlException('recording_stop_failed', 502, errMessage(e));
   }
 
   const stoppedAt = new Date().toISOString();
@@ -427,14 +441,14 @@ export async function getCallCenterRecordingStatus(
     recording_enabled: !!call.recording_enabled,
     recording_state: String(call.recording_state || 'disabled'),
     consent_given: !!meta.consent_given,
-    consent_at: meta.consent_at || null,
-    provider: meta.provider || call.provider || null,
+    consent_at: asString(meta.consent_at) || null,
+    provider: asString(meta.provider) || call.provider || null,
     recording_id_masked: maskRecordingId(rid),
     has_artifact: !!rid,
     playback_available: false,
     download_available: false,
-    started_at: meta.started_at || null,
-    stopped_at: meta.stopped_at || null,
+    started_at: asString(meta.started_at) || null,
+    stopped_at: asString(meta.stopped_at) || null,
     reason: cap.reason,
     capability: {
       effective_enabled: cap.effective_enabled,
@@ -443,6 +457,6 @@ export async function getCallCenterRecordingStatus(
       provider_configured: cap.provider_configured,
       reason: cap.reason,
     },
-    last_error: meta.last_error || null,
+    last_error: asString(meta.last_error) || null,
   };
 }

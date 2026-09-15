@@ -35,6 +35,7 @@ import {
   computeRetentionExpiresAt,
 } from '../services/recordings/recordingRetention.js';
 import { resolveStorageConfig } from '../services/storage/index.js';
+import { assertCallRecordingKey, StorageKeyError } from '../services/storage/keys.js';
 
 export const livekitWebhookRouter = Router();
 
@@ -42,7 +43,7 @@ export const livekitWebhookRouter = Router();
  * LiveKit webhook event shape (subset we care about).
  * https://docs.livekit.io/home/server/webhooks/
  */
-interface LiveKitWebhookEvent {
+export interface LiveKitWebhookEvent {
   event: string;
   id?: string;
   createdAt?: number;
@@ -118,7 +119,7 @@ async function resolveCallSession(
 /**
  * Apply effects to DB. Each handler is idempotent.
  */
-async function applyEvent(
+export async function applyEvent(
   config: ServerConfig,
   ev: LiveKitWebhookEvent,
 ): Promise<{ applied: boolean; reason?: string }> {
@@ -161,7 +162,7 @@ async function applyEvent(
         state: 'active',
         started_at: startedIso,
       };
-      if (!(prev as any)?.connected_at) {
+      if (!(prev as { connected_at?: string | null } | null)?.connected_at) {
         patch.connected_at = startedIso;
       }
       await sb
@@ -195,8 +196,9 @@ async function applyEvent(
           .select('participant_id, participant_type')
           .eq('call_session_id', session.id);
         for (const p of parts ?? []) {
-          if ((p as any).participant_type === 'operator' && (p as any).participant_id) {
-            void clearInCall(config, session.workspace_id, (p as any).participant_id).catch(() => {});
+          const participant = p as { participant_type?: string; participant_id?: string };
+          if (participant.participant_type === 'operator' && participant.participant_id) {
+            void clearInCall(config, session.workspace_id, participant.participant_id).catch(() => {});
           }
         }
       } catch {/* best effort */}
@@ -319,19 +321,42 @@ async function applyEvent(
       const egId = ev.egressInfo?.egressId;
       const status = ev.egressInfo?.status || '';
       const fileResult = (ev.egressInfo?.fileResults || [])[0];
-      const isComplete = status === 'EGRESS_COMPLETE';
-      const isFailed = status === 'EGRESS_FAILED' || status === 'EGRESS_ABORTED';
+      let isComplete = status === 'EGRESS_COMPLETE';
+      let isFailed = status === 'EGRESS_FAILED' || status === 'EGRESS_ABORTED';
+
+      // The filename LiveKit reports is untrusted input from the webhook
+      // boundary — verify it belongs to THIS workspace/call session before
+      // ever writing it to call_recordings.storage_path. A mismatch (wrong
+      // prefix, wrong session, traversal, or any other shape) fails closed:
+      // the path is never persisted and the recording is marked failed
+      // rather than silently trusting whatever the payload claims.
+      // See docs/STORAGE_ARCHITECTURE_AUDIT.md §11.
+      let rejectedFilename: string | null = null;
+      if (fileResult?.filename) {
+        try {
+          assertCallRecordingKey(session.workspace_id, session.id, fileResult.filename);
+        } catch (err) {
+          rejectedFilename = err instanceof StorageKeyError ? err.message : 'invalid_filename';
+        }
+      }
+
       if (egId) {
         const patch: Record<string, unknown> = {};
-        if (fileResult?.filename) patch.storage_path = fileResult.filename;
+        if (fileResult?.filename && !rejectedFilename) patch.storage_path = fileResult.filename;
         if (fileResult?.size) patch.size_bytes = fileResult.size;
         if (fileResult?.duration) patch.duration_seconds = Math.round(fileResult.duration);
+        if (rejectedFilename) {
+          isFailed = true;
+          isComplete = false;
+        }
         if (Object.keys(patch).length || isComplete || isFailed) {
           await sb
             .from('call_recordings')
             .update({
               ...patch,
-              metadata: { status, error: ev.egressInfo?.error ?? null },
+              metadata: rejectedFilename
+                ? { status: 'rejected', error: 'untrusted_filename', reason: rejectedFilename }
+                : { status, error: ev.egressInfo?.error ?? null },
             })
             .eq('call_session_id', session.id)
             .eq('provider_recording_id', egId);
@@ -346,6 +371,7 @@ async function applyEvent(
       await recordEvent('egress_' + (isFailed ? 'failed' : isComplete ? 'ended' : 'updated'), {
         egress_id: egId,
         status,
+        ...(rejectedFilename ? { rejected_filename_reason: rejectedFilename } : {}),
       });
       return { applied: true };
     }
@@ -362,7 +388,7 @@ livekitWebhookRouter.post(
   '/',
   express.raw({ type: '*/*', limit: '1mb' }),
   async (req, res) => {
-    const config: ServerConfig = (req as any).serverConfig;
+    const config: ServerConfig = (req as unknown as { serverConfig: ServerConfig }).serverConfig;
     const rawBody: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from('');
 
     // 1. Resolve secret.
@@ -387,7 +413,7 @@ livekitWebhookRouter.post(
 
     // 3. Verify body hash matches the sha256 claim.
     const expectedSha = createHash('sha256').update(rawBody).digest('base64');
-    const claimSha = (payload as any)?.sha256;
+    const claimSha = (payload as jwt.JwtPayload & { sha256?: unknown })?.sha256;
     if (typeof claimSha !== 'string' || claimSha !== expectedSha) {
       return res.status(401).json({ error: 'body_hash_mismatch' });
     }
@@ -460,13 +486,14 @@ livekitWebhookRouter.post(
         })
         .eq('event_id', dedupKey);
       return res.status(200).json({ ok: true, applied: result.applied, reason: result.reason });
-    } catch (err: any) {
-      console.error('[livekit-webhook] apply failed:', err?.message || err);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[livekit-webhook] apply failed:', message);
       await sb
         .from('livekit_webhook_events')
         .update({
           processed_at: new Date().toISOString(),
-          process_error: String(err?.message || 'apply_error').slice(0, 500),
+          process_error: message.slice(0, 500) || 'apply_error',
         })
         .eq('event_id', dedupKey);
       // Still 200: LiveKit will retry on non-2xx. We have the dedup row so

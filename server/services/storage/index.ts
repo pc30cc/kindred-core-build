@@ -946,7 +946,7 @@ export function getFileUrlWithConfig(storageConfig: StorageConfig, fileKey: stri
 
 export async function uploadWithConfig(
   storageConfig: StorageConfig,
-  req: UploadRequest,
+  req: ProviderUploadRequest & { workspaceId?: string; allowLegacyKey?: boolean },
 ): Promise<StorageResult> {
   const handler = uploadHandlers[storageConfig.provider];
   if (!handler) return { success: false, error: `Unsupported storage provider: ${storageConfig.provider}` };

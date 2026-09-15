@@ -20,8 +20,12 @@
  * directly with the returned StorageConfig, so we reuse every existing
  * provider implementation (no one-off code path).
  *
- * Object key convention (enforced here, never trusted from caller):
- *   privacy-exports/<workspace_id|"_self">/<job_id>.zip
+ * Object key convention: workspace/<workspaceId>/exports/privacy/<jobId>.zip
+ * for workspace-scoped jobs (contact/visitor), or
+ * users/<userId>/exports/privacy/<jobId>.zip for user-subject jobs (which
+ * never have a workspace_id — see server/services/privacy/types.ts). Built
+ * exclusively by server/services/storage/keys.ts's privacyExportKey() — the
+ * key is never trusted from a caller.
  *
  * Privacy export artifacts MUST never be exposed via a public URL — the
  * download route always streams through backend authorization with a
@@ -54,35 +58,30 @@ export class PrivacyStorageNotConfigured extends Error {
   }
 }
 
-function mapDBConfigToStorage(provider: string, c: any): StorageConfig {
-  return {
-    provider,
-    apiKey: c.api_key,
-    storageZone: c.storage_zone,
-    region: c.region,
-    cdnUrl: c.cdn_url || c.cdn_endpoint || c.public_url,
-    accessKeyId: c.access_key_id || c.access_key,
-    secretAccessKey: c.secret_access_key || c.secret_key,
-    bucket: c.bucket || c.container,
-    s3Region: c.region,
-    endpoint: c.endpoint,
-    localPath: c.local_path || c.path,
-    publicUrl: c.public_url,
-    maxFileSizeMB: c.max_file_size ? parseInt(c.max_file_size) : undefined,
-  };
+function asString(v: unknown): string | undefined {
+  return typeof v === 'string' ? v : undefined;
 }
 
-/**
- * Build the canonical, provider-agnostic object key for an export artifact.
- * Always namespaced under privacy-exports/ to keep PII isolated from normal
- * customer-facing assets, even if both share a bucket.
- */
-export function buildPrivacyArtifactKey(
-  workspaceId: string | null,
-  jobId: string,
-): string {
-  const ws = workspaceId || '_self';
-  return `privacy-exports/${ws}/${jobId}.zip`;
+function mapDBConfigToStorage(provider: string, c: Record<string, unknown>): StorageConfig {
+  const maxFileSize = c.max_file_size;
+  return {
+    provider,
+    apiKey: asString(c.api_key),
+    storageZone: asString(c.storage_zone),
+    region: asString(c.region),
+    cdnUrl: asString(c.cdn_url) ?? asString(c.cdn_endpoint) ?? asString(c.public_url),
+    accessKeyId: asString(c.access_key_id) ?? asString(c.access_key),
+    secretAccessKey: asString(c.secret_access_key) ?? asString(c.secret_key),
+    bucket: asString(c.bucket) ?? asString(c.container),
+    s3Region: asString(c.region),
+    endpoint: asString(c.endpoint),
+    localPath: asString(c.local_path) ?? asString(c.path),
+    publicUrl: asString(c.public_url),
+    maxFileSizeMB:
+      typeof maxFileSize === 'number' || typeof maxFileSize === 'string'
+        ? parseInt(String(maxFileSize), 10)
+        : undefined,
+  };
 }
 
 /**
@@ -110,7 +109,7 @@ export async function resolvePrivacyStoragePolicy(
     if (wsConfig?.config) {
       return {
         provider: wsConfig.provider_name,
-        config: mapDBConfigToStorage(wsConfig.provider_name, wsConfig.config as any),
+        config: mapDBConfigToStorage(wsConfig.provider_name, wsConfig.config as Record<string, unknown>),
         source: 'workspace_override',
         allowAttachmentFallback: false,
       };
@@ -124,7 +123,7 @@ export async function resolvePrivacyStoragePolicy(
     .eq('key', 'privacy_export_storage')
     .maybeSingle();
 
-  const platform = (globalRow?.value as any) || null;
+  const platform = (globalRow?.value ?? null) as { provider?: string; config?: Record<string, unknown>; allow_attachment_fallback?: boolean } | null;
   const allowAttachmentFallback = Boolean(platform?.allow_attachment_fallback);
 
   if (platform?.provider && platform?.config) {
@@ -150,7 +149,7 @@ export async function resolvePrivacyStoragePolicy(
     if (attConfig?.config) {
       return {
         provider: attConfig.provider_name,
-        config: mapDBConfigToStorage(attConfig.provider_name, attConfig.config as any),
+        config: mapDBConfigToStorage(attConfig.provider_name, attConfig.config as Record<string, unknown>),
         source: 'attachment_fallback',
         allowAttachmentFallback: true,
       };

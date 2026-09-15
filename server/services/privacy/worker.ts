@@ -26,11 +26,22 @@ import { runAnonymize } from './anonymizer.js';
 import { writePrivacyAudit } from './audit.js';
 import {
   resolvePrivacyStoragePolicy,
-  buildPrivacyArtifactKey,
   PrivacyStorageNotConfigured,
 } from './storageResolver.js';
-import { uploadWithConfig } from '../storage/index.js';
+import { uploadWithConfig, type StorageOwner } from '../storage/index.js';
+import { privacyExportKey } from '../storage/keys.js';
 import type { PrivacyJobRow } from './types.js';
+
+/**
+ * Contact/visitor jobs always carry workspace_id (DB-enforced by the
+ * caller — see server/routes/privacy.ts); a null workspace_id only ever
+ * occurs for subject_type='user' jobs, whose export artifact is owned by
+ * the user the job concerns (subject_id), not the actor who requested it.
+ */
+export function ownerForJob(job: Pick<PrivacyJobRow, 'workspace_id' | 'subject_id'>): StorageOwner {
+  if (job.workspace_id) return { kind: 'workspace', workspaceId: job.workspace_id };
+  return { kind: 'user', userId: job.subject_id };
+}
 
 const POLL_INTERVAL_MS = 5_000;
 const STUCK_AFTER_MS = 10 * 60_000;
@@ -71,14 +82,14 @@ async function claimNext(config: ServerConfig): Promise<PrivacyJobRow | null> {
   return claimed as PrivacyJobRow;
 }
 
-async function processJob(config: ServerConfig, job: PrivacyJobRow): Promise<void> {
+export async function processJob(config: ServerConfig, job: PrivacyJobRow): Promise<void> {
   const sb = getServiceClient(config);
 
   // 1. Resolve identity (canonical) and persist on the job.
   const resolved = await resolveSubject(config, job.workspace_id, job.subject_type, job.subject_id);
   await sb
     .from('privacy_jobs')
-    .update({ resolved_identity: resolved as any })
+    .update({ resolved_identity: resolved as unknown as Record<string, unknown> })
     .eq('id', job.id);
   job.resolved_identity = resolved;
 
@@ -89,10 +100,9 @@ async function processJob(config: ServerConfig, job: PrivacyJobRow): Promise<voi
     // provider is configured and fallback is not allowed — the catch
     // block below will mark the job failed with a clear error.
     const policy = await resolvePrivacyStoragePolicy(config, job.workspace_id);
-    const objectKey = buildPrivacyArtifactKey(job.workspace_id, job.id);
+    const objectKey = privacyExportKey(ownerForJob(job), job.id);
 
     const upload = await uploadWithConfig(policy.config, {
-      workspaceId: job.workspace_id || '_self',
       fileKey: objectKey,
       data: buffer,
       contentType: 'application/zip',
@@ -135,7 +145,7 @@ async function processJob(config: ServerConfig, job: PrivacyJobRow): Promise<voi
     const summary = await runAnonymize(config, job);
     await sb
       .from('privacy_jobs')
-      .update({ status: 'completed', completed_at: new Date().toISOString(), scope: { ...(job.scope || {}), summary } as any })
+      .update({ status: 'completed', completed_at: new Date().toISOString(), scope: { ...(job.scope || {}), summary } as unknown as Record<string, unknown> })
       .eq('id', job.id);
     await writePrivacyAudit(config, {
       workspaceId: job.workspace_id,
@@ -156,18 +166,19 @@ async function tick(config: ServerConfig) {
     if (!job) return;
     try {
       await processJob(config, job);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
       const sb = getServiceClient(config);
       await sb
         .from('privacy_jobs')
-        .update({ status: 'failed', error_message: err?.message?.slice(0, 1000) || 'unknown error', completed_at: new Date().toISOString() })
+        .update({ status: 'failed', error_message: message.slice(0, 1000) || 'unknown error', completed_at: new Date().toISOString() })
         .eq('id', job.id);
       await writePrivacyAudit(config, {
         workspaceId: job.workspace_id,
         userId: job.actor_user_id,
         action: job.action === 'export' ? 'privacy.export.failed' : 'privacy.delete.failed',
         jobId: job.id,
-        metadata: { error: err?.message },
+        metadata: { error: message },
       });
     }
   } catch (err) {

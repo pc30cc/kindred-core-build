@@ -15,7 +15,7 @@ import {
 } from '@/providers';
 import { PROVIDER_SCHEMAS } from '@/features/providers/schemas';
 import { ProviderIcon } from '@/features/providers/ProviderIcon';
-import { AdminProviderCard } from '@/features/providers/AdminProviderCard';
+import { AdminProviderWorkspace, ProviderPanelHeader } from '@/features/providers/AdminProviderWorkspace';
 import { AdminSmsProviderCard } from '@/features/providers/AdminSmsProviderCard';
 import { AdminRealtimeCard } from '@/features/providers/AdminRealtimeCard';
 import { AdminAuthStatusCard } from '@/features/providers/AdminAuthStatusCard';
@@ -34,19 +34,21 @@ const GROUPS: { key: string; types: ProviderTypeKey[] }[] = [
   { key: 'visitor', types: ['geo_enrichment', 'map_tiles'] },
 ];
 
-function RenderProviderCard({ type }: { type: ProviderTypeKey }) {
-  if (type === 'auth') return <AdminAuthStatusCard />;
-  if (type === 'realtime') return <AdminRealtimeCard />;
-  if (type === 'sms') return <AdminSmsProviderCard />;
-  if (type === 'storage') {
-    return (
-      <div className="space-y-4">
-        <AdminProviderCard type={type} />
-        <PrivacyExportStorageCard />
-      </div>
-    );
-  }
-  return <AdminProviderCard type={type} />;
+/**
+ * Provider types that ship a purpose-built panel instead of the generic
+ * vendor workspace (server-only credentials, non-switchable runtimes).
+ */
+const CUSTOM_PANELS: Partial<Record<ProviderTypeKey, React.ComponentType>> = {
+  auth: AdminAuthStatusCard,
+  realtime: AdminRealtimeCard,
+  sms: AdminSmsProviderCard,
+};
+
+/** Type-specific sections appended to the workspace Overview tab. */
+function ProviderExtras({ type }: { type: ProviderTypeKey }) {
+  if (type === 'storage') return <PrivacyExportStorageCard />;
+  if (type === 'geo_enrichment' || type === 'map_tiles') return <VisitorIntelligenceSection />;
+  return null;
 }
 
 export default function AdminProvidersPage() {
@@ -125,8 +127,16 @@ export default function AdminProvidersPage() {
   ];
 
   const NavButton = ({
-    active, onClick, icon, label, badge,
-  }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string; badge?: string }) => (
+    active, onClick, icon, label, badge, dot,
+  }: {
+    active: boolean;
+    onClick: () => void;
+    icon: React.ReactNode;
+    label: string;
+    badge?: string;
+    /** Configuration state of a provider type, shown as a status dot. */
+    dot?: 'configured' | 'fallback' | 'none';
+  }) => (
     <button
       type="button"
       onClick={onClick}
@@ -139,6 +149,15 @@ export default function AdminProvidersPage() {
     >
       <span className="shrink-0">{icon}</span>
       <span className="flex-1 truncate">{label}</span>
+      {dot && (
+        <span
+          title={t(`adminProviders.status.${dot === 'configured' ? 'configured' : dot === 'fallback' ? 'fallback' : 'none'}` as never)}
+          className={cn(
+            'h-1.5 w-1.5 rounded-full shrink-0',
+            dot === 'configured' ? 'bg-emerald-400' : dot === 'fallback' ? 'bg-amber-400' : 'bg-border',
+          )}
+        />
+      )}
       {badge && (
         <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal">{badge}</Badge>
       )}
@@ -262,6 +281,13 @@ export default function AdminProvidersPage() {
                         onClick={() => setPanel(type)}
                         icon={<ProviderIcon iconName={PROVIDER_SCHEMAS[type]?.icon ?? 'Shield'} className="h-4 w-4" />}
                         label={typeLabel(type)}
+                        dot={
+                          summary[type]?.active
+                            ? 'configured'
+                            : summary[type]?.effective
+                              ? 'fallback'
+                              : 'none'
+                        }
                       />
                     ))}
                   </div>
@@ -347,21 +373,25 @@ export default function AdminProvidersPage() {
             </div>
           )}
 
-          {activeType && (
-            <div className="space-y-4">
-              <div className="flex items-start gap-3">
-                <div className="p-2.5 rounded-xl bg-primary/10 text-primary">
-                  <ProviderIcon iconName={PROVIDER_SCHEMAS[activeType]?.icon ?? 'Shield'} className="h-5 w-5" />
+          {activeType && (() => {
+            const CustomPanel = CUSTOM_PANELS[activeType];
+            if (CustomPanel) {
+              return (
+                <div className="space-y-4">
+                  <ProviderPanelHeader type={activeType} />
+                  <CustomPanel />
+                  <ProviderExtras type={activeType} />
                 </div>
-                <div>
-                  <h2 className="text-base font-semibold text-foreground">{typeLabel(activeType)}</h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">{typeDesc(activeType)}</p>
-                </div>
-              </div>
-              {(activeType === 'geo_enrichment' || activeType === 'map_tiles') && <VisitorIntelligenceSection />}
-              <RenderProviderCard type={activeType} />
-            </div>
-          )}
+              );
+            }
+            return (
+              <AdminProviderWorkspace
+                key={activeType}
+                type={activeType}
+                extra={<ProviderExtras type={activeType} />}
+              />
+            );
+          })()}
 
           {panel === 'calls' && (
             <Card className="border-border/60">

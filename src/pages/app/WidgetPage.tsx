@@ -691,7 +691,11 @@ function WidgetPageContent() {
                         <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
                       )}
                     </div>
-                    {/* Launcher image — stored through the workspace storage provider. */}
+                    {/* Launcher image. The bytes go to a dedicated backend
+                        endpoint, which stores them in WebYar storage and keeps
+                        only the canonical key; `fab_image_url` here is derived
+                        server-side for the current storage provider and is not
+                        writable from this page. */}
                     <div className="space-y-2">
                       <Label className="text-xs font-medium">{t('widgetPage.appearance.fabImage')}</Label>
                       <div className="flex items-center gap-3">

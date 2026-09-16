@@ -2947,9 +2947,14 @@
           var incomingSenderName = m.sender_name
             || (m.metadata && typeof m.metadata === 'object' ? (m.metadata.agent_name || null) : null)
             || null;
-          var incomingSenderAvatar = m.sender_avatar
-            || (m.metadata && typeof m.metadata === 'object' ? (m.metadata.agent_logo_url || null) : null)
-            || null;
+          // No `metadata.agent_logo_url` fallback. That field was a URL
+          // snapshot naming ONE storage provider, frozen into the message
+          // row at insert time; it stops resolving the moment a different
+          // provider is promoted, so rows that still carry one would draw a
+          // dead image. The server now puts the DERIVED link on the
+          // envelope (`sender_avatar`) on both the realtime and /poll
+          // paths -- see server/services/ai-agent/responder.ts.
+          var incomingSenderAvatar = m.sender_avatar || null;
           if (incomingSenderName || incomingSenderAvatar) {
             for (var si = 0; si < messages.length; si++) {
               if (messages[si].__id !== id) continue;
@@ -3039,9 +3044,9 @@
           senderName: m.sender_name
             || (m.metadata && typeof m.metadata === 'object' ? (m.metadata.agent_name || null) : null)
             || null,
-          senderAvatar: m.sender_avatar
-            || (m.metadata && typeof m.metadata === 'object' ? (m.metadata.agent_logo_url || null) : null)
-            || null,
+          // Derived server-side from the stored storage key; never a URL
+          // snapshotted into the row (see the merge path above).
+          senderAvatar: m.sender_avatar || null,
           // Phase 7 — lifecycle (visitor messages only have a meaningful status).
           status: sender === 'visitor' ? (seenAt ? 'seen' : 'sent') : null,
           seenAt: sender === 'visitor' ? seenAt : null,

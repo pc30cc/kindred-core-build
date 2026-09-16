@@ -241,3 +241,30 @@ export async function resolveAgentLogoUrl(
   }
   return settings.agent_logo_url ?? null;
 }
+
+/**
+ * The agent logo for a workspace, fetched and derived in one call.
+ *
+ * For callers that have a workspace id but not the settings row — notably the
+ * realtime fan-out in responder.ts, which must put the link on the envelope
+ * itself because the widget's only other source for it was a snapshot inside
+ * the message metadata that this platform no longer writes.
+ */
+export async function resolveWorkspaceAgentLogoUrl(
+  config: ServerConfig,
+  workspaceId: string | null | undefined,
+): Promise<string | null> {
+  if (!workspaceId) return null;
+  try {
+    const sb = getServiceClient(config);
+    const { data } = await sb
+      .from('ai_agent_settings')
+      .select('agent_logo_url, metadata')
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+    return await resolveAgentLogoUrl(config, workspaceId, data);
+  } catch {
+    // A cosmetic avatar must never break the message it belongs to.
+    return null;
+  }
+}

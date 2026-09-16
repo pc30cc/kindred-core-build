@@ -306,3 +306,68 @@ describe('migration 190 backfills conservatively', () => {
     expect(read('supabase/migrations/20260916093000_storage_key_ownership.sql')).toBe(read(SQL));
   });
 });
+
+/**
+ * The AI logo snapshot is the one persisted URL that was not a column.
+ *
+ * `conversation_messages.metadata.agent_logo_url` was written on every AI
+ * reply so the widget could draw the avatar straight off the realtime
+ * envelope. It is a provider URL frozen into a row, so it breaks at the
+ * first promotion exactly like a column would — and because it lived in
+ * jsonb, none of the column-shaped guards above could see it.
+ */
+describe('no AI reply snapshots its logo into the message row', () => {
+  it('the responder writes no agent_logo_url into message metadata', () => {
+    const body = read('server/services/ai-agent/responder.ts');
+    expect(body).not.toMatch(/agent_logo_url\s*:/);
+  });
+
+  it('the responder puts the DERIVED link on the realtime envelope instead', () => {
+    // Removing the snapshot without this leaves a live AI reply with no
+    // avatar at all until the visitor reloads.
+    const body = read('server/services/ai-agent/responder.ts');
+    expect(body).toContain('resolveWorkspaceAgentLogoUrl');
+    expect(body).toMatch(/sender_avatar\s*:/);
+  });
+
+  it('no server read path falls back to the snapshot', () => {
+    for (const rel of [...walk('server/routes'), ...walk('server/services')]) {
+      const body = read(rel);
+      expect(body, rel).not.toMatch(/(metadata|meta)\s*[.?]*\.?\s*\[?['"]?agent_logo_url['"]?\]?\s*(\|\||\?\?)/);
+    }
+  });
+
+  it('the shipped widget runtime no longer reads it either', () => {
+    // The client fallback is what actually surfaced the dead host: it fires
+    // whenever `sender_avatar` is falsy, so every legacy row kept drawing a
+    // retired provider's image.
+    expect(read('public/widget/runtime.js')).not.toMatch(/metadata\.agent_logo_url\s*\|\|/);
+  });
+});
+
+describe('migration 191 clears the snapshots already written', () => {
+  const SQL_191 = 'database/migrations/191_drop_message_agent_logo_snapshot.sql';
+
+  it('removes exactly that one json key, only where present', () => {
+    const body = read(SQL_191);
+    expect(body).toContain("SET metadata = metadata - 'agent_logo_url'");
+    expect(body).toContain("WHERE metadata ? 'agent_logo_url'");
+  });
+
+  it('touches nothing else on the row', () => {
+    const body = read(SQL_191);
+    // One UPDATE, one column, no DELETE anywhere.
+    expect(body.match(/^\s*UPDATE /gm)?.length).toBe(1);
+    expect(body).not.toMatch(/\bDELETE\s+FROM\b/i);
+    expect(body).not.toMatch(/SET[^;]*\b(body|sender_type|created_at)\s*=/);
+  });
+
+  it('fails rather than reporting a partial cleanup', () => {
+    expect(read(SQL_191)).toContain('still carry metadata.agent_logo_url');
+  });
+
+  it('is mirrored to the hosted chain byte for byte', () => {
+    expect(read('supabase/migrations/20260916094000_drop_message_agent_logo_snapshot.sql'))
+      .toBe(read(SQL_191));
+  });
+});

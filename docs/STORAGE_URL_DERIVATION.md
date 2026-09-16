@@ -160,6 +160,37 @@ They are **read-only**. Nothing creates a new value for any of them: a key
 always wins, every writer clears the URL column, and no schema accepts one.
 They are removed together with the columns in the later cleanup migration.
 
+### Realtime envelopes carry the derived link, not a snapshot
+
+A message row is not allowed to remember an avatar either, even though
+`conversation_messages.metadata` is jsonb rather than a `*_url` column.
+
+The AI responder used to copy the agent's logo URL into
+`metadata.agent_logo_url` on every reply, so the widget could draw the avatar
+straight off the realtime envelope without a second lookup. That is a
+provider URL frozen into a row: it names one vendor's hostname and stops
+resolving the moment a different vendor is promoted — the same defect as a
+persisted column, just invisible to a column-shaped audit.
+
+The snapshot is gone, and the responder derives the link from
+`ai_agent_settings.metadata->>'ai_avatar_storage_key'` and puts it on the
+envelope as `sender_avatar` instead
+(`resolveWorkspaceAgentLogoUrl()` in `services/ai-agent/settings.ts`). This
+is not optional politeness: removing the snapshot WITHOUT putting the derived
+link on the envelope leaves a live AI reply with no avatar at all until the
+visitor reloads and `/poll` re-enriches it.
+
+The rule generalises — **any caller inserting an agent message must pass
+`sender_name` and `sender_avatar` to `buildMessageEnvelope`**, derived at
+send time. `src/test/storage/aiMessageAvatarEnvelope.test.ts` pins both
+halves: nothing provider-shaped reaches the row, and the envelope still
+carries a usable link that follows a promotion.
+
+The shipped widget runtime's fallback to the snapshot
+(`public/widget/runtime.js`) was removed with it — that fallback fired
+whenever `sender_avatar` was falsy, which is exactly how rows written under a
+retired provider kept drawing a dead image.
+
 ### Documented exceptions
 
 Two kinds of URL legitimately remain:
@@ -251,3 +282,21 @@ exposes `canServePublicUrls` so the admin screen can say so up front.
    image-free.
 5. Add the column to the migration map above, and to the forbidden-assignment
    and closed-input lists in `src/test/storage/keyOnlyStructuralGuard.test.ts`.
+
+## Migration 191
+
+`190` gave every WebYar-owned file a key column. `191` removes the last
+persisted provider URL that was never a column: it deletes the
+`agent_logo_url` key from `conversation_messages.metadata`.
+
+It is deliberately one statement over one JSON key, only where that key is
+present (`metadata = metadata - 'agent_logo_url'`). `agent_name` and every
+other metadata key survive; bodies, senders and timestamps are not read. A
+`DO` block re-counts afterwards and raises rather than let a partial cleanup
+report success.
+
+The values are already inert by the time it runs — no writer creates them and
+no reader consults them — so this is hygiene, not a fix: an inert provider URL
+sitting in a row is still a provider URL the next promotion would have to
+reason about. It is irreversible by design; the live link is derived from the
+stored key on every read, so there is nothing to preserve.

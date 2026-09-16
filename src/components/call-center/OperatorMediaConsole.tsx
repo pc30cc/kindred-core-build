@@ -620,28 +620,28 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
   const phaseLabel: string = t(`callCenter.console.phase.${phase}` as never);
   const qualityLabel: string = t(`callCenter.console.quality.${quality}` as never);
 
-  const qualityColor = quality === 'excellent' ? 'text-emerald-400'
-    : quality === 'good' ? 'text-emerald-300'
-    : quality === 'poor' ? 'text-amber-400' : 'text-zinc-400';
+  const qualityColor = quality === 'excellent' ? 'text-success'
+    : quality === 'good' ? 'text-success/80'
+    : quality === 'poor' ? 'text-warning' : 'text-call-stage-foreground/60';
 
   return (
-    <div className="rounded-lg overflow-hidden border bg-zinc-950 text-zinc-100 shadow-md">
+    <div className="rounded-lg overflow-hidden border bg-call-stage text-call-stage-foreground shadow-md">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 bg-zinc-900/80 border-b border-zinc-800">
+      <div className="flex items-center justify-between px-4 py-2 bg-call-stage/90 border-b border-call-stage-foreground/10">
         <div className="flex items-center gap-2 text-xs">
-          {phase === 'visitor_connected' ? <Wifi className="h-3.5 w-3.5 text-emerald-400" />
+          {phase === 'visitor_connected' ? <Wifi className="h-3.5 w-3.5 text-success" />
             : phase === 'reconnecting' || phase === 'connecting' || phase === 'loading_sdk'
-              ? <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />
-            : phase === 'waiting_for_visitor' ? <Wifi className="h-3.5 w-3.5 text-amber-300" />
-            : <WifiOff className="h-3.5 w-3.5 text-rose-400" />}
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin text-warning" />
+            : phase === 'waiting_for_visitor' ? <Wifi className="h-3.5 w-3.5 text-warning/80" />
+            : <WifiOff className="h-3.5 w-3.5 text-destructive" />}
           <span className="font-medium uppercase tracking-wide">{phaseLabel}</span>
-          {isLive && <span className="ms-2 tabular-nums text-zinc-300">{fmtDur(duration)}</span>}
+          {isLive && <span className="ms-2 tabular-nums text-call-stage-foreground/80">{fmtDur(duration)}</span>}
           <span className={cn('ms-2 inline-flex items-center gap-1', qualityColor)}>
             <ShieldCheck className="h-3 w-3" />
             <span className="text-[10px] uppercase">{t('callCenter.console.secure')}</span>
           </span>
         </div>
-        <div className="text-[10px] text-zinc-400 flex items-center gap-2">
+        <div className="text-[10px] text-call-stage-foreground/60 flex items-center gap-2">
           {visitorName && <span className="truncate max-w-[140px]" title={visitorName}>{visitorName}</span>}
           {visitorName && <span>·</span>}
           <span>{wantVideo ? t('callCenter.console.video') : t('callCenter.console.voice')}</span>
@@ -658,7 +658,7 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
           'relative w-full',
           wantVideo
             ? 'bg-black aspect-video'
-            : 'bg-gradient-to-br from-zinc-900 via-zinc-950 to-black px-6 py-8',
+            : 'bg-gradient-to-br from-call-stage-muted/40 via-call-stage to-call-stage px-6 py-8',
         )}
       >
         {/* Remote media container is always present so attachTrack() can append audio
@@ -678,11 +678,11 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
               <div className="absolute inset-0 flex flex-col items-center justify-center text-center gap-3 pointer-events-none">
                 <div className={cn(
                   'h-20 w-20 rounded-full flex items-center justify-center text-2xl font-semibold transition-all',
-                  remoteSpeaking ? 'bg-emerald-700/50 ring-2 ring-emerald-400/60 scale-105' : 'bg-zinc-800',
+                  remoteSpeaking ? 'bg-success/35 ring-2 ring-success/60 scale-105' : 'bg-call-stage-muted',
                 )}>
                   {(visitorName || remoteIdentities[0] || 'V').slice(0, 1).toUpperCase()}
                 </div>
-                <div className="text-sm text-zinc-300">
+                <div className="text-sm text-call-stage-foreground/80">
                   {phase === 'waiting_for_visitor' && t('callCenter.console.waitingVisitorJoin')}
                   {phase === 'visitor_connected' && t('callCenter.console.waitingVisitorVideo')}
                   {phase === 'visitor_disconnected' && t('callCenter.console.visitorLeft')}
@@ -691,11 +691,11 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
                 </div>
               </div>
             )}
-            <div className="absolute bottom-3 right-3 w-32 h-24 rounded-md overflow-hidden border border-zinc-700 bg-zinc-900 shadow-lg">
+            <div className="absolute bottom-3 right-3 w-32 h-24 rounded-md overflow-hidden border border-call-stage-foreground/20 bg-call-stage shadow-lg">
               <video ref={localVideoRef} autoPlay muted playsInline
                 className={cn('w-full h-full object-cover', !camOn && 'hidden')} />
               {!camOn && (
-                <div className="w-full h-full flex items-center justify-center text-zinc-500">
+                <div className="w-full h-full flex items-center justify-center text-call-stage-foreground/45">
                   <VideoOff className="h-5 w-5" />
                 </div>
               )}
@@ -707,30 +707,30 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
             <div className="relative">
               <div className={cn(
                 'h-20 w-20 rounded-full flex items-center justify-center text-2xl font-semibold transition-all',
-                'bg-gradient-to-br from-indigo-500/30 to-emerald-500/20 ring-1 ring-zinc-700',
-                remoteSpeaking && 'ring-2 ring-emerald-400/80 shadow-[0_0_24px_-4px_rgba(16,185,129,0.55)]',
+                'bg-gradient-to-br from-primary/30 to-success/20 ring-1 ring-call-stage-foreground/20',
+                remoteSpeaking && 'ring-2 ring-success/80 shadow-[0_0_24px_-4px_rgba(16,185,129,0.55)]',
               )}>
                 {(visitorName || remoteIdentities[0] || 'V').slice(0, 1).toUpperCase()}
               </div>
               {remoteSpeaking && (
                 <>
-                  <span className="absolute inset-0 rounded-full animate-ping bg-emerald-400/20 pointer-events-none" />
-                  <span className="absolute -inset-1 rounded-full animate-ping bg-emerald-400/10 pointer-events-none [animation-delay:200ms]" />
+                  <span className="absolute inset-0 rounded-full animate-ping bg-success/20 pointer-events-none" />
+                  <span className="absolute -inset-1 rounded-full animate-ping bg-success/10 pointer-events-none [animation-delay:200ms]" />
                 </>
               )}
               <span className={cn(
-                'absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full border-2 border-zinc-950',
-                phase === 'visitor_connected' ? 'bg-emerald-500'
-                  : phase === 'waiting_for_visitor' ? 'bg-amber-400'
-                  : phase === 'reconnecting' ? 'bg-amber-500 animate-pulse'
-                  : 'bg-zinc-500',
+                'absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full border-2 border-call-stage',
+                phase === 'visitor_connected' ? 'bg-success'
+                  : phase === 'waiting_for_visitor' ? 'bg-warning'
+                  : phase === 'reconnecting' ? 'bg-warning animate-pulse'
+                  : 'bg-call-stage-foreground/35',
               )} />
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-base font-semibold truncate">
                 {visitorName || remoteIdentities[0] || t('callCenter.console.visitor')}
               </div>
-              <div className="text-xs text-zinc-400 mt-0.5 flex items-center gap-2">
+              <div className="text-xs text-call-stage-foreground/60 mt-0.5 flex items-center gap-2">
                 <span>{phase === 'visitor_connected'
                   ? (remoteSpeaking ? t('callCenter.console.speaking') : t('callCenter.console.onTheLine'))
                   : phase === 'waiting_for_visitor' ? t('callCenter.console.waitingVisitorJoin')
@@ -738,8 +738,8 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
                   : phase === 'reconnecting' ? t('callCenter.console.reconnecting')
                   : (phase === 'connecting' || phase === 'loading_sdk') ? t('callCenter.console.establishing')
                   : phaseLabel}</span>
-                {isLive && <span className="text-zinc-600">·</span>}
-                {isLive && <span className="tabular-nums font-mono text-zinc-300">{fmtDur(duration)}</span>}
+                {isLive && <span className="text-call-stage-foreground/35">·</span>}
+                {isLive && <span className="tabular-nums font-mono text-call-stage-foreground/80">{fmtDur(duration)}</span>}
               </div>
               {/* Visitor speaking indicator bars */}
               <div className="mt-3 flex items-end gap-1 h-6">
@@ -747,8 +747,8 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
                   <span
                     key={i}
                     className={cn(
-                      'w-1.5 rounded-sm bg-emerald-500/70 transition-all duration-150',
-                      remoteSpeaking ? '' : 'bg-zinc-800',
+                      'w-1.5 rounded-sm bg-success/70 transition-all duration-150',
+                      remoteSpeaking ? '' : 'bg-call-stage-muted',
                     )}
                     style={{
                       height: remoteSpeaking
@@ -765,11 +765,11 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
         {/* End/Status overlay */}
         {showEndedOverlay && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/75 p-6">
-            <div className="max-w-sm rounded-md border border-zinc-700 bg-zinc-900/80 p-4 text-center space-y-3">
+            <div className="max-w-sm rounded-md border border-call-stage-foreground/20 bg-call-stage/90 p-4 text-center space-y-3">
               <AlertTriangle className={cn('h-5 w-5 mx-auto',
-                phase === 'backend_end_failed' || phase === 'reconnect_failed' || phase === 'token_expired' ? 'text-amber-400' : 'text-zinc-300')} />
+                phase === 'backend_end_failed' || phase === 'reconnect_failed' || phase === 'token_expired' ? 'text-warning' : 'text-call-stage-foreground/80')} />
               <div className="text-sm font-medium">{phaseLabel}</div>
-              {errorCode && <div className="text-xs text-zinc-300">{humanError(errorCode)}</div>}
+              {errorCode && <div className="text-xs text-call-stage-foreground/80">{humanError(errorCode)}</div>}
               <div className="flex flex-wrap justify-center gap-2">
                 {phase === 'backend_end_failed' && (
                   <Button size="sm" variant="secondary" onClick={retryBackendEnd} disabled={endRetrying}>
@@ -796,24 +796,24 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
         {/* Error overlay (pre-connect failures) */}
         {phase === 'error' && errorCode && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/70 p-6">
-            <div className="max-w-sm rounded-md border border-rose-700/60 bg-rose-950/40 p-4 text-center">
-              <AlertTriangle className="h-5 w-5 mx-auto text-rose-400 mb-2" />
+            <div className="max-w-sm rounded-md border border-destructive/50 bg-destructive/15 p-4 text-center">
+              <AlertTriangle className="h-5 w-5 mx-auto text-destructive mb-2" />
               <div className="text-sm font-medium">{t('callCenter.console.cannotConnect')}</div>
-              <div className="text-xs text-rose-200 mt-1">{humanError(errorCode)}</div>
+              <div className="text-xs text-destructive-foreground/90 mt-1">{humanError(errorCode)}</div>
             </div>
           </div>
         )}
       </div>
 
       {/* Local mic level bar */}
-      <div className="px-4 pt-2 bg-zinc-900/40">
-        <div className="h-1 w-full rounded bg-zinc-800 overflow-hidden">
+      <div className="px-4 pt-2 bg-call-stage/60">
+        <div className="h-1 w-full rounded bg-call-stage-muted overflow-hidden">
           <div
-            className={cn('h-full transition-[width] duration-75', micOn ? 'bg-emerald-500' : 'bg-zinc-600')}
+            className={cn('h-full transition-[width] duration-75', micOn ? 'bg-success' : 'bg-call-stage-foreground/30')}
             style={{ width: `${Math.min(100, Math.round(localLevel * 140))}%` }}
           />
         </div>
-        <div className="text-[10px] text-zinc-500 mt-1 flex justify-between">
+        <div className="text-[10px] text-call-stage-foreground/45 mt-1 flex justify-between">
           <span>
             {t('callCenter.console.yourMic')}
             {micOn ? '' : ` (${t('callCenter.console.mutedSuffix')})`}
@@ -824,7 +824,7 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
 
       {/* Controls — ONE toolbar for the whole call: media, recording,
           transfer and hang-up, in the order an operator reaches for them. */}
-      <div className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-900/80 border-t border-zinc-800 flex-wrap">
+      <div className="flex items-center justify-center gap-2 px-4 py-3 bg-call-stage/90 border-t border-call-stage-foreground/10 flex-wrap">
         <Button type="button" variant={micOn ? 'secondary' : 'destructive'} size="sm"
           onClick={toggleMic} disabled={!isLive}
           title={micOn ? t('callCenter.console.muteTitle') : t('callCenter.console.unmuteTitle')}>
@@ -852,18 +852,18 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
       </div>
 
       {statusSlot && (
-        <div className="px-4 py-2 bg-zinc-900/60 border-t border-zinc-800">{statusSlot}</div>
+        <div className="px-4 py-2 bg-call-stage/75 border-t border-call-stage-foreground/10">{statusSlot}</div>
       )}
 
       {showDevices && (
-        <div className="px-4 py-3 bg-zinc-900/60 border-t border-zinc-800 space-y-2 text-xs">
+        <div className="px-4 py-3 bg-call-stage/75 border-t border-call-stage-foreground/10 space-y-2 text-xs">
           {!deviceSwitchSupported && (
-            <div className="text-[11px] text-amber-300">{t('callCenter.console.deviceSwitchUnsupported')}</div>
+            <div className="text-[11px] text-warning/80">{t('callCenter.console.deviceSwitchUnsupported')}</div>
           )}
           <div className="flex items-center gap-2">
-            <label className="w-20 text-zinc-400">{t('callCenter.console.micLabel')}</label>
+            <label className="w-20 text-call-stage-foreground/60">{t('callCenter.console.micLabel')}</label>
             <select
-              className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 disabled:opacity-50"
+              className="flex-1 bg-call-stage border border-call-stage-foreground/10 rounded px-2 py-1 disabled:opacity-50"
               value={selectedMic}
               disabled={!deviceSwitchSupported || !isLive}
               onChange={(e) => switchMic(e.target.value)}
@@ -876,9 +876,9 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
           </div>
           {wantVideo && (
             <div className="flex items-center gap-2">
-              <label className="w-20 text-zinc-400">{t('callCenter.console.cameraLabel')}</label>
+              <label className="w-20 text-call-stage-foreground/60">{t('callCenter.console.cameraLabel')}</label>
               <select
-                className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 disabled:opacity-50"
+                className="flex-1 bg-call-stage border border-call-stage-foreground/10 rounded px-2 py-1 disabled:opacity-50"
                 value={selectedCam}
                 disabled={!deviceSwitchSupported || !isLive}
                 onChange={(e) => switchCam(e.target.value)}
@@ -898,7 +898,7 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
         </div>
       )}
 
-      <div className="px-4 pb-3 bg-zinc-900/40 text-[10px] text-zinc-500">
+      <div className="px-4 pb-3 bg-call-stage/60 text-[10px] text-call-stage-foreground/45">
         <button className="underline-offset-2 hover:underline" onClick={() => setShowDebug((v) => !v)}>
           {showDebug ? t('callCenter.console.hideDetails') : t('callCenter.console.showDetails')}
         </button>

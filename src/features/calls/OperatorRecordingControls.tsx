@@ -169,7 +169,7 @@ export function RecordingToolbarButton({ rec }: { rec: OperatorRecording }) {
         type="button"
         size="sm"
         variant="secondary"
-        className="bg-rose-600 text-white hover:bg-rose-500"
+        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
         onClick={rec.stop}
         disabled={!rec.canStop}
         title={t('callCenter.rec.stop')}
@@ -213,11 +213,11 @@ export function RecordingStatusStrip({
       <span
         className={cn(
           'inline-flex items-center gap-1.5 font-medium',
-          rec.isRecording ? 'text-rose-400'
-            : rec.hasArtifact ? 'text-emerald-400'
-            : rec.state === 'failed' ? 'text-destructive'
-            : rec.effective && rec.consentOk ? 'text-zinc-300'
-            : 'text-zinc-500',
+          rec.isRecording || rec.state === 'failed' ? 'text-destructive'
+            : rec.hasArtifact ? 'text-success'
+            : rec.effective && rec.consentOk
+              ? 'text-call-stage-foreground/80'
+              : 'text-call-stage-foreground/45',
         )}
       >
         <Disc className={cn('h-3.5 w-3.5', rec.isRecording && 'animate-pulse')} />
@@ -228,7 +228,7 @@ export function RecordingStatusStrip({
         <span
           className={cn(
             'inline-flex items-center gap-1',
-            rec.consentOk ? 'text-emerald-400' : 'text-amber-400',
+            rec.consentOk ? 'text-success' : 'text-warning',
           )}
         >
           {rec.consentOk ? <ShieldCheck className="h-3 w-3" /> : <ShieldAlert className="h-3 w-3" />}
@@ -236,24 +236,24 @@ export function RecordingStatusStrip({
         </span>
       )}
 
-      {rec.reason && <span className="text-zinc-500">{rec.reason}</span>}
+      {rec.reason && <span className="text-call-stage-foreground/45">{rec.reason}</span>}
 
       {rec.status?.recording_id_masked && (
-        <span className="font-mono text-zinc-600">
+        <span className="font-mono text-call-stage-foreground/40">
           {t('callCenter.rec.idLabel')}: {rec.status.recording_id_masked}
         </span>
       )}
 
       <span className="ms-auto flex items-center gap-2">
         {rec.hasArtifact && recordingsHref && (
-          <Button asChild size="sm" variant="ghost" className="h-6 px-2 text-[11px] text-emerald-400 hover:text-emerald-300">
+          <Button asChild size="sm" variant="ghost" className="h-6 px-2 text-[11px] text-success hover:text-success/80">
             <Link to={recordingsHref}>{t('callCenter.rec.openRecordings')}</Link>
           </Button>
         )}
         <Button
           size="icon"
           variant="ghost"
-          className="h-6 w-6 text-zinc-400"
+          className="h-6 w-6 text-call-stage-foreground/60"
           onClick={rec.refetch}
           disabled={rec.isFetching}
           title={t('callCenter.rec.refresh')}

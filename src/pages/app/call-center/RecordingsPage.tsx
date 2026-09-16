@@ -192,7 +192,7 @@ export default function RecordingsPage() {
   if (!recordingOn) {
     return (
       <Card className="p-6 flex items-start gap-3">
-        <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5" />
+        <AlertCircle className="mt-0.5 h-5 w-5 text-warning" />
         <div>
           <h2 className="font-semibold">{t('callCenter.recordingsPage.title')}</h2>
           <p className="text-sm text-muted-foreground mt-1">

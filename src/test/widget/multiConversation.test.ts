@@ -81,7 +81,9 @@ describe('P0-C — explicit selection loads exactly that conversation', () => {
   });
 
   it('openConversation detaches the current thread and loads the selected one', () => {
-    const idx = runtime.indexOf('function openConversation(conversationId)');
+    // Anchored on the declaration, not its exact parameter list, so adding
+    // an options argument cannot silently skip this assertion.
+    const idx = runtime.search(/function openConversation\(conversationId\b/);
     expect(idx).toBeGreaterThan(-1);
     const body = runtime.slice(idx, idx + 1200);
     expect(body).toMatch(/unsubscribeConversation\(current\)/);

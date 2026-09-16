@@ -42,6 +42,7 @@ import {
   type AnalyticsProviderDto, type AnalyticsStorageDto, type AnalyticsSyncReport,
 } from '@/lib/analytics-storage-api';
 import { PROVIDER_SCHEMAS } from './schemas';
+import { AdminAnalyticsCutoverSection } from './AdminAnalyticsCutoverSection';
 
 const ANALYTICS_KEY = ['admin-analytics-storage'];
 
@@ -560,6 +561,9 @@ export function AdminAnalyticsStoragePanel() {
           )}
         </CardContent>
       </Card>
+
+      {/* ── Phase 2.5: cutover readiness + production tooling ────── */}
+      <AdminAnalyticsCutoverSection pool={pool} />
 
       {/* ── Primary selection ────────────────────────────────────── */}
       <Card className="border-border/60">

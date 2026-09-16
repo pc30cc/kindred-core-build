@@ -96,6 +96,7 @@ export interface AnalyticsParityDifferenceDto {
 export interface AnalyticsParityReportDto {
   report: string;
   ok: boolean;
+  status?: ParityStatus;
   postgresMs: number;
   s3Ms: number;
   error: string | null;
@@ -113,10 +114,53 @@ export interface AnalyticsParityDto {
   reports: AnalyticsParityReportDto[];
 }
 
+/** ready = done; warning = degraded but safe; blocked = would risk data at cutover. */
+export type ReadinessState = 'ready' | 'warning' | 'blocked';
+
+export interface AnalyticsReadinessCheckDto {
+  /** Stable key, translated in the UI — never prose from the server. */
+  key: string;
+  state: ReadinessState;
+  detail?: string | null;
+}
+
+export interface AnalyticsReadinessDto {
+  checks: AnalyticsReadinessCheckDto[];
+  /** No check is blocked. Warnings do not block. */
+  s3OnlyEligible: boolean;
+  /** Always false in this build — readiness reports, it does not grant. */
+  s3OnlyUnlocked: boolean;
+  blockedCount: number;
+  warningCount: number;
+}
+
+/** Durable ingestion, probed live rather than read from a flag. */
+export interface AnalyticsDurabilityDto {
+  ready: boolean;
+  enabled: boolean;
+  reason: string | null;
+  segments: number;
+  bytes: number;
+  replayedRows: number;
+  droppedForSize: number;
+  lastError: string | null;
+}
+
+export type ParityStatus = 'matched' | 'mismatched' | 'skipped' | 'error';
+
+export interface AnalyticsParitySummaryDto {
+  matched: number;
+  mismatched: number;
+  skipped: number;
+  error: number;
+}
+
 export interface AnalyticsStorageDto {
   enabled: boolean;
   s3Read: AnalyticsS3ReadDto;
   parity: AnalyticsParityDto | null;
+  readiness: AnalyticsReadinessDto;
+  durability: AnalyticsDurabilityDto;
   primary: string | null;
   replicas: string[];
   replicationEnabled: boolean;
@@ -254,16 +298,62 @@ export function adminBackfillAnalyticsDay(workspaceId: string, day: string) {
   });
 }
 
-/** Phase 2 — run a shadow comparison for one workspace and date range. */
+/**
+ * Phase 2.5 — run a shadow comparison for one workspace and date range.
+ *
+ * Bounded server-side; a range longer than the limit is refused rather than
+ * quietly truncated. Dimension values come back as stable digests, so the
+ * panel can show WHICH rows differ and how often without showing a
+ * workspace's page paths or city names to a platform operator.
+ */
 export function adminRunAnalyticsParity(payload: {
   workspaceId: string;
   startDate: string;
   endDate: string;
+  includeFunnels?: boolean;
 }) {
-  return request<{ run: AnalyticsParityDto }>(`${BASE}/parity`, {
+  return request<{
+    run: AnalyticsParityDto;
+    summary: AnalyticsParitySummaryDto;
+    days: number;
+    funnelsCompared: boolean;
+  }>(`${BASE}/parity`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+}
+
+export interface AnalyticsBackfillRangeReport {
+  workspaceId: string;
+  fromDay: string;
+  toDay: string;
+  attempted: number;
+  verifiedDays: number;
+  failedDays: string[];
+  sourceRows: number;
+  writtenRows: number;
+  objects: number;
+  bytes: number;
+  replaced: number;
+  /** Where to resume, or null when the range is finished. */
+  nextDay: string | null;
+}
+
+/**
+ * Phase 2.5 — rebuild a date range. Bounded per call; when `nextDay` comes
+ * back non-null the caller runs again from there, which is what makes this
+ * resumable without a job table.
+ */
+export function adminBackfillAnalyticsRange(payload: {
+  workspaceId: string;
+  fromDay: string;
+  toDay: string;
+  maxDays?: number;
+}) {
+  return request<{ report: AnalyticsBackfillRangeReport; maxDaysPerCall: number }>(
+    `${BASE}/backfill/range`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  );
 }
 
 /** Phase 2 — force a day-sealing cycle (buffer durability catch-up). */

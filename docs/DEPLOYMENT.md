@@ -51,6 +51,38 @@ channels services. Breaking this fails `src/test/security/restrictedNetwork*`.
   self-hosted — stock `postgres:16` lacks the `auth` schema the RLS policies need)
 - One public HTTPS hostname per publicly reachable service:
   app (frontend), api (backend), channels gateway, ai-runtime
+- **Node 22.15 or newer** for the backend and worker images
+
+### Node runtime requirement
+
+`Dockerfile.server` and `Dockerfile.worker` are pinned to `node:22-alpine`,
+and both assert the version at build time so a base-image downgrade fails the
+build instead of surfacing in production. The requirement is also declared in
+`package.json` and `server/package.json` (`engines.node: ">=22.15"`).
+
+The reason is Web Analytics object storage: its Parquet writer compresses with
+ZSTD through `node:zlib`, which landed in Node 22.15. On an older runtime that
+feature reports an incompatible runtime and stops — it does **not** stop the
+backend from booting, so a Node 20 deployment that never enables Web Analytics
+storage still runs. Everything else in the stack is unaffected.
+
+The frontend image (`Dockerfile`/`Dockerfile.frontend`), the channels gateway
+and the AI runtime do not run this code and stay on their own pins.
+
+### Analytics durability volume (only for S3-only writes)
+
+`docker-compose.yml` mounts a named volume at `/app/data` on the backend. When
+Web Analytics storage is switched to S3-only writes — a later phase, currently
+locked — accepted events are written to a crash-safe log under
+`/app/data/analytics-spool` before they are buffered, and replayed on the next
+start if they never reached object storage. Override the location with
+`ANALYTICS_SPOOL_DIR`.
+
+That spool is **local to each backend instance**. Running more than one backend
+requires a durable volume per instance: a node that loses its disk loses only
+its own un-flushed rows, and no other instance can recover them. While writes
+stay dual-write (the default), PostgreSQL remains the backstop and the spool is
+an optimisation rather than a requirement.
 
 ## 3. Database migrations
 

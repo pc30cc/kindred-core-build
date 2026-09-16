@@ -78,6 +78,33 @@ const BASE_STATE = {
       { report: 'pages.top', ok: true, postgresMs: 12, s3Ms: 19, error: null, differences: [] },
     ],
   },
+  readiness: {
+    checks: [
+      { key: 'primaryConfigured', state: 'ready', detail: 'arvan_storage' },
+      { key: 'primaryHealth', state: 'ready', detail: '2026-09-16T20:00:00.000Z' },
+      { key: 'replicaHealth', state: 'warning', detail: '0/1' },
+      { key: 'duckdbAvailable', state: 'ready', detail: 'installed' },
+      { key: 'historicalBackfill', state: 'ready', detail: '31' },
+      { key: 'productionParity', state: 'ready', detail: '2026-09-16T20:02:00.000Z' },
+      { key: 'workspaceDeletion', state: 'warning', detail: null },
+      { key: 'durableIngestion', state: 'blocked', detail: null },
+      { key: 'nodeRuntime', state: 'ready', detail: 'v22.15.0' },
+    ],
+    s3OnlyEligible: false,
+    s3OnlyUnlocked: false,
+    blockedCount: 1,
+    warningCount: 2,
+  },
+  durability: {
+    ready: false,
+    enabled: false,
+    reason: 'the spool directory is not writable',
+    segments: 0,
+    bytes: 0,
+    replayedRows: 0,
+    droppedForSize: 0,
+    lastError: null,
+  },
   providers: [
     {
       name: 'bunny_storage', configured: true, generalEnabled: true, generalRole: 'primary',
@@ -552,5 +579,115 @@ describe('storage section shell', () => {
 
     fireEvent.click(tab);
     expect(await screen.findByText(en.analyticsStorage.primary.title)).toBeInTheDocument();
+  });
+});
+
+/**
+ * PHASE 2.5 — cutover readiness.
+ *
+ * The one thing this card must never do is imply permission. It reports what
+ * is still blocking; it does not grant a cutover, and a fully green list
+ * still shows BLOCKED because the phase lock is a separate decision.
+ */
+describe('cutover readiness', () => {
+  it('lists every readiness check with a state', async () => {
+    stubApi();
+    renderPanel();
+    // The card's title renders before the query resolves, so waiting on it
+    // would assert against an empty list.
+    await waitFor(() =>
+      expect(screen.getByText(en.analyticsStorage.phase25.check.primaryConfigured)).toBeInTheDocument());
+
+    for (const label of Object.values(en.analyticsStorage.phase25.check)) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+  });
+
+  it('shows S3-only activation as BLOCKED', async () => {
+    stubApi();
+    renderPanel();
+    await waitFor(() => expect(screen.getByText(en.analyticsStorage.phase25.activation)).toBeInTheDocument());
+    expect(screen.getByText(en.analyticsStorage.phase25.activationBlocked)).toBeInTheDocument();
+  });
+
+  it('still shows BLOCKED when every check is green — the lock is not the checklist', async () => {
+    stubApi({
+      readiness: {
+        checks: [{ key: 'primaryConfigured', state: 'ready', detail: null }],
+        s3OnlyEligible: true,
+        s3OnlyUnlocked: false,
+        blockedCount: 0,
+        warningCount: 0,
+      },
+    } as never);
+    renderPanel();
+    await waitFor(() => expect(screen.getByText(en.analyticsStorage.phase25.activation)).toBeInTheDocument());
+    expect(screen.getByText(en.analyticsStorage.phase25.activationBlocked)).toBeInTheDocument();
+  });
+
+  it('surfaces durable ingestion as the blocker when the spool is unavailable', async () => {
+    stubApi();
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByText(en.analyticsStorage.phase25.durability.notReady)).toBeInTheDocument());
+  });
+
+  it('states the multi-instance limitation rather than leaving it to be discovered', async () => {
+    stubApi();
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByText(en.analyticsStorage.phase25.durability.multiInstance)).toBeInTheDocument());
+  });
+
+  it('renders in all three locales with no raw translation keys', async () => {
+    for (const [locale, translations] of LOCALES) {
+      stubApi();
+      const { unmount } = renderPanel(locale, translations);
+      await waitFor(() =>
+        expect(screen.getByText(
+          (translations as typeof en).analyticsStorage.phase25.check.primaryConfigured,
+        )).toBeInTheDocument());
+      expect(document.body.textContent).not.toMatch(/analyticsStorage\.phase25\./);
+      unmount();
+      vi.restoreAllMocks();
+    }
+  });
+});
+
+describe('production parity runner', () => {
+  it('refuses to run without a workspace id', async () => {
+    stubApi();
+    renderPanel();
+    await waitFor(() => expect(screen.getByText(en.analyticsStorage.phase25.parityRun.title)).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: new RegExp(en.analyticsStorage.phase25.parityRun.run, 'i') }))
+      .toBeDisabled();
+  });
+
+  it('warns when the requested range exceeds the bound', async () => {
+    stubApi();
+    renderPanel();
+    await waitFor(() => expect(screen.getByText(en.analyticsStorage.phase25.parityRun.title)).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText(en.analyticsStorage.phase25.parityRun.workspaceId), {
+      target: { value: '33333333-3333-3333-3333-333333333333' },
+    });
+    const [from] = screen.getAllByLabelText(en.analyticsStorage.phase25.parityRun.from);
+    const [to] = screen.getAllByLabelText(en.analyticsStorage.phase25.parityRun.to);
+    fireEvent.change(from, { target: { value: '2025-01-01' } });
+    fireEvent.change(to, { target: { value: '2026-01-01' } });
+
+    await waitFor(() => expect(
+      screen.getByText(
+        en.analyticsStorage.phase25.parityRun.rangeTooLong.replace('{{max}}', '92'),
+      ),
+    ).toBeInTheDocument());
+  });
+
+  it('never renders a credential field', async () => {
+    stubApi();
+    renderPanel();
+    await waitFor(() => expect(screen.getByText(en.analyticsStorage.phase25.title)).toBeInTheDocument());
+    expect(document.querySelector('input[type="password"]')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/secret|access_key|password/i);
   });
 });

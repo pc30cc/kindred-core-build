@@ -130,6 +130,26 @@ import { enforceMaxConversationsLimit } from '../services/billing/conversationLi
 import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visitorLimit.js';
 import { getPlatformAllowedLocales } from '../services/platformRegion.js';
 
+/**
+ * Internal staffing notices never reach the visitor.
+ *
+ * Several places in the server have long carried a comment saying the widget
+ * filters `metadata.internal === true` out of /poll and /history. Nothing
+ * ever did. A visitor could therefore read "Ali unassigned this
+ * conversation" as an ordinary chat bubble, in English, because the widget's
+ * renderer has no branch for that kind and falls through to a plain bubble.
+ *
+ * The flag itself is the contract: anything marked internal is for the inbox
+ * only. A transfer is deliberately NOT marked internal — from the visitor's
+ * side the next operator arriving is real news, and the widget renders it as
+ * a join.
+ */
+export function isInternalMessage(m: { sender_type?: string | null; metadata?: unknown }): boolean {
+  if (m.sender_type !== 'system') return false;
+  const meta = (m.metadata || {}) as Record<string, unknown>;
+  return meta.internal === true;
+}
+
 export const widgetRouter = Router();
 
 // Mount identity sub-router (all routes require widget token + origin)
@@ -1325,7 +1345,7 @@ widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Res
       .order('created_at', { ascending: false })
       .limit(200);
 
-    const baseMessages = (msgs || []).slice().reverse().map((m) => ({
+    const baseMessages = (msgs || []).slice().reverse().filter((m) => !isInternalMessage(m)).map((m) => ({
       id: m.id,
       // Legacy 'role' kept for widget runtime compatibility — AI replies
       // collapse to 'agent' here so existing widget rendering still works.
@@ -1428,7 +1448,7 @@ widgetRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: 
     .order('created_at', { ascending: false })
     .limit(200);
 
-  const baseMessages = (msgs || []).slice().reverse().map((m) => ({
+  const baseMessages = (msgs || []).slice().reverse().filter((m) => !isInternalMessage(m)).map((m) => ({
     id: m.id,
     role: m.sender_type === 'contact' ? 'visitor' : m.sender_type === 'system' ? 'system' : 'agent',
     sender_type: m.sender_type,

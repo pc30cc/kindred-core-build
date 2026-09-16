@@ -54,6 +54,31 @@ interface OpenAlertEventRow {
   details?: Record<string, unknown> | null;
 }
 
+/** An open incident as carried in the per-pass index, keyed by rule id. */
+interface OpenAlertIndexEntry extends OpenAlertEventRow {
+  rule_id: string;
+  rule_slug: string | null;
+  fired_at?: string | null;
+}
+
+/**
+ * Snapshot of every currently-open incident, keyed by `rule_id`.
+ *
+ * This replaces the per-rule `SELECT ... FROM alert_events WHERE rule_id = $1
+ * AND state = 'open'` that used to run inside applyRuleResult, plus the
+ * separate subrule lookup that ran inside evaluateCombinedRule. With N
+ * enabled rules the old shape cost N+M round trips per cycle (27 rules and 2
+ * combined rules measured at ~29 reads/pass, ~1 request/second against
+ * PostgREST around the clock); the batched shape costs exactly one.
+ *
+ * The map is mutated in place as the pass writes, so it stays an accurate
+ * mirror of what Postgres holds: combined rules — which run in the second
+ * phase and inspect their subrules' *persisted* open state — observe alerts
+ * opened or resolved by base rules earlier in the same pass, exactly as they
+ * did when they re-queried the table.
+ */
+type OpenAlertIndex = Map<string, OpenAlertIndexEntry>;
+
 /** Bounded audit trail: keep at most this many severity transitions per incident. */
 const MAX_TRANSITIONS = 20;
 
@@ -129,22 +154,53 @@ function evaluateSyncRule(rule: AlertRuleRow, collector: MonitoringCollector, bu
   }
 }
 
-async function evaluateCombinedRule(
-  sb: ReturnType<typeof getServiceClient>,
-  rule: AlertRuleRow,
-): Promise<RuleEvalResult> {
+function evaluateCombinedRule(rule: AlertRuleRow, openIndex: OpenAlertIndex): RuleEvalResult {
   const subrules = Array.isArray(rule.subrules) ? rule.subrules : [];
   let value = 0;
   if (subrules.length > 0) {
-    const { data, error } = await sb.from('alert_events').select('rule_slug').eq('state', 'open').in('rule_slug', subrules);
-    if (error) {
-      throw new Error(`alertEvaluator: failed to read open subrule alert_events for combined rule "${rule.slug}": ${error.message}`);
+    // Counts DISTINCT open subrule slugs, matching the old
+    // `SELECT rule_slug ... WHERE state = 'open' AND rule_slug IN (...)`
+    // followed by a Set of the returned slugs. Reading the index rather than
+    // the table keeps the two-phase ordering guarantee intact: base rules
+    // have already written, and applyRuleResult mirrored those writes here.
+    const wanted = new Set(subrules);
+    const openSlugs = new Set<string>();
+    for (const entry of openIndex.values()) {
+      if (entry.rule_slug != null && wanted.has(entry.rule_slug)) openSlugs.add(entry.rule_slug);
     }
-    value = new Set((data || []).map((row: any) => row.rule_slug)).size;
+    value = openSlugs.size;
   }
   // combined has no min_sample gate in the original SQL — always classifies.
   const { severity, threshold } = classifyThreshold(value, rule);
   return { severity, threshold, value, sample: subrules.length };
+}
+
+/**
+ * The single batched read that feeds a whole evaluation pass.
+ *
+ * Deliberately NOT filtered to the enabled rule ids: a combined rule may name
+ * a subrule that has since been disabled but still holds an open incident,
+ * and the old per-slug query would have counted it. Filtering here would
+ * silently change that. The open set is self-limiting — at most one
+ * meaningful open incident per rule — so reading all of it stays cheap.
+ */
+async function loadOpenAlertIndex(sb: ReturnType<typeof getServiceClient>): Promise<OpenAlertIndex> {
+  const { data, error } = await sb
+    .from('alert_events')
+    .select('id, rule_id, rule_slug, severity, metric_value, threshold_value, sample_size, details, fired_at')
+    .eq('state', 'open')
+    .order('fired_at', { ascending: false });
+  if (error) {
+    throw new Error(`alertEvaluator: failed to read open alert_events: ${error.message}`);
+  }
+  const index: OpenAlertIndex = new Map();
+  for (const row of (data || []) as OpenAlertIndexEntry[]) {
+    if (row?.rule_id == null) continue;
+    // Rows arrive newest-first, so the first one seen per rule wins — the same
+    // tie-break as the old per-rule `.order('fired_at', desc).limit(1)`.
+    if (!index.has(row.rule_id)) index.set(row.rule_id, row);
+  }
+  return index;
 }
 
 /**
@@ -221,18 +277,12 @@ async function applyRuleResult(
   rule: AlertRuleRow,
   result: RuleEvalResult,
   now: Date,
+  openIndex: OpenAlertIndex,
 ): Promise<boolean> {
-  const { data: openRows, error: openReadError } = await sb
-    .from('alert_events')
-    .select('id, severity, metric_value, threshold_value, sample_size, details')
-    .eq('rule_id', rule.id)
-    .eq('state', 'open')
-    .order('fired_at', { ascending: false })
-    .limit(1);
-  if (openReadError) {
-    throw new Error(`alertEvaluator: failed to read open alert_events for rule "${rule.slug}": ${openReadError.message}`);
-  }
-  const open: OpenAlertEventRow | null = openRows && openRows.length > 0 ? (openRows[0] as OpenAlertEventRow) : null;
+  // Served from the pass-wide snapshot taken by loadOpenAlertIndex — no
+  // per-rule round trip. Every branch below that writes also updates the
+  // snapshot, so it stays truthful for the rest of the pass.
+  const open: OpenAlertEventRow | null = openIndex.get(rule.id) ?? null;
   const flap = stateFor(rule.id);
 
   if (result.severity !== null) {
@@ -242,7 +292,7 @@ async function applyRuleResult(
     if (!open) {
       // Debounce: wait for a sustained breach before creating an incident.
       if (flap.breach < OPEN_STREAK) return false;
-      const { error: insertError } = await sb.from('alert_events').insert({
+      const insertPayload = {
         rule_id: rule.id,
         rule_slug: rule.slug,
         severity: result.severity,
@@ -269,10 +319,26 @@ async function applyRuleResult(
           },
         },
         webhook_status: 'pending',
-      });
+      };
+      const { data: insertedRow, error: insertError } = await sb
+        .from('alert_events')
+        .insert(insertPayload)
+        .select('id')
+        .single();
       if (insertError) {
         throw new Error(`alertEvaluator: failed to open alert for rule "${rule.slug}": ${insertError.message}`);
       }
+      openIndex.set(rule.id, {
+        id: (insertedRow as { id: string } | null)?.id ?? '',
+        rule_id: rule.id,
+        rule_slug: rule.slug,
+        severity: result.severity,
+        metric_value: result.value,
+        threshold_value: result.threshold,
+        sample_size: result.sample,
+        details: insertPayload.details,
+        fired_at: now.toISOString(),
+      });
       return true;
     }
     if (open.severity !== result.severity) {
@@ -280,6 +346,20 @@ async function applyRuleResult(
       // records a snapshot of the transition for the audit trail.
       const baseDetails = (open.details && typeof open.details === 'object' ? open.details : {}) as Record<string, unknown>;
       const priorTransitions = Array.isArray((baseDetails as any).transitions) ? ((baseDetails as any).transitions as unknown[]) : [];
+      const severityDetails = {
+        ...baseDetails,
+        transitions: [
+          ...priorTransitions.slice(-MAX_TRANSITIONS + 1),
+          {
+            at: now.toISOString(),
+            from_severity: open.severity,
+            to_severity: result.severity,
+            metric_value: result.value,
+            threshold_value: result.threshold,
+            sample_size: result.sample,
+          },
+        ],
+      };
       const { error: severityError } = await sb
         .from('alert_events')
         .update({
@@ -287,25 +367,25 @@ async function applyRuleResult(
           metric_value: result.value,
           threshold_value: result.threshold,
           sample_size: result.sample,
-          details: {
-            ...baseDetails,
-            transitions: [
-              ...priorTransitions.slice(-MAX_TRANSITIONS + 1),
-              {
-                at: now.toISOString(),
-                from_severity: open.severity,
-                to_severity: result.severity,
-                metric_value: result.value,
-                threshold_value: result.threshold,
-                sample_size: result.sample,
-              },
-            ],
-          },
+          details: severityDetails,
           webhook_status: 'pending',
         })
         .eq('id', open.id);
       if (severityError) {
         throw new Error(`alertEvaluator: failed to change severity for rule "${rule.slug}" (alert ${open.id}): ${severityError.message}`);
+      }
+      // The incident stays open under the same id — refresh it in place so a
+      // later combined rule still counts it, now at the new severity.
+      const priorEntry = openIndex.get(rule.id);
+      if (priorEntry) {
+        openIndex.set(rule.id, {
+          ...priorEntry,
+          severity: result.severity,
+          metric_value: result.value,
+          threshold_value: result.threshold,
+          sample_size: result.sample,
+          details: severityDetails,
+        });
       }
       return true;
     }
@@ -344,6 +424,9 @@ async function applyRuleResult(
     if (resolveError) {
       throw new Error(`alertEvaluator: failed to resolve alert for rule "${rule.slug}" (alert ${open.id}): ${resolveError.message}`);
     }
+    // No longer open: a combined rule running later this pass must stop
+    // counting it, exactly as a re-query of the table would have.
+    openIndex.delete(rule.id);
     flap.clear = 0;
     return true;
   }
@@ -387,10 +470,15 @@ export async function evaluateAlertRulesInMemory(config: ServerConfig): Promise<
   const allRules = (rules || []) as AlertRuleRow[];
   const orderedRules = [...allRules.filter((r) => r.kind !== 'combined'), ...allRules.filter((r) => r.kind === 'combined')];
 
+  // One read of the open-incident set for the entire pass, mutated in place as
+  // rules open, escalate and resolve. This is what keeps a cycle at a constant
+  // number of queries instead of one per rule.
+  const openIndex = await loadOpenAlertIndex(sb);
+
   for (const rule of orderedRules) {
     evaluated += 1;
-    const result = rule.kind === 'combined' ? await evaluateCombinedRule(sb, rule) : evaluateSyncRule(rule, collector, budgetBytes);
-    const changed = await applyRuleResult(sb, rule, result, now);
+    const result = rule.kind === 'combined' ? evaluateCombinedRule(rule, openIndex) : evaluateSyncRule(rule, collector, budgetBytes);
+    const changed = await applyRuleResult(sb, rule, result, now, openIndex);
     if (changed) stateChanges += 1;
   }
 

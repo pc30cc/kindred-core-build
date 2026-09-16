@@ -73,6 +73,10 @@ export async function runSloEvaluation(
       return result;
     }
 
+    // One scan for the whole pass; null means the scan failed and every
+    // resolve falls back to the unconditional UPDATE it used to be.
+    const openBreachKeys = await loadOpenBreachKeys(config);
+
     for (const def of (defs || []) as SloDefinition[]) {
       try {
         const samples = await loadSamplesForSlo(config, def);
@@ -84,7 +88,7 @@ export async function runSloEvaluation(
             if (opened === 'opened') result.opened += 1;
             else if (opened === 'bumped') result.bumped += 1;
           } else {
-            const closed = await resolveBreachIfOpen(config, def, sample);
+            const closed = await resolveBreachIfOpen(config, def, sample, openBreachKeys);
             if (closed) result.resolved += 1;
           }
         }
@@ -103,6 +107,52 @@ export async function runSloEvaluation(
     emitLog(config, 'info', 'slo_evaluator_cycle', result as unknown as Record<string, unknown>);
   }
   return result;
+}
+
+/** Identity of a breach: one open incident per (slo, scope) by construction. */
+function breachKey(sloId: string, scopeType: string, scopeKey: string): string {
+  return `${sloId}\u0000${scopeType}\u0000${scopeKey}`;
+}
+
+/**
+ * The set of (slo, scope) pairs that currently hold an OPEN breach, read once
+ * per evaluation pass.
+ *
+ * resolveBreachIfOpen() used to fire its UPDATE unconditionally on every
+ * healthy sample — "resolve whatever is open for this scope, if anything is".
+ * Healthy is the normal state, so almost none of those updates matched a row:
+ * 718,387 executions produced 6,136 actual row writes, about 20,251 no-op
+ * write transactions a day. Each one still opens a transaction, plans, takes
+ * a snapshot, probes the index and commits.
+ *
+ * Knowing up front which scopes actually have something to resolve turns the
+ * common case into no round trip at all, for the cost of one SELECT per pass.
+ *
+ * Staleness is bounded and harmless: if another replica opens a breach for a
+ * scope after this snapshot is taken, and this pass sees that same scope as
+ * healthy, the resolve is skipped and happens on the next cycle instead.
+ * Nothing is lost — a breach cannot be silently dropped, only resolved one
+ * cycle later. The opposite direction cannot misfire at all, because the
+ * UPDATE is still guarded by `.eq('state', 'open')` on the server.
+ */
+async function loadOpenBreachKeys(config: ServerConfig): Promise<Set<string> | null> {
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('slo_breach_events')
+    .select('slo_id, scope_type, scope_key')
+    .eq('state', 'open');
+  if (error) {
+    // Fail OPEN, not closed: an unreadable snapshot must not suppress
+    // resolves. Returning null tells the caller to fall back to the old
+    // unconditional UPDATE for this pass, which is always correct.
+    emitLog(config, 'warn', 'slo_open_breach_scan_failed', { error: error.message });
+    return null;
+  }
+  const keys = new Set<string>();
+  for (const row of (data || []) as Array<{ slo_id: string; scope_type: string; scope_key: string }>) {
+    keys.add(breachKey(row.slo_id, row.scope_type, row.scope_key));
+  }
+  return keys;
 }
 
 function isBreach(observed: number | null, type: SloTargetType, target: number): boolean {
@@ -305,7 +355,14 @@ async function resolveBreachIfOpen(
   config: ServerConfig,
   def: SloDefinition,
   sample: ObservedSample,
+  openBreachKeys: Set<string> | null,
 ): Promise<boolean> {
+  const key = breachKey(def.id, sample.scope_type, sample.scope_key);
+  // The common case by a wide margin: this scope is healthy and was already
+  // healthy, so there is nothing open to resolve and no reason to send a
+  // write at all.
+  if (openBreachKeys && !openBreachKeys.has(key)) return false;
+
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('slo_breach_events')
@@ -327,5 +384,8 @@ async function resolveBreachIfOpen(
     });
     return false;
   }
+  // Resolved: drop it from the snapshot so nothing else this pass treats the
+  // scope as still open.
+  if (data) openBreachKeys?.delete(key);
   return !!data;
 }

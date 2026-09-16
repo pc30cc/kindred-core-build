@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { getMonitoringCollector, __resetMonitoringCollectorForTests } from './collector/index.js';
 
-type ForceError = 'rulesRead' | 'openRead' | 'combinedRead' | 'insert' | 'update' | 'settingsRead' | undefined;
+type ForceError = 'rulesRead' | 'openRead' | 'insert' | 'update' | 'settingsRead' | undefined;
 
 interface FakeState {
   rules: any[];
@@ -22,12 +22,13 @@ interface FakeState {
   /** Fix 3 regression support: makes the next matching call return an error once, then clears itself. */
   forceError?: ForceError;
   nextEventId?: number;
+  /** Counts reads of alert_events, so the N+1 regression is assertable. */
+  alertEventReads?: number;
 }
 
 function makeFakeSb(state: FakeState) {
   const from = (name: string) => {
     const f: Record<string, any> = {};
-    let limitN: number | null = null;
     const resolve = (): { data: any; error: any } => {
       if (name === 'alert_rules') {
         if (state.forceError === 'rulesRead') {
@@ -36,25 +37,28 @@ function makeFakeSb(state: FakeState) {
         }
         return { data: state.rules, error: null };
       }
-      if (name === 'alert_events') {
-        if (f.rule_id !== undefined) {
-          // applyRuleResult's "current open row for this rule" lookup.
-          if (state.forceError === 'openRead') {
-            state.forceError = undefined;
-            return { data: null, error: { message: 'boom-openRead' } };
-          }
-          const rows = state.openEventsByRule[f.rule_id] || [];
-          return { data: limitN != null ? rows.slice(0, limitN) : rows, error: null };
+      if (name === 'alert_events' && f.state === 'open') {
+        // loadOpenAlertIndex's ONE batched read of every open incident. It
+        // replaced both the per-rule lookup inside applyRuleResult and the
+        // per-combined-rule subrule lookup, so this single branch now serves
+        // everything the evaluator reads from alert_events in a pass.
+        state.alertEventReads = (state.alertEventReads || 0) + 1;
+        if (state.forceError === 'openRead') {
+          state.forceError = undefined;
+          return { data: null, error: { message: 'boom-openRead' } };
         }
-        if (Array.isArray(f.rule_slug)) {
-          // evaluateCombinedRule's open-subrule lookup.
-          if (state.forceError === 'combinedRead') {
-            state.forceError = undefined;
-            return { data: null, error: { message: 'boom-combinedRead' } };
-          }
-          const matched = state.combinedOpenSlugs.filter((s) => f.rule_slug.includes(s)).map((rule_slug) => ({ rule_slug }));
-          return { data: matched, error: null };
+        const rows: any[] = [];
+        for (const [ruleId, evts] of Object.entries(state.openEventsByRule)) {
+          const owning = state.rules.find((r) => r.id === ruleId);
+          for (const e of evts) rows.push({ ...e, rule_id: ruleId, rule_slug: owning?.slug ?? null });
         }
+        // Open subrule incidents the tests declare by slug alone, with no
+        // corresponding rule row. A synthetic rule_id keeps them distinct in
+        // the index; duplicates collapse, which is what COUNT(DISTINCT) did.
+        for (const slug of state.combinedOpenSlugs) {
+          rows.push({ id: `synthetic-${slug}`, severity: 'critical', rule_id: `__slug__:${slug}`, rule_slug: slug });
+        }
+        return { data: rows, error: null };
       }
       return { data: [], error: null };
     };
@@ -69,10 +73,7 @@ function makeFakeSb(state: FakeState) {
         return chain;
       },
       order: () => chain,
-      limit: (n: number) => {
-        limitN = n;
-        return chain;
-      },
+      limit: () => chain,
       maybeSingle: async () => {
         if (name === 'widget_platform_settings') {
           if (state.forceError === 'settingsRead') {
@@ -83,24 +84,33 @@ function makeFakeSb(state: FakeState) {
         }
         return { data: null, error: null };
       },
-      insert: async (payload: any) => {
-        if (state.forceError === 'insert') {
-          state.forceError = undefined;
-          return { error: { message: 'boom-insert' } };
-        }
-        state.inserted.push(payload);
-        // Live-mutate so a rule evaluated later in the SAME tick (e.g. a
-        // combined rule reading its subrules' open state) observes this
-        // write — needed for the Fix 4 determinism regression test.
-        state.nextEventId = (state.nextEventId || 0) + 1;
-        const id = `evt-auto-${state.nextEventId}`;
-        if (!state.openEventsByRule[payload.rule_id]) state.openEventsByRule[payload.rule_id] = [];
-        state.openEventsByRule[payload.rule_id].unshift({ id, severity: payload.severity });
-        if (payload.state === 'open' && !state.combinedOpenSlugs.includes(payload.rule_slug)) {
-          state.combinedOpenSlugs.push(payload.rule_slug);
-        }
-        return { error: null };
-      },
+      // `.insert(row).select('id').single()` — the evaluator needs the new id
+      // back so it can mirror the freshly opened incident into the pass-wide
+      // index without paying for a re-read.
+      insert: (payload: any) => ({
+        select: () => ({
+          single: async () => {
+            if (state.forceError === 'insert') {
+              state.forceError = undefined;
+              return { data: null, error: { message: 'boom-insert' } };
+            }
+            state.inserted.push(payload);
+            // Live-mutate so a rule evaluated later in the SAME tick (e.g. a
+            // combined rule reading its subrules' open state) observes this
+            // write — needed for the Fix 4 determinism regression test. The
+            // evaluator keeps its own in-pass index in step; mirroring here
+            // too keeps the NEXT pass's batched read truthful.
+            state.nextEventId = (state.nextEventId || 0) + 1;
+            const id = `evt-auto-${state.nextEventId}`;
+            if (!state.openEventsByRule[payload.rule_id]) state.openEventsByRule[payload.rule_id] = [];
+            state.openEventsByRule[payload.rule_id].unshift({ id, severity: payload.severity });
+            if (payload.state === 'open' && !state.combinedOpenSlugs.includes(payload.rule_slug)) {
+              state.combinedOpenSlugs.push(payload.rule_slug);
+            }
+            return { data: { id }, error: null };
+          },
+        }),
+      }),
       update: (payload: any) => ({
         eq: async (_c: string, v: any) => {
           if (state.forceError === 'update') {
@@ -406,14 +416,96 @@ describe('alertEvaluator — Supabase error handling (Fix 3)', () => {
     expect(fakeState.updated).toHaveLength(0);
   });
 
-  it('a failed read of open subrule events for a combined rule throws rather than evaluating on an empty set', async () => {
+  it('a failed open-incident read throws rather than evaluating a combined rule on an empty set', async () => {
+    // Combined rules no longer issue their own subrule query — they read the
+    // pass-wide index built by the single batched read. The guarantee the old
+    // per-combined-rule read carried has to survive that move: if the read
+    // fails, the pass aborts. It must never degrade to "no open subrules",
+    // which would resolve live incidents and then re-open them next cycle.
     fakeState.combinedOpenSlugs = ['sub-a'];
-    fakeState.forceError = 'combinedRead';
+    fakeState.forceError = 'openRead';
     fakeState.rules = [rule({ id: 'r-combined', kind: 'combined', subrules: ['sub-a', 'sub-b'], warn_threshold: 1, critical_threshold: 2 })];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    await expect(evaluateAlertRulesInMemory({} as any)).rejects.toThrow(/boom-combinedRead/);
+    await expect(evaluateAlertRulesInMemory({} as any)).rejects.toThrow(/boom-openRead/);
     expect(fakeState.inserted).toHaveLength(0);
+    expect(fakeState.updated).toHaveLength(0);
+  });
+});
+
+describe('alertEvaluator — alert_events read count is independent of rule count', () => {
+  it('reads alert_events exactly once per pass, whatever the rule count', async () => {
+    // The Disk IO regression this guards: applyRuleResult used to issue one
+    // SELECT per rule and evaluateCombinedRule one more per combined rule. At
+    // the 27 enabled rules production runs, that was ~29 reads per pass on a
+    // 60s ticker — about one PostgREST request per second, around the clock,
+    // purely to ask "is this rule already open?".
+    const collector = getMonitoringCollector();
+    for (let i = 0; i < 12; i++) collector.recordRealtimeMetric({ metric: 'realtime.subscribe_failed' });
+
+    fakeState.rules = [];
+    for (let i = 0; i < 27; i++) {
+      fakeState.rules.push(
+        rule({
+          id: `r-${i}`,
+          slug: `rule-${i}`,
+          kind: 'count',
+          metric: 'realtime.subscribe_failed',
+          warn_threshold: 5,
+          critical_threshold: 10,
+        }),
+      );
+    }
+    fakeState.rules.push(
+      rule({ id: 'r-comb-1', slug: 'comb-1', kind: 'combined', subrules: ['rule-0', 'rule-1'], warn_threshold: 1, critical_threshold: 2 }),
+      rule({ id: 'r-comb-2', slug: 'comb-2', kind: 'combined', subrules: ['rule-2'], warn_threshold: 1, critical_threshold: 2 }),
+    );
+
+    const { evaluateAlertRulesInMemory } = await importEvaluator();
+    const result = await evaluateAlertRulesInMemory({} as any);
+
+    expect(result.evaluated).toBe(29);
+    expect(fakeState.alertEventReads).toBe(1);
+  });
+
+  it('a combined rule still sees an incident opened by a base rule in the SAME pass', async () => {
+    // The batched read happens before any rule runs, so the only thing that
+    // can carry an in-pass write to a later combined rule is the index being
+    // mutated as applyRuleResult writes. Without that mirroring this counts 0.
+    const collector = getMonitoringCollector();
+    for (let i = 0; i < 12; i++) collector.recordRealtimeMetric({ metric: 'realtime.subscribe_failed' });
+
+    fakeState.rules = [
+      rule({ id: 'r-base', slug: 'base-slug', kind: 'count', metric: 'realtime.subscribe_failed', warn_threshold: 5, critical_threshold: 10 }),
+      rule({ id: 'r-comb', slug: 'comb', kind: 'combined', subrules: ['base-slug'], warn_threshold: 1, critical_threshold: 2 }),
+    ];
+
+    const { evaluateAlertRulesInMemory } = await importEvaluator();
+    await evaluateAlertRulesInMemory({} as any);
+
+    const combinedInsert = fakeState.inserted.find((r) => r.rule_id === 'r-comb');
+    expect(combinedInsert).toBeTruthy();
+    expect(combinedInsert).toMatchObject({ metric_value: 1 });
+  });
+
+  it('a combined rule stops counting an incident resolved by a base rule in the SAME pass', async () => {
+    // Mirror image of the test above: the resolve branch has to DELETE from
+    // the index, or the combined rule keeps counting an incident Postgres has
+    // already closed.
+    fakeState.openEventsByRule['r-base'] = [{ id: 'evt-base', severity: 'critical' }];
+    fakeState.rules = [
+      rule({ id: 'r-base', slug: 'base-slug', kind: 'count', metric: 'realtime.subscribe_failed', warn_threshold: 5, critical_threshold: 10 }),
+      rule({ id: 'r-comb', slug: 'comb', kind: 'combined', subrules: ['base-slug'], warn_threshold: 1, critical_threshold: 2 }),
+    ];
+
+    const { evaluateAlertRulesInMemory } = await importEvaluator();
+    await evaluateAlertRulesInMemory({} as any);
+
+    // No metrics recorded -> the base rule clears and resolves, so the
+    // combined rule must evaluate against zero open subrules and not open.
+    const resolved = fakeState.updated.find((u) => u.id === 'evt-base');
+    expect(resolved?.patch).toMatchObject({ state: 'resolved' });
+    expect(fakeState.inserted.find((r) => r.rule_id === 'r-comb')).toBeUndefined();
   });
 });
 

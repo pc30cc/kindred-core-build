@@ -135,3 +135,45 @@ export function systemMessageText(
       return null;
   }
 }
+
+// ─── Attachment-only previews ────────────────────────────────────────
+
+/** Mirrors server/services/attachmentPreviewKind.ts. */
+export type AttachmentPreviewKind = 'image' | 'audio' | 'video' | 'file';
+
+/**
+ * Describe a message whose only content is an attachment.
+ *
+ * Its body is empty, so a list that previews the body alone claims "no
+ * messages yet" about a conversation somebody just sent a photo to.
+ *
+ * The sentence is built from a WHOLE template per case rather than by gluing
+ * a name prefix onto a verb fragment. The old "`${name}: ` + `sent a photo`"
+ * shape cannot be made grammatical: Persian conjugates for the subject, so
+ * "you" needs «ارسال کردید» where a third party needs «ارسال کرد», and the
+ * concatenated form produced «شما: یک تصویر ارسال کرد» — "you: sent a photo"
+ * with the wrong person agreement.
+ */
+export function attachmentPreviewText(
+  kind: AttachmentPreviewKind,
+  sender: { isMe: boolean; name?: string | null },
+  t: Translate,
+): string {
+  const suffix = kind === 'image' ? 'Image'
+    : kind === 'audio' ? 'Audio'
+    : kind === 'video' ? 'Video'
+    : 'File';
+  const noun = {
+    Image: 'a photo', Audio: 'a voice message', Video: 'a video', File: 'a file',
+  }[suffix];
+
+  if (sender.isMe) {
+    return line(t, `inbox.previewYouSent${suffix}`, `You sent ${noun}`);
+  }
+  // An unidentified visitor still gets a subject — "sent a photo" with no
+  // subject reads like a fragment in every language this ships in.
+  const name = String(sender.name || '').trim()
+    || line(t, 'inbox.previewSomeone', 'A user');
+  return line(t, `inbox.previewSentBy${suffix}`, `{name} sent ${noun}`)
+    .replace('{name}', name);
+}

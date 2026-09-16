@@ -84,8 +84,8 @@ import { Volume2, VolumeX } from 'lucide-react';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
 import {
-  systemMessageText, invitationStatusText,
-  type SystemMessageMeta,
+  systemMessageText, invitationStatusText, attachmentPreviewText,
+  type SystemMessageMeta, type AttachmentPreviewKind,
 } from '@/lib/systemMessageText';
 
 const API_BASE = RESOLVED_API_BASE || '';
@@ -1612,13 +1612,27 @@ export default function InboxPage() {
                               : '';
                             if (last?.body) return `${prefix}${last.body}`;
                             // Attachment-only turn: describe the media instead
-                            // of falling through to "no messages yet".
+                            // of falling through to "no messages yet". A whole
+                            // sentence, not `prefix` + a verb fragment — the
+                            // two cannot agree grammatically (see
+                            // attachmentPreviewText).
                             if (last?.attachment_kind) {
-                              const key = last.attachment_kind === 'image' ? 'inbox.previewImage'
-                                : last.attachment_kind === 'audio' ? 'inbox.previewAudio'
-                                : last.attachment_kind === 'video' ? 'inbox.previewVideo'
-                                : 'inbox.previewFile';
-                              return `${prefix}${t(key) || 'sent a file'}`;
+                              const isMe = last.sender_type === 'agent'
+                                && !!last.sender_id && !!user?.id && last.sender_id === user.id;
+                              const senderName = last.sender_type === 'agent'
+                                ? last.sender_name
+                                : (last.sender_type === 'ai' || last.sender_type === 'bot')
+                                  ? (t('inbox.previewAi') || 'AI')
+                                  // The visitor. Their contact row may have no
+                                  // name yet, in which case the localizer
+                                  // supplies a generic subject rather than
+                                  // leaving the sentence without one.
+                                  : (conv.contacts?.name || null);
+                              return attachmentPreviewText(
+                                last.attachment_kind as AttachmentPreviewKind,
+                                { isMe, name: senderName },
+                                t,
+                              );
                             }
                             return isPlaceholderSubject(conv.subject)
                               ? (t('inbox.noMessages') || 'No messages yet')

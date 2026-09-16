@@ -911,6 +911,14 @@
         wyNewConversation: 'New conversation',
         wyNoConversations: 'No conversations yet',
         wyNoPreview: 'No messages yet',
+        wySentImage: 'You sent a photo',
+        wySentAudio: 'You sent a voice message',
+        wySentVideo: 'You sent a video',
+        wySentFile: 'You sent a file',
+        wyReceivedImage: 'You received a photo',
+        wyReceivedAudio: 'You received a voice message',
+        wyReceivedVideo: 'You received a video',
+        wyReceivedFile: 'You received a file',
         wyLoading: 'Loading…',
         wyStatusOpen: 'Open',
         wyStatusResolved: 'Resolved',
@@ -1124,6 +1132,14 @@
         wyNewConversation: 'گفتگوی جدید',
         wyNoConversations: 'هنوز گفتگویی ندارید',
         wyNoPreview: 'هنوز پیامی نیست',
+        wySentImage: 'شما یک تصویر ارسال کردید',
+        wySentAudio: 'شما یک پیام صوتی ارسال کردید',
+        wySentVideo: 'شما یک ویدیو ارسال کردید',
+        wySentFile: 'شما یک فایل ارسال کردید',
+        wyReceivedImage: 'یک تصویر دریافت کردید',
+        wyReceivedAudio: 'یک پیام صوتی دریافت کردید',
+        wyReceivedVideo: 'یک ویدیو دریافت کردید',
+        wyReceivedFile: 'یک فایل دریافت کردید',
         wyLoading: 'در حال بارگذاری…',
         wyStatusOpen: 'باز',
         wyStatusResolved: 'حل شده',
@@ -1337,6 +1353,14 @@
         wyNewConversation: 'Yeni sohbet',
         wyNoConversations: 'Henüz sohbet yok',
         wyNoPreview: 'Henüz mesaj yok',
+        wySentImage: 'Bir fotoğraf gönderdiniz',
+        wySentAudio: 'Bir sesli mesaj gönderdiniz',
+        wySentVideo: 'Bir video gönderdiniz',
+        wySentFile: 'Bir dosya gönderdiniz',
+        wyReceivedImage: 'Bir fotoğraf aldınız',
+        wyReceivedAudio: 'Bir sesli mesaj aldınız',
+        wyReceivedVideo: 'Bir video aldınız',
+        wyReceivedFile: 'Bir dosya aldınız',
         wyLoading: 'Yükleniyor…',
         wyStatusOpen: 'Açık',
         wyStatusResolved: 'Çözüldü',
@@ -8010,11 +8034,32 @@
     }
 
 
+    /**
+     * Describe a message that carries only an attachment.
+     *
+     * Its body is empty, so previewing the body alone made the list claim
+     * "no messages yet" about a conversation the visitor had just sent a
+     * photo to. The server sends the KIND and who sent it; the sentence is
+     * written here, in the visitor's language.
+     */
+    function attachmentPreviewText(kind, outbound) {
+      var suffix = kind === 'image' ? 'Image'
+        : kind === 'audio' ? 'Audio'
+        : kind === 'video' ? 'Video'
+        : 'File';
+      var key = (outbound ? 'wySent' : 'wyReceived') + suffix;
+      return t(key) || '';
+    }
+
     function mapConversationVm(c) {
+      var preview = c.preview || '';
+      if (!preview && c.attachmentKind) {
+        preview = attachmentPreviewText(c.attachmentKind, !!c.outbound);
+      }
       return {
         id: c.id,
         status: c.status,
-        preview: c.preview || '',
+        preview: preview,
         unreadCount: Number(c.unreadCount) || 0,
         timeLabel: relativeTimeLabel(c.lastMessageAt || c.updatedAt),
       };

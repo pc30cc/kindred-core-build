@@ -41,6 +41,7 @@ import {
 import { perfHttpMiddleware } from '../services/observability/perf.js';
 import { getWidgetAssetName, getOptionalWidgetAssetName, getLoaderVersion, getManifestDiagnostics, invalidateManifestCache } from '../services/widget/manifest.js';
 import { resolveWidgetTemplateId, widgetTemplateAssetKeys } from '../services/widget/presentationAssets.js';
+import { attachmentPreviewKind, type AttachmentPreviewKind } from '../services/attachmentPreviewKind.js';
 import { isPoweredByAllowedForPlan, buildPoweredByConfig } from '../services/widget/poweredBy.js';
 import {
   resolveWidgetEntitlements,
@@ -1555,24 +1556,61 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
     // after this visitor's last_read_at for that thread. The visitor's own
     // messages never count as unread.
     const INBOUND = new Set(['agent', 'operator', 'ai', 'bot', 'system']);
-    const lastByConv: Record<string, { body: string; created_at: string }> = {};
+    const lastByConv: Record<string, {
+      body: string;
+      created_at: string;
+      sender_type: string;
+      attachment_id: string | null;
+      attachment_kind: AttachmentPreviewKind | null;
+    }> = {};
     const unreadByConv: Record<string, number> = {};
     if (convIds.length > 0) {
       const { data: msgs } = await supabase
         .from('conversation_messages')
-        .select('conversation_id, body, created_at, sender_type')
+        .select('conversation_id, body, created_at, sender_type, metadata')
         .in('conversation_id', convIds)
         .order('created_at', { ascending: false })
         .limit(500);
       for (const m of (msgs || [])) {
         if (!lastByConv[m.conversation_id]) {
-          lastByConv[m.conversation_id] = { body: m.body ?? '', created_at: m.created_at };
+          const meta = (m.metadata || {}) as Record<string, unknown>;
+          lastByConv[m.conversation_id] = {
+            body: m.body ?? '',
+            created_at: m.created_at,
+            sender_type: String(m.sender_type || ''),
+            // A message whose only content is an attachment has an empty
+            // body; without this the list said "no messages yet" about a
+            // conversation the visitor had just sent a photo to.
+            attachment_id: meta.attachment_id ? String(meta.attachment_id) : null,
+            attachment_kind: null,
+          };
         }
         if (!INBOUND.has(String(m.sender_type))) continue;
         const readAt = readAtByConv[m.conversation_id] ?? 0;
         if (new Date(m.created_at).getTime() > readAt) {
           unreadByConv[m.conversation_id] = (unreadByConv[m.conversation_id] || 0) + 1;
         }
+      }
+    }
+
+    // Only a message with NO text needs its media described — a caption
+    // already previews fine on its own.
+    const previewAttachmentIds = Array.from(new Set(
+      Object.values(lastByConv)
+        .filter((l) => l.attachment_id && !String(l.body || '').trim())
+        .map((l) => l.attachment_id as string),
+    ));
+    if (previewAttachmentIds.length) {
+      const { data: atts } = await supabase
+        .from('conversation_attachments')
+        .select('id, mime_type')
+        .in('id', previewAttachmentIds);
+      const mimeById = new Map<string, string>(
+        ((atts || [])).map((a) => [String(a.id), String(a.mime_type || '')]),
+      );
+      for (const last of Object.values(lastByConv)) {
+        if (!last.attachment_id || String(last.body || '').trim()) continue;
+        last.attachment_kind = attachmentPreviewKind(mimeById.get(last.attachment_id));
       }
     }
 
@@ -1588,6 +1626,12 @@ widgetRouter.get('/conversations', widgetRateLimit('poll'), async (req: Request,
         status: c.status || 'unknown',
         updatedAt: c.updated_at,
         preview: last ? truncate(last.body) : '',
+        // Structured, never display text: the widget writes the sentence in
+        // the VISITOR's language, which the server has no business choosing.
+        attachmentKind: last?.attachment_kind ?? null,
+        // Whether the visitor themselves sent it — "you sent a photo" reads
+        // differently from "you received a photo".
+        outbound: last ? last.sender_type === 'contact' : false,
         unreadCount: unreadByConv[c.id] || 0,
         lastMessageAt: last ? last.created_at : c.updated_at,
       };

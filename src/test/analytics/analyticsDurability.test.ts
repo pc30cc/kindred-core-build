@@ -29,8 +29,12 @@ vi.mock('../../../server/services/observability/metrics.js', () => ({
 }));
 
 const { readAnalyticsPool } = await import('../../../server/services/analytics/pool.js');
-const { flushAnalytics, enqueueAnalyticsRow, bufferedRowCount, __resetAnalyticsBuffer } =
-  await import('../../../server/services/analytics/writer.js');
+const {
+  flushAnalytics, enqueueAnalyticsRow, bufferedRowCount, __resetAnalyticsBuffer,
+  replaySpooledRows, analyticsDurabilityReadiness,
+} = await import('../../../server/services/analytics/writer.js');
+const { __resetSpoolForTests, spoolStats } =
+  await import('../../../server/services/analytics/spool.js');
 const { buildEventRow } = await import('../../../server/services/analytics/schema.js');
 const { findSealCandidates, sealWorkspaceDay, runSealCycle, unsealDays } =
   await import('../../../server/services/analytics/sealing.js');
@@ -102,10 +106,18 @@ const EVENTS = 2;
 const SESSIONS = 2;
 const EXPECTED = expectedRows(PAGE_VIEWS, EVENTS, SESSIONS);
 
+let spoolPath: string;
+
 beforeEach(() => {
   resetFakeAnalyticsPool();
   __resetAnalyticsBuffer();
   primaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'analytics-durability-'));
+  // OUTSIDE primaryDir: that directory doubles as the `local` storage
+  // provider's root, and localKeys() would otherwise count spool segments
+  // as stored analytics objects.
+  spoolPath = fs.mkdtempSync(path.join(os.tmpdir(), 'analytics-durability-spool-'));
+  __resetSpoolForTests(spoolPath);
+  process.env.ANALYTICS_SPOOL_ENABLED = '1';
   usePrimary(primaryDir);
   seedAnalyticsPool({
     enabled: true, primary: 'local', replicas: [], replicationEnabled: false,
@@ -119,7 +131,11 @@ beforeEach(() => {
 
 afterEach(() => {
   __resetAnalyticsBuffer();
+  __resetSpoolForTests(spoolPath);
+  delete process.env.ANALYTICS_SPOOL_ENABLED;
+  delete process.env.ANALYTICS_SPOOL_DIR;
   fs.rmSync(primaryDir, { recursive: true, force: true });
+  fs.rmSync(spoolPath, { recursive: true, force: true });
 });
 
 describe('the failure modes', () => {
@@ -323,5 +339,144 @@ describe('backfill still behaves as a historical import', () => {
 
   it('refuses a malformed day rather than guessing a range', async () => {
     expect((await backfillWorkspaceDay(serverConfig, WS, 'yesterday')).ok).toBe(false);
+  });
+});
+
+
+/**
+ * THE S3-ONLY PATH. Everything above proves a lost buffer costs nothing
+ * *because PostgreSQL still has the rows*. These prove the case where it
+ * does not — the spool is the only copy, and it has to be enough.
+ *
+ * "Crash" here means: buffer dropped, spool handles closed, process
+ * identity re-rolled. The directory is left exactly as a SIGKILL would
+ * leave it.
+ */
+describe('durable ingestion for s3_only', () => {
+  function enqueue(pool: never, n: number, offset = 0) {
+    for (let i = 0; i < n; i++) {
+      enqueueAnalyticsRow(serverConfig, pool, buildEventRow({
+        workspaceId: WS, eventType: 'page_view',
+        occurredAt: `${DAY}T12:${String(offset + i).padStart(2, '0')}:00.000Z`,
+        url: `https://shop.test/p${offset + i}`,
+        session: { sessionId: `s${i % SESSIONS}`, visitorId: `visitor-${i % SESSIONS}`, sessionStartedAt: `${DAY}T10:00:00.000Z` },
+      }));
+    }
+  }
+
+  /** A hard kill: memory gone, disk intact. */
+  function crash() {
+    __resetAnalyticsBuffer();
+    __resetSpoolForTests(spoolPath);
+  }
+
+  it('reports readiness from the real directory, not from a flag', () => {
+    const readiness = analyticsDurabilityReadiness();
+    expect(readiness.ready).toBe(true);
+    expect(readiness.dir).toBe(spoolPath);
+  });
+
+  it('writes every accepted row to disk BEFORE it is flushed', async () => {
+    const pool = await readAnalyticsPool(serverConfig);
+    enqueue(pool, PAGE_VIEWS);
+    expect(spoolStats().appended).toBe(PAGE_VIEWS);
+    expect(spoolStats().bytes).toBeGreaterThan(0);
+  });
+
+  it('CRASH before any flush: every row comes back on replay', async () => {
+    const pool = await readAnalyticsPool(serverConfig);
+    enqueue(pool, PAGE_VIEWS);
+    crash();
+    expect(bufferedRowCount()).toBe(0);
+
+    const replayed = replaySpooledRows(serverConfig);
+    expect(replayed.rows).toBe(PAGE_VIEWS);
+    expect(bufferedRowCount()).toBe(PAGE_VIEWS);
+  });
+
+  it('CRASH then replay then flush: the rows reach the lake', async () => {
+    const pool = await readAnalyticsPool(serverConfig);
+    enqueue(pool, PAGE_VIEWS);
+    crash();
+    replaySpooledRows(serverConfig);
+
+    const result = await flushAnalytics(serverConfig, { force: true });
+    expect(result.rows).toBe(PAGE_VIEWS);
+    expect(localKeys().filter((k) => k.endsWith('.parquet'))).toHaveLength(1);
+  });
+
+  it('S3 OUTAGE then crash then recovery: nothing is lost across both', async () => {
+    const pool = await readAnalyticsPool(serverConfig);
+    enqueue(pool, PAGE_VIEWS);
+
+    // The primary has no credentials — every flush fails.
+    usePrimary(null);
+    const failed = await flushAnalytics(serverConfig, { force: true });
+    expect(failed.rows).toBe(0);
+
+    crash();
+
+    // Storage comes back, and the replayed rows flush.
+    usePrimary(primaryDir);
+    expect(replaySpooledRows(serverConfig).rows).toBe(PAGE_VIEWS);
+    const ok = await flushAnalytics(serverConfig, { force: true });
+    expect(ok.rows).toBe(PAGE_VIEWS);
+  });
+
+  it('a successful flush ACKNOWLEDGES the spool, so a later crash replays nothing', async () => {
+    const pool = await readAnalyticsPool(serverConfig);
+    enqueue(pool, PAGE_VIEWS);
+    await flushAnalytics(serverConfig, { force: true });
+
+    crash();
+    expect(replaySpooledRows(serverConfig).rows).toBe(0);
+  });
+
+  it('a FAILED flush does not acknowledge, so the rows survive the crash', async () => {
+    const pool = await readAnalyticsPool(serverConfig);
+    enqueue(pool, PAGE_VIEWS);
+    usePrimary(null);
+    await flushAnalytics(serverConfig, { force: true });
+
+    crash();
+    expect(replaySpooledRows(serverConfig).rows).toBe(PAGE_VIEWS);
+  });
+
+  it('replay is duplicate-safe: flushing twice writes each row once', async () => {
+    const pool = await readAnalyticsPool(serverConfig);
+    enqueue(pool, PAGE_VIEWS);
+    await flushAnalytics(serverConfig, { force: true });
+
+    // Crash AFTER a successful flush, replay, flush again.
+    crash();
+    replaySpooledRows(serverConfig);
+    const second = await flushAnalytics(serverConfig, { force: true });
+
+    // Nothing to write: the commit record already covered those rows.
+    expect(second.rows).toBe(0);
+    expect(localKeys().filter((k) => k.endsWith('.parquet'))).toHaveLength(1);
+  });
+
+  it('re-appends replayed rows, so a SECOND crash before the flush still recovers', async () => {
+    const pool = await readAnalyticsPool(serverConfig);
+    enqueue(pool, PAGE_VIEWS);
+
+    crash();
+    expect(replaySpooledRows(serverConfig).rows).toBe(PAGE_VIEWS);
+
+    // Died again before flushing. The rows must still be on disk.
+    crash();
+    expect(replaySpooledRows(serverConfig).rows).toBe(PAGE_VIEWS);
+  });
+
+  it('keeps rows that arrived DURING a flush, and acknowledges only the drained ones', async () => {
+    const pool = await readAnalyticsPool(serverConfig);
+    enqueue(pool, PAGE_VIEWS);
+    await flushAnalytics(serverConfig, { force: true });
+
+    // Arrived after the acknowledgement.
+    enqueue(pool, 2, 50);
+    crash();
+    expect(replaySpooledRows(serverConfig).rows).toBe(2);
   });
 });

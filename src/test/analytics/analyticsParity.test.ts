@@ -147,21 +147,80 @@ describe('shadow read', () => {
     }
   });
 
-  maybe('reports the two DECLARED divergences as expected, never as regressions', async () => {
+  maybe('agrees on uniqueVisitors — the metric Phase 2 declared as divergent', async () => {
     const run = await parity();
     const overview = run.reports.find((r) => r.report === 'overview')!;
-    const unique = overview.differences.find((d) => d.field === 'uniqueVisitors');
 
-    // PostgreSQL counts 3 sessions; the lake counts 2 real visitors.
-    expect(unique).toBeDefined();
-    expect(unique!.expected).toBe(true);
-    expect(unique!.postgres).toBe('3');
-    expect(unique!.s3).toBe('2');
-    // A declared difference must not make the report "not ok".
+    // No difference at all any more. Phase 2 asserted pg=3 vs s3=2 here and
+    // called it expected; the 3 was the session count, which is a bug.
+    expect(overview.differences.find((d) => d.field === 'uniqueVisitors')).toBeUndefined();
     expect(overview.ok).toBe(true);
+
+    // And the agreed value is the RIGHT one: visitor-1 has two sessions
+    // (s0, s2), visitor-2 has one, across three sessions.
+    const pg = await officialStore(serverConfig).getOverview(WS, RANGE);
+    const s3 = await shadowStore(serverConfig).getOverview(WS, RANGE);
+    expect(pg.sessions).toBe(3);
+    expect(pg.uniqueVisitors).toBe(2);
+    expect(s3.uniqueVisitors).toBe(2);
   });
 
-  maybe('agrees exactly on the counts that are NOT declared to diverge', async () => {
+  maybe('agrees on avgVisitDurationSeconds — the other Phase 2 divergence', async () => {
+    const run = await parity();
+    const overview = run.reports.find((r) => r.report === 'overview')!;
+    expect(overview.differences.find((d) => d.field === 'avgVisitDurationSeconds')).toBeUndefined();
+
+    // (20min + 10min + 2min) / 3 sessions = 640s. Both paths measure to the
+    // session's last_seen_at; the lake reads it from session_last_seen_at.
+    const pg = await officialStore(serverConfig).getOverview(WS, RANGE);
+    const s3 = await shadowStore(serverConfig).getOverview(WS, RANGE);
+    expect(pg.avgVisitDurationSeconds).toBe(640);
+    expect(s3.avgVisitDurationSeconds).toBe(640);
+  });
+
+  maybe('counts a visitor with three sessions as ONE unique visitor', async () => {
+    // The exact shape Phase 2.5 specifies: A -> 3 sessions, B -> 1.
+    const at = (h: number) => `${DAY}T${String(h).padStart(2, '0')}:00:00.000Z`;
+    const session = (id: string, visitor: string, hour: number) => ({
+      id, workspace_id: WS, visitor_id: visitor,
+      started_at: at(hour), last_seen_at: `${DAY}T${String(hour).padStart(2, '0')}:05:00.000Z`,
+      current_page: 'https://shop.test/', referrer: null,
+      browser: 'Chrome', device: 'Desktop', os: 'macOS', language: 'en-US',
+      country: 'Iran', city: 'Tehran', geo_country_code: 'IR', geo_country_name: 'Iran', geo_city: 'Tehran',
+      utm_source: null, utm_medium: null, utm_campaign: null, utm_term: null, utm_content: null,
+    });
+    seedTable('visitor_sessions', [
+      session('a1', 'visitor-A', 9),
+      session('a2', 'visitor-A', 10),
+      session('a3', 'visitor-A', 11),
+      session('b1', 'visitor-B', 12),
+    ]);
+    seedTable('visitor_page_views', [
+      { workspace_id: WS, visitor_session_id: 'a1', url: 'https://shop.test/', title: 'Home', viewed_at: at(9) },
+      { workspace_id: WS, visitor_session_id: 'a2', url: 'https://shop.test/', title: 'Home', viewed_at: at(10) },
+      { workspace_id: WS, visitor_session_id: 'a3', url: 'https://shop.test/', title: 'Home', viewed_at: at(11) },
+      { workspace_id: WS, visitor_session_id: 'b1', url: 'https://shop.test/', title: 'Home', viewed_at: at(12) },
+    ]);
+    seedTable('web_analytics_events', []);
+    seedTable('analytics_day_seals', []);
+    __clearAnalyticsObjectCache();
+    await sealWorkspaceDay(serverConfig, WS, DAY);
+
+    const pg = await officialStore(serverConfig).getOverview(WS, RANGE);
+    const s3 = await shadowStore(serverConfig).getOverview(WS, RANGE);
+
+    expect(pg.sessions).toBe(4);
+    expect(pg.uniqueVisitors).toBe(2);
+    expect(s3.sessions).toBe(4);
+    expect(s3.uniqueVisitors).toBe(2);
+
+    // And parity sees no difference on it.
+    const run = await parity();
+    const overview = run.reports.find((r) => r.report === 'overview')!;
+    expect(overview.differences.filter((d) => !d.expected)).toEqual([]);
+  });
+
+  maybe('agrees exactly on every other overview count', async () => {
     const run = await parity();
     const overview = run.reports.find((r) => r.report === 'overview')!;
     const fields = overview.differences.map((d) => d.field);

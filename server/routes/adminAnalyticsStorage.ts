@@ -30,6 +30,7 @@ import { syncAnalyticsReplica, testAnalyticsProvider, verifyAnalyticsObject } fr
 import { backfillWorkspaceDay, pendingBackfillDays } from '../services/analytics/backfill.js';
 import { bufferedRowCount, flushAnalytics } from '../services/analytics/writer.js';
 import { duckDbAvailability, queryHealth } from '../services/analytics/duckdb.js';
+import { analyticsDurabilityReadiness } from '../services/analytics/writer.js';
 import { runSealCycle, unsealDays } from '../services/analytics/sealing.js';
 import {
   officialStore, readParityState, runParity, shadowStore,
@@ -244,10 +245,21 @@ adminAnalyticsStorageRouter.put('/settings', async (req, res) => {
     const serverConfig = ctx(req).serverConfig;
 
     if (body.writeMode === 's3_only') {
+      // Two independent reasons, reported separately so the operator learns
+      // something either way. The phase lock is the one in force today; the
+      // durability check is what Phase 3 will still have to satisfy once the
+      // lock is lifted, and it is evaluated here so it is exercised now
+      // rather than discovered at cutover.
+      const durability = analyticsDurabilityReadiness();
       return res.status(409).json({
         error: 'S3-only writes are a Phase 3 cutover and are not enabled in this build. '
           + 'Analytics stays dual-write until the S3 read path has been validated.',
         reason: 'phase_locked',
+        durability: {
+          ready: durability.ready,
+          dir: durability.dir,
+          reason: durability.reason ?? null,
+        },
       });
     }
     if (body.readMode === 's3') {

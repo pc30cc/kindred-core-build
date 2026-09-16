@@ -187,6 +187,9 @@ export function analyticsSessionFrom(
     visitorId: str(visitorId),
     sessionId: str(sessionId),
     sessionStartedAt: str(r.started_at),
+    // Denormalized so session duration matches PostgreSQL exactly — see the
+    // field's note in ./schema.ts.
+    sessionLastSeenAt: str(r.last_seen_at),
     referrer: pick(overrides?.referrer, r.referrer),
     utmSource: str(r.utm_source),
     utmMedium: str(r.utm_medium),

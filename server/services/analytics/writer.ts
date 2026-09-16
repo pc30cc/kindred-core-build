@@ -22,12 +22,21 @@
  * own; a lease would mean one process's rows sit unwritten until it happens
  * to win a lease it does not need.
  *
- * Durability: rows live in memory between flushes, so an ungraceful kill
- * loses at most one flush interval. Phase 1 dual-writes — PostgreSQL still
- * holds every row and is still the read source — so that window costs
- * nothing, and the flush also runs on shutdown. Cutting reads over to S3
- * (Phase 3) must not happen until this is reconsidered; it is listed as an
- * explicit Phase 2 prerequisite.
+ * ── Durability ───────────────────────────────────────────────────
+ *
+ * Rows live in memory between flushes. Two mechanisms make that safe, and
+ * which one carries the weight depends on `writeMode`:
+ *
+ *   dual_write — PostgreSQL holds every row, so the day's seal
+ *                (./sealing.ts) rebuilds whatever a crash lost. The spool
+ *                below is an optimisation here, not a requirement.
+ *   s3_only    — PostgreSQL never receives the row, so there is nothing to
+ *                rebuild from. Every accepted row is appended to a
+ *                crash-safe local log (./spool.ts) BEFORE the buffer sees
+ *                it, and replayed on the next boot if it never reached S3.
+ *
+ * `s3_only` is gated on the spool being writable for exactly that reason —
+ * see `analyticsDurabilityReadiness` below.
  *
  * ── Write semantics ──────────────────────────────────────────────
  *
@@ -56,6 +65,13 @@ import {
   type AnalyticsStoragePool,
 } from './pool.js';
 import { writeParquet } from './parquet.js';
+import {
+  appendRows as appendToSpool,
+  commitSpool,
+  replaySpool,
+  spoolAvailability,
+  spoolStats,
+} from './spool.js';
 import {
   ANALYTICS_COLUMNS,
   analyticsObjectKey,
@@ -130,6 +146,78 @@ function shedOldestRows(config: ServerConfig): void {
 /** Guards against a timer tick overlapping a threshold-triggered flush. */
 let flushing = false;
 
+/**
+ * Spool on even under `dual_write`?
+ *
+ * Off by default: `dual_write` already has PostgreSQL as its backstop, so
+ * spooling there buys resilience the seal already provides at the cost of a
+ * disk write per event. It exists so an operator can exercise the spool —
+ * and prove it works on THEIR volume — before flipping `s3_only`, which is
+ * the whole point of the readiness gate below.
+ */
+function spoolEnabled(): boolean {
+  return process.env.ANALYTICS_SPOOL_ENABLED === '1';
+}
+
+export interface DurabilityReadiness {
+  /** Safe to run `writeMode: 's3_only'` on this deployment? */
+  ready: boolean;
+  spoolEnabled: boolean;
+  available: boolean;
+  dir: string;
+  reason?: string;
+  stats: ReturnType<typeof spoolStats>;
+}
+
+/**
+ * Is durable ingestion actually working HERE?
+ *
+ * Answers by probing the real directory rather than by reading a setting,
+ * because the thing that goes wrong in production is a volume that is not
+ * mounted, not a flag that is not set. The cutover readiness card and the
+ * `s3_only` gate both read this.
+ */
+export function analyticsDurabilityReadiness(): DurabilityReadiness {
+  const availability = spoolAvailability();
+  return {
+    ready: availability.available,
+    spoolEnabled: spoolEnabled(),
+    available: availability.available,
+    dir: availability.dir,
+    reason: availability.reason,
+    stats: spoolStats(),
+  };
+}
+
+/**
+ * Replay whatever a previous process left unacknowledged, back into the
+ * buffer, so the normal flush path drains it.
+ *
+ * Runs once at startup, before the flush ticker starts. Rows are put back
+ * through the same buffer the live path uses, so they are subject to the
+ * same batching, the same ceiling and the same day partitioning — replay is
+ * not a second write path with its own bugs.
+ */
+export function replaySpooledRows(config: ServerConfig): { rows: number; segments: number } {
+  const replayed = replaySpool(config);
+  for (const row of replayed.rows) {
+    if (!row || typeof row.workspace_id !== 'string' || !row.workspace_id) continue;
+    const day = dayKeyOf(row);
+    const key = `${row.workspace_id}|${day}`;
+    let batch = buffers.get(key);
+    if (!batch) {
+      batch = { workspaceId: row.workspace_id, day, rows: [], bytes: 0, firstAt: Date.now() };
+      buffers.set(key, batch);
+    }
+    batch.rows.push(row);
+    batch.bytes += estimateRowBytes(row);
+  }
+  // Re-append to THIS process's segment: the replayed files were deleted, so
+  // without this a second crash before the next flush would lose them again.
+  if (replayed.rows.length > 0) appendToSpool(config, replayed.rows);
+  return { rows: replayed.rows.length, segments: replayed.segments };
+}
+
 export interface AnalyticsObjectMetadata {
   objectKey: string;
   rowCount: number;
@@ -178,6 +266,14 @@ export function enqueueAnalyticsRow(
   pool: AnalyticsStoragePool,
   row: AnalyticsEventRow,
 ): void {
+  // Disk BEFORE memory. The caller has already told the widget the event
+  // was accepted, so under `s3_only` the row has to outlive this process
+  // from here on. Under `dual_write` a failure is tolerable (PostgreSQL has
+  // the row and the seal rebuilds the day), so this never throws either way.
+  if (pool.writeMode === 's3_only' || spoolEnabled()) {
+    appendToSpool(config, [row]);
+  }
+
   const day = dayKeyOf(row);
   const key = `${row.workspace_id}|${day}`;
   let batch = buffers.get(key);
@@ -303,6 +399,13 @@ export async function flushAnalytics(
         bytes: result.bytes,
         failures: result.failures,
       });
+    }
+
+    // Acknowledge the spool only when NOTHING is left buffered: that is the
+    // only moment at which "every row this process accepted is in S3" holds.
+    // A partial drain leaves the log intact and replays the remainder.
+    if ((pool.writeMode === 's3_only' || spoolEnabled()) && result.failures === 0 && buffers.size === 0) {
+      commitSpool(config);
     }
 
     emitMetric(config, { metric: 'analytics_s3_buffer_rows', tags: { count: bufferedRowCount() } });

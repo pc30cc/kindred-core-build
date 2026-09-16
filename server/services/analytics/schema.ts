@@ -85,6 +85,23 @@ export interface AnalyticsEventRow {
   ingested_at: number;
   /** Denormalized session start, so session-level measures need no join. */
   session_started_at: number | null;
+  /**
+   * Denormalized `visitor_sessions.last_seen_at` as of THIS event.
+   *
+   * Session duration is `last_seen_at - started_at`, and PostgreSQL reads
+   * both straight off the session row. Deriving the end from MAX(occurred_at)
+   * instead gave a different — smaller — number whenever a session's last
+   * activity produced no analytics event, so the two paths disagreed. The
+   * value is carried on every row so no join is needed.
+   *
+   * A rebuild (./backfill.ts) reads the session row ONCE and stamps the same
+   * final value onto every row it emits for that session, so on a sealed day
+   * MAX of this column is exactly the session row's `last_seen_at` however
+   * few of the session's rows a query happens to touch. On the live speed
+   * layer it is the value as of the most recent event, which the day's seal
+   * then corrects.
+   */
+  session_last_seen_at: number | null;
   url: string | null;
   /** Query/hash-stripped path — what every existing report groups by. */
   path: string | null;
@@ -127,6 +144,7 @@ export const ANALYTICS_COLUMNS: ParquetColumn[] = [
   { name: 'occurred_at', type: 'timestamp_ms' },
   { name: 'ingested_at', type: 'timestamp_ms' },
   { name: 'session_started_at', type: 'timestamp_ms' },
+  { name: 'session_last_seen_at', type: 'timestamp_ms' },
   { name: 'url', type: 'utf8' },
   { name: 'path', type: 'utf8' },
   { name: 'title', type: 'utf8' },
@@ -211,6 +229,7 @@ export interface SessionDimensions {
   visitorId?: string | null;
   sessionId?: string | null;
   sessionStartedAt?: string | Date | null;
+  sessionLastSeenAt?: string | Date | null;
   referrer?: string | null;
   utmSource?: string | null;
   utmMedium?: string | null;
@@ -270,6 +289,7 @@ export function buildEventRow(input: {
     occurred_at: toMillis(input.occurredAt ?? null) ?? now,
     ingested_at: now,
     session_started_at: toMillis(input.session.sessionStartedAt ?? null),
+    session_last_seen_at: toMillis(input.session.sessionLastSeenAt ?? null),
     url,
     path: urlPath(url),
     title: truncate(input.title, MAX_TITLE),

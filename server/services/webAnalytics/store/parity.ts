@@ -6,22 +6,27 @@
  * answers are compared. The shadow run never influences the response the
  * caller receives, never delays it, and cannot fail it.
  *
- * ── Known divergences are declared, not discovered ───────────────
+ * ── No divergence is declared any more ──────────────────────────
  *
- * Two metrics are EXPECTED to differ, for reasons that are correct rather
- * than accidental (see ../store/s3.ts's header):
+ * Phase 2 declared two metrics as EXPECTED to differ. Phase 2.5 established
+ * that both were defects, and fixed them rather than keeping the exemption:
  *
- *   uniqueVisitors — PostgreSQL counts session rows; the lake counts
- *                    distinct visitors. The lake's number is the right one,
- *                    and the PostgreSQL number cannot be fixed in place
- *                    because `visitor_page_views` has no visitor column.
- *   avgVisitDurationSeconds — PostgreSQL measures to a heartbeat-updated
- *                    column; the lake measures to the last recorded event.
+ *   uniqueVisitors — Phase 2 recorded this as "PostgreSQL counts session
+ *                    rows, and cannot be fixed in place because there is no
+ *                    visitor column". That was WRONG: `visitor_sessions` has
+ *                    a `visitor_id`, it simply was not in the SELECT, so the
+ *                    code fell back to the session's own primary key. Both
+ *                    paths now count DISTINCT visitor_id.
+ *   avgVisitDurationSeconds — the lake ended a session at MAX(occurred_at),
+ *                    which misses activity that updated `last_seen_at`
+ *                    without producing an analytics event. Schema v2 carries
+ *                    `session_last_seen_at` on every row, so both paths now
+ *                    measure to the same instant.
  *
- * They are reported as `expected` differences. Anything else differing is a
- * REGRESSION and is reported as such — the point of this machinery is that
- * the difference between "we changed this on purpose" and "we broke this"
- * is written down in advance.
+ * EXPECTED_DIVERGENCE is therefore empty, and every difference this reports
+ * is a REGRESSION. That is the point: the machinery is only worth having if
+ * "we changed this on purpose" has to be written down BEFORE a comparison
+ * goes red, never after.
  *
  * ── Tolerance ────────────────────────────────────────────────────
  *
@@ -74,11 +79,25 @@ export interface ParityRun {
   unavailable?: string;
 }
 
-/** Fields whose divergence is intentional — see this file's header. */
-const EXPECTED_DIVERGENCE = new Set([
-  'overview.uniqueVisitors',
-  'overview.avgVisitDurationSeconds',
-]);
+/**
+ * Fields whose divergence is intentional.
+ *
+ * EMPTY, deliberately. Both entries that used to live here were bugs, not
+ * intentions, and both were fixed in Phase 2.5 rather than declared away:
+ *
+ *   overview.uniqueVisitors          — the PostgreSQL path counted session
+ *     ids, so the metric always equalled the session count. Now both paths
+ *     count DISTINCT visitor_id.
+ *   overview.avgVisitDurationSeconds — the S3 path ended a session at
+ *     MAX(occurred_at), which misses activity that produced no analytics
+ *     event. Both paths now end it at the session's `last_seen_at`, carried
+ *     on every row as `session_last_seen_at` (schema v2).
+ *
+ * Adding an entry here means asserting a difference is CORRECT. That needs
+ * the same justification any other behaviour change needs — a declared
+ * divergence is not a way to quiet a failing comparison.
+ */
+const EXPECTED_DIVERGENCE = new Set<string>([]);
 
 function isExpected(report: string, field: string): boolean {
   return EXPECTED_DIVERGENCE.has(`${report}.${field}`);

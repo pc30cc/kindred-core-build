@@ -39,7 +39,13 @@ import { storageConfigFromRecord, type StorageConfig } from '../storage/index.js
 export const ANALYTICS_POOL_KEY = 'analytics_storage_pool';
 
 /** Bumped whenever a written row's shape changes in a way readers must notice. */
-export const ANALYTICS_SCHEMA_VERSION = 1;
+/**
+ * v2 added `session_last_seen_at` so a session's duration is the same
+ * number on both read paths. Files written at v1 lack the column; every
+ * read uses `union_by_name = true`, so they surface it as NULL and the
+ * query falls back to MAX(occurred_at) — the v1 behaviour, for v1 data.
+ */
+export const ANALYTICS_SCHEMA_VERSION = 2;
 
 // ─── Provider eligibility ────────────────────────────────────────
 

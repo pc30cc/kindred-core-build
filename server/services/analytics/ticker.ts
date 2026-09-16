@@ -17,8 +17,9 @@
 import type { ServerConfig } from '../../config.js';
 import { emitLog } from '../observability/metrics.js';
 import { acquireTickerLease, releaseTickerLease } from '../observability/tickerLease.js';
-import { flushAnalytics, bufferedRowCount } from './writer.js';
+import { flushAnalytics, bufferedRowCount, replaySpooledRows } from './writer.js';
 import { runSealCycle } from './sealing.js';
+import { fsyncSpool } from './spool.js';
 
 /** Poll cadence, not the flush interval — the writer applies the operator's. */
 const TICK_MS = 1_000;
@@ -28,6 +29,26 @@ let shutdownHooked = false;
 
 export function startAnalyticsFlushTicker(config: ServerConfig): void {
   if (timer) return;
+
+  // BEFORE the first tick: put back whatever a previous process accepted
+  // but never got into S3. Doing it here rather than in index.ts keeps the
+  // ordering guarantee local — replay must not race the flush that drains
+  // it. Never throws: a deployment with no writable spool boots exactly as
+  // it did in Phase 2.
+  try {
+    const replayed = replaySpooledRows(config);
+    if (replayed.rows > 0) {
+      emitLog(config, 'info', 'analytics_spool_replay_buffered', {
+        rows: replayed.rows,
+        segments: replayed.segments,
+      });
+    }
+  } catch (err: unknown) {
+    emitLog(config, 'warn', 'analytics_spool_replay_failed', {
+      error: err instanceof Error ? err.message : 'unknown',
+    });
+  }
+
   timer = setInterval(() => {
     void flushAnalytics(config, { reason: 'tick' }).catch((err: unknown) => {
       emitLog(config, 'warn', 'analytics_flush_threw', {
@@ -58,7 +79,13 @@ export function startAnalyticsFlushTicker(config: ServerConfig): void {
       if (draining) return;
       draining = true;
 
-      const finish = () => process.kill(process.pid, signal === 'SIGINT' ? 'SIGINT' : 'SIGTERM');
+      const finish = () => {
+        // Last thing before handing the signal back: push the spool's page
+        // cache to disk. Whatever the drain below could not write to S3 is
+        // then on the volume and replays on the next boot.
+        try { fsyncSpool(); } catch { /* exiting regardless */ }
+        process.kill(process.pid, signal === 'SIGINT' ? 'SIGINT' : 'SIGTERM');
+      };
       // Re-raise on the DEFAULT handler once we are done (or out of time).
       process.removeListener('SIGTERM', drain);
       process.removeListener('SIGINT', drain);

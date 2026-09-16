@@ -36,6 +36,7 @@ function rangeToTimestamps(range: DateRange): { startIso: string; endIso: string
 
 interface SessionRow {
   id: string;
+  visitor_id: string | null;
   referrer: string | null;
   utm_source: string | null;
   utm_medium: string | null;
@@ -73,7 +74,7 @@ async function loadRangeData(config: ServerConfig, workspaceId: string, range: D
 
   const [sessionsRes, pageViewsRes] = await Promise.all([
     sb.from('visitor_sessions')
-      .select('id, referrer, utm_source, utm_medium, utm_campaign, browser, os, device, language, country, city, geo_country_code, geo_country_name, geo_city, started_at, last_seen_at')
+      .select('id, visitor_id, referrer, utm_source, utm_medium, utm_campaign, browser, os, device, language, country, city, geo_country_code, geo_country_name, geo_city, started_at, last_seen_at')
       .eq('workspace_id', workspaceId)
       .gte('started_at', startIso)
       .lte('started_at', endIso)
@@ -189,7 +190,18 @@ export async function getOverview(config: ServerConfig, workspaceId: string, ran
     .sort((a, b) => (a.date < b.date ? -1 : 1));
 
   const channelRows = buildBreakdown(sessions, pvBySession, (s) => classifyChannel({ referrer: s.referrer, utmSource: s.utm_source, utmMedium: s.utm_medium }));
-  const uniqueVisitors = new Set(sessions.map((s) => s.id)).size;
+  // COUNT(DISTINCT visitor_id) — a VISITOR, not a session. This used to
+  // count `s.id`, which is the session's own primary key, so the metric was
+  // always exactly equal to the session count and never measured anything.
+  // A visitor with three sessions is one unique visitor.
+  //
+  // Sessions whose visitor_id is null (pre-tracker rows, or a session the
+  // widget could not identify) cannot be attributed to a visitor and are
+  // excluded rather than collapsed into one phantom visitor — which is also
+  // what the S3 path's `WHERE visitor_id IS NOT NULL` does.
+  const uniqueVisitors = new Set(
+    sessions.map((s) => s.visitor_id).filter((v): v is string => !!v),
+  ).size;
 
   const pageCounts = new Map<string, number>();
   for (const pv of pageViews) {

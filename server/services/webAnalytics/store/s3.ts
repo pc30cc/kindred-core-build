@@ -26,21 +26,23 @@
  *                 dimension, carrying that session's in-range page views.
  *   bounce rate — share of those sessions with <= 1 page view in range.
  *
- * Two definitions deliberately DIVERGE, and both are reported as known
- * divergences by the parity runner rather than papered over:
+ * Two definitions were WRONG in Phase 2 and were fixed in Phase 2.5. Both
+ * now agree between the two paths, and neither is exempt from parity:
  *
- *   uniqueVisitors — PostgreSQL counts SESSION rows, so one person visiting
- *                    three times counts as three. This path counts
- *                    COUNT(DISTINCT visitor_id), which is what the number
- *                    has always claimed to mean. The lake is the only place
- *                    it CAN be computed: `visitor_page_views` has no
- *                    visitor column at all.
- *   avgDuration    — PostgreSQL measures to `visitor_sessions.last_seen_at`,
- *                    a mutable column bumped by heartbeats that emit no
- *                    event. The lake measures to the last recorded EVENT.
- *                    A session idling with an open tab therefore looks
- *                    shorter here, and that is the more defensible number,
- *                    but it is not the same one.
+ *   uniqueVisitors — COUNT(DISTINCT visitor_id), so one person visiting
+ *                    three times is one visitor. PostgreSQL used to count
+ *                    session rows; it was not that `visitor_page_views` has
+ *                    no visitor column (true but irrelevant) — the metric is
+ *                    session-level, and `visitor_sessions.visitor_id` was
+ *                    simply missing from the SELECT.
+ *   avgDuration    — a session ends at `visitor_sessions.last_seen_at`, not
+ *                    at its last recorded event. This path used to use
+ *                    MAX(occurred_at), which is SHORTER whenever a heartbeat
+ *                    bumped `last_seen_at` without emitting an event. Schema
+ *                    v2 denormalizes `session_last_seen_at` onto every row,
+ *                    so the number here is now the same one PostgreSQL
+ *                    divides by, with MAX(occurred_at) kept only as the
+ *                    fallback for v1 objects.
  *
  * ── Workspace scoping ────────────────────────────────────────────
  *
@@ -146,7 +148,13 @@ const SESSION_CTE = `
     SELECT
       e.session_id,
       min(e.session_started_at) AS started_at,
-      max(e.occurred_at)        AS last_at,
+      -- Session END. session_last_seen_at is the session row's own
+      -- last_seen_at, denormalized onto every row, which is exactly what
+      -- the PostgreSQL path divides by. MAX(occurred_at) is the v1 fallback:
+      -- objects written before schema v2 have no such column, union_by_name
+      -- surfaces it as NULL, and those days keep their old (slightly short)
+      -- number rather than becoming zero.
+      coalesce(max(e.session_last_seen_at), max(e.occurred_at)) AS last_at,
       max(e.visitor_id)         AS visitor_id,
       max(e.referrer)           AS referrer,
       max(e.referrer_domain)    AS referrer_domain,
@@ -257,7 +265,6 @@ export class S3ParquetWebAnalyticsStore implements WebAnalyticsStore {
       sessions,
       pageviews,
       avgPagesPerSession: sessions > 0 ? Math.round((pageviews / sessions) * 10) / 10 : 0,
-      // The corrected definition — see this file's header.
       uniqueVisitors: num(totals?.unique_visitors),
       bounceRate: sessions > 0 ? Math.round((bounced / sessions) * 1000) / 10 : 0,
       avgVisitDurationSeconds: sessions > 0 ? Math.round(durationSeconds / sessions) : 0,

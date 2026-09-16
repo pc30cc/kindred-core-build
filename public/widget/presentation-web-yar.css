@@ -572,9 +572,18 @@ a.wy-powered:hover { color: var(--wy-text); }
   padding: 14px 16px 4px;
   background: var(--wy-surface);
 }
-/* When a full-screen view (home/list/kb/precontact) owns the body, the
-   body itself must not add chrome padding. */
-.body:has(> .wy-view) { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+/* When a full-screen view (home/list/kb/precontact) or the in-panel call
+   surface owns the body, the body itself must not add chrome padding. */
+.body:has(> .wy-view),
+.body:has(> .gs-call-surface) { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+/* ...and the call surface additionally needs the reserved scrollbar gutter
+   back. `.wy-scroll` keeps `scrollbar-gutter: stable both-edges` on the body
+   so the two sides of a scrolling surface stay equal, which costs 10px on
+   each edge even though the body itself never scrolls here. A full-screen
+   view is transparent over an identically-coloured panel, so nobody could
+   see it; the call surface is dark, and those 10px showed up as a light
+   strip down both edges of the video. */
+.body:has(> .gs-call-surface) { scrollbar-gutter: auto; }
 
 /* Chat view scroll host — the chat frame owns its own scrolling now that the
    panel no longer wraps a persistent chat body. Design: 16px box on white. */
@@ -1052,9 +1061,175 @@ a.wy-powered:hover { color: var(--wy-text); }
 .ci-err { font-size: 12px; color: #e5484d; }
 .ci-status-joined .ci-meta, .conv-status.is-resolved { color: var(--wy-faint); }
 
-.gs-call-surface, [data-call-surface] { display: flex; flex-direction: column; gap: 10px; }
-[data-call-surface] video { width: 100%; border-radius: var(--wy-radius-md); background: #0d0d0f; }
+/* ─── In-panel call surface ──────────────────────────────────────────
+   Core renders the call markup into `.body`; this is the stylesheet half.
+   A call is a distinct MODE, so the stage goes dark the way every calling
+   app does — that is what makes white controls and a picture-in-picture
+   readable over live video. The surrounding widget stays light. */
+
+/* Two rows, both of which have to be laid out by the surface itself: the
+   body only hands it a column to fill (see `.body:has(> .gs-call-surface)`
+   above). Without `flex: 1` the surface collapsed to content height and
+   floated in the middle of the panel. */
+.gs-call-surface, [data-call-surface] {
+  display: flex; flex-direction: column;
+  flex: 1; min-height: 0;
+  background: #14161a; color: #fff;
+}
 .gs-call-pip-off { display: none; }
+
+/* Channel-specific depth: the voice screen has no video to fill it, and on
+   a video call the control bar blends into the stage above it. */
+.gs-call-audio { background: linear-gradient(180deg, #1b1f26 0%, #14161a 100%) #14161a; }
+.gs-call-video .gs-call-controls {
+  background: linear-gradient(180deg, rgba(20, 22, 26, 0.92) 0%, #14161a 60%);
+}
+
+/* ── Video stage ── */
+.gs-call-stage {
+  position: relative; flex: 1; min-height: 0; overflow: hidden;
+  background: #0d0d0f;
+}
+.gs-call-remote-video {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; background: #0d0d0f; display: block;
+}
+.gs-call-stage-placeholder {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  background: #0d0d0f; text-align: center; padding: 24px;
+}
+.gs-call-stage-placeholder[hidden] { display: none; }
+.gs-call-stage-orb {
+  width: 76px; height: 76px; border-radius: 50%; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.1); color: #fff;
+}
+.gs-call-stage-msg { font-size: 14px; color: rgba(255, 255, 255, 0.75); }
+
+/* ── Status bar over the stage ── */
+.gs-call-topbar {
+  position: absolute; top: 12px; inset-inline: 12px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.45); backdrop-filter: blur(8px);
+  font-size: 12.5px; line-height: 1;
+}
+.gs-call-topbar-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: var(--wy-online); animation: wy-rec-blink 1.6s ease-in-out infinite;
+}
+[data-phase='connecting'] .gs-call-topbar-dot,
+[data-phase='reconnecting'] .gs-call-topbar-dot { background: #f5a524; }
+[data-phase='failed'] .gs-call-topbar-dot,
+[data-phase='ended'] .gs-call-topbar-dot { background: #e5484d; animation: none; }
+.gs-call-topbar-status {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: rgba(255, 255, 255, 0.92);
+}
+.gs-call-topbar-timer { flex: none; font-variant-numeric: tabular-nums; color: rgba(255, 255, 255, 0.72); }
+
+/* ── Local picture-in-picture ── */
+.gs-call-pip {
+  position: absolute; bottom: 14px; inset-inline-end: 14px;
+  width: 92px; height: 124px; border-radius: var(--wy-radius-md);
+  overflow: hidden; background: #22252b;
+  box-shadow: 0 6px 18px -6px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.12);
+  display: flex; align-items: center; justify-content: center;
+}
+.gs-call-local-video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gs-call-local-video[hidden] { display: none; }
+.gs-call-pip .gs-call-pip-off { display: flex; color: rgba(255, 255, 255, 0.5); }
+.gs-call-pip .gs-call-pip-off[hidden] { display: none; }
+
+/* ── Voice-only stage ── */
+.gs-call-voice-stage {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 24px; text-align: center;
+}
+.gs-call-voice-orb {
+  position: relative; width: 108px; height: 108px; border-radius: 50%; flex: none;
+  display: flex; align-items: center; justify-content: center; margin-bottom: 6px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.gs-call-voice-pulse {
+  position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+  box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.28);
+  animation: wy-call-pulse 2s ease-out infinite;
+}
+@keyframes wy-call-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.28); }
+  70% { box-shadow: 0 0 0 22px rgba(255, 255, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+}
+.gs-call-voice-icon { display: flex; color: #fff; }
+.gs-call-voice-status { font-size: 15px; font-weight: 600; color: #fff; }
+.gs-call-voice-timer {
+  font-size: 13px; color: rgba(255, 255, 255, 0.62); font-variant-numeric: tabular-nums;
+}
+.gs-call-eq { display: flex; align-items: flex-end; gap: 4px; height: 26px; margin-top: 6px; }
+.gs-call-eq-bar {
+  display: block; width: 4px; height: 6px; border-radius: 2px; flex: none;
+  background: rgba(255, 255, 255, 0.55);
+  animation: wy-call-eq 1s ease-in-out infinite;
+}
+@keyframes wy-call-eq { 0%, 100% { height: 6px; } 50% { height: 24px; } }
+
+/* ── Controls ── */
+.gs-call-controls {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  gap: 14px; padding: 18px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+  background: #14161a;
+}
+.gs-call-btn {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 52px; height: 52px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14); color: #fff;
+  transition: background-color 0.15s, transform 0.15s var(--wy-ease), opacity 0.15s;
+}
+.gs-call-btn:hover { background: rgba(255, 255, 255, 0.22); }
+.gs-call-btn:active { transform: scale(0.92); }
+.gs-call-btn:disabled { opacity: 0.45; }
+/* "off" = the input is muted / the camera is stopped. */
+.gs-call-btn-toggle.off { background: #fff; color: #14161a; }
+.gs-call-btn-hangup { background: #e5484d; color: #fff; }
+.gs-call-btn-hangup:hover { background: #d13d42; }
+
+/* ── Terminal state (ended / failed) ── */
+.gs-call-terminal-card {
+  display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%;
+}
+.gs-call-terminal-label { font-size: 13.5px; color: rgba(255, 255, 255, 0.78); text-align: center; }
+.gs-call-btn-back {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 20px; border-radius: 9999px;
+  background: #fff; color: #14161a; font-size: 13.5px; font-weight: 600;
+  transition: transform 0.15s var(--wy-ease), filter 0.15s;
+}
+.gs-call-btn-back:hover { filter: brightness(0.94); }
+.gs-call-btn-back:active { transform: scale(0.96); }
+[dir='rtl'] .gs-call-btn-back svg { transform: scaleX(-1); }
+
+/* Debug overlay — only rendered behind an explicit local flag. */
+.gs-call-orientation-debug {
+  position: absolute; inset-inline: 0; top: 50%; transform: translateY(-50%);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 16px; font-size: 11px; color: rgba(255, 255, 255, 0.85);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gs-call-topbar-dot, .gs-call-voice-pulse { animation: none; }
+  .gs-call-eq-bar { animation: none; height: 14px; }
+}
+
+/* Phones: the panel is the screen, so the stage can use all of it. */
+@media (max-width: 640px) {
+  .gs-call-pip { width: 80px; height: 108px; bottom: 12px; inset-inline-end: 12px; }
+  .gs-call-controls { gap: 12px; }
+  .gs-call-btn { width: 56px; height: 56px; }
+}
 
 /* ─── Composer (fixed design spec — nothing here is configurable) ─────
    Design source: one single-row pill (padding 0 8px, radius 7px, white,

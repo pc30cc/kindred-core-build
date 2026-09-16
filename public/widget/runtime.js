@@ -8827,6 +8827,12 @@
         // successful load (e.g. proving backoff-reset semantics) have no
         // DOM affordance to click.
         retryConversations: function () { retryConversationsLoad(); },
+        // Drives the in-panel call surface through a phase directly.
+        // A hermetic test can never reach a LiveKit server, so the only way
+        // to exercise the connected/video layouts is to set the state the
+        // engine would have set. This goes through the real store, so the
+        // real renderCallSurface + real CSS do the work.
+        callSurface: function (patch) { callSurfaceStore.set(patch); },
       } : undefined,
       /** Single source of truth for panel visibility. */
       isOpen: function () { return !!shellStore.get().isOpen; },

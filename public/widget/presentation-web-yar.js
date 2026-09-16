@@ -52,6 +52,10 @@
       thumbUp: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12M15 5.88 14 10h6.28a2 2 0 0 1 1.94 2.5l-1.54 6A2 2 0 0 1 18.75 20H7a1 1 0 0 1-1-1v-9a1 1 0 0 1 .29-.71l6.06-6.06a.5.5 0 0 1 .85.35L13 5.88Z"/></svg>',
       thumbDown: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2M9 18.12 10 14H3.72a2 2 0 0 1-1.94-2.5l1.54-6A2 2 0 0 1 5.25 4H17a1 1 0 0 1 1 1v9a1 1 0 0 1-.29.71l-6.06 6.06a.5.5 0 0 1-.85-.35L11 18.12Z"/></svg>',
       close: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+      retry: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.1-6.8"/><path d="M21 4v5h-5"/></svg>',
+      // Generic document glyph for a pending non-image attachment. An image
+      // shows its own thumbnail instead.
+      fileDoc: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
       copy: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>',
       check: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>',
       quote: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17l-5-5 5-5"/><path d="M4 12h10a5 5 0 0 1 5 5v2"/></svg>',
@@ -914,7 +918,6 @@
             '<div class="sr-only" data-typing-row hidden aria-live="polite">' +
               '<span class="typing-label" data-typing-label></span>' +
             '</div>' +
-            '<div class="attach-tray" data-attach-tray hidden></div>' +
             '<div class="reply-preview" data-reply-preview hidden>' +
               '<span class="reply-preview-bar" aria-hidden="true"></span>' +
               '<span class="reply-preview-icon" aria-hidden="true">' + ICON.quote + '</span>' +
@@ -928,7 +931,38 @@
             '<div class="emoji-picker" data-emoji-picker hidden></div>' +
             '<div class="input-bar" data-input-bar>' +
               '<div class="input-wrap" data-input-wrap>' +
-                // Mic is the FIRST child inside the input pill and only shows
+                // A pending file or image previews inside the pill, as a row
+                // ABOVE the input rather than instead of it: unlike a voice
+                // note, an attachment usually wants a caption, so the
+                // textarea has to stay usable and the ordinary send button
+                // sends both together.
+                (attachCfg.enabled
+                  ? '<div class="att-preview" data-attach-preview hidden>' +
+                      '<div class="att-preview-thumb" data-attach-thumb>' +
+                        '<img class="att-preview-img" data-attach-thumb-img alt="" hidden />' +
+                        '<span class="att-preview-doc" data-attach-thumb-doc aria-hidden="true">' +
+                          ICON.fileDoc + '</span>' +
+                      '</div>' +
+                      '<div class="att-preview-meta">' +
+                        '<div class="att-preview-name" data-attach-name></div>' +
+                        '<div class="att-preview-sub" data-attach-sub></div>' +
+                        '<div class="att-preview-track" data-attach-track hidden>' +
+                          '<div class="att-preview-bar" data-attach-bar></div>' +
+                        '</div>' +
+                      '</div>' +
+                      '<button type="button" class="att-preview-btn att-preview-retry" data-attach-retry hidden' +
+                        ' aria-label="' + esc(t('retry')) + '" title="' + esc(t('retry')) + '">' +
+                        ICON.retry + '</button>' +
+                      '<button type="button" class="att-preview-btn att-preview-remove" data-attach-remove' +
+                        ' aria-label="' + esc(t('remove')) + '" title="' + esc(t('remove')) + '">' +
+                        ICON.close + '</button>' +
+                    '</div>'
+                  : '') +
+                // Everything the visitor writes with lives on one row of the
+                // pill. The preview above is a second row, which is why the
+                // pill is a column and this is the row inside it.
+                '<div class="input-row" data-input-row>' +
+                // Mic is the FIRST child inside the input row and only shows
                 // while the draft is empty (design source).
                 (voiceNotesEnabled && micSupported
                   ? '<button type="button" class="mic-btn" data-mic-btn title="' + esc(t('recordVoice')) +
@@ -1007,6 +1041,7 @@
                         ICON.send + '</button>' +
                     '</div>'
                   : '') +
+                '</div>' +
               '</div>' +
             '</div>' +
 
@@ -1502,14 +1537,22 @@
         : '<div class="composer-zone">' +
             '<div class="input-bar">' +
               '<div class="input-wrap">' +
-                (comp.voiceNotes ? skComposerIconHtml('mic-btn') : '') +
-                '<span class="input wy-sk-input">' + skLine('54%', 12) + '</span>' +
-                '<div class="composer-actions">' +
-                  '<div class="composer-actions-start">' +
-                    // Same fixed order as the real frame.
-                    skComposerIconHtml('send-btn') +
-                    (comp.attachments ? skComposerIconHtml('attach-btn') : '') +
-                    (comp.emoji ? skComposerIconHtml('emoji-btn') : '') +
+                // The pill is a COLUMN whose one visible row is `.input-row`
+                // (the other is the attachment preview, which a skeleton
+                // never has). Without this wrapper the skeleton's controls
+                // stack instead of sitting in a row, and the box the visitor
+                // is about to type into jumps the moment the real composer
+                // arrives — the exact defect this skeleton exists to avoid.
+                '<div class="input-row">' +
+                  (comp.voiceNotes ? skComposerIconHtml('mic-btn') : '') +
+                  '<span class="input wy-sk-input">' + skLine('54%', 12) + '</span>' +
+                  '<div class="composer-actions">' +
+                    '<div class="composer-actions-start">' +
+                      // Same fixed order as the real frame.
+                      skComposerIconHtml('send-btn') +
+                      (comp.attachments ? skComposerIconHtml('attach-btn') : '') +
+                      (comp.emoji ? skComposerIconHtml('emoji-btn') : '') +
+                    '</div>' +
                   '</div>' +
                 '</div>' +
               '</div>' +

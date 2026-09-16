@@ -29,7 +29,11 @@ test.describe('the composer never moves under the visitor', () => {
   test('no control shifts when a draft starts', async ({ page }) => {
     await routeAll(page, { threads: { c1: thread('c1') } });
     await boot(page, { resumeCid: 'c1' });
-    await expect.poll(async () => (await controls(page)).send !== null, { timeout: 15_000 }).toBe(true);
+    // Anchor on the REAL composer, not on `.send-btn`: the skeleton draws a
+    // send button too, so polling for one can measure `before` on the
+    // skeleton and `after` on the real frame and call the handover a shift.
+    // Only the real frame has a textarea behind `[data-msg-input]`.
+    await page.locator('textarea[data-msg-input]').waitFor({ timeout: 15_000 });
 
     const before = await controls(page);
     await page.locator('[data-msg-input]').fill('سلام، یک پیام آزمایشی');

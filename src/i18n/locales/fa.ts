@@ -1037,6 +1037,10 @@ const fa: TranslationKeys = {
     'system.agentJoined': '{name} به گفتگو پیوست',
     'system.agentJoinedGeneric': 'یکی از همکاران به گفتگو پیوست',
     'system.noAgentAvailable': 'همه همکاران در حال حاضر مشغول هستند. پیام شما ثبت شد و در اولین فرصت پاسخ می‌دهیم.',
+    'system.callInviteAudio': 'ویزیتور به تماس صوتی دعوت شد',
+    'system.callInviteVideo': 'ویزیتور به تماس تصویری دعوت شد',
+    'system.callInviteAudioFrom': '{op} ویزیتور را به تماس صوتی دعوت کرد',
+    'system.callInviteVideoFrom': '{op} ویزیتور را به تماس تصویری دعوت کرد',
     'system.transferred': '{actor} این پرونده را به {to} منتقل کرد',
     'system.unassigned': '{actor} این پرونده را از حالت واگذارشده خارج کرد',
 

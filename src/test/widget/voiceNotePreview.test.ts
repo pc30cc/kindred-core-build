@@ -77,7 +77,9 @@ describe('the pill owns the pending recording', () => {
 describe('core knows a voice note from a file', () => {
   it('flags the recording, so the tray can stay out of the way', () => {
     expect(RUNTIME).toContain('attachmentStore.set({ isVoice: true, durationMs: recordedMs });');
-    expect(RUNTIME).toMatch(/if \(s\.status === 'idle' \|\| s\.isVoice\)/);
+    // The in-pill file/image preview stands down for a voice note, which
+    // has its own surface in the same pill.
+    expect(RUNTIME).toContain("var visible = s.status !== 'idle' && !s.isVoice;");
   });
 
   it('resets the voice flags with the rest of the attachment', () => {

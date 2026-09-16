@@ -371,3 +371,40 @@ describe('migration 191 clears the snapshots already written', () => {
       .toBe(read(SQL_191));
   });
 });
+
+/**
+ * Sender identity is resolved in ONE place, and every visitor-facing message
+ * route uses it.
+ *
+ * The helper was private to routes/widget.ts, so `/identity/history` served
+ * the same rows without it and every restored bubble came back anonymous.
+ * A future message route added without this step is the same bug again.
+ */
+describe('every visitor-facing message route enriches its senders', () => {
+  const HELPER = 'server/services/widget/senderIdentity.ts';
+
+  it('the helper is shared, not private to one router', () => {
+    expect(read(HELPER)).toContain('export async function enrichMessagesWithSender(');
+  });
+
+  it('derives both avatars from stored keys, never from a column', () => {
+    const body = read(HELPER);
+    expect(body).toContain('hydrateUserAvatars');
+    expect(body).toContain('resolveAgentLogoUrl');
+    expect(body).not.toMatch(/select\('[^']*\bavatar_url\b/);
+  });
+
+  it('is called by /poll, /history and /identity/history alike', () => {
+    const widget = read('server/routes/widget.ts');
+    // /poll and /history.
+    expect(widget.match(/enrichMessagesWithSender\(config, supabase,/g)?.length).toBe(2);
+    expect(read('server/routes/widgetIdentity.ts'))
+      .toContain('enrichMessagesWithSender(config, supabase, withReplies, workspaceId)');
+  });
+
+  it('/identity/history selects the sender id it needs to resolve them', () => {
+    const body = read('server/routes/widgetIdentity.ts');
+    expect(body).toContain("select('id, body, sender_type, sender_id, created_at, metadata, seen_at, reply_to_message_id')");
+    expect(body).toContain('_sender_id: m.sender_id || null');
+  });
+});

@@ -55,6 +55,7 @@ import { enrichMessagesWithAttachments, enrichMessagesWithReplyTo, filterVisitor
 import { recordConversationEvent } from '../services/conversationEvents.js';
 import { getClientCountry } from '../utils/clientIp.js';
 import { createStorageUrlResolver, resolveContactAvatarUrl } from '../services/storage/urlResolver.js';
+import { enrichMessagesWithSender } from '../services/widget/senderIdentity.js';
 import { serverConfigOf } from '../lib/workspaceAuth.js';
 
 /**
@@ -384,20 +385,22 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
 
   const { data: msgs } = await supabase
     .from('conversation_messages')
-    .select('id, body, sender_type, created_at, metadata, seen_at, reply_to_message_id')
+    .select('id, body, sender_type, sender_id, created_at, metadata, seen_at, reply_to_message_id')
     .eq('conversation_id', conv.id)
     .order('created_at', { ascending: true })
     .limit(200);
 
-  // Unlike /poll and /history, this endpoint has no sender-profile
-  // enrichment step (enrichMessagesWithSender) to piggyback the visitor-
-  // visibility filter on — it must be applied directly, using the SAME
-  // canonical helper, or an internal staffing/system notice would be
-  // returned straight through in `messages[]`.
+  // The visitor-visibility filter is applied here as well as inside
+  // enrichMessagesWithSender below: it is idempotent, and keeping it adjacent
+  // to the mapping makes it impossible to drop an internal staffing notice
+  // into `messages[]` by reordering the steps.
   const baseMessages = filterVisitorVisibleMessages((msgs || []).map((m) => ({
     id: m.id,
     role: m.sender_type === 'contact' ? 'visitor' : m.sender_type === 'system' ? 'system' : 'agent',
     sender_type: m.sender_type,
+    // Carried for enrichMessagesWithSender; it strips the field before the
+    // row is serialized, so no operator id reaches the visitor.
+    _sender_id: m.sender_id || null,
     text: m.body,
     time: m.created_at,
     metadata: m.metadata,
@@ -408,7 +411,12 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
   })));
   // Phase 6b — attach public-safe attachment metadata (no provider URLs)
   const withAttachments = await enrichMessagesWithAttachments(config, workspaceId, baseMessages);
-  const messages = await enrichMessagesWithReplyTo(config, conv.id, withAttachments);
+  const withReplies = await enrichMessagesWithReplyTo(config, conv.id, withAttachments);
+  // This is the endpoint the widget calls when it OPENS and replays an
+  // existing thread. Without this step every restored operator and AI bubble
+  // rendered with no avatar, because the row itself records only a sender id
+  // and the link is derived from a storage key at read time.
+  const messages = await enrichMessagesWithSender(config, supabase, withReplies, workspaceId);
 
   return res.json({ conversation_id: conv.id, messages, last_updated_at: conv.updatedAt });
 });

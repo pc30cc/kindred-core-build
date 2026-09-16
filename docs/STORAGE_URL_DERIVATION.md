@@ -186,6 +186,16 @@ send time. `src/test/storage/aiMessageAvatarEnvelope.test.ts` pins both
 halves: nothing provider-shaped reaches the row, and the envelope still
 carries a usable link that follows a promotion.
 
+Because a message row records only a sender id, **every visitor-facing
+message route must run the enrichment step** — there is now one helper,
+`enrichMessagesWithSender()` in `services/widget/senderIdentity.ts`, shared by
+`/poll`, `/history` and `/identity/history`. It lived privately inside
+`routes/widget.ts` while `/identity/history` — the endpoint the widget calls
+when it opens and replays a thread — quietly served the same rows without it,
+so a restored conversation drew no operator avatar at all and no AI logo once
+the snapshot was gone. `src/test/storage/historyAvatarEnrichment.test.ts` pins
+that route's output.
+
 The shipped widget runtime's fallback to the snapshot
 (`public/widget/runtime.js`) was removed with it — that fallback fired
 whenever `sender_avatar` was falsy, which is exactly how rows written under a

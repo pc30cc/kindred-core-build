@@ -5641,10 +5641,55 @@
     }
     var launcher = shell.launcher;
 
+    // ─── Per-tab surface continuity (refresh / close + reopen) ────────
+    // A visitor who is mid-conversation and refreshes the page — or closes
+    // the widget and opens it again — must land back INSIDE that
+    // conversation, not on home. Everything the widget knew lived in memory
+    // only, so every reload dropped them at the front door.
+    //
+    // This stores NO identity. The conversation id here is a VIEW hint: it
+    // never goes on the wire, and it is re-validated against the server's
+    // own thread list on every boot before it is honoured. The server still
+    // resolves who the visitor is from the HttpOnly `dvsid` cookie alone.
+    // sessionStorage (never localStorage) scopes the hint to this tab's
+    // browsing session, exactly like the department resolution above.
+    var __VIEW_SS_KEY = 'gs:view:' + (ctx.workspaceId || 'unknown');
+    function __viewLoadHint() {
+      try {
+        if (typeof sessionStorage === 'undefined') return null;
+        var raw = sessionStorage.getItem(__VIEW_SS_KEY);
+        if (!raw) return null;
+        var p = JSON.parse(raw);
+        if (!p || typeof p !== 'object') return null;
+        return { tab: p.tab || null, conversationId: p.conversationId || null };
+      } catch (_) { return null; }
+    }
+    function __viewSaveHint(tab, conversationId) {
+      try {
+        if (typeof sessionStorage === 'undefined') return;
+        sessionStorage.setItem(__VIEW_SS_KEY, JSON.stringify({
+          tab: tab || 'home',
+          conversationId: conversationId || null,
+        }));
+      } catch (_) {}
+    }
+    var __viewHint = __viewLoadHint() || {};
+    // Only the chat surface is worth restoring, and only with a thread to
+    // restore INTO. Home/list/articles are one tap away and deliberately
+    // start fresh — so a visitor who navigated back to home before
+    // reloading still gets home.
+    var __resumeConversationId = (chatEnabled && __viewHint.tab === 'chat' && __viewHint.conversationId)
+      ? String(__viewHint.conversationId)
+      : null;
+
     // ─── Domain stores (each one isolated, with pub/sub) ───
     var shellStore = createStore({
       isOpen: false,
-      activeTab: 'home',
+      // Optimistic on purpose: paint the CHAT skeleton straight away rather
+      // than painting home and flipping to chat a moment later. If the
+      // thread turns out to be gone or closed, the boot sequence falls back
+      // to home while the skeleton is still up, so nothing real repaints.
+      activeTab: __resumeConversationId ? 'chat' : 'home',
       mounted: false,
     });
     var transportStore = createStore({
@@ -5680,8 +5725,21 @@
       aiThinking: false,
       // True while an explicitly selected thread's history is in flight —
       // the chat surface holds its skeleton instead of painting empty.
-      historyLoading: false,
+      // Armed at boot when a thread is being resumed, so the optimistic chat
+      // surface holds its skeleton instead of flashing an empty thread while
+      // the resume decision is still pending.
+      historyLoading: !!__resumeConversationId,
     });
+
+    // Keep the continuity hint in step with whichever surface and thread
+    // the visitor is actually on. Both stores feed it: leaving the chat
+    // surface, or starting a new conversation, rewrites the hint on its own.
+    function __persistViewHint() {
+      __viewSaveHint(shellStore.get().activeTab, chatStore.get().conversationId);
+    }
+    shellStore.subscribe(__persistViewHint);
+    chatStore.subscribe(__persistViewHint);
+
     var DRAFT_PENDING_KEY = '__pending__';
 
     // ─── Smart Engagement interaction bridge state ──────────────────────
@@ -7698,8 +7756,13 @@
     // Opening an existing thread = make it the active conversation and go
     // to chat. Explicit selection always wins over a pending fresh intent
     // and always loads THAT conversation's history (P0-C).
-    function openConversation(conversationId) {
+    // `opts.markRead === false` restores a thread WITHOUT claiming the
+    // visitor has seen it. Boot-time resume into a closed panel needs that:
+    // silently clearing the unread marker on every page navigation would
+    // destroy the badge that tells the visitor an operator replied.
+    function openConversation(conversationId, opts) {
       if (!conversationId) { startNewConversation(); return; }
+      var markRead = !(opts && opts.markRead === false);
       var current = chatStore.get().conversationId;
       if (current !== conversationId) {
         if (current) {
@@ -7725,8 +7788,20 @@
           });
         } catch (_) { chatStore.set({ historyLoading: false }); }
       }
-      markConversationRead(conversationId);
+      if (markRead) markConversationRead(conversationId);
       switchTab('chat');
+    }
+
+    // A thread restored into a CLOSED panel still owes its read marker; it
+    // is flushed the moment the visitor actually looks at the conversation.
+    var __pendingReadCid = null;
+    function flushPendingRead() {
+      if (!__pendingReadCid) return;
+      var s = shellStore.get();
+      if (!s.isOpen || s.activeTab !== 'chat') return;
+      var cid = __pendingReadCid;
+      __pendingReadCid = null;
+      markConversationRead(cid);
     }
 
 
@@ -8448,12 +8523,102 @@
     if (inputBar) inputBar.style.display = 'none';
     applyComposerState();
 
+    // ─── Resume gate ───
+    // The hinted thread is only honoured once the server's OWN thread list
+    // says it is still live. Identity has to be resolved too (history loads
+    // depend on it), so whichever of the two lands last runs the decision.
+    var __resume = {
+      target: __resumeConversationId,
+      conversationsDone: false,
+      identityDone: false,
+      ran: false,
+    };
+
+    /**
+     * Is the hinted thread still one the visitor can walk back into?
+     * `open`/`pending` are live; `resolved`/`closed` are terminal and the
+     * visitor starts from home instead. The status is read off the server's
+     * own thread list — never guessed client-side.
+     */
+    function __resumeTargetIsLive() {
+      if (!__resume.target) return false;
+      var st = conversationsStore.get() || {};
+      // A failed list load must never cost the visitor their open chat: we
+      // could not check, so we keep them where they were. (Worst case they
+      // land in a thread that was just resolved, which still renders fine —
+      // far better than being thrown out of a live conversation by one
+      // flaky request.)
+      if (!st.loaded) return true;
+      var items = st.items || [];
+      for (var i = 0; i < items.length; i++) {
+        if (String(items[i].id) === __resume.target) {
+          var status = String(items[i].status || '');
+          return status === 'open' || status === 'pending';
+        }
+      }
+      // Loaded, and the thread is not in it — it is not resumable.
+      return false;
+    }
+
+    function __runBootHistory() {
+      if (__resume.ran) return;
+      if (!__resume.conversationsDone || !__resume.identityDone) return;
+      __resume.ran = true;
+
+      var canLoadHistory = !!(transport.hasCapability
+        && transport.hasCapability('supportsHistoryLoad'));
+      // Pre-chat owns the chat surface until the visitor identifies
+      // themselves; restoring a thread underneath it would be a bypass.
+      var target = (!contextualNeedsPrechat() && canLoadHistory
+        && __resume.target && __resumeTargetIsLive())
+        ? __resume.target
+        : null;
+      __resume.target = target;
+
+      // Release the boot-time skeleton hold in ONE place. Whatever happens
+      // below either re-arms it (openConversation, for the thread it really
+      // loads) or paints immediately — no path may leave the chat surface
+      // stuck on a skeleton.
+      if (chatStore.get().historyLoading) chatStore.set({ historyLoading: false });
+
+      if (target) {
+        // Loads EXACTLY this thread (never a server-picked one) and puts the
+        // chat surface up — the same path as tapping it in the list. The
+        // read marker waits until the panel is genuinely open, so restoring
+        // behind a closed launcher never eats an unread badge.
+        var panelOnScreen = !!shellStore.get().isOpen;
+        openConversation(target, { markRead: panelOnScreen });
+        if (!panelOnScreen) __pendingReadCid = target;
+        restoreDraftToInput();
+        return;
+      }
+
+      // Nothing resumable: drop the optimistic chat surface before any real
+      // content paints, so the visitor sees the front door, not an empty
+      // thread they never opened.
+      if (__resumeConversationId && shellStore.get().activeTab === 'chat') {
+        switchTab('home');
+      } else {
+        renderBody();
+      }
+
+      if (contextualNeedsPrechat() || !canLoadHistory) return;
+      chatUI.bootstrapHistory(function () {
+        if (shellStore.get().activeTab === 'chat') renderBody();
+        // After history resolves, conversationId may exist — restore the
+        // matching per-conversation draft into the composer.
+        restoreDraftToInput();
+      });
+    }
+
     // 1) Identity → 2) Transport connect → 3) History (if supported)
     // The visitor's thread list is fetched in parallel (cookie-authenticated,
     // independent of identity resolution) so the home surface can paint its
     // final shape on the very first real render instead of flipping.
     loadConversations(function () {
+      __resume.conversationsDone = true;
       if (shellStore.get().activeTab === 'home') renderBody();
+      __runBootHistory();
     });
     identity.fetchMe(function () {
 
@@ -8461,15 +8626,9 @@
       if (fsm.get() === 'bootstrapping') fsm.transition('restoring_session', 'identity:resolved');
       renderBody();
       transport.connect();
+      __resume.identityDone = true;
+      __runBootHistory();
       if (!contextualNeedsPrechat()) {
-        if (transport.hasCapability && transport.hasCapability('supportsHistoryLoad')) {
-          chatUI.bootstrapHistory(function () {
-            if (shellStore.get().activeTab === 'chat') renderBody();
-            // After history resolves, conversationId may exist — restore the
-            // matching per-conversation draft into the composer.
-            restoreDraftToInput();
-          });
-        }
         if (msgInput) setTimeout(function () {
           if (transportStore.get().connectionState === 'online') msgInput.focus();
         }, 200);
@@ -8502,7 +8661,7 @@
 
     // When the user switches to the chat tab while panel is open, clear unread.
     shellStore.subscribe(function (s) {
-      if (s.isOpen && s.activeTab === 'chat') clearUnreadForActive();
+      if (s.isOpen && s.activeTab === 'chat') { clearUnreadForActive(); flushPendingRead(); }
     });
 
     // ─── Public API back to loader ───

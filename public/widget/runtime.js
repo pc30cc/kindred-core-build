@@ -2792,20 +2792,71 @@
     // reveal, images finishing layout) without the visitor having to scroll.
     // We only stop following when the visitor deliberately scrolled up.
     var chatStickToBottom = true;
+    var chatPinHost = null;
+    var chatPinObserver = null;
+
+    function pinToBottom(host) {
+      try { host.scrollTop = host.scrollHeight; } catch (_) {}
+    }
+
+    /**
+     * Re-arms "follow the newest message". Called when the visitor lands on a
+     * DIFFERENT conversation, where the previous thread's scroll position is
+     * meaningless: without this, someone who had scrolled up in thread A and
+     * then opened thread B got B rendered from the top, because the flag was
+     * still false from A.
+     */
+    function resetScrollAnchor() {
+      chatStickToBottom = true;
+    }
+
     function chatScrollToBottom(body, force, immediateOnly) {
       if (!body) return;
       if (!force && !chatStickToBottom) return;
-      if (immediateOnly) { try { body.scrollTop = body.scrollHeight; } catch (_) {} return; }
-      var apply = function () {
-        try { body.scrollTop = body.scrollHeight; } catch (_) {}
-      };
+      if (force) chatStickToBottom = true;
+      if (immediateOnly) { pinToBottom(body); return; }
+      var apply = function () { pinToBottom(body); };
       apply();
-      // Re-apply after layout settles (bubble entrance animation, lazy images,
-      // webfont swap) — a single synchronous set can land on a stale height.
+      // A floor for the common cases (row entrance animation, webfont swap)
+      // and for browsers without ResizeObserver. Anything slower than this —
+      // an image attachment above all — is caught by observeChatContent().
       try { requestAnimationFrame(function () { apply(); requestAnimationFrame(apply); }); } catch (_) { }
       setTimeout(apply, 60);
       setTimeout(apply, 220);
     }
+
+    /**
+     * Keeps the newest message flush with the bottom edge for as long as the
+     * visitor has not deliberately scrolled away.
+     *
+     * Timers alone could never do this. An image attachment is fetched with
+     * an auth header, turned into a blob URL and only THEN laid out, which
+     * routinely lands long after the last timer above has fired — and it
+     * grows its bubble from the 84px loading box to as much as 190px, which
+     * is exactly how much of the last message used to disappear below the
+     * fold. Watching the content box instead means the pin holds however
+     * late, and however often, the content settles.
+     */
+    function observeChatContent(host) {
+      if (!host || typeof ResizeObserver !== 'function') return;
+      // `.messages` is the single wrapper the presentation puts every row
+      // inside, so its height IS the scrollable content height. It is a new
+      // node after each paint, hence the re-observe.
+      var content = host.querySelector ? host.querySelector('.messages') : null;
+      if (!content) return;
+      chatPinHost = host;
+      if (!chatPinObserver) {
+        chatPinObserver = new ResizeObserver(function () {
+          if (!chatStickToBottom || !chatPinHost) return;
+          pinToBottom(chatPinHost);
+        });
+      }
+      try {
+        chatPinObserver.disconnect();
+        chatPinObserver.observe(content);
+      } catch (_) {}
+    }
+
     function bindChatScrollTracking(body) {
       if (!body || body.__gsScrollBound) return;
       body.__gsScrollBound = true;
@@ -3562,7 +3613,13 @@
           var mid = el.getAttribute('data-att-media-src');
           if (!mid) return;
           var loadingHost = el.closest ? el.closest('.msg-att-img-btn') : null;
-          var clearLoading = function () { if (loadingHost) loadingHost.classList.remove('is-loading'); };
+          var clearLoading = function () {
+            if (loadingHost) loadingHost.classList.remove('is-loading');
+            // The bubble just grew from its loading box to the image's real
+            // height. Re-pin so the message the visitor was reading stays
+            // flush with the bottom edge instead of sliding out of view.
+            chatScrollToBottom(body);
+          };
           el.addEventListener('load', clearLoading);
           el.addEventListener('error', clearLoading);
           ctx.loadAuthedMediaBlobUrl(mid).then(function (blobUrl) {
@@ -3603,6 +3660,7 @@
       }
       wireAudioPlayers(body);
       bindChatScrollTracking(body);
+      observeChatContent(body);
       chatScrollToBottom(body);
     }
 
@@ -4121,6 +4179,8 @@
       },
       mergeIncoming: mergeIncoming,
       startTypewriter: startTypewriter,
+      /** Re-arm "follow the newest message" — see resetScrollAnchor. */
+      resetScrollAnchor: resetScrollAnchor,
       // "+ New conversation" — arms `freshIntent` so the *first* message of
       // this flow is sent with force_new_conversation:true AND so no layer
       // (history bootstrap, polling, reconnect replay) can re-adopt the
@@ -4138,6 +4198,7 @@
         ConvEpoch.bump('start_new_conversation', { fresh: true });
         // Ephemeral, per-conversation UI state must not bleed across threads.
         try { stopTypewriter(false); } catch (_) {}
+        resetScrollAnchor();
         chatStore.set({
           freshIntent: true,
           conversationId: null,
@@ -7798,6 +7859,9 @@
         // P0-1/P0-3 — new active context. Anything still in flight for the
         // previous thread (history, intro, send) is now stale by epoch.
         ConvEpoch.bump('open_conversation', { conversationId: conversationId });
+        // A different thread's scroll position says nothing about this one:
+        // start it following the newest message, like any freshly opened chat.
+        try { chatUI.resetScrollAnchor(); } catch (_) {}
         chatStore.set({
           freshIntent: false,
           conversationId: conversationId,

@@ -15,7 +15,8 @@ import {
 import { cn } from '@/lib/utils';
 import { useMemo } from 'react';
 import { useTranslation } from '@/i18n';
-import { callbackStatusLabel, formatCallDuration, type TFn } from '@/features/calls/callLabels';
+import { callbackStatusLabel } from '@/features/calls/callLabels';
+import { CallDuration } from '@/features/calls/CallDuration';
 
 function StatCard({ icon: Icon, label, value, tone = 'default' }: { icon: any; label: string; value: React.ReactNode; tone?: 'default' | 'warn' | 'danger' | 'ok' }) {
   const map: Record<string, string> = {
@@ -37,9 +38,8 @@ function StatCard({ icon: Icon, label, value, tone = 'default' }: { icon: any; l
   );
 }
 
-function waitTime(t: TFn, createdAt: string) {
-  const diff = Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000);
-  return formatCallDuration(t, diff);
+function waitSeconds(createdAt: string) {
+  return Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000);
 }
 
 export default function CallCenterOverviewPage() {
@@ -153,12 +153,12 @@ export default function CallCenterOverviewPage() {
             <div>
               <div className="text-xs text-muted-foreground">{t('callCenter.overview.metrics.longestWait')}</div>
               <div className={cn('text-2xl font-semibold mt-1', slaStats.longest > 60 && 'text-destructive')}>
-                {formatCallDuration(t, slaStats.longest)}
+                <CallDuration seconds={slaStats.longest} />
               </div>
             </div>
             <div>
               <div className="text-xs text-muted-foreground">{t('callCenter.overview.metrics.avgWait')}</div>
-              <div className="text-2xl font-semibold mt-1">{formatCallDuration(t, slaStats.avg)}</div>
+              <div className="text-2xl font-semibold mt-1"><CallDuration seconds={slaStats.avg} /></div>
             </div>
             <div>
               <div className="text-xs text-muted-foreground">{t('callCenter.overview.metrics.slaBreached')}</div>
@@ -172,7 +172,7 @@ export default function CallCenterOverviewPage() {
             </div>
             <div>
               <div className="text-xs text-muted-foreground">{t('callCenter.overview.metrics.avgHandleTime')}</div>
-              <div className="text-2xl font-semibold mt-1">{formatCallDuration(t, slaStats.avgHandle)}</div>
+              <div className="text-2xl font-semibold mt-1"><CallDuration seconds={slaStats.avgHandle} /></div>
             </div>
             <div>
               <div className="text-xs text-muted-foreground">{t('callCenter.overview.metrics.utilization')}</div>
@@ -265,7 +265,7 @@ export default function CallCenterOverviewPage() {
                       breached ? 'bg-destructive/10 text-destructive' : 'bg-muted',
                     )}>
                       {breached && <Flame className="inline h-3 w-3 me-1" />}
-                      {waitTime(t, q.created_at)}
+                      <CallDuration seconds={waitSeconds(q.created_at)} unitScale={0.8} />
                     </span>
                   </li>
                 );

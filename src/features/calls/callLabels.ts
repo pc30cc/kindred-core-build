@@ -114,15 +114,42 @@ export function callbackStatusLabel(t: TFn, status: string | null | undefined): 
   return resolve(t, 'callCenter.callbackStatus', status);
 }
 
+/** One `<value, unit>` pair of a split duration, e.g. `5` + "minutes". */
+export interface DurationPart {
+  value: number;
+  unit: string;
+}
+
 /**
- * Human-readable duration ("5m 30s") with localized unit suffixes.
- * Returns `0{s}` for a missing or zero duration so columns never go blank.
+ * Split a duration into localized `<value, unit>` pairs.
+ *
+ * Units are spelled out ("minutes" / "ثانیه" / "saniye"), never abbreviated:
+ * a lone "ث" or "د" next to a number reads as noise rather than as a unit.
+ * `<CallDuration>` renders the unit at a smaller size so the number still
+ * carries the tile, and this function keeps the same wording for the plain
+ * string form.
+ *
+ * A zero or missing duration still yields one part, so a metric tile shows
+ * "0 seconds" rather than going blank.
  */
-export function formatCallDuration(t: TFn, seconds: number | null | undefined): string {
+export function callDurationParts(t: TFn, seconds: number | null | undefined): DurationPart[] {
   const total = Math.max(0, Math.floor(seconds ?? 0));
   const m = Math.floor(total / 60);
   const s = total % 60;
-  const mu = t('callCenter.duration.minuteShort');
-  const su = t('callCenter.duration.secondShort');
-  return m > 0 ? `${m}${mu} ${s}${su}` : `${s}${su}`;
+  const parts: DurationPart[] = [];
+  if (m > 0) {
+    parts.push({ value: m, unit: t(m === 1 ? 'callCenter.duration.minute' : 'callCenter.duration.minutes') });
+  }
+  if (s > 0 || parts.length === 0) {
+    parts.push({ value: s, unit: t(s === 1 ? 'callCenter.duration.second' : 'callCenter.duration.seconds') });
+  }
+  return parts;
+}
+
+/**
+ * Human-readable duration ("5 minutes 30 seconds") with localized units.
+ * Prefer `<CallDuration>` where the unit should be visually de-emphasized.
+ */
+export function formatCallDuration(t: TFn, seconds: number | null | undefined): string {
+  return callDurationParts(t, seconds).map((p) => `${p.value} ${p.unit}`).join(' ');
 }

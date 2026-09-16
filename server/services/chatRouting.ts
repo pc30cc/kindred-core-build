@@ -360,9 +360,27 @@ export async function routeConversationToOperator(
       .eq('workspace_id', args.workspaceId)
       .maybeSingle();
     if (!conv) return { outcome: 'error', assignedTo: null };
-    if (conv.assigned_to) return { outcome: 'already_assigned', assignedTo: conv.assigned_to };
-
     const metadata = ((conv as any).metadata || {}) as Record<string, unknown>;
+
+    if (conv.assigned_to) {
+      // Already assigned, so nobody is being routed — but the visitor has
+      // just been handed over from the AI and still needs to be told who
+      // they are now talking to. The `routing_notice_sent` flag makes this
+      // once per conversation, so a second handoff does not repeat it.
+      if (metadata.routing_notice_sent !== true) {
+        const assignedName = await resolveAgentDisplayName(config, conv.assigned_to as string);
+        await insertRoutingSystemMessage(
+          config, args.workspaceId, args.conversationId,
+          `${assignedName} joined the conversation.`,
+          { kind: 'routing_agent_joined', agent_name: assignedName, agent_id: conv.assigned_to },
+        );
+        await tagOutcome(
+          config, args.workspaceId, args.conversationId, metadata,
+          'already_assigned', { routing_notice_sent: true },
+        );
+      }
+      return { outcome: 'already_assigned', assignedTo: conv.assigned_to };
+    }
     // If routing was deferred until pre-chat identification (see
     // handoffState.ts's markNeedsHuman → shouldDeferRoutingForPrechat),
     // this call is that deferred trigger actually firing — clear the flag

@@ -1042,8 +1042,8 @@ const fa: TranslationKeys = {
     'system.callInviteVideo': 'کاربر به تماس تصویری دعوت شد',
     'system.callInviteAudioFrom': '{op} کاربر را به تماس صوتی دعوت کرد',
     'system.callInviteVideoFrom': '{op} کاربر را به تماس تصویری دعوت کرد',
-    'system.transferred': '{actor} این پرونده را به {to} منتقل کرد',
-    'system.unassigned': '{actor} این پرونده را از حالت واگذارشده خارج کرد',
+    'system.transferred': '{actor} این گفتگو را به {to} منتقل کرد',
+    'system.unassigned': '{actor} این گفتگو را از حالت واگذارشده خارج کرد',
 
     'callSurface.expand': 'بزرگ‌نمایی',
     'callSurface.expandAria': 'پنجره تماس را بزرگ کن',

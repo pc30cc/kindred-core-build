@@ -316,7 +316,11 @@ async function bunnyUpload(config: StorageConfig, req: ProviderUploadRequest): P
     return { success: false, error: `BunnyCDN upload failed: ${res.statusText}` };
   }
 
-  const cdnBase = config.cdnUrl || `https://${config.storageZone}.b-cdn.net`;
+  // Same derivation as bunnyGetUrl() below, `publicBase()` included. Without
+  // it an operator-typed `cdn_url` with no scheme produced a URL that is not
+  // a URL, and the value a caller PERSISTED at upload time could differ from
+  // the one derived for the same key at read time.
+  const cdnBase = bunnyCdnBase(config);
   return { success: true, url: `${cdnBase}/${req.fileKey}`, fileKey: req.fileKey };
 }
 
@@ -332,9 +336,19 @@ async function bunnyDelete(config: StorageConfig, fileKey: string): Promise<Stor
   return { success: res.ok, error: res.ok ? undefined : `Delete failed: ${res.statusText}` };
 }
 
+/**
+ * The public base a Bunny object is served from: the operator's pull zone
+ * when one is configured, otherwise the storage zone's default hostname.
+ *
+ * Shared by the upload and the read path on purpose. They used to derive it
+ * separately and only one of them normalized the scheme.
+ */
+function bunnyCdnBase(config: StorageConfig): string {
+  return config.cdnUrl ? publicBase(config.cdnUrl) : `https://${config.storageZone}.b-cdn.net`;
+}
+
 function bunnyGetUrl(config: StorageConfig, fileKey: string): string {
-  const cdnBase = config.cdnUrl ? publicBase(config.cdnUrl) : `https://${config.storageZone}.b-cdn.net`;
-  return `${cdnBase}/${fileKey}`;
+  return `${bunnyCdnBase(config)}/${fileKey}`;
 }
 
 interface BunnyListEntry {

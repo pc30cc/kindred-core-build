@@ -22,6 +22,9 @@ const LOCALES = ['en', 'fa', 'tr'] as const;
 type Renderer = {
   chatFrameHtml: (vm: Record<string, unknown>) => string;
   kbSearchBarHtml: (vm: Record<string, unknown>) => string;
+  messagesHtml: (state: Record<string, unknown>, extra: string, view: Record<string, unknown>) => string;
+  emptyHtml: () => string;
+  homeHtml: (vm: Record<string, unknown>) => string;
 };
 
 /** Reads one locale's slice of runtime.js's I18n table. */
@@ -172,8 +175,78 @@ describe('widget polish — composer', () => {
 
   it('a ready attachment counts as a draft, so it has a send button', () => {
     expect(runtime).toContain("|| (att.status === 'ready' && !!att.attachmentId)");
-    // The send button is CSS-gated on has-draft, which is why this matters.
-    expect(css).toContain('.input-bar:not(.has-draft) .send-btn { display: none; }');
+    // Send no longer disappears without a draft — it dims — so this now
+    // decides whether an attachment-only message LOOKS sendable.
+    expect(css).toContain('.input-bar:not(.has-draft) .send-btn { opacity: 0.4; }');
+  });
+});
+
+describe('widget polish — nothing swallows a native default', () => {
+  it('a navigation trigger is never the delegation root itself', () => {
+    // The panel carries `data-view` as a CSS state marker, and
+    // Node.contains() reports an element as containing itself — so
+    // `closest('[data-view]')` used to resolve to the panel for EVERY click
+    // in the widget, and the handler called preventDefault() on all of them.
+    // That silently cancelled the attach button's file picker and the
+    // powered-by link.
+    expect(runtime).toContain('function trigger(target, selector)');
+    expect(runtime).toContain('el !== root && root.contains(el)');
+    expect(runtime).not.toContain("var view = target.closest('[data-view]');");
+    // The marker itself is still written — this is about reading it, not
+    // about removing it.
+    expect(runtime).toContain("panel.setAttribute('data-view', key)");
+  });
+});
+
+describe('widget polish — avatars', () => {
+  function messageHtml(avatar: string | null) {
+    const el = document.createElement('div');
+    el.innerHTML = renderer().messagesHtml(
+      {
+        messages: [
+          { sender: 'operator', senderName: 'Sam', senderAvatar: avatar,
+            body: 'first', time: new Date(), __id: 'a' },
+          { sender: 'operator', senderName: 'Sam', senderAvatar: avatar,
+            body: 'second', time: new Date(), __id: 'b' },
+        ],
+      },
+      '',
+      {},
+    );
+    return el;
+  }
+
+  it('an operator with no uploaded avatar gets no avatar layer at all', () => {
+    const el = messageHtml(null);
+    expect(el.querySelectorAll('.msg-avatar').length).toBe(0);
+    // Not even the reserved slot the earlier rows used to keep.
+    expect(el.querySelectorAll('.msg-avatar-spacer').length).toBe(0);
+    expect(el.querySelectorAll('.msg-row.operator').length).toBe(2);
+  });
+
+  it('an uploaded avatar still renders, with a spacer for the rows above it', () => {
+    const el = messageHtml('https://cdn.test/a.png');
+    expect(el.querySelectorAll('.msg-avatar.has-img').length).toBe(1);
+    expect(el.querySelectorAll('.msg-avatar-spacer').length).toBe(1);
+  });
+
+  it('the welcome bubble follows the same rule', () => {
+    const el = document.createElement('div');
+    el.innerHTML = renderer().emptyHtml();
+    expect(el.querySelectorAll('.msg-avatar').length).toBe(0);
+  });
+
+  it('the home CTA shows only operators who actually have one', () => {
+    const el = document.createElement('div');
+    el.innerHTML = renderer().homeHtml({
+      rtl: true, chatEnabled: true, conversations: [], articles: [],
+      teamMembers: [
+        { name: 'No Avatar', online: true },
+        { name: 'Has Avatar', online: true, avatar: 'https://cdn.test/b.png' },
+      ],
+    });
+    expect(el.querySelectorAll('.home-stack-item').length).toBe(1);
+    expect(el.querySelectorAll('.home-stack-item.has-img').length).toBe(1);
   });
 });
 

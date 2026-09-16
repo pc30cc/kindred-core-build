@@ -176,11 +176,11 @@
       var team = (ctx.config && Array.isArray(ctx.config.teamMembers)) ? ctx.config.teamMembers : [];
       var op = team.filter(function (m) { return m && (m.avatar_url || m.avatar); })[0];
       var opAvatar = op && (op.avatar_url || op.avatar);
+      // No uploaded avatar anywhere on the team => no avatar layer, same
+      // rule as every other operator bubble.
       var avatarHtml = opAvatar
         ? '<span class="msg-avatar has-img"><img src="' + esc(String(opAvatar)) + '" alt="" loading="lazy" decoding="async" /></span>'
-        : '<span class="msg-avatar" aria-hidden="true">' +
-            esc((((team[0] && (team[0].name || team[0].full_name)) || (ctx.config && ctx.config.brandName) || 'S').trim().charAt(0) || 'S').toUpperCase()) +
-          '</span>';
+        : '';
       return '<div class="messages welcome-only">' +
         '<div class="msg-row operator">' + avatarHtml +
           '<div class="msg operator welcome-bubble">' + lines + '</div>' +
@@ -624,17 +624,18 @@
           }
         }
 
+        // An operator or AI agent with no uploaded avatar gets NO avatar
+        // layer — not an initial-letter circle, and not the reserved spacer
+        // either, so the bubble sits flush against the row edge instead of
+        // being indented past an empty slot. Avatar presence is uniform
+        // across a streak (it is part of the grouping key), so dropping the
+        // spacer cannot misalign the rows above the last one.
         var avatarHtml = '';
-        if (cls === 'operator') {
-          if (isLastInStreak) {
-            avatarHtml = m.senderAvatar
-              ? '<span class="msg-avatar has-img"><img src="' + esc(m.senderAvatar) + '" alt="' +
-                  esc(m.senderName || t('operator')) + '" loading="lazy" decoding="async" /></span>'
-              : '<span class="msg-avatar" aria-hidden="true">' +
-                  esc(((m.senderName || ctx.config.brandName || 'S').trim().charAt(0) || 'S').toUpperCase()) + '</span>';
-          } else {
-            avatarHtml = '<span class="msg-avatar msg-avatar-spacer" aria-hidden="true"></span>';
-          }
+        if (cls === 'operator' && m.senderAvatar) {
+          avatarHtml = isLastInStreak
+            ? '<span class="msg-avatar has-img"><img src="' + esc(m.senderAvatar) + '" alt="' +
+                esc(m.senderName || t('operator')) + '" loading="lazy" decoding="async" /></span>'
+            : '<span class="msg-avatar msg-avatar-spacer" aria-hidden="true"></span>';
         }
 
         // AI attribution lives on the meta line UNDER the bubble, next to the
@@ -925,8 +926,16 @@
                       '<span class="mic-ring" aria-hidden="true"></span></button>'
                   : '') +
                 '<textarea class="input" rows="1" data-msg-input placeholder="' + esc(t('typeMsg')) + '"></textarea>' +
+                // ONE action group with FIXED membership: every control stays
+                // mounted whatever the draft state, so starting to type never
+                // shifts a button out from under the visitor's finger.
+                // Document order is send → attach → emoji, which in the RTL
+                // widget paints them left-to-right as emoji, attach, send —
+                // putting send immediately to the right of the attach button.
                 '<div class="composer-actions">' +
                   '<div class="composer-actions-start">' +
+                    '<button type="button" class="send-btn" data-send-btn aria-label="' + esc(tf('send', 'Send')) + '">' +
+                      ICON.send + '</button>' +
                     (attachCfg.enabled
                       ? '<button type="button" class="attach-btn" data-attach-btn title="' + esc(t('attachFile') || 'Attach file') +
                           '" aria-label="' + esc(t('attachFile') || 'Attach file') + '">' + ICON.attach + '</button>' +
@@ -936,10 +945,6 @@
                       ? '<button type="button" class="emoji-btn" data-emoji-btn aria-expanded="false" title="' + esc(t('emojiPicker')) +
                           '" aria-label="' + esc(t('emojiPicker')) + '">' + ICON.emoji + '</button>'
                       : '') +
-                  '</div>' +
-                  '<div class="composer-actions-end">' +
-                    '<button type="button" class="send-btn" data-send-btn aria-label="' + esc(tf('send', 'Send')) + '">' +
-                      ICON.send + '</button>' +
                   '</div>' +
                 '</div>' +
               '</div>' +
@@ -1028,11 +1033,14 @@
       // Online-operator avatars are opt-out via widget settings and now live
       // INSIDE the "start chat" CTA (before its label), never in the header.
       var showStack = vm.showTeamAvatars !== false;
-      var stack = !showStack ? '' : (vm.teamMembers || []).filter(function (m) { return m && m.online; }).slice(0, 3)
+      // Only operators with a real uploaded avatar appear in the stack — an
+      // empty placeholder circle says nothing and is exactly the blank slot
+      // this design does not want.
+      var stack = !showStack ? '' : (vm.teamMembers || [])
+        .filter(function (m) { return m && m.online && m.avatar; }).slice(0, 3)
         .map(function (m) {
-          var av = m.avatar ? String(m.avatar) : '';
-          return '<span class="home-stack-item' + (av ? ' has-img' : '') + '" title="' + esc(m.name || '') + '">' +
-            (av ? '<img src="' + esc(av) + '" alt="" loading="lazy" decoding="async" />' : '') + '</span>';
+          return '<span class="home-stack-item has-img" title="' + esc(m.name || '') + '">' +
+            '<img src="' + esc(String(m.avatar)) + '" alt="" loading="lazy" decoding="async" /></span>';
         }).join('');
       var stackHtml = stack ? '<span class="home-stack" aria-hidden="true">' + stack + '</span>' : '';
 
@@ -1438,15 +1446,10 @@
                 '<span class="input wy-sk-input">' + skLine('54%', 12) + '</span>' +
                 '<div class="composer-actions">' +
                   '<div class="composer-actions-start">' +
+                    // Same fixed order as the real frame.
+                    skComposerIconHtml('send-btn') +
                     (comp.attachments ? skComposerIconHtml('attach-btn') : '') +
                     (comp.emoji ? skComposerIconHtml('emoji-btn') : '') +
-                  '</div>' +
-                  // The real frame always emits the send control and lets
-                  // `.input-bar:not(.has-draft) .send-btn { display: none }`
-                  // hide it. Emitting it here too keeps the two DOMs
-                  // identical, so that rule keeps deciding for both.
-                  '<div class="composer-actions-end">' +
-                    skComposerIconHtml('send-btn') +
                   '</div>' +
                 '</div>' +
               '</div>' +

@@ -5735,6 +5735,10 @@
       } catch (_) {}
     }
     var __viewHint = __viewLoadHint() || {};
+    // Whether THIS tab has a stored surface at all. "No hint" (a brand-new
+    // tab) and "a hint that says home" are different facts: the second one
+    // is the visitor having deliberately left the chat, and must be obeyed.
+    var __hadViewHint = !!__viewHint.tab;
     // Only the chat surface is worth restoring, and only with a thread to
     // restore INTO. Home/list/articles are one tap away and deliberately
     // start fresh — so a visitor who navigated back to home before
@@ -7903,11 +7907,29 @@
     // chat frame that is mounted/unmounted dynamically.
     function bindPanelNavigation(root) {
       if (!root) return;
+      /**
+       * A navigation trigger is something INSIDE the delegation root — never
+       * the root itself.
+       *
+       * The panel carries `data-view` as a state marker for CSS (see
+       * syncViewChrome), and `Node.contains()` reports an element as
+       * containing itself, so `closest('[data-view]')` used to resolve to the
+       * panel for EVERY click anywhere in the widget. That made the handler
+       * call preventDefault() on all of them. Buttons with their own JS
+       * handlers did not care, which is why it went unnoticed — but it
+       * silently killed every native default in the panel: the attach
+       * button's file picker never opened, and the powered-by link never
+       * navigated.
+       */
+      function trigger(target, selector) {
+        var el = target.closest(selector);
+        return (el && el !== root && root.contains(el)) ? el : null;
+      }
       root.addEventListener('click', function (ev) {
         var target = ev.target;
         if (!target || !target.closest) return;
-        var back = target.closest('[data-view-back]');
-        if (back && root.contains(back)) {
+        var back = trigger(target, '[data-view-back]');
+        if (back) {
           try { ev.preventDefault(); } catch (_) {}
           var backTarget = back.getAttribute('data-view-back') || 'home';
           // P1 — generic in-view back. A view can ask for a real step back
@@ -7924,14 +7946,14 @@
           return;
         }
 
-        var open = target.closest('[data-conversation-open]');
-        if (open && root.contains(open)) {
+        var open = trigger(target, '[data-conversation-open]');
+        if (open) {
           try { ev.preventDefault(); } catch (_) {}
           openConversation(open.getAttribute('data-conversation-open'));
           return;
         }
-        var view = target.closest('[data-view]');
-        if (view && root.contains(view)) {
+        var view = trigger(target, '[data-view]');
+        if (view) {
           try { ev.preventDefault(); } catch (_) {}
           switchTab(view.getAttribute('data-view'));
         }
@@ -8651,6 +8673,42 @@
       return false;
     }
 
+    /**
+     * Which conversation, if any, this boot should land the visitor in.
+     *
+     *  1. The per-tab hint, once the server's thread list confirms it is
+     *     still live. This is the reload / close-and-reopen case.
+     *  2. With no hint at all — a brand-new tab — the visitor's most
+     *     recently updated LIVE thread, which is the first item the server
+     *     already returns. Same rule as the hint path: still open means
+     *     still resumable. A hint that names a NON-chat surface does not
+     *     reach this branch: the visitor chose to leave the conversation in
+     *     this tab, and a reload must not drag them back into it.
+     *
+     * A hint that turns out to be dead stops here rather than falling
+     * through to (2): the visitor's last surface was a conversation that has
+     * since been closed, and home is the honest answer to that.
+     */
+    function bootResumeTarget(canLoadHistory) {
+      if (!canLoadHistory || contextualNeedsPrechat()) return null;
+      if (__resumeConversationId) {
+        return __resumeTargetIsLive() ? __resume.target : null;
+      }
+      // A hint that named some other surface is the visitor's own decision
+      // to be out of the chat — never overrule it.
+      if (__hadViewHint) return null;
+      var st = conversationsStore.get() || {};
+      // Volunteering a surface the visitor did not ask for needs positive
+      // proof, so an unverifiable list means "stay on home" here — unlike
+      // the hint path, where it means "do not evict them".
+      if (!st.loaded) return null;
+      var live = (st.items || []).filter(function (c) {
+        var status = String(c.status || '');
+        return status === 'open' || status === 'pending';
+      })[0];
+      return live ? String(live.id) : null;
+    }
+
     function __runBootHistory() {
       if (__resume.ran) return;
       if (!__resume.conversationsDone || !__resume.identityDone) return;
@@ -8658,12 +8716,7 @@
 
       var canLoadHistory = !!(transport.hasCapability
         && transport.hasCapability('supportsHistoryLoad'));
-      // Pre-chat owns the chat surface until the visitor identifies
-      // themselves; restoring a thread underneath it would be a bypass.
-      var target = (!contextualNeedsPrechat() && canLoadHistory
-        && __resume.target && __resumeTargetIsLive())
-        ? __resume.target
-        : null;
+      var target = bootResumeTarget(canLoadHistory);
       __resume.target = target;
 
       // Release the boot-time skeleton hold in ONE place. Whatever happens

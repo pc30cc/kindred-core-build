@@ -82,7 +82,7 @@ function classesOf(html: string): string[] {
 /** Classes that decide where things sit, in order — the layout spine.
  *  `.header` is deliberately absent: it carries no stylesheet rule and
  *  exists only as a Core query hook on the real frame. */
-const LAYOUT = /^(wy-view|wy-view-chat|wy-head|wy-head-chat|wy-head-text|wy-chat-scroll-host|wy-chat-scroll|wy-scroll|composer-zone|input-bar|input-wrap|input|mic-btn|composer-actions|composer-actions-start|composer-actions-end|attach-btn|emoji-btn|send-btn|wy-footer)$/;
+const LAYOUT = /^(wy-view|wy-view-chat|wy-head|wy-head-chat|wy-head-text|wy-chat-scroll-host|wy-chat-scroll|wy-scroll|composer-zone|input-bar|input-wrap|input|mic-btn|composer-actions|composer-actions-start|attach-btn|emoji-btn|send-btn|wy-footer)$/;
 const spineOf = (html: string) => classesOf(html).filter((c) => LAYOUT.test(c));
 
 const hasRule = (cls: string) =>
@@ -175,13 +175,11 @@ describe('the skeleton composer shows exactly the controls Core will mount', () 
     expect(skel).toContain('wy-footer');
   });
 
-  it('leaves the send control to the same CSS rule the real composer uses', () => {
-    // The real frame always emits .send-btn and lets the stylesheet hide it
-    // until there is a draft. The skeleton does the same rather than making
-    // its own decision, so one rule keeps governing both.
+  it('carries the send control, which never leaves the real row either', () => {
     expect(chatFrame()).toContain('send-btn');
     expect(chatSkeleton()).toContain('send-btn');
-    expect(CSS).toContain('.input-bar:not(.has-draft) .send-btn { display: none; }');
+    // Draft state only dims it now; it keeps its seat.
+    expect(CSS).toContain('.input-bar:not(.has-draft) .send-btn { opacity: 0.4; }');
   });
 });
 

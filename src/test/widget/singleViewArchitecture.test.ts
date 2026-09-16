@@ -207,7 +207,11 @@ describe('core mounts one view at a time', () => {
   it('navigates through panel-level delegation so any future view works', () => {
     expect(RUNTIME).toContain('function bindPanelNavigation(root)');
     expect(RUNTIME).toContain('bindPanelNavigation(panel);');
-    expect(RUNTIME).toContain("target.closest('[data-view-back]')");
-    expect(RUNTIME).toContain("target.closest('[data-view]')");
+    expect(RUNTIME).toContain("trigger(target, '[data-view-back]')");
+    expect(RUNTIME).toContain("trigger(target, '[data-view]')");
+    // A trigger is something INSIDE the root — never the root itself, which
+    // carries `data-view` as a state marker and would otherwise match every
+    // click in the widget and cancel its default.
+    expect(RUNTIME).toContain('el !== root && root.contains(el)');
   });
 });

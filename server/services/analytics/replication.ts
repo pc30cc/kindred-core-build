@@ -42,6 +42,7 @@ import {
   type AnalyticsStoragePool,
   type AnalyticsSyncState,
 } from './pool.js';
+import { isContentUniqueAnalyticsKey } from './schema.js';
 
 const SYNC_DEFAULT_LIMIT = 100;
 const SYNC_MAX_LIMIT = 500;
@@ -185,7 +186,12 @@ export async function syncAnalyticsReplica(
   const errors: string[] = [];
 
   for (const key of batchKeys) {
-    if (existing.has(key)) {
+    // "The replica already has this name" only means "already has this data"
+    // for content-unique keys. A sealed object's key is deterministic, so a
+    // re-seal changes the bytes behind a name the replica still holds — and
+    // skipping it would leave the replica serving pre-erasure data forever.
+    // See isContentUniqueAnalyticsKey in ./schema.ts.
+    if (existing.has(key) && isContentUniqueAnalyticsKey(key)) {
       batch.skipped++;
       continue;
     }

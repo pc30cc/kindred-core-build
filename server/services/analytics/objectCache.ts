@@ -55,7 +55,7 @@ import * as path from 'node:path';
 import type { ServerConfig } from '../../config.js';
 import { downloadWithConfig, listWithConfig, type StorageConfig } from '../storage/index.js';
 import { readAnalyticsPool, resolveAnalyticsTopology } from './pool.js';
-import { analyticsWorkspacePrefix } from './schema.js';
+import { analyticsWorkspacePrefix, isContentUniqueAnalyticsKey } from './schema.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -120,16 +120,11 @@ function keyInRange(key: string, window: ObjectWindow): boolean {
 }
 
 /**
- * Will this key only ever hold these bytes?
- *
- * True for live objects, whose names carry a timestamp and a random
- * suffix. False for sealed objects, whose names are deterministic so that
- * re-sealing replaces rather than duplicates — see this file's header.
+ * Will this key only ever hold these bytes? The rule lives in ./schema.ts
+ * next to the key builders, because the replica sync needs exactly the same
+ * answer and the two drifting apart is how deleted data comes back.
  */
-function isContentUniqueKey(key: string): boolean {
-  const name = key.split('/').pop() ?? '';
-  return name.startsWith('part-');
-}
+const isContentUniqueKey = isContentUniqueAnalyticsKey;
 
 function localPathFor(root: string, provider: string, key: string): string {
   // The object key is already structurally safe (no traversal, no absolute

@@ -15,9 +15,30 @@ WORKDIR /app
 ARG APP_VERSION=unknown
 ENV APP_VERSION=${APP_VERSION}
 
-# Copy and install server dependencies
+# Build-time assertion on the base image. The ZSTD codec the analytics
+# Parquet writer uses landed in Node 22.15; a base-image downgrade would
+# otherwise only surface at the first analytics flush, in production.
+RUN node -e "const [maj,min]=process.versions.node.split('.').map(Number); if (maj<22 || (maj===22 && min<15)) { console.error('Node >= 22.15 required, got '+process.versions.node); process.exit(1); } console.log('node ok: '+process.versions.node)"
+
+# Copy and install server dependencies.
+#
+# `npm ci` when server/package-lock.json is in sync — that is the
+# reproducible path and the one CI and releases should take. The fallback
+# exists because this lockfile is generated against a private registry that
+# not every build environment can reach; a build that cannot use it still
+# produces a working image rather than failing.
+#
+# NOT --omit=dev: the entrypoint below is `npx tsx index.ts`, and tsx is a
+# devDependency.
 COPY server/package.json server/package-lock.json* ./
-RUN npm install
+RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+
+# The embedded query engine is an OPTIONAL dependency: platforms with no
+# prebuilt binary must still produce a bootable image. So this reports
+# rather than fails — but it reports LOUDLY, because a silently engine-less
+# image serves every report from PostgreSQL forever and the only symptom is
+# an "engine not installed" badge nobody is looking at.
+RUN node -e "try { require.resolve('@duckdb/node-api'); console.log('✅ @duckdb/node-api present — the S3 read path is available'); } catch { console.warn('⚠️  @duckdb/node-api NOT installed — Web Analytics S3 reads will be unavailable in this image'); }"
 
 # server/routes/workspaceSmartRules.ts imports these via a relative path
 # (`../../src/lib/widget/smartRules.js`) that assumes the original monorepo

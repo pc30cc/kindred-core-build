@@ -35,6 +35,7 @@
  * percentages get a tolerance, because both sides round independently.
  */
 
+import { createHash } from 'node:crypto';
 import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import { emitLog, emitMetric } from '../../observability/metrics.js';
@@ -58,9 +59,20 @@ export interface ParityDifference {
   expected: boolean;
 }
 
+/**
+ * matched    — both stores agreed on everything compared.
+ * mismatched — a real difference. EXPECTED_DIVERGENCE is empty, so this is
+ *              always a regression.
+ * skipped    — the S3 side could not answer at all (no engine, no primary,
+ *              nothing written for the range). Not a failure of the report.
+ * error      — the comparison itself threw.
+ */
+export type ParityStatus = 'matched' | 'mismatched' | 'skipped' | 'error';
+
 export interface ParityReport {
   report: string;
   ok: boolean;
+  status: ParityStatus;
   differences: ParityDifference[];
   postgresMs: number;
   s3Ms: number;
@@ -297,6 +309,7 @@ export async function runParity(
       const differences = comparison.compare(pg.value as never, shadow.value as never);
       run.reports.push({
         report: comparison.name,
+        status: differences.length === 0 ? 'matched' : 'mismatched',
         ok: differences.every((d) => d.expected),
         differences,
         postgresMs: pg.ms,
@@ -311,7 +324,9 @@ export async function runParity(
         break;
       }
       run.reports.push({
-        report: comparison.name, ok: false, differences: [], postgresMs: 0, s3Ms: 0, error: message,
+        report: comparison.name, ok: false,
+        status: /unavailable|not available|no analytics primary/i.test(message) ? 'skipped' : 'error',
+        differences: [], postgresMs: 0, s3Ms: 0, error: message,
       });
     }
   }
@@ -342,6 +357,59 @@ export async function runParity(
 }
 
 /**
+ * A difference's `field` can be a DIMENSION VALUE — a page path, a city, a
+ * campaign name, an event name. Those belong to the workspace, and the
+ * Super Admin parity panel is not the workspace's own analytics page, so
+ * they are replaced with a short stable digest before the run leaves the
+ * server. The digest is stable across runs, which is what makes a recurring
+ * mismatch recognisable without exposing what it is about.
+ *
+ * Metric fields (`sessions`, `bounceRate`, `step0.sessions`, …) are field
+ * NAMES, not workspace data, and are kept as-is — redacting them would
+ * destroy the only thing that makes a difference diagnosable.
+ */
+const METRIC_FIELD = /^(sessions|pageviews|uniqueVisitors|bounceRate|avgPagesPerSession|avgVisitDurationSeconds|step\d+\.sessions)$/;
+
+export function redactParityField(field: string): string {
+  if (METRIC_FIELD.test(field)) return field;
+  const [prefix, ...rest] = field.split(':');
+  const value = rest.length > 0 ? rest.join(':') : field;
+  const digest = createHash('sha256').update(value).digest('hex').slice(0, 8);
+  return rest.length > 0 ? `${prefix}:#${digest}` : `#${digest}`;
+}
+
+function redactDifferences(differences: ParityDifference[]): ParityDifference[] {
+  return differences.map((d) => ({ ...d, field: redactParityField(d.field) }));
+}
+
+export interface ParitySummary {
+  matched: number;
+  mismatched: number;
+  skipped: number;
+  error: number;
+}
+
+export function paritySummary(run: ParityRun): ParitySummary {
+  const summary: ParitySummary = { matched: 0, mismatched: 0, skipped: 0, error: 0 };
+  for (const report of run.reports) summary[report.status] += 1;
+  return summary;
+}
+
+/**
+ * The run as it may leave the server: dimension values digested, per-report
+ * differences bounded.
+ */
+export function redactParityRun(run: ParityRun): ParityRun {
+  return {
+    ...run,
+    reports: run.reports.map((report) => ({
+      ...report,
+      differences: redactDifferences(report.differences).slice(0, 5),
+    })),
+  };
+}
+
+/**
  * Keep the last run for the admin panel.
  *
  * In `app_runtime_config` — the same generic key/value table the storage
@@ -360,14 +428,17 @@ async function persistParity(config: ServerConfig, run: ParityRun): Promise<void
         regressions: run.regressions,
         expectedDifferences: run.expectedDifferences,
         unavailable: run.unavailable ?? null,
-        reports: run.reports.map((report) => ({
+        summary: paritySummary(run),
+        reports: redactParityRun(run).reports.map((report) => ({
           report: report.report,
           ok: report.ok,
+          status: report.status,
           postgresMs: report.postgresMs,
           s3Ms: report.s3Ms,
           error: report.error ?? null,
-          // Bounded: the panel shows a summary, not a full diff dump.
-          differences: report.differences.slice(0, 5),
+          // Bounded and digested: the panel shows a summary, not a diff dump
+          // of the workspace's own dimension values.
+          differences: report.differences,
         })),
       },
       updated_at: new Date().toISOString(),

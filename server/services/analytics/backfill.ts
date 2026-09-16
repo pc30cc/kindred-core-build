@@ -441,3 +441,102 @@ export async function pendingBackfillDays(
 }
 
 export type { AnalyticsStoragePool };
+
+// ─── Phase 2.5 — production range backfill ───────────────────────
+
+/**
+ * Upper bound on days one call will rebuild.
+ *
+ * Each day is a full read of PostgreSQL for that day plus a Parquet encode
+ * and an upload, so an unbounded range is a request that holds a connection
+ * open for hours and cannot be watched. The caller resumes instead: run,
+ * look at `nextDay`, run again. That is what makes this resumable without a
+ * job table or any new state.
+ */
+export const MAX_BACKFILL_DAYS_PER_CALL = 31;
+
+export interface BackfillRangeReport {
+  workspaceId: string;
+  fromDay: string;
+  toDay: string;
+  /** Days actually attempted in THIS call. */
+  attempted: number;
+  verifiedDays: number;
+  failedDays: string[];
+  sourceRows: number;
+  writtenRows: number;
+  objects: number;
+  bytes: number;
+  replaced: number;
+  /**
+   * Where to resume, or null when the range is finished. Present whenever
+   * the range was longer than one call may do.
+   */
+  nextDay: string | null;
+  days: BackfillDayReport[];
+}
+
+function addDays(day: string, delta: number): string {
+  const ms = Date.parse(`${day}T00:00:00.000Z`) + delta * 86_400_000;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * Rebuild a date range, day by day.
+ *
+ * IDEMPOTENT: each day supersedes its own previous backfill output, so
+ * running the same range twice leaves one canonical set rather than two.
+ * RETRYABLE: a day that fails is recorded in `failedDays` and does not stop
+ * the ones after it — a single unreadable day must not strand a month.
+ * NON-DESTRUCTIVE: nothing is deleted from PostgreSQL, ever. The only
+ * deletions are of analytics objects this importer previously wrote.
+ */
+export async function backfillWorkspaceRange(
+  config: ServerConfig,
+  workspaceId: string,
+  fromDay: string,
+  toDay: string,
+  opts?: { maxDays?: number; supersede?: 'backfill' | 'day' },
+): Promise<{ ok: boolean; error?: string; report?: BackfillRangeReport }> {
+  const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+  if (!DAY_RE.test(fromDay) || !DAY_RE.test(toDay)) {
+    return { ok: false, error: 'fromDay and toDay must be YYYY-MM-DD' };
+  }
+  if (fromDay > toDay) return { ok: false, error: 'toDay must be on or after fromDay' };
+
+  const limit = Math.max(1, Math.min(opts?.maxDays ?? MAX_BACKFILL_DAYS_PER_CALL, MAX_BACKFILL_DAYS_PER_CALL));
+
+  const report: BackfillRangeReport = {
+    workspaceId, fromDay, toDay,
+    attempted: 0, verifiedDays: 0, failedDays: [],
+    sourceRows: 0, writtenRows: 0, objects: 0, bytes: 0, replaced: 0,
+    nextDay: null, days: [],
+  };
+
+  let day = fromDay;
+  while (day <= toDay && report.attempted < limit) {
+    const outcome = await backfillWorkspaceDay(config, workspaceId, day, {
+      supersede: opts?.supersede ?? 'backfill',
+    });
+    report.attempted++;
+
+    if (!outcome.ok || !outcome.report) {
+      report.failedDays.push(day);
+    } else {
+      const d = outcome.report;
+      report.days.push(d);
+      report.sourceRows += d.expected;
+      report.writtenRows += d.rows;
+      report.objects += d.objects.length;
+      report.bytes += d.bytes;
+      report.replaced += d.replaced;
+      if (d.verified) report.verifiedDays++;
+      else report.failedDays.push(day);
+    }
+
+    day = addDays(day, 1);
+  }
+
+  report.nextDay = day <= toDay ? day : null;
+  return { ok: true, report };
+}

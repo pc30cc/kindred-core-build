@@ -27,18 +27,38 @@ import { constants as zlibConstants, zstdCompressSync } from 'node:zlib';
 
 /**
  * ZSTD landed in node:zlib in Node 22.15. On an older runtime the import
- * above resolves to `undefined` and the first flush would die with an
- * opaque "not a function" deep inside page encoding.
+ * above resolves to `undefined` and encoding would die with an opaque "not
+ * a function" deep inside page construction.
  *
- * Checked once, at module load, so the failure is a single legible message
- * naming the requirement instead of one cryptic TypeError per flush.
+ * Checked at ENCODE time, not at module load. Throwing on import would stop
+ * the whole backend booting on Node 20 — including deployments that never
+ * turn Web Analytics storage on, since this module is reachable from
+ * index.ts's ticker imports. An unsupported runtime should cost the feature,
+ * not the process, so the check lives where the feature actually runs and is
+ * surfaced ahead of time by `parquetRuntimeSupport()` for the readiness card.
  */
-if (typeof zstdCompressSync !== 'function') {
-  throw new Error(
-    'analytics_parquet_unsupported_runtime: the Web Analytics Parquet writer compresses with '
-    + `ZSTD via node:zlib, which requires Node >= 22.15 (this process is ${process.version}). `
-    + 'Upgrade the runtime — see the engines field in package.json.',
-  );
+export interface ParquetRuntimeSupport {
+  supported: boolean;
+  nodeVersion: string;
+  reason?: string;
+}
+
+export function parquetRuntimeSupport(): ParquetRuntimeSupport {
+  if (typeof zstdCompressSync === 'function') {
+    return { supported: true, nodeVersion: process.version };
+  }
+  return {
+    supported: false,
+    nodeVersion: process.version,
+    reason: 'the Web Analytics Parquet writer compresses with ZSTD via node:zlib, which requires '
+      + `Node >= 22.15 (this process is ${process.version}). Upgrade the runtime — see the engines `
+      + 'field in package.json and Dockerfile.server.',
+  };
+}
+
+function assertZstd(): void {
+  const support = parquetRuntimeSupport();
+  if (!support.supported) throw new Error(`analytics_parquet_unsupported_runtime: ${support.reason}`);
 }
 
 // ─── Parquet enums (parquet.thrift) ──────────────────────────────
@@ -292,6 +312,7 @@ export function writeParquet(
   rows: Record<string, ParquetValue>[],
   opts?: { createdBy?: string; zstdLevel?: number },
 ): ParquetFile {
+  assertZstd();
   if (columns.length === 0) throw new Error('parquet_write_failed: no columns');
 
   const level = opts?.zstdLevel ?? 3;

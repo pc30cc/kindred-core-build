@@ -32,11 +32,21 @@
 FROM node:22-alpine
 WORKDIR /app
 
+# Build-time assertion on the base image — same reason as Dockerfile.server:
+# a base-image downgrade would otherwise surface at the first analytics
+# flush rather than here.
+RUN node -e "const [maj,min]=process.versions.node.split('.').map(Number); if (maj<22 || (maj===22 && min<15)) { console.error('Node >= 22.15 required, got '+process.versions.node); process.exit(1); } console.log('node ok: '+process.versions.node)"
+
 # Install root deps. `tsx` is a runtime dependency (see package.json) so a
 # normal production install includes it — no devDependencies, no network
 # fetch at container start.
+#
+# --omit=dev keeps optionalDependencies, so @duckdb/node-api is installed
+# here when a prebuilt binary exists for the platform.
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev || npm install --omit=dev
+
+RUN node -e "try { require.resolve('@duckdb/node-api'); console.log('✅ @duckdb/node-api present'); } catch { console.warn('⚠️  @duckdb/node-api NOT installed — Web Analytics S3 reads unavailable in this image'); }"
 
 # Worker code + the small slice of server code it imports.
 COPY worker ./worker

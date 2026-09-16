@@ -18,6 +18,7 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
+import { getServiceClient } from '../supabase.js';
 import {
   ANALYTICS_DEFAULTS, ANALYTICS_LIMITS, ANALYTICS_PRIMARY_ELIGIBLE, ANALYTICS_REPLICA_ELIGIBLE,
   AnalyticsPoolConflictError,
@@ -27,10 +28,18 @@ import {
   type AnalyticsStoragePool,
 } from '../services/analytics/pool.js';
 import { syncAnalyticsReplica, testAnalyticsProvider, verifyAnalyticsObject } from '../services/analytics/replication.js';
-import { backfillWorkspaceDay, pendingBackfillDays } from '../services/analytics/backfill.js';
+import {
+  backfillWorkspaceDay,
+  backfillWorkspaceRange,
+  pendingBackfillDays,
+  MAX_BACKFILL_DAYS_PER_CALL,
+} from '../services/analytics/backfill.js';
 import { bufferedRowCount, flushAnalytics } from '../services/analytics/writer.js';
 import { duckDbAvailability, queryHealth } from '../services/analytics/duckdb.js';
 import { analyticsDurabilityReadiness } from '../services/analytics/writer.js';
+import { cutoverReadiness } from '../services/analytics/readiness.js';
+import type { FunnelStepDefinition } from '../services/webAnalytics/store/types.js';
+import { paritySummary, redactParityRun } from '../services/webAnalytics/store/parity.js';
 import { runSealCycle, unsealDays } from '../services/analytics/sealing.js';
 import {
   officialStore, readParityState, runParity, shadowStore,
@@ -133,10 +142,11 @@ async function serialize(serverConfig: ServerConfig, pool: AnalyticsStoragePool)
     };
   });
 
-  const [topology, engine, parity] = await Promise.all([
+  const [topology, engine, parity, readiness] = await Promise.all([
     resolveAnalyticsTopology(serverConfig, pool),
     duckDbAvailability(),
     readParityState(serverConfig),
+    cutoverReadiness(serverConfig),
   ]);
 
   const queries = queryHealth();
@@ -176,6 +186,25 @@ async function serialize(serverConfig: ServerConfig, pool: AnalyticsStoragePool)
           })),
         }
       : null,
+    /**
+     * Phase 2.5 cutover readiness. Keys only — the panel translates them —
+     * and short non-secret details. Never a credential or an endpoint.
+     */
+    readiness,
+    /** Durable ingestion, reported from a live probe of the spool directory. */
+    durability: (() => {
+      const d = analyticsDurabilityReadiness();
+      return {
+        ready: d.ready,
+        enabled: d.spoolEnabled,
+        reason: d.reason ?? null,
+        segments: d.stats.segments,
+        bytes: d.stats.bytes,
+        replayedRows: d.stats.replayed,
+        droppedForSize: d.stats.droppedForSize,
+        lastError: d.stats.lastError,
+      };
+    })(),
     primary: pool.primary,
     replicas: pool.replicas,
     replicationEnabled: pool.replicationEnabled,
@@ -263,9 +292,18 @@ adminAnalyticsStorageRouter.put('/settings', async (req, res) => {
       });
     }
     if (body.readMode === 's3') {
+      // Phase-locked today. The engine check runs anyway and is reported
+      // alongside, because it is the condition that outlives the lock: a
+      // build with no query engine can never serve reports from S3, and
+      // finding that out at cutover would be the worst possible moment.
+      const engine = await duckDbAvailability();
       return res.status(409).json({
         error: 'Reading reports from S3 is a Phase 3 cutover and is not enabled in this build.',
         reason: 'phase_locked',
+        engine: {
+          available: engine.available,
+          reason: engine.available === false ? engine.reason : null,
+        },
       });
     }
 
@@ -588,6 +626,56 @@ const backfillSchema = z.object({
   day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 }).strict();
 
+const backfillRangeSchema = z.object({
+  workspaceId: z.string().uuid(),
+  fromDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  toDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  maxDays: z.number().int().min(1).max(MAX_BACKFILL_DAYS_PER_CALL).optional(),
+}).strict();
+
+/**
+ * Rebuild a DATE RANGE for one workspace — the production backfill control.
+ *
+ * Bounded per call and resumable: the response carries `nextDay`, and the
+ * caller runs again from there. Idempotent, because each day supersedes its
+ * own previous output. Nothing is ever deleted from PostgreSQL.
+ */
+adminAnalyticsStorageRouter.post('/backfill/range', async (req, res) => {
+  try {
+    const body = backfillRangeSchema.parse(req.body);
+    if (!allowExpensiveCall(`analytics-backfill:${adminId(req) ?? 'unknown'}`)) {
+      return res.status(429).json({ error: 'Too many backfill runs — try again in a minute' });
+    }
+    const result = await backfillWorkspaceRange(
+      ctx(req).serverConfig, body.workspaceId, body.fromDay, body.toDay,
+      { maxDays: body.maxDays },
+    );
+    if (!result.ok) return res.status(400).json({ error: result.error });
+
+    const report = result.report!;
+    res.json({
+      report: {
+        workspaceId: report.workspaceId,
+        fromDay: report.fromDay,
+        toDay: report.toDay,
+        attempted: report.attempted,
+        verifiedDays: report.verifiedDays,
+        failedDays: report.failedDays,
+        sourceRows: report.sourceRows,
+        writtenRows: report.writtenRows,
+        objects: report.objects,
+        bytes: report.bytes,
+        replaced: report.replaced,
+        nextDay: report.nextDay,
+      },
+      maxDaysPerCall: MAX_BACKFILL_DAYS_PER_CALL,
+    });
+  } catch (e) {
+    if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
+    fail(res, e);
+  }
+});
+
 adminAnalyticsStorageRouter.post('/backfill', async (req, res) => {
   try {
     const body = backfillSchema.parse(req.body);
@@ -605,34 +693,109 @@ adminAnalyticsStorageRouter.post('/backfill', async (req, res) => {
 
 // ─── Phase 2 — shadow read / parity ──────────────────────────────
 
+/**
+ * Longest range a single parity run may cover.
+ *
+ * A parity run answers EVERY report twice, once against PostgreSQL (capped
+ * at ROW_CAP) and once against the lake (uncapped, so it fetches every
+ * object in range). An unbounded range is therefore an accidental
+ * full-history scan of object storage triggered by a date picker, which is
+ * exactly the shape of mistake this limit exists to make impossible.
+ */
+const MAX_PARITY_DAYS = 92;
+
 const paritySchema = z.object({
   workspaceId: z.string().uuid(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** Also compare the workspace's configured funnels. Off by default: each is extra queries. */
+  includeFunnels: z.boolean().optional(),
 }).strict();
 
+function daysBetween(startDate: string, endDate: string): number {
+  const start = Date.parse(`${startDate}T00:00:00.000Z`);
+  const end = Date.parse(`${endDate}T00:00:00.000Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return Number.NaN;
+  return Math.floor((end - start) / 86_400_000) + 1;
+}
+
 /**
- * Run a parity comparison on demand.
+ * Load one configured funnel's steps so the production run covers funnels
+ * too. The funnel DEFINITION stays in PostgreSQL (`web_analytics_funnels`);
+ * only the computation is compared.
+ */
+async function firstFunnelSteps(
+  serverConfig: ServerConfig,
+  workspaceId: string,
+): Promise<FunnelStepDefinition[] | null> {
+  try {
+    const sb = getServiceClient(serverConfig);
+    const { data } = await sb
+      .from('web_analytics_funnels')
+      .select('steps')
+      .eq('workspace_id', workspaceId)
+      .limit(1)
+      .maybeSingle();
+    const steps = (data as { steps?: unknown } | null)?.steps;
+    return Array.isArray(steps) && steps.length > 0 ? (steps as FunnelStepDefinition[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Run a parity comparison on demand — the production validation tool.
  *
  * The same reports are answered by both stores and the results compared;
  * PostgreSQL remains the official source throughout, and nothing about this
  * endpoint can change what a workspace's own Web Analytics page returns.
+ *
+ * The response is REDACTED: dimension values (page paths, cities, campaign
+ * and event names) are replaced with stable digests, because this panel
+ * belongs to a platform operator rather than to the workspace whose data it
+ * is comparing. Counts, timings and field names survive, which is what
+ * makes a mismatch diagnosable.
  */
 adminAnalyticsStorageRouter.post('/parity', async (req, res) => {
   try {
     const body = paritySchema.parse(req.body);
+
+    const days = daysBetween(body.startDate, body.endDate);
+    if (!Number.isFinite(days) || days <= 0) {
+      return res.status(400).json({ error: 'endDate must be on or after startDate', reason: 'invalid_range' });
+    }
+    if (days > MAX_PARITY_DAYS) {
+      return res.status(400).json({
+        error: `A parity run covers at most ${MAX_PARITY_DAYS} days; this range is ${days}.`,
+        reason: 'range_too_large',
+        maxDays: MAX_PARITY_DAYS,
+      });
+    }
+
     if (!allowExpensiveCall(`analytics-parity:${adminId(req) ?? 'unknown'}`)) {
       return res.status(429).json({ error: 'Too many parity runs — try again in a minute' });
     }
+
     const serverConfig = ctx(req).serverConfig;
+    const funnelSteps = body.includeFunnels
+      ? await firstFunnelSteps(serverConfig, body.workspaceId)
+      : null;
+
     const run = await runParity(
       serverConfig,
       officialStore(serverConfig),
       shadowStore(serverConfig),
       body.workspaceId,
       { startDate: body.startDate, endDate: body.endDate },
+      funnelSteps ? { funnelSteps } : undefined,
     );
-    res.json({ run });
+
+    res.json({
+      run: redactParityRun(run),
+      summary: paritySummary(run),
+      days,
+      funnelsCompared: !!funnelSteps,
+    });
   } catch (e) {
     if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
     fail(res, e);

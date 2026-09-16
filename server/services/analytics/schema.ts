@@ -355,6 +355,32 @@ export function analyticsObjectKey(prefix: string, workspaceId: string, when: Da
   return `${analyticsDayPrefix(prefix, workspaceId, when)}part-${stamp}-${suffix}.parquet`;
 }
 
+/**
+ * Will this key only ever hold ONE set of bytes?
+ *
+ * Live objects (`part-*`) carry a timestamp and a random suffix, so a name
+ * identifies its content for good. Sealed and backfilled objects
+ * (`backfill-*`) are named DETERMINISTICALLY, precisely so that rebuilding a
+ * day replaces its objects instead of piling up duplicates — which means the
+ * same key legitimately holds different bytes before and after a re-seal.
+ *
+ * Anything that decides "do I already have this?" by NAME must consult this
+ * first. Two places have to, and both did it wrong at some point:
+ *
+ *   - the query object cache (./objectCache.ts) — a cached copy of a
+ *     re-sealed key served pre-erasure data;
+ *   - the replica sync (./replication.ts) — a replica holding a stale copy
+ *     at a key it already had was skipped forever, so an erasure that
+ *     succeeded on the primary never reached the replica, and promoting it
+ *     would have undone the erasure.
+ *
+ * Getting this wrong is not a performance bug. It resurrects deleted data.
+ */
+export function isContentUniqueAnalyticsKey(key: string): boolean {
+  const name = key.split('/').pop() ?? '';
+  return name.startsWith('part-');
+}
+
 /** Everything one workspace owns — the unit a workspace-scoped purge would walk. */
 export function analyticsWorkspacePrefix(prefix: string, workspaceId: string): string {
   return `${prefix}workspace=${workspaceId}/`;

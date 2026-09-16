@@ -97,10 +97,12 @@ export interface RouteOpts {
   statuses?: Record<string, string>;
   /** Delay before the authenticated media fetch resolves. */
   imageDelayMs?: number;
+  /** Per-thread overrides for the row GET /conversations returns. */
+  conversationRows?: Record<string, Record<string, unknown>>;
 }
 
 export async function routeAll(page: Page, opts: RouteOpts) {
-  const { threads, statuses = {}, imageDelayMs = 700 } = opts;
+  const { threads, statuses = {}, imageDelayMs = 700, conversationRows = {} } = opts;
   await page.route('**/*', async (route: Route) => {
     const url = new URL(route.request().url());
     const p = url.pathname;
@@ -134,6 +136,7 @@ export async function routeAll(page: Page, opts: RouteOpts) {
         conversations: Object.keys(threads).map((id) => ({
           id, status: statuses[id] ?? 'open', preview: id, unreadCount: 0,
           updatedAt: new Date().toISOString(), lastMessageAt: new Date().toISOString(),
+          ...(conversationRows[id] ?? {}),
         })),
       });
     }

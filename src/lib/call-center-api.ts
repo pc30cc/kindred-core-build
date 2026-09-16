@@ -194,6 +194,17 @@ export interface CallSession {
   provider: string | null;
   provider_room_id: string | null;
   entry_source: string | null;
+  /**
+   * Present on every route that selects the row with `*` (queue join, call
+   * detail, call list). Optional here because a few projections omit them.
+   */
+  visitor_session_id?: string | null;
+  contact_id?: string | null;
+  assigned_agent_id?: string | null;
+  department_id?: string | null;
+  recording_enabled?: boolean;
+  recording_state?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface CallEvent {
@@ -289,6 +300,18 @@ export interface CallCenterAgentPresence {
   active_call_count: number;
   last_seen_at: string | null;
   updated_at: string;
+  /** Resolved server-side from `profiles` so operator surfaces can label agents. */
+  full_name?: string | null;
+  email?: string | null;
+}
+
+/** A wrap-up note an operator attached to a Call Center call. */
+export interface CallCenterOperatorNote {
+  id: string;
+  note: string;
+  author_id: string;
+  author_name: string | null;
+  created_at: string;
 }
 
 export interface CreateDepartmentPayload {
@@ -705,6 +728,17 @@ export const callCenterApi = {
     jsonFetch<{ ok: boolean; assigned_agent_id: string | null; department_id: string | null }>(
       `/api/call-center/calls/${callId}/transfer?workspaceId=${encodeURIComponent(workspaceId)}`,
       { method: 'POST', body: JSON.stringify(payload) },
+    ),
+
+  // ── Operator wrap-up notes ────────────────────────────────────
+  listCallNotes: (workspaceId: string, callId: string) =>
+    jsonFetch<{ notes: CallCenterOperatorNote[] }>(
+      `/api/call-center/calls/${callId}/notes?workspaceId=${encodeURIComponent(workspaceId)}`,
+    ),
+  addCallNote: (workspaceId: string, callId: string, note: string) =>
+    jsonFetch<{ ok: boolean; note: CallCenterOperatorNote; notes: CallCenterOperatorNote[] }>(
+      `/api/call-center/calls/${callId}/notes?workspaceId=${encodeURIComponent(workspaceId)}`,
+      { method: 'POST', body: JSON.stringify({ note }) },
     ),
 };
 

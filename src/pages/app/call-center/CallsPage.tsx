@@ -13,6 +13,9 @@ import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { RecordingTimeline } from '@/components/recordings/RecordingTimeline';
 import { useTranslation } from '@/i18n';
+import {
+  callEventLabel, callStateLabel, endReasonLabel, recordingStateLabel, recordingTypeLabel,
+} from '@/features/calls/callLabels';
 import { VisitorNetworkCard, VisitorNetworkInline } from '@/features/visitors/VisitorNetworkCard';
 import { useVisitorNetworkBatchBySession } from '@/hooks/useVisitorNetwork';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
@@ -133,11 +136,11 @@ function RecordingPlaybackRow({
           checked={selected}
           disabled={!rec.has_storage}
           onCheckedChange={(v) => onToggleSelected(v === true)}
-          aria-label="Select recording for bulk download"
+          aria-label={t('callCenter.calls.selectRecordingAria')}
           className="h-3.5 w-3.5"
         />
         <span className="font-mono text-muted-foreground">{rec.id.slice(0, 8)}…</span>
-        <span className="text-muted-foreground">{rec.recording_type || '—'}</span>
+        <span className="text-muted-foreground">{recordingTypeLabel(t, rec.recording_type)}</span>
         <span className="text-muted-foreground">·</span>
         <span className="text-muted-foreground">{fmtDuration(rec.duration_seconds)}</span>
         <span className="text-muted-foreground">·</span>
@@ -255,16 +258,19 @@ function RecordingsPanel({ workspaceId, callId }: { workspaceId: string; callId:
       }
       if (failed > 0) {
         toast({
-          title: 'Bulk download finished with errors',
-          description: `${ok} started, ${failed} failed`,
+          title: t('callCenter.calls.bulkPartial'),
+          description: t('callCenter.calls.bulkPartialDesc', { ok, failed }),
           variant: 'destructive',
         });
       } else {
-        toast({ title: 'Bulk download started', description: `${ok} recording(s)` });
+        toast({
+          title: t('callCenter.calls.bulkStarted'),
+          description: t('callCenter.calls.bulkStartedDesc', { count: ok }),
+        });
       }
     } catch (e: any) {
       toast({
-        title: 'Bulk download unavailable',
+        title: t('callCenter.calls.bulkUnavailable'),
         description: e?.message || 'bulk_token_mint_failed',
         variant: 'destructive',
       });
@@ -291,15 +297,18 @@ function RecordingsPanel({ workspaceId, callId }: { workspaceId: string; callId:
       setTimeout(() => URL.revokeObjectURL(href), 1000);
       if (r.excluded > 0) {
         toast({
-          title: 'Archive downloaded with exclusions',
-          description: `${r.included} included, ${r.excluded} excluded (see manifest.txt)`,
+          title: t('callCenter.calls.archivePartial'),
+          description: t('callCenter.calls.archivePartialDesc', { included: r.included, excluded: r.excluded }),
         });
       } else {
-        toast({ title: 'Archive downloaded', description: `${r.included} recording(s)` });
+        toast({
+          title: t('callCenter.calls.archiveDownloaded'),
+          description: t('callCenter.calls.archiveDownloadedDesc', { count: r.included }),
+        });
       }
     } catch (e: any) {
       toast({
-        title: 'Archive export failed',
+        title: t('callCenter.calls.archiveFailed'),
         description: e?.message || 'archive_export_failed',
         variant: 'destructive',
       });
@@ -459,8 +468,8 @@ export default function CallsPage() {
       }
       if (items.length === 0) {
         toast({
-          title: 'No exportable recordings',
-          description: 'Selected calls have no available recording artifacts.',
+          title: t('callCenter.calls.noExportable'),
+          description: t('callCenter.calls.noExportableDesc'),
           variant: 'destructive',
         });
         return;
@@ -475,13 +484,15 @@ export default function CallsPage() {
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(href), 1000);
-      const desc = `${r.included} included across ${r.calls} call(s)` +
-        (r.excluded > 0 ? `, ${r.excluded} excluded (see manifest.txt)` : '') +
-        (truncated ? ` — selection truncated to ${MAX_ITEMS} recordings` : '');
-      toast({ title: 'Workspace archive downloaded', description: desc });
+      const desc = [
+        t('callCenter.calls.workspaceArchiveDesc', { included: r.included, calls: r.calls }),
+        r.excluded > 0 ? t('callCenter.calls.workspaceArchiveExcluded', { excluded: r.excluded }) : null,
+        truncated ? t('callCenter.calls.workspaceArchiveTruncated', { max: MAX_ITEMS }) : null,
+      ].filter(Boolean).join(' · ');
+      toast({ title: t('callCenter.calls.workspaceArchiveDownloaded'), description: desc });
     } catch (e: any) {
       toast({
-        title: 'Archive export failed',
+        title: t('callCenter.calls.archiveFailed'),
         description: e?.message || 'archive_export_failed',
         variant: 'destructive',
       });
@@ -496,13 +507,19 @@ export default function CallsPage() {
         <div className="flex flex-wrap items-center gap-2">
           <div className="text-xs text-muted-foreground me-1">{t('callCenter.calls.statusLabel')}</div>
           {STATUS.map((s) => (
-            <Button key={s} size="sm" variant={status === s ? 'default' : 'outline'} className="h-7 text-xs capitalize" onClick={() => setStatus(s)}>{s}</Button>
+            <Button key={s} size="sm" variant={status === s ? 'default' : 'outline'} className="h-7 text-xs" onClick={() => setStatus(s)}>
+              {s === 'all' ? t('callCenter.calls.filterAll') : callStateLabel(t, s)}
+            </Button>
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="text-xs text-muted-foreground me-1">{t('callCenter.calls.typeLabel')}</div>
           {TYPES.map((s) => (
-            <Button key={s} size="sm" variant={type === s ? 'default' : 'outline'} className="h-7 text-xs capitalize" onClick={() => setType(s)}>{s}</Button>
+            <Button key={s} size="sm" variant={type === s ? 'default' : 'outline'} className="h-7 text-xs" onClick={() => setType(s)}>
+              {s === 'all'
+                ? t('callCenter.calls.filterAll')
+                : s === 'video' ? t('callCenter.calls.typeVideo') : t('callCenter.calls.typeAudio')}
+            </Button>
           ))}
           <div className="relative flex-1 min-w-[200px] ms-auto max-w-sm">
             <Search className="h-3.5 w-3.5 absolute start-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -575,7 +592,7 @@ export default function CallsPage() {
                   <Checkbox
                     checked={pickedCalls.has(c.id)}
                     onCheckedChange={(v) => toggleCallPick(c.id, v === true)}
-                    aria-label="Select call for workspace archive export"
+                    aria-label={t('callCenter.calls.selectCallAria')}
                     className="h-3.5 w-3.5"
                   />
                 </td>
@@ -606,10 +623,10 @@ export default function CallsPage() {
                 <td className="py-2 px-3">
                   <span className="inline-flex items-center gap-1 text-xs">
                     {c.call_type === 'video' ? <Video className="h-3 w-3" /> : <Phone className="h-3 w-3" />}
-                    {c.call_type}
+                    {c.call_type === 'video' ? t('callCenter.calls.typeVideo') : t('callCenter.calls.typeAudio')}
                   </span>
                 </td>
-                <td className="py-2 px-3"><span className={cn('text-xs px-2 py-0.5 rounded-full', stateTone(c.state))}>{c.state}</span></td>
+                <td className="py-2 px-3"><span className={cn('text-xs px-2 py-0.5 rounded-full', stateTone(c.state))}>{callStateLabel(t, c.state)}</span></td>
                 <td className="py-2 px-3">{fmtDuration(c.duration_seconds)}</td>
                 <td className="py-2 px-3">
                   {(c as any).rating ? (
@@ -639,14 +656,16 @@ export default function CallsPage() {
               <div className="space-y-2">
                 <div className="text-sm font-semibold">{detail.call.visitor_name || detail.call.visitor_email || t('callCenter.common.anonymous')}</div>
                 <div className="flex flex-wrap gap-2">
-                  <span className={cn('text-xs px-2 py-0.5 rounded-full', stateTone(detail.call.state))}>{detail.call.state}</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-muted">{detail.call.call_type}</span>
+                  <span className={cn('text-xs px-2 py-0.5 rounded-full', stateTone(detail.call.state))}>{callStateLabel(t, detail.call.state)}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-muted">
+                    {detail.call.call_type === 'video' ? t('callCenter.calls.typeVideo') : t('callCenter.calls.typeAudio')}
+                  </span>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div><div className="text-xs text-muted-foreground">{t('callCenter.calls.subject')}</div>{detail.call.subject || '—'}</div>
                 <div><div className="text-xs text-muted-foreground">{t('callCenter.calls.headers.duration')}</div>{fmtDuration(detail.call.duration_seconds)}</div>
-                <div><div className="text-xs text-muted-foreground">{t('callCenter.calls.endReason')}</div>{detail.call.end_reason || '—'}</div>
+                <div><div className="text-xs text-muted-foreground">{t('callCenter.calls.endReason')}</div>{detail.call.end_reason ? endReasonLabel(t, detail.call.end_reason) : '—'}</div>
               </div>
               {detail.call.page_url && (
                 <div className="text-sm"><div className="text-xs text-muted-foreground">{t('callCenter.calls.headers.page')}</div><a href={detail.call.page_url} target="_blank" rel="noreferrer" className="underline truncate block">{detail.call.page_title || detail.call.page_url}</a></div>
@@ -672,7 +691,7 @@ export default function CallsPage() {
                     <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('callCenter.calls.recordingTitle')}</div>
                     {rec ? (
                       <div className="text-xs grid grid-cols-2 gap-x-3 gap-y-1">
-                        <span className="text-muted-foreground">{t('callCenter.calls.state')}</span><span>{state}</span>
+                        <span className="text-muted-foreground">{t('callCenter.calls.state')}</span><span>{recordingStateLabel(t, state)}</span>
                         <span className="text-muted-foreground">{t('callCenter.calls.consent')}</span><span>{consent ? t('callCenter.calls.yes') : t('callCenter.calls.no')}</span>
                         <span className="text-muted-foreground">{t('callCenter.calls.consentAt')}</span><span>{consentAt}</span>
                         {artifactMasked && (<><span className="text-muted-foreground">{t('callCenter.calls.artifact')}</span><span className="font-mono">{artifactMasked}</span></>)}
@@ -731,7 +750,7 @@ export default function CallsPage() {
                   {detail.events.map((e) => (
                     <li key={e.id} className="flex gap-2">
                       <span className="text-muted-foreground shrink-0">{new Date(e.created_at).toLocaleTimeString()}</span>
-                      <span>{e.event_type}</span>
+                      <span>{callEventLabel(t, e.event_type)}</span>
                     </li>
                   ))}
                 </ol>

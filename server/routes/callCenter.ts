@@ -6,6 +6,7 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import {
@@ -660,6 +661,69 @@ async function transitionCall(
   return updated;
 }
 
+/**
+ * Start recording automatically when the operator answers.
+ *
+ * The workspace "Recording enabled" switch is documented as *"eligible calls
+ * are recorded once consent has been satisfied"* — before this, nothing acted
+ * on that promise: recording only ever began when an operator remembered to
+ * press the button, so a workspace with recording switched on still ended up
+ * with no recordings. This closes that gap the way a real call centre behaves:
+ * recording follows the policy, and the toolbar button becomes a stop/restart
+ * override rather than the only way to start.
+ *
+ * Deliberately best-effort and non-blocking:
+ *   - Every gate (platform / plan / workspace / provider / consent /
+ *     entitlement ceilings) is re-checked inside startCallCenterRecording,
+ *     which fails closed. We pre-check the cheap ones so a workspace with
+ *     recording off never pays for the entitlement RPCs.
+ *   - It runs AFTER the accept response is written, so answering a call is
+ *     never slowed down or failed by the recorder.
+ *   - Only a clean `disabled` state auto-starts. A `failed` state is left
+ *     alone so a broken egress config cannot turn every answer into a retry
+ *     storm — the operator restarts it deliberately from the toolbar.
+ */
+async function autoStartRecordingOnAccept(
+  config: ServerConfig,
+  workspaceId: string,
+  callId: string,
+  actorUserId: string,
+): Promise<void> {
+  try {
+    const sb = getServiceClient(config);
+    const { data: row } = await sb
+      .from('call_sessions')
+      .select('recording_state, metadata')
+      .eq('id', callId)
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+    if (!row) return;
+    if (String(row.recording_state || 'disabled') !== 'disabled') return;
+
+    const platform = await getPlatformCallCenterSettings(config);
+    if (!platform.call_recording_enabled) return;
+    const ws = await getOrCreateWorkspaceSettings(config, workspaceId);
+    if (!ws.recording_enabled) return;
+    if (ws.recording_consent_required) {
+      const meta = (row.metadata || {}) as Record<string, unknown>;
+      const rec = (meta.recording as Record<string, unknown>) || {};
+      if (!rec.consent_given) return;
+    }
+
+    await startCallCenterRecording(config, {
+      workspaceId,
+      callId,
+      actorUserId,
+      recordingType: 'composite',
+    });
+  } catch {
+    // startCallCenterRecording already persists `recording_state: 'failed'`
+    // and logs a `recording_failed` call event on the way out, so the
+    // operator sees the reason in the console's recording strip. Nothing
+    // here may surface to the accept response — it has already been sent.
+  }
+}
+
 callCenterRouter.post('/calls/:id/accept', async (req, res) => {
   const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
   const ctx = await requireCallOperator(req, res, wid);
@@ -780,6 +844,11 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
       idempotent: wasAlreadyActiveForMe,
       takeover: decision.isTakeover,
     });
+
+    // Fire-and-forget: the response is already written, and the helper
+    // swallows everything. A takeover re-entering an already-recording call
+    // is a no-op because the state is no longer `disabled`.
+    void autoStartRecordingOnAccept(ctx.config, wid, req.params.id, ctx.userId);
   } catch (e) {
     if (sendOwnershipError(res, e)) return;
     res.status(500).json({ error: 'accept_failed', message: e instanceof Error ? e.message : String(e) });
@@ -1994,7 +2063,29 @@ callCenterRouter.get('/agents/presence', async (req, res) => {
   if (!ctx) return;
   try {
     const presence = await getAgentPresence(ctx.config, wid);
-    res.json({ presence });
+    // Operator surfaces (transfer picker, wallboard) need a human label for
+    // each agent. Presence rows only carry user_id, so resolve display names
+    // in ONE batched read — never one request per agent.
+    const ids = Array.from(
+      new Set((presence as Array<{ user_id?: string }>).map((p) => p?.user_id).filter(Boolean) as string[]),
+    );
+    const names = new Map<string, { name: string | null; email: string | null }>();
+    if (ids.length > 0) {
+      const sb = getServiceClient(ctx.config);
+      const { data: profiles } = await sb
+        .from('profiles')
+        .select('id, full_name, email')
+        .in('id', ids);
+      for (const p of profiles || []) {
+        names.set(p.id, { name: p.full_name ?? null, email: p.email ?? null });
+      }
+    }
+    res.json({
+      presence: (presence as Array<Record<string, unknown>>).map((p) => {
+        const label = names.get(String(p.user_id));
+        return { ...p, full_name: label?.name ?? null, email: label?.email ?? null };
+      }),
+    });
   } catch (e) {
     res.status(500).json({ error: 'list_failed', message: e instanceof Error ? e.message : String(e) });
   }
@@ -2015,6 +2106,140 @@ callCenterRouter.put('/agents/me/presence', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: 'update_failed', message: e instanceof Error ? e.message : String(e) });
   }
+});
+
+// ── Operator call notes ───────────────────────────────────────────────────
+//
+// Wrap-up notes an operator writes about a Call Center call. Stored on the
+// call's own `metadata.operator_notes[]` (no schema migration needed) and
+// mirrored into `call_events` so the timeline shows when a note was added.
+//
+// STRICT:
+//   - Standalone Call Center only (entry_source = 'call_widget') — never
+//     touches chat-call sessions.
+//   - Notes are internal: the visitor-facing widget never reads metadata.
+//   - The event payload carries only the note id + author, never the body,
+//     so timeline fan-out cannot leak note text.
+const OPERATOR_NOTE_MAX = 2000;
+const OPERATOR_NOTES_MAX_PER_CALL = 100;
+
+interface OperatorNote {
+  id: string;
+  note: string;
+  author_id: string;
+  author_name: string | null;
+  created_at: string;
+}
+
+const callNoteSchema = z.object({
+  note: z.string().trim().min(1).max(OPERATOR_NOTE_MAX),
+});
+
+function readOperatorNotes(metadata: unknown): OperatorNote[] {
+  const m = (metadata || {}) as Record<string, unknown>;
+  const raw = m.operator_notes;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((n): n is OperatorNote =>
+    !!n && typeof n === 'object'
+    && typeof (n as OperatorNote).id === 'string'
+    && typeof (n as OperatorNote).note === 'string');
+}
+
+callCenterRouter.get('/calls/:id/notes', async (req, res) => {
+  const wid = String(req.query.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireMember(req, res, wid);
+  if (!ctx) return;
+  const sb = getServiceClient(ctx.config);
+  const { data: call } = await sb
+    .from('call_sessions')
+    .select('id, entry_source, metadata')
+    .eq('id', req.params.id)
+    .eq('workspace_id', wid)
+    .maybeSingle();
+  if (!call) return res.status(404).json({ error: 'not_found' });
+  if (call.entry_source !== 'call_widget') return res.status(403).json({ error: 'wrong_entry_source' });
+  res.json({ notes: readOperatorNotes(call.metadata) });
+});
+
+callCenterRouter.post('/calls/:id/notes', async (req, res) => {
+  const wid = String(req.query.workspaceId || req.body?.workspaceId || '');
+  if (!wid) return res.status(400).json({ error: 'workspaceId_required' });
+  const ctx = await requireCallOperator(req, res, wid);
+  if (!ctx) return;
+  const parsed = callNoteSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'invalid_body', details: parsed.error.flatten() });
+
+  const sb = getServiceClient(ctx.config);
+  const { data: profile } = await sb
+    .from('profiles')
+    .select('full_name, email')
+    .eq('id', ctx.userId)
+    .maybeSingle();
+
+  const note: OperatorNote = {
+    id: randomUUID(),
+    note: parsed.data.note,
+    author_id: ctx.userId,
+    author_name: profile?.full_name || profile?.email || null,
+    created_at: new Date().toISOString(),
+  };
+
+  // `metadata` is a single jsonb column shared with the recording pipeline
+  // (`recordingControl.ts#patchRecordingMeta`), which now also writes at
+  // accept time because recording auto-starts. A plain read-modify-write
+  // would let whichever write landed second silently drop the other key —
+  // a saved note vanishing, or worse, `recording.recording_id` being lost
+  // while Egress is still running. `trg_call_sessions_updated_at` bumps
+  // `updated_at` on every UPDATE, so it is a usable version stamp:
+  // compare-and-set on it and re-read on a lost race.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const { data: call } = await sb
+      .from('call_sessions')
+      .select('id, entry_source, metadata, updated_at')
+      .eq('id', req.params.id)
+      .eq('workspace_id', wid)
+      .maybeSingle();
+    if (!call) return res.status(404).json({ error: 'not_found' });
+    if (call.entry_source !== 'call_widget') return res.status(403).json({ error: 'wrong_entry_source' });
+
+    const existing = readOperatorNotes(call.metadata);
+    if (existing.length >= OPERATOR_NOTES_MAX_PER_CALL) {
+      return res.status(409).json({ error: 'note_limit_reached' });
+    }
+    const notes = [...existing, note];
+    const metadata = { ...((call.metadata || {}) as Record<string, unknown>), operator_notes: notes };
+
+    const { data: updated, error } = await sb
+      .from('call_sessions')
+      .update({ metadata })
+      .eq('id', req.params.id)
+      .eq('workspace_id', wid)
+      .eq('updated_at', call.updated_at)
+      .select('id')
+      .maybeSingle();
+    if (error) {
+      return res.status(500).json({ error: 'note_save_failed', message: error.message });
+    }
+    // No row matched — another writer touched `metadata` between the read
+    // and the write. Re-read and merge onto the newer value.
+    if (!updated) continue;
+
+    // Timeline marker only — the note body stays in metadata.
+    try {
+      await sb.from('call_events').insert({
+        call_session_id: req.params.id,
+        event_type: 'operator_note_added',
+        actor_type: 'operator',
+        actor_id: ctx.userId,
+        payload: { note_id: note.id, author_name: note.author_name },
+      });
+    } catch { /* best-effort: the note itself is already persisted */ }
+
+    return res.json({ ok: true, note, notes });
+  }
+
+  return res.status(409).json({ error: 'note_write_conflict' });
 });
 
 // ── Assignment + transfer ─────────────────────────────────────────────────

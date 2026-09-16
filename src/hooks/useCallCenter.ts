@@ -197,3 +197,25 @@ export function useTransferCall(workspaceId?: string | null) {
     },
   });
 }
+
+// ── Operator wrap-up notes ──────────────────────────────────────
+export function useCallCenterCallNotes(workspaceId?: string | null, callId?: string | null) {
+  return useQuery({
+    queryKey: ['call-center', 'call-notes', workspaceId, callId],
+    enabled: !!workspaceId && !!callId,
+    queryFn: () => callCenterApi.listCallNotes(workspaceId!, callId!),
+    staleTime: 10_000,
+  });
+}
+export function useAddCallNote(workspaceId?: string | null, callId?: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (note: string) => callCenterApi.addCallNote(workspaceId!, callId!, note),
+    onSuccess: (r) => {
+      // Seed the cache from the response so the note appears without a refetch,
+      // then refresh the call detail so the timeline picks up the new event.
+      qc.setQueryData(['call-center', 'call-notes', workspaceId, callId], { notes: r.notes });
+      qc.invalidateQueries({ queryKey: ['call-center', 'call', workspaceId, callId] });
+    },
+  });
+}

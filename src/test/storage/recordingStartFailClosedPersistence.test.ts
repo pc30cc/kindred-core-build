@@ -60,8 +60,17 @@ function callSessionRow(): Record<string, unknown> {
     state: 'active',
     entry_source: 'call_widget',
     recording_state: 'available',
+    // patchRecordingMeta() now compare-and-sets on `updated_at` so a
+    // concurrent writer (operator wrap-up notes share this `metadata`
+    // column) cannot silently drop `recording_id`. The mock therefore has
+    // to carry the version stamp and bump it on every accepted write,
+    // exactly like `trg_call_sessions_updated_at` does.
+    updated_at: '2026-01-01T00:00:00.000Z',
   };
 }
+
+/** Monotonic counter backing the mocked `updated_at` bump. */
+let writeSeq = 0;
 
 const JOB_ID = '99999999-9999-9999-9999-999999999999';
 function baseWorkspaceDeletionJob(): Record<string, unknown> {
@@ -136,28 +145,43 @@ vi.mock('../../../server/supabase.js', () => ({
             };
             return chain;
           },
-          update: (patch: Record<string, unknown>) => ({
-            eq: () => {
+          update: (patch: Record<string, unknown>) => {
+            const filters: Array<(r: Record<string, unknown>) => boolean> = [];
+            // One place decides the outcome, so a caller that ends its
+            // chain on `.eq()` (the legacy shape) and one that ends on
+            // `.select().maybeSingle()` (the compare-and-set shape) see
+            // exactly the same result and the same injected error.
+            const apply = (): { data: { id: unknown } | null; error: DbErr | null } => {
+              // A filter that does not match is a LOST RACE, not an error:
+              // real PostgREST returns zero rows with error === null.
+              if (!filters.every((f) => f(sessionRow))) return { data: null, error: null };
               if (patch.recording_state === 'pending') {
-                if (dbState.onStartingError) return Promise.resolve({ data: null, error: dbState.onStartingError });
-                Object.assign(sessionRow, patch);
-                return Promise.resolve({ data: null, error: null });
-              }
-              // Both flows' phase-2 write sets recording_state to
-              // 'recording' (chat-call) or includes recording_enabled
-              // (Call Center's persistRecordingStart's topLevel patch).
-              if (patch.recording_state === 'recording' || 'recording_enabled' in patch) {
-                if (dbState.onStartedError) return Promise.resolve({ data: null, error: dbState.onStartedError });
-                Object.assign(sessionRow, patch);
-                return Promise.resolve({ data: null, error: null });
+                if (dbState.onStartingError) return { data: null, error: dbState.onStartingError };
+              } else if (patch.recording_state === 'recording' || 'recording_enabled' in patch) {
+                // Both flows' phase-2 write sets recording_state to
+                // 'recording' (chat-call) or includes recording_enabled
+                // (Call Center's persistRecordingStart's topLevel patch).
+                if (dbState.onStartedError) return { data: null, error: dbState.onStartedError };
               }
               // Any other write (a 'failed' cleanup mark, or a
               // quiesceLiveKitEgress() reconciliation write) always
               // succeeds and is actually persisted.
               Object.assign(sessionRow, patch);
-              return Promise.resolve({ data: null, error: null });
-            },
-          }),
+              sessionRow.updated_at = `2026-01-01T00:00:${String(++writeSeq).padStart(2, '0')}.000Z`;
+              return { data: { id: sessionRow.id }, error: null };
+            };
+            const chain = {
+              eq: (col: string, val: unknown) => { filters.push((r) => r[col] === val); return chain; },
+              select: () => ({
+                maybeSingle: async () => apply(),
+              }),
+              then: (resolve: (v: { data: unknown; error: DbErr | null }) => void) => {
+                const r = apply();
+                resolve({ data: null, error: r.error });
+              },
+            };
+            return chain;
+          },
         };
       }
       if (table === 'workspace_deletion_jobs') {

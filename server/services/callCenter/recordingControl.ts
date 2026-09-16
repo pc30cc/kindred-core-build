@@ -140,19 +140,37 @@ async function patchRecordingMeta(
   topLevel: Record<string, unknown> = {},
 ): Promise<void> {
   const sb = getServiceClient(config);
-  const prev = await mustDb(
-    await sb.from('call_sessions').select('metadata').eq('id', callId).maybeSingle(),
-    'call_sessions.select:patchRecordingMeta',
-  );
-  const meta = (prev?.metadata as Record<string, unknown>) || {};
-  const recording = { ...((meta.recording as Record<string, unknown>) || {}), ...patch };
-  await mustDb(
-    await sb
-      .from('call_sessions')
-      .update({ ...topLevel, metadata: { ...meta, recording } })
-      .eq('id', callId),
-    'call_sessions.update:patchRecordingMeta',
-  );
+  // `metadata` is one jsonb column shared with the operator wrap-up notes
+  // (`routes/callCenter.ts` POST /calls/:id/notes). A plain
+  // read-modify-write would let whichever UPDATE landed second drop the
+  // other writer's key — losing a note, or losing `recording_id` while
+  // Egress is still running, which is exactly the stranded-state the
+  // two-phase design above exists to prevent. `trg_call_sessions_updated_at`
+  // bumps `updated_at` on every UPDATE, so it doubles as a version stamp:
+  // compare-and-set on it, and re-read + re-merge when another writer won.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const prev = await mustDb(
+      await sb.from('call_sessions').select('metadata, updated_at').eq('id', callId).maybeSingle(),
+      'call_sessions.select:patchRecordingMeta',
+    );
+    const meta = (prev?.metadata as Record<string, unknown>) || {};
+    const recording = { ...((meta.recording as Record<string, unknown>) || {}), ...patch };
+    const updated = await mustDb(
+      await sb
+        .from('call_sessions')
+        .update({ ...topLevel, metadata: { ...meta, recording } })
+        .eq('id', callId)
+        .eq('updated_at', (prev as { updated_at?: string } | null)?.updated_at ?? '')
+        .select('id')
+        .maybeSingle(),
+      'call_sessions.update:patchRecordingMeta',
+    );
+    if (updated) return;
+  }
+  // Exhausting the retries is a genuine persistence failure and must
+  // propagate exactly like a thrown `.error` always has — callers depend on
+  // that to run their compensating StopEgress / 'failed' marker paths.
+  throw new Error('call_sessions.update:patchRecordingMeta:write_conflict');
 }
 
 async function logEvent(

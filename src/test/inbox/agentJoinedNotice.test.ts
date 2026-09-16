@@ -40,21 +40,21 @@ describe('a conversation nobody held is JOINED, not transferred', () => {
     expect(ROUTING).toContain("kind: 'routing_agent_joined'");
   });
 
-  it('lets the visitor see a join, unlike an internal staffing move', () => {
+  it('lets the visitor see a join', () => {
     const block = noticeBlock();
     const joinMeta = block.slice(block.indexOf('? {'), block.indexOf(': {'));
-    // `internal: true` is what the widget filters out of /poll and /history.
-    expect(joinMeta).not.toContain('internal: true');
-    // A real transfer stays internal.
+    // `internal: true` is what /poll and /history filter out — see
+    // staffingNoticeVisibility.test.ts for who is told what, and why only
+    // being UNASSIGNED stays inbox-only now.
+    expect(joinMeta).not.toContain('internal');
     const transferMeta = block.slice(block.indexOf(': {'));
-    expect(transferMeta).toContain('internal: true');
     expect(transferMeta).toContain("kind: parsed.data.assigned_to ? 'conversation_transferred' : 'conversation_unassigned'");
   });
 
-  it('pushes the join to the widget in real time', () => {
+  it('pushes it to the widget in real time', () => {
     // Otherwise the visitor only learns who joined on their next reload.
     const block = noticeBlock();
-    expect(block).toContain('if (isJoin && noticeRow) {');
+    expect(block).toContain('if (noticeRow && (isJoin || !!parsed.data.assigned_to)) {');
     expect(block).toContain('publishConversationEvent(');
     expect(block).toContain('buildMessageEnvelope({');
   });

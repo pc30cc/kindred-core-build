@@ -813,7 +813,12 @@ conversationsRouter.patch('/:id', async (req, res) => {
             }
             : {
               kind: parsed.data.assigned_to ? 'conversation_transferred' : 'conversation_unassigned',
-              internal: true,
+              // A transfer is news for the visitor too — the next operator
+              // arriving is who they will be talking to, and the widget
+              // renders it as a join naming `to_name`. Being unassigned is
+              // not: "nobody is handling you right now" helps no one, so it
+              // stays inbox-only (see isInternalMessage in routes/widget.ts).
+              internal: !parsed.data.assigned_to,
               actor_id: auth.userId,
               actor_name: actorName,
               from_id: before.assigned_to,
@@ -829,7 +834,9 @@ conversationsRouter.patch('/:id', async (req, res) => {
           }).select('id, conversation_id, sender_type, body, created_at, metadata, seen_at').single();
           // A join is for the visitor to see, so it has to reach the widget
           // in real time rather than waiting for a reload.
-          if (isJoin && noticeRow) {
+          // Both a join and a transfer are visitor-facing, so both have to
+          // reach the widget in real time rather than waiting for a reload.
+          if (noticeRow && (isJoin || !!parsed.data.assigned_to)) {
             void publishConversationEvent(
               config, parsed.data.workspace_id, conversationId,
               buildMessageEnvelope({

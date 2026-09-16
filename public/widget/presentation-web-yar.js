@@ -346,8 +346,12 @@
       var meta = msg.metadata || {};
       var kind = meta.kind;
       var text;
+      // A transfer between operators is an internal staffing move on the
+      // inbox side, but from here it is simply the next person arriving —
+      // so it reads as a join, naming whoever now holds the conversation.
+      if (kind === 'conversation_transferred') kind = 'routing_agent_joined';
       if (kind === 'routing_agent_joined') {
-        var name = meta.agent_name ? String(meta.agent_name) : '';
+        var name = String(meta.agent_name || meta.to_name || '');
         var raw = t('routingAgentJoined');
         text = (raw && raw !== 'routingAgentJoined' && name)
           ? String(raw).replace('{name}', name)
@@ -594,6 +598,7 @@
         }
         if (m.senderType === 'system' && m.metadata
             && (m.metadata.kind === 'routing_agent_joined'
+              || m.metadata.kind === 'conversation_transferred'
               || m.metadata.kind === 'routing_no_agent_available'
               || m.metadata.kind === 'routing_in_queue')) {
           html += renderRoutingOutcomeRow(m); return;

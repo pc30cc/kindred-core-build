@@ -37,9 +37,27 @@ import {
   deriveOtpCode,
   hasOtpKey,
 } from './tokens.js';
+import { IdleBackoff, IntervalGate } from '../jobs/idleBackoff.js';
 
 const WORKER_ID = `invitations-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 const POLL_MS = 5_000;
+/**
+ * How far the 5s poll may stretch once the queue has been empty for several
+ * consecutive cycles. A fixed 5s tick cost ~17,280 claim round trips per
+ * replica per day against a queue that is empty essentially always; the first
+ * empty poll still waits POLL_MS, so a busy queue is unaffected.
+ */
+const MAX_IDLE_POLL_MS = 60_000;
+/**
+ * Cadence for the lease reaper and the invitation TTL sweep. These ran on
+ * EVERY 5s tick — 34,439 reclaim_expired_invitation_jobs and 34,413
+ * expire_invitations_v2 calls a day, both of them writes, almost all of them
+ * finding nothing. They are recovery and expiry sweeps, not latency-critical
+ * work: a lease abandoned by a crashed worker is now reclaimed within a
+ * minute rather than within five seconds, and an invitation expires within a
+ * minute of its deadline rather than within five seconds.
+ */
+const MAINTENANCE_SWEEP_MS = 60_000;
 const LEASE_SECONDS = 120;
 const BATCH = 5;
 const MAX_BATCHES_PER_TICK = 20;
@@ -62,9 +80,13 @@ export type InvitationWorkerPhase = 'stopped' | 'running' | 'draining';
 let timer: NodeJS.Timeout | null = null;
 let running = false;
 let phase: InvitationWorkerPhase = 'stopped';
-let activeDrain: Promise<void> | null = null;
+let activeDrain: Promise<unknown> | null = null;
 let signalsInstalled = false;
 let shuttingDown = false;
+/** Slow cadence for the reaper/TTL sweeps; see MAINTENANCE_SWEEP_MS. */
+let maintenanceGate = new IntervalGate(MAINTENANCE_SWEEP_MS);
+/** Poll cadence: POLL_MS while there is work, stretching while there is not. */
+let pollBackoff = new IdleBackoff({ busyMs: POLL_MS, idleMs: POLL_MS, maxIdleMs: MAX_IDLE_POLL_MS });
 
 /**
  * New claims are refused as soon as shutdown starts. A direct
@@ -394,14 +416,24 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
  * already claimed (their provider submission and completion write are never
  * aborted) but claims NOTHING new.
  */
-export async function drainInvitationJobs(config: ServerConfig): Promise<void> {
+export async function drainInvitationJobs(
+  config: ServerConfig,
+  opts: { runMaintenance?: boolean } = {},
+): Promise<boolean> {
   const sb = getServiceClient(config);
 
-  await sb.rpc('reclaim_expired_invitation_jobs');
-  await sb.rpc('expire_invitations_v2', { _limit: 200 });
+  // Defaults to true so every direct caller — the integration suites in
+  // particular, which drive a full pass by hand and depend on the sweeps
+  // having run — keeps the exact behaviour it had. Only the periodic timer
+  // loop below opts out, and only between its own slower sweep cadence.
+  if (opts.runMaintenance !== false) {
+    await sb.rpc('reclaim_expired_invitation_jobs');
+    await sb.rpc('expire_invitations_v2', { _limit: 200 });
+  }
 
   const deadline = Date.now() + TICK_BUDGET_MS;
   let batches = 0;
+  let claimed = 0;
 
   async function claimAndRun(channels: string[]): Promise<number> {
     if (!acceptingClaims()) return 0; // draining: never claim new work
@@ -440,30 +472,37 @@ export async function drainInvitationJobs(config: ServerConfig): Promise<void> {
   // never unbounded.
   while (batches < MAX_BATCHES_PER_TICK && Date.now() < deadline) {
     const otp = await claimAndRun(['otp_email']);
+    claimed += otp;
     if (otp > 0) batches += 1;
 
     if (batches >= MAX_BATCHES_PER_TICK || Date.now() >= deadline) break;
 
     const normal = await claimAndRun(['email', 'sms']);
+    claimed += normal;
     if (normal > 0) batches += 1;
 
     if (otp === 0 && normal === 0) break; // nothing due: stop this tick
   }
+
+  return claimed > 0;
 }
 
-async function tick(config: ServerConfig): Promise<void> {
-  if (running || !acceptingClaims() || phase !== 'running') return;
+async function tick(config: ServerConfig): Promise<boolean> {
+  if (running || !acceptingClaims() || phase !== 'running') return false;
   running = true;
   const pass = (async () => {
     try {
-      await drainInvitationJobs(config);
+      return await drainInvitationJobs(config, { runMaintenance: maintenanceGate.due() });
     } catch (err: any) {
       console.warn('[invitationWorker] tick failed:', err?.message || err);
+      // Treated as idle by the caller, so a database that is down is polled
+      // progressively less often instead of every 5s for the whole outage.
+      return false;
     }
   })();
   activeDrain = pass;
   try {
-    await pass;
+    return await pass;
   } finally {
     running = false;
     if (activeDrain === pass) activeDrain = null;
@@ -487,13 +526,43 @@ export function getInvitationWorkerStatus(): {
   };
 }
 
+/**
+ * Self-rescheduling poll loop.
+ *
+ * setInterval cannot express "wait longer when there is nothing to do", since
+ * its period is fixed at arm time. A setTimeout that re-arms itself after
+ * each pass can, and it also removes a second hazard setInterval has here:
+ * setInterval keeps firing while a pass is still running, so a slow drain
+ * would queue up ticks behind itself. Re-arming only once a pass has finished
+ * makes overlap structurally impossible.
+ */
+function scheduleNextPoll(config: ServerConfig, delayMs: number): void {
+  // stopInvitationWorker() flips the phase and nulls the timer; anything
+  // already in flight must not resurrect the loop behind it.
+  if (phase !== 'running') return;
+  timer = setTimeout(() => { void pump(config); }, delayMs);
+  if (typeof timer.unref === 'function') timer.unref();
+}
+
+async function pump(config: ServerConfig): Promise<void> {
+  let worked = false;
+  try {
+    worked = await tick(config);
+  } finally {
+    scheduleNextPoll(config, pollBackoff.next(worked));
+  }
+}
+
 /** Idempotent. A second call while running is a no-op. */
 export function startInvitationWorker(config: ServerConfig): void {
   if (timer) return;
   shuttingDown = false;
   phase = 'running';
-  timer = setInterval(() => { void tick(config); }, POLL_MS);
-  if (typeof timer.unref === 'function') timer.unref();
+  // Fresh cadence on every start: a restarted worker must not inherit the
+  // backed-off interval of the run before it, and must sweep once up front.
+  pollBackoff = new IdleBackoff({ busyMs: POLL_MS, idleMs: POLL_MS, maxIdleMs: MAX_IDLE_POLL_MS });
+  maintenanceGate = new IntervalGate(MAINTENANCE_SWEEP_MS);
+  scheduleNextPoll(config, POLL_MS);
   installSignalHandlers();
   console.log(`[invitationWorker] started (${WORKER_ID})`);
 }
@@ -504,7 +573,7 @@ export function startInvitationWorker(config: ServerConfig): void {
  * `shutdownInvitationWorker()` when you need to await it.
  */
 export function stopInvitationWorker(): void {
-  if (timer) clearInterval(timer);
+  if (timer) clearTimeout(timer);
   timer = null;
   shuttingDown = true;
   phase = activeDrain ? 'draining' : 'stopped';

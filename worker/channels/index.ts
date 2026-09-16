@@ -28,6 +28,7 @@ import {
   recordAttempt,
   type ChannelJob,
 } from '../../server/services/channels/jobs.js';
+import { IdleBackoff } from '../../server/services/jobs/idleBackoff.js';
 import { decryptPluginSecret } from '../../server/lib/pluginCrypto.js';
 import {
   TelegramApiError,
@@ -64,6 +65,12 @@ import {
 
 const WORKER_ID = `channels-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 const POLL_INTERVAL_MS = parseInt(process.env.CHANNELS_POLL_INTERVAL_MS || '1500', 10);
+// Ceiling for the idle backoff below. POLL_INTERVAL_MS stays the cadence for
+// a queue that is working and for the first empty poll after it drains; this
+// is only how far the interval is allowed to stretch once the queue has been
+// empty for several cycles in a row. It bounds worst-case pickup latency for
+// a job enqueued by another replica.
+const MAX_IDLE_POLL_MS = parseInt(process.env.CHANNELS_MAX_IDLE_POLL_MS || '30000', 10);
 // X has no push webhook on accessible API tiers (see `shared/channels/botProviders.ts`),
 // so the Worker polls `GET /2/dm_events` on this cadence instead. Kept
 // conservative by default to stay well inside typical per-account DM rate
@@ -1131,16 +1138,29 @@ export function startChannelsWorker(): void {
     if (!stopping) void writeHeartbeat();
   }, Math.max(HEARTBEAT_INTERVAL_MS, 5000));
 
+  // A fixed 1.5s idle poll cost ~57,600 claim_channel_jobs round trips a day,
+  // essentially all of them against an empty queue. Busy behaviour is
+  // unchanged: work found -> 50ms, first empty poll -> POLL_INTERVAL_MS.
+  const backoff = new IdleBackoff({
+    busyMs: 50,
+    idleMs: POLL_INTERVAL_MS,
+    maxIdleMs: Math.max(POLL_INTERVAL_MS, MAX_IDLE_POLL_MS),
+  });
+
   const loop = async () => {
     while (!stopping) {
       let processed = 0;
+      let failed = false;
       try {
         processed = await processBatch();
       } catch (err) {
+        failed = true;
         console.error('[channels-worker] poll failed:', redactToken(String((err as Error).message)));
       }
-      // Back off only when idle so bursts drain quickly.
-      await new Promise((resolve) => setTimeout(resolve, processed > 0 ? 50 : POLL_INTERVAL_MS));
+      // A throwing poll counts as idle on purpose: if the database or a
+      // provider is down, hammering it every 1.5s makes the outage worse.
+      // Recovery is still prompt — the first successful batch resets to 50ms.
+      await new Promise((resolve) => setTimeout(resolve, backoff.next(!failed && processed > 0)));
     }
   };
 

@@ -1,0 +1,63 @@
+-- 193 — Drop indexes that only ever cost writes, restoring HOT updates.
+--
+-- Disk IO finding. Three indexes were measured over a 63-day production
+-- window (pg_stat_user_indexes.idx_scan vs the write volume of their table):
+-- every one of them is paid for on every write and none of them earns it
+-- back on reads.
+--
+-- 1) channel_worker_heartbeats_seen_idx  (worker_kind, last_seen_at DESC)
+--
+--    idx_scan = 0 across 115,068 writes. Not "rarely used" — never used, not
+--    once. And it is not merely idle, it is actively harmful: a Postgres
+--    update can only take the cheap HOT path when NO indexed column changes.
+--    The heartbeat upsert (worker/channels/index.ts, internalChannels.ts)
+--    writes last_seen_at every beat, which is the index's second column, so
+--    every beat took the slow path — 114,962 of 114,962 updates were non-HOT,
+--    each one appending a new index tuple to BOTH indexes on the table and
+--    leaving a dead one behind for autovacuum to collect.
+--
+--    Nothing regresses by dropping it, because nothing could have used it:
+--    both readers (server/routes/plugins.ts channelsWorkerOffline() and the
+--    channels admin panel) filter or order on last_seen_at ALONE, with no
+--    worker_kind predicate, so a (worker_kind, last_seen_at) composite is
+--    unusable for them — a leading-column miss. The table holds one live row
+--    in a single 8 kB page; a sequential scan beats any index on it anyway.
+--
+--    With this index gone the only remaining index is the primary key on
+--    worker_id, which the upsert does not modify — so heartbeats become HOT
+--    updates: no index maintenance, no new index tuples, and dead tuples
+--    reclaimable in-page by the opportunistic pruner instead of by a full
+--    autovacuum pass.
+--
+-- 2) slo_breach_events_open_idx  (slo_id, scope_type, scope_key, state)
+--                                 WHERE state = 'open'
+--
+--    Structurally redundant. slo_breach_events_one_open_per_scope is a UNIQUE
+--    partial index on (slo_id, scope_type, scope_key) under the SAME
+--    state = 'open' predicate — the identical leading columns, and narrower.
+--    The trailing `state` column carries no information inside a partial
+--    index whose predicate already pins state to 'open'. Every lookup this
+--    index serves (sloEvaluator.ts's open-breach probe and its resolve
+--    UPDATE, both of which match on exactly those columns) is served at least
+--    as well by the unique index, which the planner will now use instead.
+--
+-- 3) slo_breach_events_recent_idx  (last_breach_at DESC)
+--
+--    5 scans in 63 days — the admin breach list at
+--    server/routes/adminEnforcement.ts, loaded a handful of times. Against
+--    that, it is what forces the sustained-breach "bump" path
+--    (sloEvaluator.ts, 6,065 calls) off the HOT path, since that UPDATE
+--    writes last_breach_at on every bump. A rare admin query against a table
+--    holding one live row does not need an index; the write path does need
+--    one fewer.
+--
+-- Deliberately NOT dropped here, though they also scan rarely:
+-- idx_visitor_sessions_geo_map, seo_links_source_url_id_idx and friends.
+-- Those sit on product feature tables rather than machine-chatter tables,
+-- and dropping ONE index on visitor_sessions would not restore HOT updates
+-- there anyway — several indexed columns change per write, so it would be
+-- all of them or none. They are worth a separate, feature-aware pass.
+
+DROP INDEX IF EXISTS public.channel_worker_heartbeats_seen_idx;
+DROP INDEX IF EXISTS public.slo_breach_events_open_idx;
+DROP INDEX IF EXISTS public.slo_breach_events_recent_idx;

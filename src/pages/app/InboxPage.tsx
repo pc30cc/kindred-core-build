@@ -38,7 +38,7 @@ import {
   Mail, Phone, Globe, User, Eye, ChevronLeft, ChevronRight,
   Loader2, Bot, Copy, CornerUpLeft, Paperclip, RefreshCw,
   MessageCircle, Hash, FileText, Download, ImageIcon,
-  PhoneOff, Ban, ShieldOff, Users, Play, Pause, Mic,
+  PhoneOff, Ban, ShieldOff, Users, Play, Pause, Mic, Video,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
@@ -2197,6 +2197,45 @@ export default function InboxPage() {
                     <div key={msg.id} className="flex justify-center my-1">
                       <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
                         <span>{text}</span>
+                      </div>
+                    </div>
+                  );
+                }
+                // The invitation body is written in English by the server
+                // (server/services/calls/invitations.ts) and frozen into the
+                // message row at insert time, so it can never follow the
+                // reader's language. Render it from metadata instead — the
+                // visitor widget already does exactly this, which is why the
+                // visitor saw a localized card while the operator inbox
+                // showed "You have been invited to an audio call."
+                if (msg.sender_type === 'system' && meta.kind === 'call_invitation') {
+                  const isVideo = meta.channel === 'video';
+                  const op = String(meta.operator_name || '').trim();
+                  const key = op
+                    ? (isVideo ? 'inbox.system.callInviteVideoFrom' : 'inbox.system.callInviteAudioFrom')
+                    : (isVideo ? 'inbox.system.callInviteVideo' : 'inbox.system.callInviteAudio');
+                  const tpl = t(key);
+                  const text = tpl && !tpl.startsWith('inbox.')
+                    ? tpl.replace('{op}', op)
+                    : (op
+                      ? `${op} invited the visitor to ${isVideo ? 'a video' : 'an audio'} call`
+                      : `Visitor invited to ${isVideo ? 'a video' : 'an audio'} call`);
+                  // The card mutates in place as the visitor acts on it, so
+                  // the row carries the live status rather than only "sent".
+                  const status = String(meta.status || 'pending');
+                  const statusKey = status === 'joined' ? 'inbox.callInvite.statusJoined'
+                    : status === 'expired' ? 'inbox.callInvite.statusExpired'
+                    : status === 'cancelled' ? 'inbox.callInvite.statusCancelled'
+                    : status === 'declined' ? 'inbox.callInvite.statusDeclined'
+                    : 'inbox.callInvite.statusPending';
+                  const rawStatus = t(statusKey);
+                  const statusText = rawStatus && !rawStatus.startsWith('inbox.') ? rawStatus : status;
+                  return (
+                    <div key={msg.id} className="flex justify-center my-1">
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
+                        {isVideo ? <Video className="w-3 h-3" /> : <Phone className="w-3 h-3" />}
+                        <span>{text}</span>
+                        <span className="opacity-70">· {statusText}</span>
                       </div>
                     </div>
                   );

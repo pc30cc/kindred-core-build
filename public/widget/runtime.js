@@ -6283,7 +6283,6 @@
     var inputBar = chatQ('[data-input-bar]');
     var attachBtn = chatQ('[data-attach-btn]');
     var attachInput = chatQ('[data-attach-input]');
-    var attachTray = chatQ('[data-attach-tray]');
     var micBtn = chatQ('[data-mic-btn]');
     var emojiBtn = chatQ('[data-emoji-btn]');
     var emojiPickerEl = chatQ('[data-emoji-picker]');
@@ -6507,42 +6506,115 @@
     }
 
     // ─── Phase 6a: Attachment UX wiring (separate domain) ───
-    function renderAttachmentChip() {
-      if (!attachTray) return;
+    // A pending file or image previews INSIDE the composer pill, on its own
+    // row above the input. It used to be a chip in a strip ABOVE the
+    // composer, which pushed the whole composer down the moment a file was
+    // picked and read like an upload manager rather than a message being
+    // written. Unlike a voice note the input stays usable, because an
+    // attachment usually wants a caption.
+    //
+    // The markup is built once with the frame and only its fields are
+    // updated here. Replacing innerHTML on every store tick would re-create
+    // the <img> and re-flash the thumbnail on each progress update.
+    var attPreview = chatQ('[data-attach-preview]');
+    var attThumbImg = chatQ('[data-attach-thumb-img]');
+    var attThumbDoc = chatQ('[data-attach-thumb-doc]');
+    var attName = chatQ('[data-attach-name]');
+    var attSub = chatQ('[data-attach-sub]');
+    var attTrack = chatQ('[data-attach-track]');
+    var attBar = chatQ('[data-attach-bar]');
+    var attRetryBtn = chatQ('[data-attach-retry]');
+    var attRemoveBtn = chatQ('[data-attach-remove]');
+    /** Object URL for the pending image. Exactly one is alive at a time. */
+    var attThumbUrl = '';
+    var attThumbForFile = null;
+
+    function releaseAttachmentThumb() {
+      if (attThumbUrl) {
+        try { URL.revokeObjectURL(attThumbUrl); } catch (_) {}
+        attThumbUrl = '';
+      }
+      attThumbForFile = null;
+      if (attThumbImg) {
+        attThumbImg.hidden = true;
+        try { attThumbImg.removeAttribute('src'); } catch (_) {}
+      }
+      if (attThumbDoc) attThumbDoc.hidden = false;
+    }
+
+    function isPreviewableImage(file, mimeType) {
+      var mime = String(mimeType || (file && file.type) || '');
+      // SVG is an image the browser will happily execute scripts inside. It
+      // is never rendered here; it falls back to the document glyph.
+      return mime.indexOf('image/') === 0 && mime !== 'image/svg+xml';
+    }
+
+    function renderAttachmentThumb(s) {
+      if (!attThumbImg || !attThumbDoc) return;
+      // Redrawing only when the file itself changed keeps the thumbnail from
+      // flashing on every upload-progress tick.
+      if (s.file && attThumbForFile === s.file) return;
+      releaseAttachmentThumb();
+      if (s.file && isPreviewableImage(s.file, s.mimeType)) {
+        try {
+          attThumbUrl = URL.createObjectURL(s.file);
+          attThumbForFile = s.file;
+          attThumbImg.src = attThumbUrl;
+          attThumbImg.hidden = false;
+          attThumbDoc.hidden = true;
+          return;
+        } catch (_) { attThumbUrl = ''; attThumbForFile = null; }
+      }
+      // Anything without a safe inline preview keeps the document glyph.
+      attThumbForFile = s.file || null;
+    }
+
+    function renderAttachmentPreview() {
+      if (!attPreview) return;
       var s = attachmentStore.get();
-      // A voice note lives in the composer pill instead (see
-      // renderVoicePreview) — showing both would put the same pending
-      // attachment on screen twice.
-      if (s.status === 'idle' || s.isVoice) { attachTray.hidden = true; attachTray.innerHTML = ''; return; }
-      attachTray.hidden = false;
+      // A voice note has its own surface in the same pill (renderVoicePreview)
+      // — showing both would put one pending attachment on screen twice.
+      var visible = s.status !== 'idle' && !s.isVoice;
+      if (!visible) {
+        attPreview.hidden = true;
+        if (inputBar) inputBar.classList.remove('has-attachment');
+        releaseAttachmentThumb();
+        return;
+      }
+      attPreview.hidden = false;
+      if (inputBar) inputBar.classList.add('has-attachment');
+      attPreview.classList.toggle('is-error', s.status === 'error');
+
+      renderAttachmentThumb(s);
+      if (attName) {
+        attName.textContent = s.fileName || '';
+        attName.title = s.fileName || '';
+      }
+      // Honest progress: a percentage only while bytes are actually moving,
+      // never a fake 100% before the server has confirmed.
+      var pct = Math.max(0, Math.min(100, s.progress | 0));
       var statusLabel = s.status === 'uploading' ? (t('uploading') || 'Uploading…')
         : s.status === 'ready' ? (t('readyToSend') || 'Ready')
         : s.status === 'error' ? (s.error || (t('uploadFailed') || 'Upload failed'))
         : (t('selected') || 'Selected');
-      var sizeStr = humanSizeShell(s.sizeBytes || 0);
-      // Phase 6b — honest progress: show % only while uploading; never fake 100% early.
-      var pct = Math.max(0, Math.min(100, s.progress | 0));
-      var subRight = s.status === 'uploading' ? (' · ' + pct + '%') : '';
-      var canRetry = s.status === 'error' && !!s.file;
-      attachTray.innerHTML =
-        '<div class="attach-chip status-' + s.status + '">' +
-          '<div class="attach-chip-meta">' +
-            '<div class="attach-chip-name" title="' + Util.escapeHtml(s.fileName) + '">' + Util.escapeHtml(s.fileName) + '</div>' +
-            '<div class="attach-chip-sub">' + Util.escapeHtml(statusLabel) + ' · ' + Util.escapeHtml(sizeStr) + subRight + '</div>' +
-            (s.status === 'uploading'
-              ? '<div class="attach-chip-progress" aria-hidden="true"><div class="attach-chip-progress-bar" style="width:' + pct + '%"></div></div>'
-              : '') +
-          '</div>' +
-          (canRetry
-            ? '<button type="button" class="attach-chip-retry" data-attach-retry aria-label="' + Util.escapeHtml(t('retry')) + '" title="' + Util.escapeHtml(t('retry')) + '">↺</button>'
-            : '') +
-          '<button type="button" class="attach-chip-remove" data-attach-remove aria-label="' +
-            Util.escapeHtml(t('remove')) + '">×</button>' +
-        '</div>';
-      var rm = attachTray.querySelector('[data-attach-remove]');
-      if (rm) rm.addEventListener('click', function () { resetAttachment(); });
-      var rt = attachTray.querySelector('[data-attach-retry]');
-      if (rt) rt.addEventListener('click', function () {
+      if (attSub) {
+        attSub.textContent = s.status === 'error'
+          ? statusLabel
+          : statusLabel + ' · ' + humanSizeShell(s.sizeBytes || 0)
+            + (s.status === 'uploading' ? ' · ' + pct + '%' : '');
+      }
+      if (attTrack) attTrack.hidden = s.status !== 'uploading';
+      if (attBar) attBar.style.width = pct + '%';
+      if (attRetryBtn) attRetryBtn.hidden = !(s.status === 'error' && !!s.file);
+    }
+    if (attRemoveBtn) {
+      attRemoveBtn.addEventListener('click', function () {
+        resetAttachment();
+        if (msgInput) { try { msgInput.focus(); } catch (_) {} }
+      });
+    }
+    if (attRetryBtn) {
+      attRetryBtn.addEventListener('click', function () {
         var cur = attachmentStore.get();
         if (cur.file) startUpload(cur.file);
       });
@@ -6554,7 +6626,8 @@
       if (n < 1024 * 1024) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB';
       return (n / (1024 * 1024)).toFixed(n < 10485760 ? 1 : 0) + ' MB';
     }
-    attachmentStore.subscribe(renderAttachmentChip);
+    attachmentStore.subscribe(renderAttachmentPreview);
+    renderAttachmentPreview();
 
     // ─── Phase 6b — Lightbox (Shadow-DOM scoped image preview) ───
     var lightboxEl = panel.querySelector('[data-att-lightbox]');

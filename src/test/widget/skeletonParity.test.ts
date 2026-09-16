@@ -82,7 +82,7 @@ function classesOf(html: string): string[] {
 /** Classes that decide where things sit, in order — the layout spine.
  *  `.header` is deliberately absent: it carries no stylesheet rule and
  *  exists only as a Core query hook on the real frame. */
-const LAYOUT = /^(wy-view|wy-view-chat|wy-head|wy-head-chat|wy-head-text|wy-chat-scroll-host|wy-chat-scroll|wy-scroll|composer-zone|input-bar|input-wrap|input|mic-btn|composer-actions|composer-actions-start|attach-btn|emoji-btn|send-btn|wy-footer)$/;
+const LAYOUT = /^(wy-view|wy-view-chat|wy-head|wy-head-chat|wy-head-text|wy-chat-scroll-host|wy-chat-scroll|wy-scroll|composer-zone|input-bar|input-wrap|input-row|input|mic-btn|composer-actions|composer-actions-start|attach-btn|emoji-btn|send-btn|wy-footer)$/;
 const spineOf = (html: string) => classesOf(html).filter((c) => LAYOUT.test(c));
 
 const hasRule = (cls: string) =>
@@ -242,5 +242,55 @@ describe('Core hands the skeleton the same facts the real render uses', () => {
     expect(body).toContain('attachCfg.enabled === true');
     expect(body).toContain('attachCfg.voiceNotesEnabled === true && micSupported');
     expect(body).toContain('composerCfg.emojiEnabled !== false');
+  });
+});
+
+describe('the composer pill nests the same way in both', () => {
+  /**
+   * The spine check above compares a flat, hand-maintained list of class
+   * names, so it cannot see NESTING — and nesting is what broke: the real
+   * pill became a column wrapping its controls in `.input-row` while the
+   * skeleton kept them loose, which made the skeleton pill 78px against the
+   * real 46px and moved the composer under the visitor on every reload.
+   *
+   * This compares the shape of the tree instead, so a future wrapper is
+   * caught without anyone remembering to enroll its class.
+   */
+  const shape = (html: string, selector: string): string[] => {
+    const host = document.createElement('div');
+    host.innerHTML = html;
+    const root = host.querySelector(selector);
+    if (!root) return [];
+    const walk = (el: Element, depth: number): string[] => {
+      const self = `${'  '.repeat(depth)}${el.tagName.toLowerCase()}.${
+        Array.from(el.classList).filter((c) => !c.startsWith('wy-sk')).sort().join('.')}`;
+      return [self, ...Array.from(el.children).flatMap((c) => walk(c, depth + 1))];
+    };
+    return walk(root, 0);
+  };
+
+  it('puts the controls at the same depth inside the pill', () => {
+    const real = shape(chatFrame(), '.input-wrap');
+    const skel = shape(chatSkeleton(), '.input-wrap');
+    expect(real.length, 'the real pill must have a tree to compare').toBeGreaterThan(1);
+    // Depth of each control, not its siblings: the skeleton legitimately
+    // draws shimmer spans where the real frame draws buttons and a textarea.
+    const depthOf = (lines: string[], cls: string) => {
+      const line = lines.find((l) => l.trim().split('.').includes(cls));
+      return line === undefined ? -1 : (line.length - line.trimStart().length) / 2;
+    };
+    for (const cls of ['input-row', 'input', 'composer-actions', 'composer-actions-start', 'send-btn']) {
+      expect(depthOf(skel, cls), `${cls} sits at a different depth in the skeleton`)
+        .toBe(depthOf(real, cls));
+    }
+  });
+
+  it('gives the pill exactly one visible row in the skeleton', () => {
+    // The other row is the pending-attachment preview, which a skeleton
+    // never has — it must not invent one.
+    const host = document.createElement('div');
+    host.innerHTML = chatSkeleton();
+    const wrap = host.querySelector('.input-wrap')!;
+    expect(Array.from(wrap.children).map((c) => c.className)).toEqual(['input-row']);
   });
 });

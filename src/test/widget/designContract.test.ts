@@ -159,8 +159,18 @@ describe('composer design contract', () => {
     const bar = el.querySelector('[data-input-bar]')!;
     const wrap = el.querySelector('[data-input-wrap]')!;
     expect(bar.querySelector(':scope > [data-mic-btn]')).toBeNull();
-    // Mic is the first child inside the pill, ahead of the textarea.
-    expect(wrap.firstElementChild!.getAttribute('data-mic-btn')).not.toBeNull();
+    // The pill is a column of at most two rows: a pending attachment
+    // preview, and the row the visitor writes on. Mic opens that row, ahead
+    // of the textarea.
+    const row = wrap.querySelector('[data-input-row]')!;
+    expect(row).toBeTruthy();
+    expect(row.firstElementChild!.getAttribute('data-mic-btn')).not.toBeNull();
+    expect(row.compareDocumentPosition(row.querySelector('[data-msg-input]')!)
+      & Node.DOCUMENT_POSITION_CONTAINED_BY).toBeTruthy();
+    // Nothing else may sit loose in the pill beside those two rows.
+    expect(Array.from(wrap.children).map((c) => c.className)).toEqual(
+      expect.arrayContaining(['input-row']),
+    );
     expect(wrap.querySelector('.composer-actions-start [data-send-btn]')).toBeTruthy();
     expect(wrap.querySelector('.composer-actions-start [data-attach-btn]')).toBeTruthy();
     expect(wrap.querySelector('.composer-actions-start [data-emoji-btn]')).toBeTruthy();

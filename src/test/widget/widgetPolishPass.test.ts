@@ -92,8 +92,17 @@ describe('widget polish — localization', () => {
     expect(runtime).not.toContain('aria-label="Remove"');
   });
 
-  it('the attachment chip names its remove control in the visitor locale', () => {
-    expect(runtime).toContain("Util.escapeHtml(t('remove'))");
+  it('the attachment preview names its remove and retry controls in the visitor locale', () => {
+    // The preview moved into the composer pill, so its markup — and
+    // therefore its labels — now live in the presentation layer.
+    const preview = rendererSrc.slice(
+      rendererSrc.indexOf("'<div class=\"att-preview\" data-attach-preview hidden>'"),
+    );
+    const block = preview.slice(0, preview.indexOf('input-row'));
+    expect(block).toContain('data-attach-remove');
+    expect(block).toContain("esc(t('remove'))");
+    expect(block).toContain('data-attach-retry');
+    expect(block).toContain("esc(t('retry'))");
   });
 
   it('the launcher name is localized, state-aware and unread-aware', () => {

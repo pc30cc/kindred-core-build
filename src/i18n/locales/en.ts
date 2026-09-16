@@ -1037,6 +1037,10 @@ const en = {
     'system.agentJoined': '{name} joined the conversation',
     'system.agentJoinedGeneric': 'A colleague joined the conversation',
     'system.noAgentAvailable': "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can.",
+    'system.callInviteAudio': 'Visitor invited to an audio call',
+    'system.callInviteVideo': 'Visitor invited to a video call',
+    'system.callInviteAudioFrom': '{op} invited the visitor to an audio call',
+    'system.callInviteVideoFrom': '{op} invited the visitor to a video call',
     'system.transferred': '{actor} transferred this conversation to {to}',
     'system.unassigned': '{actor} unassigned this conversation',
 

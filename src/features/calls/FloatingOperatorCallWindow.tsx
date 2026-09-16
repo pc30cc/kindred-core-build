@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Maximize2, Minimize2, PanelRightOpen, Loader2, GripHorizontal, Signal, UserMinus, Settings2, ArrowRightLeft } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Maximize2, Minimize2, PanelRightOpen, Loader2, GripHorizontal, Signal, UserMinus, Settings2, ArrowRightLeft, SwitchCamera } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -320,6 +320,15 @@ export function FloatingOperatorCallWindow() {
           {!isRemoteEndedTerminal && isVideo && (
             <Button size="sm" variant="outline" className={cn('h-12 w-12 rounded-full border-call-stage-foreground/20 bg-card/75 p-0 text-foreground shadow-elevated backdrop-blur-xl hover:bg-card', !live.cameraEnabled && 'border-destructive/40 bg-destructive/15 text-destructive')} onClick={stop(live.toggleCamera)} aria-label={live.cameraEnabled ? safeT('inbox.callSurface.cameraOff', 'Turn camera off') : safeT('inbox.callSurface.cameraOn', 'Turn camera on')} title={live.cameraEnabled ? safeT('inbox.callSurface.cameraOff', 'Turn camera off') : safeT('inbox.callSurface.cameraOn', 'Turn camera on')}>
               {live.cameraEnabled ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
+            </Button>
+          )}
+          {/* Flip camera. Rendered ONLY when this device actually has a front
+              and a back camera (see cameraFacing.ts) — on a laptop there is
+              nothing to flip to, so the control is absent rather than dead.
+              It also needs a camera that is currently publishing. */}
+          {!isRemoteEndedTerminal && isVideo && live.canSwitchCamera && live.cameraEnabled && (
+            <Button size="sm" variant="outline" className="h-12 w-12 rounded-full border-call-stage-foreground/20 bg-card/75 p-0 text-foreground shadow-elevated backdrop-blur-xl hover:bg-card" disabled={live.switchingCamera} onClick={stop(live.switchCamera)} aria-label={safeT('inbox.callSurface.switchCamera', 'Switch camera')} title={safeT('inbox.callSurface.switchCamera', 'Switch camera')}>
+              {live.switchingCamera ? <Loader2 className="h-5 w-5 animate-spin" /> : <SwitchCamera className="h-5 w-5" />}
             </Button>
           )}
           {!isRemoteEndedTerminal && isVideo && surface.phase === 'connected' && (

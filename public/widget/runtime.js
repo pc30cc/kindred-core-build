@@ -889,6 +889,8 @@
         csSwitchCamera: 'Switch camera',
         csCameraUnavailable: 'Camera unavailable',
         csBackToChat: 'Back to chat',
+        csMinimize: 'Minimize call',
+        csExpand: 'Back to the call',
         csDuration: 'Duration',
         csOperatorEnded: 'Operator ended the call',
         csVisitorEnded: 'You ended the call',
@@ -1088,6 +1090,8 @@
         csSwitchCamera: 'تعویض دوربین',
         csCameraUnavailable: 'دوربین در دسترس نیست',
         csBackToChat: 'بازگشت به گفتگو',
+        csMinimize: 'کوچک کردن تماس',
+        csExpand: 'بازگشت به تماس',
         csDuration: 'مدت',
         csOperatorEnded: 'اپراتور تماس را پایان داد',
         csVisitorEnded: 'شما تماس را پایان دادید',
@@ -1299,6 +1303,8 @@
         csSwitchCamera: 'Kamerayı değiştir',
         csCameraUnavailable: 'Kamera kullanılamıyor',
         csBackToChat: 'Sohbete dön',
+        csMinimize: 'Aramayı küçült',
+        csExpand: 'Aramaya dön',
         csDuration: 'Süre',
         csOperatorEnded: 'Operatör aramayı sonlandırdı',
         csVisitorEnded: 'Aramayı siz sonlandırdınız',
@@ -4923,8 +4929,18 @@
       error: null,          // { code, message }
       connectedAt: 0,       // ms epoch — timer baseline
       endedDuration: 0,     // seconds — sticky after call ends
-      cameras: [],          // [{ deviceId, label }]
+      cameras: [],          // [{ deviceId, label, facing }]
+      // Whether this device actually has a front AND a back camera. The
+      // engine decides (see computeCanSwitchCamera in runtime-call.js);
+      // counting cameras is not the same question, and getting it wrong
+      // put a dead "flip camera" button on every laptop with two webcams.
+      canSwitchCamera: false,
       switchingCamera: false,
+      // Shrunk to a floating card so the visitor can read and write chat
+      // messages while the call stays connected. Deliberately NOT part of
+      // the render signature: minimizing is a class toggle on the same
+      // markup, so the <video> element is never rebuilt mid-call.
+      minimized: false,
     });
 
     // Wire engine events ONCE the global engine appears. The engine is
@@ -4973,7 +4989,10 @@
       engine.on('micEnabled', function (v) { callSurfaceStore.set({ micEnabled: !!v }); });
       engine.on('cameraEnabled', function (v) { callSurfaceStore.set({ cameraEnabled: !!v }); });
       engine.on('cameras', function (info) {
-        callSurfaceStore.set({ cameras: (info && info.cameras) || [] });
+        callSurfaceStore.set({
+          cameras: (info && info.cameras) || [],
+          canSwitchCamera: !!(info && info.canSwitch),
+        });
       });
       engine.on('error', function (err) {
         // Normalize into a stable { code, message } shape for the UI.
@@ -4999,6 +5018,8 @@
         connectedAt: 0,
         endedDuration: 0,
         cameras: [],
+        canSwitchCamera: false,
+        minimized: false,
         switchingCamera: false,
       });
     }
@@ -5047,6 +5068,8 @@
         connectedAt: 0,
         endedDuration: 0,
         cameras: [],
+        canSwitchCamera: false,
+        minimized: false,
         switchingCamera: false,
       });
       // Restore the previous tab + re-render so the chat view comes back.
@@ -5143,6 +5166,10 @@
       hangup: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91" transform="rotate(135 12 12)"/></svg>',
       phone: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.72 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.35 1.85.59 2.81.72A2 2 0 0 1 22 16.92z"/></svg>',
       back: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>',
+      // Arrows pointing inward: shrink the call to a card. Mirrored by the
+      // expand glyph below, which points outward.
+      minimize: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4v5H4"/><path d="M15 20v-5h5"/><path d="M9 9L3 3"/><path d="M15 15l6 6"/></svg>',
+      expand: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5"/><path d="M20 15v5h-5"/><path d="M4 4l6 6"/><path d="M20 20l-6-6"/></svg>',
     };
 
     /**
@@ -5159,12 +5186,62 @@
      *     equalizer, live timer, mic + speaker(future) + hangup. No
      *     <video> element so there is no black rectangle.
      */
+    /**
+     * Panel-level overlay host. The call NEVER renders into `.body`.
+     * Resolved lazily and cached: this block is defined above the point
+     * where `panel` itself is built.
+     */
+    var callHostEl = null;
+    function callHost() {
+      if (!callHostEl && typeof panel !== 'undefined' && panel) {
+        callHostEl = panel.querySelector('[data-call-host]');
+      }
+      return callHostEl;
+    }
+
+    /**
+     * Shrink the call to a floating card, or bring it back full-bleed.
+     *
+     * The DOM does not change: only classes move, so the <video> element
+     * keeps the same MediaStreamTrack attached and playback never restarts.
+     * renderBody() reacts to the same flag to give the composer and the
+     * tabs back, which is the entire point — a minimized call is one the
+     * visitor can keep chatting through.
+     */
+    function setCallMinimized(next) {
+      var cur = callSurfaceStore.get();
+      if (cur.phase === 'idle' || !!cur.minimized === !!next) return;
+      callSurfaceStore.set({ minimized: !!next });
+    }
+
+    /**
+     * Mount / unmount the call overlay and keep its size class in sync.
+     * Separate from renderBody() precisely so that the chat view underneath
+     * survives an incoming call untouched.
+     */
+    function renderCallHost() {
+      var host = callHost();
+      if (!host) return;
+      var cs = callSurfaceStore.get();
+      if (cs.phase === 'idle') {
+        host.hidden = true;
+        host.classList.remove('is-mini');
+        host.innerHTML = '';
+        return;
+      }
+      host.hidden = false;
+      host.classList.toggle('is-mini', !!cs.minimized);
+      renderCallSurface(host, cs);
+    }
+
     function renderCallSurface(container, s) {
       if (!container) return;
       var phase = s.phase;
       var isVideo = s.channel === 'video';
       var hasRemoteVideo = !!(s.remote && s.remote.video);
-      var hasMultiCam = isVideo && Array.isArray(s.cameras) && s.cameras.length >= 2;
+      // Not "more than one camera" — "a front and a back camera". A laptop
+      // with a second webcam has nothing to flip to.
+      var canSwitchCam = isVideo && s.canSwitchCamera === true;
       var statusKey = phase === 'connecting' ? 'csConnecting'
         : phase === 'reconnecting' ? 'csReconnecting'
         : phase === 'connected' ? (isVideo ? 'csVideoCall' : 'csAudioCall')
@@ -5181,7 +5258,7 @@
         phase, isVideo ? 'v' : 'a',
         s.micEnabled ? '1' : '0',
         s.cameraEnabled ? '1' : '0',
-        hasMultiCam ? 'm' : 's',
+        canSwitchCam ? 'm' : 's',
         showWaiting ? 'w' : '-',
       ].join('|');
       var existing = container.querySelector('[data-call-surface]');
@@ -5209,6 +5286,7 @@
         html += '      <span class="gs-call-topbar-dot" data-call-phase-dot></span>';
         html += '      <span class="gs-call-topbar-status" data-call-status>' + Util.escapeHtml(statusText) + '</span>';
         html += '      <span class="gs-call-topbar-timer" data-call-timer>00:00</span>';
+        html += renderSizeButton();
         html += '    </div>';
         // Local PiP
         html += '    <div class="gs-call-pip" data-call-local-pip>';
@@ -5226,7 +5304,7 @@
         } else {
           html += renderControlButton('mic', s.micEnabled ? GS_ICON.micOn : GS_ICON.micOff, s.micEnabled ? 'csMicMute' : 'csMicUnmute', !s.micEnabled);
           html += renderControlButton('cam', s.cameraEnabled ? GS_ICON.camOn : GS_ICON.camOff, s.cameraEnabled ? 'csCamOff' : 'csCamOn', !s.cameraEnabled);
-          if (hasMultiCam) {
+          if (canSwitchCam) {
             html += renderControlButton('switch-cam', GS_ICON.switchCam, 'csSwitchCamera', false);
           }
           html += '<button type="button" class="gs-call-btn gs-call-btn-hangup" data-call-action="hangup" aria-label="' + Util.escapeHtml(t('csHangup') || 'End call') + '">' + GS_ICON.hangup + '</button>';
@@ -5237,6 +5315,7 @@
         // Audio-only voice call screen
         html += '<div class="gs-call-surface gs-call-audio" data-call-surface data-phase="' + phase + '" data-call-sig="' + Util.escapeHtml(sig) + '" data-channel="audio">';
         html += '  <audio data-call-remote-audio autoplay></audio>';
+        html += '  <div class="gs-call-corner">' + renderSizeButton() + '</div>';
         html += '  <div class="gs-call-voice-stage">';
         html += '    <div class="gs-call-voice-orb" aria-hidden="true">';
         html += '      <span class="gs-call-voice-pulse"></span>';
@@ -5264,10 +5343,22 @@
       bindCallTracks(container, s);
       updateCallSurfaceLive(container, s, statusText);
 
-      var ctrls = container.querySelector('[data-call-controls]');
-      if (ctrls) {
-        ctrls.addEventListener('click', function (ev) {
-          var btn = ev.target && ev.target.closest && ev.target.closest('[data-call-action]');
+      var surfaceEl = container.querySelector('[data-call-surface]');
+      if (surfaceEl) {
+        surfaceEl.addEventListener('click', function (ev) {
+          var target = ev.target;
+          if (!target || !target.closest) return;
+          if (target.closest('[data-call-size]')) {
+            setCallMinimized(!callSurfaceStore.get().minimized);
+            return;
+          }
+          var btn = target.closest('[data-call-action]');
+          // On the card, anywhere that is not a control takes the visitor
+          // back into the call — a 168px target beats a 22px one.
+          if (!btn && callSurfaceStore.get().minimized) {
+            setCallMinimized(false);
+            return;
+          }
           if (!btn) return;
           var action = btn.getAttribute('data-call-action');
           var engine = window.__gs_call && window.__gs_call.engine;
@@ -5283,6 +5374,22 @@
           else if (action === 'close') { closeCallSurface(false); }
         });
       }
+    }
+
+    /**
+     * Shrink the call to a card, or bring it back. Rendered outside the
+     * control bar so it survives the terminal phases, and kept out of the
+     * render signature (see renderCallSurface) — switching size is a class
+     * toggle on live markup, never a rebuild.
+     */
+    function renderSizeButton() {
+      var mini = callSurfaceStore.get().minimized;
+      var label = mini ? (t('csExpand') || 'Expand') : (t('csMinimize') || 'Minimize');
+      return '<button type="button" class="gs-call-size" data-call-size aria-label="'
+        + Util.escapeHtml(label) + '" title="' + Util.escapeHtml(label) + '">'
+        + '<span class="gs-call-size-ico gs-call-size-min">' + GS_ICON.minimize + '</span>'
+        + '<span class="gs-call-size-ico gs-call-size-max">' + GS_ICON.expand + '</span>'
+        + '</button>';
     }
 
     function renderControlButton(action, icon, labelKey, isOff) {
@@ -5307,6 +5414,14 @@
      */
     function updateCallSurfaceLive(container, s, statusText) {
       try {
+        // The size control is deliberately outside the render signature, so
+        // its label is refreshed here rather than by a rebuild.
+        var sizeBtn = container.querySelector('[data-call-size]');
+        if (sizeBtn) {
+          var sizeLabel = s.minimized ? (t('csExpand') || 'Expand') : (t('csMinimize') || 'Minimize');
+          sizeBtn.setAttribute('aria-label', sizeLabel);
+          sizeBtn.setAttribute('title', sizeLabel);
+        }
         var statusEl = container.querySelector('[data-call-status]');
         if (statusEl && statusEl.textContent !== statusText) statusEl.textContent = statusText || '';
         var timerEl = container.querySelector('[data-call-timer]');
@@ -5867,11 +5982,17 @@
       progress: 0,           // 0..100
       error: '',
       attachmentId: null,    // server-issued, used in /message payload
+      // A voice note is previewed INSIDE the composer pill (play / delete /
+      // send) instead of as a file chip above it, so it has to be
+      // distinguishable from an attached file of the same audio mime type.
+      isVoice: false,
+      durationMs: 0,         // known locally from the recording clock
     });
     function resetAttachment() {
       attachmentStore.set({
         file: null, fileName: '', mimeType: '', sizeBytes: 0,
         status: 'idle', progress: 0, error: '', attachmentId: null,
+        isVoice: false, durationMs: 0,
       });
     }
     var kbStore = createStore({
@@ -6389,7 +6510,10 @@
     function renderAttachmentChip() {
       if (!attachTray) return;
       var s = attachmentStore.get();
-      if (s.status === 'idle') { attachTray.hidden = true; attachTray.innerHTML = ''; return; }
+      // A voice note lives in the composer pill instead (see
+      // renderVoicePreview) — showing both would put the same pending
+      // attachment on screen twice.
+      if (s.status === 'idle' || s.isVoice) { attachTray.hidden = true; attachTray.innerHTML = ''; return; }
       attachTray.hidden = false;
       var statusLabel = s.status === 'uploading' ? (t('uploading') || 'Uploading…')
         : s.status === 'ready' ? (t('readyToSend') || 'Ready')
@@ -6591,7 +6715,12 @@
       // Use ctx.apiBase (canonical) — ctx.config.apiBase can be undefined
       // when bootstrap stamped only _apiBase. Token-aware wrapper handles
       // 401/403 refresh transparently for both /init and /upload.
-      var apiBase = ctx.apiBase || ctx.config.apiBase;
+      //
+      // An empty apiBase is a VALID value: it means "same origin", which is
+      // what a first-party embed gets. `||` treated it as missing and fell
+      // through to an undefined config value, so every upload on a
+      // same-origin embed was POSTed to `/undefined/api/widget/...`.
+      var apiBase = (ctx.apiBase != null ? ctx.apiBase : ctx.config.apiBase) || '';
       var jsonHeaders = { 'Content-Type': 'application/json' };
       ctx.fetchWith(apiBase + '/api/widget/attachments/init', {
         method: 'POST', headers: jsonHeaders,
@@ -6801,7 +6930,12 @@
           var file;
           try { file = new File([blob], fileName, { type: cleanMime }); }
           catch (_) { file = blob; try { file.name = fileName; } catch (_2) {} }
+          // Remember the recording clock before the upload begins: the
+          // composer preview shows this length, and a fresh MediaRecorder
+          // blob reports `duration: Infinity` until it has been seeked.
+          var recordedMs = recordStartedAt ? (Date.now() - recordStartedAt) : 0;
           startUpload(file);
+          attachmentStore.set({ isVoice: true, durationMs: recordedMs });
         });
         recordingActive = true;
         recordCommitted = false;
@@ -6834,6 +6968,154 @@
         else startRecording();
       });
     }
+
+    // ─── Finished voice note — previewed inside the composer pill ───────
+    // A recording the visitor kept is not a file chip above the composer:
+    // it stays in the same pill it was recorded in, with the three things
+    // there is to do with it — hear it, drop it, send it. That keeps the
+    // composer's height and the visitor's focus exactly where they were.
+    var vnBarEl = chatQ('[data-vn-bar]');
+    var vnAudioEl = chatQ('[data-vn-audio]');
+    var vnToggleBtn = chatQ('[data-vn-toggle]');
+    var vnDeleteBtn = chatQ('[data-vn-delete]');
+    var vnSendBtn = chatQ('[data-vn-send]');
+    var vnSeekEl = chatQ('[data-vn-seek]');
+    var vnProgressEl = chatQ('[data-vn-progress]');
+    var vnTimeEl = chatQ('[data-vn-time]');
+    /** Object URL for the pending blob. Exactly one is alive at a time. */
+    var vnObjectUrl = '';
+    var vnWasVisible = false;
+
+    function releaseVoicePreviewUrl() {
+      if (!vnObjectUrl) return;
+      try { URL.revokeObjectURL(vnObjectUrl); } catch (_) {}
+      vnObjectUrl = '';
+    }
+
+    function stopVoicePreviewPlayback() {
+      if (!vnAudioEl) return;
+      try { vnAudioEl.pause(); vnAudioEl.currentTime = 0; } catch (_) {}
+      if (vnBarEl) vnBarEl.classList.remove('is-playing');
+      if (vnProgressEl) vnProgressEl.style.width = '0%';
+    }
+
+    /**
+     * Which duration to show. The recording clock is authoritative: a
+     * freshly recorded MediaRecorder blob very often reports `Infinity`
+     * for `duration` until it has been fully seeked, which would otherwise
+     * show "Infinity:NaN" for the first second of every voice note.
+     */
+    function vnDurationMs() {
+      var known = attachmentStore.get().durationMs || 0;
+      if (known > 0) return known;
+      var d = vnAudioEl && vnAudioEl.duration;
+      return (typeof d === 'number' && isFinite(d) && d > 0) ? d * 1000 : 0;
+    }
+
+    function renderVoicePreviewTime() {
+      if (!vnTimeEl) return;
+      var total = vnDurationMs();
+      var playing = vnAudioEl && !vnAudioEl.paused && vnAudioEl.currentTime > 0;
+      var ms = playing ? vnAudioEl.currentTime * 1000 : total;
+      vnTimeEl.textContent = fmtRecordTime(ms);
+    }
+
+    function renderVoicePreview() {
+      if (!vnBarEl) return;
+      var st = attachmentStore.get();
+      var visible = !!st.isVoice && st.status !== 'idle' && st.status !== 'error';
+      if (!visible) {
+        if (vnWasVisible) {
+          stopVoicePreviewPlayback();
+          releaseVoicePreviewUrl();
+          if (vnAudioEl) { try { vnAudioEl.removeAttribute('src'); vnAudioEl.load(); } catch (_) {} }
+        }
+        vnWasVisible = false;
+        vnBarEl.hidden = true;
+        if (inputBar) inputBar.classList.remove('is-voice-preview');
+        return;
+      }
+      // Point the player at the local blob the moment it exists, so the
+      // visitor can hear the note back while it is still uploading.
+      if (st.file && !vnObjectUrl && vnAudioEl) {
+        try {
+          vnObjectUrl = URL.createObjectURL(st.file);
+          vnAudioEl.src = vnObjectUrl;
+        } catch (_) { vnObjectUrl = ''; }
+      }
+      vnWasVisible = true;
+      vnBarEl.hidden = false;
+      if (inputBar) inputBar.classList.add('is-voice-preview');
+      // Sending is only possible once the server has the bytes; the note is
+      // still playable and deletable while that finishes.
+      var ready = st.status === 'ready' && !!st.attachmentId;
+      if (vnSendBtn) {
+        vnSendBtn.disabled = !ready;
+        vnSendBtn.setAttribute('aria-busy', ready ? 'false' : 'true');
+      }
+      renderVoicePreviewTime();
+    }
+    attachmentStore.subscribe(renderVoicePreview);
+
+    if (vnToggleBtn && vnAudioEl) {
+      vnToggleBtn.addEventListener('click', function () {
+        if (vnAudioEl.paused) {
+          var playing = vnAudioEl.play();
+          if (playing && playing.catch) playing.catch(function () {});
+        } else {
+          vnAudioEl.pause();
+        }
+      });
+    }
+    if (vnAudioEl) {
+      vnAudioEl.addEventListener('play', function () {
+        if (vnBarEl) vnBarEl.classList.add('is-playing');
+      });
+      vnAudioEl.addEventListener('pause', function () {
+        if (vnBarEl) vnBarEl.classList.remove('is-playing');
+        renderVoicePreviewTime();
+      });
+      vnAudioEl.addEventListener('ended', function () {
+        stopVoicePreviewPlayback();
+        renderVoicePreviewTime();
+      });
+      vnAudioEl.addEventListener('timeupdate', function () {
+        var total = vnDurationMs();
+        if (vnProgressEl && total > 0) {
+          var pct = Math.max(0, Math.min(100, (vnAudioEl.currentTime * 1000 / total) * 100));
+          vnProgressEl.style.width = pct + '%';
+        }
+        renderVoicePreviewTime();
+      });
+      vnAudioEl.addEventListener('loadedmetadata', renderVoicePreviewTime);
+    }
+    if (vnSeekEl && vnAudioEl) {
+      vnSeekEl.addEventListener('click', function (ev) {
+        var total = vnDurationMs();
+        if (!total) return;
+        var rect = vnSeekEl.getBoundingClientRect();
+        if (!rect.width) return;
+        // The row is explicitly dir="ltr" (audio timelines run left→right
+        // in every locale), so the offset is measured from its left edge.
+        var ratio = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+        try { vnAudioEl.currentTime = (total * ratio) / 1000; } catch (_) {}
+      });
+    }
+    if (vnDeleteBtn) {
+      vnDeleteBtn.addEventListener('click', function () {
+        stopVoicePreviewPlayback();
+        resetAttachment();
+        if (msgInput) { try { msgInput.focus(); } catch (_) {} }
+      });
+    }
+    if (vnSendBtn) {
+      vnSendBtn.addEventListener('click', function () {
+        if (vnSendBtn.disabled) return;
+        stopVoicePreviewPlayback();
+        trySend();
+      });
+    }
+    renderVoicePreview();
 
     // ─── Escalate to a human operator ───────────────────────────────────
     // Invokes the existing AI-handoff state machine server-side (same
@@ -8184,23 +8466,18 @@
     function renderBodyInner() {
       if (!body) return;
       syncHeaderBrand();
-      // Pass 2 — when an in-panel call surface is open it owns the
-      // entire body. Tabs + composer are hidden; we render the call view
-      // full-bleed inside the existing .body container (Shadow DOM).
+      // A full-bleed call covers the body completely, so the chat below it
+      // is not hidden — it is made unreachable. `inert` takes it out of the
+      // tab order and off the accessibility tree without unmounting it,
+      // which is what lets minimizing hand the chat straight back with no
+      // re-render and no scroll position lost. A MINIMIZED call leaves
+      // everything usable: that is the whole point of minimizing.
       var __cs = callSurfaceStore.get();
-      if (__cs.phase !== 'idle') {
-        if (inputBar) inputBar.style.display = 'none';
-        try {
-          var allTabs = panel.querySelectorAll('.tab');
-          Array.prototype.forEach.call(allTabs, function (t2) { t2.style.display = 'none'; });
-        } catch (_) {}
-        renderCallSurface(body, __cs);
-        return;
-      }
-      // Restore tab visibility when the surface is closed.
+      var __callCovers = __cs.phase !== 'idle' && !__cs.minimized;
       try {
-        var allTabs2 = panel.querySelectorAll('.tab');
-        Array.prototype.forEach.call(allTabs2, function (t2) { t2.style.display = ''; });
+        body.inert = __callCovers;
+        if (__callCovers) body.setAttribute('aria-hidden', 'true');
+        else body.removeAttribute('aria-hidden');
       } catch (_) {}
       var tab = shellStore.get().activeTab;
       syncViewChrome(tab);
@@ -8375,7 +8652,7 @@
 
     // Pass 2 — re-render whenever the in-panel call surface changes so
     // status text, mic/cam state, and remote tracks paint immediately.
-    callSurfaceStore.subscribe(function () { renderBody(); });
+    callSurfaceStore.subscribe(function () { renderCallHost(); renderBody(); });
     callSurfaceStore.subscribe(notifySmartInteractionChange);
     shellStore.subscribe(notifySmartInteractionChange);
     chatStore.subscribe(function () {

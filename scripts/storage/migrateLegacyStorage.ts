@@ -10,7 +10,13 @@
  *
  * Flags:
  *   --category=<name>   One of: email_attachments, account_avatars,
- *                        privacy_exports, call_recordings, all (default: all)
+ *                        privacy_exports, call_recordings, workspace_branding,
+ *                        all (default: all)
+ *                        The authoritative list is allLegacyMigrationProviders()
+ *                        in server/services/storage/legacyMigration/categories.ts
+ *                        — `--category=<unknown>` prints it. A test keeps this
+ *                        comment in step with it, because a category missing
+ *                        from here reads as one the tool cannot migrate.
  *   --dry-run            Report only, zero writes. Recommended first run.
  *   --batch-size=<n>     Rows per batch (default 25).
  *   --loop               Keep calling migrateLegacyBatch() until a category

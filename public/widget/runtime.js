@@ -7142,12 +7142,39 @@
     function markUsableContent(view) { usableByView[view || currentViewKey()] = true; }
 
 
+    /**
+     * Which composer controls the real frame is about to mount. Mirrors
+     * chatFrameHtml's own gating exactly — a skeleton that guessed a
+     * different control set would shift the composer the moment Core
+     * replaced it.
+     */
+    function composerSkeletonCaps() {
+      try {
+        var cfg = ctx.config || {};
+        var attachCfg = cfg.attachments || {};
+        var composerCfg = cfg.composer || {};
+        var micSupported = !!(typeof navigator !== 'undefined' && navigator.mediaDevices
+          && navigator.mediaDevices.getUserMedia && typeof window.MediaRecorder === 'function');
+        return {
+          attachments: attachCfg.enabled === true,
+          voiceNotes: attachCfg.voiceNotesEnabled === true && micSupported,
+          emoji: composerCfg.emojiEnabled !== false,
+        };
+      } catch (_) { return {}; }
+    }
+
     function skeletonFor(view) {
       if (!Presentation || typeof Presentation.skeletonHtml !== 'function') return '';
       try {
         return Presentation.skeletonHtml(view, {
-          rtl: !!(ctx.config && ctx.config.rtl),
+          // `config.rtl` never existed — nothing in the loader or the server
+          // config ever set it — so every skeleton painted LTR and then
+          // flipped when the real, locale-derived view arrived. Derive it the
+          // same way every real render does.
+          rtl: (ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa',
           fields: prechatFieldCount(),
+          chatEnabled: chatEnabled,
+          composer: composerSkeletonCaps(),
         }) || '';
       } catch (_) { return ''; }
     }

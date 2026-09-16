@@ -433,13 +433,33 @@ a.wy-powered:hover { color: var(--wy-text); }
 .wy-sk-btn { height: 40px; border-radius: 12px; width: 100%; }
 .wy-sk-pill { height: 34px; border-radius: 10px; width: 104px; }
 .wy-sk-field { height: 40px; border-radius: 10px; width: 100%; }
-.wy-sk-back { width: 23px; height: 23px; border-radius: 50%; background: #f0f0f3; }
+/* The real back control is a 23x23 glyph inside 4px of padding, so its box
+   is 31x31. `content-box` keeps the grey blob glyph-sized while the box it
+   sits in stays the real one — and the `.wy-skeleton` prefix is what lets it
+   beat `.wy-head-chat .wy-back { width: auto }`, which used to collapse this
+   placeholder to 8x8 on the chat surface alone. */
+.wy-skeleton .wy-sk-back {
+  box-sizing: content-box;
+  width: 23px; height: 23px;
+  border-radius: 50%; background: #f0f0f3;
+}
 .wy-sk-group { display: flex; flex-direction: column; gap: 10px; }
 .wy-sk-row { pointer-events: none; }
 .wy-sk-chevron { opacity: 0.35; }
-.wy-skeleton .wy-head-id { display: flex; flex-direction: column; gap: 6px; }
+/* A skeleton header must be exactly as tall as the header that replaces it.
+   The trick is to let each header variant's OWN line-height do the work
+   instead of restating pixel heights that would drift from it: the title
+   stops being a flex container (a flex box has no line box), and the two
+   placeholder bars go inline so both text rows lay out as real lines. Home's
+   17px/1.1 title and chat's 16px/1.65 one then each come out right with no
+   variant-specific numbers anywhere. */
+.wy-skeleton .wy-head-title { display: block; }
+.wy-skeleton .wy-head-title > .wy-sk,
+.wy-skeleton .wy-head-sub > .wy-sk { display: inline-block; vertical-align: middle; }
 .wy-skeleton .conv-row { cursor: default; }
-.wy-sk-msgs { display: flex; flex-direction: column; gap: 12px; padding: 12px 0; }
+/* Carries `.wy-chat-scroll` too, so padding and the white card background
+   come from the real rule — only the inner stacking is skeleton-specific. */
+.wy-sk-msgs { display: flex; flex-direction: column; gap: 10px; }
 .wy-sk-msg { display: flex; align-items: flex-end; gap: 8px; }
 .wy-sk-msg.is-me { justify-content: flex-end; }
 .wy-sk-bubble {
@@ -452,7 +472,14 @@ a.wy-powered:hover { color: var(--wy-text); }
   transform: translateX(-100%);
   animation: wy-sk-shimmer 1.6s ease-in-out infinite;
 }
-.wy-sk-input { min-height: 44px; display: flex; align-items: center; }
+/* Wears the real `.input` class, so the pill is the real 46px tall; this
+   only centres the placeholder bar inside it. */
+.wy-sk-input { display: flex; align-items: center; overflow: hidden; }
+/* Control placeholders keep the real button box and only swap the glyph.
+   `.wy-fab` is the exception that paints itself in the brand colour, so it
+   is neutralised here rather than shipping a solid accent dot in a skeleton. */
+.wy-sk-ico { pointer-events: none; }
+.wy-skeleton .wy-fab { background: #f0f0f3; color: transparent; }
 .wy-skeleton .prechat-field { display: flex; flex-direction: column; gap: 6px; }
 
 @keyframes wy-sk-shimmer { 100% { transform: translateX(100%); } }

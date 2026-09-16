@@ -85,7 +85,11 @@ describe('P0-C — explicit selection loads exactly that conversation', () => {
     // an options argument cannot silently skip this assertion.
     const idx = runtime.search(/function openConversation\(conversationId\b/);
     expect(idx).toBeGreaterThan(-1);
-    const body = runtime.slice(idx, idx + 1200);
+    // Bound the slice to the function itself rather than a byte count, so
+    // adding a line to it cannot silently move an assertion out of range.
+    const end = runtime.indexOf("switchTab('chat');", idx);
+    expect(end).toBeGreaterThan(idx);
+    const body = runtime.slice(idx, end);
     expect(body).toMatch(/unsubscribeConversation\(current\)/);
     expect(body).toMatch(/freshIntent: false/);
     expect(body).toMatch(/loadConversationHistory\(conversationId/);

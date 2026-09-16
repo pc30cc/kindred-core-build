@@ -17,9 +17,9 @@ import { resolve } from 'node:path';
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 
 const REGISTRY_SRC = read('public/widget/presentation-registry.js');
-const RENDERER_SRC = read('public/widget/presentation-web-yar.js');
+const RENDERER_SRC = read('public/widget/presentation-default.js');
 const RUNTIME_JS = read('public/widget/runtime.js');
-const CSS = read('public/widget/presentation-web-yar.css') + read('public/widget/runtime.css');
+const CSS = read('public/widget/presentation-default.css') + read('public/widget/runtime.css');
 
 type Vm = Record<string, unknown>;
 interface Renderer {
@@ -43,7 +43,7 @@ const DICT: Record<string, string> = {
 
 const CONFIG: Vm = {
   brandName: 'Acme',
-  platformName: 'Web Yar',
+  platformName: 'Acme Platform',
   attachments: { enabled: true, voiceNotesEnabled: true },
   composer: { emojiEnabled: true },
 };
@@ -59,7 +59,7 @@ function renderer(configExtra: Vm = {}): Renderer {
   }
   new Function(REGISTRY_SRC).call(window);
   new Function(RENDERER_SRC).call(window);
-  const factory = w.__gs_presentation_web_yar as { create: (env: Vm) => Renderer };
+  const factory = w.__gs_presentation_default as { create: (env: Vm) => Renderer };
   return factory.create({
     t: (k: string) => DICT[k] ?? k,
     escapeHtml: (v: unknown) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) =>

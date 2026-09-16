@@ -13,7 +13,7 @@ import path from 'node:path';
 
 const root = process.cwd();
 const read = (p: string) => readFileSync(path.join(root, p), 'utf8');
-const CSS = read('public/widget/runtime.css') + read('public/widget/presentation-web-yar.css');
+const CSS = read('public/widget/runtime.css') + read('public/widget/presentation-default.css');
 
 export const ORIGIN = 'http://widget.test';
 /** getUserMedia only exists in a secure context, so mic specs boot from https. */
@@ -179,7 +179,7 @@ export async function boot(page: Page, opts: BootOpts = {}) {
     }, opts.resumeCid);
     await page.reload();
   }
-  for (const f of ['presentation-registry.js', 'presentation-web-yar.js', 'runtime-chat.js', 'runtime.js']) {
+  for (const f of ['presentation-registry.js', 'presentation-default.js', 'runtime-chat.js', 'runtime.js']) {
     await page.addScriptTag({ url: `${origin}/widget/${f}` });
   }
   await page.evaluate(({ config, keepClosed }) => {

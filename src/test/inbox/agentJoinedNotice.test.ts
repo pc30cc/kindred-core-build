@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs';
  */
 const ROUTE = readFileSync('server/routes/conversations.ts', 'utf8');
 const ROUTING = readFileSync('server/services/chatRouting.ts', 'utf8');
-const WIDGET_RENDERER = readFileSync('public/widget/presentation-web-yar.js', 'utf8');
+const WIDGET_RENDERER = readFileSync('public/widget/presentation-default.js', 'utf8');
 
 /** The assignment-notice block inside the PATCH route. */
 function noticeBlock(): string {

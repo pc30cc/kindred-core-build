@@ -79,9 +79,9 @@ const CONFIG_RESPONSE = {
   styleUrl: 'https://cdn.test/runtime.css',
   runtimeUrl: 'https://cdn.test/runtime.js',
   presentationRegistryUrl: 'https://cdn.test/presentation-registry.js',
-  presentationUrl: 'https://cdn.test/presentation-web-yar.js',
+  presentationUrl: 'https://cdn.test/presentation-default.js',
   presentationStyleUrl: 'https://cdn.test/presentation.css',
-  templateId: 'web-yar',
+  templateId: 'default',
 };
 
 interface Harness {

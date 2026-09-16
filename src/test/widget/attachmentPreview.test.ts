@@ -12,8 +12,8 @@ import { readFileSync } from 'node:fs';
  * ordinary send button sends both together.
  */
 const RUNTIME = readFileSync('public/widget/runtime.js', 'utf8');
-const RENDERER = readFileSync('public/widget/presentation-web-yar.js', 'utf8');
-const CSS = readFileSync('public/widget/presentation-web-yar.css', 'utf8');
+const RENDERER = readFileSync('public/widget/presentation-default.js', 'utf8');
+const CSS = readFileSync('public/widget/presentation-default.css', 'utf8');
 
 /** The composer pill's markup. */
 function pillSource(): string {

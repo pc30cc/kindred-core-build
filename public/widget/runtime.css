@@ -6,7 +6,7 @@
 
    TYPOGRAPHY-NEUTRAL: this Core stylesheet must NEVER declare a font-family
    or load a webfont. Typography belongs 100% to the Presentation layer
-   (presentation-web-yar.css). Only reset / layout / focus lives here.
+   (presentation-default.css). Only reset / layout / focus lives here.
 */
 
 :host {

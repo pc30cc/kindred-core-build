@@ -10,7 +10,7 @@
  * in-flight request, at most one pending timer, a genuine failure is never
  * reported as "no conversations", and manual Retry stays immediate.
  *
- * Boots the SHIPPED runtime.js + presentation-web-yar.js inside jsdom (same
+ * Boots the SHIPPED runtime.js + presentation-default.js inside jsdom (same
  * harness as round 2) and proves, against REAL fetch call counts (never
  * internal state reads):
  *   - the exact 15/30/60/120/240/300(cap)-second schedule, boundary-exact
@@ -97,7 +97,7 @@ function boot(conversationsHandler: (callIndex: number) => ReturnType<typeof jso
   });
 
   loadAsset('public/widget/presentation-registry.js');
-  loadAsset('public/widget/presentation-web-yar.js');
+  loadAsset('public/widget/presentation-default.js');
   loadAsset('public/widget/runtime.js');
 
   const host = document.createElement('gs-widget-test');

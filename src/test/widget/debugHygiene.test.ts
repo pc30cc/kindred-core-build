@@ -241,7 +241,7 @@ function bootRuntime(opts: { debug?: boolean; contact?: { name?: string; email?:
   (window as any).__GS_WIDGET_TEST_HOOKS__ = true;
 
   loadAsset('public/widget/presentation-registry.js');
-  loadAsset('public/widget/presentation-web-yar.js');
+  loadAsset('public/widget/presentation-default.js');
   loadAsset('public/widget/runtime.js');
 
   const host = document.createElement('gs-widget-test');

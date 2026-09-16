@@ -12,8 +12,8 @@ import { readFileSync } from 'node:fs';
  * there are to do with a recording: play it, delete it, send it.
  */
 const RUNTIME = readFileSync('public/widget/runtime.js', 'utf8');
-const RENDERER = readFileSync('public/widget/presentation-web-yar.js', 'utf8');
-const CSS = readFileSync('public/widget/presentation-web-yar.css', 'utf8');
+const RENDERER = readFileSync('public/widget/presentation-default.js', 'utf8');
+const CSS = readFileSync('public/widget/presentation-default.css', 'utf8');
 
 describe('the pill owns the pending recording', () => {
   it('mounts the preview inside the input pill, beside the recorder row', () => {

@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs';
  * must be able to style.
  */
 const RUNTIME = readFileSync('public/widget/runtime.js', 'utf8');
-const CSS = readFileSync('public/widget/presentation-web-yar.css', 'utf8');
+const CSS = readFileSync('public/widget/presentation-default.css', 'utf8');
 
 /** `renderCallSurface` plus the two helpers it builds markup with. */
 function callRendererSource(): string {

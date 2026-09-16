@@ -11,13 +11,25 @@
  * Server responsibility here is purely security: the id becomes part of an
  * asset file name, so its shape is strictly validated.
  */
-export const DEFAULT_WIDGET_TEMPLATE_ID = 'web-yar';
+export const DEFAULT_WIDGET_TEMPLATE_ID = 'default';
 
 const TEMPLATE_ID_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+/**
+ * Ids this template used to be called, mapped to what it is called now.
+ *
+ * The id is baked into asset FILE NAMES, so unlike the browser registry —
+ * which can simply fall back for anything it does not recognise — the server
+ * would happily build `presentation-web-yar.js` out of a stale id and serve
+ * the loader a 404. A settings row or an embed written before the rename has
+ * to land on the real files.
+ */
+const LEGACY_TEMPLATE_IDS: Record<string, string> = { 'web-yar': 'default' };
 
 /** Returns a shape-safe template id, falling back to the default. */
 export function resolveWidgetTemplateId(input?: string | null): string {
   const id = String(input || '').trim().toLowerCase();
+  if (id && LEGACY_TEMPLATE_IDS[id]) return LEGACY_TEMPLATE_IDS[id];
   if (id && TEMPLATE_ID_RE.test(id)) return id;
   return DEFAULT_WIDGET_TEMPLATE_ID;
 }

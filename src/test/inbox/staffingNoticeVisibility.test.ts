@@ -22,7 +22,7 @@ import { isInternalMessage } from '../../../server/routes/widget.js';
  */
 const WIDGET_ROUTE = readFileSync('server/routes/widget.ts', 'utf8');
 const CONVERSATIONS_ROUTE = readFileSync('server/routes/conversations.ts', 'utf8');
-const RENDERER = readFileSync('public/widget/presentation-web-yar.js', 'utf8');
+const RENDERER = readFileSync('public/widget/presentation-default.js', 'utf8');
 const ROUTING = readFileSync('server/services/chatRouting.ts', 'utf8');
 
 describe('the internal filter the comments always promised', () => {

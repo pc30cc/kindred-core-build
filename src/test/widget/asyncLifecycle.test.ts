@@ -3,7 +3,7 @@
  *
  * The other widget suites either grep the source or drive ConvEpoch in
  * isolation. This one boots the SHIPPED runtime inside jsdom with a real
- * Shadow DOM shell and the real Web Yar presentation, replaces only the
+ * Shadow DOM shell and the real default presentation, replaces only the
  * chat transport module with a hand-controlled mock (every call parks its
  * callbacks so the test decides WHEN each response lands), and then
  * reproduces the four race conditions the epoch exists for:
@@ -128,7 +128,7 @@ function boot(config: Record<string, unknown> = {}): Harness {
   });
 
   loadAsset('public/widget/presentation-registry.js');
-  loadAsset('public/widget/presentation-web-yar.js');
+  loadAsset('public/widget/presentation-default.js');
   loadAsset('public/widget/runtime.js');
 
   const host = document.createElement('gs-widget-test');

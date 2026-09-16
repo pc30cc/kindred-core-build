@@ -904,7 +904,7 @@
         welcomeFallback: 'Hi there 👋\nHow can we help you today?',
         teamLabel: 'Support team',
         onlineLabel: 'online',
-        // web-yar template surfaces
+        // default template surfaces
         wyRecentConversations: 'Recent conversations',
         wyViewConversations: 'View conversations',
         wyConversations: 'Conversations',
@@ -1117,7 +1117,7 @@
         welcomeFallback: 'سلام 👋\nچطور می‌توانیم به شما کمک کنیم؟',
         teamLabel: 'تیم پشتیبانی',
         onlineLabel: 'آنلاین',
-        // web-yar template surfaces
+        // default template surfaces
         wyRecentConversations: 'گفتگوهای اخیر',
         wyViewConversations: 'مشاهده گفتگوها',
         wyConversations: 'گفتگوها',
@@ -1330,7 +1330,7 @@
         welcomeFallback: 'Merhaba 👋\nSize nasıl yardımcı olabiliriz?',
         teamLabel: 'Destek ekibi',
         onlineLabel: 'çevrimiçi',
-        // web-yar template surfaces
+        // default template surfaces
         wyRecentConversations: 'Son sohbetler',
         wyViewConversations: 'Sohbetleri gör',
         wyConversations: 'Sohbetler',
@@ -3141,7 +3141,7 @@
           // (server/routes/widget.ts + enrichMessagesWithReplyTo) on every
           // delivery path — send response, realtime envelope, /poll,
           // /history, /identity/history. Consumed by
-          // presentation-web-yar.js's `m.replyTo.text` quote-box render.
+          // presentation-default.js's `m.replyTo.text` quote-box render.
           // The legacy "> quoted text" body convention still renders
           // correctly on its own (unchanged) if this is ever absent.
           replyTo: m.reply_to ? { id: m.reply_to.id, text: m.reply_to.text, senderType: m.reply_to.sender_type } : null,
@@ -6765,7 +6765,7 @@
       // Bugfix: this read `attachCfg` with no binding anywhere in scope —
       // every call threw ReferenceError before reaching any of the
       // validation/upload logic below. `ctx.config.attachments` is the
-      // actual config object (same shape presentation-web-yar.js already
+      // actual config object (same shape presentation-default.js already
       // reads correctly as `cfg.attachments` to decide whether to render
       // the attach button at all).
       var attachCfg = (ctx.config && ctx.config.attachments) || {};

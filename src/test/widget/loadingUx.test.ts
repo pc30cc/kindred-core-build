@@ -18,8 +18,8 @@ import { resolve } from 'node:path';
 const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 const core = read('public/widget/runtime.js');
 const coreCss = read('public/widget/runtime.css');
-const tpl = read('public/widget/presentation-web-yar.js');
-const tplCss = read('public/widget/presentation-web-yar.css');
+const tpl = read('public/widget/presentation-default.js');
+const tplCss = read('public/widget/presentation-default.css');
 
 describe('Core owns loading state, never loading presentation', () => {
   it('paints no loading copy of its own', () => {

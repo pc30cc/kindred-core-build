@@ -1,7 +1,7 @@
 /**
- * Web Yar presentation font asset — THE single source of widget font bytes.
+ * Default presentation font asset — THE single source of widget font bytes.
  *
- * Owned by the `web-yar` presentation template and referenced ONLY through
+ * Owned by the `default` presentation template and referenced ONLY through
  * the registry descriptor (`fonts:` key). It is content-hashed by
  * scripts/widget-hash.js like every other presentation asset, so it is
  * served `immutable, max-age=1y` and reused from browser cache on reload.

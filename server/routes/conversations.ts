@@ -766,10 +766,20 @@ conversationsRouter.patch('/:id', async (req, res) => {
         payload: { from: before.assigned_to, to: parsed.data.assigned_to },
       });
 
-      // Operator-visible transfer notice inside the thread itself
-      // ("X transferred this conversation to Y"). Internal-only: the widget
-      // filters `metadata.internal === true` out of /poll and /history, so
-      // the visitor never sees internal staffing moves.
+      // A notice inside the thread itself. Two genuinely different events
+      // share this route:
+      //
+      //   unassigned → assigned  is somebody JOINING. The visitor has been
+      //     waiting and should be told who picked their conversation up, so
+      //     this one is visitor-visible and uses the same
+      //     `routing_agent_joined` kind that auto-routing already emits.
+      //     It used to be filed as a transfer, which meant the visitor saw
+      //     nothing at all and the operator read "X transferred this
+      //     conversation to Y" for a conversation nobody had held.
+      //
+      //   assigned → someone else, or → nobody, is an internal staffing
+      //     move. The widget filters `metadata.internal === true` out of
+      //     /poll and /history, so the visitor never sees those.
       void (async () => {
         try {
           const ids = [auth.userId, before.assigned_to, parsed.data.assigned_to]
@@ -787,14 +797,21 @@ conversationsRouter.patch('/:id', async (req, res) => {
           const actorName = nameById.get(auth.userId) || null;
           const fromName = before.assigned_to ? (nameById.get(before.assigned_to) || null) : null;
           const toName = parsed.data.assigned_to ? (nameById.get(parsed.data.assigned_to) || null) : null;
-          const body = toName
-            ? `${actorName || 'An operator'} transferred this conversation to ${toName}`
-            : `${actorName || 'An operator'} unassigned this conversation`;
-          await sb.from('conversation_messages').insert({
-            conversation_id: conversationId,
-            sender_type: 'system',
-            body,
-            metadata: {
+          const isJoin = !before.assigned_to && !!parsed.data.assigned_to;
+          const body = isJoin
+            ? `${toName || 'An operator'} joined the conversation.`
+            : toName
+              ? `${actorName || 'An operator'} transferred this conversation to ${toName}`
+              : `${actorName || 'An operator'} unassigned this conversation`;
+          const metadata = isJoin
+            ? {
+              kind: 'routing_agent_joined',
+              agent_id: parsed.data.assigned_to,
+              agent_name: toName,
+              actor_id: auth.userId,
+              actor_name: actorName,
+            }
+            : {
               kind: parsed.data.assigned_to ? 'conversation_transferred' : 'conversation_unassigned',
               internal: true,
               actor_id: auth.userId,
@@ -803,8 +820,29 @@ conversationsRouter.patch('/:id', async (req, res) => {
               from_name: fromName,
               to_id: parsed.data.assigned_to,
               to_name: toName,
-            },
-          });
+            };
+          const { data: noticeRow } = await sb.from('conversation_messages').insert({
+            conversation_id: conversationId,
+            sender_type: 'system',
+            body,
+            metadata,
+          }).select('id, conversation_id, sender_type, body, created_at, metadata, seen_at').single();
+          // A join is for the visitor to see, so it has to reach the widget
+          // in real time rather than waiting for a reload.
+          if (isJoin && noticeRow) {
+            void publishConversationEvent(
+              config, parsed.data.workspace_id, conversationId,
+              buildMessageEnvelope({
+                id: noticeRow.id as string,
+                conversation_id: noticeRow.conversation_id as string,
+                sender_type: 'system',
+                body: noticeRow.body as string,
+                created_at: noticeRow.created_at as string | null,
+                metadata: (noticeRow.metadata as Record<string, unknown>) ?? metadata,
+                seen_at: (noticeRow as { seen_at?: string | null }).seen_at ?? null,
+              }),
+            );
+          }
         } catch (e) {
           console.warn('[conversations PATCH] transfer notice failed:', e?.message || e);
         }
@@ -1082,7 +1120,7 @@ conversationsRouter.get('/', async (req, res) => {
         .limit(2000);
 
       const byConv: Record<string, { body: string; created_at: string; seen_at: string | null }> = {};
-      const lastByConv: Record<string, { body: string; created_at: string; sender_type: string; sender_id?: string | null; sender_name?: string | null; attachment_id?: string | null; attachment_kind?: 'image' | 'audio' | 'video' | 'file' | null; system_kind?: string | null; actor_name?: string | null; to_name?: string | null }> = {};
+      const lastByConv: Record<string, { body: string; created_at: string; sender_type: string; sender_id?: string | null; sender_name?: string | null; attachment_id?: string | null; attachment_kind?: 'image' | 'audio' | 'video' | 'file' | null; system_kind?: string | null; system_meta?: Record<string, unknown> | null }> = {};
       // Human operators who ever wrote in the thread — drives "who handled
       // this" visibility for resolved threads and the list preview label.
       const agentParticipants: Record<string, Set<string>> = {};
@@ -1118,11 +1156,13 @@ conversationsRouter.get('/', async (req, res) => {
             // describe the media instead of claiming "no messages yet".
             attachment_id: meta?.attachment_id ? String(meta.attachment_id) : null,
             attachment_kind: null,
-            // System notices (transfer / unassign) are stored in English:
-            // ship the structured metadata so the UI can localize the preview.
+            // Every system notice is stored in English and frozen at insert
+            // time, so the preview has to rebuild the sentence from metadata
+            // (see src/lib/systemMessageText.ts). Shipping the whole object
+            // rather than a field per kind is why the list no longer falls
+            // behind the thread every time a new kind is added.
             system_kind: meta?.kind ? String(meta.kind) : null,
-            actor_name: meta?.actor_name ? String(meta.actor_name) : null,
-            to_name: meta?.to_name ? String(meta.to_name) : null,
+            system_meta: meta?.kind ? meta : null,
           };
         }
         if (m.sender_type === 'agent' && m.sender_id) {

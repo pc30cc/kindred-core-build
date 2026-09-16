@@ -306,7 +306,7 @@ contactsRouter.get('/:id/conversations', async (req, res) => {
     const ids = convs.map((c) => c.id);
     const { data: msgs } = await sb
       .from('conversation_messages')
-      .select('conversation_id, sender_type, sender_id, body, created_at')
+      .select('conversation_id, sender_type, sender_id, body, created_at, metadata')
       .in('conversation_id', ids)
       .order('created_at', { ascending: true });
 
@@ -342,6 +342,11 @@ contactsRouter.get('/:id/conversations', async (req, res) => {
         operator_name: operator ? operator.full_name || operator.email : null,
         operator_avatar: operator?.avatar_url ?? null,
         last_message_body: lastMessage?.body ?? null,
+        // System notices are stored in English and frozen at insert time, so
+        // the preview has to rebuild the sentence from metadata — see
+        // src/lib/systemMessageText.ts.
+        last_message_meta:
+          lastMessage?.sender_type === 'system' ? (lastMessage.metadata ?? null) : null,
         message_count: mine.length,
       };
     });

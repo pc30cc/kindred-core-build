@@ -1041,6 +1041,7 @@ const tr: TranslationKeys = {
     'system.agentJoined': '{name} sohbete katıldı',
     'system.agentJoinedGeneric': 'Bir meslektaşımız sohbete katıldı',
     'system.noAgentAvailable': 'Tüm ekibimiz şu anda meşgul. Mesajınız kaydedildi, en kısa sürede yanıtlayacağız.',
+    'system.inQueue': 'Sıradasınız — kısa süre içinde bir ekip arkadaşımız yanıtlayacak.',
     'system.callInviteAudio': 'Ziyaretçi sesli aramaya davet edildi',
     'system.callInviteVideo': 'Ziyaretçi görüntülü aramaya davet edildi',
     'system.callInviteAudioFrom': '{op} ziyaretçiyi sesli aramaya davet etti',

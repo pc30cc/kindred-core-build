@@ -1317,14 +1317,22 @@
       return sk('wy-sk-circle', 'width:' + size + 'px;height:' + size + 'px;');
     }
 
+    // Uses the REAL header classes (.wy-head-text / .wy-head-title /
+    // .wy-head-sub) rather than a parallel skeleton-only structure, so the
+    // gaps and the two line boxes are the stylesheet's, not a second set of
+    // numbers that can drift from them. A skeleton header is then exactly as
+    // tall as the header that replaces it.
     function skHeadIdentityHtml(opts) {
       opts = opts || {};
       return '<div class="wy-head' + (opts.headClass ? ' ' + opts.headClass : '') + '">' +
-        (opts.back ? '<span class="wy-back wy-sk-back" aria-hidden="true"></span>' : '') +
+        (opts.back ? '<span class="wy-back wy-sk-back"></span>' : '') +
         skCircle(opts.avatar || 44) +
-        '<div class="wy-head-id">' +
-          '<div class="wy-head-line">' + skLine('120px', 13) + '</div>' +
-          skLine('84px', 9) +
+        '<div class="wy-head-text">' +
+          '<span class="wy-head-title">' + skLine('120px', 13) + '</span>' +
+          // A workspace that cleared its reply-time text gets a one-line
+          // header; drawing a second line here would make the skeleton
+          // taller than the header replacing it.
+          (opts.sub === false ? '' : '<span class="wy-head-sub">' + skLine('84px', 9) + '</span>') +
         '</div>' +
         (opts.stack
           ? '<span class="home-stack">' + skCircle(22) + skCircle(22) + skCircle(22) + '</span>'
@@ -1362,7 +1370,7 @@
     function skeletonHomeHtml(vm) {
       vm = vm || {};
       return '<div class="wy-view wy-view-home home-root wy-skeleton"' + (vm.rtl ? ' dir="rtl"' : '') + '>' +
-        skHeadIdentityHtml({ headClass: 'wy-head-home', avatar: 44 }) +
+        skHeadIdentityHtml({ headClass: 'wy-head-home', avatar: 44, sub: !!replyTimeText(true) }) +
         '<div class="wy-home-body">' +
           '<div class="wy-scroll wy-home-scroll" aria-hidden="true">' +
             '<section class="home-greeting-block">' +
@@ -1391,6 +1399,12 @@
       '</div>';
     }
 
+    /** One composer control: the REAL 32x32 button box, a placeholder glyph. */
+    function skComposerIconHtml(cls) {
+      return '<span class="' + cls + ' wy-sk-ico">' +
+        sk('', 'width:18px;height:18px;border-radius:5px;') + '</span>';
+    }
+
     function skeletonChatHtml(vm) {
       vm = vm || {};
       var rows = [
@@ -1402,29 +1416,70 @@
       ];
       var msgs = rows.map(function (r) {
         return '<div class="wy-sk-msg' + (r.me ? ' is-me' : '') + '">' +
-          (r.me ? '' : skCircle(26)) +
+          // Same 2rem avatar the real operator rows use.
+          (r.me ? '' : skCircle(32)) +
           '<span class="wy-sk-bubble" style="width:' + r.w + ';"></span>' +
         '</div>';
       }).join('');
-      return '<div class="wy-view wy-view-chat wy-skeleton"' + (vm.rtl ? ' dir="rtl"' : '') + '>' +
-        skHeadIdentityHtml({ headClass: 'wy-head-chat', avatar: 44, back: true }) +
-        '<div class="wy-chat-body">' +
-          '<div class="wy-scroll wy-sk-msgs" aria-hidden="true">' + msgs + '</div>' +
-          '<div class="composer-zone" aria-hidden="true">' +
+
+      // The composer is the one thing on a chat surface the visitor is
+      // looking straight at while it loads, so this mirrors chatFrameHtml
+      // exactly: the same wrapper classes (identical padding, pill geometry
+      // and ring) and the same control set Core is about to mount, decided
+      // by the same config flags. Anything less and the box the visitor
+      // types into moves the moment the real composer arrives.
+      var comp = vm.composer || {};
+      var composerHtml = vm.chatEnabled === false
+        ? footerHtml()
+        : '<div class="composer-zone">' +
             '<div class="input-bar">' +
-              '<div class="input-wrap wy-sk-input">' + skLine('54%', 12) + '</div>' +
-            '</div>' + footerHtml() +
-          '</div>' +
+              '<div class="input-wrap">' +
+                (comp.voiceNotes ? skComposerIconHtml('mic-btn') : '') +
+                '<span class="input wy-sk-input">' + skLine('54%', 12) + '</span>' +
+                '<div class="composer-actions">' +
+                  '<div class="composer-actions-start">' +
+                    (comp.attachments ? skComposerIconHtml('attach-btn') : '') +
+                    (comp.emoji ? skComposerIconHtml('emoji-btn') : '') +
+                  '</div>' +
+                  // The real frame always emits the send control and lets
+                  // `.input-bar:not(.has-draft) .send-btn { display: none }`
+                  // hide it. Emitting it here too keeps the two DOMs
+                  // identical, so that rule keeps deciding for both.
+                  '<div class="composer-actions-end">' +
+                    skComposerIconHtml('send-btn') +
+                  '</div>' +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+            footerHtml() +
+          '</div>';
+
+      // Same three-part tree as the real chat view: header, scroll host,
+      // composer. The previous `.wy-chat-body` wrapper had no stylesheet rule
+      // at all, so it collapsed to its content height inside the flex column
+      // and left the composer floating above the panel's bottom edge.
+      return '<div class="wy-view wy-view-chat wy-skeleton" aria-hidden="true"' +
+        (vm.rtl ? ' dir="rtl"' : '') + '>' +
+        skHeadIdentityHtml({
+          headClass: 'wy-head-chat', avatar: 44, back: true,
+          // Same source the real chat header reads its subtitle from.
+          sub: !!replyTimeText(true),
+        }) +
+        '<div class="wy-chat-scroll-host">' +
+          '<div class="wy-chat-scroll wy-scroll wy-sk-msgs">' + msgs + '</div>' +
         '</div>' +
+        composerHtml +
       '</div>';
     }
 
     function skeletonListHtml(vm) {
       vm = vm || {};
-      return '<div class="wy-view wy-view-list wy-skeleton"' + (vm.rtl ? ' dir="rtl"' : '') + '>' +
-        '<div class="wy-head wy-head-list" aria-hidden="true">' +
+      return '<div class="wy-view wy-view-list wy-skeleton" aria-hidden="true"' +
+        (vm.rtl ? ' dir="rtl"' : '') + '>' +
+        '<div class="wy-head wy-head-list">' +
           '<span class="wy-back wy-sk-back"></span>' +
-          skLine('92px', 13) +
+          '<span class="wy-head-plain">' + skLine('92px', 13) + '</span>' +
+          (vm.chatEnabled === false ? '' : '<span class="wy-fab wy-sk-ico"></span>') +
         '</div>' +
         '<div class="wy-body-pad wy-list-body">' +
           '<div class="wy-scroll wy-list-scroll">' + skeletonConvRowsHtml(6) + '</div>' +

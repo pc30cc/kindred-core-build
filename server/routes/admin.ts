@@ -22,6 +22,7 @@ import { adminCallsRouter } from './adminCalls.js';
 import { adminAdvancedRoutingRouter } from './adminAdvancedRouting.js';
 import { adminSmsProvidersRouter } from './adminSmsProviders.js';
 import { adminStorageProvidersRouter } from './adminStorageProviders.js';
+import { adminAnalyticsStorageRouter } from './adminAnalyticsStorage.js';
 import { adminSeoBacklinksProviderRouter } from './adminSeoBacklinksProvider.js';
 import { adminSeoKeywordsProviderRouter } from './adminSeoKeywordsProvider.js';
 import { adminSeoRankTrackingProviderRouter } from './adminSeoRankTrackingProvider.js';
@@ -157,6 +158,13 @@ adminRouter.use('/providers/sms', adminSmsProvidersRouter);
 // Storage provider pool — several vendors at once, one primary, the rest
 // mirrored (super admin only; credentials never leave the server).
 adminRouter.use('/providers/storage', adminStorageProvidersRouter);
+
+// Analytics storage — a SECOND, independent storage topology for the Web
+// Analytics lake (Parquet under `analytics/`). Its primary and replicas are
+// chosen separately from the general pool above and share only that pool's
+// CREDENTIALS; nothing in this router can move the general primary. Super
+// admin only; no credential ever crosses it.
+adminRouter.use('/providers/analytics-storage', adminAnalyticsStorageRouter);
 
 // SEO Backlinks / Keyword Research / Rank Tracking — platform data
 // providers (DataForSEO). Same singleton-credential shape as the SMS

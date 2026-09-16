@@ -106,6 +106,7 @@ import { startEnforcementTicker } from './services/observability/enforcementTick
 import { startMaxmindUpdateTicker } from './services/geo/maxmindUpdater.js';
 import { startRankTrackingTicker } from './services/seo/rankTrackingTicker.js';
 import { startGmailWatchRenewalTicker } from './services/channels/gmail/watchRenewalTicker.js';
+import { startAnalyticsFlushTicker } from './services/analytics/ticker.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import { isPublicWidgetApiPath, PUBLIC_WIDGET_REALTIME_ROUTES } from './lib/routePrefix.js';
@@ -697,6 +698,14 @@ app.listen(config.port, () => {
   // GOOGLE_OAUTH_CLIENT_ID/SECRET + GMAIL_PUBSUB_TOPIC are configured. See
   // server/services/channels/gmail/watchRenewalTicker.ts.
   startGmailWatchRenewalTicker(config);
+
+  // Web Analytics lake — drains this process's buffered analytics rows into
+  // Parquet objects on the Analytics Primary. No-ops entirely until a
+  // platform admin enables Analytics Storage and picks a primary. Unlike the
+  // tickers above it takes no cross-replica lease: the buffer is local to
+  // this process, so every process must flush its own. See
+  // server/services/analytics/ticker.ts.
+  startAnalyticsFlushTicker(config);
 
   // Phase 9 — Call invitation TTL sweeper (every 30s). Flips pending
   // invitations whose CALL_INVITATION_TTL_SECONDS window passed into

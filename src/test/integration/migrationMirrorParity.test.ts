@@ -259,6 +259,12 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     hosted: 'supabase/migrations/20260916093000_storage_key_ownership.sql',
   },
 
+  {
+    label: '192 — analytics storage pool: independent analytics topology (own key, own RPCs)',
+    selfHost: 'database/migrations/192_analytics_storage_pool.sql',
+    hosted: 'supabase/migrations/20260916095000_analytics_storage_pool.sql',
+  },
+
   // intentionally asymmetric, not a drift bug.
 
   // NOTE: 182 (database/migrations/182_admin_purge_workspaces_selfhost.sql)

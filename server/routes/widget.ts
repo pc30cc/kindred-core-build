@@ -120,6 +120,9 @@ import { resolveWorkspaceAppUrl } from '../services/auth-email.js';
 
 import { enrichVisitorSessionGeo } from '../services/geo/index.js';
 import { trackEvent } from '../services/webAnalytics/eventsService.js';
+import {
+  recordPageView, recordSessionStart, analyticsSessionFrom, analyticsIngestEnabled,
+} from '../services/analytics/ingest.js';
 import { getClientCountry, hashIp } from '../utils/clientIp.js';
 import { checkTypingAllowed } from '../services/widget/typingRateLimit.js';
 import { loadWidgetPlatformRuntimeSettings } from '../services/widget/platformSettings.js';
@@ -2534,7 +2537,11 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
       const { data: existing } = await supabase
         // ip_hash is fetched so a mid-session network change (VPN / mobile
         // handover) forces a geo re-resolve instead of keeping the old country.
-        .from('visitor_sessions').select('id, ip_hash')
+        // The first-touch attribution and geo columns are fetched in the SAME
+        // query (no extra round trip) because the analytics lake denormalizes
+        // them onto every event row — see server/services/analytics/schema.ts.
+        .from('visitor_sessions')
+        .select('id, ip_hash, referrer, utm_source, utm_medium, utm_campaign, utm_term, utm_content, browser, device, os, language, country, city, geo_country_code, geo_country_name, geo_city, started_at')
         .eq('workspace_id', workspaceId).eq('visitor_id', visitor_id || '')
         .gte('last_seen_at', thirtyMinAgo)
         .order('last_seen_at', { ascending: false }).limit(1).maybeSingle();
@@ -2583,6 +2590,19 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
           } catch (e) {
             console.warn('[widget-track] page-view insert failed:', e?.message);
           }
+          // Phase 1 dual-write. PostgreSQL above stays the read source; this
+          // mirrors the same page view into the analytics lake so the S3
+          // pipeline can be validated against real traffic before any
+          // cutover. Fire-and-forget by contract — never awaited, never
+          // throws (server/services/analytics/ingest.ts).
+          recordPageView(config, {
+            workspaceId,
+            url: String(normalizedPageUrl),
+            title: page_title ? String(page_title) : null,
+            session: analyticsSessionFrom(existing.id, visitor_id, existing, {
+              browser, device, os, language,
+            }),
+          });
         }
       } else if (visitor_id) {
         // Phase 10 — gate true-new-this-month visitors on the public widget
@@ -2628,6 +2648,20 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
             status: 'online',
             current_page: normalizedPageUrl,
           });
+          // Analytics lake: a session_start row carries the first-touch
+          // attribution this session was just given, so the dimensions
+          // survive even if the page view below fails to record.
+          const newSessionDimensions = analyticsSessionFrom(newSession.id, visitor_id, {
+            referrer,
+            utm_source, utm_medium, utm_campaign, utm_term, utm_content,
+            started_at: new Date().toISOString(),
+          }, { browser, device, os, language });
+          recordSessionStart(config, {
+            workspaceId,
+            url: normalizedPageUrl ? String(normalizedPageUrl) : null,
+            title: page_title ? String(page_title) : null,
+            session: newSessionDimensions,
+          });
           // Always log the very first page view of a brand-new session.
           if (normalizedPageUrl) {
             try {
@@ -2640,6 +2674,12 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
             } catch (e) {
               console.warn('[widget-track] first page-view insert failed:', e?.message);
             }
+            recordPageView(config, {
+              workspaceId,
+              url: String(normalizedPageUrl),
+              title: page_title ? String(page_title) : null,
+              session: newSessionDimensions,
+            });
           }
           // Fire-and-forget geo enrichment — never block the widget response.
           // Uses MaxMind local DB when configured (city-level), with cache.
@@ -2708,6 +2748,9 @@ widgetRouter.post('/event', widgetRateLimit('default'), async (req: Request, res
       eventName: event_name,
       properties,
       pageUrl: typeof page_url === 'string' ? page_url : null,
+      // Filled in by the signed-cookie identity middleware above — never
+      // taken from the request body.
+      visitorId: typeof req.body?.visitor_id === 'string' ? req.body.visitor_id : null,
     });
     res.json(result);
   } catch (err) {
@@ -2807,6 +2850,28 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
           } catch (e) {
             console.warn('[widget-action] page-view insert failed:', e?.message);
           }
+          // Phase 1 dual-write (see the /track route). The session's
+          // dimensions are read here rather than carried in the heartbeat
+          // body: a heartbeat sends no attribution, and the analytics lake
+          // denormalizes it onto every row.
+          void (async () => {
+            try {
+              // Skip the lookup entirely while analytics storage is off — it
+              // is the only extra query this change adds to a hot path.
+              if (!(await analyticsIngestEnabled(config))) return;
+              const { data: sessionRow } = await supabase
+                .from('visitor_sessions')
+                .select('referrer, utm_source, utm_medium, utm_campaign, utm_term, utm_content, browser, device, os, language, country, city, geo_country_code, geo_country_name, geo_city, started_at')
+                .eq('id', session_id)
+                .maybeSingle();
+              recordPageView(config, {
+                workspaceId,
+                url: String(current_page),
+                title: page_title ? String(page_title) : null,
+                session: analyticsSessionFrom(session_id, visitor_id, sessionRow, {}),
+              });
+            } catch { /* analytics must never affect the heartbeat */ }
+          })();
         }
 
         return res.json({ ok: true, presence_mode: presenceMode });

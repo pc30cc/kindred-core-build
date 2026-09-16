@@ -15,6 +15,7 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { normalizePath, getSessionCount, type DateRange } from './reportService.js';
+import { recordCustomEvent, analyticsSessionFrom, analyticsIngestEnabled } from '../analytics/ingest.js';
 
 const ROW_CAP = 20_000;
 
@@ -55,19 +56,60 @@ export interface TrackEventInput {
   eventName: string;
   properties?: unknown;
   pageUrl?: string | null;
+  /**
+   * Resolved server-side from the signed visitor cookie (see the identity
+   * middleware in server/routes/widget.ts). The analytics lake needs it
+   * because `web_analytics_events` records only a SESSION — which is why
+   * "unique visitors" cannot be computed correctly from the PostgreSQL
+   * tables today.
+   */
+  visitorId?: string | null;
 }
 
 export async function trackEvent(config: ServerConfig, input: TrackEventInput): Promise<{ ok: boolean }> {
   const eventName = input.eventName.trim().slice(0, MAX_EVENT_NAME_LEN);
   if (!eventName) return { ok: false };
+  const properties = sanitizeProperties(input.properties);
   const sb = getServiceClient(config);
   const { error } = await sb.from('web_analytics_events').insert({
     workspace_id: input.workspaceId,
     visitor_session_id: input.sessionId,
     event_name: eventName,
-    properties: sanitizeProperties(input.properties),
+    properties,
     page_url: input.pageUrl ? String(input.pageUrl).slice(0, 2048) : null,
   });
+
+  // Phase 1 dual-write. PostgreSQL above stays the read source; the same
+  // event is mirrored into the analytics lake, enriched with the session's
+  // dimensions so a custom event can be broken down by channel, geo or
+  // device without joining anything at read time.
+  void (async () => {
+    try {
+      // The session lookup below only exists to enrich the analytics row, so
+      // it is skipped entirely while analytics storage is off.
+      if (!(await analyticsIngestEnabled(config))) return;
+      const { data: sessionRow } = input.sessionId
+        ? await sb
+          .from('visitor_sessions')
+          .select('visitor_id, referrer, utm_source, utm_medium, utm_campaign, utm_term, utm_content, browser, device, os, language, country, city, geo_country_code, geo_country_name, geo_city, started_at')
+          .eq('workspace_id', input.workspaceId)
+          .eq('id', input.sessionId)
+          .maybeSingle()
+        : { data: null };
+      recordCustomEvent(config, {
+        workspaceId: input.workspaceId,
+        eventName,
+        properties,
+        url: input.pageUrl ?? null,
+        session: analyticsSessionFrom(
+          input.sessionId,
+          input.visitorId ?? (sessionRow as { visitor_id?: string } | null)?.visitor_id ?? null,
+          sessionRow as Record<string, unknown> | null,
+        ),
+      });
+    } catch { /* analytics must never affect event tracking */ }
+  })();
+
   return { ok: !error };
 }
 

@@ -28,6 +28,9 @@ import { getClientIp, hashIp, getClientCountry } from '../utils/clientIp.js';
 import { resolveVisitorGeo, getActiveGeoProvider } from '../services/geo/index.js';
 import { enrichVisitorSessionGeo } from '../services/geo/index.js';
 import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visitorLimit.js';
+import {
+  recordPageView, recordSessionStart, analyticsSessionFrom,
+} from '../services/analytics/ingest.js';
 
 export const visitorRouter = Router();
 
@@ -128,6 +131,8 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
 
     let sessionId: string;
     let previousIpHash: string | null = null;
+    /** Drives the analytics `session_start` row below — only a brand-new session gets one. */
+    let createdNewSession = false;
 
     if (existing) {
       previousIpHash = ((existing as any).ip_hash as string | null) ?? null;
@@ -186,6 +191,7 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
         return res.status(500).json({ error: 'Failed to create session' });
       }
       sessionId = newSession!.id;
+      createdNewSession = true;
     }
 
     // Best-effort geo enrichment at ingest time. Calls the configured
@@ -218,6 +224,33 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
         });
       } catch (e) {
         console.warn('[visitors.track] page-view insert failed:', (e as any)?.message);
+      }
+    }
+
+    // Phase 1 dual-write. This route carries no UTM fields (only the widget
+    // loader collects them), so the analytics row gets the dimensions this
+    // surface actually has — the rest stay null rather than being invented.
+    {
+      const analyticsSession = analyticsSessionFrom(sessionId, data.visitor_id, {
+        referrer: data.referrer ?? null,
+        browser: data.browser ?? null,
+        device: data.device ?? null,
+        os: data.os ?? null,
+        started_at: new Date().toISOString(),
+      });
+      if (createdNewSession) {
+        recordSessionStart(config, {
+          workspaceId: data.workspace_id,
+          url: data.current_page ?? null,
+          session: analyticsSession,
+        });
+      }
+      if (data.current_page) {
+        recordPageView(config, {
+          workspaceId: data.workspace_id,
+          url: data.current_page,
+          session: analyticsSession,
+        });
       }
     }
 
@@ -307,9 +340,12 @@ visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
     }
 
     // Read previous current_page so we only append a new page-view on change.
+    // The attribution/geo columns ride along in this EXISTING query (no extra
+    // round trip) because the analytics lake denormalizes them onto every
+    // event row — see server/services/analytics/schema.ts.
     const { data: prevSession } = await supabase
       .from('visitor_sessions')
-      .select('id, workspace_id, visitor_id, current_page')
+      .select('id, workspace_id, visitor_id, current_page, referrer, utm_source, utm_medium, utm_campaign, utm_term, utm_content, browser, device, os, language, country, city, geo_country_code, geo_country_name, geo_city, started_at')
       .eq('id', session_id)
       .maybeSingle();
 
@@ -368,6 +404,16 @@ visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
       } catch (e) {
         console.warn('[visitors.heartbeat] page-view insert failed:', (e as any)?.message);
       }
+      // Phase 1 dual-write — PostgreSQL above remains the read source.
+      recordPageView(config, {
+        workspaceId: prevSession.workspace_id,
+        url: current_page,
+        session: analyticsSessionFrom(
+          session_id,
+          prevSession.visitor_id,
+          prevSession as unknown as Record<string, unknown>,
+        ),
+      });
     }
 
     // Realtime push — best-effort.

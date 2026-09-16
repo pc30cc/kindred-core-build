@@ -161,7 +161,7 @@ describe('composer design contract', () => {
     expect(bar.querySelector(':scope > [data-mic-btn]')).toBeNull();
     // Mic is the first child inside the pill, ahead of the textarea.
     expect(wrap.firstElementChild!.getAttribute('data-mic-btn')).not.toBeNull();
-    expect(wrap.querySelector('.composer-actions [data-send-btn]')).toBeTruthy();
+    expect(wrap.querySelector('.composer-actions-start [data-send-btn]')).toBeTruthy();
     expect(wrap.querySelector('.composer-actions-start [data-attach-btn]')).toBeTruthy();
     expect(wrap.querySelector('.composer-actions-start [data-emoji-btn]')).toBeTruthy();
     expect(el.querySelector('[data-escalate-btn]')).toBeNull();
@@ -173,9 +173,25 @@ describe('composer design contract', () => {
     expect(input.getAttribute('rows')).toBe('1');
   });
 
-  it('mic and send are mutually exclusive by draft state', () => {
-    expect(PRES_CSS).toMatch(/\.input-bar:not\(\.has-draft\) \.send-btn\s*\{\s*display:\s*none/);
-    expect(PRES_CSS).toMatch(/\.input-bar\.has-draft \.mic-btn\s*\{\s*display:\s*none/);
+  it('no control enters or leaves the row when a draft starts', () => {
+    // Superseded design rule: mic and send used to swap on draft state, which
+    // moved every neighbouring button mid-sentence. Send now stays mounted
+    // and merely reads as inactive.
+    expect(PRES_CSS).not.toMatch(/\.input-bar:not\(\.has-draft\) \.send-btn\s*\{\s*display:\s*none/);
+    expect(PRES_CSS).not.toMatch(/\.input-bar\.has-draft \.mic-btn\s*\{\s*display:\s*none/);
+    expect(PRES_CSS).toMatch(/\.input-bar:not\(\.has-draft\) \.send-btn\s*\{\s*opacity:/);
+  });
+
+  it('send sits next to attach in one fixed action group', () => {
+    const wrap = chatDom().querySelector('[data-input-wrap]')!;
+    const group = wrap.querySelector('.composer-actions-start')!;
+    const order = Array.from(group.children)
+      .filter((c) => c.tagName === 'BUTTON')
+      .map((c) => (c as HTMLElement).className);
+    // Document order send → attach → emoji paints, in the RTL widget, as
+    // emoji · attach · send left-to-right, putting send on attach's right.
+    expect(order).toEqual(['send-btn', 'attach-btn', 'emoji-btn']);
+    expect(wrap.querySelector('.composer-actions-end')).toBeNull();
   });
 
   it('locks composer geometry to the design values', () => {

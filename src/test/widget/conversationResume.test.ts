@@ -34,6 +34,7 @@ type ContinuationCall = { onResult: (r: HistoryResult) => void };
 interface RuntimeInstance {
   open: () => boolean;
   close: () => boolean;
+  setTab: (key: string) => void;
 }
 
 interface RuntimeGlobal {
@@ -267,6 +268,35 @@ describe('a closed conversation sends the visitor home', () => {
   });
 });
 
+describe('a live conversation continues in a brand-new tab', () => {
+  it('lands in the most recent live thread with no hint at all', async () => {
+    const h = boot({
+      conversations: [{ id: 'conv-B', status: 'open' }, { id: 'conv-A', status: 'open' }],
+      open: true,
+    });
+    await flush();
+    expect(h.explicitHistoryLoads()).toEqual(['conv-B']);
+    expect(h.bodyText()).toContain('reply inside conv-B');
+  });
+
+  it('stays on home when every thread is closed', async () => {
+    const h = boot({
+      conversations: [{ id: 'conv-A', status: 'resolved' }, { id: 'conv-B', status: 'closed' }],
+      open: true,
+    });
+    await flush();
+    expect(h.explicitHistoryLoads()).toEqual([]);
+  });
+
+  it('stays on home when the thread list could not be loaded', async () => {
+    // Volunteering a surface the visitor did not ask for needs positive
+    // proof, unlike the hint path which must not evict them on a bad request.
+    const h = boot({ conversationsFail: true, open: true });
+    await flush();
+    expect(h.explicitHistoryLoads()).toEqual([]);
+  });
+});
+
 describe('only the chat surface is restored', () => {
   it('a visitor who navigated back to home still gets home', async () => {
     seedHint('home', 'conv-A');
@@ -341,14 +371,20 @@ describe('the round trip the visitor actually performs', () => {
     expect(h.explicitHistoryLoads()).toEqual(['conv-A']);
   });
 
-  it('a genuine reload re-enters the thread using only what the first load left behind', async () => {
-    // First page load: no hint at all, the visitor opens a thread by hand.
-    const first = boot({ conversations: [{ id: 'conv-A', status: 'open' }], open: true });
+  it('a genuine reload re-enters the thread the visitor chose, not the newest one', async () => {
+    // Two live threads. Left alone, a hintless boot resumes the most recent
+    // one (conv-B) — so picking conv-A by hand and getting conv-A back after
+    // a reload can only be the per-tab hint doing its job.
+    const first = boot({
+      conversations: [{ id: 'conv-B', status: 'open' }, { id: 'conv-A', status: 'open' }],
+      open: true,
+    });
     await flush();
-    // Nothing was restored — this is a cold boot.
-    expect(first.explicitHistoryLoads()).toEqual([]);
+    expect(first.explicitHistoryLoads()).toEqual(['conv-B']);
 
-    // Tapping the thread in the list is what puts them in a conversation.
+    // The visitor walks back out to the thread list and picks the other one.
+    first.runtime.setTab('list');
+    await flush();
     const row = first.shadow.querySelector('[data-conversation-open="conv-A"]');
     expect(row).not.toBeNull();
     (row as HTMLElement).click();
@@ -364,10 +400,14 @@ describe('the round trip the visitor actually performs', () => {
     }
     vi.restoreAllMocks();
 
-    const second = boot({ conversations: [{ id: 'conv-A', status: 'open' }], open: true });
+    const second = boot({
+      conversations: [{ id: 'conv-B', status: 'open' }, { id: 'conv-A', status: 'open' }],
+      open: true,
+    });
     await flush();
 
-    // Straight back into the thread, without the visitor touching anything.
+    // Straight back into conv-A, without the visitor touching anything —
+    // and NOT into conv-B, which is what a hintless boot would have chosen.
     expect(second.explicitHistoryLoads()).toEqual(['conv-A']);
     expect(second.bodyText()).toContain('reply inside conv-A');
   });

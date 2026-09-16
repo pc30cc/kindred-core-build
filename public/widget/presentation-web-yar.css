@@ -1119,11 +1119,12 @@ a.wy-powered:hover { color: var(--wy-text); }
   display: flex; align-items: center; justify-content: flex-end;
   padding: 0; padding-inline-start: 8px; flex: none;
 }
-.composer-actions-start { display: flex; align-items: center; }
-.composer-actions-end { display: flex; align-items: center; }
-/* Mic while the draft is empty, send once there is something to send. */
-.input-bar:not(.has-draft) .send-btn { display: none; }
-.input-bar.has-draft .mic-btn { display: none; }
+.composer-actions-start { display: flex; align-items: center; gap: 2px; }
+/* Every control keeps its seat whatever the draft state — a button that
+   disappears (or appears) mid-sentence moves everything beside it, which is
+   exactly what the visitor's finger is already aiming at. Send simply reads
+   as inactive until there is something to send; it never leaves the row. */
+.input-bar:not(.has-draft) .send-btn { opacity: 0.4; }
 .send-btn, .attach-btn, .emoji-btn {
   display: flex; align-items: center; justify-content: center;
   min-width: 32px; min-height: 32px; width: 32px; height: 32px;
@@ -1132,7 +1133,9 @@ a.wy-powered:hover { color: var(--wy-text); }
 }
 .attach-btn svg, .emoji-btn svg { width: 18px; height: 18px; }
 .emoji-btn[aria-expanded='true'] { color: var(--wy-accent); }
-.send-btn { color: var(--wy-accent); margin-inline-start: 4px; }
+/* Spacing belongs to the group, not to one member: a per-button margin was
+   correct only while send sat alone at the far end. */
+.send-btn { color: var(--wy-accent); }
 .send-btn svg { width: 18px; height: 18px; transform: scaleX(-1); }
 [dir='ltr'] .send-btn svg { transform: none; }
 .send-btn:hover, .attach-btn:hover, .emoji-btn:hover { background: var(--wy-hover-2); }

@@ -1144,6 +1144,75 @@ a.wy-powered:hover { color: var(--wy-text); }
 .send-btn[hidden], .attach-btn[hidden], .emoji-btn[hidden], .mic-btn[hidden] { display: none; }
 
 .mic-btn.recording { background: transparent; color: #e5484d; }
+
+/* ─── Voice recording takes over the composer pill ───────────────────
+   While recording, the pill IS the recording surface: the textarea and the
+   action group step aside and this row fills the same box, so the composer
+   never changes height and nothing opens above it. */
+.input-bar.is-recording .input,
+.input-bar.is-recording .composer-actions,
+.input-bar.is-recording .mic-btn { display: none; }
+.rec-bar {
+  display: none;
+  flex: 1; min-width: 0;
+  align-items: center;
+  gap: 8px;
+  /* Same 46px as `.input`, so switching modes cannot resize the pill. */
+  height: 46px;
+}
+.input-bar.is-recording .rec-bar { display: flex; }
+.rec-bar[hidden] { display: none; }
+.input-bar.is-recording .rec-bar[hidden] { display: flex; }
+.rec-btn {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  min-width: 32px; min-height: 32px; width: 32px; height: 32px;
+  border-radius: 9999px; background: transparent;
+  transition: background-color 0.15s, transform 0.15s var(--wy-ease);
+}
+.rec-btn:active { transform: scale(0.9); }
+.rec-cancel { color: var(--wy-muted); }
+.rec-cancel:hover { background: rgba(229, 72, 77, 0.1); color: #e5484d; }
+.rec-confirm { color: var(--wy-accent); }
+.rec-confirm:hover { background: var(--wy-hover-2); }
+
+.rec-live { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.rec-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #e5484d; flex: none;
+  animation: wy-rec-blink 1.2s ease-in-out infinite;
+}
+@keyframes wy-rec-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+.rec-time {
+  font-size: 13px; font-weight: 600; color: var(--wy-text);
+  font-variant-numeric: tabular-nums; line-height: 1;
+  /* Fixed width so the row does not twitch as the seconds tick over. */
+  min-width: 40px;
+}
+
+/* A live-looking level meter. Deliberately CSS-only: reading real amplitude
+   would mean building an AudioContext analyser and a per-frame loop for a
+   purely decorative strip. */
+.rec-wave { display: flex; align-items: center; gap: 3px; flex: 1; min-width: 0; overflow: hidden; height: 20px; }
+.rec-wave i {
+  display: block; width: 3px; border-radius: 2px; flex: none;
+  background: var(--wy-accent); opacity: 0.55;
+  animation: wy-rec-wave 0.9s ease-in-out infinite;
+}
+.rec-wave i:nth-child(1) { animation-delay: 0s; }
+.rec-wave i:nth-child(2) { animation-delay: 0.12s; }
+.rec-wave i:nth-child(3) { animation-delay: 0.24s; }
+.rec-wave i:nth-child(4) { animation-delay: 0.36s; }
+.rec-wave i:nth-child(5) { animation-delay: 0.48s; }
+.rec-wave i:nth-child(6) { animation-delay: 0.6s; }
+.rec-wave i:nth-child(7) { animation-delay: 0.18s; }
+.rec-wave i:nth-child(8) { animation-delay: 0.42s; }
+.rec-wave i:nth-child(9) { animation-delay: 0.06s; }
+.rec-wave i:nth-child(10) { animation-delay: 0.54s; }
+@keyframes wy-rec-wave { 0%, 100% { height: 5px; } 50% { height: 18px; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .rec-dot { animation: none; }
+  .rec-wave i { animation: none; height: 10px; }
+}
 /* Chat footer sits directly under the composer (design source). */
 .composer-zone .wy-footer { padding: 4px 0 2px; }
 .composer-zone .wy-powered { font-size: 12px; }

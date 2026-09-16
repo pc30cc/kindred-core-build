@@ -6748,30 +6748,24 @@
         recordStream = null;
       }
     }
-    function renderRecordingUI() {
-      if (!attachTray) return;
-      attachTray.hidden = false;
-      attachTray.innerHTML =
-        '<div class="attach-chip status-recording recording-chip">' +
-          '<span class="rec-dot" aria-hidden="true"></span>' +
-          '<div class="attach-chip-meta">' +
-            '<div class="attach-chip-name">' + Util.escapeHtml(t('recording') || 'Recording…') + '</div>' +
-            '<div class="attach-chip-sub" data-rec-timer>00:00</div>' +
-          '</div>' +
-          '<button type="button" class="attach-chip-retry" data-rec-stop aria-label="' + Util.escapeHtml(t('stopRecording') || 'Stop') + '" title="' + Util.escapeHtml(t('stopRecording') || 'Stop') + '">' +
-            '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>' +
-          '</button>' +
-          '<button type="button" class="attach-chip-remove" data-rec-cancel aria-label="' + Util.escapeHtml(t('cancelRecording') || 'Cancel') + '">×</button>' +
-        '</div>';
-      var stopBtn = attachTray.querySelector('[data-rec-stop]');
-      if (stopBtn) stopBtn.addEventListener('click', function () { finishRecording(true); });
-      var cancelBtn = attachTray.querySelector('[data-rec-cancel]');
-      if (cancelBtn) cancelBtn.addEventListener('click', function () { finishRecording(false); });
+    // The recording surface is part of the composer pill and is built ONCE
+    // with the rest of the frame, so entering and leaving the mode is a
+    // class toggle — no markup is rebuilt and no second strip opens above
+    // the composer.
+    var recBarEl = chatQ('[data-rec-bar]');
+    var recTimerEl = chatQ('[data-rec-timer]');
+    var recStopBtn = chatQ('[data-rec-stop]');
+    var recCancelBtn = chatQ('[data-rec-cancel]');
+    if (recStopBtn) recStopBtn.addEventListener('click', function () { finishRecording(true); });
+    if (recCancelBtn) recCancelBtn.addEventListener('click', function () { finishRecording(false); });
+
+    function setRecordingMode(on) {
+      if (inputBar) inputBar.classList.toggle('is-recording', !!on);
+      if (recBarEl) recBarEl.hidden = !on;
+      if (on && recTimerEl) recTimerEl.textContent = fmtRecordTime(0);
     }
     function tickRecordTimer() {
-      if (!attachTray) return;
-      var el = attachTray.querySelector('[data-rec-timer]');
-      if (el) el.textContent = fmtRecordTime(Date.now() - recordStartedAt);
+      if (recTimerEl) recTimerEl.textContent = fmtRecordTime(Date.now() - recordStartedAt);
     }
     function startRecording() {
       if (recordingActive || !micBtn) return;
@@ -6794,6 +6788,7 @@
           stopMicStream();
           recordingActive = false;
           micBtn.classList.remove('recording');
+          setRecordingMode(false);
           syncAttachButton();
           if (recordTimer) { clearInterval(recordTimer); recordTimer = null; }
           var chunks = recordedChunks;
@@ -6813,7 +6808,7 @@
         micBtn.classList.add('recording');
         if (attachBtn) attachBtn.disabled = true;
         recordStartedAt = Date.now();
-        renderRecordingUI();
+        setRecordingMode(true);
         recordTimer = setInterval(tickRecordTimer, 500);
         mr.start();
       }).catch(function () {
@@ -6827,6 +6822,7 @@
         stopMicStream();
         recordingActive = false;
         if (micBtn) micBtn.classList.remove('recording');
+        setRecordingMode(false);
         syncAttachButton();
         if (recordTimer) { clearInterval(recordTimer); recordTimer = null; }
       }

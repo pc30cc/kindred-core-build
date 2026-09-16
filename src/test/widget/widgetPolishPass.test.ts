@@ -38,6 +38,15 @@ function localeBlock(locale: string): string {
 }
 
 function renderer(locale = 'fa') {
+  // The mic control (and with it the recording row) is gated on real voice
+  // support, which jsdom lacks.
+  const w0 = window as unknown as Record<string, unknown>;
+  w0.MediaRecorder = function () {};
+  if (!navigator.mediaDevices) {
+    Object.defineProperty(navigator, 'mediaDevices', {
+      value: { getUserMedia: () => {} }, configurable: true,
+    });
+  }
   new Function(registrySrc).call(window);
   new Function(rendererSrc).call(window);
   const registered = (window as unknown as Record<string, { create: (env: unknown) => Renderer }>)
@@ -247,6 +256,52 @@ describe('widget polish — avatars', () => {
     });
     expect(el.querySelectorAll('.home-stack-item').length).toBe(1);
     expect(el.querySelectorAll('.home-stack-item.has-img').length).toBe(1);
+  });
+});
+
+describe('widget polish — voice recording', () => {
+  function voiceFrame(enabled = true) {
+    const cfg = { attachments: { enabled: true, voiceNotesEnabled: enabled }, composer: { emojiEnabled: true } };
+    const el = document.createElement('div');
+    el.innerHTML = renderer().chatFrameHtml({ config: cfg, chatEnabled: true, locale: 'fa' });
+    return el;
+  }
+
+  it('the recording row is part of the composer pill, not a second strip', () => {
+    const el = voiceFrame();
+    const bar = el.querySelector('[data-rec-bar]');
+    expect(bar).not.toBeNull();
+    // Inside the pill itself — the attachment tray is a different element
+    // that must NOT be where recording happens any more.
+    expect(el.querySelector('[data-input-wrap] [data-rec-bar]')).not.toBeNull();
+    expect((bar as HTMLElement).hidden).toBe(true);
+  });
+
+  it('carries its own cancel, timer and confirm', () => {
+    const el = voiceFrame();
+    for (const sel of ['[data-rec-cancel]', '[data-rec-timer]', '[data-rec-stop]', '.rec-dot']) {
+      expect(el.querySelector(`[data-rec-bar] ${sel}`), sel).not.toBeNull();
+    }
+  });
+
+  it('is absent entirely when voice notes are off', () => {
+    expect(voiceFrame(false).querySelector('[data-rec-bar]')).toBeNull();
+  });
+
+  it('Core toggles the mode instead of rebuilding markup', () => {
+    expect(runtime).toContain('function setRecordingMode(on)');
+    expect(runtime).toContain("inputBar.classList.toggle('is-recording', !!on)");
+    // The old tray-chip renderer is gone for good.
+    expect(runtime).not.toContain('function renderRecordingUI()');
+    expect(runtime).not.toContain('recording-chip');
+  });
+
+  it('the stylesheet actually paints the live indicator and hides the composer', () => {
+    // `.rec-dot` used to have no rule at all — an invisible zero-size span.
+    expect(css).toMatch(/\.rec-dot \{[^}]*background: #e5484d/);
+    expect(css).toMatch(/\.input-bar\.is-recording \.input,[\s\S]*?display: none/);
+    // Same height as the textarea, so the pill cannot resize on mode change.
+    expect(css).toMatch(/\.rec-bar \{[\s\S]*?height: 46px/);
   });
 });
 

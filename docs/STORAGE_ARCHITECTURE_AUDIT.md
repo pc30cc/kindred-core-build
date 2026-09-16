@@ -298,3 +298,20 @@ Email → generic storage clients → AI/channel audit (already covered above) �
 account avatar ownership → privacy → LiveKit recordings → DB constraints →
 quota/category policy → legacy migration tooling → workspace cleanup
 lifecycle.
+
+## 11. Persisted URLs (superseded)
+
+Several rows in the inventory above were recorded as storing an absolute public
+URL next to (or instead of) their key — `profiles.avatar_url`,
+`workspace_branding.logo_url`, `call_center_settings.avatar_url`,
+`ai_agent_settings.agent_logo_url`, `contacts.avatar_url`. That is no longer
+true of any of them.
+
+A URL names one vendor's hostname, so a row holding one is pinned to whichever
+storage provider was primary when it was written. The platform now persists the
+canonical key ONLY and derives every link at read time, which makes promoting a
+new provider a zero-row-rewrite operation.
+
+See **`docs/STORAGE_URL_DERIVATION.md`** for the invariant, the single
+derivation layer (`server/services/storage/urlResolver.ts`), the per-column
+migration map, and the promotion rule that follows from it.

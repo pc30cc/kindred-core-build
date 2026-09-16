@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
-import { useWidgetSettings, useUpdateWidgetSettings } from '@/hooks/useWidgetSettings';
+import {
+  useWidgetSettings,
+  useUpdateWidgetSettings,
+  useUploadWidgetFabImage,
+  useRemoveWidgetFabImage,
+} from '@/hooks/useWidgetSettings';
 import { useBrandingContext } from '@/features/branding/BrandingContext';
 import { useWidgetPlatformPublicSettings } from '@/hooks/useWidgetPlatformSettings';
 import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
@@ -31,7 +36,21 @@ import { widgetTextDefault, widgetTextValue } from '@/lib/widgetLocaleDefaults';
 import { SmartRulesTab } from '@/components/app/widget/smart/SmartRulesTab';
 import { PlanLockedOverlay } from '@/components/plan/PlanLockedOverlay';
 import { SkeletonForm, Skeleton } from '@/components/common/Skeletons';
-import { storageUpload } from '@/lib/api';
+import type { WidgetSettings } from '@/types/models';
+
+/** Any column the appearance form may edit through `setField`. */
+type WidgetField = keyof WidgetSettings & string;
+
+/**
+ * The shape this page needs from the resolved entitlements: three keyed
+ * bags whose entries carry a `value`. Deliberately narrow — the page only
+ * ever asks "is this capability allowed" and "what is the domain cap".
+ */
+type EntitlementBag = {
+  features?: Record<string, { value?: unknown } | undefined>;
+  modules?: Record<string, { value?: unknown } | undefined>;
+  limits?: Record<string, { value?: unknown } | undefined>;
+};
 
 /** Widget behaviour switch → plan capability key. Mirrors the server map in
  *  `server/services/widget/entitlements.ts` (that file is the authority). */
@@ -73,6 +92,8 @@ function WidgetPageContent() {
   // exactly what production renders.
   const { data: effectiveEnts, loading: entsLoading, error: entsError } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
   const updateWidget = useUpdateWidgetSettings(workspace?.id);
+  const uploadFab = useUploadWidgetFabImage(workspace?.id);
+  const removeFab = useRemoveWidgetFabImage(workspace?.id);
   const { data: prechat } = useWidgetPrechatSettings(workspace?.id);
   const { allowedLocales, canSwitchLanguage } = usePlatformRegion();
   const [copiedVariant, setCopiedVariant] = useState<'window' | 'script' | null>(null);
@@ -85,23 +106,31 @@ function WidgetPageContent() {
    * Local draft layer: every keystroke updates the preview instantly while the
    * actual save is debounced, so typing stays smooth and nothing is lost.
    */
-  const [draft, setDraft] = useState<Record<string, any>>({});
+  const [draft, setDraft] = useState<Partial<WidgetSettings>>({});
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   useEffect(() => () => Object.values(timers.current).forEach(clearTimeout), []);
 
-  const setField = (field: string, value: any, delay = 500) => {
+  const setField = (field: WidgetField, value: unknown, delay = 500) => {
     setDraft((prev) => ({ ...prev, [field]: value }));
     clearTimeout(timers.current[field]);
     timers.current[field] = setTimeout(() => {
-      updateWidget.mutate({ [field]: value } as any);
+      updateWidget.mutate({ [field]: value });
     }, delay);
   };
 
-  const live = useMemo(() => ({ ...(widget as any), ...draft }), [widget, draft]);
+  const live = useMemo<Partial<WidgetSettings>>(() => ({ ...widget, ...draft }), [widget, draft]);
 
   /** Launcher (FAB) image upload — goes through the workspace storage provider. */
   const fabImageInputRef = useRef<HTMLInputElement>(null);
   const [fabImageUploading, setFabImageUploading] = useState(false);
+  /**
+   * The launcher image goes to a DEDICATED backend endpoint, which stores it
+   * in WebYar storage under a key it builds itself and records only that key.
+   * The browser deliberately does not upload through the generic storage API
+   * and then save the returned provider URL — that older shape persisted a
+   * vendor hostname in `widget_settings`, which no longer has a writable
+   * image-URL field at all.
+   */
   async function uploadFabImage(file: File) {
     if (!workspace?.id) return;
     if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
@@ -114,19 +143,24 @@ function WidgetPageContent() {
     }
     setFabImageUploading(true);
     try {
-      const buffer = new Uint8Array(await file.arrayBuffer());
-      let binary = '';
-      for (let i = 0; i < buffer.length; i += 1) binary += String.fromCharCode(buffer[i]);
-      const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
-      const result = await storageUpload({
-        workspaceId: workspace.id,
-        fileKey: `workspace/${workspace.id}/widget/launcher-${Date.now()}.${ext}`,
-        data: btoa(binary),
-        contentType: file.type,
-      });
-      if (!result?.success || !result.url) throw new Error(result?.error || 'upload_failed');
-      setField('fab_image_url' as any, result.url, 0);
+      await uploadFab.mutateAsync(file);
       toast({ title: t('widgetPage.appearance.fabImageUploaded') });
+    } catch (err) {
+      toast({
+        title: t('widgetPage.appearance.fabImageFailed'),
+        description: err instanceof Error ? err.message : undefined,
+        variant: 'destructive',
+      });
+    } finally {
+      setFabImageUploading(false);
+    }
+  }
+
+  async function removeFabImage() {
+    if (!workspace?.id) return;
+    setFabImageUploading(true);
+    try {
+      await removeFab.mutateAsync();
     } catch (err) {
       toast({
         title: t('widgetPage.appearance.fabImageFailed'),
@@ -150,16 +184,17 @@ function WidgetPageContent() {
   /** Plan truth for widget behaviours. Unknown key => allowed (server decides). */
   const capAllowed = (key: string): boolean => {
     if (!effectiveEnts) return true;
-    const f = (effectiveEnts.features as any)?.[key] ?? (effectiveEnts.modules as any)?.[key];
+    const bag = effectiveEnts as EntitlementBag;
+    const f = bag.features?.[key] ?? bag.modules?.[key];
     return f ? f.value !== false : true;
   };
   const maxDomains = (() => {
-    const l = (effectiveEnts?.limits as any)?.max_widget_domains?.value;
+    const l = (effectiveEnts as EntitlementBag | undefined)?.limits?.max_widget_domains?.value;
     return typeof l === 'number' ? l : -1;
   })();
 
   /** Appearance field → plan capability. Mirrors WIDGET_CUSTOMIZATION_CAPABILITY. */
-  const APPEARANCE_CAPABILITY: Record<string, { capability: string; reset: any }> = {
+  const APPEARANCE_CAPABILITY: Record<string, { capability: string; reset: string | number | null }> = {
     reply_time_text: { capability: 'widget_reply_time_text', reset: null },
     welcome_message: { capability: 'widget_welcome_message', reset: null },
     fab_label: { capability: 'widget_launcher_label', reset: null },
@@ -170,11 +205,11 @@ function WidgetPageContent() {
 
   const previewSettings = useMemo(
     () => {
-      const base: Record<string, any> = {
+      const base: Record<string, unknown> = {
         ...live,
         // Logo is no longer a widget-level URL field: fall back to the logo the
         // workspace owner uploaded in Settings → General.
-        logo_url: (live as any)?.logo_url || (branding as any)?.logo_url || null,
+        logo_url: live?.logo_url || branding?.logo_url || null,
         locale: effectiveLocale,
         widget_language: effectiveLocale,
       };
@@ -200,7 +235,7 @@ function WidgetPageContent() {
     if (!planAllows) return null;
     // Workspace may hide it only when its plan grants the toggle.
     const mayHide = effectiveEnts?.features?.widget_powered_by_toggle?.value === true;
-    if (mayHide && (live as any)?.show_powered_by === false) return null;
+    if (mayHide && live?.show_powered_by === false) return null;
     if (platformWidget && platformWidget.powered_by_enabled === false) return null;
     const brand = (platformWidget?.powered_by_brand_text || '').trim()
       || (platformName || '').trim();
@@ -234,12 +269,12 @@ function WidgetPageContent() {
     if (backfilled.current || !widget || !effectiveLocale) return;
     backfilled.current = true;
     const patch: Record<string, string> = {};
-    if (!widgetTextValue((widget as any).welcome_message, 'welcome', effectiveLocale)) {
+    if (!widgetTextValue(widget.welcome_message, 'welcome', effectiveLocale)) {
       patch.welcome_message = widgetTextDefault('welcome', effectiveLocale);
     }
     if (!Object.keys(patch).length) return;
     setDraft(prev => ({ ...patch, ...prev }));
-    updateWidget.mutate(patch as any);
+    updateWidget.mutate(patch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [widget, effectiveLocale]);
 
@@ -261,20 +296,20 @@ function WidgetPageContent() {
   const previewKbArticles = useMemo(
     () => ((kbArticlesData?.length ? kbArticlesData : kbArticlesAny) || [])
       .slice(0, 6)
-      .map((a: any) => ({ title: a.title, excerpt: a.excerpt, content: a.content })),
+      .map((a) => ({ title: a.title, excerpt: a.excerpt, content: a.content })),
     [kbArticlesData, kbArticlesAny],
   );
   const previewKbCategories = useMemo(
     () => ((kbCategoriesData?.length ? kbCategoriesData : kbCategoriesAny) || [])
       .slice(0, 6)
-      .map((c: any) => ({ name: c.name, description: c.description })),
+      .map((c) => ({ name: c.name, description: c.description })),
     [kbCategoriesData, kbCategoriesAny],
   );
 
   const primaryColor = live?.primary_color || branding?.primary_color || '#3B82F6';
   /** Launcher size is stored as a percentage (80–140) or a multiplier (0.8–1.4). */
   const fabScalePct = (() => {
-    const raw = Number((live as any)?.fab_scale);
+    const raw = Number(live?.fab_scale);
     if (!isFinite(raw) || raw <= 0) return 100;
     const pct = raw <= 3 ? raw * 100 : raw;
     return Math.min(140, Math.max(80, Math.round(pct / 5) * 5));
@@ -313,8 +348,10 @@ function WidgetPageContent() {
   };
 
 
-  const handleToggle = (field: string, value: boolean) => {
-    updateWidget.mutate({ [field]: value } as any);
+  // Named `handleToggle` for its main use (a switch), but the assignment-mode
+  // select goes through it too, so the value is not boolean-only.
+  const handleToggle = (field: WidgetField, value: boolean | string) => {
+    updateWidget.mutate({ [field]: value });
   };
 
   const handleAddDomain = () => {
@@ -336,13 +373,13 @@ function WidgetPageContent() {
       return;
     }
     setDomainError('');
-    updateWidget.mutate({ allowed_domains: [...current, normalized] } as any);
+    updateWidget.mutate({ allowed_domains: [...current, normalized] });
     setNewDomain('');
   };
 
   const handleRemoveDomain = (domain: string) => {
     const current = widget?.allowed_domains || [];
-    updateWidget.mutate({ allowed_domains: current.filter(d => d !== domain) } as any);
+    updateWidget.mutate({ allowed_domains: current.filter(d => d !== domain) });
   };
 
   /**
@@ -427,7 +464,7 @@ function WidgetPageContent() {
               <TabsTrigger
                 key={v}
                 value={v}
-                title={t(`widgetPage.tabDesc.${v}` as any)}
+                title={t(`widgetPage.tabDesc.${v}` as Parameters<typeof t>[0])}
                 className={cn(
                   'flex h-9 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-[13px] font-medium',
                   'transition-all hover:bg-background/70',
@@ -435,7 +472,7 @@ function WidgetPageContent() {
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />
-                <span className="hidden sm:inline">{t(`widgetPage.tabs.${v}` as any)}</span>
+                <span className="hidden sm:inline">{t(`widgetPage.tabs.${v}` as Parameters<typeof t>[0])}</span>
               </TabsTrigger>
             ))}
           </TabsList>
@@ -465,10 +502,10 @@ function WidgetPageContent() {
                   <div className="space-y-2">
                     <Label className="text-xs font-medium">{t('widgetPage.appearance.brandName')}</Label>
                     <Input
-                      value={typeof (live as any)?.brand_name === 'string'
-                        ? (live as any).brand_name
+                      value={typeof live?.brand_name === 'string'
+                        ? live.brand_name
                         : (workspace?.name || '')}
-                      onChange={e => setField('brand_name' as any, e.target.value)}
+                      onChange={e => setField('brand_name', e.target.value)}
                       placeholder={workspace?.name || t('widgetPage.appearance.brandNamePlaceholder')}
                     />
                     <p className="text-[11px] text-muted-foreground">{t('widgetPage.appearance.brandNameHint')}</p>
@@ -480,11 +517,11 @@ function WidgetPageContent() {
                     <Input
                       disabled={!capAllowed('widget_reply_time_text')}
                       value={capAllowed('widget_reply_time_text')
-                        ? (typeof (live as any)?.reply_time_text === 'string'
-                            ? (live as any).reply_time_text
+                        ? (typeof live?.reply_time_text === 'string'
+                            ? live.reply_time_text
                             : t('widgetPage.appearance.replyTimeDefault'))
                         : ''}
-                      onChange={e => setField('reply_time_text' as any, e.target.value)}
+                      onChange={e => setField('reply_time_text', e.target.value)}
                       placeholder={t('widgetPage.appearance.replyTimeDefault')}
                     />
 
@@ -588,8 +625,8 @@ function WidgetPageContent() {
                     <Label className="text-xs font-medium">{t('widgetPage.appearance.fabLabel')}</Label>
                     <Input
                       disabled={!capAllowed('widget_launcher_label')}
-                      value={capAllowed('widget_launcher_label') ? ((live as any)?.fab_label || '') : ''}
-                      onChange={e => setField('fab_label' as any, e.target.value)}
+                      value={capAllowed('widget_launcher_label') ? (live?.fab_label || '') : ''}
+                      onChange={e => setField('fab_label', e.target.value)}
                       placeholder={t('widgetPage.appearance.fabLabelPlaceholder')}
                     />
                     {capAllowed('widget_launcher_label') ? (
@@ -614,7 +651,7 @@ function WidgetPageContent() {
                         min={80}
                         max={140}
                         step={5}
-                        onValueChange={v => setField('fab_scale' as any, v[0], 300)}
+                        onValueChange={v => setField('fab_scale', v[0], 300)}
                       />
                       {!capAllowed('widget_launcher_size') && (
                         <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
@@ -629,10 +666,10 @@ function WidgetPageContent() {
                             type="button"
                             aria-label={key}
                             disabled={!capAllowed('widget_launcher_icon')}
-                            onClick={() => setField('fab_icon' as any, key, 0)}
+                            onClick={() => setField('fab_icon', key, 0)}
                             className={cn(
                               'flex h-10 w-10 items-center justify-center rounded-xl border-2 transition-transform hover:scale-105',
-                              (capAllowed('widget_launcher_icon') ? ((live as any)?.fab_icon || 'chat') : 'chat') === key
+                              (capAllowed('widget_launcher_icon') ? (live?.fab_icon || 'chat') : 'chat') === key
                                 ? 'border-foreground bg-muted'
                                 : 'border-border/70',
                             )}
@@ -654,15 +691,19 @@ function WidgetPageContent() {
                         <p className="text-[11px] text-primary">{t('plan.locked.upgradeHint')}</p>
                       )}
                     </div>
-                    {/* Launcher image — stored through the workspace storage provider. */}
+                    {/* Launcher image. The bytes go to a dedicated backend
+                        endpoint, which stores them in WebYar storage and keeps
+                        only the canonical key; `fab_image_url` here is derived
+                        server-side for the current storage provider and is not
+                        writable from this page. */}
                     <div className="space-y-2">
                       <Label className="text-xs font-medium">{t('widgetPage.appearance.fabImage')}</Label>
                       <div className="flex items-center gap-3">
                         <div
                           className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-muted"
                         >
-                          {(live as any)?.fab_image_url ? (
-                            <img src={(live as any).fab_image_url} alt="" className="h-full w-full object-cover" />
+                          {live?.fab_image_url ? (
+                            <img src={live.fab_image_url} alt="" className="h-full w-full object-cover" />
                           ) : (
                             <Palette className="h-4 w-4 text-muted-foreground" />
                           )}
@@ -687,12 +728,13 @@ function WidgetPageContent() {
                         >
                           {t('widgetPage.appearance.fabImageUpload')}
                         </Button>
-                        {(live as any)?.fab_image_url && (
+                        {live?.fab_image_url && (
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            onClick={() => setField('fab_image_url' as any, null, 0)}
+                            disabled={fabImageUploading}
+                            onClick={() => void removeFabImage()}
                           >
                             {t('widgetPage.appearance.fabImageRemove')}
                           </Button>
@@ -781,9 +823,9 @@ function WidgetPageContent() {
                         checked={
                           !capAllowed('widget_powered_by_toggle')
                             ? true
-                            : ((live as any)?.show_powered_by ?? true)
+                            : (live?.show_powered_by ?? true)
                         }
-                        onCheckedChange={v => setField('show_powered_by' as any, v, 0)}
+                        onCheckedChange={v => setField('show_powered_by', v, 0)}
                       />
                     </div>
                   )}
@@ -830,10 +872,10 @@ function WidgetPageContent() {
                         disabled={!capAllowed(BEHAVIOR_CAPABILITY[feature.key] || feature.key)}
                         checked={
                           capAllowed(BEHAVIOR_CAPABILITY[feature.key] || feature.key)
-                            ? ((widget as any)?.[feature.key] ?? feature.default)
+                            ? (widget?.[feature.key] ?? feature.default)
                             : false
                         }
-                        onCheckedChange={v => handleToggle(feature.key, v)}
+                        onCheckedChange={v => handleToggle(feature.key as WidgetField, v)}
                       />
                     </div>
                   ))}
@@ -859,10 +901,10 @@ function WidgetPageContent() {
                           disabled={!capAllowed('widget_assignment_routing')}
                           value={
                             capAllowed('widget_assignment_routing')
-                              ? ((widget as any)?.assignment_mode || 'auto')
+                              ? (widget?.assignment_mode || 'auto')
                               : 'manual'
                           }
-                          onValueChange={(v) => handleToggle('assignment_mode', v as any)}
+                          onValueChange={(v) => handleToggle('assignment_mode', v as WidgetSettings['assignment_mode'])}
                         >
                           <SelectTrigger className="w-full sm:w-72"><SelectValue /></SelectTrigger>
                           <SelectContent>
@@ -894,11 +936,11 @@ function WidgetPageContent() {
                       </div>
                       <Switch
                         disabled={!capAllowed('widget_raw_ip_storage')}
-                        checked={capAllowed('widget_raw_ip_storage') && ((widget as any)?.store_raw_ip ?? false)}
+                        checked={capAllowed('widget_raw_ip_storage') && (widget?.store_raw_ip ?? false)}
                         onCheckedChange={(v) => handleToggle('store_raw_ip', v)}
                       />
                     </div>
-                    {capAllowed('widget_raw_ip_storage') && (widget as any)?.store_raw_ip && (
+                    {capAllowed('widget_raw_ip_storage') && widget?.store_raw_ip && (
                       <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] text-warning">
                         <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                         <span>{t('visitors.storeRawIpWarning')}</span>
@@ -915,12 +957,12 @@ function WidgetPageContent() {
               <PlanLockedOverlay featureKey="widget_smart_engagement">
               <SmartRulesTab
                 workspaceId={workspace?.id}
-                masterEnabled={(live as any)?.smart_engagement_enabled === true}
+                masterEnabled={live?.smart_engagement_enabled === true}
                 onToggleMaster={(v) => handleToggle('smart_engagement_enabled', v)}
                 locale={effectiveLocale}
                 locales={regionLocales}
                 localeLabels={LOCALE_LABELS}
-                kbArticles={((kbArticlesData?.length ? kbArticlesData : kbArticlesAny) || []).map((a: any) => ({ title: a.title, slug: a.slug }))}
+                kbArticles={((kbArticlesData?.length ? kbArticlesData : kbArticlesAny) || []).map((a) => ({ title: a.title, slug: a.slug }))}
                 previewSettings={previewSettings}
                 brandName={workspace?.name || t('widgetPage.preview.brandFallback')}
                 studioKbArticles={previewKbArticles}
@@ -936,7 +978,7 @@ function WidgetPageContent() {
                 <AvailabilitySection
                   workspaceId={workspace?.id}
                   settings={widget}
-                  onSave={(patch) => updateWidget.mutate(patch as any)}
+                  onSave={(patch) => updateWidget.mutate(patch)}
                   saving={updateWidget.isPending}
                 />
               )}
@@ -1088,7 +1130,7 @@ function WidgetPageContent() {
                   className="h-7 flex-1 px-2 text-[11px]"
                   onClick={() => setManualView(v)}
                 >
-                  {t(`widgetPage.preview.view.${v}` as any)}
+                  {t(`widgetPage.preview.view.${v}` as Parameters<typeof t>[0])}
                 </Button>
               ))}
             </div>

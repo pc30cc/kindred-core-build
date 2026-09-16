@@ -118,6 +118,11 @@ vi.mock('../../../server/services/storage/index.js', () => ({
   deleteForOwner: deleteForOwnerMock,
   uploadFile: uploadFileMock,
   deleteFile: deleteFileMock,
+  // The row persists only the key; the link is derived from it at read
+  // time for whichever provider is primary, so the route needs the
+  // platform-wide resolver and the pure URL builder.
+  resolveGlobalStorageConfig: async () => ({ provider: 'bunny_storage', cdnUrl: 'https://cdn.example' }),
+  getFileUrlWithConfig: (_config: unknown, key: string) => `https://cdn.example/${key}`,
 }));
 
 const { accountRouter } = await import('../../../server/routes/account.js');
@@ -212,12 +217,22 @@ describe('POST /api/account/avatar', () => {
     expect(uploadFileMock).not.toHaveBeenCalled();
   });
 
-  it('persists both avatar_url and avatar_storage_key on the profile row', async () => {
+  it('persists ONLY the storage key, and clears any URL a previous provider left', async () => {
+    profileRow().avatar_url = 'https://old-vendor.example/users/x/avatar/stale.png';
+
     const res = await call('POST', '/api/account/avatar', 'token-a', { data: PNG_B64, contentType: 'image/png' });
     expect(res.status).toBe(200);
+
     const profile = profileRow();
-    expect(profile.avatar_url).toBe(res.json.url);
     expect(profile.avatar_storage_key).toBe(res.json.fileKey);
+    // A URL names one vendor, so no row keeps one — it is derived per read.
+    expect(profile.avatar_url).toBeNull();
+  });
+
+  it('returns a link DERIVED from the key for the provider that is primary now', async () => {
+    const res = await call('POST', '/api/account/avatar', 'token-a', { data: PNG_B64, contentType: 'image/png' });
+    expect(res.status).toBe(200);
+    expect(res.json.url).toBe(`https://cdn.example/${res.json.fileKey}`);
   });
 
   it('succeeds even when the user belongs to zero workspaces (routing no longer depends on primary workspace membership)', async () => {

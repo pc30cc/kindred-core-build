@@ -315,7 +315,13 @@ export function AdminStorageProvidersPanel() {
   const isMirror = !!entry && !entry.isPrimary && entry.enabled;
   // Readiness comes from the pool the server serialized, never from this
   // session's memory of a sync it just ran.
-  const canPromote = !!entry && entry.enabled && entry.synchronized;
+  //
+  // A vendor that cannot express a public URL is excluded from BOTH paths,
+  // including the forced one: no row stores a URL any more, so a primary
+  // with no URL builder blanks every avatar and logo with nothing left to
+  // repair. The server refuses it either way; this mirrors that.
+  const canServeUrls = entry?.canServePublicUrls !== false;
+  const canPromote = !!entry && entry.enabled && entry.synchronized && canServeUrls;
   const primaryEntry = pool?.primary ? entryOf(pool, pool.primary) : undefined;
   const primaryVendor = vendors.find((v) => v.name === pool?.primary);
   const mirrors = (pool?.providers ?? []).filter((p) => !p.isPrimary && p.enabled);
@@ -426,6 +432,7 @@ export function AdminStorageProvidersPanel() {
               </div>
             </div>
           </div>
+
         </CardContent>
       </Card>
 
@@ -578,13 +585,17 @@ export function AdminStorageProvidersPanel() {
                         size="sm" variant="outline"
                         onClick={() => promote.mutate({ name: selected })}
                         disabled={promote.isPending || !canPromote}
-                        title={canPromote ? undefined : t('adminProviders.storage.promoteBlocked')}
+                        title={
+                          canPromote ? undefined
+                          : !canServeUrls ? t('adminProviders.storage.promoteNoPublicUrl')
+                          : t('adminProviders.storage.promoteBlocked')
+                        }
                       >
                         <Crown className="h-3.5 w-3.5 me-1.5" />
                         {t('adminProviders.storage.makePrimary')}
                       </Button>
                     )}
-                    {!isPrimary && !canPromote && (
+                    {!isPrimary && !canPromote && canServeUrls && (
                       <Button
                         size="sm" variant="ghost"
                         className="text-amber-400 hover:text-amber-400 hover:bg-amber-500/10"

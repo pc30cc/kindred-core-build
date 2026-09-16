@@ -94,7 +94,15 @@ export interface Contact {
   email: string | null;
   name: string | null;
   phone: string | null;
-  avatar_url: string | null;
+  /**
+   * READ-ONLY on the client. Derived server-side from
+   * `contacts.avatar_storage_key` for whichever storage provider is primary
+   * (a legacy stored value may still be returned during rollout). It is not
+   * accepted by the create / bulk / update endpoints: a contact avatar
+   * WebYar keeps enters through an ingest path, never as a typed URL.
+   */
+  readonly avatar_url: string | null;
+  notes: string | null;
   tags: string[];
   metadata: Record<string, unknown>;
   /** Stable anonymous display code — see src/lib/contact-display.ts. */
@@ -169,7 +177,35 @@ export interface WidgetSettings {
   shadow_color: string | null;
 
   logo_url: string | null;
+  placeholder_text: string | null;
   position: 'bottom-right' | 'bottom-left';
+
+  // Launcher (FAB). `fab_image_url` is READ-ONLY on the client: it is derived
+  // server-side from `widget_settings.fab_image_storage_key` for whichever
+  // storage provider is primary, and is not writable through the settings
+  // PATCH — the image is changed via POST/DELETE
+  // /api/widget-settings/:workspaceId/fab-image.
+  fab_label?: string | null;
+  fab_scale?: number;
+  fab_icon?: string | null;
+  fab_help_icon?: string | null;
+  fab_shape?: string | null;
+  fab_icon_color?: string | null;
+  fab_text_color?: string | null;
+  fab_chat_label?: string | null;
+  fab_help_label?: string | null;
+  fab_animation?: boolean;
+  readonly fab_image_url?: string | null;
+
+  show_logo?: boolean;
+  show_team_avatars?: boolean;
+  show_powered_by?: boolean;
+  attachments_enabled?: boolean;
+  voice_notes_enabled?: boolean;
+  emoji_enabled?: boolean;
+  smart_engagement_enabled?: boolean;
+  store_raw_ip?: boolean;
+  assignment_mode?: 'auto' | 'round_robin' | 'manual';
   allowed_domains: string[];
   allow_subdomains: boolean;
   chat_enabled: boolean;

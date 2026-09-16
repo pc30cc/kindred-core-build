@@ -21,7 +21,7 @@ import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import { redactToken } from '../../../../shared/channels/redact.js';
 import { requestProviderOperation, type ProviderOperation } from '../operations.js';
-import { uploadFile, resolveStorageConfig, getFileUrlWithConfig } from '../../storage/index.js';
+import { uploadFile, resolveStorageConfig } from '../../storage/index.js';
 import { chatAttachmentKey } from '../../storage/keys.js';
 import { requireLimit } from '../../../middleware/featureGating.js';
 import { usageFnForLimit } from '../../billing/usageResolvers.js';
@@ -67,7 +67,7 @@ const EXT_BY_MIME: Record<string, string> = {
 
 function safeFileName(name: string, mime: string): string {
   const stripped = String(name || '')
-    .replace(/[^\w.\-]+/g, '_')
+    .replace(/[^\w.-]+/g, '_')
     .replace(/_+/g, '_')
     .replace(/^[._]+|[._]+$/g, '')
     .slice(0, 80);
@@ -94,14 +94,21 @@ async function checkStorageQuota(
   workspaceId: string,
 ): Promise<{ allowed: boolean; reason?: string }> {
   const limitMw = requireLimit('storage_gb', usageFnForLimit('storage_gb'));
-  const req: any = { body: { workspace_id: workspaceId }, query: {}, params: {}, serverConfig: config };
+  // The middleware is written for Express; this drives it with the smallest
+  // request/response shape it actually touches.
+  const req = { body: { workspace_id: workspaceId }, query: {}, params: {}, serverConfig: config };
   let allowed = false;
   let reason: string | undefined;
-  const res: any = {
-    status(code: number) { (res as any)._status = code; return res; },
-    json(body: any) { reason = body?.error || `limit_check_failed_${(res as any)._status}`; return res; },
+  let status = 0;
+  const res = {
+    status(code: number) { status = code; return res; },
+    json(body: { error?: string }) { reason = body?.error || `limit_check_failed_${status}`; return res; },
   };
-  await limitMw(req, res, () => { allowed = true; });
+  await limitMw(
+    req as unknown as Parameters<typeof limitMw>[0],
+    res as unknown as Parameters<typeof limitMw>[1],
+    () => { allowed = true; },
+  );
   return allowed ? { allowed: true } : { allowed: false, reason: reason || 'storage_gb limit reached' };
 }
 
@@ -239,6 +246,7 @@ export async function persistInboundAttachment(
       .select('id')
       .single();
     if (insertError || !row) throw new Error('attachment_row_insert_failed');
+    const attachmentId = (row as { id: string }).id;
 
     const uploadResult = await uploadFile(config, {
       workspaceId: input.workspaceId,
@@ -251,20 +259,20 @@ export async function persistInboundAttachment(
       await sb
         .from('conversation_attachments')
         .update({ status: 'failed', error_message: (uploadResult.error || 'upload_failed').slice(0, 200) })
-        .eq('id', (row as any).id);
+        .eq('id', attachmentId);
       throw new Error(uploadResult.error || 'upload_failed');
     }
 
     await sb
       .from('conversation_attachments')
       .update({ status: 'uploaded', finalized_at: new Date().toISOString() })
-      .eq('id', (row as any).id);
+      .eq('id', attachmentId);
 
     return {
       fileId: input.fileId,
       kind: input.kind,
       status: 'stored',
-      attachmentId: (row as any).id,
+      attachmentId,
       fileName,
       mimeType,
       sizeBytes: input.bytes.byteLength,
@@ -293,9 +301,9 @@ export async function recordMediaOutcomes(
     .maybeSingle();
   if (!data) return;
 
-  const metadata = { ...(((data as any).metadata ?? {}) as Record<string, unknown>) };
-  const previous: TelegramMediaOutcome[] = Array.isArray((metadata as any).attachments)
-    ? ((metadata as any).attachments as TelegramMediaOutcome[])
+  const metadata = { ...(((data as { metadata?: unknown }).metadata ?? {}) as Record<string, unknown>) };
+  const previous: TelegramMediaOutcome[] = Array.isArray(metadata.attachments)
+    ? (metadata.attachments as TelegramMediaOutcome[])
     : [];
   const byFileId = new Map(previous.map((item) => [item.fileId, item]));
   for (const outcome of outcomes) byFileId.set(outcome.fileId, outcome);
@@ -304,7 +312,29 @@ export async function recordMediaOutcomes(
   await sb.from('conversation_messages').update({ metadata }).eq('id', messageId);
 }
 
-/** Persists a contact avatar delivered by the worker. Never throws. */
+/**
+ * Persists a contact avatar delivered by the worker. Never throws.
+ *
+ * TWO OWNERSHIP RULES, both fail-closed.
+ *
+ * 1. The contact must belong to the workspace the worker named. The lookup
+ *    and the write are BOTH scoped by `id` AND `workspace_id`: a contact id
+ *    is guessable and the Channels Worker is a separate process, so a
+ *    delivery quoting the wrong workspace must write nothing at all — not
+ *    "the right row for the wrong tenant". Scoping only the read would still
+ *    leave the UPDATE able to hit another tenant's row if the two ever
+ *    disagreed, so the same filter is repeated on the write.
+ *
+ * 2. A DB error is not "no such contact". A failed SELECT is treated as a
+ *    refusal to proceed, never as a green light to skip the check — the
+ *    avatar is simply not persisted and the next inbound message retries.
+ *
+ * What is written is the KEY, not a URL. The public link is derived at read
+ * time from whatever provider is primary then (storage/urlResolver.ts), so
+ * promoting a new primary needs no rewrite of this row. `avatar_url` is
+ * explicitly cleared: a stale URL from a previous provider must not outlive
+ * the key that replaces it.
+ */
 export async function persistContactAvatar(
   config: ServerConfig,
   input: { workspaceId: string; contactId: string; fileKeyHint: string; bytes: Buffer },
@@ -312,11 +342,16 @@ export async function persistContactAvatar(
   try {
     if (input.bytes.byteLength > MAX_AVATAR_BYTES) return;
     const sb = getServiceClient(config);
-    const { data: contact } = await sb
+    const { data: contact, error: lookupError } = await sb
       .from('contacts')
       .select('id, metadata')
       .eq('id', input.contactId)
+      .eq('workspace_id', input.workspaceId)
       .maybeSingle();
+    if (lookupError) {
+      console.warn('[telegram-avatar] contact lookup failed, avatar not persisted:', redactToken(lookupError.message));
+      return;
+    }
     if (!contact) return;
 
     // Workspace-first storage audit: already workspace-scoped (compliant
@@ -337,21 +372,23 @@ export async function persistContactAvatar(
     });
     if (!uploaded.success) return;
 
-    const storageConfig = await resolveStorageConfig(config, input.workspaceId);
-    const url = uploaded.url || (storageConfig ? getFileUrlWithConfig(storageConfig, fileKey) : null);
-    if (!url) return;
-
-    await sb
+    const { error: writeError } = await sb
       .from('contacts')
       .update({
-        avatar_url: url,
+        avatar_storage_key: fileKey,
+        avatar_url: null,
         metadata: {
-          ...((contact as any).metadata || {}),
+          ...((contact as { metadata?: Record<string, unknown> }).metadata || {}),
           avatar_source: 'telegram',
           avatar_synced_at: new Date().toISOString(),
         },
       })
-      .eq('id', input.contactId);
+      .eq('id', input.contactId)
+      .eq('workspace_id', input.workspaceId);
+
+    if (writeError) {
+      console.warn('[telegram-avatar] contact update failed:', redactToken(writeError.message));
+    }
   } catch (err) {
     console.warn('[telegram-avatar] persist skipped:', redactToken(err instanceof Error ? err.message : String(err)));
   }

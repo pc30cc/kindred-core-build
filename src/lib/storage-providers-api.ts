@@ -48,6 +48,13 @@ export interface AdminStorageProviderDto {
   updatedAt: string | null;
   /** Proven to hold everything the current primary holds — the promotion gate. */
   synchronized: boolean;
+  /**
+   * Whether this vendor can express a public URL. No row stores a URL —
+   * every avatar and logo link is derived from its storage key for the
+   * CURRENT primary — so a vendor that cannot build one may mirror writes
+   * but can never be promoted.
+   */
+  canServePublicUrls: boolean;
   syncedAt: string | null;
   /** A known replication gap recorded server-side; blocks promotion until a fresh full sync. */
   dirtyAt: string | null;

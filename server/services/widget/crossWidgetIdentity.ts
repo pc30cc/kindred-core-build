@@ -39,6 +39,12 @@ export interface WidgetContact {
   email: string | null;
   phone: string | null;
   avatar_url: string | null;
+  /**
+   * Canonical key when the avatar is an object we stored. Internal: a
+   * serializer derives the public link from it (storage/urlResolver.ts)
+   * and must not pass the key itself to a client.
+   */
+  avatar_storage_key?: string | null;
 }
 
 export type IdentitySource = 'chat_widget' | 'call_widget';
@@ -50,7 +56,7 @@ async function getContactById(
 ): Promise<WidgetContact | null> {
   const { data } = await sb
     .from('contacts')
-    .select('id, name, email, phone, avatar_url')
+    .select('id, name, email, phone, avatar_url, avatar_storage_key')
     .eq('workspace_id', workspaceId)
     .eq('id', contactId)
     .maybeSingle();
@@ -91,7 +97,7 @@ export async function resolveSessionNetworkContext(
       .select('store_raw_ip')
       .eq('workspace_id', workspaceId)
       .maybeSingle();
-    storeRawIp = (data as any)?.store_raw_ip === true;
+    storeRawIp = data?.store_raw_ip === true;
   } catch { /* fail closed: do not persist raw IP */ }
   return {
     ipHash,
@@ -150,7 +156,7 @@ export async function ensureVisitorSessionRow(
       .limit(1)
       .maybeSingle();
     if (existing?.id) {
-      previousIpHash = ((existing as any).ip_hash as string | null) ?? null;
+      previousIpHash = (existing.ip_hash as string | null) ?? null;
       await sb
         .from('visitor_sessions')
         .update({
@@ -269,7 +275,7 @@ export async function findContactForVisitor(
   // row existed for this visitor.
   const { data: byMeta } = await sb
     .from('contacts')
-    .select('id, name, email, phone, avatar_url')
+    .select('id, name, email, phone, avatar_url, avatar_storage_key')
     .eq('workspace_id', workspaceId)
     .eq('metadata->>visitor_id', visitorId)
     .order('updated_at', { ascending: false })

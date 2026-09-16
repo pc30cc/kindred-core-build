@@ -71,16 +71,25 @@ export interface CustomerSafeAgentSettings {
   updated_at: string;
 }
 
-export function toCustomerSafeAiAgentSettings(s: AgentSettings): CustomerSafeAgentSettings {
-  const instr = (s.instructions || {}) as any;
+/**
+ * `derivedLogoUrl` is the agent logo resolved from its storage key by
+ * resolveAgentLogoUrl(). It is passed in rather than read from the row
+ * because no provider URL is persisted: the row holds the key, the caller
+ * holds the request-scoped resolver, and this mapper stays pure.
+ */
+export function toCustomerSafeAiAgentSettings(
+  s: AgentSettings,
+  derivedLogoUrl: string | null = null,
+): CustomerSafeAgentSettings {
+  const instr = (s.instructions || {}) as Record<string, never>;
   return {
     id: s.id,
     workspace_id: s.workspace_id,
     enabled: !!s.enabled,
     mode: s.mode,
     agent_name: s.agent_name,
-    agent_logo_url: s.agent_logo_url,
-    avatar_display_url: s.agent_logo_url,
+    agent_logo_url: derivedLogoUrl,
+    avatar_display_url: derivedLogoUrl,
     business_description: s.business_description,
     answer_guidance: s.answer_guidance,
     answer_only_from_kb: !!s.answer_only_from_kb,
@@ -183,7 +192,7 @@ export async function isAiAgentPlatformEnabled(
       .select('metadata')
       .eq('workspace_id', workspaceId)
       .maybeSingle();
-    const meta = ((row as any)?.metadata || {}) as Record<string, unknown>;
+    const meta = (row?.metadata || {}) as Record<string, unknown>;
     if (meta.platform_disabled === true) return false;
   } catch {
     /* ignore — default to enabled */

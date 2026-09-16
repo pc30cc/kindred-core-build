@@ -26,6 +26,7 @@
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { createStorageUrlResolver, userAvatarUrlMap } from '../storage/urlResolver.js';
 import { getConnectedOperators } from './operatorPresenceSource.js';
 import {
   AVAILABILITY_PREFS_COLUMNS,
@@ -136,7 +137,7 @@ export async function listWorkspacePresence(
     .from('workspace_members')
     .select('user_id')
     .eq('workspace_id', workspaceId);
-  const ids = (members || []).map((m: any) => m.user_id).filter(Boolean);
+  const ids = (members || []).map((m) => m.user_id).filter(Boolean);
   if (ids.length === 0) return [];
 
   const { data: prefRows } = await sb
@@ -145,16 +146,19 @@ export async function listWorkspacePresence(
     .in('user_id', ids)
     .is('workspace_id', null);
   const byUser = new Map<string, RawPrefs>();
-  for (const r of (prefRows || []) as any[]) byUser.set(r.user_id, r);
+  for (const r of (prefRows || [])) byUser.set(r.user_id, r);
 
   // Identity for UI rendering (name + avatar). Never fails the presence call.
   const profileById = new Map<string, { full_name: string | null; email: string | null; avatar_url: string | null }>();
   const { data: profileRows } = await sb
     .from('profiles')
-    .select('id, full_name, email, avatar_url')
+    .select('id, full_name, email, avatar_storage_key')
     .in('id', ids);
-  for (const p of (profileRows || []) as any[]) {
-    profileById.set(p.id, { full_name: p.full_name ?? null, email: p.email ?? null, avatar_url: p.avatar_url ?? null });
+  // Avatars are derived from the stored key for the provider that is primary
+  // right now — one provider resolution for the whole batch, no per-row I/O.
+  const avatarUrls = await userAvatarUrlMap(createStorageUrlResolver(config), (profileRows || []));
+  for (const p of (profileRows || [])) {
+    profileById.set(p.id, { full_name: p.full_name ?? null, email: p.email ?? null, avatar_url: avatarUrls.get(p.id) ?? null });
   }
 
   // Connection + activity are INTERNAL signals only. A failure here can never
@@ -165,7 +169,7 @@ export async function listWorkspacePresence(
     const snapshot = await getConnectedOperators(config, workspaceId, ids, now);
     connected = snapshot.connected;
     lastSeenById = snapshot.lastSeen;
-  } catch (err: any) {
+  } catch (err) {
     console.warn('[presence] connection lookup failed:', err?.message);
   }
   let activityById = new Map<string, number>();

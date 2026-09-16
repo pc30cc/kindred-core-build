@@ -19,6 +19,7 @@ import {
 import { signWidgetSession, verifyWidgetSession } from '../services/callCenter/widgetSession.js';
 import { isWorkspaceOriginAllowed } from '../services/widget/public.js';
 import { resolveEffectiveCallProvider } from '../services/calls/providerResolver.js';
+import type { CallProviderId } from '../services/calls/providers/types.js';
 import { loadEffectiveCallEntitlements } from '../services/calls/entitlementComposer.js';
 import {
   checkPlanConcurrencyCeiling,
@@ -32,7 +33,7 @@ import { publishQueueEvent, publishCallEvent } from '../services/callCenter/real
 import { buildClientConnectInfo } from '../services/callCenter/connectInfo.js';
 import { computeRecordingCapability } from '../services/callCenter/recording.js';
 import { routeIncomingCall } from '../services/callCenter/routing.js';
-import { resolveGlobalStorageConfig, getFileUrlWithConfig } from '../services/storage/index.js';
+import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
 import {
   resolveVisitorIdentity,
   readVisitorCookie,
@@ -67,6 +68,7 @@ import crypto from 'crypto';
 import { readFileSync, existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { serverConfigOf } from '../lib/workspaceAuth.js';
 
 export const callWidgetRouter = Router();
 
@@ -118,7 +120,7 @@ callWidgetRouter.use(async (req, res, next) => {
   next();
 });
 
-function getOrigin(req: any): string | null {
+function getOrigin(req): string | null {
   return (req.headers.origin as string) || null;
 }
 
@@ -176,8 +178,8 @@ async function findContactById(
 }
 
 async function issueContinuityCookieForContact(
-  req: any,
-  res: any,
+  req,
+  res,
   config: ServerConfig,
   workspaceId: string,
   contactId: string,
@@ -203,7 +205,7 @@ async function issueContinuityCookieForContact(
 }
 
 async function restoreContactFromContinuityCookie(
-  req: any,
+  req,
   config: ServerConfig,
   workspaceId: string,
   visitorId: string,
@@ -265,8 +267,8 @@ async function ensureVisitorSessionRow(
  *      visitor_sessions (so the visitors panel shows the contact name).
  */
 async function identifyVisitorForCall(
-  req: any,
-  res: any,
+  req,
+  res,
   config: ServerConfig,
   workspaceId: string,
   origin: string | null,
@@ -316,7 +318,7 @@ async function identifyVisitorForCall(
       .maybeSingle();
     await issueContinuityCookieForContact(req, res, config, workspaceId, merge.contactId);
     return { visitorId, visitorSessionId, contactId: merge.contactId, contact: contact || null };
-  } catch (e: any) {
+  } catch (e) {
     console.warn('[call-widget] identifyVisitorForCall merge failed:', e?.message || e);
     return {
       visitorId,
@@ -336,7 +338,7 @@ async function identifyVisitorForCall(
  * CORS headers are not enough: a stolen session token replayed from another
  * origin (server-to-server, curl, malicious page) would otherwise pass.
  */
-function requireWidgetSession(req: any, config: ServerConfig) {
+function requireWidgetSession(req, config: ServerConfig) {
   const session = getSession(req, config);
   if (!session) return { ok: false as const, status: 401, error: 'invalid_session' };
   const reqOrigin = getOrigin(req);
@@ -366,11 +368,29 @@ function disabledResponse(reason: string, message?: Record<string, unknown>) {
 
 const ACTIVE_CALL_COOKIE_NAME = 'dvccall';
 const ACTIVE_CALL_TTL_SECONDS = 60 * 60 * 6; // enough for refresh/navigation; DB state remains authoritative
+/** The `call_sessions` columns this route actually reads. */
+type CallSessionRow = {
+  id: string;
+  workspace_id: string;
+  state: string | null;
+  provider: CallProviderId | null;
+  provider_room_id: string | null;
+};
+
 const ACTIVE_CALL_STATES = ['pending', 'queued', 'ringing', 'connecting', 'active'];
 const TERMINAL_CALL_STATES = ['cancelled', 'ended', 'missed', 'failed'];
 
+/**
+ * Optional secrets: a deployment may set either, and falls back to the
+ * service-role key when it sets neither. They are not on ServerConfig's
+ * declared surface, so they are read through a narrow structural type
+ * rather than by widening the whole config.
+ */
+type OptionalCookieSecrets = { widgetTokenSecret?: string; sessionSecret?: string };
+
 function activeCallCookieSecret(config: ServerConfig): string {
-  return `call-widget-active:${(config as any).widgetTokenSecret || (config as any).sessionSecret || config.supabaseServiceRoleKey}`;
+  const secrets = config as ServerConfig & OptionalCookieSecrets;
+  return `call-widget-active:${secrets.widgetTokenSecret || secrets.sessionSecret || config.supabaseServiceRoleKey}`;
 }
 
 function signActiveCallCookie(config: ServerConfig, body: string): string {
@@ -382,8 +402,8 @@ function encodeActiveCallCookie(config: ServerConfig, payload: { c: string; w: s
   return `${body}.${signActiveCallCookie(config, body)}`;
 }
 
-function readActiveCallCookie(config: ServerConfig, req: any, workspaceId: string, origin: string | null): { callId: string } | null {
-  const raw = (req as any).cookies?.[ACTIVE_CALL_COOKIE_NAME] as string | undefined;
+function readActiveCallCookie(config: ServerConfig, req, workspaceId: string, origin: string | null): { callId: string } | null {
+  const raw = req.cookies?.[ACTIVE_CALL_COOKIE_NAME] as string | undefined;
   if (!raw) return null;
   const dot = raw.lastIndexOf('.');
   if (dot < 1) return null;
@@ -399,7 +419,7 @@ function readActiveCallCookie(config: ServerConfig, req: any, workspaceId: strin
   } catch { return null; }
 }
 
-function setActiveCallCookie(res: any, req: any, config: ServerConfig, workspaceId: string, callId: string, origin: string | null): void {
+function setActiveCallCookie(res, req, config: ServerConfig, workspaceId: string, callId: string, origin: string | null): void {
   const now = Math.floor(Date.now() / 1000);
   const value = encodeActiveCallCookie(config, { c: callId, w: workspaceId, o: origin || null, iat: now, exp: now + ACTIVE_CALL_TTL_SECONDS });
   const secure = isSecureRequest(req);
@@ -414,7 +434,7 @@ function setActiveCallCookie(res: any, req: any, config: ServerConfig, workspace
   res.append('Set-Cookie', attrs.join('; '));
 }
 
-function clearActiveCallCookie(res: any, req: any): void {
+function clearActiveCallCookie(res, req): void {
   const secure = isSecureRequest(req);
   const attrs = [
     `${ACTIVE_CALL_COOKIE_NAME}=`,
@@ -429,14 +449,14 @@ function clearActiveCallCookie(res: any, req: any): void {
 
 async function buildActiveCallPayload(
   config: ServerConfig,
-  req: any,
-  res: any,
+  req,
+  res,
   ws: WorkspaceCallCenterSettings,
   origin: string | null,
   visitorId: string | null,
 ): Promise<{ call_id: string; state: string; call_type: string; created_at: string | null; queue_position: number | null; session: string } | null> {
   const sbActive = getServiceClient(config);
-  let mine: any = null;
+  let mine = null;
   const headerSession = verifyWidgetSession(config, String(req.headers['x-cc-active-call'] || ''));
   const headerCallId = headerSession && headerSession.workspace_id === ws.workspace_id && headerSession.call_id && (!headerSession.origin || !origin || headerSession.origin === origin)
     ? String(headerSession.call_id)
@@ -451,10 +471,10 @@ async function buildActiveCallPayload(
       .eq('entry_source', 'call_widget')
       .eq('id', preferredCallId)
       .maybeSingle();
-    if (data && ACTIVE_CALL_STATES.includes(String((data as any).state || ''))) {
+    if (data && ACTIVE_CALL_STATES.includes(String(data.state || ''))) {
       mine = data;
       break;
-    } else if (data && TERMINAL_CALL_STATES.includes(String((data as any).state || ''))) {
+    } else if (data && TERMINAL_CALL_STATES.includes(String(data.state || ''))) {
       clearActiveCallCookie(res, req);
     }
   }
@@ -467,7 +487,7 @@ async function buildActiveCallPayload(
       .in('state', ACTIVE_CALL_STATES)
       .order('created_at', { ascending: false })
       .limit(50);
-    mine = (rows || []).find((r: any) => (r.metadata as any)?.visitor_id === visitorId) || null;
+    mine = (rows || []).find((r) => r.metadata?.visitor_id === visitorId) || null;
   }
   if (!mine) return null;
 
@@ -480,17 +500,17 @@ async function buildActiveCallPayload(
       .select('id,workspace_id,state')
       .eq('call_session_id', callId)
       .maybeSingle();
-    if (entry && ['queued', 'offered'].includes(String((entry as any).state || ''))) {
+    if (entry && ['queued', 'offered'].includes(String(entry.state || ''))) {
       const { data: activeRows } = await sbActive
         .from('call_queue_entries')
         .select('id,created_at,priority')
-        .eq('workspace_id', (entry as any).workspace_id)
+        .eq('workspace_id', entry.workspace_id)
         .eq('entry_source', 'call_widget')
         .in('state', ['queued', 'offered'])
         .order('priority', { ascending: false })
         .order('created_at', { ascending: true })
         .limit(500);
-      const idx = (activeRows || []).findIndex((row: any) => row.id === (entry as any).id);
+      const idx = (activeRows || []).findIndex((row) => row.id === entry.id);
       position = idx >= 0 ? idx + 1 : null;
     }
   }
@@ -515,7 +535,7 @@ async function buildActiveCallPayload(
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────
 callWidgetRouter.get('/bootstrap', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
@@ -552,9 +572,9 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
   // Server-side default_department_id fallback in /calls/request and
   // /callbacks/request still applies when this gate is closed.
   const departmentChoiceAllowed =
-    !!(platform as any).departments_enabled &&
-    !!(ws as any).departments_enabled &&
-    !!(ws as any).allow_visitor_department_choice;
+    !!platform.departments_enabled &&
+    !!ws.departments_enabled &&
+    !!ws.allow_visitor_department_choice;
   let departments: {
     voice: Array<{ id: string; name: string; sort_order: number }>;
     video: Array<{ id: string; name: string; sort_order: number }>;
@@ -568,11 +588,11 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
       .eq('workspace_id', ws.workspace_id)
       .or('cc_voice_enabled.eq.true,cc_video_enabled.eq.true,cc_callback_enabled.eq.true')
       .order('sort_order', { ascending: true });
-    const safeDept = (r: any) => ({ id: r.id, name: r.name, sort_order: r.sort_order ?? 0 });
+    const safeDept = (r) => ({ id: r.id, name: r.name, sort_order: r.sort_order ?? 0 });
     departments = {
-      voice: (deptRows || []).filter((r: any) => r.cc_voice_enabled).map(safeDept),
-      video: (deptRows || []).filter((r: any) => r.cc_video_enabled).map(safeDept),
-      callback: (deptRows || []).filter((r: any) => r.cc_callback_enabled).map(safeDept),
+      voice: (deptRows || []).filter((r) => r.cc_voice_enabled).map(safeDept),
+      video: (deptRows || []).filter((r) => r.cc_video_enabled).map(safeDept),
+      callback: (deptRows || []).filter((r) => r.cc_callback_enabled).map(safeDept),
     };
   }
   const session = signWidgetSession(config, {
@@ -613,7 +633,7 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
         ? { id: contact.id, name: contact.name, email: contact.email, phone: contact.phone }
         : null,
     };
-  } catch (e: any) {
+  } catch (e) {
     console.warn('[call-widget/bootstrap] visitor resolve failed:', e?.message || e);
   }
   // Resume in-flight call across page refresh / navigation.
@@ -630,27 +650,27 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
   } | null = null;
   try {
     activeCall = await buildActiveCallPayload(config, req, res, ws, origin, resolvedVisitorId);
-  } catch (e: any) {
+  } catch (e) {
     console.warn('[call-widget/bootstrap] active_call lookup failed:', e?.message || e);
   }
+  // Ringback audio is platform-owned. Only the storage keys are persisted;
+  // every link below is derived through the one resolver, for whichever
+  // provider is primary at this moment. The former fallback to the stored
+  // `ringback_music_url` is gone: a stored URL names the provider that was
+  // primary when it was uploaded, which is exactly the staleness this
+  // architecture removes.
   const ringbackAudio = await (async () => {
-    const musicPath = (platform as any).ringback_music_path as string | null;
-    const announcementPath = (platform as any).ringback_announcement_audio_path as string | null;
-    const queuePaths = ((platform as any).ringback_queue_audio_paths || {}) as Record<string, string>;
-    if (!musicPath && !announcementPath && Object.keys(queuePaths).length === 0) {
-      return { music_url: platform.ringback_music_url, announcement_url: null, queue_urls: {} };
-    }
-    const storage = await resolveGlobalStorageConfig(config).catch(() => null);
-    const urlFor = (p?: string | null) => (storage && p ? getFileUrlWithConfig(storage, p) : null);
-    const queueUrls: Record<string, string> = {};
-    for (const [pos, p] of Object.entries(queuePaths)) {
-      const u = urlFor(p);
-      if (u) queueUrls[pos] = u;
+    const resolver = createStorageUrlResolver(config);
+    const queuePaths = (platform.ringback_queue_audio_paths || {}) as Record<string, string>;
+    const queue_urls: Record<string, string> = {};
+    for (const [pos, key] of Object.entries(queuePaths)) {
+      const u = await resolver.platform(key);
+      if (u) queue_urls[pos] = u;
     }
     return {
-      music_url: urlFor(musicPath) || platform.ringback_music_url,
-      announcement_url: urlFor(announcementPath),
-      queue_urls: queueUrls,
+      music_url: await resolver.platform(platform.ringback_music_path as string | null),
+      announcement_url: await resolver.platform(platform.ringback_announcement_audio_path as string | null),
+      queue_urls,
     };
   })();
   // Shared, hashed font asset. The call widget does NOT hard-code a font
@@ -667,7 +687,7 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
         widgetLoaderBaseUrl: null,
         widgetPublicBaseUrl: null,
         assetBaseUrl: null,
-        loaderAssetBase: getLoaderAssetBase(req as any),
+        loaderAssetBase: getLoaderAssetBase(req as ExpressRequest),
       });
       // Relative when no explicit asset base is configured — the runtime
       // resolves it against its own origin, exactly like its other assets.
@@ -690,7 +710,10 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
     visitor: visitorBlock,
     config: {
       display_name: ws.display_name,
-      avatar_url: ws.avatar_url,
+      // Derived from `call_center_settings.avatar_storage_path` for the
+      // provider that is primary right now; the row persists no URL of ours.
+      avatar_url: (await createStorageUrlResolver(config).workspace(ws.workspace_id, ws.avatar_storage_path))
+        ?? ws.avatar_url ?? null,
       widget_position: ws.widget_position,
       widget_template_id: callTemplateId,
       widget_theme: normalizeCallWidgetTheme(ws.widget_theme),
@@ -742,7 +765,7 @@ callWidgetRouter.get('/bootstrap', async (req, res) => {
 });
 
 // Helper: extract widget session
-function getSession(req: any, config: ServerConfig) {
+function getSession(req, config: ServerConfig) {
   const tok = (req.headers['x-cc-session'] as string) || '';
   return verifyWidgetSession(config, tok);
 }
@@ -765,7 +788,7 @@ const requestSchema = z.object({
 });
 
 callWidgetRouter.post('/calls/request', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const guard = requireWidgetSession(req, config);
   if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
   const session = guard.session;
@@ -812,12 +835,12 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
         .maybeSingle();
       if (!dept) return res.status(404).json({ error: 'department_not_found' });
       const ok = dbCallTypeForDept === 'audio'
-        ? !!(dept as any).cc_voice_enabled
-        : !!(dept as any).cc_video_enabled;
+        ? !!dept.cc_voice_enabled
+        : !!dept.cc_video_enabled;
       if (!ok) return res.status(400).json({ error: 'department_channel_disabled' });
     } else {
       // Fall back to workspace default_department_id only if it has the required channel.
-      const defId = (ws as any).default_department_id as string | null;
+      const defId = ws.default_department_id as string | null;
       if (defId) {
         const { data: dept } = await sbDept
           .from('workspace_departments')
@@ -826,8 +849,8 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
           .eq('id', defId)
           .maybeSingle();
         const ok = !!dept && (dbCallTypeForDept === 'audio'
-          ? !!(dept as any).cc_voice_enabled
-          : !!(dept as any).cc_video_enabled);
+          ? !!dept.cc_voice_enabled
+          : !!dept.cc_video_enabled);
         if (ok) chosenDepartmentId = defId;
       }
     }
@@ -897,7 +920,7 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
   try {
     const r = await resolveEffectiveCallProvider(config, ws.workspace_id);
     providerId = r.id;
-  } catch (e: any) {
+  } catch (e) {
     return res.status(503).json({ error: 'provider_not_configured', message: String(e?.message || e) });
   }
   // Concurrency / queue limit
@@ -979,8 +1002,8 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
       visitor_session_id: identity.visitorSessionId,
     },
   };
-  let call: any = null;
-  let callErr: any = null;
+  let call = null;
+  let callErr = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const r = await sb.from('call_sessions').insert(insertPayload).select('*').maybeSingle();
@@ -993,7 +1016,7 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
         continue;
       }
       break;
-    } catch (thrown: any) {
+    } catch (thrown) {
       callErr = { message: String(thrown?.message || thrown) };
       console.warn('[call-widget/calls/request] insert threw, attempt', attempt, callErr.message);
       if (/fetch failed|ETIMEDOUT|ECONNRESET|ENOTFOUND|UND_ERR/i.test(callErr.message)) {
@@ -1067,7 +1090,7 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
       departmentId: chosenDepartmentId,
       callType: dbCallType,
     });
-  } catch (e: any) { /* best-effort: queue entry already created */ }
+  } catch (e) { /* best-effort: queue entry already created */ }
 
   res.json({
     status: 'queued',
@@ -1080,7 +1103,7 @@ callWidgetRouter.post('/calls/request', async (req, res) => {
 
 // ── Cancel ────────────────────────────────────────────────────────────────
 callWidgetRouter.post('/calls/:id/cancel', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const guard = requireWidgetSession(req, config);
   if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
   const session = guard.session;
@@ -1090,15 +1113,15 @@ callWidgetRouter.post('/calls/:id/cancel', async (req, res) => {
   const { data: prev } = await sb.from('call_sessions')
     .select('metadata, connected_at, started_at, created_at, state')
     .eq('id', req.params.id).maybeSingle();
-  const prevMeta = (prev?.metadata as any) || {};
+  const prevMeta = (prev?.metadata as Record<string, unknown>) || {};
   // If the call had already connected to an operator, treat the visitor
   // hangup as a normal "ended" call and compute duration_seconds from the
   // earliest known anchor. Otherwise it's a true pre-connect cancel.
-  const anchorIso = (prev as any)?.connected_at
-    || (prev as any)?.started_at
-    || (prev as any)?.created_at
+  const anchorIso = prev?.connected_at
+    || prev?.started_at
+    || prev?.created_at
     || null;
-  const wasConnected = !!(prev as any)?.connected_at;
+  const wasConnected = !!prev?.connected_at;
   const endedAtMs = Date.now();
   const endedAtIso = new Date(endedAtMs).toISOString();
   const duration = anchorIso
@@ -1127,7 +1150,7 @@ callWidgetRouter.post('/calls/:id/cancel', async (req, res) => {
 
 // ── Status poll ───────────────────────────────────────────────────────────
 callWidgetRouter.get('/calls/:id/status', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const guard = requireWidgetSession(req, config);
   if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
   const session = guard.session;
@@ -1140,15 +1163,15 @@ callWidgetRouter.get('/calls/:id/status', async (req, res) => {
   // Resolve operator display name for the visitor UI. Only the
   // operator's first/display name is exposed — never email or role.
   let operator_name: string | null = null;
-  const agentId = (call as any).assigned_agent_id as string | null;
+  const agentId = call.assigned_agent_id as string | null;
   if (agentId) {
     try {
       const { data: prof } = await sb.from('profiles')
         .select('full_name,email')
         .eq('id', agentId).maybeSingle();
       if (prof) {
-        const fn = (prof as any).full_name as string | null;
-        const em = (prof as any).email as string | null;
+        const fn = prof.full_name as string | null;
+        const em = prof.email as string | null;
         operator_name = (fn && fn.trim())
           || (em ? em.split('@')[0] : null)
           || null;
@@ -1161,21 +1184,21 @@ callWidgetRouter.get('/calls/:id/status', async (req, res) => {
   // leaves visitors stuck with the initial position forever.
   let position: number | null = null;
   let eta_seconds: number | null = null;
-  const callState = String((call as any).state || '');
+  const callState = String(call.state || '');
   if (call && !['cancelled', 'ended', 'missed', 'failed', 'active', 'ringing', 'connecting'].includes(callState)) {
     const { data: entry } = await sb.from('call_queue_entries')
       .select('id,created_at,workspace_id,channel,priority,state')
       .eq('call_session_id', req.params.id).maybeSingle();
-    if (entry && ['queued', 'offered'].includes(String((entry as any).state || ''))) {
+    if (entry && ['queued', 'offered'].includes(String(entry.state || ''))) {
       const { data: activeRows } = await sb.from('call_queue_entries')
         .select('id,created_at,priority')
-        .eq('workspace_id', (entry as any).workspace_id)
+        .eq('workspace_id', entry.workspace_id)
         .eq('entry_source', 'call_widget')
         .in('state', ['queued', 'offered'])
         .order('priority', { ascending: false })
         .order('created_at', { ascending: true })
         .limit(500);
-      const idx = (activeRows || []).findIndex((row: any) => row.id === (entry as any).id);
+      const idx = (activeRows || []).findIndex((row) => row.id === entry.id);
       position = idx >= 0 ? idx + 1 : null;
       try {
         const platform = await getPlatformCallCenterSettings(config);
@@ -1189,7 +1212,7 @@ callWidgetRouter.get('/calls/:id/status', async (req, res) => {
 
 // ── Visitor join token (only after operator accepts) ──────────────────────
 callWidgetRouter.post('/calls/:id/join-token', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const guard = requireWidgetSession(req, config);
   if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
   const session = guard.session;
@@ -1203,7 +1226,7 @@ callWidgetRouter.post('/calls/:id/join-token', async (req, res) => {
   const sb = getServiceClient(config);
   const { data: call } = await sb.from('call_sessions').select('*').eq('id', req.params.id).maybeSingle();
   if (!call) return res.status(404).json({ error: 'not_found' });
-  const c = call as any;
+  const c = call as CallSessionRow;
   if (!c.provider_room_id || !c.provider) {
     return res.status(409).json({ error: 'not_ready', reason: 'provider_room_not_ready' });
   }
@@ -1250,7 +1273,7 @@ const callbackSchema = z.object({
 });
 
 callWidgetRouter.post('/callbacks/request', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const guard = requireWidgetSession(req, config);
   if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
   const session = guard.session;
@@ -1308,7 +1331,7 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
   }
   const sb = getServiceClient(config);
   // 5) IP-based rate limit (per hour).
-  const clientIp = getClientIp(req as any);
+  const clientIp = getClientIp(req as ExpressRequest);
   const ipHash = clientIp ? hashIp(clientIp) : null;
   if (ipHash && platform.callback_max_per_ip_per_hour > 0) {
     const sinceHour = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -1328,7 +1351,7 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
     const sinceCooldown = new Date(Date.now() - cooldownSec * 1000).toISOString();
     let visitorIdForLookup: string | null = null;
     try {
-      const cookieVid = readVisitorCookie(req as any);
+      const cookieVid = readVisitorCookie(req as ExpressRequest);
       visitorIdForLookup = cookieVid ? cookieVid.v : null;
     } catch {/* ignore */}
     if (visitorIdForLookup) {
@@ -1342,7 +1365,7 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
         .limit(1)
         .maybeSingle();
       if (recent) {
-        const ageMs = Date.now() - new Date((recent as any).created_at).getTime();
+        const ageMs = Date.now() - new Date(recent.created_at).getTime();
         const retryAfter = Math.max(1, Math.ceil((cooldownSec * 1000 - ageMs) / 1000));
         return res.status(429).json({ error: 'cooldown_active', retry_after: retryAfter });
       }
@@ -1358,11 +1381,11 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
       .eq('id', cbDepartmentId)
       .maybeSingle();
     if (!dept) return res.status(404).json({ error: 'department_not_found' });
-    if (!(dept as any).cc_callback_enabled) {
+    if (!dept.cc_callback_enabled) {
       return res.status(400).json({ error: 'department_channel_disabled' });
     }
   } else {
-    const defId = (ws as any).default_department_id as string | null;
+    const defId = ws.default_department_id as string | null;
     if (defId) {
       const { data: dept } = await sb
         .from('workspace_departments')
@@ -1370,7 +1393,7 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
         .eq('workspace_id', ws.workspace_id)
         .eq('id', defId)
         .maybeSingle();
-      if (dept && (dept as any).cc_callback_enabled) cbDepartmentId = defId;
+      if (dept && dept.cc_callback_enabled) cbDepartmentId = defId;
     }
   }
   // Identify the visitor BEFORE inserting so the callback is born with its
@@ -1398,7 +1421,7 @@ callWidgetRouter.post('/callbacks/request', async (req, res) => {
       visitorSessionId: identity.visitorSessionId,
       contactId: identity.contactId,
     };
-  } catch (e: any) {
+  } catch (e) {
     console.warn('[call-widget/callbacks] identity merge failed:', e?.message || e);
   }
 
@@ -1436,7 +1459,7 @@ const ratingSchema = z.object({
   comment: z.string().max(1000).optional().nullable(),
 });
 callWidgetRouter.post('/calls/:id/rate', async (req, res) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const guard = requireWidgetSession(req, config);
   if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
   const session = guard.session;
@@ -1450,12 +1473,12 @@ callWidgetRouter.post('/calls/:id/rate', async (req, res) => {
   try {
     await sb.from('call_ratings').upsert({
       call_session_id: req.params.id,
-      workspace_id: (call as any).workspace_id,
+      workspace_id: call.workspace_id,
       rating: parsed.data.rating,
       comment: parsed.data.comment || null,
     }, { onConflict: 'call_session_id' });
     res.json({ ok: true });
-  } catch (e: any) {
+  } catch (e) {
     res.status(500).json({ error: 'rating_failed', message: String(e?.message || e) });
   }
 });

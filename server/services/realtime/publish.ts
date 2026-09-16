@@ -76,12 +76,12 @@ export async function publishConversationEvent(
             reason: inboxResult.reason,
           });
         }
-      } catch (err: any) {
+      } catch (err) {
         rtWarn('publish', 'inbox_message_error', { error: err?.message || String(err) });
       }
     }
     return result;
-  } catch (err: any) {
+  } catch (err) {
     rtWarn('publish', 'error', { error: err?.message || String(err) });
     return { ok: false, reason: err?.message || 'unknown_error' };
   }
@@ -124,7 +124,7 @@ export function buildMessageEnvelope(row: {
   reply_to_message_id?: string | null;
   reply_to?: { id: string; text: string; sender_type: string } | null;
 }): ConversationEventEnvelope {
-  const meta = (row.metadata && typeof row.metadata === 'object') ? row.metadata as Record<string, any> : {};
+  const meta = (row.metadata && typeof row.metadata === 'object') ? row.metadata as Record<string, unknown> : {};
   return {
     type: 'message',
     payload: {
@@ -145,7 +145,10 @@ export function buildMessageEnvelope(row: {
       metadata: row.metadata ?? {},
       sender_id: row.sender_id ?? null,
       sender_name: row.sender_name ?? meta.agent_name ?? null,
-      sender_avatar: row.sender_avatar ?? meta.agent_logo_url ?? null,
+      // No metadata fallback: `agent_logo_url` is no longer snapshotted into
+      // a message row, because a stored URL names one provider. The caller
+      // passes a link it derived from the storage key, or none.
+      sender_avatar: row.sender_avatar ?? null,
       ...(row.attachment ? { attachment: row.attachment } : {}),
       ...(row.attachments ? { attachments: row.attachments } : {}),
       ...(row.reply_to_message_id ? { reply_to_message_id: row.reply_to_message_id } : {}),
@@ -226,7 +229,7 @@ export async function publishOperatorEvent(
               reason: result.reason,
             });
           }
-        } catch (err: any) {
+        } catch (err) {
           rtWarn('publish', 'inbox_error', { error: err?.message || String(err) });
         }
       })(),
@@ -294,7 +297,7 @@ export async function publishVisitorEvent(
         reason: result.reason,
       });
     }
-  } catch (err: any) {
+  } catch (err) {
     rtWarn('publish', 'visitors:error', { error: err?.message || String(err) });
   }
 }

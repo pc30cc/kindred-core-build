@@ -57,7 +57,11 @@ export async function insertAiMessage(
     model: input.model ?? null,
     handoff: !!input.handoff,
     agent_name: input.agentName ?? null,
-    agent_logo_url: input.agentLogoUrl ?? null,
+    // agent_logo_url is deliberately NOT snapshotted into message metadata.
+    // It is a provider-specific URL, and a snapshot inside a row would
+    // outlive the provider that produced it — the very staleness the
+    // key-only model removes. Readers derive the agent's logo from
+    // ai_agent_settings.metadata.ai_avatar_storage_key at render time.
     decision_type: input.decisionType ?? null,
     answer_strategy: { decision_type: input.decisionType ?? null },
     ...(offlineScreenQueued ? { channel_delivery_skip: 'true', telegram_offline_screen: true } : {}),
@@ -97,7 +101,7 @@ export async function insertAiMessage(
         messageId: row.id,
         body: input.body,
       });
-    } catch (e: any) {
+    } catch (e) {
       console.warn('[ai-agent] outbound reconciliation failed:', e?.message || e);
     }
   }
@@ -108,9 +112,9 @@ export async function insertAiMessage(
       config,
       input.workspaceId,
       input.conversationId,
-      buildMessageEnvelope(row as any),
+      buildMessageEnvelope(row as Parameters<typeof buildMessageEnvelope>[0]),
     );
-  } catch (e: any) {
+  } catch (e) {
     console.warn('[ai-agent] publish AI message failed:', e?.message || e);
   }
 

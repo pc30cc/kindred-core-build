@@ -6072,6 +6072,7 @@ const tr: TranslationKeys = {
       removed: 'Sağlayıcı havuzdan kaldırıldı',
       testLatency: 'Yükleme ve silme turu {{ms}} ms sürdü.',
       promoteBlocked: 'Bu sağlayıcının birincildeki her şeye sahip olduğu kanıtlanmadı — önce tam bir eşitleme çalıştırın.',
+      promoteNoPublicUrl: 'Bu sağlayıcının saklanan dosyalar için genel bir adresi yok; birincil olursa avatar ve logo bağlantıları oluşturulamaz. Önce genel/CDN adresini tanımlayın.',
       forcePromote: 'Zorla birincil yap (kurtarma)',
       forcePromoteTitle: 'Eşitlenmemiş sağlayıcı birincil yapılsın mı?',
       forcePromoteDesc: 'Tüm okumalar hemen {{vendor}} sağlayıcısına geçer. Henüz ulaşmamış nesneler, eşitleme tamamlanana kadar erişilemez olur. Bunu yalnızca birincil tamamen kaybolduğunda yapın.',

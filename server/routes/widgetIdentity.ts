@@ -54,6 +54,8 @@ import {
 import { enrichMessagesWithAttachments, enrichMessagesWithReplyTo, filterVisitorVisibleMessages } from './widgetAttachments.js';
 import { recordConversationEvent } from '../services/conversationEvents.js';
 import { getClientCountry } from '../utils/clientIp.js';
+import { createStorageUrlResolver, resolveContactAvatarUrl } from '../services/storage/urlResolver.js';
+import { serverConfigOf } from '../lib/workspaceAuth.js';
 
 /**
  * markNeedsHuman() (server/services/ai-agent/handoffState.ts) defers actual
@@ -67,7 +69,7 @@ import { getClientCountry } from '../utils/clientIp.js';
  */
 async function triggerDeferredRoutingForContact(
   config: ServerConfig,
-  supabase: any,
+  supabase,
   workspaceId: string,
   contactId: string,
 ): Promise<void> {
@@ -87,7 +89,7 @@ async function triggerDeferredRoutingForContact(
       const { routeConversationToOperator } = await import('../services/chatRouting.js');
       await routeConversationToOperator(config, { workspaceId, conversationId: c.id });
     }
-  } catch (e: any) {
+  } catch (e) {
     console.warn('[identity-prechat] deferred routing failed:', e?.message || e);
   }
 }
@@ -100,7 +102,7 @@ async function triggerDeferredRoutingForContact(
  */
 async function emitIdentifiedEvents(
   config: ServerConfig,
-  supabase: any,
+  supabase,
   workspaceId: string,
   contactId: string,
   method: string,
@@ -133,7 +135,7 @@ async function emitIdentifiedEvents(
       });
     }
   } catch (e) {
-    console.warn('[identified-event] failed:', (e as any)?.message || e);
+    console.warn('[identified-event] failed:', e?.message || e);
   }
 }
 
@@ -159,11 +161,11 @@ export const PRECHAT_TIMINGS = ['always', 'after_handoff', 'never'] as const;
 export type PrechatTiming = (typeof PRECHAT_TIMINGS)[number];
 
 /** Never trust a stored/legacy value — fall back to the historical behaviour. */
-export function normalizePrechatTiming(value: any): PrechatTiming {
+export function normalizePrechatTiming(value): PrechatTiming {
   return PRECHAT_TIMINGS.includes(value) ? value : 'after_handoff';
 }
 
-async function getPrechatSettings(supabase: any, workspaceId: string) {
+async function getPrechatSettings(supabase, workspaceId: string) {
   const { data } = await supabase
     .from('widget_prechat_settings')
     .select('*')
@@ -190,7 +192,7 @@ async function getPrechatSettings(supabase: any, workspaceId: string) {
 // GET /identity/me — Resolve current visitor + contact
 // ═══════════════════════════════════════════════
 widgetIdentityRouter.get('/me', widgetRateLimit('default'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -207,6 +209,11 @@ widgetIdentityRouter.get('/me', widgetRateLimit('default'), async (req: Request,
   );
 
   const prechat = await getPrechatSettings(supabase, workspaceId);
+  // A contact avatar we stored is derived from its key for the current
+  // provider; one a CRM import supplied stays exactly as given.
+  const contactAvatarUrl = await resolveContactAvatarUrl(
+    createStorageUrlResolver(config), workspaceId, contact,
+  );
 
   return res.json({
     visitor_id: visitorId,
@@ -217,7 +224,7 @@ widgetIdentityRouter.get('/me', widgetRateLimit('default'), async (req: Request,
       name: contact.name,
       email: contact.email,
       phone: contact.phone,
-      avatar_url: contact.avatar_url,
+      avatar_url: contactAvatarUrl,
     } : null,
     prechat: {
       ask_name: prechat.ask_name,
@@ -238,7 +245,7 @@ widgetIdentityRouter.get('/me', widgetRateLimit('default'), async (req: Request,
 // GET /identity/prechat — Field requirements
 // ═══════════════════════════════════════════════
 widgetIdentityRouter.get('/prechat', widgetRateLimit('default'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -275,7 +282,7 @@ const prechatSchema = z.object({
 });
 
 widgetIdentityRouter.post('/prechat', widgetRateLimit('message'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = prechatSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
@@ -329,7 +336,7 @@ widgetIdentityRouter.post('/prechat', widgetRateLimit('message'), async (req: Re
       conversations_merged: merge.conversationsMerged,
       is_new_contact: merge.isNewContact,
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[identity-prechat] Error:', err.message);
     return res.status(500).json({ error: 'merge_failed' });
   }
@@ -339,7 +346,7 @@ widgetIdentityRouter.post('/prechat', widgetRateLimit('message'), async (req: Re
 // GET /identity/history — Smart continuation
 // ═══════════════════════════════════════════════
 widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.query.workspace_id as string);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -387,7 +394,7 @@ widgetIdentityRouter.get('/history', widgetRateLimit('poll'), async (req: Reques
   // visibility filter on — it must be applied directly, using the SAME
   // canonical helper, or an internal staffing/system notice would be
   // returned straight through in `messages[]`.
-  const baseMessages = filterVisitorVisibleMessages((msgs || []).map((m: any) => ({
+  const baseMessages = filterVisitorVisibleMessages((msgs || []).map((m) => ({
     id: m.id,
     role: m.sender_type === 'contact' ? 'visitor' : m.sender_type === 'system' ? 'system' : 'agent',
     sender_type: m.sender_type,
@@ -416,7 +423,7 @@ const verifyRequestSchema = z.object({
 });
 
 widgetIdentityRouter.post('/verify/request', widgetRateLimit('message'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = verifyRequestSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
@@ -463,7 +470,7 @@ const verifyConfirmSchema = z.object({
 });
 
 widgetIdentityRouter.post('/verify/confirm', widgetRateLimit('message'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = verifyConfirmSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
@@ -506,7 +513,7 @@ widgetIdentityRouter.post('/verify/confirm', widgetRateLimit('message'), async (
       contact_id: merge.contactId,
       conversations_merged: merge.conversationsMerged,
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[identity-verify-confirm] merge error:', err.message);
     return res.status(500).json({ error: 'merge_failed_after_verify' });
   }
@@ -516,7 +523,7 @@ widgetIdentityRouter.post('/verify/confirm', widgetRateLimit('message'), async (
 // POST /identity/continuity/attach — Issue cross-device token
 // ═══════════════════════════════════════════════
 widgetIdentityRouter.post('/continuity/attach', widgetRateLimit('default'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });
@@ -559,7 +566,7 @@ const continuityUseSchema = z.object({
 });
 
 widgetIdentityRouter.post('/continuity/use', widgetRateLimit('default'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const parsed = continuityUseSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
 
@@ -596,7 +603,7 @@ widgetIdentityRouter.post('/continuity/use', widgetRateLimit('default'), async (
     }
     void emitIdentifiedEvents(config, supabase, workspaceId, result.contactId!, 'token', false);
     return res.json({ success: true, contact_id: result.contactId, visitor_id: visitorId });
-  } catch (err: any) {
+  } catch (err) {
     console.error('[identity-continuity-use] error:', err.message);
     return res.status(500).json({ error: 'continuity_attach_failed' });
   }
@@ -606,7 +613,7 @@ widgetIdentityRouter.post('/continuity/use', widgetRateLimit('default'), async (
 // POST /identity/continuity/revoke
 // ═══════════════════════════════════════════════
 widgetIdentityRouter.post('/continuity/revoke', widgetRateLimit('default'), async (req: Request, res: Response) => {
-  const config = (req as any).serverConfig as ServerConfig;
+  const config = serverConfigOf(req);
   const workspaceId = resolveWorkspaceId(req, res, req.body?.workspace_id);
   if (res.headersSent) return;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id required' });

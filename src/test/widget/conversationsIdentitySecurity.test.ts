@@ -41,8 +41,11 @@ describe('widget conversations — visitor identity is cookie-only', () => {
     it(`${route} uses req.visitorId and never a client-sent visitor_id`, () => {
       const body = handlerBody(route);
 
-      // Authoritative source: the cookie-derived value.
-      expect(body).toMatch(/\(req as any\)\.visitorId/);
+      // Authoritative source: the cookie-derived value. The cast in front of
+      // it is a typing detail (`req as any`, `req as WidgetScopedRequest`, …)
+      // and must not be what this security assertion depends on — what
+      // matters is that the identity is read off the REQUEST, not the body.
+      expect(body).toMatch(/\breq\b[^\n]*\)\.visitorId|\breq\.visitorId\b/);
 
       // Tampered/forged client input must not be consulted at all.
       expect(body).not.toMatch(/req\.query\.visitor_id/);
@@ -119,7 +122,9 @@ describe('GET /api/widget/conversations — a backend failure must never be repo
   it('server: a DB error on the conversations query returns 500, not conversations: []', () => {
     const body = handlerBody("widgetRouter.get('/conversations'");
     expect(body).toMatch(/if \(error\) throw error;/);
-    expect(body).toMatch(/catch \(err: any\) \{/);
+    // `catch (err)` with or without a type annotation — the annotation is a
+    // lint concern, the catch itself is the fail-closed behaviour under test.
+    expect(body).toMatch(/catch \(err(?:: \w+)?\) \{/);
     expect(body).toMatch(/res\.status\(500\)\.json\(\{ error: 'Internal error' \}\)/);
   });
 

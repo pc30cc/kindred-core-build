@@ -27,6 +27,7 @@ import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
 import { uploadFile, deleteFile, uploadForOwner, deleteForOwner } from '../services/storage/index.js';
+import { createStorageUrlResolver, hydrateUserAvatars } from '../services/storage/urlResolver.js';
 import { userAvatarKey, workspaceBrandingKey } from '../services/storage/keys.js';
 import { resolveVisitorGeo } from '../services/geo/index.js';
 import { hashIp, getClientIp } from '../utils/clientIp.js';
@@ -132,7 +133,9 @@ accountRouter.get('/me', async (req, res) => {
       email_confirmed_at: user.email_confirmed_at ?? null,
       phone: user.phone ?? null,
       created_at: user.created_at,
-      profile: profile ?? null,
+      // The row holds only the avatar's storage key; the link is derived for
+      // whichever provider is primary right now.
+      profile: (await hydrateUserAvatars(config, profile ? [profile] : []))[0] ?? null,
     });
   } catch (err: unknown) {
     return res.status(500).json({ error: errorMessage(err, 'Failed to load account') });
@@ -199,7 +202,7 @@ accountRouter.patch('/me', async (req, res) => {
       .eq('id', user.id)
       .maybeSingle();
 
-    return res.json({ success: true, profile });
+    return res.json({ success: true, profile: (await hydrateUserAvatars(config, profile ? [profile] : []))[0] ?? null });
   } catch (err: unknown) {
     return res.status(500).json({ error: errorMessage(err, 'Failed to update profile') });
   }
@@ -340,30 +343,36 @@ accountRouter.post('/avatar', async (req, res) => {
 
     await cleanupPreviousAvatar(config, user.id, existingProfile);
 
+    // KEY ONLY. `avatar_url` is explicitly cleared rather than left alone:
+    // a URL written under a previous primary must not survive next to the
+    // key that replaces it, or a reader falling back to it would keep
+    // serving the retired provider. The link the client gets back is
+    // derived from the key through the same resolver every read path uses.
+    const storedKey = result.fileKey ?? fileKey;
     const { data: savedProfile, error: saveError } = await sb
       .from('profiles')
       .update({
-        avatar_url: result.url,
-        avatar_storage_key: result.fileKey ?? fileKey,
+        avatar_url: null,
+        avatar_storage_key: storedKey,
         updated_at: new Date().toISOString(),
       })
       .eq('id', user.id)
-      .select('id, avatar_url')
+      .select('id, avatar_storage_key')
       .maybeSingle();
 
     if (saveError) {
-      console.error('[account] avatar persistence error:', saveError.message, { userId: user.id, fileKey, url: result.url });
+      console.error('[account] avatar persistence error:', saveError.message, { userId: user.id, fileKey });
       return res.status(500).json({ error: 'Avatar uploaded but profile update failed' });
     }
 
-    if (!savedProfile?.id || !savedProfile.avatar_url) {
-      console.error('[account] avatar persistence missing row:', { userId: user.id, fileKey, url: result.url });
+    if (!savedProfile?.id || !savedProfile.avatar_storage_key) {
+      console.error('[account] avatar persistence missing row:', { userId: user.id, fileKey });
       return res.status(500).json({ error: 'Avatar uploaded but profile row was not updated' });
     }
 
     return res.json({
       success: true,
-      url: savedProfile.avatar_url,
+      url: await createStorageUrlResolver(config).user(user.id, savedProfile.avatar_storage_key),
       fileKey: result.fileKey,
       provider: 'resolved',
     });
@@ -762,7 +771,8 @@ accountRouter.get('/security/login-history', async (req, res) => {
 // Mirrors the (former) avatar upload flow but writes to the canonical
 // workspace-scoped `workspace/<workspaceId>/branding/...` key
 // (server/services/storage/keys.ts's workspaceBrandingKey()) and persists
-// the resulting URL to `workspace_branding.logo_url`. Caller must be a
+// that KEY to `workspace_branding.logo_storage_key` — never a URL, which
+// would name one vendor and stop being true on the next promotion. Caller must be a
 // member of the workspace (any role) — verified by RLS via service-role
 // lookup.
 //
@@ -858,7 +868,9 @@ accountRouter.post('/workspace-icon', async (req, res) => {
 
     const { error: saveError } = await sb
       .from('workspace_branding')
-      .update({ logo_url: result.url, logo_storage_key: fileKey, updated_at: new Date().toISOString() })
+      // KEY ONLY — see the account-avatar route above for why the URL
+      // column is cleared instead of being kept in step.
+      .update({ logo_url: null, logo_storage_key: fileKey, updated_at: new Date().toISOString() })
       .eq('workspace_id', workspaceId);
 
     if (saveError) {
@@ -866,7 +878,11 @@ accountRouter.post('/workspace-icon', async (req, res) => {
       return res.status(500).json({ error: 'Icon uploaded but workspace update failed' });
     }
 
-    return res.json({ success: true, url: result.url, fileKey: result.fileKey });
+    return res.json({
+      success: true,
+      url: await createStorageUrlResolver(config).workspace(workspaceId, fileKey),
+      fileKey: result.fileKey,
+    });
   } catch (err: unknown) {
     console.error('[account] workspace icon upload error:', err);
     return res.status(500).json({ error: errorMessage(err, 'Workspace icon upload failed') });

@@ -6087,6 +6087,7 @@ const en = {
       removed: 'Vendor removed from the pool',
       testLatency: 'Upload and delete round-trip took {{ms}} ms.',
       promoteBlocked: 'This vendor has not been proven to hold everything the primary holds — run a full sync first.',
+      promoteNoPublicUrl: 'This vendor has no public URL for stored files, so avatars and logos could not be linked if it became primary. Set its public/CDN address first.',
       forcePromote: 'Force promote (recovery)',
       forcePromoteTitle: 'Promote an unsynchronized vendor?',
       forcePromoteDesc: 'Every read will move to {{vendor}} immediately. Objects it has not received yet will be unavailable until a sync completes. Only do this to recover from a primary that is already gone.',

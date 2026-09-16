@@ -29,6 +29,24 @@ import {
   applyVisitorPresence,
 } from './presenceSource.js';
 import { listVisitorCandidates } from './candidateIndex.js';
+import { hydrateContactAvatars } from '../storage/urlResolver.js';
+
+/** The `visitor_sessions` columns this module reads off a joined row. */
+type VisitorSessionRow = {
+  id: string;
+  visitor_id: string;
+  workspace_id: string;
+  contact_id: string | null;
+  current_page: string | null;
+  referrer: string | null;
+  browser: string | null;
+  device: string | null;
+  os: string | null;
+  country: string | null;
+  city: string | null;
+  started_at: string | null;
+  last_seen_at: string | null;
+};
 
 /**
  * Durable candidate horizon used in realtime mode: sessions that produced a
@@ -166,8 +184,8 @@ export async function listVisitorIntelligence(
   try {
     const { getMapGeoSettings } = await import('../geo/settings.js');
     const s = await getMapGeoSettings(config);
-    if ((s as any).presence?.stale_after_ms) {
-      staleMs = Math.max(15_000, (s as any).presence.stale_after_ms);
+    if (s.presence?.stale_after_ms) {
+      staleMs = Math.max(15_000, s.presence.stale_after_ms);
     }
   } catch { /* keep default */ }
   const policy = await resolveIpVisibilityPolicy(config, workspaceId, opts.viewerRole ?? null);
@@ -231,11 +249,11 @@ export async function listVisitorIntelligence(
     return [];
   }
 
-  const durableRows: any[] = [...(rows ?? [])];
+  const durableRows = [...(rows ?? [])];
 
   // Pull the durable rows for indexed sessions the recency window missed. This
   // read is bounded by the index page (≤ limit ids), never by the workspace.
-  const durableById = new Map<string, any>();
+  const durableById = new Map<string, (typeof durableRows)[number]>();
   for (const r of durableRows) durableById.set(String(r.visitor_session_id), r);
   const missing = index.session_ids.filter((id) => id && !durableById.has(id)).slice(0, limit);
   if (missing.length) {
@@ -255,7 +273,7 @@ export async function listVisitorIntelligence(
   // rows of merely-recent durable activity. Recent durable rows then fill
   // whatever capacity is left, ordered by recency (the query already sorted
   // them).
-  const allRows: any[] = [];
+  const allRows = [];
   const taken = new Set<string>();
   for (const id of index.session_ids) {
     if (allRows.length >= limit) break;
@@ -272,7 +290,7 @@ export async function listVisitorIntelligence(
     allRows.push(row);
   }
 
-  const sessionIds = allRows.map(r => (r.visitor_sessions as any).id).filter(Boolean);
+  const sessionIds = allRows.map(r => r.visitor_sessions.id).filter(Boolean);
 
   // Bounded realtime overlay: one batched presence_stats read over exactly
   // these candidates.
@@ -288,7 +306,7 @@ export async function listVisitorIntelligence(
   // is created). Looking these up first guarantees the Visitors list shows
   // a real name for those sessions rather than "Unknown visitor".
   const sessionContactIds = allRows
-    .map(r => (r.visitor_sessions as any).contact_id)
+    .map(r => r.visitor_sessions.contact_id)
     .filter(Boolean) as string[];
 
   if (sessionIds.length) {
@@ -313,8 +331,12 @@ export async function listVisitorIntelligence(
     if (contactIds.length) {
       const { data: cts } = await sb
         .from('contacts')
-        .select('id, name, email, avatar_url, visitor_code, metadata')
+        .select('id, name, email, avatar_url, avatar_storage_key, visitor_code, metadata')
         .in('id', contactIds);
+      // One provider resolution for the page; a contact whose avatar is ours
+      // gets a link derived from its key, everyone else keeps the external
+      // URL a CRM import supplied.
+      await hydrateContactAvatars(config, workspaceId, (cts ?? []));
       for (const c of cts ?? []) contactsById.set(c.id, c);
     }
   }
@@ -326,7 +348,7 @@ export async function listVisitorIntelligence(
   const items: VisitorIntelligenceItem[] = [];
 
   for (const r of allRows) {
-    const session = r.visitor_sessions as any;
+    const session = r.visitor_sessions as VisitorSessionRow;
     const profile = profiles.get(session.id) ?? null;
     const net = profile
       ? {
@@ -427,13 +449,13 @@ export async function getVisitorIntelligence(
     // Resolve the session-pinned contact even when the visitor is offline
     // (no presence row) so the detail panel still shows their name.
     let offlineContact: VisitorIntelligenceItem['contact'] = null;
-    if ((session as any).contact_id) {
+    if (session.contact_id) {
       const { data: c } = await sb
         .from('contacts')
-        .select('id, name, email, avatar_url, visitor_code, metadata')
-        .eq('id', (session as any).contact_id)
+        .select('id, name, email, avatar_url, avatar_storage_key, visitor_code, metadata')
+        .eq('id', session.contact_id)
         .maybeSingle();
-      if (c) offlineContact = c;
+      if (c) [offlineContact] = await hydrateContactAvatars(config, workspaceId, [c]);
     }
     return {
       id: session.id, visitor_id: session.visitor_id, workspace_id: session.workspace_id,
@@ -449,7 +471,9 @@ export async function getVisitorIntelligence(
     };
   }
 
-  const session = presence.visitor_sessions as any;
+  // PostgREST types an embedded one-to-one join as an array; at runtime it is
+  // the single joined row.
+  const session = presence.visitor_sessions as unknown as VisitorSessionRow;
   const net = await netFor(session.id);
   const { data: conv } = await sb
     .from('conversations')
@@ -466,10 +490,10 @@ export async function getVisitorIntelligence(
   if (resolvedContactId) {
     const { data: c } = await sb
       .from('contacts')
-      .select('id, name, email, avatar_url, visitor_code, metadata')
+      .select('id, name, email, avatar_url, avatar_storage_key, visitor_code, metadata')
       .eq('id', resolvedContactId)
       .maybeSingle();
-    if (c) contact = c;
+    if (c) [contact] = await hydrateContactAvatars(config, workspaceId, [c]);
   }
 
   return {

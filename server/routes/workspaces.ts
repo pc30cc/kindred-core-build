@@ -29,7 +29,7 @@ import { Router, type Request } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
-import { requireUser, authorizeWorkspaceAccess } from '../lib/workspaceAuth.js';
+import { requireUser, authorizeWorkspaceAccess, serverConfigOf } from '../lib/workspaceAuth.js';
 import { assertPhoneVerificationSatisfied } from '../services/phoneVerification/index.js';
 import { PhoneVerificationError } from '../services/phoneVerification/types.js';
 import { isEmailVerified } from '../services/auth/identity.js';
@@ -40,6 +40,7 @@ import { checkEntitlementFromDB } from '../middleware/featureGating.js';
 import { getCapability } from '../services/billing/capabilityRegistry.js';
 import { invalidateOriginHostCache, invalidateWorkspaceOriginCache } from '../services/widget/public.js';
 import { parseWorkspaceDomainInput, type DomainInputResult } from '../utils/workspaceDomainInput.js';
+import { createStorageUrlResolver } from '../services/storage/urlResolver.js';
 
 export const workspacesRouter = Router();
 
@@ -65,7 +66,7 @@ type WorkspaceDomainRequest = Request<{ workspaceId: string; domainId: string }>
 
 // ── GET /api/workspaces — every workspace the caller is a member of ──────
 workspacesRouter.get('/', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const userId = await requireUser(req, res);
   if (!userId) return;
 
@@ -76,7 +77,7 @@ workspacesRouter.get('/', async (req, res) => {
     .eq('user_id', userId);
   if (memberErr) return res.status(500).json({ error: memberErr.message });
 
-  const workspaceIds = (memberships || []).map((m: any) => m.workspace_id);
+  const workspaceIds = (memberships || []).map((m) => m.workspace_id);
   if (workspaceIds.length === 0) return res.json({ workspaces: [] });
 
   const { data: workspaces, error: wsErr } = await sb
@@ -95,7 +96,7 @@ workspacesRouter.get('/', async (req, res) => {
 // because accountRouter's `/me` already means "the user's own profile",
 // a different concept from the account/workspace business entity here.
 workspacesRouter.get('/account', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const userId = await requireUser(req, res);
   if (!userId) return;
 
@@ -133,7 +134,7 @@ workspacesRouter.get('/account', async (req, res) => {
 // invoked with the caller's own id, mirroring how /api/workspaces (POST,
 // above/below) already calls create_workspace_atomic.
 workspacesRouter.post('/provision-account', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const userId = await requireUser(req, res);
   if (!userId) return;
 
@@ -195,7 +196,7 @@ async function resolveWorkspaceCapacity(
     .from('workspaces')
     .select('id')
     .eq('account_id', accountId);
-  const ids = (rows || []).map((r: any) => r.id as string);
+  const ids = (rows || []).map((r) => r.id as string);
   const used = ids.length;
 
   const registryDefault = getCapability('max_workspaces')?.defaultValue;
@@ -209,7 +210,7 @@ async function resolveWorkspaceCapacity(
       config.supabaseServiceRoleKey,
       id,
       'max_workspaces',
-      { numeric: true, selfHostBillingUnlimited: (config as any).selfHostBillingUnlimited },
+      { numeric: true, selfHostBillingUnlimited: config.selfHostBillingUnlimited },
     );
     if (ent.plan && !plan) plan = ent.plan;
     if (!ent.limitValid || typeof ent.limit !== 'number') continue;
@@ -223,7 +224,7 @@ async function resolveWorkspaceCapacity(
 
 // ── GET /api/workspaces/capacity — can the caller create another one? ────
 workspacesRouter.get('/capacity', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const userId = await requireUser(req, res);
   if (!userId) return;
 
@@ -247,7 +248,7 @@ const createWorkspaceSchema = z.object({
 });
 
 workspacesRouter.post('/', async (req, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const userId = await requireUser(req, res);
   if (!userId) return;
 
@@ -303,7 +304,7 @@ workspacesRouter.post('/', async (req, res) => {
 // direct `supabase.from('workspaces').select('slug')` — same auth.uid()
 // problem as everything else in this file).
 workspacesRouter.get(`/${WORKSPACE_ID_PARAM}`, async (req: WorkspaceIdRequest, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   const sb = getServiceClient(config);
@@ -321,7 +322,7 @@ const updateWorkspaceSchema = z.object({ name: z.string().trim().min(1).max(120)
 
 // ── PATCH /api/workspaces/:workspaceId — rename (settings/GeneralPage.tsx) ─
 workspacesRouter.patch(`/${WORKSPACE_ID_PARAM}`, async (req: WorkspaceIdRequest, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const parsed = updateWorkspaceSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
@@ -354,7 +355,7 @@ workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/role`, async (req: WorkspaceIdReque
 // the "Members can view domains" read access (full domain CRUD is a
 // separate, not-yet-migrated settings page — out of scope here).
 workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/primary-domain`, async (req: WorkspaceIdRequest, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
 
@@ -376,7 +377,7 @@ workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/primary-domain`, async (req: Worksp
 
 // ── Workspace branding (settings/GeneralPage.tsx, useBranding.ts) ─────────
 workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/branding`, async (req: WorkspaceIdRequest, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   const sb = getServiceClient(config);
@@ -386,8 +387,25 @@ workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/branding`, async (req: WorkspaceIdR
     .eq('workspace_id', req.params.workspaceId)
     .single();
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ branding: data });
+  return res.json({ branding: await withDerivedLogoUrl(config, req.params.workspaceId, data) });
 });
+
+/**
+ * `workspace_branding.logo_storage_key` is the only persisted record of an
+ * uploaded workspace icon; `logo_url` is derived here for whichever provider
+ * is primary right now, so promoting a new one rewrites no rows. A row that
+ * still carries an operator-typed external link keeps it.
+ */
+async function withDerivedLogoUrl(
+  config: ServerConfig,
+  workspaceId: string,
+  row: Record<string, unknown> | null,
+): Promise<Record<string, unknown> | null> {
+  if (!row) return row;
+  const key = typeof row.logo_storage_key === 'string' ? row.logo_storage_key : null;
+  const derived = await createStorageUrlResolver(config).workspace(workspaceId, key);
+  return { ...row, logo_url: derived ?? row.logo_url ?? null };
+}
 
 const brandingUpdateSchema = z.object({}).passthrough();
 
@@ -399,14 +417,38 @@ const brandingUpdateSchema = z.object({}).passthrough();
  */
 const PLATFORM_OWNED_BRANDING_FIELDS = ['platform_name'] as const;
 
+/**
+ * Storage-owned branding columns. `logo_storage_key` names an object in the
+ * workspace's bucket namespace and is written ONLY by the icon upload route
+ * (account.ts), never from a client body — a caller that could set it could
+ * point this row at any key.
+ *
+ * The `*_url` columns are stripped for the opposite reason: this PATCH is a
+ * `passthrough()` schema, so without this list a workspace admin could type
+ * an arbitrary `https://…` into a media column. WebYar-managed media has
+ * exactly one path — upload to WebYar storage, persist the canonical key,
+ * derive the link on read — and a manually entered URL is not it. The
+ * workspace icon already has that path (POST /api/account/workspace-icon);
+ * `favicon_url` and `social_image_url` have no upload endpoint yet and are
+ * therefore simply not writable until one exists, rather than being left
+ * open as a manual-URL hole.
+ */
+const STORAGE_OWNED_BRANDING_FIELDS = [
+  'logo_storage_key',
+  'logo_url',
+  'favicon_url',
+  'social_image_url',
+] as const;
+
 workspacesRouter.patch(`/${WORKSPACE_ID_PARAM}/branding`, async (req: WorkspaceIdRequest, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const parsed = brandingUpdateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true });
   if (!auth) return;
   const updates = { ...(parsed.data as Record<string, unknown>) };
   for (const field of PLATFORM_OWNED_BRANDING_FIELDS) delete updates[field];
+  for (const field of STORAGE_OWNED_BRANDING_FIELDS) delete updates[field];
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('workspace_branding')
@@ -416,7 +458,7 @@ workspacesRouter.patch(`/${WORKSPACE_ID_PARAM}/branding`, async (req: WorkspaceI
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ branding: data });
+  return res.json({ branding: await withDerivedLogoUrl(config, req.params.workspaceId, data) });
 });
 
 // ── Domain management (settings/DomainsPage.tsx) ──────────────────────────
@@ -428,11 +470,11 @@ workspacesRouter.patch(`/${WORKSPACE_ID_PARAM}/branding`, async (req: WorkspaceI
 // (scoped to this workspace here, since the old policy was USING (true)
 // cross-tenant — a laxness we don't need to reproduce).
 
-async function requireDomainManage(req: any, res: any, workspaceId: string): Promise<{ userId: string } | null> {
+async function requireDomainManage(req, res, workspaceId: string): Promise<{ userId: string } | null> {
   const auth = await authorizeWorkspaceAccess(req, res, workspaceId, { manage: true });
   if (!auth) return null;
   try {
-    await assertPhoneVerificationSatisfied((req as any).serverConfig, {
+    await assertPhoneVerificationSatisfied(serverConfigOf(req), {
       actorUserId: auth.userId,
       purpose: 'widget_access',
       workspaceId,
@@ -448,7 +490,7 @@ async function requireDomainManage(req: any, res: any, workspaceId: string): Pro
 }
 
 workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/domains`, async (req: WorkspaceIdRequest, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   const sb = getServiceClient(config);
@@ -464,7 +506,7 @@ workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/domains`, async (req: WorkspaceIdRe
 const addDomainSchema = z.object({ domain: z.string().min(1).max(300) });
 
 workspacesRouter.post(`/${WORKSPACE_ID_PARAM}/domains`, async (req: WorkspaceIdRequest, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const workspaceId = req.params.workspaceId;
   const parsed = addDomainSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
@@ -483,7 +525,7 @@ workspacesRouter.post(`/${WORKSPACE_ID_PARAM}/domains`, async (req: WorkspaceIdR
   });
   if (error) {
     // Partial unique index: one VERIFIED domain may belong to one workspace.
-    if ((error as any).code === '23505') {
+    if (error.code === '23505') {
       return res.status(409).json({ error: 'This domain is already registered.', code: 'DOMAIN_TAKEN' });
     }
     return res.status(500).json({ error: error.message });
@@ -506,7 +548,7 @@ async function loadDomainForWorkspace(sb: ReturnType<typeof getServiceClient>, w
 }
 
 workspacesRouter.delete(`/${WORKSPACE_ID_PARAM}/domains/:domainId`, async (req: WorkspaceDomainRequest, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const { workspaceId, domainId } = req.params;
   if (!(await requireDomainManage(req, res, workspaceId))) return;
   const sb = getServiceClient(config);
@@ -522,7 +564,7 @@ workspacesRouter.delete(`/${WORKSPACE_ID_PARAM}/domains/:domainId`, async (req: 
 });
 
 workspacesRouter.patch(`/${WORKSPACE_ID_PARAM}/domains/:domainId/primary`, async (req: WorkspaceDomainRequest, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const { workspaceId, domainId } = req.params;
   if (!(await requireDomainManage(req, res, workspaceId))) return;
   const sb = getServiceClient(config);
@@ -545,7 +587,7 @@ const usageQuerySchema = z.object({
 });
 
 workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/usage/ai`, async (req: WorkspaceIdRequest, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   const parsed = usageQuerySchema.safeParse(req.query);
@@ -564,7 +606,7 @@ workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/usage/ai`, async (req: WorkspaceIdR
 });
 
 workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/usage/storage`, async (req: WorkspaceIdRequest, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   const parsed = usageQuerySchema.safeParse(req.query);
@@ -588,7 +630,7 @@ workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/usage/storage`, async (req: Workspa
 // fields are returned — the `config` column (credentials/secrets) never
 // leaves the backend.
 workspacesRouter.get(`/${WORKSPACE_ID_PARAM}/provider-selection`, async (req: WorkspaceIdRequest, res) => {
-  const config: ServerConfig = (req as any).serverConfig;
+  const config: ServerConfig = serverConfigOf(req);
   const auth = await authorizeWorkspaceAccess(req, res, req.params.workspaceId);
   if (!auth) return;
   const sb = getServiceClient(config);

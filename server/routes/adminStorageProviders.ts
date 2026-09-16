@@ -26,6 +26,7 @@ import {
   listWithConfig,
 } from '../services/storage/index.js';
 import { storageConfigFingerprint } from '../services/storage/workspaceScopes.js';
+import { describeUrlCapability } from '../services/storage/urlResolver.js';
 
 export const adminStorageProvidersRouter = Router();
 
@@ -145,6 +146,12 @@ function serializePool(pool: StoragePool) {
         updatedAt: entry.updatedAt ?? null,
         /** Proven to hold everything the CURRENT primary holds. */
         synchronized: name === pool.primary || isReplicaSynchronized(pool, name),
+        /**
+         * Can this vendor express a public URL? A vendor that cannot may
+         * still mirror writes, but can never become primary — every avatar
+         * and logo link is derived from the primary at read time.
+         */
+        canServePublicUrls: describeUrlCapability(storageConfigFromRecord(name, entry.config)).capable,
         syncedAt: entry.syncedAt ?? null,
         /** A known replication gap — clears readiness until a fresh full walk. */
         dirtyAt: entry.dirtyAt ?? null,
@@ -413,6 +420,15 @@ adminStorageProvidersRouter.patch('/:providerName', async (req, res) => {
  * the browser sends. `force` exists for recovery (the current primary is
  * gone and an incomplete mirror is better than nothing) and is the only way
  * past it; it is logged and surfaced in the response.
+ *
+ * ONE requirement stands above `force`: the vendor must be able to express a
+ * public URL. Since no row persists a URL any more — every avatar and logo
+ * link is derived from its storage key for whichever provider is primary
+ * (services/storage/urlResolver.ts) — promoting a vendor with no URL builder
+ * would blank all of them platform-wide, with nothing to repair afterwards
+ * because there is no stored URL to fix. `force` trades completeness of the
+ * data for availability; this would trade away the links themselves, so it
+ * is refused either way.
  */
 adminStorageProvidersRouter.post('/:providerName/primary', async (req, res) => {
   try {
@@ -426,6 +442,19 @@ adminStorageProvidersRouter.post('/:providerName/primary', async (req, res) => {
     if (!entry) return res.status(404).json({ error: 'Provider is not configured' });
 
     if (name === pool.primary) return res.json(serializePool(pool));
+
+    // Not bypassable by `force` — see this route's doc comment.
+    const capability = describeUrlCapability(storageConfigFromRecord(name, entry.config));
+    if (!capability.capable) {
+      return res.status(409).json({
+        error:
+          capability.reason === 'not_an_absolute_url'
+            ? 'This vendor has no public base URL configured, so it cannot produce links for avatars and logos. '
+              + 'Set its public/CDN URL, then promote it.'
+            : 'This backend cannot build public URLs for this vendor, so promoting it would break every avatar and logo link.',
+        reason: 'no_public_url',
+      });
+    }
 
     if (!entry.enabled && !body.force) {
       return res.status(409).json({

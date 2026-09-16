@@ -253,6 +253,12 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     hosted: 'supabase/migrations/20260916092000_storage_provider_pool_atomic.sql',
   },
 
+  {
+    label: '190 — storage-key ownership: contacts.avatar_storage_key + per-owner CHECKs',
+    selfHost: 'database/migrations/190_storage_key_ownership.sql',
+    hosted: 'supabase/migrations/20260916093000_storage_key_ownership.sql',
+  },
+
   // intentionally asymmetric, not a drift bug.
 
   // NOTE: 182 (database/migrations/182_admin_purge_workspaces_selfhost.sql)

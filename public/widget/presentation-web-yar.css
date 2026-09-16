@@ -553,6 +553,58 @@ a.wy-powered:hover { color: var(--wy-text); }
    panel no longer wraps a persistent chat body. Design: 16px box on white. */
 /* 10px box + 6px reserved gutter on both edges = a real, symmetric 16px. */
 .wy-chat-scroll { flex: 1; min-height: 0; padding: 16px 10px; background: var(--wy-card); }
+/* Positioning context for the jump-to-latest pill. The host is a pure
+   layout wrapper: it inherits the scroll area's flex share and adds no
+   padding, background or chrome of its own. */
+.wy-chat-scroll-host {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--wy-card);
+}
+
+/* ─── Jump to latest ────────────────────────────────────────────────
+   Appears only while the visitor has scrolled away from the bottom, and
+   grows a counter badge when messages arrived while they were up there. */
+.wy-jump {
+  position: absolute;
+  bottom: 12px;
+  inset-inline-end: 14px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 28px);
+  padding: 7px 12px;
+  border-radius: 9999px;
+  background: var(--wy-card);
+  color: var(--wy-text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: 0 0 0 1px var(--wy-border), 0 6px 18px -8px rgba(2, 6, 23, 0.45);
+  cursor: pointer;
+  animation: wy-jump-in 0.18s var(--wy-ease) both;
+  transition: background-color 0.15s, color 0.15s, transform 0.15s var(--wy-ease);
+}
+.wy-jump[hidden] { display: none; }
+.wy-jump:hover { background: var(--wy-hover); }
+.wy-jump:active { transform: scale(0.96); }
+.wy-jump-ico { display: inline-flex; }
+.wy-jump-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wy-jump-label:empty { display: none; }
+/* With unseen messages the pill adopts the brand colour so it reads as a
+   notification rather than a navigation control. */
+.wy-jump.has-new {
+  background: var(--wy-accent);
+  color: #fff;
+  box-shadow: 0 6px 18px -8px var(--wy-accent);
+}
+.wy-jump.has-new:hover { background: var(--wy-accent); filter: brightness(1.05); }
+@keyframes wy-jump-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.shell.no-anim .wy-jump { animation: none; }
 
 
 /* ─── Messages ──────────────────────────────────────────────────────── */
@@ -677,6 +729,11 @@ a.wy-powered:hover { color: var(--wy-text); }
   padding-bottom: 2px; opacity: 0; transition: opacity 0.15s;
 }
 .msg-row:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }
+/* No hover on touch — the quote/copy controls would otherwise be
+   permanently invisible (and effectively unusable) on phones. */
+@media (hover: none) {
+  .msg-actions { opacity: 0.6; }
+}
 
 .msg-act {
   color: var(--wy-faint); padding: 3px; border-radius: 6px; display: inline-flex;
@@ -1204,7 +1261,7 @@ a.wy-powered:hover { color: var(--wy-text); }
 
 /* ─── Reduced motion ────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-  .panel, .wy-view, .msg-row, .kb-feedback, .smart-home-card { animation: none !important; transition: none !important; }
+  .panel, .wy-view, .msg-row, .kb-feedback, .smart-home-card, .wy-jump { animation: none !important; transition: none !important; }
   .typing-dots span, .ci-pulse { animation: none !important; }
 }
 

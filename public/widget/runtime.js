@@ -795,6 +795,16 @@
         receivingFile: 'Receiving…',
         // Phase 6b — preview / file actions
         retry: 'Retry',
+        // Polish pass — controls that previously fell back to hardcoded
+        // English inside the presentation layer (send/close/cancel/remove)
+        // or were never localized at all (launcher + unread announcements).
+        send: 'Send',
+        close: 'Close',
+        cancel: 'Cancel',
+        remove: 'Remove',
+        wyUnread: 'Unread messages',
+        newMessages: 'New messages',
+        scrollToLatest: 'Scroll to latest message',
         download: 'Download',
         openFile: 'Open',
         playAudio: 'Play voice message',
@@ -1005,6 +1015,13 @@
         receivingFile: 'در حال دریافت…',
         // Phase 6b — preview / file actions
         retry: 'تلاش مجدد',
+        send: 'ارسال',
+        close: 'بستن',
+        cancel: 'انصراف',
+        remove: 'حذف',
+        wyUnread: 'پیام‌های خوانده‌نشده',
+        newMessages: 'پیام‌های جدید',
+        scrollToLatest: 'رفتن به آخرین پیام',
         download: 'دانلود',
         openFile: 'باز کردن',
         playAudio: 'پخش پیام صوتی',
@@ -1209,6 +1226,13 @@
         receivingFile: 'Alınıyor…',
         // Phase 6b — preview / file actions
         retry: 'Yeniden dene',
+        send: 'Gönder',
+        close: 'Kapat',
+        cancel: 'İptal',
+        remove: 'Kaldır',
+        wyUnread: 'Okunmamış mesajlar',
+        newMessages: 'Yeni mesajlar',
+        scrollToLatest: 'En son mesaja git',
         download: 'İndir',
         openFile: 'Aç',
         playAudio: 'Sesli mesajı oynat',
@@ -5879,6 +5903,15 @@
     } else {
       panel.setAttribute('dir', 'ltr');
     }
+    // Dialog semantics. `aria-modal` stays OFF on purpose: on desktop the
+    // panel is a corner popover and the host page behind it remains fully
+    // usable, so claiming modality would lie to assistive tech. The label
+    // is the workspace identity, falling back to the generic "Chat".
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', brandName || t('chat'));
+    // Focusable as a container (never in the tab order) so open() can park
+    // focus inside the panel when no better target exists.
+    panel.setAttribute('tabindex', '-1');
 
     // Operator avatar stack (max 4). Each operator becomes a small circular
     // avatar overlapping the next one, falling back to their initial when no
@@ -5932,6 +5965,70 @@
     srAnnouncer.setAttribute('role', 'status');
     panel.appendChild(srAnnouncer);
     function chatScrollHost() { return chatMessagesHost || body; }
+
+    // ─── Jump to latest ───
+    // Auto-scroll only follows the conversation while the visitor is already
+    // at the bottom (see chatScrollToBottom's stick-to-bottom rule). A
+    // visitor who scrolled up to re-read something therefore had NO signal
+    // that replies were arriving and no way back but a manual drag. This is
+    // that signal and that way back.
+    var jumpBtn = chatQ('[data-chat-jump]');
+    var jumpLabelEl = chatQ('[data-chat-jump-label]');
+    var jumpUnseen = 0;
+
+    function chatIsNearBottom(host) {
+      return (host.scrollHeight - host.scrollTop - host.clientHeight) < 60;
+    }
+    function syncJumpButton() {
+      if (!jumpBtn) return;
+      var host = chatScrollHost();
+      var onChatTab = (shellStore.get() || {}).activeTab === 'chat';
+      if (!host || !onChatTab) { jumpBtn.hidden = true; return; }
+      // `scrollHeight > clientHeight` keeps the pill off a short thread that
+      // simply has not overflowed yet.
+      var away = host.scrollHeight > host.clientHeight + 8 && !chatIsNearBottom(host);
+      if (!away) jumpUnseen = 0;
+      jumpBtn.hidden = !away;
+      jumpBtn.classList.toggle('has-new', away && jumpUnseen > 0);
+      if (jumpLabelEl) {
+        jumpLabelEl.textContent = (away && jumpUnseen > 0)
+          ? (jumpUnseen > 99 ? '99+' : String(jumpUnseen))
+          : '';
+      }
+      jumpBtn.setAttribute(
+        'aria-label',
+        (away && jumpUnseen > 0) ? t('newMessages') : t('scrollToLatest')
+      );
+    }
+    /** Called when an incoming message lands; only counts what the visitor
+     *  cannot currently see. */
+    function noteUnseenForJump() {
+      var host = chatScrollHost();
+      if (!host || !jumpBtn) return;
+      if (host.scrollHeight > host.clientHeight + 8 && !chatIsNearBottom(host)) jumpUnseen++;
+      syncJumpButton();
+    }
+    function bindJumpScrollTracking() {
+      var host = chatScrollHost();
+      if (!host || host.__gsJumpBound) return;
+      host.__gsJumpBound = true;
+      host.addEventListener('scroll', syncJumpButton, { passive: true });
+    }
+    if (jumpBtn) {
+      jumpBtn.addEventListener('click', function () {
+        var host = chatScrollHost();
+        if (host) {
+          try { host.scrollTo({ top: host.scrollHeight, behavior: 'smooth' }); }
+          catch (_) { host.scrollTop = host.scrollHeight; }
+        }
+        jumpUnseen = 0;
+        // The smooth scroll finishes asynchronously; re-sync once it lands so
+        // the pill does not linger.
+        syncJumpButton();
+        setTimeout(syncJumpButton, 260);
+        setTimeout(syncJumpButton, 600);
+      });
+    }
     function announceIncoming(senderName, text) {
       if (!text) return;
       srAnnouncer.textContent = (senderName ? senderName + ': ' : '') + text;
@@ -6192,7 +6289,8 @@
           (canRetry
             ? '<button type="button" class="attach-chip-retry" data-attach-retry aria-label="' + Util.escapeHtml(t('retry')) + '" title="' + Util.escapeHtml(t('retry')) + '">↺</button>'
             : '') +
-          '<button type="button" class="attach-chip-remove" data-attach-remove aria-label="Remove">×</button>' +
+          '<button type="button" class="attach-chip-remove" data-attach-remove aria-label="' +
+            Util.escapeHtml(t('remove')) + '">×</button>' +
         '</div>';
       var rm = attachTray.querySelector('[data-attach-remove]');
       if (rm) rm.addEventListener('click', function () { resetAttachment(); });
@@ -6214,36 +6312,83 @@
     // ─── Phase 6b — Lightbox (Shadow-DOM scoped image preview) ───
     var lightboxEl = panel.querySelector('[data-att-lightbox]');
     var lightboxImg = panel.querySelector('[data-att-lightbox-img]');
-    // Header close control — routes through the launcher so the loader's
-    // open/closed bookkeeping stays in sync with the runtime.
+    /** True on touch-first devices, where auto-focusing a field pops the
+     *  on-screen keyboard and swallows half the panel. */
+    function isCoarsePointer() {
+      try { return window.matchMedia('(pointer: coarse)').matches; } catch (_) { return false; }
+    }
+
+    /** Parks focus on the panel's first real control, or the panel itself. */
+    function focusFirstInPanel() {
+      var candidates = panel.querySelectorAll(
+        'button:not([disabled]):not([tabindex="-1"]), [href], input:not([disabled]),' +
+        ' textarea:not([disabled]), select:not([disabled])'
+      );
+      for (var i = 0; i < candidates.length; i++) {
+        var el = candidates[i];
+        // offsetParent is null for anything display:none'd or inside a
+        // hidden branch — skip straight past the inactive views.
+        if (el.offsetParent === null && el.getClientRects().length === 0) continue;
+        try { el.focus(); return; } catch (_) {}
+      }
+      try { panel.focus(); } catch (_) {}
+    }
+
+    // The single close path used by the header chevron AND by Escape. It
+    // routes through the launcher so the loader's open/closed bookkeeping
+    // stays in sync with the runtime.
+    function closePanelFromWithin() {
+      try {
+        if (typeof window.__gs_panel_close === 'function') { window.__gs_panel_close(); return; }
+      } catch (_) {}
+      try {
+        if (shell && shell.launcher && shell.launcher.classList.contains('open')) { shell.launcher.click(); return; }
+      } catch (_) {}
+      try { if (window.__gs_runtime && window.__gs_runtime._instance) window.__gs_runtime._instance.close(); } catch (_) {}
+    }
     var headerCloseBtn = panel.querySelector('[data-panel-close]');
     if (headerCloseBtn) {
       headerCloseBtn.addEventListener('click', function (ev) {
         try { ev.preventDefault(); ev.stopPropagation(); } catch (_) {}
-        try {
-          if (typeof window.__gs_panel_close === 'function') { window.__gs_panel_close(); return; }
-        } catch (_) {}
-        try {
-          if (shell && shell.launcher && shell.launcher.classList.contains('open')) { shell.launcher.click(); return; }
-        } catch (_) {}
-        try { if (window.__gs_runtime && window.__gs_runtime._instance) window.__gs_runtime._instance.close(); } catch (_) {}
+        closePanelFromWithin();
       });
     }
 
     var lightboxClose = panel.querySelector('[data-att-lightbox-close]');
+    // The lightbox markup declares role="dialog" aria-modal="true", so it has
+    // to actually behave like one: take focus on open, keep Tab inside while
+    // it is up, and hand focus back to whatever opened it on close.
+    var lightboxReturnFocus = null;
     function closeLightbox() {
       if (!lightboxEl) return;
+      var wasOpen = !lightboxEl.hidden;
       lightboxEl.hidden = true;
       lightboxEl.classList.remove('visible');
       if (lightboxImg) { lightboxImg.removeAttribute('src'); lightboxImg.alt = ''; }
+      if (wasOpen && lightboxReturnFocus) {
+        try { lightboxReturnFocus.focus(); } catch (_) {}
+      }
+      lightboxReturnFocus = null;
+    }
+    if (lightboxEl) {
+      lightboxEl.addEventListener('keydown', function (e) {
+        if (e.key !== 'Tab' || !lightboxClose) return;
+        // Exactly one focusable child — keep every Tab on it.
+        e.preventDefault();
+        try { lightboxClose.focus(); } catch (_) {}
+      });
     }
     lightboxOpener = function (attachmentId) {
       if (!lightboxEl || !lightboxImg || !attachmentId) return;
+      lightboxReturnFocus = (shadowRoot && shadowRoot.activeElement) || null;
       lightboxImg.removeAttribute('src');
       lightboxImg.alt = '';
       lightboxEl.hidden = false;
       // Defer to next frame so transition can run
-      requestAnimationFrame(function () { lightboxEl.classList.add('visible'); });
+      requestAnimationFrame(function () {
+        lightboxEl.classList.add('visible');
+        if (lightboxClose) { try { lightboxClose.focus(); } catch (_) {} }
+      });
       // Same auth constraint as inline thumbnails — needs a fetched blob:
       // URL, a plain src= can't carry the widget token header.
       ctx.loadAuthedMediaBlobUrl(attachmentId).then(function (blobUrl) {
@@ -6254,9 +6399,31 @@
     if (lightboxEl) lightboxEl.addEventListener('click', function (e) {
       if (e.target === lightboxEl) closeLightbox();
     });
-    // ESC closes — bound on the host document because focus may be outside the shadow root.
-    document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && lightboxEl && !lightboxEl.hidden) closeLightbox();
+    // ── Escape ──
+    // Bound on the PANEL, not the document: a widget must never swallow the
+    // host page's own Escape (closing their modal, cancelling their form)
+    // just because it happens to be mounted. Inside the widget, Escape is
+    // an unwind — it closes the lightbox first, then the panel.
+    panel.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      if (lightboxEl && !lightboxEl.hidden) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeLightbox();
+        return;
+      }
+      if (emojiPickerEl && !emojiPickerEl.hidden) {
+        e.preventDefault();
+        e.stopPropagation();
+        emojiPickerEl.hidden = true;
+        try { emojiBtn.setAttribute('aria-expanded', 'false'); } catch (_) {}
+        try { if (msgInput) msgInput.focus(); } catch (_) {}
+        return;
+      }
+      if (!shellStore.get().isOpen) return;
+      e.preventDefault();
+      e.stopPropagation();
+      closePanelFromWithin();
     });
 
     // The server returns a fixed, known vocabulary of plain-English error
@@ -6403,9 +6570,17 @@
         msgInput.focus();
         try { msgInput.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
       });
+      // `aria-expanded` is what makes the toggle readable to assistive tech
+      // AND what drives the template's active-state styling
+      // (`.emoji-btn[aria-expanded='true']`), which never activated while
+      // the attribute stayed frozen at its initial "false".
+      function syncEmojiExpanded() {
+        emojiBtn.setAttribute('aria-expanded', emojiPickerEl.hidden ? 'false' : 'true');
+      }
       emojiBtn.addEventListener('click', function (e) {
         e.stopPropagation();
         emojiPickerEl.hidden = !emojiPickerEl.hidden;
+        syncEmojiExpanded();
       });
       // Click-outside-to-close. Attached on `panel` (inside the shadow
       // root) rather than `document` — a document-level listener would see
@@ -6417,7 +6592,9 @@
         if (t2 === emojiBtn || (emojiBtn.contains && emojiBtn.contains(t2))) return;
         if (emojiPickerEl.contains && emojiPickerEl.contains(t2)) return;
         emojiPickerEl.hidden = true;
+        syncEmojiExpanded();
       });
+      syncEmojiExpanded();
     }
 
     // ─── Voice notes — record via MediaRecorder, upload through the same
@@ -6705,6 +6882,7 @@
       var d = getDraftFor(currentDraftKey());
       if (msgInput.value !== d) msgInput.value = d;
       try { syncComposerDraftState(); } catch (_) {}
+      try { autosizeComposer(); } catch (_) {}
     }
     // ─── Visitor typing emit (throttled to ≤1 publish per 2s) ───
     // Realtime-only; if no realtime driver is active the call becomes a no-op
@@ -6742,13 +6920,48 @@
     }
     // Design §5 composer state: mic shows only while the draft is empty,
     // send only once there is something to send.
+    //
+    // A finished upload counts as "something to send" — trySend() has always
+    // accepted an attachment with no text, but the send button is hidden
+    // while `has-draft` is off, so an attachment-only message had no visible
+    // way to be sent (only a blind Enter on an empty composer worked).
     function syncComposerDraftState() {
       if (!inputBar || !msgInput) return;
-      var has = !!String(msgInput.value || '').trim();
+      var att = attachmentStore.get();
+      var has = !!String(msgInput.value || '').trim()
+        || (att.status === 'ready' && !!att.attachmentId);
       inputBar.classList.toggle('has-draft', has);
     }
+    attachmentStore.subscribe(function () {
+      try { syncComposerDraftState(); } catch (_) {}
+    });
+
+    // ─── Composer autosize ───
+    // The textarea ships with `rows="1"` and a CSS max-height, but nothing
+    // ever grew it: a multi-line draft scrolled inside a single-line box.
+    // Grow with the content up to the stylesheet's max-height, then let it
+    // scroll — and collapse straight back after a send clears the value.
+    var COMPOSER_MIN_H = 0;
+    function autosizeComposer() {
+      if (!msgInput) return;
+      try {
+        if (!COMPOSER_MIN_H) {
+          COMPOSER_MIN_H = parseFloat(getComputedStyle(msgInput).minHeight) || msgInput.offsetHeight || 0;
+        }
+        var maxH = parseFloat(getComputedStyle(msgInput).maxHeight);
+        msgInput.style.height = 'auto';
+        var next = msgInput.scrollHeight;
+        if (isFinite(maxH) && maxH > 0) next = Math.min(next, maxH);
+        if (COMPOSER_MIN_H) next = Math.max(next, COMPOSER_MIN_H);
+        msgInput.style.height = next + 'px';
+        // Only scroll once the box has actually stopped growing.
+        msgInput.style.overflowY = (isFinite(maxH) && msgInput.scrollHeight > maxH) ? 'auto' : 'hidden';
+      } catch (_) {}
+    }
     if (msgInput) {
-      msgInput.addEventListener('input', function () { syncDraftFromInput(); maybeEmitTyping(); syncComposerDraftState(); });
+      msgInput.addEventListener('input', function () {
+        syncDraftFromInput(); maybeEmitTyping(); syncComposerDraftState(); autosizeComposer();
+      });
     }
 
     // Migrate pending draft → real conversationId the moment one is assigned.
@@ -6794,6 +7007,7 @@
       }
       msgInput.value = '';
       try { syncComposerDraftState(); } catch (_) {}
+      try { autosizeComposer(); } catch (_) {}
       setDraftFor(currentDraftKey(), '');
       if (transport.hasCapability && transport.hasCapability('supportsTyping')) {
         transport.sendTyping({ conversationId: chatStore.get().conversationId });
@@ -6834,7 +7048,14 @@
     }
     if (sendBtn) sendBtn.addEventListener('click', trySend);
     if (msgInput) msgInput.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); trySend(); }
+      if (e.key !== 'Enter' || e.shiftKey) return;
+      // An IME (Turkish/CJK/emoji keyboards, Android autocorrect) uses Enter
+      // to COMMIT the composition. Sending on that keystroke swallows the
+      // word the visitor was still composing. `keyCode === 229` is the
+      // pre-`isComposing` signal browsers still emit.
+      if (e.isComposing || e.keyCode === 229) return;
+      e.preventDefault();
+      trySend();
     });
 
     // ─── Render dispatcher ───
@@ -7181,12 +7402,21 @@
         body.innerHTML = '';
         body.appendChild(chatFrame);
       }
+      // Scroll tracking has to be (re)armed whenever the frame is live, and
+      // the pill re-evaluated after the new content has been laid out.
+      try {
+        bindJumpScrollTracking();
+        syncJumpButton();
+        requestAnimationFrame(syncJumpButton);
+      } catch (_) {}
       return chatMessagesHost;
     }
     function unmountChatFrame() {
       try {
         if (chatFrame && chatFrame.parentNode) chatFrame.parentNode.removeChild(chatFrame);
       } catch (_) {}
+      // Another surface owns the body now — the pill must not survive it.
+      try { if (jumpBtn) jumpBtn.hidden = true; } catch (_) {}
     }
 
     function switchTab(key) {
@@ -7750,6 +7980,10 @@
     function renderBody() {
       __paintedSkeleton = false;
       renderBodyInner();
+      // Every repaint can change the scroll geometry (a new bubble, a lazy
+      // image finishing, a view swap), so the pill is re-evaluated after
+      // layout rather than only on scroll.
+      try { requestAnimationFrame(syncJumpButton); } catch (_) {}
       if (!__paintedSkeleton && body) {
         markUsableContent();
         // Let the crossfade play once, then drop the marker so subsequent
@@ -8091,6 +8325,9 @@
           lastIncoming.sender_name || lastIncoming.from_name || (ctx.config.brandName || ''),
           lastIncoming.text || lastIncoming.body || '',
         );
+        // Same gate as the announcement: a real, new incoming message. The
+        // counter only moves when the visitor is scrolled away from it.
+        try { noteUnseenForJump(); } catch (_) {}
         // Toast only when the user can't see the message (panel closed or KB tab).
         var canToast = !panelOpen || (activeTab !== 'chat');
         if (canToast) {
@@ -8306,9 +8543,25 @@
         if (shellStore.get().activeTab === 'chat') clearUnreadForActive();
         // Restore preserved draft on reopen (in-memory only)
         if (shellStore.get().activeTab === 'chat') restoreDraftToInput();
-        if (msgInput && transportStore.get().connectionState === 'online' && !contextualNeedsPrechat()) {
-          setTimeout(function () { msgInput.focus(); }, 300);
-        }
+        // Focus has to LAND somewhere inside the panel, otherwise a keyboard
+        // visitor is still on the launcher (or worse, on the host page) with
+        // no way to reach the widget, and Escape has nothing to close.
+        //
+        // The composer is the right target only on a fine-pointer device: on
+        // a phone, focusing a textarea summons the on-screen keyboard, which
+        // eats half the panel before the visitor has decided to type.
+        setTimeout(function () {
+          if (!shellStore.get().isOpen) return;
+          var wantsComposer = msgInput
+            && !msgInput.disabled
+            && !isCoarsePointer()
+            && transportStore.get().connectionState === 'online'
+            && !contextualNeedsPrechat();
+          try {
+            if (wantsComposer) msgInput.focus();
+            else focusFirstInPanel();
+          } catch (_) {}
+        }, 300);
         return true;
       },
       close: function () {
@@ -8318,6 +8571,13 @@
         shellStore.set({ isOpen: false });
         if (launcher) launcher.classList.remove('open');
         panel.classList.remove('visible');
+        // Never leave focus stranded on a `pointer-events:none`, visually
+        // hidden panel: hand it back to the control that opened it.
+        try {
+          var inPanel = shadowRoot && shadowRoot.activeElement
+            && panel.contains(shadowRoot.activeElement);
+          if (inPanel && launcher && launcher.style.display !== 'none') launcher.focus();
+        } catch (_) {}
         return false;
       },
       toggle: function () {

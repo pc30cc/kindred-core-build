@@ -22,13 +22,18 @@ import {
   ANALYTICS_DEFAULTS, ANALYTICS_LIMITS, ANALYTICS_PRIMARY_ELIGIBLE, ANALYTICS_REPLICA_ELIGIBLE,
   AnalyticsPoolConflictError,
   analyticsReplicaHealth, clearAnalyticsReadiness, isAnalyticsPrimaryEligible,
-  isAnalyticsReplicaEligible, isAnalyticsReplicaSynchronized, normalizeAnalyticsPrefix,
+  isAnalyticsReplicaEligible, isAnalyticsReplicaSynchronized, MAX_KNOWN_PREFIXES, normalizeAnalyticsPrefix,
   readAnalyticsPool, resolveAnalyticsTopology, writeAnalyticsPool,
   type AnalyticsStoragePool,
 } from '../services/analytics/pool.js';
 import { syncAnalyticsReplica, testAnalyticsProvider, verifyAnalyticsObject } from '../services/analytics/replication.js';
 import { backfillWorkspaceDay, pendingBackfillDays } from '../services/analytics/backfill.js';
 import { bufferedRowCount, flushAnalytics } from '../services/analytics/writer.js';
+import { duckDbAvailability, queryHealth } from '../services/analytics/duckdb.js';
+import { runSealCycle, unsealDays } from '../services/analytics/sealing.js';
+import {
+  officialStore, readParityState, runParity, shadowStore,
+} from '../services/webAnalytics/store/index.js';
 import { readStoragePool } from '../services/storage/pool.js';
 import { storageConfigFromRecord } from '../services/storage/index.js';
 
@@ -127,10 +132,49 @@ async function serialize(serverConfig: ServerConfig, pool: AnalyticsStoragePool)
     };
   });
 
-  const topology = await resolveAnalyticsTopology(serverConfig, pool);
+  const [topology, engine, parity] = await Promise.all([
+    resolveAnalyticsTopology(serverConfig, pool),
+    duckDbAvailability(),
+    readParityState(serverConfig),
+  ]);
+
+  const queries = queryHealth();
 
   return {
     enabled: pool.enabled,
+    /**
+     * Phase 2 read path. `available: false` is a normal state, not a fault:
+     * the engine is an optional dependency and the S3 path is shadow-only.
+     */
+    s3Read: {
+      engineAvailable: engine.available,
+      engineReason: engine.available === false ? engine.reason : null,
+      lastQueryAt: queries.lastQueryAt,
+      lastQueryMs: queries.lastDurationMs,
+      lastError: queries.lastError,
+      lastErrorAt: queries.lastErrorAt,
+      queries: queries.queries,
+      failures: queries.failures,
+    },
+    /** Last shadow comparison. `regressions` is the number that matters. */
+    parity: parity
+      ? {
+          at: parity.at,
+          workspaceId: parity.workspaceId,
+          range: parity.range,
+          regressions: parity.regressions,
+          expectedDifferences: parity.expectedDifferences,
+          unavailable: parity.unavailable ?? null,
+          reports: parity.reports.map((report) => ({
+            report: report.report,
+            ok: report.ok,
+            postgresMs: report.postgresMs,
+            s3Ms: report.s3Ms,
+            error: report.error ?? null,
+            differences: report.differences,
+          })),
+        }
+      : null,
     primary: pool.primary,
     replicas: pool.replicas,
     replicationEnabled: pool.replicationEnabled,
@@ -225,6 +269,19 @@ adminAnalyticsStorageRouter.put('/settings', async (req, res) => {
     if (body.enabled !== undefined) pool.enabled = body.enabled;
     if (body.prefix !== undefined) {
       const next = normalizeAnalyticsPrefix(body.prefix);
+      // Every prefix ever used stays in the history because workspace
+      // deletion walks all of them. That list cannot grow without bound, so
+      // the change is refused rather than an old prefix being evicted —
+      // evicting one would make the objects under it permanently
+      // unpurgeable.
+      if (next !== pool.prefix && pool.knownPrefixes.length >= MAX_KNOWN_PREFIXES) {
+        return res.status(409).json({
+          error: `Analytics storage has already used ${MAX_KNOWN_PREFIXES} prefixes. Every one of them is `
+            + 'still walked when a workspace is deleted, so the list cannot grow further. Purge and '
+            + 'consolidate the old prefixes before changing it again.',
+          reason: 'prefix_history_full',
+        });
+      }
       // The prefix IS the namespace. Moving it strands every object already
       // written under the old one, and leaves replicas holding a prefix no
       // sync will ever walk again — so readiness is invalidated, exactly as
@@ -528,6 +585,84 @@ adminAnalyticsStorageRouter.post('/backfill', async (req, res) => {
     const result = await backfillWorkspaceDay(ctx(req).serverConfig, body.workspaceId, body.day);
     if (!result.ok) return res.status(400).json({ error: result.error });
     res.json({ report: result.report });
+  } catch (e) {
+    if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
+    fail(res, e);
+  }
+});
+
+// ─── Phase 2 — shadow read / parity ──────────────────────────────
+
+const paritySchema = z.object({
+  workspaceId: z.string().uuid(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+}).strict();
+
+/**
+ * Run a parity comparison on demand.
+ *
+ * The same reports are answered by both stores and the results compared;
+ * PostgreSQL remains the official source throughout, and nothing about this
+ * endpoint can change what a workspace's own Web Analytics page returns.
+ */
+adminAnalyticsStorageRouter.post('/parity', async (req, res) => {
+  try {
+    const body = paritySchema.parse(req.body);
+    if (!allowExpensiveCall(`analytics-parity:${adminId(req) ?? 'unknown'}`)) {
+      return res.status(429).json({ error: 'Too many parity runs — try again in a minute' });
+    }
+    const serverConfig = ctx(req).serverConfig;
+    const run = await runParity(
+      serverConfig,
+      officialStore(serverConfig),
+      shadowStore(serverConfig),
+      body.workspaceId,
+      { startDate: body.startDate, endDate: body.endDate },
+    );
+    res.json({ run });
+  } catch (e) {
+    if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
+    fail(res, e);
+  }
+});
+
+// ─── Phase 2 — day sealing (buffer durability) ───────────────────
+
+/**
+ * Run a sealing cycle now.
+ *
+ * Sealing normally runs on its own ticker; this exists so an operator can
+ * force the lake to catch up after an incident without waiting for the next
+ * cycle, and so the result is visible rather than only in logs.
+ */
+adminAnalyticsStorageRouter.post('/seal', async (req, res) => {
+  try {
+    if (!allowExpensiveCall(`analytics-seal:${adminId(req) ?? 'unknown'}`)) {
+      return res.status(429).json({ error: 'Too many seal runs — try again in a minute' });
+    }
+    res.json(await runSealCycle(ctx(req).serverConfig));
+  } catch (e) { fail(res, e); }
+});
+
+const unsealSchema = z.object({
+  workspaceId: z.string().uuid(),
+  fromDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  toDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+}).strict();
+
+/**
+ * Mark days for rebuild.
+ *
+ * Non-destructive: it clears a bookkeeping flag, and the next cycle rewrites
+ * those days from PostgreSQL. This is the operator-facing half of the same
+ * mechanism the privacy anonymizer uses automatically.
+ */
+adminAnalyticsStorageRouter.post('/unseal', async (req, res) => {
+  try {
+    const body = unsealSchema.parse(req.body);
+    const unsealed = await unsealDays(ctx(req).serverConfig, body.workspaceId, body.fromDay, body.toDay);
+    res.json({ unsealed });
   } catch (e) {
     if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
     fail(res, e);

@@ -42,12 +42,19 @@ import type { ScopeCleanupContext, ScopeCleanupOutcome } from '../../../server/s
 import type { WorkspaceStorageScope } from '../../../server/services/storage/workspaceScopes';
 
 const WS_A = '11111111-1111-1111-1111-111111111111';
+/** Stand-in for the analytics topology's scopes — see the deletionScopes mock below. */
+const ANALYTICS_SCOPES = [{ name: 'analytics[analytics/web/]:arvan_storage', resolve: vi.fn() }];
 const JOB_1 = '77777777-7777-7777-7777-777777777771';
 const ACTOR = '99999999-9999-9999-9999-999999999999';
 
-const { runScopeCleanupTickMock, workspaceStorageScopesMock, stopRecordingMock, findActiveEgressForRoomMock } = vi.hoisted(() => ({
+const {
+  runScopeCleanupTickMock, workspaceStorageScopesMock, stopRecordingMock, findActiveEgressForRoomMock,
+  analyticsStorageScopesMock, analyticsWorkspacePrefixesMock,
+} = vi.hoisted(() => ({
   runScopeCleanupTickMock: vi.fn<(ctx: ScopeCleanupContext) => Promise<ScopeCleanupOutcome>>(),
   workspaceStorageScopesMock: vi.fn<(config: unknown, workspaceId: string) => WorkspaceStorageScope[]>(),
+  analyticsStorageScopesMock: vi.fn(),
+  analyticsWorkspacePrefixesMock: vi.fn(),
   stopRecordingMock: vi.fn<(config: unknown, recordingId: string) => Promise<{ recordingId: string; status: string }>>(),
   // Fifth corrective pass, P0: provider-side discovery for a call_session
   // stuck with no recording_id in metadata — mocked so its outcome
@@ -68,6 +75,17 @@ vi.mock('../../../server/services/storage/scopeCleanupEngine.js', () => ({
 vi.mock('../../../server/services/storage/workspaceScopes.js', () => ({
   workspaceStorageScopes: workspaceStorageScopesMock,
   workspaceScopePrefix: (workspaceId: string) => `workspace/${workspaceId}/`,
+}));
+
+// Storage cleanup now purges TWO namespaces: the general `workspace/<id>/`
+// objects and the independent analytics topology's
+// `analytics/.../workspace=<id>/` objects. Which vendors and prefixes the
+// analytics half resolves to is covered by
+// src/test/analytics/analyticsDeletion.test.ts; here it is mocked so this
+// file stays about the worker's own wiring and outcome translation.
+vi.mock('../../../server/services/analytics/deletionScopes.js', () => ({
+  analyticsStorageScopes: analyticsStorageScopesMock,
+  analyticsWorkspacePrefixes: analyticsWorkspacePrefixesMock,
 }));
 
 // The LiveKit-Egress-quiescence step (third corrective pass) calls
@@ -260,6 +278,12 @@ function currentJobRow(): Row {
 beforeEach(() => {
   for (const key of Object.keys(db)) delete db[key];
   runScopeCleanupTickMock.mockReset();
+  analyticsStorageScopesMock.mockReset();
+  analyticsWorkspacePrefixesMock.mockReset();
+  analyticsStorageScopesMock.mockResolvedValue(ANALYTICS_SCOPES);
+  analyticsWorkspacePrefixesMock.mockResolvedValue([
+    { poolPrefix: 'analytics/web/', workspacePrefix: `analytics/web/workspace=${WS_A}/` },
+  ]);
   workspaceStorageScopesMock.mockReset();
   workspaceStorageScopesMock.mockReturnValue([]);
   stopRecordingMock.mockReset();
@@ -327,6 +351,9 @@ describe('runStorageCleanup — engine wiring', () => {
     await runStorageCleanup({} as never, job);
 
     expect(workspaceStorageScopesMock).toHaveBeenCalledWith({}, WS_A);
+    // The general namespace goes first and, having reported progress, the
+    // tick returns before the analytics pass — progress always yields the
+    // lease rather than running every namespace in one tick.
     expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
     const ctx = runScopeCleanupTickMock.mock.calls[0][0];
     expect(ctx.scopes).toBe(scopes);
@@ -335,8 +362,93 @@ describe('runStorageCleanup — engine wiring', () => {
     expect(typeof ctx.persist).toBe('function');
   });
 
-  it('on {kind:"advance"}: advances status to db_cleanup and releases the lock, conditioned on lease_token', async () => {
-    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'advance' });
+  it('purges the ANALYTICS namespace too, with its own scopes and its own prefix, before db_cleanup', async () => {
+    const scopes = [{ name: 'attachment', resolve: vi.fn() }] as unknown as WorkspaceStorageScope[];
+    workspaceStorageScopesMock.mockReturnValue(scopes);
+    runScopeCleanupTickMock.mockResolvedValue({ kind: 'advance' });
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup' })];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup' }));
+
+    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(2);
+
+    const general = runScopeCleanupTickMock.mock.calls[0][0];
+    expect(general.prefix).toBe(`workspace/${WS_A}/`);
+    expect(general.scopes).toBe(scopes);
+
+    const analytics = runScopeCleanupTickMock.mock.calls[1][0];
+    // A DIFFERENT namespace on a DIFFERENT topology — never the general one.
+    expect(analytics.prefix).toBe(`analytics/web/workspace=${WS_A}/`);
+    expect(analytics.scopes).toBe(ANALYTICS_SCOPES);
+    // Both passes share one persisted state map, so progress survives a restart.
+    expect(analytics.state).toBe(general.state);
+
+    expect(currentJobRow().status).toBe('db_cleanup');
+  });
+
+  it('walks EVERY prefix the analytics pool has ever used, so a prefix change cannot strand a deleted workspace\u2019s objects', async () => {
+    workspaceStorageScopesMock.mockReturnValue([] as unknown as WorkspaceStorageScope[]);
+    analyticsWorkspacePrefixesMock.mockResolvedValue([
+      { poolPrefix: 'analytics/old/', workspacePrefix: `analytics/old/workspace=${WS_A}/` },
+      { poolPrefix: 'analytics/web/', workspacePrefix: `analytics/web/workspace=${WS_A}/` },
+    ]);
+    runScopeCleanupTickMock.mockResolvedValue({ kind: 'advance' });
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup' })];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup' }));
+
+    const prefixes = runScopeCleanupTickMock.mock.calls.map((c) => c[0].prefix);
+    expect(prefixes).toEqual([
+      `workspace/${WS_A}/`,
+      `analytics/old/workspace=${WS_A}/`,
+      `analytics/web/workspace=${WS_A}/`,
+    ]);
+    expect(currentJobRow().status).toBe('db_cleanup');
+  });
+
+  it('never reaches db_cleanup while the ANALYTICS namespace is still being walked', async () => {
+    workspaceStorageScopesMock.mockReturnValue([] as unknown as WorkspaceStorageScope[]);
+    runScopeCleanupTickMock
+      .mockResolvedValueOnce({ kind: 'advance' })   // general namespace finished
+      .mockResolvedValueOnce({ kind: 'progress' }); // analytics namespace still going
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup' })];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup' }));
+
+    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(2);
+    expect(currentJobRow().status).toBe('storage_cleanup');
+    expect(currentJobRow().locked_by).toBeNull();
+  });
+
+  it('an analytics-namespace failure retries the job and never advances to the DB purge', async () => {
+    workspaceStorageScopesMock.mockReturnValue([] as unknown as WorkspaceStorageScope[]);
+    runScopeCleanupTickMock
+      .mockResolvedValueOnce({ kind: 'advance' })
+      .mockResolvedValueOnce({ kind: 'error', message: 'analytics[analytics/web/]:minio listing failed: unreachable' });
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup' })];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup' }));
+
+    const row = currentJobRow();
+    expect(row.status).toBe('storage_cleanup');
+    expect(row.attempt_count).toBe(1);
+    expect(String(row.error_message)).toContain('analytics');
+  });
+
+  it('a failure to resolve the analytics topology blocks the purge rather than silently skipping it', async () => {
+    workspaceStorageScopesMock.mockReturnValue([] as unknown as WorkspaceStorageScope[]);
+    analyticsWorkspacePrefixesMock.mockRejectedValue(new Error('analytics pool unreadable'));
+    db.workspace_deletion_jobs = [baseJob({ status: 'storage_cleanup' })];
+
+    await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup' }));
+
+    expect(runScopeCleanupTickMock).not.toHaveBeenCalled();
+    expect(currentJobRow().status).toBe('storage_cleanup');
+    expect(String(currentJobRow().error_message)).toContain('analytics pool unreadable');
+  });
+
+  it('on {kind:"advance"} from EVERY namespace: advances status to db_cleanup and releases the lock, conditioned on lease_token', async () => {
+    runScopeCleanupTickMock.mockResolvedValue({ kind: 'advance' });
     db.workspace_deletion_jobs = [
       baseJob({ status: 'storage_cleanup', locked_by: 'worker-x', lease_expires_at: new Date().toISOString() }),
     ];
@@ -473,7 +585,7 @@ describe('runStorageCleanup — LiveKit Egress quiescence (third corrective pass
   });
 
   it('once the webhook has already marked every recording terminal (available/failed/disabled), quiescence is immediate and storage cleanup runs — this is the "only trust final verification after quiescence" ordering', async () => {
-    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'advance' });
+    runScopeCleanupTickMock.mockResolvedValue({ kind: 'advance' });
     db.call_sessions = [
       callSessionRow({ id: 'cs-1', recording_state: 'available' }),
       callSessionRow({ id: 'cs-2', recording_state: 'failed' }),
@@ -483,7 +595,8 @@ describe('runStorageCleanup — LiveKit Egress quiescence (third corrective pass
     await runStorageCleanup({} as never, baseJob({ status: 'storage_cleanup' }));
 
     expect(stopRecordingMock).not.toHaveBeenCalled();
-    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
+    // One pass for the general namespace, one for the analytics namespace.
+    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(2);
     expect(currentJobRow().status).toBe('db_cleanup');
   });
 
@@ -756,8 +869,9 @@ describe('THE LEASE FENCING RACE', () => {
     // 3. Worker B now holds T2 — nothing further needed from B for this test.
 
     // 4. Worker A "finishes late" and tries to advance the job, still
-    // carrying the STALE token T1, believing its cleanup is done.
-    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'advance' });
+    // carrying the STALE token T1, believing its cleanup is done. Every
+    // namespace it walks reports advance, so it reaches the status write.
+    runScopeCleanupTickMock.mockResolvedValue({ kind: 'advance' });
 
     // 5. Worker A's write must be rejected outright, not silently no-op'd —
     // and must never crash a real poll loop the way an unhandled rejection

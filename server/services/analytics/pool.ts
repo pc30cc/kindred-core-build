@@ -129,6 +129,19 @@ export interface AnalyticsStoragePool {
   /** Fixed for now — declared so the wire shape does not change when it stops being fixed. */
   format: 'parquet';
   compression: 'zstd';
+  /**
+   * Every prefix this pool has ever written under, newest last, including
+   * the current one.
+   *
+   * The prefix IS the namespace, so changing it strands everything written
+   * under the old one — including, critically, objects that a workspace
+   * deletion must still be able to find and purge. Keeping the history
+   * means deletion walks every place a workspace's analytics data can
+   * physically be, not just wherever the pool happens to point today.
+   * Bounded to the last few so a pathological operator cannot grow the row
+   * without limit.
+   */
+  knownPrefixes: string[];
   writeMode: AnalyticsWriteMode;
   readMode: AnalyticsReadMode;
   replicaState: Record<string, AnalyticsReplicaState>;
@@ -183,6 +196,7 @@ export function emptyAnalyticsPool(): AnalyticsStoragePool {
     flushIntervalMs: ANALYTICS_DEFAULTS.flushIntervalMs,
     format: 'parquet',
     compression: 'zstd',
+    knownPrefixes: [ANALYTICS_DEFAULTS.prefix],
     writeMode: 'dual_write',
     readMode: 'postgres',
     replicaState: {},
@@ -234,6 +248,35 @@ export function normalizeAnalyticsPrefix(value: unknown): string {
     .replace(/\.\./g, '');
   if (!cleaned) return ANALYTICS_DEFAULTS.prefix;
   return `${cleaned}/`;
+}
+
+/**
+ * The prefix history, always containing the CURRENT prefix.
+ *
+ * Deduped, sanitized through the same rules as the live prefix, and capped:
+ * this list is walked by workspace deletion, so every entry costs a listing
+ * per vendor per deleted workspace. The cap is generous enough that a real
+ * operator never hits it and low enough that a scripted loop cannot turn
+ * deletion into an unbounded walk.
+ */
+export const MAX_KNOWN_PREFIXES = 8;
+
+/**
+ * The history, oldest first, always ending with the CURRENT prefix.
+ *
+ * Nothing is ever evicted. Dropping the oldest entry to stay under the cap
+ * would discard exactly the prefix most likely to still hold objects and
+ * least likely to be written again — and deletion walks this list, so an
+ * evicted prefix becomes permanently unpurgeable. The admin route refuses a
+ * further prefix change once the cap is reached instead
+ * (server/routes/adminAnalyticsStorage.ts).
+ */
+function normalizeKnownPrefixes(value: unknown, current: string): string[] {
+  const raw = Array.isArray(value) ? value : [];
+  const cleaned = raw
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '')
+    .map((entry) => normalizeAnalyticsPrefix(entry));
+  return [...new Set([...cleaned.filter((entry) => entry !== current), current])];
 }
 
 function normalizeSyncState(value: unknown): AnalyticsSyncState | null {
@@ -288,17 +331,20 @@ export function normalizeAnalyticsPool(value: unknown): AnalyticsStoragePool {
     };
   }
 
+  const prefix = normalizeAnalyticsPrefix(raw.prefix);
+
   return {
     enabled: raw.enabled === true,
     primary,
     replicas,
     replicationEnabled: raw.replicationEnabled !== false,
-    prefix: normalizeAnalyticsPrefix(raw.prefix),
+    prefix,
     batchRows: clamp(raw.batchRows, ANALYTICS_LIMITS.batchRows, base.batchRows),
     batchBytes: clamp(raw.batchBytes, ANALYTICS_LIMITS.batchBytes, base.batchBytes),
     flushIntervalMs: clamp(raw.flushIntervalMs, ANALYTICS_LIMITS.flushIntervalMs, base.flushIntervalMs),
     format: 'parquet',
     compression: 'zstd',
+    knownPrefixes: normalizeKnownPrefixes(raw.knownPrefixes, prefix),
     writeMode: raw.writeMode === 's3_only' ? 's3_only' : 'dual_write',
     readMode: raw.readMode === 's3' ? 's3' : 'postgres',
     replicaState,

@@ -71,8 +71,52 @@ export interface AnalyticsProviderDto {
   sync: AnalyticsSyncStateDto | null;
 }
 
+/** Phase 2 — the S3 read path's health on the node that answered. */
+export interface AnalyticsS3ReadDto {
+  /** The embedded query engine is an OPTIONAL dependency; absent is a normal state. */
+  engineAvailable: boolean;
+  engineReason: string | null;
+  lastQueryAt: string | null;
+  lastQueryMs: number | null;
+  lastError: string | null;
+  lastErrorAt: string | null;
+  queries: number;
+  failures: number;
+}
+
+export interface AnalyticsParityDifferenceDto {
+  report: string;
+  field: string;
+  postgres: string;
+  s3: string;
+  /** A declared, intentional difference rather than a regression. */
+  expected: boolean;
+}
+
+export interface AnalyticsParityReportDto {
+  report: string;
+  ok: boolean;
+  postgresMs: number;
+  s3Ms: number;
+  error: string | null;
+  differences: AnalyticsParityDifferenceDto[];
+}
+
+export interface AnalyticsParityDto {
+  at: string;
+  workspaceId: string;
+  range: { startDate: string; endDate: string };
+  /** Undeclared differences — the number that matters. */
+  regressions: number;
+  expectedDifferences: number;
+  unavailable: string | null;
+  reports: AnalyticsParityReportDto[];
+}
+
 export interface AnalyticsStorageDto {
   enabled: boolean;
+  s3Read: AnalyticsS3ReadDto;
+  parity: AnalyticsParityDto | null;
   primary: string | null;
   replicas: string[];
   replicationEnabled: boolean;
@@ -208,4 +252,23 @@ export function adminBackfillAnalyticsDay(workspaceId: string, day: string) {
     method: 'POST',
     body: JSON.stringify({ workspaceId, day }),
   });
+}
+
+/** Phase 2 — run a shadow comparison for one workspace and date range. */
+export function adminRunAnalyticsParity(payload: {
+  workspaceId: string;
+  startDate: string;
+  endDate: string;
+}) {
+  return request<{ run: AnalyticsParityDto }>(`${BASE}/parity`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Phase 2 — force a day-sealing cycle (buffer durability catch-up). */
+export function adminRunAnalyticsSeal() {
+  return request<{ considered: number; sealed: number; failed: number; rows: number; objects: number }>(
+    `${BASE}/seal`, { method: 'POST' },
+  );
 }

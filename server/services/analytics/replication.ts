@@ -25,11 +25,16 @@
  */
 
 import { createHash } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type { ServerConfig } from '../../config.js';
 import { emitLog, emitMetric } from '../observability/metrics.js';
 import {
   downloadWithConfig, listWithConfig, uploadWithConfig, type StorageConfig,
 } from '../storage/index.js';
+import { duckDbAvailability, queryAnalytics } from './duckdb.js';
+import { writeParquet } from './parquet.js';
 import {
   persistAnalyticsReplicaSync,
   readAnalyticsPool,
@@ -330,26 +335,60 @@ export async function verifyAnalyticsObject(
 }
 
 /**
- * A real analytics round trip against one vendor: PUT, GET (with the bytes
- * compared), LIST the prefix, then DELETE. Stronger than the general
- * provider test, which only proves an upload and a delete — analytics also
- * needs LIST (replica sync walks it) and a readable GET (the Phase 2 query
- * engine reads objects back), so the test verifies what analytics actually
- * depends on rather than what storage in general does.
+ * A real analytics round trip against one vendor.
+ *
+ * Stronger than the general provider test, which proves only an upload and
+ * a delete. Analytics additionally needs LIST (replica sync walks it), a
+ * byte-identical GET, and — since Phase 2 — the ability for the embedded
+ * query engine to actually READ a Parquet object back from this vendor.
+ * So the object written here is a real Parquet file, and when the engine is
+ * available it is queried and its contents verified before deletion:
+ *
+ *   write test parquet → read it back → query it → verify → delete
+ *
+ * This never touches the general storage pool's state. It writes under the
+ * analytics prefix, with the analytics vendor's credentials, and removes
+ * what it wrote.
  */
 export async function testAnalyticsProvider(
   serverConfig: ServerConfig,
   provider: string,
   config: StorageConfig,
   prefix: string,
-): Promise<{ success: boolean; latencyMs: number; steps: Record<string, boolean>; error?: string }> {
+): Promise<{
+  success: boolean;
+  latencyMs: number;
+  steps: Record<string, boolean>;
+  /** Present when the engine is absent: the object contract still passed. */
+  querySkippedReason?: string;
+  error?: string;
+}> {
   const started = Date.now();
-  const key = `${prefix}_healthcheck/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.bin`;
-  const payload = Buffer.from(`webyar-analytics-healthcheck-${Date.now()}`, 'utf8');
-  const steps: Record<string, boolean> = { put: false, get: false, list: false, delete: false };
+  const key = `${prefix}_healthcheck/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.parquet`;
+  // A real Parquet file with known contents — the same writer the pipeline
+  // uses, so a codec or runtime problem shows up here rather than on the
+  // first real flush.
+  const probe = writeParquet(
+    [{ name: 'probe_id', type: 'utf8' }, { name: 'n', type: 'int32' }],
+    [{ probe_id: 'a', n: 1 }, { probe_id: 'b', n: 2 }, { probe_id: 'c', n: 3 }],
+    { createdBy: 'webyar-analytics-healthcheck' },
+  );
+  const payload = probe.buffer;
+  const steps: Record<string, boolean> = { put: false, get: false, list: false, query: false, delete: false };
+  let querySkippedReason: string | undefined;
+
+  const cleanup = async () => {
+    try {
+      const { deleteWithConfig } = await import('../storage/index.js');
+      const removed = await deleteWithConfig(config, key);
+      steps.delete = removed.success;
+    } catch { steps.delete = false; }
+  };
 
   try {
-    const put = await uploadWithConfig(config, { fileKey: key, data: payload, contentType: 'application/octet-stream' });
+    const put = await uploadWithConfig(config, {
+      fileKey: key, data: payload, contentType: 'application/vnd.apache.parquet',
+    });
     if (!put.success) {
       return { success: false, latencyMs: Date.now() - started, steps, error: put.error ?? 'upload failed' };
     }
@@ -361,27 +400,67 @@ export async function testAnalyticsProvider(
     const listed = await listWithConfig(config, `${prefix}_healthcheck/`);
     steps.list = listed.success;
 
-    const { deleteWithConfig } = await import('../storage/index.js');
-    const removed = await deleteWithConfig(config, key);
-    steps.delete = removed.success;
+    // Query the bytes that came BACK from the vendor, not the ones we built
+    // — that is what proves this vendor can serve the read path.
+    if (steps.get && get.data) {
+      const engine = await duckDbAvailability();
+      if (engine.available === false) {
+        // Not a failure of the vendor: the object contract passed and the
+        // engine is optional. Reported so the panel can say which it was.
+        querySkippedReason = engine.reason;
+        steps.query = true;
+      } else {
+        steps.query = await probeQuery(serverConfig, get.data);
+      }
+    }
 
-    const success = steps.put && steps.get && steps.list && steps.delete;
+    await cleanup();
+
+    const success = steps.put && steps.get && steps.list && steps.query && steps.delete;
     return {
       success,
       latencyMs: Date.now() - started,
       steps,
+      querySkippedReason,
       error: success
         ? undefined
         : !steps.get ? 'the object could not be read back identically'
           : !steps.list ? `listing is not supported for ${provider}`
-            : 'the test object could not be deleted',
+            : !steps.query ? 'the query engine could not read the test Parquet object back'
+              : 'the test object could not be deleted',
     };
   } catch (err: unknown) {
+    await cleanup();
     return {
       success: false,
       latencyMs: Date.now() - started,
       steps,
       error: err instanceof Error ? err.message : String(err),
     };
+  }
+}
+
+/**
+ * Write the fetched bytes to a scratch file and make the engine aggregate
+ * them, exactly as a report would. Anything less — parsing the footer
+ * ourselves, say — would prove the file is well-formed without proving the
+ * engine can use it.
+ */
+async function probeQuery(serverConfig: ServerConfig, bytes: Buffer): Promise<boolean> {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'analytics-probe-'));
+  const file = path.join(dir, 'probe.parquet');
+  try {
+    fs.writeFileSync(file, bytes);
+    const rows = await queryAnalytics<{ n: unknown; total: unknown }>(
+      serverConfig,
+      `SELECT count(*) AS n, sum(n) AS total FROM read_parquet('${file.replace(/'/g, "''")}')`,
+      { label: 'healthcheck' },
+    );
+    const row = rows[0];
+    return !!row && Number(row.n) === 3 && Number(row.total) === 6;
+  } catch {
+    return false;
+  } finally {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* scratch dir */ }
   }
 }

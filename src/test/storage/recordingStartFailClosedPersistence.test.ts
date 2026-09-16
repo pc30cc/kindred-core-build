@@ -287,6 +287,15 @@ vi.mock('../../../server/services/storage/workspaceScopes.js', () => ({
   workspaceStorageScopes: () => [],
   workspaceScopePrefix: (workspaceId: string) => `workspace/${workspaceId}/`,
 }));
+// Storage cleanup also purges the independent analytics namespace; this
+// block only observes WHETHER cleanup ran at all, so the analytics half is
+// stubbed to a single namespace with no vendors.
+vi.mock('../../../server/services/analytics/deletionScopes.js', () => ({
+  analyticsStorageScopes: async () => [],
+  analyticsWorkspacePrefixes: async (_c: unknown, workspaceId: string) => [
+    { poolPrefix: 'analytics/web/', workspacePrefix: `analytics/web/workspace=${workspaceId}/` },
+  ],
+}));
 
 function findHandler(router: import('express').Router, method: string, path: string) {
   const stack = (router as unknown as { stack: Array<{ route?: { path: string; methods: Record<string, boolean>; stack: Array<{ handle: (...a: unknown[]) => unknown }> } }> }).stack;
@@ -478,9 +487,9 @@ describe('END-TO-END: StopEgress succeeding after onStarted persistence failure 
     // outcome, since re-testing the webhook route itself is out of
     // scope for this regression.
     sessionRow.recording_state = 'available';
-    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'advance' });
+    runScopeCleanupTickMock.mockResolvedValue({ kind: 'advance' });
     await runStorageCleanup({} as never, jobRow as never);
-    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
+    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(2); // general + analytics namespaces
   });
 
   it('Call Center flow (server/services/callCenter/recordingControl.ts): the SAME invariant for patchRecordingMeta', async () => {
@@ -507,8 +516,8 @@ describe('END-TO-END: StopEgress succeeding after onStarted persistence failure 
     expect(jobRow.status).toBe('storage_cleanup');
 
     sessionRow.recording_state = 'available';
-    runScopeCleanupTickMock.mockResolvedValueOnce({ kind: 'advance' });
+    runScopeCleanupTickMock.mockResolvedValue({ kind: 'advance' });
     await runStorageCleanup({} as never, jobRow as never);
-    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(1);
+    expect(runScopeCleanupTickMock).toHaveBeenCalledTimes(2); // general + analytics namespaces
   });
 });

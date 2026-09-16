@@ -38,6 +38,7 @@ import { useI18n } from '@/i18n';
 import {
   adminGetAnalyticsStorage, adminSaveAnalyticsSettings, adminSetAnalyticsPrimary,
   adminSetAnalyticsReplicas, adminSyncAnalyticsReplica, adminTestAnalyticsProvider,
+  adminRunAnalyticsSeal,
   type AnalyticsProviderDto, type AnalyticsStorageDto, type AnalyticsSyncReport,
 } from '@/lib/analytics-storage-api';
 import { PROVIDER_SCHEMAS } from './schemas';
@@ -180,6 +181,20 @@ export function AdminAnalyticsStoragePanel() {
 
   const testProvider = useMutation({
     mutationFn: adminTestAnalyticsProvider,
+    onError,
+  });
+
+  const runSeal = useMutation({
+    mutationFn: adminRunAnalyticsSeal,
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ANALYTICS_KEY });
+      toast({
+        title: t('analyticsStorage.phase2.sealDone'),
+        description: t('analyticsStorage.phase2.sealDoneDesc', {
+          sealed: result.sealed, rows: result.rows,
+        }),
+      });
+    },
     onError,
   });
 
@@ -419,6 +434,128 @@ export function AdminAnalyticsStoragePanel() {
                   vendors: (pool?.missingCredentials ?? []).map(vendorLabel).join('، '),
                 })}
               </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Phase 2: read path + parity ──────────────────────────── */}
+      <Card className="border-border/60">
+        <CardContent className="p-4 space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h4 className="text-xs font-semibold text-foreground">{t('analyticsStorage.phase2.title')}</h4>
+              <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed max-w-2xl">
+                {t('analyticsStorage.phase2.desc')}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[11px] gap-1 shrink-0"
+              disabled={runSeal.isPending}
+              onClick={() => runSeal.mutate()}
+            >
+              <RefreshCw className={cn('h-3 w-3', runSeal.isPending && 'animate-spin')} />
+              {t('analyticsStorage.phase2.sealNow')}
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-px rounded-lg border border-border/60 bg-border/60 overflow-hidden">
+            <StatCell
+              label={t('analyticsStorage.phase2.s3Read')}
+              value={
+                pool?.s3Read?.engineAvailable
+                  ? (pool.s3Read?.failures > 0
+                    ? t('analyticsStorage.phase2.error')
+                    : t('analyticsStorage.phase2.healthy'))
+                  : t('analyticsStorage.phase2.engineMissing')
+              }
+              tone={
+                !pool?.s3Read?.engineAvailable
+                  ? 'text-muted-foreground'
+                  : pool.s3Read?.failures > 0 ? 'text-destructive' : 'text-emerald-400'
+              }
+            />
+            <StatCell
+              label={t('analyticsStorage.phase2.parity')}
+              value={
+                !pool?.parity
+                  ? t('analyticsStorage.never')
+                  : pool.parity.regressions > 0
+                    ? t('analyticsStorage.phase2.differences', { count: pool.parity.regressions })
+                    : t('analyticsStorage.phase2.healthy')
+              }
+              tone={pool?.parity && pool.parity.regressions > 0 ? 'text-destructive' : 'text-emerald-400'}
+            />
+            <StatCell
+              label={t('analyticsStorage.phase2.queryLatency')}
+              value={pool?.s3Read?.lastQueryMs !== null && pool?.s3Read?.lastQueryMs !== undefined
+                ? `${pool.s3Read?.lastQueryMs} ms`
+                : t('analyticsStorage.never')}
+            />
+            <StatCell
+              label={t('analyticsStorage.phase2.lastParity')}
+              value={pool?.parity ? new Date(pool.parity.at).toLocaleString() : t('analyticsStorage.never')}
+            />
+          </div>
+
+          {!pool?.s3Read?.engineAvailable && pool?.s3Read?.engineReason && (
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              {t('analyticsStorage.phase2.engineMissingHint')}
+            </p>
+          )}
+
+          {pool?.s3Read?.lastError && (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-2.5 flex items-start gap-2">
+              <XCircle className="h-3.5 w-3.5 text-destructive mt-0.5 shrink-0" />
+              <p className="text-[11px] leading-relaxed text-destructive break-all">
+                {t('analyticsStorage.phase2.lastQueryError')}: {pool.s3Read?.lastError}
+              </p>
+            </div>
+          )}
+
+          {pool?.parity?.unavailable && (
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              {t('analyticsStorage.phase2.parityUnavailable')}: {pool.parity.unavailable}
+            </p>
+          )}
+
+          {/* Only the reports that actually differ — the page stays readable. */}
+          {(pool?.parity?.reports ?? []).some((r) => r.differences.length > 0 || r.error) && (
+            <div className="space-y-1.5">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                {t('analyticsStorage.phase2.differencesTitle')}
+              </p>
+              {(pool?.parity?.reports ?? [])
+                .filter((r) => r.differences.length > 0 || r.error)
+                .slice(0, 8)
+                .map((report) => (
+                  <div key={report.report} className="rounded-md border border-border bg-muted/10 p-2 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] font-mono text-foreground">{report.report}</span>
+                      {report.differences.every((d) => d.expected) && !report.error ? (
+                        <Badge variant="outline" className="h-4 text-[9px] border-border text-muted-foreground">
+                          {t('analyticsStorage.phase2.expected')}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="h-4 text-[9px] border-destructive/30 text-destructive">
+                          {t('analyticsStorage.phase2.regression')}
+                        </Badge>
+                      )}
+                    </div>
+                    {report.error && (
+                      <p className="text-[10px] text-destructive break-all">{report.error}</p>
+                    )}
+                    {report.differences.slice(0, 3).map((difference) => (
+                      <p key={`${difference.field}`} className="text-[10px] text-muted-foreground break-all">
+                        {difference.field}: {t('analyticsStorage.phase2.postgresVsS3', {
+                          postgres: difference.postgres, s3: difference.s3,
+                        })}
+                      </p>
+                    ))}
+                  </div>
+                ))}
             </div>
           )}
         </CardContent>

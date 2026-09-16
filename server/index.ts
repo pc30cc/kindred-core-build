@@ -106,7 +106,7 @@ import { startEnforcementTicker } from './services/observability/enforcementTick
 import { startMaxmindUpdateTicker } from './services/geo/maxmindUpdater.js';
 import { startRankTrackingTicker } from './services/seo/rankTrackingTicker.js';
 import { startGmailWatchRenewalTicker } from './services/channels/gmail/watchRenewalTicker.js';
-import { startAnalyticsFlushTicker } from './services/analytics/ticker.js';
+import { startAnalyticsFlushTicker, startAnalyticsSealTicker } from './services/analytics/ticker.js';
 import { invalidateManifestCache, getManifestDiagnostics } from './services/widget/manifest.js';
 import { widgetCorsMiddleware } from './middleware/widgetCors.js';
 import { isPublicWidgetApiPath, PUBLIC_WIDGET_REALTIME_ROUTES } from './lib/routePrefix.js';
@@ -706,6 +706,13 @@ app.listen(config.port, () => {
   // this process, so every process must flush its own. See
   // server/services/analytics/ticker.ts.
   startAnalyticsFlushTicker(config);
+
+  // Web Analytics lake — day sealing. Rebuilds each finished workspace-day
+  // from PostgreSQL and replaces that day's objects, which is what makes a
+  // buffer lost to a crash, an OOM or a deploy cost nothing. Takes a
+  // cross-replica lease (unlike the flush ticker) because it operates on
+  // shared storage. See server/services/analytics/sealing.ts.
+  startAnalyticsSealTicker(config);
 
   // Phase 9 — Call invitation TTL sweeper (every 30s). Flips pending
   // invitations whose CALL_INVITATION_TTL_SECONDS window passed into

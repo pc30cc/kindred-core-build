@@ -60,6 +60,8 @@ const MAX_ROWS_PER_OBJECT = 50_000;
 export interface BackfillDayReport {
   workspaceId: string;
   day: string;
+  /** Objects removed because the rebuilt set supersedes them. */
+  replaced: number;
   objects: string[];
   rows: number;
   bytes: number;
@@ -105,10 +107,20 @@ const SESSION_COLUMNS =
   'browser, device, os, language, country, city, geo_country_code, geo_country_name, geo_city, ' +
   'started_at, last_seen_at, current_page';
 
-function dayBounds(day: string): { startIso: string; endIso: string } {
+/**
+ * Half-open [start, nextDay) — never `<= 23:59:59.999`.
+ *
+ * `timestamptz` has microsecond precision, so a closed upper bound at
+ * millisecond granularity silently excludes any row in the last 999
+ * microseconds of the day. Those rows would belong to no day at all, and
+ * once sealing makes a day canonical that gap becomes permanent loss rather
+ * than a transient omission.
+ */
+function dayBounds(day: string): { startIso: string; endExclusiveIso: string } {
+  const start = new Date(`${day}T00:00:00.000Z`);
   return {
-    startIso: new Date(`${day}T00:00:00.000Z`).toISOString(),
-    endIso: new Date(`${day}T23:59:59.999Z`).toISOString(),
+    startIso: start.toISOString(),
+    endExclusiveIso: new Date(start.getTime() + 24 * 60 * 60 * 1000).toISOString(),
   };
 }
 
@@ -145,7 +157,7 @@ async function buildDayRows(
   day: string,
 ): Promise<{ rows: AnalyticsEventRow[]; source: BackfillDayReport['source'] }> {
   const sb = getServiceClient(config);
-  const { startIso, endIso } = dayBounds(day);
+  const { startIso, endExclusiveIso } = dayBounds(day);
 
   // Sessions that STARTED this day supply the session_start/session_end
   // rows. Sessions that started earlier are still needed as dimension
@@ -153,7 +165,7 @@ async function buildDayRows(
   const sessions = await readAll<SessionRow>((from, to) =>
     sb.from('visitor_sessions').select(SESSION_COLUMNS)
       .eq('workspace_id', workspaceId)
-      .gte('started_at', startIso).lte('started_at', endIso)
+      .gte('started_at', startIso).lt('started_at', endExclusiveIso)
       .order('started_at', { ascending: true }).range(from, to),
   );
 
@@ -161,7 +173,7 @@ async function buildDayRows(
     (from, to) =>
       sb.from('visitor_page_views').select('visitor_session_id, url, title, viewed_at')
         .eq('workspace_id', workspaceId)
-        .gte('viewed_at', startIso).lte('viewed_at', endIso)
+        .gte('viewed_at', startIso).lt('viewed_at', endExclusiveIso)
         .order('viewed_at', { ascending: true }).range(from, to),
   );
 
@@ -169,7 +181,7 @@ async function buildDayRows(
     (from, to) =>
       sb.from('web_analytics_events').select('visitor_session_id, event_name, properties, page_url, created_at')
         .eq('workspace_id', workspaceId)
-        .gte('created_at', startIso).lte('created_at', endIso)
+        .gte('created_at', startIso).lt('created_at', endExclusiveIso)
         .order('created_at', { ascending: true }).range(from, to),
   );
 
@@ -241,6 +253,14 @@ export async function backfillWorkspaceDay(
   config: ServerConfig,
   workspaceId: string,
   day: string,
+  opts?: {
+    /**
+     * 'day' replaces EVERY object for the workspace-day, live ones
+     * included — the sealing pass uses it to make the rebuilt set canonical.
+     * 'backfill' (the default) replaces only this importer's own output.
+     */
+    supersede?: 'backfill' | 'day';
+  },
 ): Promise<BackfillResult> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return { ok: false, error: 'day must be YYYY-MM-DD' };
 
@@ -271,14 +291,16 @@ export async function backfillWorkspaceDay(
   const dayPrefix = analyticsDayPrefix(pool.prefix, workspaceId, new Date(`${day}T00:00:00.000Z`));
 
   // Replace, never append — see the idempotence note in this file's header.
-  await removePreviousBackfill(topology.primary.config, topology.replicas, dayPrefix, errors);
+  const replaced = await removeDayObjects(
+    topology.primary.config, topology.replicas, dayPrefix, opts?.supersede ?? 'backfill', errors,
+  );
 
   const expected = built.rows.length;
   if (expected === 0) {
     return {
       ok: true,
       report: {
-        workspaceId, day, objects: [], rows: 0, bytes: 0,
+        workspaceId, day, replaced, objects: [], rows: 0, bytes: 0,
         source: built.source, verified: true, expected: 0, errors,
       },
     };
@@ -333,40 +355,58 @@ export async function backfillWorkspaceDay(
 
   return {
     ok: true,
-    report: { workspaceId, day, objects, rows: written, bytes, source: built.source, verified, expected, errors },
+    report: { workspaceId, day, replaced, objects, rows: written, bytes, source: built.source, verified, expected, errors },
   };
 }
 
 /**
- * Remove this day's previous backfill objects from the primary and every
- * replica. Only `backfill-` keys are considered — a live `part-` object is
- * never in scope, so a re-run cannot erase real-time data.
+ * Remove this day's existing objects from the primary and every replica.
+ *
+ * `scope` decides how much is superseded:
+ *
+ *   'backfill' — only `backfill-*` keys. A re-run of a historical import
+ *                replaces its own output and leaves any live object alone.
+ *   'day'      — every object for the day, live `part-*` included. This is
+ *                what SEALING does: the rebuilt set is derived from
+ *                PostgreSQL, which holds every row, so it supersedes
+ *                whatever the in-process buffer managed to write. That is
+ *                precisely how a buffer lost to a crash costs nothing.
+ *
+ * 'day' is only safe while PostgreSQL is still receiving every row — one of
+ * the reasons `writeMode: 's3_only'` stays phase-locked.
  */
-async function removePreviousBackfill(
+async function removeDayObjects(
   primary: StorageConfig,
   replicas: { name: string; config: StorageConfig }[],
   dayPrefix: string,
+  scope: 'backfill' | 'day',
   errors: string[],
-): Promise<void> {
+): Promise<number> {
   const listed = await listWithConfig(primary, dayPrefix);
   if (!listed.success) {
     // Cannot prove what is there, so cannot prove a re-run would not
     // duplicate. Reported; the report's `verified` flag is what an operator
-    // acts on.
+    // (or the sealing pass) acts on.
     errors.push(`could not list ${dayPrefix}: ${listed.error ?? 'unknown error'}`);
-    return;
+    return 0;
   }
   const stale = (listed.keys ?? [])
     .map((key) => key.replace(/^\/+/, ''))
-    .filter((key) => key.split('/').pop()?.startsWith('backfill-'));
+    .filter((key) => {
+      const name = key.split('/').pop() ?? '';
+      return scope === 'day' ? name.endsWith('.parquet') : name.startsWith('backfill-');
+    });
 
+  let removed = 0;
   for (const key of stale) {
-    const removed = await deleteWithConfig(primary, key);
-    if (!removed.success) errors.push(`could not remove stale ${key}: ${removed.error ?? 'unknown'}`);
+    const result = await deleteWithConfig(primary, key);
+    if (result.success) removed++;
+    else errors.push(`could not remove stale ${key}: ${result.error ?? 'unknown'}`);
     for (const replica of replicas) {
       await deleteWithConfig(replica.config, key).catch(() => undefined);
     }
   }
+  return removed;
 }
 
 /**

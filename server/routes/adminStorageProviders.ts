@@ -520,8 +520,15 @@ adminStorageProvidersRouter.post('/:providerName/primary', async (req, res) => {
  * `platform/` belongs here as much as the owner-scoped roots: a full replica
  * sync copies platform-owned objects too, and forgetting a vendor that holds
  * them loses them just as completely.
+ *
+ * `analytics/` belongs here for the same reason, and for a sharper one: the
+ * Web Analytics lake is owner data too, and workspace deletion reaches it
+ * only through these stored credentials
+ * (server/services/analytics/deletionScopes.ts). A vendor holding nothing
+ * but analytics objects would otherwise look empty, be removable, and take
+ * with it the only means of ever purging a deleted workspace's analytics.
  */
-const MANAGED_PREFIXES = ['workspace/', 'users/', 'platform/'];
+const MANAGED_PREFIXES = ['workspace/', 'users/', 'platform/', 'analytics/'];
 
 /**
  * Does this vendor still hold managed objects? A listing that fails is

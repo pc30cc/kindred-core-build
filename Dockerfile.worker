@@ -25,7 +25,11 @@
 # Run (source-sync):
 #   docker run --rm -e WORKER_KIND=source-sync  --env-file .env growth-suite-worker
 
-FROM node:20-alpine
+# Node 22, not 20: the Web Analytics Parquet writer compresses with
+# ZSTD through node:zlib (server/services/analytics/parquet.ts), which
+# exists only from Node 22.15. On Node 20 every analytics flush throws.
+# CI already runs Node 22 (.github/workflows/ci.yml).
+FROM node:22-alpine
 WORKDIR /app
 
 # Install root deps. `tsx` is a runtime dependency (see package.json) so a

@@ -82,7 +82,8 @@ import { randomUUID } from 'node:crypto';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { workspaceStorageScopes, workspaceScopePrefix } from '../storage/workspaceScopes.js';
-import { runScopeCleanupTick, type ScopeCleanupState } from '../storage/scopeCleanupEngine.js';
+import { runScopeCleanupTick, type CleanupScope, type ScopeCleanupState } from '../storage/scopeCleanupEngine.js';
+import { analyticsStorageScopes, analyticsWorkspacePrefixes } from '../analytics/deletionScopes.js';
 import { livekitProvider, findActiveEgressForRoom } from '../calls/providers/livekitProvider.js';
 import { hasActiveOwnerWriteLeases } from '../storage/writerLease.js';
 import type { WorkspaceDeletionJobRow } from './types.js';
@@ -354,9 +355,35 @@ export async function runStorageCleanup(config: ServerConfig, job: WorkspaceDele
   // Building the scope list now reads the storage pool (its enabled
   // vendors are physical deletion scopes). A failed read must retry the
   // tick, never proceed with a short list that misses a replica.
-  let scopes;
+  //
+  // TWO namespaces are purged, not one. A workspace's objects live under
+  // `workspace/<id>/` in the general topology AND under
+  // `analytics/.../workspace=<id>/` in the independent analytics topology
+  // (server/services/analytics/deletionScopes.ts). They are different
+  // prefixes on potentially different vendors, so each gets its own pass
+  // of the SAME walker. Both must reach 'advance' before the irreversible
+  // DB purge may begin — the whole point of this phase is that nothing of
+  // the owner's survives it.
+  let passes: { scopes: Awaited<ReturnType<typeof workspaceStorageScopes>> | CleanupScope[]; prefix: string }[];
   try {
-    scopes = await workspaceStorageScopes(config, job.workspace_id);
+    const [generalScopes, namespaces] = await Promise.all([
+      workspaceStorageScopes(config, job.workspace_id),
+      analyticsWorkspacePrefixes(config, job.workspace_id),
+    ]);
+    // One pass per prefix the analytics pool has ever written under —
+    // changing the prefix moves where NEW objects go, not the old ones.
+    // Each pass gets scopes named for its own prefix, so the walker never
+    // mistakes one namespace's completed walk for another's.
+    const analyticsPasses = await Promise.all(
+      namespaces.map(async (ns) => ({
+        scopes: await analyticsStorageScopes(config, ns.poolPrefix),
+        prefix: ns.workspacePrefix,
+      })),
+    );
+    passes = [
+      { scopes: generalScopes, prefix: workspaceScopePrefix(job.workspace_id) },
+      ...analyticsPasses,
+    ];
   } catch (err) {
     await retryOrFail(config, job, job.storage_scopes ?? {}, `storage scope resolution failed: ${errMessage(err)}`);
     return;
@@ -364,28 +391,41 @@ export async function runStorageCleanup(config: ServerConfig, job: WorkspaceDele
   const state: ScopeCleanupState = { ...(job.storage_scopes ?? {}) };
   const leaseToken = job.lease_token!;
 
-  const outcome = await runScopeCleanupTick({
-    scopes,
-    prefix: workspaceScopePrefix(job.workspace_id),
-    state,
-    maxDeleteAttemptsPerKey: MAX_DELETE_ATTEMPTS_PER_KEY,
-    heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
-    heartbeat: () => renewLease(config, job.id, leaseToken),
-    // Intermediate saves within a single tick (e.g. several skip/dedup
-    // scopes in a row before real work) — deliberately does NOT release
-    // the lock; only the final write below does, once this call returns.
-    persist: (s) => persistFenced(config, job.id, leaseToken, { storage_scopes: s }),
-  });
+  // Every pass shares ONE state map. Scope names are namespaced
+  // (`replica:<vendor>` vs `analytics:<vendor>`) and each recorded scope
+  // carries the prefix it was walked under, so a vendor appearing in both
+  // passes is walked once per namespace rather than deduplicated across
+  // them.
+  for (const pass of passes) {
+    const outcome = await runScopeCleanupTick({
+      scopes: pass.scopes,
+      prefix: pass.prefix,
+      state,
+      maxDeleteAttemptsPerKey: MAX_DELETE_ATTEMPTS_PER_KEY,
+      heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
+      heartbeat: () => renewLease(config, job.id, leaseToken),
+      // Intermediate saves within a single tick (e.g. several skip/dedup
+      // scopes in a row before real work) — deliberately does NOT release
+      // the lock; only the final write below does, once this call returns.
+      persist: (s) => persistFenced(config, job.id, leaseToken, { storage_scopes: s }),
+    });
 
-  if (outcome.kind === 'error') {
-    await retryOrFail(config, job, state, outcome.message);
-    return;
+    if (outcome.kind === 'error') {
+      await retryOrFail(config, job, state, outcome.message);
+      return;
+    }
+    // This pass did a unit of work and has more to do. Save and yield the
+    // lease; the next tick resumes exactly here, because the state map
+    // records what every pass has already finished.
+    if (outcome.kind === 'progress') {
+      await persistFenced(config, job.id, leaseToken, { storage_scopes: state, locked_by: null, lease_expires_at: null });
+      return;
+    }
   }
-  if (outcome.kind === 'advance') {
-    await persistFenced(config, job.id, leaseToken, { storage_scopes: state, status: 'db_cleanup', locked_by: null, lease_expires_at: null });
-    return;
-  }
-  await persistFenced(config, job.id, leaseToken, { storage_scopes: state, locked_by: null, lease_expires_at: null });
+
+  // Every pass reported 'advance': every scope in every namespace is
+  // finished AND verified empty.
+  await persistFenced(config, job.id, leaseToken, { storage_scopes: state, status: 'db_cleanup', locked_by: null, lease_expires_at: null });
 }
 
 async function workspaceStillExists(config: ServerConfig, workspaceId: string): Promise<boolean> {

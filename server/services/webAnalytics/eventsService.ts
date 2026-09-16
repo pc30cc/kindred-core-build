@@ -283,7 +283,21 @@ export async function computeFunnel(
   if (funnelError) throw new Error(`get_funnel_failed: ${funnelError.message}`);
   if (!funnelRow) return null;
   const funnel = funnelRow as FunnelRow;
-  const steps = funnel.steps;
+  return { funnel, results: await computeFunnelSteps(config, workspaceId, funnel.steps, range) };
+}
+
+/**
+ * Funnel results for a caller-supplied step list, over PostgreSQL.
+ *
+ * Split out of computeFunnel so the same steps can be handed to BOTH the
+ * PostgreSQL and the S3 store and their answers compared — a parity check
+ * that loaded the definition twice could not prove the two engines were
+ * asked the same question.
+ */
+export async function computeFunnelSteps(
+  config: ServerConfig, workspaceId: string, steps: FunnelStep[], range: DateRange,
+): Promise<FunnelStepResult[]> {
+  const sb = getServiceClient(config);
 
   const { startIso, endIso } = rangeToTimestamps(range);
   const [pageViewsRes, eventsRes] = await Promise.all([
@@ -336,5 +350,5 @@ export async function computeFunnel(
     conversionFromStart: startCount > 0 ? Math.round((stepSessionCounts[i] / startCount) * 1000) / 10 : 0,
   }));
 
-  return { funnel, results };
+  return results;
 }

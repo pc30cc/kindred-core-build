@@ -65,6 +65,25 @@ export interface ScopeProgress {
   /** Set when this scope was skipped because another scope with the same fingerprint already covers it. */
   dedup_of: string | null;
   /**
+   * The prefix this scope was walked under.
+   *
+   * Dedup-by-fingerprint means "another scope already emptied this exact
+   * physical location". That is only true if it emptied the SAME prefix —
+   * one caller can now run the walker over several namespaces against
+   * overlapping vendors (a workspace's general objects under
+   * `workspace/<id>/` and its analytics objects under
+   * `analytics/.../workspace=<id>/` frequently live in the same bucket), and
+   * a prefix-blind match would silently mark the second namespace done
+   * without ever listing it.
+   *
+   * Absent on rows written before this field existed; such a row only
+   * deduplicates against another equally-absent one, so a job resumed
+   * across the upgrade re-walks rather than wrongly skips. Re-walking an
+   * already-empty prefix is a no-op, skipping a full one is data left
+   * behind — so the fallback fails in the safe direction.
+   */
+  prefix?: string;
+  /**
    * True once a from-scratch re-listing pass has found the scope
    * genuinely empty. A scope reaching `status:'done'` only means "the
    * last listing pass exhausted its cursor" — NOT that nothing has been
@@ -107,15 +126,28 @@ export interface ScopeCleanupContext {
   heartbeatIntervalMs?: number;
 }
 
-export function emptyScopeProgress(status: ScopeProgressStatus): ScopeProgress {
-  return { status, cursor: null, objects_found: 0, objects_deleted: 0, error: null, fingerprint: null, dedup_of: null, verified: false };
+export function emptyScopeProgress(status: ScopeProgressStatus, prefix?: string): ScopeProgress {
+  return { status, cursor: null, objects_found: 0, objects_deleted: 0, error: null, fingerprint: null, dedup_of: null, verified: false, prefix };
 }
 
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 15_000;
 
-function findDoneScopeWithFingerprint(state: ScopeCleanupState, fingerprint: string): string | null {
+/**
+ * A finished scope that already emptied this exact physical location UNDER
+ * THIS PREFIX. Both halves matter — see ScopeProgress.prefix.
+ */
+function findDoneScopeWithFingerprint(
+  state: ScopeCleanupState,
+  fingerprint: string,
+  prefix: string,
+): string | null {
   for (const [name, progress] of Object.entries(state)) {
-    if (progress?.status === 'done' && progress.fingerprint === fingerprint && !progress.dedup_of) return name;
+    if (
+      progress?.status === 'done'
+      && progress.fingerprint === fingerprint
+      && progress.prefix === prefix
+      && !progress.dedup_of
+    ) return name;
   }
   return null;
 }
@@ -180,7 +212,7 @@ export async function runScopeCleanupTick(ctx: ScopeCleanupContext): Promise<Sco
 
     if (!resolution.configured) {
       if (!existing) {
-        state[scope.name] = emptyScopeProgress('skipped_not_configured');
+        state[scope.name] = emptyScopeProgress('skipped_not_configured', prefix);
         await persist(state);
         continue;
       }
@@ -225,17 +257,17 @@ export async function runScopeCleanupTick(ctx: ScopeCleanupContext): Promise<Sco
     // ── Resuming an in-progress scope, or starting a new one ──
     let cur: ScopeProgress;
     if (!existing) {
-      const dedupTarget = findDoneScopeWithFingerprint(state, fingerprint);
+      const dedupTarget = findDoneScopeWithFingerprint(state, fingerprint, prefix);
       if (dedupTarget) {
         const src = state[dedupTarget]!;
         state[scope.name] = {
           status: 'done', cursor: null, objects_found: src.objects_found, objects_deleted: src.objects_deleted,
-          error: null, fingerprint, dedup_of: dedupTarget, verified: src.verified,
+          error: null, fingerprint, dedup_of: dedupTarget, verified: src.verified, prefix,
         };
         await persist(state);
         continue;
       }
-      cur = { status: 'in_progress', cursor: null, objects_found: 0, objects_deleted: 0, error: null, fingerprint, dedup_of: null, verified: false };
+      cur = { status: 'in_progress', cursor: null, objects_found: 0, objects_deleted: 0, error: null, fingerprint, dedup_of: null, verified: false, prefix };
       state[scope.name] = cur;
     } else {
       const drift = driftMessage(scope.name, existing.fingerprint, fingerprint);

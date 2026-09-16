@@ -167,5 +167,11 @@
   },
   "overrides": {
     "@types/express": "^4.17.21"
+  },
+  "optionalDependencies": {
+    "@duckdb/node-api": "^1.5.5-r.5"
+  },
+  "engines": {
+    "node": ">=22.15"
   }
 }

@@ -31,6 +31,8 @@ import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visit
 import {
   recordPageView, recordSessionStart, analyticsSessionFrom,
 } from '../services/analytics/ingest.js';
+import { officialStore, shadowStore, shadowReadiness } from '../services/webAnalytics/store/index.js';
+import { emitLog, emitMetric } from '../services/observability/metrics.js';
 
 export const visitorRouter = Router();
 
@@ -865,50 +867,34 @@ visitorsAdminRouter.get('/:id/page-history', async (req: Request, res: Response)
 
   const limit = Math.min(Math.max(Number(req.query.limit ?? 20), 1), 100);
   try {
-    const sb = getServiceClient(config);
-    // Recent pages (most-recent first) for the timeline.
-    const { data, error } = await sb
-      .from('visitor_page_views')
-      .select('id, url, title, viewed_at')
-      .eq('workspace_id', workspaceId)
-      .eq('visitor_session_id', req.params.id)
-      .order('viewed_at', { ascending: false })
-      .limit(limit);
-    if (error) throw error;
+    // Answered through the store abstraction. Its PostgreSQL backing holds
+    // the same three queries this handler used to run inline, so the
+    // response shape — { items, entry, current } — is byte-for-byte what it
+    // has always been; the point of the move is that the source becomes
+    // swappable without the route or the frontend changing.
+    const history = await officialStore(config).getVisitorPageHistory(workspaceId, req.params.id, limit);
+    res.json(history);
 
-    // Earliest page-view in this session = the landing/entry page.
-    const { data: firstRows } = await sb
-      .from('visitor_page_views')
-      .select('id, url, title, viewed_at')
-      .eq('workspace_id', workspaceId)
-      .eq('visitor_session_id', req.params.id)
-      .order('viewed_at', { ascending: true })
-      .limit(1);
-
-    // Pull session-level entry context (referrer + started_at) so the UI
-    // can show "came from X" even if no page-view rows exist yet.
-    const { data: sess } = await sb
-      .from('visitor_sessions')
-      .select('referrer, started_at, current_page')
-      .eq('workspace_id', workspaceId)
-      .eq('id', req.params.id)
-      .maybeSingle();
-
-    const items = data ?? [];
-    const firstPage = firstRows?.[0] ?? null;
-    const entry = {
-      landing_url: firstPage?.url ?? sess?.current_page ?? null,
-      landing_title: (firstPage as any)?.title ?? null,
-      landed_at: firstPage?.viewed_at ?? sess?.started_at ?? null,
-      referrer: sess?.referrer ?? null,
-    };
-    const current = items[0]
-      ? { url: items[0].url, title: (items[0] as any).title ?? null, viewed_at: items[0].viewed_at }
-      : sess?.current_page
-        ? { url: sess.current_page, title: null, viewed_at: sess.started_at ?? null }
-        : null;
-
-    res.json({ items, entry, current });
+    // Shadow read: the same session's history is read from the analytics
+    // lake and compared. Fire-and-forget — it can neither delay nor alter
+    // the response already sent.
+    void (async () => {
+      try {
+        const readiness = await shadowReadiness(config);
+        if (!readiness.ready) return;
+        const shadow = await shadowStore(config).getVisitorPageHistory(workspaceId, req.params.id, limit);
+        const matches = shadow.items.length === history.items.length
+          && shadow.items.every((item, index) => item.url === history.items[index]?.url);
+        if (!matches) {
+          emitMetric(config, { metric: 'analytics_s3_parity_differences', tags: { report: 'pageHistory' } });
+          emitLog(config, 'warn', 'analytics_page_history_parity', {
+            workspace_id: workspaceId,
+            postgres_items: history.items.length,
+            s3_items: shadow.items.length,
+          });
+        }
+      } catch { /* a shadow read never surfaces */ }
+    })();
   } catch (err) {
     console.error('[visitors.page-history] failed:', err);
     res.status(500).json({ error: 'Internal error' });

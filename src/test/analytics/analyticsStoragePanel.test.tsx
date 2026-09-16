@@ -51,6 +51,33 @@ const BASE_STATE = {
   bufferedRows: 42,
   missingCredentials: [],
   generalPrimary: 'bunny_storage',
+  s3Read: {
+    engineAvailable: true,
+    engineReason: null,
+    lastQueryAt: '2026-09-16T20:01:00.000Z',
+    lastQueryMs: 42,
+    lastError: null,
+    lastErrorAt: null,
+    queries: 7,
+    failures: 0,
+  },
+  parity: {
+    at: '2026-09-16T20:02:00.000Z',
+    workspaceId: '33333333-3333-3333-3333-333333333333',
+    range: { startDate: '2026-09-01', endDate: '2026-09-16' },
+    regressions: 0,
+    expectedDifferences: 2,
+    unavailable: null,
+    reports: [
+      {
+        report: 'overview', ok: true, postgresMs: 31, s3Ms: 44, error: null,
+        differences: [
+          { report: 'overview', field: 'uniqueVisitors', postgres: '120', s3: '84', expected: true },
+        ],
+      },
+      { report: 'pages.top', ok: true, postgresMs: 12, s3Ms: 19, error: null, differences: [] },
+    ],
+  },
   providers: [
     {
       name: 'bunny_storage', configured: true, generalEnabled: true, generalRole: 'primary',
@@ -390,6 +417,102 @@ describe('status overview', () => {
     const { container } = renderPanel();
     await screen.findAllByText(en.analyticsStorage.primary.make);
     expect(container.textContent).toContain('primary_write_failed[arvan_storage]: 503');
+  });
+});
+
+describe('phase 2 status', () => {
+  it('shows the read-path health, parity result and query latency', async () => {
+    stubApi();
+    const { container } = renderPanel();
+    await screen.findAllByText(en.analyticsStorage.primary.make);
+
+    expect(container.textContent).toContain(en.analyticsStorage.phase2.title);
+    expect(container.textContent).toContain(en.analyticsStorage.phase2.healthy);
+    expect(container.textContent).toContain('42 ms');
+  });
+
+  it('shows an EXPECTED divergence as expected, not as a regression', async () => {
+    stubApi();
+    const { container } = renderPanel();
+    await screen.findAllByText(en.analyticsStorage.primary.make);
+
+    // uniqueVisitors is a declared, intentional difference.
+    expect(container.textContent).toContain('uniqueVisitors');
+    expect(container.textContent).toContain(en.analyticsStorage.phase2.expected);
+    expect(container.textContent).not.toContain(en.analyticsStorage.phase2.regression);
+  });
+
+  it('flags an undeclared difference as a regression', async () => {
+    stubApi({
+      parity: {
+        ...BASE_STATE.parity!,
+        regressions: 1,
+        reports: [{
+          report: 'pages.top', ok: false, postgresMs: 10, s3Ms: 20, error: null,
+          differences: [{ report: 'pages.top', field: '/pricing', postgres: '9', s3: '4', expected: false }],
+        }],
+      },
+    });
+    const { container } = renderPanel();
+    await screen.findAllByText(en.analyticsStorage.primary.make);
+
+    expect(container.textContent).toContain(en.analyticsStorage.phase2.regression);
+    expect(container.textContent).toContain('/pricing');
+  });
+
+  it('says the engine is simply absent rather than showing an error', async () => {
+    stubApi({
+      s3Read: {
+        engineAvailable: false,
+        engineReason: 'the optional @duckdb/node-api package is not installed',
+        lastQueryAt: null, lastQueryMs: null, lastError: null, lastErrorAt: null, queries: 0, failures: 0,
+      },
+      parity: null,
+    });
+    const { container } = renderPanel();
+    await screen.findAllByText(en.analyticsStorage.primary.make);
+
+    expect(container.textContent).toContain(en.analyticsStorage.phase2.engineMissing);
+    expect(container.textContent).toContain(en.analyticsStorage.phase2.engineMissingHint);
+  });
+
+  it('surfaces a query error instead of a healthy-looking blank', async () => {
+    stubApi({
+      s3Read: {
+        ...BASE_STATE.s3Read, failures: 2,
+        lastError: 'IO Error: could not read parquet footer',
+      },
+    });
+    const { container } = renderPanel();
+    await screen.findAllByText(en.analyticsStorage.primary.make);
+
+    expect(container.textContent).toContain('could not read parquet footer');
+    expect(container.textContent).toContain(en.analyticsStorage.phase2.error);
+  });
+
+  it('triggers a sealing cycle from the panel', async () => {
+    const calls = stubApi({}, (call) => {
+      if (call.url.endsWith('/seal')) {
+        return { ok: true, status: 200, json: async () => ({ considered: 3, sealed: 3, failed: 0, rows: 900, objects: 3 }) };
+      }
+      return null;
+    });
+    renderPanel();
+    await screen.findAllByText(en.analyticsStorage.primary.make);
+
+    fireEvent.click(screen.getByText(en.analyticsStorage.phase2.sealNow));
+    await waitFor(() => {
+      expect(calls.some((c) => c.url.endsWith('/seal') && c.init?.method === 'POST')).toBe(true);
+    });
+  });
+
+  it('still renders when the server has not sent the phase 2 fields yet', async () => {
+    // A rolling deploy can put an older server behind a newer panel; the
+    // page must degrade, not crash.
+    stubApi({ s3Read: undefined as never, parity: null });
+    const { container } = renderPanel();
+    await screen.findAllByText(en.analyticsStorage.primary.make);
+    expect(container.textContent).toContain(en.analyticsStorage.phase2.title);
   });
 });
 

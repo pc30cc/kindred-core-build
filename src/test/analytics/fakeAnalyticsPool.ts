@@ -33,6 +33,7 @@ export const dbState: {
 
 export function resetFakeAnalyticsPool(): void {
   runtimeConfig.clear();
+  for (const key of Object.keys(tableRows)) delete tableRows[key];
   dbState.readError = null;
   dbState.analyticsWrites = 0;
   dbState.generalWrites = 0;
@@ -98,33 +99,104 @@ export function seedAnalyticsPool(pool: Json): void {
   runtimeConfig.set(ANALYTICS_POOL_KEY, { revision: 1, ...pool });
 }
 
+/**
+ * Rows for the SOURCE tables the sealing pass and the day rebuild read
+ * (`visitor_page_views`, `web_analytics_events`, `visitor_sessions`,
+ * `analytics_day_seals`, `workspace_deletion_jobs`). Seeded per test; the
+ * query builder below applies the filters those call sites actually use.
+ */
+export const tableRows: Record<string, Json[]> = {};
+
+export function seedTable(table: string, rows: Json[]): void {
+  tableRows[table] = rows;
+}
+
+interface Filter { op: 'eq' | 'gte' | 'gt' | 'lte' | 'lt' | 'in'; column: string; value: unknown }
+
+function applyFilters(rows: Json[], filters: Filter[]): Json[] {
+  return rows.filter((row) => filters.every((f) => {
+    const value = row[f.column];
+    switch (f.op) {
+      case 'eq': return value === f.value;
+      case 'in': return Array.isArray(f.value) && (f.value as unknown[]).includes(value);
+      case 'gte': return String(value) >= String(f.value);
+      case 'gt': return String(value) > String(f.value);
+      case 'lte': return String(value) <= String(f.value);
+      case 'lt': return String(value) < String(f.value);
+      default: return true;
+    }
+  }));
+}
+
 /** The service client every storage and analytics module resolves through. */
 export function makeFakeSupabaseClient() {
   const rows: Record<string, Json[]> = {};
 
   const builder = (table: string) => {
     let wantedKey: string | null = null;
-    const api = {
+    const filters: Filter[] = [];
+    let orderColumn: string | null = null;
+    let ascending = true;
+    let limit: number | null = null;
+    let rangeBounds: [number, number] | null = null;
+
+    const resolve = () => {
+      let out = applyFilters(tableRows[table] ?? [], filters);
+      if (orderColumn) {
+        out = [...out].sort((a, b) => {
+          const left = String(a[orderColumn!]);
+          const right = String(b[orderColumn!]);
+          return (left < right ? -1 : left > right ? 1 : 0) * (ascending ? 1 : -1);
+        });
+      }
+      if (rangeBounds) out = out.slice(rangeBounds[0], rangeBounds[1] + 1);
+      else if (limit !== null) out = out.slice(0, limit);
+      return out;
+    };
+
+    const api: Record<string, unknown> = {
       select: () => api,
-      eq: (col: string, value: string) => { if (col === 'key') wantedKey = value; return api; },
-      in: () => api,
-      gte: () => api, lte: () => api, order: () => api, range: () => api, limit: () => api, not: () => api,
+      eq: (col: string, value: unknown) => {
+        if (col === 'key') wantedKey = String(value);
+        filters.push({ op: 'eq', column: col, value });
+        return api;
+      },
+      in: (col: string, value: unknown) => { filters.push({ op: 'in', column: col, value }); return api; },
+      gte: (col: string, value: unknown) => { filters.push({ op: 'gte', column: col, value }); return api; },
+      gt: (col: string, value: unknown) => { filters.push({ op: 'gt', column: col, value }); return api; },
+      lte: (col: string, value: unknown) => { filters.push({ op: 'lte', column: col, value }); return api; },
+      lt: (col: string, value: unknown) => { filters.push({ op: 'lt', column: col, value }); return api; },
+      order: (col: string, opts?: { ascending?: boolean }) => {
+        orderColumn = col; ascending = opts?.ascending !== false; return api;
+      },
+      range: (from: number, to: number) => { rangeBounds = [from, to]; return api; },
+      limit: (n: number) => { limit = n; return api; },
+      not: () => api,
       insert: async (row: Json) => { (rows[table] ||= []).push(row); return { data: null, error: null }; },
       update: () => api,
-      upsert: async () => ({ data: null, error: null }),
-      delete: () => api,
-      single: async () => api.maybeSingle(),
-      maybeSingle: async () => {
-        if (table !== 'app_runtime_config') return { data: null, error: null };
-        if (dbState.readError) return { data: null, error: dbState.readError };
-        return {
-          data: wantedKey && runtimeConfig.has(wantedKey)
-            ? { key: wantedKey, value: runtimeConfig.get(wantedKey) }
-            : null,
-          error: null,
-        };
+      upsert: async (row: Json) => {
+        if (table === 'app_runtime_config' && row && typeof row === 'object' && 'key' in row) {
+          runtimeConfig.set(String((row as Json).key), (row as Json).value);
+        }
+        return { data: null, error: null };
       },
-      then: undefined,
+      delete: () => api,
+      single: async () => (api.maybeSingle as () => Promise<unknown>)(),
+      maybeSingle: async () => {
+        if (table === 'app_runtime_config') {
+          if (dbState.readError) return { data: null, error: dbState.readError };
+          return {
+            data: wantedKey && runtimeConfig.has(wantedKey)
+              ? { key: wantedKey, value: runtimeConfig.get(wantedKey) }
+              : null,
+            error: null,
+          };
+        }
+        return { data: resolve()[0] ?? null, error: null };
+      },
+      // Awaiting the builder itself runs the query — the PostgREST shape.
+      then: (onFulfilled: (v: { data: Json[]; error: null }) => unknown) =>
+        Promise.resolve({ data: resolve(), error: null }).then(onFulfilled),
     };
     return api;
   };
@@ -268,6 +340,40 @@ export function makeFakeSupabaseClient() {
             revision: revisionOf(current) + 1,
           });
           return { data: { ok: true }, error: null };
+        }
+
+        case 'record_analytics_day_seal': {
+          const key = `${args._workspace_id}|${args._day}`;
+          const existing = (tableRows.analytics_day_seals ??= []).find(
+            (row) => `${row.workspace_id}|${row.day}` === key,
+          );
+          const failed = args._error !== null && args._error !== undefined;
+          const next: Json = {
+            workspace_id: args._workspace_id,
+            day: args._day,
+            sealed_at: failed ? (existing?.sealed_at ?? null) : nowIso(),
+            row_count: failed ? (existing?.row_count ?? 0) : args._row_count,
+            objects_written: failed ? (existing?.objects_written ?? 0) : args._objects,
+            source_row_count: failed ? (existing?.source_row_count ?? 0) : args._source_row_count,
+            verified: failed ? (existing?.verified ?? false) : args._verified,
+            attempts: failed ? Number(existing?.attempts ?? 0) + 1 : 0,
+            last_error: args._error ?? null,
+          };
+          if (existing) Object.assign(existing, next);
+          else tableRows.analytics_day_seals.push(next);
+          return { data: { ok: true }, error: null };
+        }
+
+        case 'unseal_analytics_days': {
+          let unsealed = 0;
+          for (const row of tableRows.analytics_day_seals ?? []) {
+            if (row.workspace_id !== args._workspace_id) continue;
+            if (String(row.day) < String(args._from) || String(row.day) > String(args._to)) continue;
+            row.sealed_at = null;
+            row.verified = false;
+            unsealed++;
+          }
+          return { data: { ok: true, unsealed }, error: null };
         }
 
         default:

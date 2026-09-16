@@ -25,6 +25,22 @@
  */
 import { constants as zlibConstants, zstdCompressSync } from 'node:zlib';
 
+/**
+ * ZSTD landed in node:zlib in Node 22.15. On an older runtime the import
+ * above resolves to `undefined` and the first flush would die with an
+ * opaque "not a function" deep inside page encoding.
+ *
+ * Checked once, at module load, so the failure is a single legible message
+ * naming the requirement instead of one cryptic TypeError per flush.
+ */
+if (typeof zstdCompressSync !== 'function') {
+  throw new Error(
+    'analytics_parquet_unsupported_runtime: the Web Analytics Parquet writer compresses with '
+    + `ZSTD via node:zlib, which requires Node >= 22.15 (this process is ${process.version}). `
+    + 'Upgrade the runtime — see the engines field in package.json.',
+  );
+}
+
 // ─── Parquet enums (parquet.thrift) ──────────────────────────────
 
 const enum PhysicalType { BOOLEAN = 0, INT32 = 1, INT64 = 2, BYTE_ARRAY = 6 }

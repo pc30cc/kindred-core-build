@@ -84,6 +84,49 @@ interface Batch {
 /** Keyed by `workspaceId|day` so one flush never straddles a partition boundary. */
 const buffers = new Map<string, Batch>();
 
+/**
+ * Hard ceiling on rows held across ALL buffers.
+ *
+ * Without it a sustained outage — S3 unreachable, every flush failing and
+ * requeueing — grows memory until the process is OOM-killed, which loses
+ * every workspace's buffer AND takes the API down with it. Shedding the
+ * oldest rows instead keeps the process alive and costs nothing that is
+ * not recoverable: PostgreSQL holds every dropped row, and the day's seal
+ * rebuilds the whole day from that source (./sealing.ts).
+ *
+ * Deliberately generous — roughly a hundred full batches — so it is only
+ * ever reached by a real outage, never by ordinary burst traffic.
+ */
+const MAX_BUFFERED_ROWS = 1_000_000;
+
+/**
+ * Drop the oldest buffered rows until the ceiling is respected.
+ *
+ * Oldest first because they are the ones a seal will cover soonest: a
+ * closed day is rebuilt on the next cycle, while the current day's rows
+ * still have flushes ahead of them.
+ */
+function shedOldestRows(config: ServerConfig): void {
+  let buffered = bufferedRowCount();
+  if (buffered <= MAX_BUFFERED_ROWS) return;
+
+  const oldestFirst = [...buffers.entries()].sort((a, b) => a[1].firstAt - b[1].firstAt);
+  let shed = 0;
+  for (const [key, batch] of oldestFirst) {
+    if (buffered <= MAX_BUFFERED_ROWS) break;
+    buffers.delete(key);
+    buffered -= batch.rows.length;
+    shed += batch.rows.length;
+  }
+
+  emitMetric(config, { metric: 'analytics_s3_buffer_shed_rows', tags: { count: shed } });
+  emitLog(config, 'error', 'analytics_buffer_overflow', {
+    shed_rows: shed,
+    remaining_rows: buffered,
+    note: 'rows remain in PostgreSQL and are restored when the day is sealed',
+  });
+}
+
 /** Guards against a timer tick overlapping a threshold-triggered flush. */
 let flushing = false;
 
@@ -109,8 +152,20 @@ export function __resetAnalyticsBuffer(): void {
   flushing = false;
 }
 
+/**
+ * The UTC day a row belongs to.
+ *
+ * Defensive about the timestamp because this runs on the widget request
+ * path: `new Date(NaN).toISOString()` THROWS, and a single malformed row
+ * reaching an ingest call site must not throw out of enqueue. A row with an
+ * unusable timestamp is filed under today — it still lands in the lake, and
+ * the day's seal rebuilds it from PostgreSQL with the correct value anyway.
+ */
 function dayKeyOf(row: AnalyticsEventRow): string {
-  return new Date(row.occurred_at).toISOString().slice(0, 10);
+  const millis = Number(row.occurred_at);
+  const when = Number.isFinite(millis) ? new Date(millis) : new Date();
+  const iso = Number.isNaN(when.getTime()) ? new Date() : when;
+  return iso.toISOString().slice(0, 10);
 }
 
 /**
@@ -132,9 +187,18 @@ export function enqueueAnalyticsRow(
   }
   batch.rows.push(row);
   batch.bytes += estimateRowBytes(row);
+  shedOldestRows(config);
 
   if (batch.rows.length >= pool.batchRows || batch.bytes >= pool.batchBytes) {
-    void flushAnalytics(config, { reason: 'threshold' });
+    // Explicitly caught, never a bare `void`: this runs on a widget request
+    // path, and an unhandled rejection here would take the whole process
+    // down under Node's default policy — losing every workspace's buffer to
+    // punish one failed flush.
+    void flushAnalytics(config, { reason: 'threshold' }).catch((err: unknown) => {
+      emitLog(config, 'warn', 'analytics_threshold_flush_threw', {
+        error: err instanceof Error ? err.message : 'unknown',
+      });
+    });
   }
 }
 
@@ -210,7 +274,7 @@ export async function flushAnalytics(
       const outcome = await writeBatch(config, pool, topology.primary, topology.replicas, batch);
       if (!outcome.ok) {
         result.failures++;
-        requeue(batch);
+        if (!outcome.drop) requeue(batch);
         continue;
       }
       result.objects++;
@@ -218,6 +282,9 @@ export async function flushAnalytics(
       result.bytes += outcome.metadata!.bytes;
       if (outcome.replicated) anyReplicated = true;
     }
+
+    // A failed cycle put rows back; enforce the ceiling before the next one.
+    if (result.failures > 0) shedOldestRows(config);
 
     if (result.objects > 0) {
       await recordAnalyticsWrite(config, {
@@ -268,6 +335,8 @@ interface BatchOutcome {
   metadata?: AnalyticsObjectMetadata;
   replicated?: boolean;
   error?: string;
+  /** The failure is permanent for these rows — requeueing them would never succeed. */
+  drop?: boolean;
 }
 
 /**
@@ -297,9 +366,11 @@ async function writeBatch(
     await recordAnalyticsError(config, `encode_failed: ${message}`);
     emitMetric(config, { metric: 'analytics_s3_primary_write_failures', tags: { reason: 'encode' } });
     emitLog(config, 'error', 'analytics_encode_failed', { error: message, rows: batch.rows.length });
-    // Unencodable rows would fail identically forever — dropping them is the
-    // only way the buffer drains, and PostgreSQL still holds them.
-    return { ok: false, error: message };
+    // Unencodable rows fail identically on every retry, so requeueing them
+    // is a poison pill: the batch never drains and grows on each tick. They
+    // are dropped here — PostgreSQL still holds every one of them, and the
+    // day's seal rebuilds the whole day from that source.
+    return { ok: false, error: message, drop: true };
   }
 
   const metadata: AnalyticsObjectMetadata = {
@@ -311,11 +382,20 @@ async function writeBatch(
     createdAt: new Date().toISOString(),
   };
 
-  const primaryResult = await uploadWithConfig(primary.config, {
-    fileKey: objectKey,
-    data: buffer,
-    contentType: 'application/vnd.apache.parquet',
-  });
+  // uploadWithConfig resolves {success:false} for a provider-level refusal
+  // but THROWS for a network-level failure (fetchWithTimeout). Both must
+  // land on the same path: the batch is already detached from the buffer,
+  // so an escaping exception would destroy rows instead of requeueing them.
+  let primaryResult: Awaited<ReturnType<typeof uploadWithConfig>>;
+  try {
+    primaryResult = await uploadWithConfig(primary.config, {
+      fileKey: objectKey,
+      data: buffer,
+      contentType: 'application/vnd.apache.parquet',
+    });
+  } catch (err: unknown) {
+    primaryResult = { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
 
   if (!primaryResult.success) {
     const message = primaryResult.error ?? 'unknown error';

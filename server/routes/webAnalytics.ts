@@ -22,6 +22,7 @@ import {
   getTrackedEvents, getEventPropertyKeys, getEventPropertyBreakdown,
   listFunnels, createFunnel, deleteFunnel, computeFunnel, FunnelValidationError,
 } from '../services/webAnalytics/eventsService.js';
+import { officialStore, shadowCompare } from '../services/webAnalytics/store/index.js';
 
 export const webAnalyticsRouter = Router();
 
@@ -72,8 +73,14 @@ webAnalyticsRouter.get('/:workspaceId/overview', requireModule('web_analytics'),
   if (!auth) return;
   const range = parseRange(req);
   if (!range) return res.status(400).json({ error: 'invalid_date_range' });
-  const stats = await getOverview(configOf(req), workspaceId, range);
+  // The store's PostgreSQL backing delegates to the very same function,
+  // so this is the identical answer — routed through the abstraction so the
+  // source becomes swappable without the route changing.
+  const stats = await officialStore(configOf(req)).getOverview(workspaceId, range);
   res.json(stats);
+  // Shadow read: the same question is put to the S3 store and the answers
+  // compared. Never awaited, never able to affect what was just sent.
+  shadowCompare(configOf(req), workspaceId, range);
 });
 
 const TRAFFIC_SOURCE_DIMENSIONS = new Set(['channel', 'source', 'campaign']);
@@ -84,7 +91,7 @@ webAnalyticsRouter.get('/:workspaceId/traffic-sources', requireModule('web_analy
   const range = parseRange(req);
   const dimension = String(req.query.dimension || 'channel');
   if (!range || !TRAFFIC_SOURCE_DIMENSIONS.has(dimension)) return res.status(400).json({ error: 'invalid_query_params' });
-  const result = await getTrafficSources(configOf(req), workspaceId, range, dimension as TrafficSourceDimension);
+  const result = await officialStore(configOf(req)).getTrafficSources(workspaceId, range, dimension as TrafficSourceDimension);
   res.json(result);
 });
 
@@ -96,7 +103,7 @@ webAnalyticsRouter.get('/:workspaceId/geography', requireModule('web_analytics')
   const range = parseRange(req);
   const dimension = String(req.query.dimension || 'country');
   if (!range || !GEOGRAPHY_DIMENSIONS.has(dimension)) return res.status(400).json({ error: 'invalid_query_params' });
-  const result = await getGeography(configOf(req), workspaceId, range, dimension as GeographyDimension);
+  const result = await officialStore(configOf(req)).getGeography(workspaceId, range, dimension as GeographyDimension);
   res.json(result);
 });
 
@@ -108,7 +115,7 @@ webAnalyticsRouter.get('/:workspaceId/browsers-systems', requireModule('web_anal
   const range = parseRange(req);
   const dimension = String(req.query.dimension || 'browser');
   if (!range || !BROWSERS_SYSTEMS_DIMENSIONS.has(dimension)) return res.status(400).json({ error: 'invalid_query_params' });
-  const result = await getBrowsersSystems(configOf(req), workspaceId, range, dimension as BrowsersSystemsDimension);
+  const result = await officialStore(configOf(req)).getBrowsersSystems(workspaceId, range, dimension as BrowsersSystemsDimension);
   res.json(result);
 });
 
@@ -120,7 +127,7 @@ webAnalyticsRouter.get('/:workspaceId/pages', requireModule('web_analytics'), as
   const range = parseRange(req);
   const kind = String(req.query.kind || 'top');
   if (!range || !PAGES_KINDS.has(kind)) return res.status(400).json({ error: 'invalid_query_params' });
-  const result = await getPages(configOf(req), workspaceId, range, kind as PagesKind);
+  const result = await officialStore(configOf(req)).getPages(workspaceId, range, kind as PagesKind);
   res.json(result);
 });
 
@@ -233,4 +240,8 @@ webAnalyticsRouter.get('/:workspaceId/funnels/:funnelId/results', requireModule(
   const result = await computeFunnel(configOf(req), workspaceId, funnelId, range);
   if (!result) return res.status(404).json({ error: 'funnel_not_found' });
   res.json(result);
+  // Shadow the funnel with the SAME step list, so the comparison proves the
+  // two engines answered the same question rather than each loading their
+  // own copy of the definition.
+  shadowCompare(configOf(req), workspaceId, range, { funnelSteps: result.funnel.steps as never });
 });

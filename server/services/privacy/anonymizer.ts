@@ -18,6 +18,7 @@ import { getServiceClient } from '../../supabase.js';
 import { deleteFile, deleteForOwner } from '../storage/index.js';
 import { scrubPii } from './scrub.js';
 import type { PrivacyJobRow, ResolvedSubject } from './types.js';
+import { unsealDays } from '../analytics/sealing.js';
 
 const REDACTED_BODY = '[deleted by user request]';
 const ANON_VISITOR_PREFIX = 'anon_';
@@ -39,6 +40,8 @@ export interface AnonymizeSummary {
   email_logs_anonymized: number;
   audit_logs_anonymized: number;
   identity_merges_deleted: number;
+  /** Analytics workspace-days marked for rebuild so the lake stops carrying this subject's old values. */
+  analytics_days_unsealed?: number;
 }
 
 export async function runAnonymize(
@@ -60,6 +63,7 @@ export async function runAnonymize(
     email_logs_anonymized: 0,
     audit_logs_anonymized: 0,
     identity_merges_deleted: 0,
+    analytics_days_unsealed: 0,
   };
 
   // ─── User-subject branch ───────────────────────────────────────
@@ -118,6 +122,34 @@ export async function runAnonymize(
       .eq('workspace_id', wsId)
       .or(orParts.join(','));
     sessionIds = (data || []).map((r: { id: string }) => r.id);
+  }
+
+  // The analytics lake denormalizes this subject's visitor_id (and their
+  // referrer) onto every event row it wrote for them. Parquet objects are
+  // immutable, so an erasure cannot UPDATE them — it invalidates the seal
+  // for the days the subject was active, and the sealing pass rewrites
+  // those days from the rows this function is about to anonymize. Gathered
+  // BEFORE the rotation, because afterwards there is nothing left to match.
+  // See server/services/analytics/sealing.ts.
+  let analyticsDays: string[] = [];
+  if (sessionIds.length > 0) {
+    const { data: activity } = await sb
+      .from('visitor_page_views')
+      .select('viewed_at')
+      .eq('workspace_id', wsId)
+      .in('visitor_session_id', sessionIds)
+      .limit(10_000);
+    const days = new Set<string>();
+    for (const row of (activity || []) as { viewed_at: string }[]) days.add(row.viewed_at.slice(0, 10));
+    const { data: sessionDays } = await sb
+      .from('visitor_sessions')
+      .select('started_at')
+      .eq('workspace_id', wsId)
+      .in('id', sessionIds);
+    for (const row of (sessionDays || []) as { started_at: string }[]) {
+      if (row.started_at) days.add(row.started_at.slice(0, 10));
+    }
+    analyticsDays = [...days].sort();
   }
 
   let conversationIds: string[] = [];
@@ -314,6 +346,23 @@ export async function runAnonymize(
     } else {
       await sb.from('contacts').delete().in('id', subject.contact_ids).eq('workspace_id', wsId);
       summary.contacts_anonymized = subject.contact_ids.length;
+    }
+  }
+
+  // Every affected day is now unsealed: the next sealing cycle rebuilds
+  // those workspace-days from the anonymized rows, replacing the objects
+  // that still carry the old visitor_id. Best-effort by design — the
+  // PostgreSQL anonymization above has already committed, and failing the
+  // whole job because a bookkeeping write failed would leave the subject
+  // half-processed. A missed unseal is visible in the Analytics Storage
+  // panel as a day that never re-seals.
+  if (analyticsDays.length > 0) {
+    try {
+      summary.analytics_days_unsealed = await unsealDays(
+        config, wsId, analyticsDays[0], analyticsDays[analyticsDays.length - 1],
+      );
+    } catch (err: unknown) {
+      console.error('[privacy] could not unseal analytics days:', err instanceof Error ? err.message : err);
     }
   }
 

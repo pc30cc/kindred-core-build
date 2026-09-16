@@ -265,6 +265,12 @@ const MIRRORS: Array<{ label: string; selfHost: string; hosted: string }> = [
     hosted: 'supabase/migrations/20260916095000_analytics_storage_pool.sql',
   },
 
+  {
+    label: '193 — analytics day seals: durable reconstruction of the in-process analytics buffer',
+    selfHost: 'database/migrations/193_analytics_day_seals.sql',
+    hosted: 'supabase/migrations/20260916100000_analytics_day_seals.sql',
+  },
+
   // intentionally asymmetric, not a drift bug.
 
   // NOTE: 182 (database/migrations/182_admin_purge_workspaces_selfhost.sql)

@@ -15,6 +15,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useMemo } from 'react';
 import { useTranslation } from '@/i18n';
+import { callbackStatusLabel, formatCallDuration, type TFn } from '@/features/calls/callLabels';
 
 function StatCard({ icon: Icon, label, value, tone = 'default' }: { icon: any; label: string; value: React.ReactNode; tone?: 'default' | 'warn' | 'danger' | 'ok' }) {
   const map: Record<string, string> = {
@@ -36,16 +37,9 @@ function StatCard({ icon: Icon, label, value, tone = 'default' }: { icon: any; l
   );
 }
 
-function fmtDuration(s: number) {
-  if (!s || s < 0) return '0s';
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
-  return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
-}
-
-function waitTime(createdAt: string) {
+function waitTime(t: TFn, createdAt: string) {
   const diff = Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000);
-  return fmtDuration(diff);
+  return formatCallDuration(t, diff);
 }
 
 export default function CallCenterOverviewPage() {
@@ -159,12 +153,12 @@ export default function CallCenterOverviewPage() {
             <div>
               <div className="text-xs text-muted-foreground">{t('callCenter.overview.metrics.longestWait')}</div>
               <div className={cn('text-2xl font-semibold mt-1', slaStats.longest > 60 && 'text-destructive')}>
-                {fmtDuration(slaStats.longest)}
+                {formatCallDuration(t, slaStats.longest)}
               </div>
             </div>
             <div>
               <div className="text-xs text-muted-foreground">{t('callCenter.overview.metrics.avgWait')}</div>
-              <div className="text-2xl font-semibold mt-1">{fmtDuration(slaStats.avg)}</div>
+              <div className="text-2xl font-semibold mt-1">{formatCallDuration(t, slaStats.avg)}</div>
             </div>
             <div>
               <div className="text-xs text-muted-foreground">{t('callCenter.overview.metrics.slaBreached')}</div>
@@ -178,7 +172,7 @@ export default function CallCenterOverviewPage() {
             </div>
             <div>
               <div className="text-xs text-muted-foreground">{t('callCenter.overview.metrics.avgHandleTime')}</div>
-              <div className="text-2xl font-semibold mt-1">{fmtDuration(slaStats.avgHandle)}</div>
+              <div className="text-2xl font-semibold mt-1">{formatCallDuration(t, slaStats.avgHandle)}</div>
             </div>
             <div>
               <div className="text-xs text-muted-foreground">{t('callCenter.overview.metrics.utilization')}</div>
@@ -271,7 +265,7 @@ export default function CallCenterOverviewPage() {
                       breached ? 'bg-destructive/10 text-destructive' : 'bg-muted',
                     )}>
                       {breached && <Flame className="inline h-3 w-3 me-1" />}
-                      {waitTime(q.created_at)}
+                      {waitTime(t, q.created_at)}
                     </span>
                   </li>
                 );
@@ -320,7 +314,7 @@ export default function CallCenterOverviewPage() {
                         >
                           <PhoneCall className="h-3.5 w-3.5 text-primary shrink-0" />
                           <span className="flex-1 truncate">{(c.metadata as any)?.name || c.contact_phone || c.contact_email || t('callCenter.common.anonymous')}</span>
-                          <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400">{c.status}</span>
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400">{callbackStatusLabel(t, c.status)}</span>
                           <ArrowRight className="h-3 w-3 text-muted-foreground" />
                         </Link>
                       </li>

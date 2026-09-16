@@ -1,25 +1,40 @@
+/**
+ * Call Center — operator Live Desk.
+ *
+ * The agent desktop: a waiting queue on one side, the call being handled in
+ * the middle, and the visitor's context on the other side. Everything an
+ * operator does during a call (mute, camera, devices, record, transfer,
+ * hang up) lives in ONE toolbar inside the media console — there is no second
+ * place to look and no decorative control that does nothing.
+ *
+ * All backend vocabulary (call state, end reason, timeline event type,
+ * recording state) is rendered through `@/features/calls/callLabels`, so the
+ * desk reads in the operator's own language instead of leaking raw codes.
+ */
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { VisitorNetworkCard, VisitorNetworkInline } from '@/features/visitors/VisitorNetworkCard';
 import { useVisitorNetworkBatchBySession } from '@/hooks/useVisitorNetwork';
 import { useGeoEnrichmentRealtime } from '@/hooks/useGeoEnrichmentRealtime';
-import { useCallCenterQueue, useCallCenterCall, useCallCenterOverview, useCallCenterSettings } from '@/hooks/useCallCenter';
+import {
+  useCallCenterQueue, useCallCenterCall, useCallCenterOverview,
+  useCallCenterSettings, useCallCenterCalls,
+} from '@/hooks/useCallCenter';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { callCenterApi, type CallCenterRecordingStatus } from '@/lib/call-center-api';
-import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { callCenterApi } from '@/lib/call-center-api';
+import { useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from '@/hooks/use-toast';
 import {
-  Phone, Video, Globe, Headphones, RadioTower, Inbox, PhoneOff, MicOff,
-  CameraOff, ArrowRightLeft, PhoneCall, AlertTriangle, Disc, Square, Loader2, RefreshCw,
-  Search, Clock, User, Mail, Smartphone, Copy, Check, ChevronRight, Activity,
-  FileText, History, ArrowUp, ArrowDown,
+  Phone, Video, Globe, Headphones, RadioTower, Inbox, PhoneOff,
+  PhoneCall, AlertTriangle, Loader2, Search, Clock, User, Mail, Smartphone,
+  Copy, Check, ChevronRight, Activity, FileText, History, ArrowUp, ArrowDown,
+  Disc,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link, useParams } from 'react-router-dom';
@@ -27,144 +42,75 @@ import OperatorMediaConsole, { type OperatorConnectInfo } from '@/components/cal
 import { useTranslation } from '@/i18n';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { contactDisplayName } from '@/lib/contact-display';
+import { formatTime } from '@/lib/date';
+import {
+  callEventLabel, callStateLabel, endReasonLabel,
+  recordingReasonLabel, recordingStateLabel,
+} from '@/features/calls/callLabels';
+import {
+  RecordingStatusStrip, RecordingToolbarButton, useOperatorRecording,
+} from '@/features/calls/OperatorRecordingControls';
+import { TransferCallDialog } from '@/features/calls/TransferCallDialog';
+import { CallNotesPanel } from '@/features/calls/CallNotesPanel';
 
-function RecordingBadge({ rec, meta }: { rec?: any; meta?: any }) {
-  const state = meta?.state as string | undefined;
-  const effective = !!rec?.effective_enabled;
-  let label = 'Recording off';
+/** SLA threshold, in seconds, after which a waiting call counts as breached. */
+const SLA_BREACH_SECONDS = 180;
+const SLA_WARN_SECONDS = 60;
+
+/**
+ * Compact recording chip for the call header.
+ *
+ * Reads the per-call `metadata.recording.state` when there is one, and falls
+ * back to the workspace capability so an operator still sees *why* recording
+ * is unavailable before a call has any recording metadata at all.
+ */
+function RecordingBadge({
+  capability,
+  meta,
+}: {
+  capability?: { effective_enabled?: boolean; reason?: string } | null;
+  meta?: { state?: string } | null;
+}) {
+  const { t } = useTranslation();
+  const state = meta?.state;
+  const effective = !!capability?.effective_enabled;
+
+  let label: string;
   let tone = 'bg-muted text-muted-foreground';
   if (!effective) {
-    label = rec?.reason === 'provider_not_supported' ? 'Recording: provider not supported'
-      : rec?.reason === 'provider_not_configured' ? 'Recording: provider not configured'
-      : rec?.reason === 'workspace_disabled' ? 'Recording: off (workspace)'
-      : rec?.reason === 'platform_disabled' ? 'Recording: off (platform)'
-      : 'Recording off';
-  } else if (state === 'consent_pending') { label = 'Awaiting consent'; tone = 'bg-amber-500/15 text-amber-700 dark:text-amber-300'; }
-  else if (state === 'recording') { label = '● Recording'; tone = 'bg-rose-500/15 text-rose-700 dark:text-rose-300'; }
-  else if (state === 'failed') { label = 'Recording failed'; tone = 'bg-destructive/15 text-destructive'; }
-  else if (state === 'ready' || state === 'pending') { label = 'Recording configured'; tone = 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'; }
+    label = recordingReasonLabel(t, capability?.reason);
+  } else if (state === 'consent_pending') {
+    label = recordingStateLabel(t, 'consent_pending');
+    tone = 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
+  } else if (state === 'recording') {
+    label = recordingStateLabel(t, 'recording');
+    tone = 'bg-rose-500/15 text-rose-700 dark:text-rose-300';
+  } else if (state === 'failed') {
+    label = recordingStateLabel(t, 'failed');
+    tone = 'bg-destructive/15 text-destructive';
+  } else if (state === 'available') {
+    label = recordingStateLabel(t, 'available');
+    tone = 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
+  } else if (state === 'pending' || state === 'finalizing') {
+    label = recordingStateLabel(t, state);
+    tone = 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
+  } else {
+    label = recordingStateLabel(t, 'ready');
+    tone = 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
+  }
+
   return (
     <span className={cn('inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full', tone)}>
+      <Disc className={cn('h-3 w-3', state === 'recording' && 'animate-pulse')} />
       {label}
     </span>
   );
 }
 
-function RecordingControlBar({ workspaceId, callId, callConnected }: { workspaceId: string; callId: string; callConnected: boolean }) {
-  const qc = useQueryClient();
-  const { data: status, refetch, isFetching } = useQuery<CallCenterRecordingStatus>({
-    queryKey: ['call-center', 'recording-status', workspaceId, callId],
-    queryFn: () => callCenterApi.getRecordingStatus(workspaceId, callId),
-    enabled: !!callId,
-    refetchInterval: 4000,
-  });
-  const [busy, setBusy] = useState<'start' | 'stop' | null>(null);
-
-  const cap = status?.capability;
-  const state = status?.recording_state || 'disabled';
-  const effective = !!cap?.effective_enabled;
-  const consentOk = !cap?.consent_required || !!status?.consent_given;
-  const isRecording = state === 'recording';
-  const isPending = state === 'pending';
-  const isFinalizing = state === 'finalizing';
-  const isAvailable = state === 'available';
-  const isReady = effective && consentOk && (state === 'disabled' || state === 'failed');
-
-  let label = 'Recording disabled';
-  let tone = 'text-muted-foreground';
-  if (!effective) {
-    label = cap?.reason === 'provider_not_supported' ? 'Provider not supported'
-      : cap?.reason === 'provider_not_configured' ? 'Provider not configured'
-      : cap?.reason === 'workspace_disabled' ? 'Disabled (workspace)'
-      : cap?.reason === 'platform_disabled' ? 'Disabled (platform)'
-      : 'Recording disabled';
-  } else if (!consentOk) { label = 'Consent missing'; tone = 'text-amber-600'; }
-  else if (isRecording) { label = '● Recording'; tone = 'text-rose-600'; }
-  else if (isPending) { label = 'Starting…'; tone = 'text-amber-600'; }
-  else if (isFinalizing) { label = 'Finalizing…'; tone = 'text-amber-600'; }
-  else if (isAvailable) { label = 'Recording captured'; tone = 'text-emerald-600'; }
-  else if (state === 'failed') { label = 'Failed: ' + (status?.last_error || 'recording_failed'); tone = 'text-destructive'; }
-  else if (isReady) { label = 'Ready to record'; tone = 'text-emerald-600'; }
-
-  // Allow start only from a clean/disabled/failed state — not from available, recording, pending, or finalizing.
-  const canStart =
-    effective && consentOk && callConnected && busy === null
-    && (state === 'disabled' || state === 'failed');
-  const canStop = (isRecording || isPending) && busy === null;
-
-  async function start() {
-    setBusy('start');
-    try {
-      await callCenterApi.startRecording(workspaceId, callId, 'composite');
-      await refetch();
-      qc.invalidateQueries({ queryKey: ['call-center'] });
-    } catch (e: any) {
-      const code = String(e?.message || '');
-      const friendly =
-        code.includes('recording_consent_missing') ? 'Visitor consent is required.'
-        : code.includes('provider_not_configured') ? 'Provider egress is not configured.'
-        : code.includes('provider_not_supported') ? 'Provider does not support recording.'
-        : code.includes('room_not_ready') ? 'Call room is not ready yet.'
-        : code.includes('recording_disabled') ? 'Recording is disabled.'
-        : 'Could not start recording.';
-      toast({ title: 'Start recording failed', description: friendly, variant: 'destructive' });
-    } finally { setBusy(null); }
-  }
-  async function stop() {
-    setBusy('stop');
-    try {
-      await callCenterApi.stopRecording(workspaceId, callId);
-      await refetch();
-      qc.invalidateQueries({ queryKey: ['call-center'] });
-    } catch (e: any) {
-      toast({ title: 'Stop recording failed', description: String(e?.message || ''), variant: 'destructive' });
-    } finally { setBusy(null); }
-  }
-
-  return (
-    <Card className="p-3 flex flex-wrap items-center gap-2">
-      <Disc className={cn('h-4 w-4', isRecording ? 'text-rose-600 animate-pulse' : 'text-muted-foreground')} />
-      <div className="text-sm">
-        <div className={cn('font-medium', tone)}>{label}</div>
-        {status?.recording_id_masked && (
-          <div className="text-[10px] text-muted-foreground font-mono">id: {status.recording_id_masked}</div>
-        )}
-      </div>
-      <div className="ms-auto flex items-center gap-2">
-        <Button size="sm" variant="ghost" onClick={() => refetch()} disabled={isFetching} title="Refresh status">
-          <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
-        </Button>
-        {canStop ? (
-          <Button size="sm" variant="destructive" onClick={stop} disabled={busy !== null}>
-            {busy === 'stop' ? <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" /> : <Square className="h-3.5 w-3.5 me-1.5" />}
-            Stop recording
-          </Button>
-        ) : (
-          <Button size="sm" onClick={start} disabled={!canStart}>
-            {busy === 'start' ? <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" /> : <Disc className="h-3.5 w-3.5 me-1.5" />}
-            Start recording
-          </Button>
-        )}
-      </div>
-      {state === 'available' && (
-        <p className="basis-full text-[11px] text-muted-foreground">
-          Recording artifact captured. Playback/download will be added later.
-        </p>
-      )}
-    </Card>
-  );
-}
-
-function waitTime(iso: string) {
-  const ms = Date.now() - new Date(iso).getTime();
-  const s = Math.max(0, Math.floor(ms / 1000));
-  const m = Math.floor(s / 60);
-  return `${m}m ${s % 60}s`;
-}
 function urgencyTone(iso: string): 'neutral' | 'warn' | 'danger' {
   const sec = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (sec > 180) return 'danger';
-  if (sec > 60) return 'warn';
+  if (sec > SLA_BREACH_SECONDS) return 'danger';
+  if (sec > SLA_WARN_SECONDS) return 'warn';
   return 'neutral';
 }
 
@@ -194,14 +140,18 @@ function StatChip({
   );
 }
 
-function formatWait(iso: string) {
-  const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+/** `m:ss` elapsed clock — locale-neutral by design so column widths stay stable. */
+function clock(totalSeconds: number) {
+  const s = Math.max(0, Math.floor(totalSeconds));
   const m = Math.floor(s / 60);
-  const r = s % 60;
-  return m > 0 ? `${m}:${r.toString().padStart(2, '0')}` : `0:${r.toString().padStart(2, '0')}`;
+  return `${m}:${(s % 60).toString().padStart(2, '0')}`;
+}
+function elapsedSince(iso: string) {
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
 }
 
 function CopyButton({ text }: { text: string }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   return (
     <button
@@ -214,10 +164,74 @@ function CopyButton({ text }: { text: string }) {
         });
       }}
       className="opacity-60 hover:opacity-100 transition-opacity"
-      title="Copy"
+      title={copied ? t('callCenter.desk.copied') : t('callCenter.desk.copy')}
+      aria-label={t('callCenter.desk.copy')}
     >
       {copied ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
     </button>
+  );
+}
+
+/** Earlier calls from the same visitor — the context an operator opens with. */
+function VisitorCallHistory({
+  workspaceId,
+  currentCallId,
+  sessionId,
+  email,
+  phone,
+  logHref,
+}: {
+  workspaceId: string | undefined;
+  currentCallId: string;
+  sessionId: string | null;
+  email: string | null;
+  phone: string | null;
+  logHref: string;
+}) {
+  const { t } = useTranslation();
+  const { data, isLoading } = useCallCenterCalls(workspaceId);
+
+  const history = useMemo(() => {
+    const all = data?.calls || [];
+    return all
+      .filter((c) => {
+        if (c.id === currentCallId) return false;
+        const cc = c as unknown as { visitor_session_id?: string | null };
+        if (sessionId && cc.visitor_session_id === sessionId) return true;
+        if (email && c.visitor_email === email) return true;
+        if (phone && c.visitor_phone === phone) return true;
+        return false;
+      })
+      .slice(0, 8);
+  }, [data, currentCallId, sessionId, email, phone]);
+
+  if (isLoading) {
+    return <p className="text-xs text-muted-foreground">{t('callCenter.history.loading')}</p>;
+  }
+  if (history.length === 0) {
+    return <p className="text-xs text-muted-foreground">{t('callCenter.history.empty')}</p>;
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <ul className="space-y-1">
+        {history.map((c) => (
+          <li key={c.id} className="flex items-center gap-2 text-xs">
+            {c.call_type === 'video'
+              ? <Video className="h-3 w-3 text-muted-foreground shrink-0" />
+              : <Phone className="h-3 w-3 text-muted-foreground shrink-0" />}
+            <span className="truncate">{callStateLabel(t, c.state)}</span>
+            <span className="text-muted-foreground tabular-nums ms-auto shrink-0">
+              {c.duration_seconds ? clock(c.duration_seconds) : t('callCenter.history.noDuration')}
+            </span>
+            <span className="text-muted-foreground shrink-0">{formatTime(c.created_at)}</span>
+          </li>
+        ))}
+      </ul>
+      <Button asChild size="sm" variant="ghost" className="h-6 px-1 text-[11px]">
+        <Link to={logHref}>{t('callCenter.history.viewAll')}</Link>
+      </Button>
+    </div>
   );
 }
 
@@ -232,7 +246,6 @@ export default function LiveQueuePage() {
   const qc = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
-  const [notes, setNotes] = useState('');
   const [search, setSearch] = useState('');
   const [channelFilter, setChannelFilter] = useState<'all' | 'voice' | 'video'>('all');
   const [sortMode, setSortMode] = useState<'wait_desc' | 'wait_asc'>('wait_desc');
@@ -243,17 +256,23 @@ export default function LiveQueuePage() {
     connect: OperatorConnectInfo;
     callType: string;
   } | null>(null);
+  /** The call whose wrap-up card is open after the console unmounts. */
+  const [wrapUpCallId, setWrapUpCallId] = useState<string | null>(null);
   const { data: detail } = useCallCenterCall(workspace?.id, selectedCallId);
   const [, force] = useState(0);
-  useEffect(() => { const t = setInterval(() => force((n) => n + 1), 1000); return () => clearInterval(t); }, []);
+  useEffect(() => { const timer = setInterval(() => force((n) => n + 1), 1000); return () => clearInterval(timer); }, []);
+
+  const transferEnabled = (settingsBundle as { platform?: { call_transfer_enabled?: boolean } } | undefined)
+    ?.platform?.call_transfer_enabled !== false;
 
   // Operator-side new-call notification sound. Plays a short chime whenever
   // a fresh entry appears in the queue (governed by platform setting).
   const knownCallIdsRef = useRef<{ set: Set<string>; primed: boolean }>({ set: new Set(), primed: false });
   useEffect(() => {
-    const enabled = (settingsBundle as any)?.platform?.operator_new_call_sound_enabled !== false;
+    const enabled = (settingsBundle as { platform?: { operator_new_call_sound_enabled?: boolean } } | undefined)
+      ?.platform?.operator_new_call_sound_enabled !== false;
     if (!enabled) return;
-    const ids = (data?.queue || []).map((q: any) => q.call_session_id).filter(Boolean) as string[];
+    const ids = (data?.queue || []).map((q) => q.call_session_id).filter(Boolean) as string[];
     const r = knownCallIdsRef.current;
     if (!r.primed) {
       r.primed = true;
@@ -265,10 +284,12 @@ export default function LiveQueuePage() {
     if (fresh.length === 0) return;
     // Play a soft two-tone chime via Web Audio.
     try {
-      const C = (window as any).AudioContext || (window as any).webkitAudioContext;
+      const C = (window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext })
+        .AudioContext
+        || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!C) return;
       const ctx = new C();
-      if (ctx.state === 'suspended' && ctx.resume) { try { ctx.resume(); } catch { /* */ } }
+      if (ctx.state === 'suspended' && ctx.resume) { try { void ctx.resume(); } catch { /* */ } }
       const t0 = ctx.currentTime;
       [{ f: 880, at: 0 }, { f: 1175, at: 0.18 }].forEach((n) => {
         const osc = ctx.createOscillator();
@@ -282,23 +303,23 @@ export default function LiveQueuePage() {
         osc.start(t0 + n.at);
         osc.stop(t0 + n.at + 0.4);
       });
-      setTimeout(() => { try { ctx.close(); } catch { /* */ } }, 1200);
+      setTimeout(() => { try { void ctx.close(); } catch { /* */ } }, 1200);
     } catch { /* swallow */ }
   }, [data?.queue, settingsBundle]);
 
   // Faster status sync while in active console
   useEffect(() => {
     if (!accepted?.callId) return;
-    const t = setInterval(() => {
+    const timer = setInterval(() => {
       qc.invalidateQueries({ queryKey: ['call-center'] });
     }, 5000);
-    return () => clearInterval(t);
+    return () => clearInterval(timer);
   }, [accepted?.callId, qc]);
 
   const rawQueue = data?.queue || [];
   const queue = useMemo(() => {
-    const q = (rawQueue as any[]).filter((entry) => {
-      const c = entry.call_session;
+    const q = rawQueue.filter((entry) => {
+      const c = entry.call_session ?? null;
       if (channelFilter !== 'all') {
         const ch = entry.channel || (c?.call_type === 'video' ? 'video' : 'voice');
         if (channelFilter === 'video' && ch !== 'video') return false;
@@ -325,8 +346,11 @@ export default function LiveQueuePage() {
   // call's detail panel) — never one request per row.
   const queueSessionIds = useMemo(
     () =>
-      (rawQueue as any[]).map(
-        (q) => q.call_session?.visitor_session_id || q.visitor_session_id || null,
+      rawQueue.map(
+        (q) =>
+          q.call_session?.visitor_session_id
+          || (q as { visitor_session_id?: string | null }).visitor_session_id
+          || null,
       ),
     [rawQueue],
   );
@@ -334,31 +358,31 @@ export default function LiveQueuePage() {
   // Refresh IP/geo once async enrichment lands (reuses the visitors channel).
   useGeoEnrichmentRealtime(workspace?.id);
   const selectedSessionId =
-    (detail as any)?.call?.visitor_session_id ||
-    (rawQueue as any[]).find((q) => q.call_session_id === selectedCallId)?.call_session
-      ?.visitor_session_id ||
-    null;
+    (detail?.call as { visitor_session_id?: string | null } | undefined)?.visitor_session_id
+    || rawQueue.find((q) => q.call_session_id === selectedCallId)?.call_session?.visitor_session_id
+    || null;
   const selectedProfile = selectedSessionId ? networkBySession?.[selectedSessionId] ?? null : null;
 
   // Queue analytics
   const queueStats = useMemo(() => {
     if (rawQueue.length === 0) return { count: 0, longest: 0, avg: 0, voice: 0, video: 0, breached: 0 };
-    const now = Date.now();
-    const waits = rawQueue.map((q: any) => Math.floor((now - new Date(q.created_at).getTime()) / 1000));
+    const waits = rawQueue.map((q) => elapsedSince(q.created_at));
     const longest = Math.max(...waits);
     const avg = Math.round(waits.reduce((a, b) => a + b, 0) / waits.length);
-    const voice = rawQueue.filter((q: any) => (q.channel || 'voice') !== 'video').length;
+    const voice = rawQueue.filter((q) => (q.channel || 'voice') !== 'video').length;
     const video = rawQueue.length - voice;
-    const breached = waits.filter((w) => w > 180).length;
+    const breached = waits.filter((w) => w > SLA_BREACH_SECONDS).length;
     return { count: rawQueue.length, longest, avg, voice, video, breached };
   }, [rawQueue]);
 
   // Auto-select first queue item — done in effect, not during render
   useEffect(() => {
-    // While a call is accepted, keep selection pinned to it so the media
-    // console stays mounted even after the queue removes the accepted entry.
-    if (accepted?.callId) {
-      if (selectedCallId !== accepted.callId) setSelectedCallId(accepted.callId);
+    // While a call is accepted (or its wrap-up is open), keep the selection
+    // pinned so the media console / wrap-up stays mounted even after the
+    // queue drops the entry.
+    const pinned = accepted?.callId || wrapUpCallId;
+    if (pinned) {
+      if (selectedCallId !== pinned) setSelectedCallId(pinned);
       return;
     }
     if (queue.length === 0) {
@@ -367,72 +391,98 @@ export default function LiveQueuePage() {
     }
     const stillThere = selectedCallId && queue.some((q) => q.call_session_id === selectedCallId);
     if (!stillThere) {
-      const next = queue[0]?.call_session_id ?? null;
-      setSelectedCallId(next);
+      setSelectedCallId(queue[0]?.call_session_id ?? null);
     }
-  }, [queue, selectedCallId, accepted?.callId]);
+  }, [queue, selectedCallId, accepted?.callId, wrapUpCallId]);
+
+  const activeCallId = accepted?.callId ?? null;
+  const callIsConnected = !!detail && ['active', 'ringing', 'connecting'].includes(detail.call.state);
+  const recording = useOperatorRecording(workspace?.id, activeCallId, callIsConnected);
 
   async function accept(callId: string) {
     if (!workspace) return;
     setBusy(callId);
     try {
       const r = await callCenterApi.acceptCall(workspace.id, callId);
-      const connect = (r as any).connect as OperatorConnectInfo | undefined;
-      const callType = ((detail?.call?.call_type as string) || 'voice');
+      const connect = (r as { connect?: OperatorConnectInfo }).connect;
+      // The queue row is the authoritative source for the call type at accept
+      // time — `detail` may still be pointing at a different selection.
+      const queued = rawQueue.find((q) => q.call_session_id === callId)?.call_session;
+      const callType = queued?.call_type || detail?.call?.call_type || 'voice';
       if (connect && r.token) {
+        setWrapUpCallId(null);
         setAccepted({ callId, token: r.token, connect, callType });
         setSelectedCallId(callId);
         if (!connect.supported) {
           toast({
-            title: 'Accepted, but media not available',
-            description: connect.reason || 'Provider client not configured.',
+            title: t('callCenter.desk.acceptedNoMedia'),
+            description: connect.reason || t('callCenter.desk.acceptedNoMediaHint'),
             variant: 'destructive',
           });
         }
       }
       qc.invalidateQueries({ queryKey: ['call-center'] });
-    } catch (e: any) {
-      toast({ title: 'Accept failed', description: e.message, variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({
+        title: t('callCenter.desk.acceptFailed'),
+        description: e instanceof Error ? e.message : String(e),
+        variant: 'destructive',
+      });
     } finally { setBusy(null); }
   }
+
   async function reject(callId: string) {
     if (!workspace) return;
     setBusy(callId);
     try {
       await callCenterApi.rejectCall(workspace.id, callId);
       qc.invalidateQueries({ queryKey: ['call-center'] });
-    } catch (e: any) {
-      toast({ title: 'Reject failed', description: e.message, variant: 'destructive' });
+    } catch (e: unknown) {
+      toast({
+        title: t('callCenter.desk.rejectFailed'),
+        description: e instanceof Error ? e.message : String(e),
+        variant: 'destructive',
+      });
     } finally { setBusy(null); }
   }
+
   async function endActive(callId: string) {
     if (!workspace) return;
-    await callCenterApi.endCall(workspace.id, callId);
-    qc.invalidateQueries({ queryKey: ['call-center'] });
+    try {
+      await callCenterApi.endCall(workspace.id, callId);
+      qc.invalidateQueries({ queryKey: ['call-center'] });
+    } catch (e: unknown) {
+      toast({
+        title: t('callCenter.desk.endFailed'),
+        description: e instanceof Error ? e.message : String(e),
+        variant: 'destructive',
+      });
+    }
   }
 
-  async function endFromConsole() {
+  const endFromConsole = useCallback(async () => {
     const id = accepted?.callId;
     if (!id || !workspace) { setAccepted(null); return; }
-    // Backend-first; throw on failure so console shows Retry.
+    // Backend-first; throw on failure so the console shows Retry.
     await callCenterApi.endCall(workspace.id, id);
     qc.invalidateQueries({ queryKey: ['call-center'] });
-    // Do NOT clear `accepted` here — OperatorMediaConsole will show
-    // the "Call ended" state briefly and call onEndedConfirmed.
-  }
+    // Do NOT clear `accepted` here — OperatorMediaConsole shows the
+    // "Call ended" state briefly and then calls onEndedConfirmed.
+  }, [accepted?.callId, workspace, qc]);
 
-  async function reconnectFromConsole(): Promise<{ token: string; connect: OperatorConnectInfo } | null> {
+  const reconnectFromConsole = useCallback(async (): Promise<{ token: string; connect: OperatorConnectInfo } | null> => {
     if (!workspace || !accepted?.callId) return null;
     const r = await callCenterApi.acceptCall(workspace.id, accepted.callId);
-    const c = (r as any).connect as OperatorConnectInfo | undefined;
+    const c = (r as { connect?: OperatorConnectInfo }).connect;
     if (!c || !r.token) return null;
     setAccepted({ callId: accepted.callId, token: r.token, connect: c, callType: accepted.callType });
     return { token: r.token, connect: c };
-  }
+  }, [workspace, accepted?.callId, accepted?.callType]);
 
-  const meta = (detail?.call as any)?.metadata || {};
-  const preCall = meta?.pre_call_form || meta?.preCallForm || null;
-  const isActive = detail && ['active', 'ringing', 'connecting'].includes(detail.call.state);
+  const callMeta = (detail?.call as { metadata?: Record<string, unknown> } | undefined)?.metadata || {};
+  const preCall = (callMeta.pre_call_form || callMeta.preCallForm) as Record<string, unknown> | null;
+  const recordingMeta = callMeta.recording as { state?: string } | undefined;
+  const isActive = !!detail && ['active', 'ringing', 'connecting'].includes(detail.call.state);
 
   // Detect external end from backend state for the active console call
   const externalEndedReason = useMemo<
@@ -440,7 +490,7 @@ export default function LiveQueuePage() {
   >(() => {
     if (!accepted || !detail || detail.call.id !== accepted.callId) return null;
     const s = detail.call.state;
-    const reason = (detail.call as any).end_reason as string | null | undefined;
+    const reason = (detail.call as { end_reason?: string | null }).end_reason;
     if (s === 'ended') {
       if (reason === 'visitor_ended' || reason === 'visitor_cancelled') return 'ended_by_visitor';
       if (reason === 'operator_ended') return 'ended_by_operator';
@@ -450,6 +500,13 @@ export default function LiveQueuePage() {
     if (s === 'missed' || s === 'failed') return 'failed';
     return null;
   }, [accepted, detail]);
+
+  const visitorLabel = detail
+    ? detail.call.visitor_name
+      || detail.call.visitor_email
+      || detail.call.visitor_phone
+      || t('callCenter.common.anonymousVisitor')
+    : '';
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -479,10 +536,9 @@ export default function LiveQueuePage() {
             value={overview?.active_calls ?? 0}
             tone={(overview?.active_calls ?? 0) > 0 ? 'ok' : 'muted'} />
           <StatChip label={t('callCenter.queue.chips.longestWait')} icon={Clock}
-            value={queueStats.count > 0
-              ? `${Math.floor(queueStats.longest / 60)}:${(queueStats.longest % 60).toString().padStart(2, '0')}`
-              : '—'}
-            tone={queueStats.longest > 180 ? 'danger' : queueStats.longest > 60 ? 'warn' : 'muted'} />
+            value={queueStats.count > 0 ? clock(queueStats.longest) : '—'}
+            tone={queueStats.longest > SLA_BREACH_SECONDS ? 'danger'
+              : queueStats.longest > SLA_WARN_SECONDS ? 'warn' : 'muted'} />
           <StatChip label={t('callCenter.queue.chips.slaBreached')} icon={AlertTriangle}
             value={queueStats.breached}
             tone={queueStats.breached > 0 ? 'danger' : 'muted'} />
@@ -515,6 +571,9 @@ export default function LiveQueuePage() {
                   <Button
                     size="icon" variant="ghost" className="h-6 w-6"
                     onClick={() => setSortMode((m) => (m === 'wait_desc' ? 'wait_asc' : 'wait_desc'))}
+                    aria-label={sortMode === 'wait_desc'
+                      ? t('callCenter.queue.sortLongestFirst')
+                      : t('callCenter.queue.sortNewestFirst')}
                   >
                     {sortMode === 'wait_desc' ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
                   </Button>
@@ -539,11 +598,11 @@ export default function LiveQueuePage() {
                 { k: 'voice', label: t('callCenter.queue.filterVoice'), count: queueStats.voice, icon: Phone },
                 { k: 'video', label: t('callCenter.queue.filterVideo'), count: queueStats.video, icon: Video },
               ] as const).map((opt) => {
-                const OptIcon = (opt as any).icon as React.ComponentType<{ className?: string }> | undefined;
+                const OptIcon = (opt as { icon?: React.ComponentType<{ className?: string }> }).icon;
                 return (
                 <button
                   key={opt.k}
-                  onClick={() => setChannelFilter(opt.k as any)}
+                  onClick={() => setChannelFilter(opt.k)}
                   className={cn(
                     'flex-1 inline-flex items-center justify-center gap-1.5 text-[11px] py-1 rounded-md border transition-colors',
                     channelFilter === opt.k
@@ -567,7 +626,7 @@ export default function LiveQueuePage() {
               ))}
             </div>
           )}
-          {!isLoading && queue.length === 0 && (
+          {!isLoading && queue.length === 0 && rawQueue.length === 0 && (
             <Card className="p-6 text-center space-y-3">
               <Headphones className="h-8 w-8 mx-auto text-muted-foreground" />
               <div>
@@ -585,13 +644,13 @@ export default function LiveQueuePage() {
               {t('callCenter.queue.noMatches')}
             </div>
           )}
-          {queue.map((q: any, idx: number) => {
-            const c = q.call_session;
+          {queue.map((q, idx) => {
+            const c = q.call_session ?? null;
             const tone = urgencyTone(q.created_at);
             const isSel = selectedCallId === q.call_session_id;
             const isAccepted = accepted?.callId === q.call_session_id;
-            const waitSec = Math.floor((Date.now() - new Date(q.created_at).getTime()) / 1000);
-            const slaPct = Math.min(100, (waitSec / 180) * 100);
+            const waitSec = elapsedSince(q.created_at);
+            const slaPct = Math.min(100, (waitSec / SLA_BREACH_SECONDS) * 100);
             const isVideo = q.channel === 'video' || c?.call_type === 'video';
             const net = c?.visitor_session_id ? networkBySession?.[c.visitor_session_id] ?? null : null;
             // Same identity rule as the rest of the app: stable, geo-aware label.
@@ -602,7 +661,7 @@ export default function LiveQueuePage() {
               contactDisplayName(
                 null,
                 c?.contact_id ?? c?.visitor_session_id ?? q.call_session_id,
-                t as any,
+                t,
                 net?.geo,
                 locale,
               );
@@ -652,7 +711,7 @@ export default function LiveQueuePage() {
                           tone === 'danger' ? 'text-destructive' : tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground',
                         )}>
                           <Clock className="h-3 w-3" />
-                          {formatWait(q.created_at)}
+                          {clock(waitSec)}
                         </div>
                         {q.priority > 0 && (
                           <Badge variant="outline" className="h-4 px-1 text-[9px]">P{q.priority}</Badge>
@@ -679,7 +738,7 @@ export default function LiveQueuePage() {
                               ? networkBySession?.[c.visitor_session_id] ?? null
                               : null
                           }
-                          t={t as any}
+                          t={t}
                           locale={locale}
                         />
                       </div>
@@ -701,7 +760,7 @@ export default function LiveQueuePage() {
                       onClick={(e) => { e.stopPropagation(); reject(q.call_session_id); }}
                       disabled={busy === q.call_session_id || isAccepted}
                     >
-                      {t('callCenter.queue.reject')}
+                      {t('callCenter.desk.decline')}
                     </Button>
                     <Button
                       size="sm" className="flex-1 h-7 text-xs"
@@ -710,7 +769,7 @@ export default function LiveQueuePage() {
                     >
                       {busy === q.call_session_id
                         ? <Loader2 className="h-3 w-3 animate-spin" />
-                        : isAccepted ? t('callCenter.queue.onCall') : (<><PhoneCall className="h-3 w-3 me-1" />{t('callCenter.queue.accept')}</>)}
+                        : isAccepted ? t('callCenter.queue.onCall') : (<><PhoneCall className="h-3 w-3 me-1" />{t('callCenter.desk.answer')}</>)}
                     </Button>
                   </div>
                 </div>
@@ -720,7 +779,7 @@ export default function LiveQueuePage() {
           </div>
         </Card>
 
-        {/* Workspace column */}
+        {/* Active call column */}
         <div className="space-y-3 overflow-y-auto min-h-0">
           {!detail ? (
             <Card className="p-16 text-center border-dashed">
@@ -740,9 +799,14 @@ export default function LiveQueuePage() {
                 )}
                 <div className="flex items-start gap-4 flex-wrap">
                   <div className="relative shrink-0">
-                    <div className="h-16 w-16 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 text-primary flex items-center justify-center text-xl font-semibold ring-2 ring-primary/15">
-                      {(detail.call.visitor_name || detail.call.visitor_email || 'A').slice(0, 1).toUpperCase()}
-                    </div>
+                    <ContactAvatar
+                      name={visitorLabel}
+                      email={detail.call.visitor_email}
+                      os={selectedProfile?.device?.os}
+                      device={selectedProfile?.device?.device}
+                      countryCode={selectedProfile?.geo?.country_code}
+                      size="lg"
+                    />
                     <div className={cn(
                       'absolute -bottom-0.5 -end-0.5 h-5 w-5 rounded-full flex items-center justify-center ring-2 ring-card',
                       detail.call.call_type === 'video' ? 'bg-indigo-500 text-white' : 'bg-emerald-500 text-white',
@@ -751,9 +815,7 @@ export default function LiveQueuePage() {
                     </div>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-xl font-semibold leading-tight truncate">
-                      {detail.call.visitor_name || detail.call.visitor_email || detail.call.visitor_phone || t('callCenter.common.anonymousVisitor')}
-                    </div>
+                    <div className="text-xl font-semibold leading-tight truncate">{visitorLabel}</div>
                     <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-muted-foreground">
                       {detail.call.visitor_email && (
                         <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" />{detail.call.visitor_email}</span>
@@ -761,47 +823,67 @@ export default function LiveQueuePage() {
                       {detail.call.visitor_phone && (
                         <span className="inline-flex items-center gap-1"><Smartphone className="h-3 w-3" />{detail.call.visitor_phone}</span>
                       )}
-                      <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" />
-                        {new Date(detail.call.created_at).toLocaleTimeString()}
+                      <span className="inline-flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {t('callCenter.desk.startedAt')} {formatTime(detail.call.created_at)}
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-1.5 mt-2.5">
-                      <Badge variant="secondary" className="capitalize">{detail.call.call_type === 'video' ? t('callCenter.queue.videoLabel') : t('callCenter.queue.voiceLabel')}</Badge>
+                      <Badge variant="secondary">
+                        {detail.call.call_type === 'video'
+                          ? t('callCenter.queue.videoLabel')
+                          : t('callCenter.queue.voiceLabel')}
+                      </Badge>
                       <Badge
                         variant="outline"
                         className={cn(
-                          'capitalize',
                           detail.call.state === 'active' && 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10',
                           detail.call.state === 'ringing' && 'border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10',
                           detail.call.state === 'ended' && 'border-muted text-muted-foreground',
                         )}
                       >
-                        {detail.call.state}
+                        {callStateLabel(t, detail.call.state)}
                       </Badge>
-                      <RecordingBadge rec={overview?.recording} meta={(detail.call as any)?.metadata?.recording} />
+                      <RecordingBadge capability={overview?.recording} meta={recordingMeta} />
+                      {detail.call.end_reason && (
+                        <Badge variant="outline" className="text-muted-foreground">
+                          {endReasonLabel(t, detail.call.end_reason)}
+                        </Badge>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-2">
                     {detail.call.state === 'pending' && (
                       <>
-                        <Button variant="outline" onClick={() => reject(detail.call.id)}>{t('callCenter.queue.reject')}</Button>
-                        <Button onClick={() => accept(detail.call.id)}>
-                          <PhoneCall className="h-4 w-4 me-1.5" />{t('callCenter.queue.accept')}
+                        <Button variant="outline" onClick={() => reject(detail.call.id)}>
+                          {t('callCenter.desk.decline')}
+                        </Button>
+                        <Button onClick={() => accept(detail.call.id)} disabled={busy === detail.call.id}>
+                          {busy === detail.call.id
+                            ? <Loader2 className="h-4 w-4 animate-spin me-1.5" />
+                            : <PhoneCall className="h-4 w-4 me-1.5" />}
+                          {busy === detail.call.id ? t('callCenter.desk.answering') : t('callCenter.desk.answer')}
                         </Button>
                       </>
                     )}
                     {isActive && !(accepted && accepted.callId === detail.call.id) && (
-                      <Button variant="destructive" onClick={() => endActive(detail.call.id)}>
-                        <PhoneOff className="h-4 w-4 me-1.5" /> {t('callCenter.queue.end')}
-                      </Button>
+                      <>
+                        <TransferCallDialog
+                          workspaceId={workspace?.id}
+                          callId={detail.call.id}
+                          enabled={transferEnabled}
+                        />
+                        <Button variant="destructive" onClick={() => endActive(detail.call.id)}>
+                          <PhoneOff className="h-4 w-4 me-1.5" /> {t('callCenter.queue.end')}
+                        </Button>
+                      </>
                     )}
                   </div>
                 </div>
               </Card>
 
-              {/* Media console */}
+              {/* Media console — every live control lives in its toolbar. */}
               {accepted && accepted.callId === detail.call.id ? (
-                <>
                 <OperatorMediaConsole
                   callId={accepted.callId}
                   callType={accepted.callType}
@@ -811,78 +893,65 @@ export default function LiveQueuePage() {
                   onEnd={endFromConsole}
                   onReconnect={reconnectFromConsole}
                   externalEndedReason={externalEndedReason}
-                  onEndedConfirmed={() => setAccepted(null)}
-                />
-                {workspace && (
-                  <RecordingControlBar
-                    workspaceId={workspace.id}
-                    callId={accepted.callId}
-                    callConnected={['active', 'ringing', 'connecting'].includes(detail.call.state)}
-                  />
-                )}
-                </>
-              ) : (
-                <Card className="p-6 border-dashed bg-muted/20">
-                  <div className="flex items-start gap-3">
-                    <div className="h-8 w-8 rounded-full bg-amber-500/15 text-amber-600 flex items-center justify-center shrink-0">
-                      <AlertTriangle className="h-4 w-4" />
-                    </div>
-                    <div className="text-sm flex-1">
-                      <div className="font-semibold">{t('callCenter.queue.mediaIdle')}</div>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {t('callCenter.queue.mediaIdleHint')}
-                      </p>
-                    </div>
-                    {detail.call.state === 'pending' && (
-                      <Button size="sm" onClick={() => accept(detail.call.id)}>
-                        <PhoneCall className="h-3.5 w-3.5 me-1.5" /> {t('callCenter.queue.acceptNow')}
-                      </Button>
-                    )}
-                  </div>
-                  <Separator className="my-4" />
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {[
-                      { icon: MicOff, label: t('callCenter.queue.mute') },
-                      { icon: CameraOff, label: t('callCenter.queue.camera') },
-                      { icon: ArrowRightLeft, label: t('callCenter.queue.transfer') },
-                      { icon: PhoneOff, label: t('callCenter.queue.end') },
-                    ].map((b) => (
-                      <div key={b.label} className="flex items-center justify-center gap-1.5 h-9 text-xs rounded-md border border-dashed text-muted-foreground">
-                        <b.icon className="h-3.5 w-3.5" />{b.label}
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-              )}
-
-              {/* Page context */}
-              {(detail.call.page_url || detail.call.subject) && (
-                <Card className="p-4 space-y-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('callCenter.queue.pageContext')}</div>
-                  {detail.call.subject && <div className="text-sm"><span className="text-muted-foreground">{t('callCenter.queue.subjectLabel')}: </span>{detail.call.subject}</div>}
-                  {detail.call.page_url && (
-                    <div className="text-sm flex items-center gap-1.5">
-                      <Globe className="h-3.5 w-3.5 text-muted-foreground" />
-                      <a href={detail.call.page_url} target="_blank" rel="noreferrer" className="underline truncate">
-                        {detail.call.page_title || detail.call.page_url}
-                      </a>
-                    </div>
+                  onEndedConfirmed={() => {
+                    setWrapUpCallId(accepted.callId);
+                    setAccepted(null);
+                  }}
+                  toolbarSlot={({ isLive }) => (
+                    <>
+                      <RecordingToolbarButton rec={recording} />
+                      {isLive && (
+                        <TransferCallDialog
+                          workspaceId={workspace?.id}
+                          callId={accepted.callId}
+                          enabled={transferEnabled}
+                          variant="console"
+                        />
+                      )}
+                    </>
                   )}
+                  statusSlot={
+                    // Only take a row of the operator's screen when recording
+                    // is actually in play: available for this call, already
+                    // captured, or failed and needing attention. A workspace
+                    // with recording switched off gets no strip at all.
+                    recording.effective || recording.hasArtifact || recording.state === 'failed'
+                      ? <RecordingStatusStrip rec={recording} recordingsHref={`${base}/recordings`} />
+                      : null
+                  }
+                />
+              ) : wrapUpCallId === detail.call.id ? (
+                /* Wrap-up — the few seconds after hang-up when an operator
+                   records what the call was about. */
+                <Card className="p-4 space-y-3 border-primary/30">
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-primary" />
+                    <div className="flex-1">
+                      <div className="text-sm font-semibold">{t('callCenter.desk.wrapUp')}</div>
+                      <p className="text-xs text-muted-foreground">{t('callCenter.desk.wrapUpHint')}</p>
+                    </div>
+                    <Button size="sm" variant="ghost" onClick={() => setWrapUpCallId(null)}>
+                      {t('callCenter.desk.closeWrapUp')}
+                    </Button>
+                  </div>
+                  <CallNotesPanel workspaceId={workspace?.id} callId={detail.call.id} compact />
                 </Card>
-              )}
-
-              {/* Pre-call form */}
-              {preCall && typeof preCall === 'object' && (
-                <Card className="p-4 space-y-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('callCenter.queue.preCallForm')}</div>
-                  <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                    {Object.entries(preCall).map(([k, v]) => (
-                      <div key={k} className="contents">
-                        <dt className="text-muted-foreground capitalize">{k}</dt>
-                        <dd className="truncate">{String(v ?? '—')}</dd>
-                      </div>
-                    ))}
-                  </dl>
+              ) : (
+                <Card className="p-5 border-dashed bg-muted/20 flex items-start gap-3">
+                  <div className="h-8 w-8 rounded-full bg-amber-500/15 text-amber-600 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="h-4 w-4" />
+                  </div>
+                  <div className="text-sm flex-1">
+                    <div className="font-semibold">{t('callCenter.queue.mediaIdle')}</div>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {t('callCenter.queue.mediaIdleHint')}
+                    </p>
+                  </div>
+                  {detail.call.state === 'pending' && (
+                    <Button size="sm" onClick={() => accept(detail.call.id)} disabled={busy === detail.call.id}>
+                      <PhoneCall className="h-3.5 w-3.5 me-1.5" /> {t('callCenter.queue.acceptNow')}
+                    </Button>
+                  )}
                 </Card>
               )}
             </>
@@ -892,7 +961,7 @@ export default function LiveQueuePage() {
         {/* Context column */}
         <Card className="flex flex-col overflow-hidden p-0 min-h-0">
           {detail ? (
-            <Tabs value={contextTab} onValueChange={(v) => setContextTab(v as any)} className="flex flex-col h-full">
+            <Tabs value={contextTab} onValueChange={(v) => setContextTab(v as typeof contextTab)} className="flex flex-col h-full">
               <TabsList className="grid grid-cols-3 m-2 mb-0">
                 <TabsTrigger value="contact" className="text-xs gap-1.5"><User className="h-3.5 w-3.5" />{t('callCenter.queue.contact')}</TabsTrigger>
                 <TabsTrigger value="timeline" className="text-xs gap-1.5"><History className="h-3.5 w-3.5" />{t('callCenter.queue.timeline')}</TabsTrigger>
@@ -933,7 +1002,7 @@ export default function LiveQueuePage() {
                     workspaceId={workspace?.id}
                     profile={selectedProfile}
                     showUnknown
-                    t={t as any}
+                    t={t}
                     locale={locale}
                   />
                   {(detail.call.page_url || detail.call.subject) && (
@@ -963,8 +1032,13 @@ export default function LiveQueuePage() {
                         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
                           {Object.entries(preCall).map(([k, v]) => (
                             <div key={k} className="contents">
-                              <dt className="text-muted-foreground capitalize">{k}</dt>
-                              <dd className="truncate font-medium">{String(v ?? '—')}</dd>
+                              {/* Pre-call fields are workspace-authored, so their
+                                  labels are shown exactly as configured — only the
+                                  empty-value placeholder is ours to localize. */}
+                              <dt className="text-muted-foreground">{k}</dt>
+                              <dd className="truncate font-medium">
+                                {v === null || v === undefined || v === '' ? '—' : String(v)}
+                              </dd>
                             </div>
                           ))}
                         </dl>
@@ -973,8 +1047,15 @@ export default function LiveQueuePage() {
                   )}
                   <Separator />
                   <div>
-                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">{t('callCenter.queue.previousCalls')}</div>
-                    <p className="text-xs text-muted-foreground">{t('callCenter.queue.previousCallsHint')}</p>
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">{t('callCenter.history.title')}</div>
+                    <VisitorCallHistory
+                      workspaceId={workspace?.id}
+                      currentCallId={detail.call.id}
+                      sessionId={selectedSessionId}
+                      email={detail.call.visitor_email}
+                      phone={detail.call.visitor_phone}
+                      logHref={`${base}/calls`}
+                    />
                   </div>
                 </TabsContent>
 
@@ -986,8 +1067,8 @@ export default function LiveQueuePage() {
                       {detail.events.map((e) => (
                         <li key={e.id} className="relative">
                           <span className="absolute -start-[14px] top-1.5 h-2 w-2 rounded-full bg-primary ring-2 ring-background" />
-                          <div className="text-[10px] text-muted-foreground tabular-nums">{new Date(e.created_at).toLocaleTimeString()}</div>
-                          <div className="text-xs font-medium">{e.event_type.replace(/_/g, ' ')}</div>
+                          <div className="text-[10px] text-muted-foreground tabular-nums">{formatTime(e.created_at)}</div>
+                          <div className="text-xs font-medium">{callEventLabel(t, e.event_type)}</div>
                         </li>
                       ))}
                     </ol>
@@ -995,17 +1076,7 @@ export default function LiveQueuePage() {
                 </TabsContent>
 
                 <TabsContent value="notes" className="m-0">
-                  <Textarea
-                    placeholder={t('callCenter.queue.notesPlaceholder')}
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    rows={10}
-                    disabled
-                    className="text-sm resize-none"
-                  />
-                  <p className="text-[11px] text-muted-foreground mt-2">
-                    {t('callCenter.queue.notesFooter')}
-                  </p>
+                  <CallNotesPanel workspaceId={workspace?.id} callId={detail.call.id} />
                 </TabsContent>
               </div>
             </Tabs>

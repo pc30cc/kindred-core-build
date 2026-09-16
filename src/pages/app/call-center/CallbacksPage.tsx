@@ -20,6 +20,7 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/i18n';
+import { callbackStatusLabel } from '@/features/calls/callLabels';
 import { useVisitorNetworkBatchBySession, type VisitorNetworkProfile } from '@/hooks/useVisitorNetwork';
 import { useGeoEnrichmentRealtime } from '@/hooks/useGeoEnrichmentRealtime';
 import { VisitorNetworkInline } from '@/features/visitors/VisitorNetworkCard';
@@ -40,6 +41,7 @@ function relativeTime(iso?: string | null): string {
 }
 
 function StatusPill({ status }: { status: string }) {
+  const { t } = useTranslation();
   const map: Record<string, string> = {
     requested: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/20',
     in_progress: 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/20',
@@ -49,7 +51,7 @@ function StatusPill({ status }: { status: string }) {
   };
   return (
     <span className={cn('text-[10px] px-2 py-0.5 rounded-full border font-semibold uppercase tracking-wide', map[status])}>
-      {status.replace('_', ' ')}
+      {callbackStatusLabel(t, status)}
     </span>
   );
 }

@@ -27,6 +27,8 @@ import {
   Mic, MicOff, Video as VideoIcon, VideoOff, PhoneOff, Loader2,
   AlertTriangle, Wifi, WifiOff, RefreshCw, ShieldCheck, ChevronDown, ChevronUp,
 } from 'lucide-react';
+import { useTranslation } from '@/i18n';
+import { consoleErrorMessage } from '@/features/calls/callLabels';
 
 export interface OperatorConnectInfo {
   supported: boolean;
@@ -52,6 +54,16 @@ export interface OperatorMediaConsoleProps {
   /** Called when the console has finished showing the post-end UX and is safe to unmount. */
   onEndedConfirmed?: () => void;
   onError?: (error: string) => void;
+  /**
+   * Extra controls rendered inside the console's own control bar, between the
+   * camera and end-call buttons — recording and transfer live here so an
+   * operator has ONE toolbar for the call instead of separate cards scattered
+   * down the page. The parent owns the API calls; the console only positions
+   * them. `isLive` tells the parent whether media is actually up.
+   */
+  toolbarSlot?: (state: { isLive: boolean }) => React.ReactNode;
+  /** Rendered as a full-width strip under the control bar (recording status). */
+  statusSlot?: React.ReactNode;
 }
 
 type Phase =
@@ -70,25 +82,6 @@ type Phase =
   | 'token_expired'
   | 'error';
 
-const ERROR_MESSAGES: Record<string, string> = {
-  livekit_client_load_failed: 'Could not load the call media library.',
-  livekit_client_invalid: 'The local call media library is invalid.',
-  provider_client_not_configured: 'Call provider is not configured.',
-  provider_client_not_supported: 'Selected call provider has no browser client yet.',
-  provider_client_not_ready: 'Call provider is not ready for this call.',
-  microphone_permission_denied: 'Microphone access was denied.',
-  camera_permission_denied: 'Camera access was denied.',
-  room_connect_failed: 'Failed to join the call room.',
-  room_disconnected: 'Disconnected from the call room.',
-  token_expired: 'Your access to this call expired. Reconnect to continue.',
-  livekit_url_missing: 'Call provider has no public URL configured.',
-  reconnect_failed: 'Could not re-establish the call. Try again or end the call.',
-  backend_end_failed: 'Local call ended, but the server did not confirm. Retry to mark it ended.',
-};
-function humanError(code: string): string {
-  return ERROR_MESSAGES[code] || code.replace(/_/g, ' ');
-}
-
 function fmtDur(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
@@ -101,8 +94,11 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
   const {
     callId, callType, connect, token, visitorName,
     onEnd, onReconnect, externalEndedReason, onEndedConfirmed, onError,
+    toolbarSlot, statusSlot,
   } = props;
+  const { t } = useTranslation();
   const wantVideo = callType === 'video';
+  const humanError = useCallback((code: string) => consoleErrorMessage(t, code), [t]);
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [errorCode, setErrorCode] = useState<string | null>(null);
@@ -189,13 +185,19 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
     try {
       const all = await navigator.mediaDevices.enumerateDevices();
       const mics = all.filter((d) => d.kind === 'audioinput')
-        .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Microphone ${i + 1}` }));
+        .map((d, i) => ({
+          deviceId: d.deviceId,
+          label: d.label || t('callCenter.console.micFallback', { n: i + 1 }),
+        }));
       const cams = all.filter((d) => d.kind === 'videoinput')
-        .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Camera ${i + 1}` }));
+        .map((d, i) => ({
+          deviceId: d.deviceId,
+          label: d.label || t('callCenter.console.cameraFallback', { n: i + 1 }),
+        }));
       setMicDevices(mics);
       setCamDevices(cams);
     } catch { /* noop */ }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     refreshDevices();
@@ -615,24 +617,8 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
     phase === 'backend_end_failed' || phase === 'token_expired' ||
     phase === 'reconnect_failed' || phase === 'visitor_disconnected';
 
-  const phaseLabel: string = (() => {
-    switch (phase) {
-      case 'idle': return 'Idle';
-      case 'loading_sdk': return 'Loading media…';
-      case 'connecting': return 'Connecting…';
-      case 'waiting_for_visitor': return 'Waiting for visitor';
-      case 'visitor_connected': return 'Visitor connected';
-      case 'visitor_disconnected': return 'Visitor left';
-      case 'reconnecting': return 'Reconnecting';
-      case 'reconnect_failed': return 'Reconnect failed';
-      case 'ending': return 'Ending…';
-      case 'ended_by_operator': return 'Call ended';
-      case 'ended_by_visitor': return 'Visitor ended call';
-      case 'backend_end_failed': return 'End not confirmed';
-      case 'token_expired': return 'Session expired';
-      case 'error': return 'Error';
-    }
-  })();
+  const phaseLabel: string = t(`callCenter.console.phase.${phase}` as never);
+  const qualityLabel: string = t(`callCenter.console.quality.${quality}` as never);
 
   const qualityColor = quality === 'excellent' ? 'text-emerald-400'
     : quality === 'good' ? 'text-emerald-300'
@@ -652,17 +638,17 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
           {isLive && <span className="ms-2 tabular-nums text-zinc-300">{fmtDur(duration)}</span>}
           <span className={cn('ms-2 inline-flex items-center gap-1', qualityColor)}>
             <ShieldCheck className="h-3 w-3" />
-            <span className="text-[10px] uppercase">Secure</span>
+            <span className="text-[10px] uppercase">{t('callCenter.console.secure')}</span>
           </span>
         </div>
         <div className="text-[10px] text-zinc-400 flex items-center gap-2">
           {visitorName && <span className="truncate max-w-[140px]" title={visitorName}>{visitorName}</span>}
           {visitorName && <span>·</span>}
-          <span>{wantVideo ? 'Video' : 'Voice'}</span>
+          <span>{wantVideo ? t('callCenter.console.video') : t('callCenter.console.voice')}</span>
           <span>·</span>
-          <span>{remoteIdentities.length} remote</span>
+          <span>{t('callCenter.console.connectedCount', { count: remoteIdentities.length })}</span>
           <span>·</span>
-          <span className={qualityColor}>{quality}</span>
+          <span className={qualityColor}>{qualityLabel}</span>
         </div>
       </div>
 
@@ -697,11 +683,11 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
                   {(visitorName || remoteIdentities[0] || 'V').slice(0, 1).toUpperCase()}
                 </div>
                 <div className="text-sm text-zinc-300">
-                  {phase === 'waiting_for_visitor' && 'Waiting for visitor to join…'}
-                  {phase === 'visitor_connected' && 'Waiting for visitor video…'}
-                  {phase === 'visitor_disconnected' && 'Visitor left the call'}
-                  {(phase === 'connecting' || phase === 'loading_sdk') && 'Establishing call…'}
-                  {phase === 'reconnecting' && 'Reconnecting…'}
+                  {phase === 'waiting_for_visitor' && t('callCenter.console.waitingVisitorJoin')}
+                  {phase === 'visitor_connected' && t('callCenter.console.waitingVisitorVideo')}
+                  {phase === 'visitor_disconnected' && t('callCenter.console.visitorLeft')}
+                  {(phase === 'connecting' || phase === 'loading_sdk') && t('callCenter.console.establishing')}
+                  {phase === 'reconnecting' && t('callCenter.console.reconnecting')}
                 </div>
               </div>
             )}
@@ -742,15 +728,15 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-base font-semibold truncate">
-                {visitorName || remoteIdentities[0] || 'Visitor'}
+                {visitorName || remoteIdentities[0] || t('callCenter.console.visitor')}
               </div>
               <div className="text-xs text-zinc-400 mt-0.5 flex items-center gap-2">
                 <span>{phase === 'visitor_connected'
-                  ? (remoteSpeaking ? 'Speaking…' : 'On the line')
-                  : phase === 'waiting_for_visitor' ? 'Waiting for visitor to join…'
-                  : phase === 'visitor_disconnected' ? 'Visitor left'
-                  : phase === 'reconnecting' ? 'Reconnecting…'
-                  : (phase === 'connecting' || phase === 'loading_sdk') ? 'Establishing call…'
+                  ? (remoteSpeaking ? t('callCenter.console.speaking') : t('callCenter.console.onTheLine'))
+                  : phase === 'waiting_for_visitor' ? t('callCenter.console.waitingVisitorJoin')
+                  : phase === 'visitor_disconnected' ? t('callCenter.console.visitorLeft')
+                  : phase === 'reconnecting' ? t('callCenter.console.reconnecting')
+                  : (phase === 'connecting' || phase === 'loading_sdk') ? t('callCenter.console.establishing')
                   : phaseLabel}</span>
                 {isLive && <span className="text-zinc-600">·</span>}
                 {isLive && <span className="tabular-nums font-mono text-zinc-300">{fmtDur(duration)}</span>}
@@ -788,18 +774,18 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
                 {phase === 'backend_end_failed' && (
                   <Button size="sm" variant="secondary" onClick={retryBackendEnd} disabled={endRetrying}>
                     {endRetrying ? <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" /> : <RefreshCw className="h-3.5 w-3.5 me-1.5" />}
-                    Retry end call
+                    {t('callCenter.console.retryEnd')}
                   </Button>
                 )}
                 {phase === 'token_expired' && onReconnect && (
                   <Button size="sm" variant="secondary" onClick={handleReconnect} disabled={reconnecting}>
                     {reconnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" /> : <RefreshCw className="h-3.5 w-3.5 me-1.5" />}
-                    Reconnect
+                    {t('callCenter.console.reconnect')}
                   </Button>
                 )}
                 {phase === 'reconnect_failed' && onReconnect && (
                   <Button size="sm" variant="secondary" onClick={handleReconnect} disabled={reconnecting}>
-                    <RefreshCw className="h-3.5 w-3.5 me-1.5" /> Try again
+                    <RefreshCw className="h-3.5 w-3.5 me-1.5" /> {t('callCenter.console.tryAgain')}
                   </Button>
                 )}
               </div>
@@ -812,7 +798,7 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
           <div className="absolute inset-0 flex items-center justify-center bg-black/70 p-6">
             <div className="max-w-sm rounded-md border border-rose-700/60 bg-rose-950/40 p-4 text-center">
               <AlertTriangle className="h-5 w-5 mx-auto text-rose-400 mb-2" />
-              <div className="text-sm font-medium">Cannot connect</div>
+              <div className="text-sm font-medium">{t('callCenter.console.cannotConnect')}</div>
               <div className="text-xs text-rose-200 mt-1">{humanError(errorCode)}</div>
             </div>
           </div>
@@ -828,50 +814,61 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
           />
         </div>
         <div className="text-[10px] text-zinc-500 mt-1 flex justify-between">
-          <span>Your mic {micOn ? '' : '(muted)'}</span>
-          <span>{remoteSpeaking ? '🟢 Visitor speaking' : ''}</span>
+          <span>
+            {t('callCenter.console.yourMic')}
+            {micOn ? '' : ` (${t('callCenter.console.mutedSuffix')})`}
+          </span>
+          <span>{remoteSpeaking ? `🟢 ${t('callCenter.console.visitorSpeaking')}` : ''}</span>
         </div>
       </div>
 
-      {/* Controls */}
+      {/* Controls — ONE toolbar for the whole call: media, recording,
+          transfer and hang-up, in the order an operator reaches for them. */}
       <div className="flex items-center justify-center gap-2 px-4 py-3 bg-zinc-900/80 border-t border-zinc-800 flex-wrap">
         <Button type="button" variant={micOn ? 'secondary' : 'destructive'} size="sm"
           onClick={toggleMic} disabled={!isLive}
-          title={micOn ? 'Mute microphone' : 'Unmute microphone'}>
+          title={micOn ? t('callCenter.console.muteTitle') : t('callCenter.console.unmuteTitle')}>
           {micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
-          <span className="ms-1.5">{micOn ? 'Mute' : 'Unmute'}</span>
+          <span className="ms-1.5">{micOn ? t('callCenter.console.mute') : t('callCenter.console.unmute')}</span>
         </Button>
         <Button type="button" variant={camOn ? 'secondary' : 'outline'} size="sm"
           onClick={toggleCam} disabled={!wantVideo || !isLive}
-          title={wantVideo ? (camOn ? 'Turn camera off' : 'Turn camera on') : 'Voice-only call'}>
+          title={wantVideo
+            ? (camOn ? t('callCenter.console.cameraOffTitle') : t('callCenter.console.cameraOnTitle'))
+            : t('callCenter.console.voiceOnlyTitle')}>
           {camOn ? <VideoIcon className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
-          <span className="ms-1.5">{camOn ? 'Camera' : 'Camera off'}</span>
+          <span className="ms-1.5">{camOn ? t('callCenter.console.cameraOn') : t('callCenter.console.cameraOff')}</span>
         </Button>
         <Button type="button" variant="ghost" size="sm" onClick={() => setShowDevices((v) => !v)}>
           {showDevices ? <ChevronUp className="h-3.5 w-3.5 me-1" /> : <ChevronDown className="h-3.5 w-3.5 me-1" />}
-          Devices
+          {t('callCenter.console.devices')}
         </Button>
+        {toolbarSlot?.({ isLive })}
         <Button type="button" variant="destructive" size="sm" onClick={handleEnd}
           disabled={phase === 'ending' || phase === 'ended_by_operator'}>
           {phase === 'ending' ? <Loader2 className="h-4 w-4 animate-spin" /> : <PhoneOff className="h-4 w-4" />}
-          <span className="ms-1.5">End call</span>
+          <span className="ms-1.5">{t('callCenter.console.endCall')}</span>
         </Button>
       </div>
+
+      {statusSlot && (
+        <div className="px-4 py-2 bg-zinc-900/60 border-t border-zinc-800">{statusSlot}</div>
+      )}
 
       {showDevices && (
         <div className="px-4 py-3 bg-zinc-900/60 border-t border-zinc-800 space-y-2 text-xs">
           {!deviceSwitchSupported && (
-            <div className="text-[11px] text-amber-300">Device switching not supported by the loaded media client.</div>
+            <div className="text-[11px] text-amber-300">{t('callCenter.console.deviceSwitchUnsupported')}</div>
           )}
           <div className="flex items-center gap-2">
-            <label className="w-16 text-zinc-400">Mic</label>
+            <label className="w-20 text-zinc-400">{t('callCenter.console.micLabel')}</label>
             <select
               className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 disabled:opacity-50"
               value={selectedMic}
               disabled={!deviceSwitchSupported || !isLive}
               onChange={(e) => switchMic(e.target.value)}
             >
-              <option value="">Default</option>
+              <option value="">{t('callCenter.console.defaultDevice')}</option>
               {micDevices.map((d) => (
                 <option key={d.deviceId} value={d.deviceId}>{d.label}</option>
               ))}
@@ -879,14 +876,14 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
           </div>
           {wantVideo && (
             <div className="flex items-center gap-2">
-              <label className="w-16 text-zinc-400">Camera</label>
+              <label className="w-20 text-zinc-400">{t('callCenter.console.cameraLabel')}</label>
               <select
                 className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 disabled:opacity-50"
                 value={selectedCam}
                 disabled={!deviceSwitchSupported || !isLive}
                 onChange={(e) => switchCam(e.target.value)}
               >
-                <option value="">Default</option>
+                <option value="">{t('callCenter.console.defaultDevice')}</option>
                 {camDevices.map((d) => (
                   <option key={d.deviceId} value={d.deviceId}>{d.label}</option>
                 ))}
@@ -895,7 +892,7 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
           )}
           <div className="flex justify-end">
             <Button type="button" variant="ghost" size="sm" onClick={refreshDevices}>
-              <RefreshCw className="h-3 w-3 me-1.5" /> Refresh
+              <RefreshCw className="h-3 w-3 me-1.5" /> {t('callCenter.console.refresh')}
             </Button>
           </div>
         </div>
@@ -903,15 +900,15 @@ export function OperatorMediaConsole(props: OperatorMediaConsoleProps) {
 
       <div className="px-4 pb-3 bg-zinc-900/40 text-[10px] text-zinc-500">
         <button className="underline-offset-2 hover:underline" onClick={() => setShowDebug((v) => !v)}>
-          {showDebug ? 'Hide' : 'Show'} technical details
+          {showDebug ? t('callCenter.console.hideDetails') : t('callCenter.console.showDetails')}
         </button>
         {showDebug && (
           <div className="mt-1 space-y-0.5">
-            <div>provider: {activeConnect?.provider}</div>
-            <div>room: {activeConnect?.room_id}</div>
-            <div>state: {phase}</div>
-            <div>quality: {quality}</div>
-            {errorCode && <div>code: {errorCode}</div>}
+            <div>{t('callCenter.console.provider')}: {activeConnect?.provider}</div>
+            <div>{t('callCenter.console.room')}: {activeConnect?.room_id}</div>
+            <div>{t('callCenter.console.stateLabel')}: {phaseLabel}</div>
+            <div>{t('callCenter.console.qualityLabel')}: {qualityLabel}</div>
+            {errorCode && <div>{t('callCenter.console.codeLabel')}: {errorCode}</div>}
           </div>
         )}
       </div>

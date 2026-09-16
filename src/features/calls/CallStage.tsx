@@ -21,6 +21,7 @@ import {
   logCallVideoOrientation,
 } from './videoOrientation';
 import { applyVideoOrientationClass } from './videoOrientation';
+import { useTranslation } from '@/i18n';
 
 type Remote = ReturnType<typeof useLiveKitCall>['remote'];
 
@@ -48,6 +49,14 @@ function OrientationDebugOverlay({ role, videoRef }: { role: string; videoRef: R
 }
 
 export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
+  const { t } = useTranslation();
+  // The locale files store this under `inbox` as a flat dotted key; a miss
+  // falls back to English rather than printing the key path.
+  const videoPausedKey = 'inbox.callSurface.videoPaused';
+  const videoPausedRaw = (t as unknown as (k: string) => string)(videoPausedKey);
+  const videoPausedLabel = videoPausedRaw === videoPausedKey
+    ? 'Video paused / reconnecting…'
+    : videoPausedRaw;
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   const attachedTrackRef = useRef<Record<string, RemoteVideoTrack | null>>({});
   const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
@@ -227,7 +236,7 @@ export function VideoCallStage({ remote, size = 'small' }: VideoStageProps) {
           {!r.videoTrack && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-call-stage/70 text-call-stage-foreground/80">
               <WifiOff className="w-5 h-5" aria-hidden="true" />
-              <span className="text-[11px] font-medium">Video paused / reconnecting…</span>
+              <span className="text-[11px] font-medium">{videoPausedLabel}</span>
             </div>
           )}
           <audio

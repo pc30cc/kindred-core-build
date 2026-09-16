@@ -7,7 +7,9 @@ import { callCenterApi } from '@/lib/call-center-api';
 import { toast } from '@/hooks/use-toast';
 import { Play, Download, Link as LinkIcon, Mic, Video, AlertCircle } from 'lucide-react';
 import { RecordingTimeline } from '@/components/recordings/RecordingTimeline';
+import { formatDateTime } from '@/lib/date';
 import { useTranslation } from '@/i18n';
+import { recordingTypeLabel } from '@/features/calls/callLabels';
 
 type WorkspaceRec = Awaited<
   ReturnType<typeof callCenterApi.listWorkspaceRecordings>
@@ -101,7 +103,7 @@ function RecordingRow({
     rec.call?.visitor_name?.trim() ||
     rec.call?.visitor_email?.trim() ||
     t('callCenter.recordingsPage.anonymous');
-  const when = rec.created_at ? new Date(rec.created_at).toLocaleString() : '—';
+  const when = formatDateTime(rec.created_at);
 
   return (
     <Card className="p-3 space-y-2">
@@ -112,7 +114,7 @@ function RecordingRow({
         <div className="min-w-0 flex-1">
           <div className="font-medium truncate">{visitor}</div>
           <div className="text-xs text-muted-foreground">
-            {when} · {rec.recording_type || '—'} · {fmtDuration(rec.duration_seconds)} · {fmtBytes(rec.size_bytes)}
+            {when} · {recordingTypeLabel(t, rec.recording_type)} · {fmtDuration(rec.duration_seconds)} · {fmtBytes(rec.size_bytes)}
           </div>
         </div>
         {!rec.has_storage ? (

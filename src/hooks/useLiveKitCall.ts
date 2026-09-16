@@ -29,6 +29,7 @@ import {
   type RemoteAudioTrack,
   type RemoteVideoTrack,
 } from 'livekit-client';
+import { computeCanSwitchCamera, enumerateCameras, type CameraDevice } from '@/features/calls/cameraFacing';
 
 /**
  * Client-side defensive re-normalization of the LiveKit ws_url.
@@ -140,6 +141,18 @@ export interface UseLiveKitCallApi {
   disconnect(reason: LiveKitDisconnectReason, context?: LiveKitDisconnectContext): Promise<void>;
   toggleMic(): Promise<void>;
   toggleCamera(): Promise<void>;
+  /**
+   * Flip between the front and the back camera. Resolves to the facing that
+   * ended up published, or null when the device cannot switch at all.
+   */
+  switchCamera(): Promise<'user' | 'environment' | null>;
+  /**
+   * True only when this device has a front AND a back camera. Guard the
+   * control on this — counting cameras puts a dead button on every laptop
+   * with a second webcam.
+   */
+  canSwitchCamera: boolean;
+  switchingCamera: boolean;
   /** Replace the published camera track with a new preset. Best-effort. */
   setVideoQuality(q: CallVideoQuality): Promise<void>;
   videoQuality: CallVideoQuality;
@@ -162,6 +175,11 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
   const [cameraEnabled, setCameraEnabled] = useState(publishCamera);
   const [videoQuality, setVideoQualityState] = useState<CallVideoQuality>('auto');
   const videoQualityRef = useRef<CallVideoQuality>('auto');
+  const [canSwitchCamera, setCanSwitchCamera] = useState(false);
+  const [switchingCamera, setSwitchingCamera] = useState(false);
+  const camerasRef = useRef<CameraDevice[]>([]);
+  const facingRef = useRef<'user' | 'environment' | ''>('');
+  const switchingRef = useRef(false);
 
   const refreshLocalVideo = useCallback(() => {
     const room = roomRef.current;
@@ -445,6 +463,94 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     refreshLocalVideo();
   }, [refreshLocalVideo]);
 
+  /**
+   * Re-read the camera list. Labels and capabilities only become available
+   * once camera permission has been granted, so this has to run again after
+   * the camera is actually publishing, not just on mount.
+   */
+  const refreshCameras = useCallback(async () => {
+    const cams = await enumerateCameras();
+    camerasRef.current = cams;
+    setCanSwitchCamera(computeCanSwitchCamera(cams));
+  }, []);
+
+  /**
+   * Flip to the other side. LiveKit republishes the camera track in place,
+   * so the room is never renegotiated and the call stays up across a switch.
+   */
+  const switchCamera = useCallback(async (): Promise<'user' | 'environment' | null> => {
+    const room = roomRef.current;
+    if (!room) return null;
+    // The button is hidden without a front/back pair, but enumeration can
+    // land after a render and the hook is a public API, so refuse here too.
+    // Failing silently beats tearing down a live camera track for a switch
+    // that cannot succeed.
+    if (!computeCanSwitchCamera(camerasRef.current)) return null;
+    if (switchingRef.current) return facingRef.current || null;
+    if (!room.localParticipant.isCameraEnabled) return facingRef.current || null;
+
+    switchingRef.current = true;
+    setSwitchingCamera(true);
+    const lp = room.localParticipant;
+    const current = facingRef.current || 'user';
+    const next: 'user' | 'environment' = current === 'environment' ? 'user' : 'environment';
+    const preset = presetForQuality(videoQualityRef.current);
+
+    const republish = async (constraints: Record<string, unknown>) => {
+      await lp.setCameraEnabled(false);
+      await lp.setCameraEnabled(true, { resolution: preset.resolution, ...constraints });
+    };
+
+    try {
+      try {
+        await republish({ facingMode: { exact: next } });
+      } catch {
+        // `exact` is rejected by browsers that only honour facingMode as a
+        // hint; fall back to the hint, then to the device id outright.
+        try {
+          await republish({ facingMode: next });
+        } catch {
+          const target = camerasRef.current.find((c) => c.facing === next);
+          if (!target?.deviceId) throw new Error('no_camera_for_facing');
+          await republish({ deviceId: { exact: target.deviceId } });
+        }
+      }
+      facingRef.current = next;
+      setCameraEnabled(!!lp.isCameraEnabled);
+      refreshLocalVideo();
+      void refreshCameras();
+      return next;
+    } catch {
+      // Best effort: bring the original camera back so the call does not go
+      // dark because a switch failed.
+      try {
+        await lp.setCameraEnabled(true, { resolution: preset.resolution });
+        setCameraEnabled(!!lp.isCameraEnabled);
+        refreshLocalVideo();
+      } catch {
+        setCameraEnabled(!!lp.isCameraEnabled);
+      }
+      return facingRef.current || null;
+    } finally {
+      switchingRef.current = false;
+      setSwitchingCamera(false);
+    }
+  }, [refreshLocalVideo, refreshCameras]);
+
+  // Enumerate once the call is up, and again whenever the camera starts
+  // publishing — that is the point at which the browser reveals labels and
+  // capabilities, and therefore the point at which we can answer whether
+  // this device has a back camera at all.
+  useEffect(() => {
+    if (state !== 'connected') {
+      facingRef.current = '';
+      camerasRef.current = [];
+      setCanSwitchCamera(false);
+      return;
+    }
+    void refreshCameras();
+  }, [state, cameraEnabled, refreshCameras]);
+
   const setVideoQuality = useCallback(async (q: CallVideoQuality) => {
     videoQualityRef.current = q;
     setVideoQualityState(q);
@@ -511,5 +617,9 @@ export function useLiveKitCall(opts: UseLiveKitCallOptions = {}): UseLiveKitCall
     return () => clearInterval(id);
   }, [state, refreshRemotes]);
 
-  return { state, error, remote, localVideoTrack, micEnabled, cameraEnabled, connect, disconnect, toggleMic, toggleCamera, setVideoQuality, videoQuality };
+  return {
+    state, error, remote, localVideoTrack, micEnabled, cameraEnabled,
+    connect, disconnect, toggleMic, toggleCamera, switchCamera,
+    canSwitchCamera, switchingCamera, setVideoQuality, videoQuality,
+  };
 }

@@ -572,18 +572,9 @@ a.wy-powered:hover { color: var(--wy-text); }
   padding: 14px 16px 4px;
   background: var(--wy-surface);
 }
-/* When a full-screen view (home/list/kb/precontact) or the in-panel call
-   surface owns the body, the body itself must not add chrome padding. */
-.body:has(> .wy-view),
-.body:has(> .gs-call-surface) { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
-/* ...and the call surface additionally needs the reserved scrollbar gutter
-   back. `.wy-scroll` keeps `scrollbar-gutter: stable both-edges` on the body
-   so the two sides of a scrolling surface stay equal, which costs 10px on
-   each edge even though the body itself never scrolls here. A full-screen
-   view is transparent over an identically-coloured panel, so nobody could
-   see it; the call surface is dark, and those 10px showed up as a light
-   strip down both edges of the video. */
-.body:has(> .gs-call-surface) { scrollbar-gutter: auto; }
+/* When a full-screen view (home/list/kb/precontact) owns the body, the
+   body itself must not add chrome padding. */
+.body:has(> .wy-view) { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
 
 /* Chat view scroll host — the chat frame owns its own scrolling now that the
    panel no longer wraps a persistent chat body. Design: 16px box on white. */
@@ -1067,20 +1058,107 @@ a.wy-powered:hover { color: var(--wy-text); }
    app does — that is what makes white controls and a picture-in-picture
    readable over live video. The surrounding widget stays light. */
 
-/* Two rows, both of which have to be laid out by the surface itself: the
-   body only hands it a column to fill (see `.body:has(> .gs-call-surface)`
-   above). Without `flex: 1` the surface collapsed to content height and
-   floated in the middle of the panel. */
+/* The host is a PANEL-level overlay, not a view inside the body: the chat
+   stays mounted underneath, so minimizing gives it straight back with no
+   re-render and no torn-down <video>. `.wy-scroll` on the body reserves a
+   scrollbar gutter on both edges, which is invisible under a transparent
+   view but showed up as a light strip down both sides of a dark video —
+   another reason the call does not live in there. */
+.gs-call-host {
+  /* Above `.panel-close` (z-index 20): while the call is full-bleed the
+     visitor hangs up or minimizes rather than dismissing the panel out
+     from under a live call. */
+  position: absolute; inset: 0; z-index: 30;
+  display: flex; flex-direction: column;
+}
+.gs-call-host[hidden] { display: none; }
+
+/* Two rows the surface lays out itself: a stage that takes what is left,
+   and a control bar that does not shrink. */
 .gs-call-surface, [data-call-surface] {
   display: flex; flex-direction: column;
   flex: 1; min-height: 0;
   background: #14161a; color: #fff;
+  overflow: hidden;
 }
 .gs-call-pip-off { display: none; }
 
+/* ── Minimized: a floating card the visitor can chat past ──────────────
+   Docked to the top so it never covers the composer, which is the whole
+   reason for shrinking the call in the first place. Nothing is rebuilt to
+   get here — the same markup is re-laid-out, so the call never drops. */
+.gs-call-host.is-mini {
+  /* Below the header and the panel's own close button, over the message
+     list — never over the composer, which is what the visitor minimized
+     the call in order to reach. */
+  inset: auto; top: 64px; inset-inline-end: 10px;
+  width: 168px; height: 108px;
+  border-radius: var(--wy-radius-md); overflow: hidden;
+  box-shadow: 0 10px 28px -8px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.14);
+  animation: wy-call-mini-in 0.2s var(--wy-ease) both;
+}
+@keyframes wy-call-mini-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+.gs-call-host.is-mini .gs-call-surface { border-radius: inherit; }
+/* At card size there is only room for what identifies the call and what
+   ends it. Everything else comes back on expand. */
+.gs-call-host.is-mini .gs-call-pip,
+.gs-call-host.is-mini .gs-call-eq,
+.gs-call-host.is-mini .gs-call-topbar-status,
+.gs-call-host.is-mini .gs-call-btn-toggle,
+.gs-call-host.is-mini .gs-call-voice-status,
+.gs-call-host.is-mini .gs-call-terminal-label,
+.gs-call-host.is-mini .gs-call-corner { display: none; }
+.gs-call-host.is-mini .gs-call-controls {
+  gap: 8px; padding: 6px; background: transparent;
+  position: absolute; inset-inline: 0; bottom: 0; z-index: 2;
+}
+.gs-call-host.is-mini .gs-call-video .gs-call-controls {
+  background: linear-gradient(180deg, rgba(20, 22, 26, 0) 0%, rgba(20, 22, 26, 0.85) 70%);
+}
+.gs-call-host.is-mini .gs-call-btn { width: 34px; height: 34px; }
+.gs-call-host.is-mini .gs-call-btn svg { width: 16px; height: 16px; }
+.gs-call-host.is-mini .gs-call-btn-back { padding: 5px 10px; font-size: 11.5px; }
+.gs-call-host.is-mini .gs-call-btn-back span { display: none; }
+.gs-call-host.is-mini .gs-call-topbar {
+  top: 6px; inset-inline: 6px; padding: 3px 7px; font-size: 11px; gap: 5px;
+}
+.gs-call-host.is-mini .gs-call-voice-stage { padding: 10px; gap: 4px; }
+.gs-call-host.is-mini .gs-call-voice-orb { width: 44px; height: 44px; margin-bottom: 0; }
+.gs-call-host.is-mini .gs-call-voice-orb svg { width: 18px; height: 18px; }
+.gs-call-host.is-mini .gs-call-voice-timer { font-size: 12px; }
+/* The whole card is the way back into the call, not just the button. */
+.gs-call-host.is-mini .gs-call-stage,
+.gs-call-host.is-mini .gs-call-voice-stage { cursor: zoom-in; }
+
+/* ── Minimize / expand ── */
+.gs-call-size {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 24px; height: 24px; border-radius: 50%;
+  background: transparent; color: rgba(255, 255, 255, 0.85);
+  transition: background-color 0.15s, transform 0.15s var(--wy-ease);
+}
+.gs-call-size:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
+.gs-call-size:active { transform: scale(0.9); }
+/* One button, two glyphs — the box stays identical across both states. */
+.gs-call-size-ico { display: none; line-height: 0; }
+.gs-call-size-min { display: flex; }
+.is-mini .gs-call-size-min { display: none; }
+.is-mini .gs-call-size-max { display: flex; }
+/* The voice screen has no status bar to hang the control off, so it gets
+   its own corner. */
+.gs-call-corner {
+  position: absolute; top: 10px; inset-inline-end: 10px; z-index: 2;
+  display: flex; align-items: center;
+}
+.gs-call-host.is-mini .gs-call-size { width: 22px; height: 22px; }
+.gs-call-host.is-mini .gs-call-size svg { width: 14px; height: 14px; }
+
 /* Channel-specific depth: the voice screen has no video to fill it, and on
    a video call the control bar blends into the stage above it. */
-.gs-call-audio { background: linear-gradient(180deg, #1b1f26 0%, #14161a 100%) #14161a; }
+.gs-call-audio { position: relative; background: linear-gradient(180deg, #1b1f26 0%, #14161a 100%) #14161a; }
 .gs-call-video .gs-call-controls {
   background: linear-gradient(180deg, rgba(20, 22, 26, 0.92) 0%, #14161a 60%);
 }
@@ -1326,7 +1404,10 @@ a.wy-powered:hover { color: var(--wy-text); }
    never changes height and nothing opens above it. */
 .input-bar.is-recording .input,
 .input-bar.is-recording .composer-actions,
-.input-bar.is-recording .mic-btn { display: none; }
+.input-bar.is-recording .mic-btn,
+.input-bar.is-voice-preview .input,
+.input-bar.is-voice-preview .composer-actions,
+.input-bar.is-voice-preview .mic-btn { display: none; }
 .rec-bar {
   display: none;
   flex: 1; min-width: 0;
@@ -1388,6 +1469,67 @@ a.wy-powered:hover { color: var(--wy-text); }
   .rec-dot { animation: none; }
   .rec-wave i { animation: none; height: 10px; }
 }
+
+/* ─── A finished voice note, still inside the composer pill ──────────
+   The recording is done but not sent: the same box now offers the only
+   three things there are to do with it — play it back, throw it away,
+   send it. It used to become a file chip ABOVE the composer, which moved
+   the whole composer down and read like an upload rather than a message
+   waiting to go. Same 46px as the recorder row and the textarea, so none
+   of the three modes resizes the pill. */
+.vn-bar {
+  display: none;
+  flex: 1; min-width: 0;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+}
+.input-bar.is-voice-preview .vn-bar { display: flex; }
+.vn-bar[hidden] { display: none; }
+.input-bar.is-voice-preview .vn-bar[hidden] { display: flex; }
+.vn-bar audio { display: none; }
+.vn-delete { color: var(--wy-muted); }
+.vn-delete:hover { background: rgba(229, 72, 77, 0.1); color: #e5484d; }
+
+.vn-play {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--wy-accent); color: #fff;
+  transition: filter 0.15s, transform 0.15s var(--wy-ease);
+}
+.vn-play:hover { filter: brightness(1.06); }
+.vn-play:active { transform: scale(0.92); }
+/* One button, two glyphs: swapping which one is displayed keeps the
+   button's box identical between play and pause. */
+.vn-ico { display: none; line-height: 0; }
+.vn-ico-play { display: flex; }
+.vn-bar.is-playing .vn-ico-play { display: none; }
+.vn-bar.is-playing .vn-ico-pause { display: flex; }
+
+.vn-track {
+  position: relative; flex: 1; min-width: 0; height: 4px;
+  border-radius: 9999px; background: var(--wy-hover-2); cursor: pointer;
+}
+.vn-progress {
+  position: absolute; inset-block: 0; left: 0; width: 0;
+  border-radius: 9999px; background: var(--wy-accent);
+}
+.vn-time {
+  flex: none; font-size: 12.5px; font-weight: 600; color: var(--wy-muted);
+  font-variant-numeric: tabular-nums; line-height: 1;
+  /* Fixed width so the row does not twitch as playback ticks over. */
+  min-width: 38px; text-align: center;
+}
+.vn-send {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 32px; height: 32px; border-radius: 50%;
+  color: var(--wy-accent); background: transparent;
+  transition: background-color 0.15s, opacity 0.15s, transform 0.15s var(--wy-ease);
+}
+.vn-send:hover:not(:disabled) { background: var(--wy-hover-2); }
+.vn-send:active:not(:disabled) { transform: scale(0.92); }
+/* Still uploading: the note is playable and deletable, but not sendable. */
+.vn-send:disabled { opacity: 0.4; }
 /* Chat footer sits directly under the composer (design source). */
 .composer-zone .wy-footer { padding: 4px 0 2px; }
 .composer-zone .wy-powered { font-size: 12px; }

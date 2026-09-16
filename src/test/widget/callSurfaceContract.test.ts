@@ -66,13 +66,21 @@ describe('call surface — every class the renderer emits is styled', () => {
     expect(orphans).toEqual([]);
   });
 
-  it('gives the call surface the whole body, without the reserved gutter', () => {
+  it('overlays the panel instead of renting space inside the body', () => {
     // The body is `.wy-scroll`, which keeps `scrollbar-gutter: stable
-    // both-edges` so a scrolling surface stays symmetric. The body itself
-    // never scrolls under a call, and those reserved 10px showed up as a
-    // light strip down both edges of a dark video.
-    expect(CSS).toMatch(/\.body:has\(> \.gs-call-surface\)[^}]*\{[^}]*padding:\s*0/);
-    expect(CSS).toMatch(/\.body:has\(> \.gs-call-surface\)\s*\{\s*scrollbar-gutter:\s*auto/);
+    // both-edges` so a scrolling surface stays symmetric — 10px on each
+    // edge, invisible under a transparent view but a light strip down both
+    // sides of a dark video. The call is a panel-level overlay now, which
+    // dodges that and is also what makes minimizing possible at all: the
+    // chat stays mounted underneath.
+    expect(CSS).toMatch(/\.gs-call-host\s*\{[^}]*position:\s*absolute/);
+    expect(CSS).toMatch(/\.gs-call-host\s*\{[^}]*inset:\s*0/);
+    expect(CSS).not.toMatch(/\.body:has\(> \.gs-call-surface\)/);
+    // Above `.panel-close` (z-index 20), so a full-bleed call cannot be
+    // dismissed out from under itself.
+    const host = CSS.slice(CSS.indexOf('.gs-call-host {'));
+    const z = /z-index:\s*(\d+)/.exec(host.slice(0, host.indexOf('}')))?.[1];
+    expect(Number(z)).toBeGreaterThan(20);
   });
 
   it('keeps the stage and the control bar as the only two rows', () => {
@@ -121,5 +129,73 @@ describe('call surface — the renderer keeps its side of the contract', () => {
     expect(RUNTIME).toContain('callSurface: function (patch) { callSurfaceStore.set(patch); }');
     const hookStart = RUNTIME.indexOf('__test: (typeof window');
     expect(RUNTIME.indexOf('callSurface: function (patch)')).toBeGreaterThan(hookStart);
+  });
+});
+
+describe('call surface — a minimized call is one you can chat through', () => {
+  it('shrinks by class, never by rebuilding the markup', () => {
+    // A rebuild would detach the MediaStreamTrack and drop the picture, so
+    // `minimized` must stay OUT of the render signature that decides
+    // whether renderCallSurface replaces innerHTML.
+    const src = callRendererSource();
+    const sig = src.slice(src.indexOf('var sig = ['), src.indexOf("].join('|')"));
+    expect(sig).not.toContain('minimized');
+    expect(RUNTIME).toContain("host.classList.toggle('is-mini', !!cs.minimized);");
+  });
+
+  it('gives the chat back rather than leaving it hidden', () => {
+    // `inert` keeps the chat mounted but unreachable under a full-bleed
+    // call; minimizing lifts it with no re-render and no lost scroll.
+    expect(RUNTIME).toContain('var __callCovers = __cs.phase !== \'idle\' && !__cs.minimized;');
+    expect(RUNTIME).toContain('body.inert = __callCovers;');
+    // The old approach unmounted the chat to draw the call in its place.
+    expect(RUNTIME).not.toContain('renderCallSurface(body, __cs);');
+  });
+
+  it('never lets the card cover the composer it was minimized to reach', () => {
+    const mini = CSS.slice(CSS.indexOf('.gs-call-host.is-mini {'));
+    const block = mini.slice(0, mini.indexOf('}'));
+    // Docked to the top, over the message list — a `bottom` anchor would
+    // put it exactly where the composer is.
+    expect(block).toMatch(/top:\s*\d+px/);
+    expect(block).not.toMatch(/[^-]bottom:\s*\d/);
+    // And by writing direction, so Persian gets the right corner.
+    expect(block).toContain('inset-inline-end');
+  });
+
+  it('keeps the way out of the call at card size', () => {
+    // Toggles can wait for the expand; hanging up cannot.
+    const hidden = CSS.slice(CSS.indexOf('.gs-call-host.is-mini .gs-call-pip'));
+    const rule = hidden.slice(0, hidden.indexOf('}'));
+    expect(rule).toContain('.gs-call-btn-toggle');
+    expect(rule).not.toContain('.gs-call-btn-hangup');
+  });
+
+  it('starts every call full size', () => {
+    // openCallSurface and closeCallSurface both reset it, so a second call
+    // never inherits the first one's size.
+    expect(RUNTIME.match(/^\s+minimized: false,$/gm)?.length).toBe(3);
+  });
+
+  it('treats the whole card as the way back in', () => {
+    // A 168px target beats the 22px button on a phone.
+    expect(RUNTIME).toContain('if (!btn && callSurfaceStore.get().minimized) {');
+    expect(RUNTIME).toContain('setCallMinimized(false);');
+  });
+
+  it('delegates from the surface root, not from the control bar', () => {
+    // The size control sits in the topbar so it survives the terminal
+    // phases, which puts it outside [data-call-controls].
+    expect(RUNTIME).toContain("var surfaceEl = container.querySelector('[data-call-surface]');");
+    expect(RUNTIME).toContain("target.closest('[data-call-size]')");
+  });
+
+  it('labels the control for both directions of the toggle', () => {
+    for (const key of ['csMinimize', 'csExpand']) {
+      // One entry per locale (en / fa / tr), plus the two read sites.
+      expect(RUNTIME.match(new RegExp(`${key}:`, 'g'))?.length, key).toBe(3);
+    }
+    // The label flips without a rebuild, so it is refreshed live.
+    expect(RUNTIME).toMatch(/updateCallSurfaceLive[\s\S]{0,600}sizeBtn\.setAttribute\('aria-label', sizeLabel\)/);
   });
 });

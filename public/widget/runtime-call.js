@@ -167,6 +167,10 @@
   var currentCameraFacing = ''; // 'user' | 'environment' | ''
   var currentCameraDeviceId = '';
   var availableCameras = [];     // [{ deviceId, label, facing? }]
+  // True only when a front AND a back camera were both found — see
+  // computeCanSwitchCamera(). Never assume switchable before the
+  // first enumeration completes.
+  var canSwitchCamera = false;
   var enumerateInFlight = false;
   var switchInFlight = false;
 
@@ -586,6 +590,52 @@
     return '';
   }
 
+  /**
+   * Which way a camera points, most reliable source first.
+   *
+   * `InputDeviceInfo.getCapabilities().facingMode` is the authoritative
+   * answer and, crucially, it is the one that tells desktops apart: a
+   * laptop webcam reports an EMPTY facingMode list, while a phone camera
+   * reports ['user'] or ['environment']. Labels are the fallback for
+   * browsers without that API (notably Safari, which does name its
+   * cameras "Front Camera" / "Back Camera" once permission is granted).
+   */
+  function facingOfDevice(device) {
+    try {
+      if (device && typeof device.getCapabilities === 'function') {
+        var caps = device.getCapabilities() || {};
+        var modes = caps.facingMode;
+        if (modes && modes.length) {
+          for (var i = 0; i < modes.length; i++) {
+            if (modes[i] === 'environment' || modes[i] === 'user') return modes[i];
+          }
+        }
+      }
+    } catch (_) { /* getCapabilities can throw on some builds */ }
+    return inferFacingFromLabel((device && device.label) || '');
+  }
+
+  /**
+   * Whether "switch camera" is a real operation on this device.
+   *
+   * switchCamera() flips between the front and the back camera, so the
+   * only thing that makes the control meaningful is having BOTH. Counting
+   * cameras is not enough and was the old bug: a laptop with a built-in
+   * webcam plus a USB or virtual camera reported two devices, showed the
+   * button, and then failed — there is no `environment` camera to switch
+   * to. A device whose cameras we could not classify at all counts as not
+   * switchable; a control that does nothing is worse than an absent one.
+   */
+  function computeCanSwitchCamera(cams) {
+    var hasUser = false;
+    var hasEnvironment = false;
+    for (var i = 0; i < cams.length; i++) {
+      if (cams[i].facing === 'user') hasUser = true;
+      else if (cams[i].facing === 'environment') hasEnvironment = true;
+    }
+    return hasUser && hasEnvironment;
+  }
+
   function enumerateCameras() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
       return Promise.resolve([]);
@@ -599,14 +649,20 @@
           return {
             deviceId: d.deviceId || '',
             label: d.label || '',
-            facing: inferFacingFromLabel(d.label || ''),
+            facing: facingOfDevice(d),
           };
         });
       availableCameras = cams;
+      canSwitchCamera = computeCanSwitchCamera(cams);
       try {
-        dlog('available cameras', { count: cams.length, cameras: cams.map(function (c) { return { id: c.deviceId.slice(0, 8), label: c.label, facing: c.facing }; }) });
+        dlog('available cameras', { count: cams.length, canSwitch: canSwitchCamera, cameras: cams.map(function (c) { return { id: c.deviceId.slice(0, 8), label: c.label, facing: c.facing }; }) });
       } catch (_) {}
-      emitter.emit('cameras', { cameras: cams.slice(), facing: currentCameraFacing, deviceId: currentCameraDeviceId });
+      emitter.emit('cameras', {
+        cameras: cams.slice(),
+        facing: currentCameraFacing,
+        deviceId: currentCameraDeviceId,
+        canSwitch: canSwitchCamera,
+      });
       enumerateInFlight = false;
       return cams;
     }).catch(function (e) {
@@ -653,6 +709,14 @@
     if (!room || !engineFullyConnected) {
       dlog('switch camera ignored: not fully connected');
       return Promise.resolve(null);
+    }
+    // The UI hides the control on a device with no back camera, but the
+    // engine is a public API and the enumeration can land after a render,
+    // so the refusal lives here too. Failing silently beats tearing the
+    // live camera track down for a switch that cannot succeed.
+    if (!canSwitchCamera) {
+      dlog('switch camera ignored: no front/back camera pair on this device');
+      return Promise.resolve(currentCameraFacing);
     }
     if (switchInFlight) {
       dlog('switch camera ignored: already switching');
@@ -756,6 +820,7 @@
     }
     if (s === 'disconnected' || s === 'failed') {
       availableCameras = [];
+      canSwitchCamera = false;
       currentCameraFacing = '';
       currentCameraDeviceId = '';
       switchInFlight = false;
@@ -783,6 +848,7 @@
           cameraEnabled: cameraEnabled,
           connectedAt: connectedAt,
           cameras: availableCameras.slice(),
+          canSwitchCamera: canSwitchCamera,
           currentCameraDeviceId: currentCameraDeviceId,
           currentCameraFacing: currentCameraFacing,
           videoQuality: 'auto',

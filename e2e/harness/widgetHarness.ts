@@ -116,6 +116,15 @@ export async function routeAll(page: Page, opts: RouteOpts) {
         body: readFileSync(file, 'utf8'),
       });
     }
+    // Upload handshake: init issues an id, upload accepts the bytes. Both
+    // have to work for an attachment to reach the 'ready' state that makes
+    // it sendable.
+    if (p.endsWith('/api/widget/attachments/init')) {
+      return json({ attachment_id: 'att-1' });
+    }
+    if (p.endsWith('/upload') && p.includes('/api/widget/attachments/')) {
+      return json({ ok: true });
+    }
     if (p.includes('/api/widget/attachments/')) {
       await new Promise((r) => setTimeout(r, imageDelayMs));
       return route.fulfill({ status: 200, contentType: 'image/svg+xml', body: TALL_IMAGE });

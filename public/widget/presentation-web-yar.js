@@ -57,6 +57,8 @@
       quote: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17l-5-5 5-5"/><path d="M4 12h10a5 5 0 0 1 5 5v2"/></svg>',
       trash: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>',
       recCheck: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>',
+      playSm: '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M8 5.2v13.6a1 1 0 0 0 1.53.85l10.6-6.8a1 1 0 0 0 0-1.7L9.53 4.35A1 1 0 0 0 8 5.2Z"/></svg>',
+      pauseSm: '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1.3"/><rect x="13.5" y="5" width="4" height="14" rx="1.3"/></svg>',
     };
 
     // Delivery ticks: one tick = sent, two ticks = delivered, two accent
@@ -852,6 +854,12 @@
           'stroke-linecap="round" stroke-linejoin="round"><path d="M19 9l-7 7-7-7"/></svg>' +
         '</button>' +
         '<div class="body wy-scroll" data-body></div>' +
+        // The in-panel call surface is a PANEL-level overlay, not a view
+        // inside the body. That is what lets a visitor shrink the call and
+        // keep chatting: the chat view stays mounted underneath, and
+        // expanding again is a class toggle rather than a re-render — so
+        // the <video> element is never torn down mid-call.
+        '<div class="gs-call-host" data-call-host hidden></div>' +
         '<div class="att-lightbox" data-att-lightbox hidden role="dialog" aria-modal="true" aria-label="' +
           esc(t('openFile')) + '">' +
           '<button type="button" class="att-lightbox-close" data-att-lightbox-close aria-label="' +
@@ -971,6 +979,32 @@
                       '<button type="button" class="rec-btn rec-confirm" data-rec-stop title="' +
                         esc(t('stopRecording')) + '" aria-label="' + esc(t('stopRecording')) + '">' +
                         ICON.recCheck + '</button>' +
+                    '</div>'
+                  : '') +
+                // A finished recording stays in the SAME pill rather than
+                // becoming a file chip above the composer: the visitor can
+                // hear it back, throw it away, or send it without the
+                // composer ever changing height. Transport controls run
+                // left→right even in RTL, because audio timelines do
+                // everywhere — hence the explicit dir on the row.
+                (voiceNotesEnabled && micSupported
+                  ? '<div class="vn-bar" data-vn-bar hidden dir="ltr">' +
+                      '<button type="button" class="rec-btn vn-delete" data-vn-delete title="' +
+                        esc(t('remove')) + '" aria-label="' + esc(t('remove')) + '">' +
+                        ICON.trash + '</button>' +
+                      '<button type="button" class="vn-play" data-vn-toggle aria-label="' +
+                        esc(t('playAudio')) + '" title="' + esc(t('playAudio')) + '">' +
+                        '<span class="vn-ico vn-ico-play">' + ICON.playSm + '</span>' +
+                        '<span class="vn-ico vn-ico-pause">' + ICON.pauseSm + '</span>' +
+                      '</button>' +
+                      '<div class="vn-track" data-vn-seek>' +
+                        '<div class="vn-progress" data-vn-progress></div>' +
+                      '</div>' +
+                      '<span class="vn-time" data-vn-time>0:00</span>' +
+                      '<audio data-vn-audio preload="metadata"></audio>' +
+                      '<button type="button" class="vn-send" data-vn-send aria-label="' +
+                        esc(tf('send', 'Send')) + '" title="' + esc(tf('send', 'Send')) + '">' +
+                        ICON.send + '</button>' +
                     '</div>'
                   : '') +
               '</div>' +

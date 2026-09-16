@@ -165,13 +165,25 @@ test.describe('controls', () => {
   });
 
   test('a fourth control still fits without scrolling or shrinking', async ({ page }) => {
-    await openCall(page, {
-      phase: 'connected', channel: 'video', cameras: [{ id: 'a' }, { id: 'b' }],
-    });
+    await openCall(page, { phase: 'connected', channel: 'video', canSwitchCamera: true });
     const g = (await geometry(page))!;
     expect(g.buttons.map((b) => b.action)).toEqual(['mic', 'cam', 'switch-cam', 'hangup']);
     for (const b of g.buttons) expect(b.w).toBe(52);
     expect(g.overflowPx).toBe(0);
+  });
+
+  test('a device with no back camera gets no flip-camera button at all', async ({ page }) => {
+    // A laptop: one webcam, or several that all face the viewer. There is
+    // nothing to flip to, so the control must not be there — it used to
+    // appear for any two enumerated cameras and then fail on click.
+    await openCall(page, {
+      phase: 'connected',
+      channel: 'video',
+      cameras: [{ deviceId: 'a', facing: '' }, { deviceId: 'b', facing: '' }],
+      canSwitchCamera: false,
+    });
+    const g = (await geometry(page))!;
+    expect(g.buttons.map((b) => b.action)).toEqual(['mic', 'cam', 'hangup']);
   });
 
   test('ended and failed swap the controls for a labelled way back to chat', async ({ page }) => {
@@ -225,14 +237,123 @@ test.describe('overlays sit inside the stage', () => {
   });
 });
 
-test('the composer and the tab bar step aside for a call', async ({ page }) => {
+test('a full-bleed call covers the chat and takes it out of reach', async ({ page }) => {
+  // The chat is not unmounted for a call — it is covered and made inert.
+  // That is what lets minimizing hand it straight back (see below) with no
+  // re-render, no lost scroll position and no torn-down <video>.
   await openCall(page, { phase: 'connected', channel: 'video' });
   const chrome = await page.evaluate(() => {
-    const vis = (el: Element | null) => !!el && getComputedStyle(el as HTMLElement).display !== 'none';
+    const host = document.querySelector('[data-call-host]') as HTMLElement;
+    const panel = document.querySelector('.panel') as HTMLElement;
+    const body = document.querySelector('.body') as HTMLElement;
+    const hr = host.getBoundingClientRect(); const pr = panel.getBoundingClientRect();
     return {
-      composer: vis(document.querySelector('.composer-zone')),
-      tabs: Array.from(document.querySelectorAll('.tab')).some(vis),
+      coversPanel: Math.abs(hr.width - pr.width) < 1 && Math.abs(hr.height - pr.height) < 1,
+      bodyInert: body.inert === true,
+      bodyAriaHidden: body.getAttribute('aria-hidden'),
+      // The chat frame is still there, just unreachable.
+      composerStillMounted: !!document.querySelector('.input-wrap'),
     };
   });
-  expect(chrome).toEqual({ composer: false, tabs: false });
+  expect(chrome).toEqual({
+    coversPanel: true, bodyInert: true, bodyAriaHidden: 'true', composerStillMounted: true,
+  });
+});
+
+test.describe('minimizing lets the visitor chat through the call', () => {
+  test('the card clears the composer and gives the chat back', async ({ page }) => {
+    await openCall(page, { phase: 'connected', channel: 'video', connectedAt: Date.now() });
+    await page.locator('[data-call-size]').click();
+    await page.waitForTimeout(250);
+
+    const mini = await page.evaluate(() => {
+      const host = document.querySelector('[data-call-host]') as HTMLElement;
+      const panel = document.querySelector('.panel') as HTMLElement;
+      const composer = document.querySelector('.input-wrap') as HTMLElement;
+      const body = document.querySelector('.body') as HTMLElement;
+      const hr = host.getBoundingClientRect(); const cr = composer.getBoundingClientRect();
+      const pr = panel.getBoundingClientRect();
+      return {
+        isMini: host.classList.contains('is-mini'),
+        w: Math.round(hr.width), h: Math.round(hr.height),
+        // The one thing a minimized call must never cover is the box the
+        // visitor minimized it in order to reach.
+        overlapsComposer: !(hr.right <= cr.left || hr.left >= cr.right
+          || hr.bottom <= cr.top || hr.top >= cr.bottom),
+        insidePanel: hr.top >= pr.top && hr.bottom <= pr.bottom
+          && hr.left >= pr.left && hr.right <= pr.right,
+        bodyInert: body.inert === true,
+      };
+    });
+    expect(mini.isMini).toBe(true);
+    expect(mini.overlapsComposer).toBe(false);
+    expect(mini.insidePanel).toBe(true);
+    expect(mini.bodyInert).toBe(false);
+    expect(mini.w).toBeLessThan(220);
+    expect(mini.h).toBeLessThan(160);
+
+    // And the composer actually works — the point of the whole feature.
+    await page.locator('[data-msg-input]').fill('typing during a call');
+    expect(await page.locator('[data-msg-input]').inputValue()).toBe('typing during a call');
+  });
+
+  test('shrinking and growing never rebuilds the video element', async ({ page }) => {
+    // A rebuild would detach the MediaStreamTrack and drop the call's
+    // picture, so size is a class toggle on live markup — never a
+    // re-render. Tagging the node is the only way to prove identity.
+    await openCall(page, { phase: 'connected', channel: 'video', connectedAt: Date.now() });
+    await page.evaluate(() => {
+      (document.querySelector('[data-call-remote-video]') as HTMLElement & { __tag?: string }).__tag = 'original';
+    });
+
+    await page.locator('[data-call-size]').click();
+    await page.waitForTimeout(250);
+    const survivedShrink = await page.evaluate(() =>
+      (document.querySelector('[data-call-remote-video]') as HTMLElement & { __tag?: string })?.__tag);
+    expect(survivedShrink).toBe('original');
+
+    // The whole card is the way back in, not just the 22px button.
+    await page.locator('.gs-call-stage').click();
+    await page.waitForTimeout(250);
+    const survivedGrow = await page.evaluate(() => ({
+      tag: (document.querySelector('[data-call-remote-video]') as HTMLElement & { __tag?: string })?.__tag,
+      isMini: document.querySelector('[data-call-host]')!.classList.contains('is-mini'),
+    }));
+    expect(survivedGrow).toEqual({ tag: 'original', isMini: false });
+  });
+
+  test('an audio call minimizes too, and keeps its timer', async ({ page }) => {
+    await openCall(page, { phase: 'connected', channel: 'audio', connectedAt: Date.now() - 65_000 });
+    await page.locator('[data-call-size]').click();
+    await page.waitForTimeout(250);
+    const mini = await page.evaluate(() => {
+      const host = document.querySelector('[data-call-host]') as HTMLElement;
+      const timer = document.querySelector('[data-call-timer]') as HTMLElement | null;
+      return {
+        isMini: host.classList.contains('is-mini'),
+        timer: timer?.textContent ?? null,
+        timerVisible: !!timer && timer.getBoundingClientRect().height > 0,
+        // Hanging up must stay reachable at card size.
+        hangup: !!document.querySelector('[data-call-action="hangup"]'),
+      };
+    });
+    expect(mini.isMini).toBe(true);
+    expect(mini.timerVisible).toBe(true);
+    expect(mini.timer).toMatch(/^\d{2}:\d{2}$/);
+    expect(mini.hangup).toBe(true);
+  });
+
+  test('a fresh call always starts full size', async ({ page }) => {
+    await openCall(page, { phase: 'connected', channel: 'video' });
+    await page.locator('[data-call-size]').click();
+    await page.waitForTimeout(200);
+    // Closing and starting over must not inherit the last call's size.
+    await drive(page, { phase: 'idle' });
+    await drive(page, { phase: 'connecting', channel: 'audio', minimized: false });
+    const host = await page.evaluate(() => {
+      const h = document.querySelector('[data-call-host]') as HTMLElement;
+      return { hidden: h.hidden, isMini: h.classList.contains('is-mini') };
+    });
+    expect(host).toEqual({ hidden: false, isMini: false });
+  });
 });

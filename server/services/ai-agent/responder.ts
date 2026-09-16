@@ -13,7 +13,7 @@ import {
 } from '../realtime/publish.js';
 import { ensureOutboundIntent } from '../channels/outbound.js';
 import { maybeQueueTelegramOfflineScreen } from '../channels/telegram/offlineDelivery.js';
-import type { AgentSettings } from './settings.js';
+import { resolveWorkspaceAgentLogoUrl, type AgentSettings } from './settings.js';
 
 export interface InsertAiMessageInput {
   workspaceId: string;
@@ -107,12 +107,29 @@ export async function insertAiMessage(
   }
 
   // Realtime fan-out: same envelope as operator messages.
+  //
+  // The envelope MUST carry the sender identity. The widget draws the avatar
+  // from `sender_avatar`, and its only fallback is a `metadata.agent_logo_url`
+  // snapshot — which this path deliberately no longer writes, because a URL
+  // frozen into a row names one storage provider and stops being true the
+  // moment a new one is promoted. So the link is DERIVED here from the
+  // agent's storage key and put on the envelope, exactly as
+  // buildMessageEnvelope's own contract requires of every caller that
+  // inserts an agent message. Without it a live AI reply renders with no
+  // logo until the visitor reloads and /poll re-enriches it.
   try {
+    const senderAvatar = (await resolveWorkspaceAgentLogoUrl(config, input.workspaceId))
+      ?? input.agentLogoUrl
+      ?? null;
     await publishConversationEvent(
       config,
       input.workspaceId,
       input.conversationId,
-      buildMessageEnvelope(row as Parameters<typeof buildMessageEnvelope>[0]),
+      buildMessageEnvelope({
+        ...(row as Parameters<typeof buildMessageEnvelope>[0]),
+        sender_name: input.agentName ?? null,
+        sender_avatar: senderAvatar,
+      }),
     );
   } catch (e) {
     console.warn('[ai-agent] publish AI message failed:', e?.message || e);
@@ -121,6 +138,15 @@ export async function insertAiMessage(
   return { id: row?.id || null };
 }
 
+/**
+ * The agent's display identity for a reply.
+ *
+ * `agentLogoUrl` reads the legacy `agent_logo_url` column, which the avatar
+ * upload route clears — so it is normally NULL and exists only as a fallback
+ * for a workspace that still has an operator-typed value there. The real
+ * link is derived from `metadata.ai_avatar_storage_key` at publish time by
+ * insertAiMessage(); nothing should treat this field as authoritative.
+ */
 export function deriveAgentDisplay(settings: AgentSettings): {
   agentName: string;
   agentLogoUrl: string | null;

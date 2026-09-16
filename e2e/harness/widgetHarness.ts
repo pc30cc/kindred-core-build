@@ -8,7 +8,7 @@
  * here: jsdom has no layout and no file chooser.
  */
 import type { Page, Route } from '@playwright/test';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
@@ -16,6 +16,32 @@ const read = (p: string) => readFileSync(path.join(root, p), 'utf8');
 const CSS = read('public/widget/runtime.css') + read('public/widget/presentation-web-yar.css');
 
 export const ORIGIN = 'http://widget.test';
+/** getUserMedia only exists in a secure context, so mic specs boot from https. */
+export const SECURE_ORIGIN = 'https://widget.test';
+
+/**
+ * Same resolution playwright.config.ts uses. Specs that override
+ * `launchOptions` (to add fake-media flags) replace the config's block
+ * wholesale, so they have to re-supply the executable themselves.
+ */
+export function resolveChromium(): string | undefined {
+  const explicit = process.env.PLAYWRIGHT_CHROMIUM_PATH;
+  if (explicit) return explicit;
+  for (const root of ['/opt/ms-playwright', '/opt/pw-browsers']) {
+    if (!existsSync(root)) continue;
+    for (const dir of readdirSync(root).filter((d) => d.startsWith('chromium-')).sort().reverse()) {
+      const candidate = path.join(root, dir, 'chrome-linux', 'chrome');
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return undefined;
+}
+
+/** Chromium flags that make getUserMedia resolve without a real microphone. */
+export const FAKE_MEDIA_ARGS = [
+  '--use-fake-ui-for-media-stream',
+  '--use-fake-device-for-media-stream',
+];
 
 /** 168x400 — CSS caps it at max-height 190px, so the bubble grows ~106px
  *  the moment it lands. */
@@ -122,6 +148,8 @@ export async function routeAll(page: Page, opts: RouteOpts) {
 }
 
 export interface BootOpts {
+  /** Origin to boot from — https when the test needs a secure context. */
+  origin?: string;
   /** Seed the per-tab continuity hint, i.e. simulate a reload mid-conversation. */
   resumeCid?: string;
   /** Widget config overrides merged into the defaults. */
@@ -134,7 +162,8 @@ export async function boot(page: Page, opts: BootOpts = {}) {
   await page.addInitScript(() => {
     (window as unknown as Record<string, unknown>).__GS_WIDGET_TEST_HOOKS__ = true;
   });
-  await page.goto(`${ORIGIN}/host`);
+  const origin = opts.origin ?? ORIGIN;
+  await page.goto(`${origin}/host`);
   if (opts.resumeCid) {
     await page.evaluate((cid) => {
       sessionStorage.setItem('gs:view:ws', JSON.stringify({ tab: 'chat', conversationId: cid }));
@@ -142,7 +171,7 @@ export async function boot(page: Page, opts: BootOpts = {}) {
     await page.reload();
   }
   for (const f of ['presentation-registry.js', 'presentation-web-yar.js', 'runtime-chat.js', 'runtime.js']) {
-    await page.addScriptTag({ url: `${ORIGIN}/widget/${f}` });
+    await page.addScriptTag({ url: `${origin}/widget/${f}` });
   }
   await page.evaluate(({ config, keepClosed }) => {
     const w = window as unknown as Record<string, unknown>;

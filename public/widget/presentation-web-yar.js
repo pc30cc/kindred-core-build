@@ -55,6 +55,8 @@
       copy: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>',
       check: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>',
       quote: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17l-5-5 5-5"/><path d="M4 12h10a5 5 0 0 1 5 5v2"/></svg>',
+      trash: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>',
+      recCheck: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>',
     };
 
     // Delivery ticks: one tick = sent, two ticks = delivered, two accent
@@ -947,6 +949,30 @@
                       : '') +
                   '</div>' +
                 '</div>' +
+                // Voice recording takes over the pill itself (WhatsApp-style)
+                // rather than opening a second strip above it. It is a
+                // SIBLING of the textarea, not a replacement: Core holds
+                // references to the composer nodes from the single build, so
+                // the mode switch is a class toggle and nothing is rebuilt.
+                (voiceNotesEnabled && micSupported
+                  ? '<div class="rec-bar" data-rec-bar hidden>' +
+                      '<button type="button" class="rec-btn rec-cancel" data-rec-cancel title="' +
+                        esc(t('cancelRecording')) + '" aria-label="' + esc(t('cancelRecording')) + '">' +
+                        ICON.trash + '</button>' +
+                      '<span class="rec-live">' +
+                        '<span class="rec-dot" aria-hidden="true"></span>' +
+                        '<span class="rec-time" data-rec-timer role="timer" aria-live="off">0:00</span>' +
+                      '</span>' +
+                      '<span class="rec-wave" aria-hidden="true">' +
+                        '<i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>' +
+                      '</span>' +
+                      '<span class="sr-only" data-rec-sr role="status" aria-live="polite">' +
+                        esc(t('recording')) + '</span>' +
+                      '<button type="button" class="rec-btn rec-confirm" data-rec-stop title="' +
+                        esc(t('stopRecording')) + '" aria-label="' + esc(t('stopRecording')) + '">' +
+                        ICON.recCheck + '</button>' +
+                    '</div>'
+                  : '') +
               '</div>' +
             '</div>' +
 

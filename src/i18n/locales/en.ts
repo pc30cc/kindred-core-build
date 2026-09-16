@@ -2715,8 +2715,10 @@ const en = {
       failed: 'Failed',
     },
     duration: {
-      minuteShort: 'm',
-      secondShort: 's',
+      minute: 'minute',
+      minutes: 'minutes',
+      second: 'second',
+      seconds: 'seconds',
     },
     states: {
       pending: 'Waiting',

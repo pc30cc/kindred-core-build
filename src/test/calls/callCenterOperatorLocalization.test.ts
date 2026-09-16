@@ -4,6 +4,7 @@ import en from '@/i18n/locales/en';
 import fa from '@/i18n/locales/fa';
 import tr from '@/i18n/locales/tr';
 import {
+  callDurationParts,
   callEventLabel,
   callStateLabel,
   callbackStatusLabel,
@@ -158,12 +159,30 @@ describe.each(Object.keys(LOCALES))('call center operator labels (%s)', (locale)
     }
   });
 
-  it('localizes duration units', () => {
+  it('spells duration units out and matches singular to plural', () => {
     const unit = (LOCALES[locale] as { callCenter: { duration: Record<string, string> } })
       .callCenter.duration;
-    expect(formatCallDuration(t, 95)).toBe(`1${unit.minuteShort} 35${unit.secondShort}`);
-    expect(formatCallDuration(t, 7)).toBe(`7${unit.secondShort}`);
-    expect(formatCallDuration(t, null)).toBe(`0${unit.secondShort}`);
+    // Never a bare letter next to the figure — "5د 30ث" read as noise.
+    for (const word of Object.values(unit)) expect(word.length, word).toBeGreaterThan(1);
+
+    expect(formatCallDuration(t, 95)).toBe(`1 ${unit.minute} 35 ${unit.seconds}`);
+    expect(formatCallDuration(t, 61)).toBe(`1 ${unit.minute} 1 ${unit.second}`);
+    expect(formatCallDuration(t, 120)).toBe(`2 ${unit.minutes}`);
+    expect(formatCallDuration(t, 7)).toBe(`7 ${unit.seconds}`);
+    // A zero duration still labels itself rather than leaving a tile blank.
+    expect(formatCallDuration(t, null)).toBe(`0 ${unit.seconds}`);
+  });
+
+  it('splits a duration into value/unit pairs for the small-unit renderer', () => {
+    const unit = (LOCALES[locale] as { callCenter: { duration: Record<string, string> } })
+      .callCenter.duration;
+    expect(callDurationParts(t, 95)).toEqual([
+      { value: 1, unit: unit.minute },
+      { value: 35, unit: unit.seconds },
+    ]);
+    // A whole number of minutes drops the seconds part entirely.
+    expect(callDurationParts(t, 180)).toEqual([{ value: 3, unit: unit.minutes }]);
+    expect(callDurationParts(t, 0)).toEqual([{ value: 0, unit: unit.seconds }]);
   });
 
   it('degrades an unknown code to readable text, never a key path', () => {

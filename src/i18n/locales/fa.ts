@@ -2700,8 +2700,10 @@ const fa: TranslationKeys = {
       failed: 'ناموفق',
     },
     duration: {
-      minuteShort: 'د',
-      secondShort: 'ث',
+      minute: 'دقیقه',
+      minutes: 'دقیقه',
+      second: 'ثانیه',
+      seconds: 'ثانیه',
     },
     states: {
       pending: 'در انتظار',

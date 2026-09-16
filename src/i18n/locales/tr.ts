@@ -2704,8 +2704,10 @@ const tr: TranslationKeys = {
       failed: 'Başarısız',
     },
     duration: {
-      minuteShort: 'dk',
-      secondShort: 'sn',
+      minute: 'dakika',
+      minutes: 'dakika',
+      second: 'saniye',
+      seconds: 'saniye',
     },
     states: {
       pending: 'Bekliyor',

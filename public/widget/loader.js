@@ -419,9 +419,12 @@
     ".badge{position:absolute;top:-2px;right:-2px;min-width:18px;height:18px;border-radius:9px;",
     "background:#EF4444;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;",
     "padding:0 5px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.15);}",
-    ".error-toast{position:fixed;bottom:92px;right:24px;max-width:280px;padding:10px 14px;",
+    ".error-toast{position:fixed;bottom:92px;right:24px;left:auto;max-width:280px;padding:10px 14px;",
     "background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;color:#991B1B;font-size:12px;",
     "box-shadow:0 4px 12px rgba(0,0,0,.08);z-index:2147483647;display:none;}",
+    /* A bottom-left widget used to throw its error toast at the opposite
+       corner of the screen, far from the launcher it belongs to. */
+    ".error-toast.toast-left{left:24px;right:auto;}",
     ".error-toast.visible{display:block;}",
     /* Mobile keeps the configured size — parity between closed and open. */
     /* ── Smart Engagement: launcher nudge only (loader-owned surface). ── */
@@ -480,6 +483,20 @@
     ".smart-nudge.bottom-right{transform-origin:100% 100%;}",
     ".smart-nudge.bottom-left{transform-origin:0 100%;}",
     "@media(max-width:480px){.smart-nudge{max-width:calc(100vw - 48px);}}",
+
+    /* ── Reduced motion ──
+       The template stylesheet already honours this for the panel's own
+       surfaces, but everything the LOADER owns — the FAB's slide/scale, its
+       optional pulse, the label card and the nudge's intro — kept moving for
+       visitors who asked the OS for less motion. State changes still apply;
+       only the movement is removed. */
+    "@media(prefers-reduced-motion:reduce){",
+    ".launcher,.gs-fab-label,.launcher .fab-img{transition:none!important;animation:none!important;}",
+    ".launcher.pulse{animation:none!important;}",
+    ".launcher:hover{transform:none;}",
+    ".anim-on .smart-nudge.entering,.anim-on .smart-nudge.leaving{animation:none!important;}",
+    ".smart-nudge .smart-cta{transition:none!important;}",
+    ".smart-nudge .smart-cta:hover{transform:none;}}",
 
   ].join("");
 
@@ -574,7 +591,12 @@
     // `pending` keeps the launcher invisible (opacity:0, no pointer events)
     // until config arrives. This eliminates the visible blue→brand flash.
     launcherEl.className = "launcher bottom-right pending";
-    launcherEl.setAttribute("aria-label", "Open chat");
+    // The launcher is a disclosure control for the chat panel. Its name is
+    // recomputed (localized, open/closed, unread count) by syncLauncherLabel;
+    // this is only the pre-config default.
+    launcherEl.setAttribute("aria-haspopup", "dialog");
+    launcherEl.setAttribute("aria-expanded", "false");
+    syncLauncherLabel();
     launcherEl.innerHTML =
       '<svg class="chat-icon" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>' +
       '<svg class="close-icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>';
@@ -598,6 +620,11 @@
       chatUnavailable: "Chat unavailable.",
       notAuthorized: "Chat not authorized for this site.",
       bootstrapFailed: "Could not start chat.",
+      openChat: "Open chat",
+      closeChat: "Close chat",
+      unreadOne: "1 unread message",
+      unreadMany: "{n} unread messages",
+      dismiss: "Dismiss",
       configFailed: "Could not load chat settings.",
     },
     fa: {
@@ -608,6 +635,11 @@
       chatUnavailable: "چت در دسترس نیست.",
       notAuthorized: "این سایت مجاز به استفاده از چت نیست.",
       bootstrapFailed: "راه‌اندازی چت ممکن نشد.",
+      openChat: "باز کردن گفتگو",
+      closeChat: "بستن گفتگو",
+      unreadOne: "۱ پیام خوانده‌نشده",
+      unreadMany: "{n} پیام خوانده‌نشده",
+      dismiss: "بستن",
       configFailed: "بارگذاری تنظیمات چت ناموفق بود.",
     },
     tr: {
@@ -618,6 +650,11 @@
       chatUnavailable: "Sohbet kullanılamıyor.",
       notAuthorized: "Bu site için sohbete izin verilmiyor.",
       bootstrapFailed: "Sohbet başlatılamadı.",
+      openChat: "Sohbeti aç",
+      closeChat: "Sohbeti kapat",
+      unreadOne: "1 okunmamış mesaj",
+      unreadMany: "{n} okunmamış mesaj",
+      dismiss: "Kapat",
       configFailed: "Sohbet ayarları yüklenemedi.",
     },
   };
@@ -626,6 +663,22 @@
     var locale = String(raw).toLowerCase().split("-")[0];
     var dict = LOADER_STRINGS[locale] || LOADER_STRINGS.en;
     return dict[key] || LOADER_STRINGS.en[key] || key;
+  }
+
+  // Accessible name for the launcher: "<Open|Close> chat" plus the unread
+  // count when there is one, in the visitor's locale. Previously a
+  // hardcoded English "Open chat" that never changed state and left the
+  // unread badge to be read as a bare number with no context.
+  function syncLauncherLabel() {
+    if (!launcherEl) return;
+    var label = isOpen ? lt("closeChat") : lt("openChat");
+    var n = lastUnreadCount | 0;
+    if (!isOpen && n > 0) {
+      var tpl = n === 1 ? lt("unreadOne") : lt("unreadMany");
+      label += " — " + String(tpl).replace("{n}", String(n));
+    }
+    launcherEl.setAttribute("aria-label", label);
+    launcherEl.setAttribute("aria-expanded", isOpen ? "true" : "false");
   }
 
   function showShellError(message) {
@@ -658,8 +711,19 @@
   }
 
   var fabLabelEl = null;
+  function prefersReducedMotion() {
+    try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; }
+    catch (_) { return false; }
+  }
   function playFabEntry(element) {
     if (!element) return;
+    // A Web Animations call bypasses the CSS media query entirely, so the
+    // reduced-motion opt-out has to be honoured here too. The element still
+    // ends up in its resting position — it just gets there instantly.
+    if (prefersReducedMotion()) {
+      element.classList.remove("enter");
+      return;
+    }
     var distance = "var(--gs-fab-exit,112px)";
     // Use a real keyframe animation rather than relying only on a class
     // transition. The launcher is hidden while config loads, so some browsers
@@ -782,6 +846,13 @@
         playFabEntry(launcherEl);
         playFabEntry(labelEl);
       }
+      // The real locale is only known now that /config has resolved — the
+      // label built at mount time used the page's `lang` as a guess.
+      syncLauncherLabel();
+    }
+    // Error toasts are anchored to the SAME corner as the launcher.
+    if (errorToastEl) {
+      errorToastEl.classList.toggle("toast-left", posClass === "bottom-left");
     }
   }
 
@@ -1030,6 +1101,7 @@
     }
     if (launcherEl) launcherEl.classList.toggle("open", !!isOpen);
     if (fabLabelEl) fabLabelEl.classList.toggle("open", !!isOpen);
+    syncLauncherLabel();
     applyMobileFullScreen(!!isOpen);
     if (isOpen !== was) emitPublicEvent(isOpen ? "open" : "close");
     return isOpen;
@@ -1129,6 +1201,7 @@
     isOpen = false;
     if (launcherEl) launcherEl.classList.remove("open");
     if (fabLabelEl) fabLabelEl.classList.remove("open");
+    syncLauncherLabel();
     if (wasOpen) {
       playFabEntry(launcherEl);
       playFabEntry(fabLabelEl);
@@ -1541,9 +1614,12 @@
       var badge = document.createElement("span");
       badge.className = "badge";
       badge.textContent = count > 9 ? "9+" : String(count);
+      // The count is carried by the launcher's own accessible name instead.
+      badge.setAttribute("aria-hidden", "true");
       launcherEl.appendChild(badge);
     }
     lastUnreadCount = Math.max(0, count | 0);
+    syncLauncherLabel();
     emitPublicEvent("unreadchange", lastUnreadCount);
   }
 
@@ -2244,7 +2320,8 @@
     function surfaceHtml(content, dismissible) {
       return (dismissible === false
         ? ""
-        : '<button type="button" class="smart-dismiss" data-smart-dismiss aria-label="close">\u00d7</button>') +
+        : '<button type="button" class="smart-dismiss" data-smart-dismiss aria-label="' +
+            String(lt("dismiss")).replace(/"/g, "&quot;") + '">\u00d7</button>') +
         (content.title ? '<div class="smart-title">' + escapeText(content.title) + "</div>" : "") +
         '<div class="smart-body">' + escapeText(content.body || "") + "</div>" +
         (content.cta_label

@@ -614,7 +614,8 @@
               esc(t('retry')) + '</button>';
         } else if (m.sender === 'visitor' && isLastInStreak && receiptsEnabled && m.status) {
           if (m.status === 'sending') {
-            statusHtml = '<span class="msg-ticks is-sending"><span class="msg-status-spinner"></span></span>';
+            statusHtml = '<span class="msg-ticks is-sending" aria-label="' + esc(t('msgSending')) + '">' +
+              '<span class="msg-status-spinner" aria-hidden="true"></span></span>';
           } else {
             var seen = m.status === 'seen';
             var two = seen || m.status === 'delivered';
@@ -819,7 +820,8 @@
     function smartSurfaceHtml(s) {
       return (s.dismissible === false
         ? ''
-        : '<button type="button" class="smart-dismiss" data-smart-dismiss aria-label="close">\u00d7</button>') +
+        : '<button type="button" class="smart-dismiss" data-smart-dismiss aria-label="' +
+            esc(tf('close', 'Close')) + '">\u00d7</button>') +
         (s.title ? '<div class="smart-title">' + esc(s.title) + '</div>' : '') +
         '<div class="smart-body">' + esc(s.body || '') + '</div>' +
         (s.ctaLabel
@@ -947,9 +949,27 @@
           '</div>'
         : footerHtml();
 
+      // Jump-to-latest: the ONLY affordance for a visitor who scrolled up
+      // while new messages kept arriving. Core owns the visibility state
+      // (`hidden` + `has-new`) — the template only describes the look.
+      var jumpHtml = chatEnabled
+        ? '<button type="button" class="wy-jump" data-chat-jump hidden' +
+            ' aria-label="' + esc(tf('scrollToLatest', 'Scroll to latest message')) + '">' +
+            '<span class="wy-jump-ico" aria-hidden="true">' +
+              '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" ' +
+              'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/>' +
+              '<path d="M19 12l-7 7-7-7"/></svg>' +
+            '</span>' +
+            '<span class="wy-jump-label" data-chat-jump-label></span>' +
+          '</button>'
+        : '';
+
       return '<div class="wy-view wy-view-chat"' + (rtl ? ' dir="rtl"' : '') + '>' +
         chatHeader +
-        '<div class="wy-chat-scroll wy-scroll" data-chat-messages></div>' +
+        '<div class="wy-chat-scroll-host">' +
+          '<div class="wy-chat-scroll wy-scroll" data-chat-messages></div>' +
+          jumpHtml +
+        '</div>' +
         inputHtml +
       '</div>';
     }
@@ -1158,6 +1178,7 @@
       vm = vm || {};
       return '<div class="kb-search-wrap">' +
         '<input class="kb-search" type="search" autocomplete="off" autocorrect="off" spellcheck="false" ' +
+        'aria-label="' + esc(t('searchKb')) + '" ' +
         'placeholder="' + esc(t('searchKb')) + '" value="' + esc(vm.query || '') + '" /></div>';
     }
 

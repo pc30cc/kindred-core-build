@@ -94,7 +94,7 @@ function boot(): Harness {
   });
 
   loadAsset('public/widget/presentation-registry.js');
-  loadAsset('public/widget/presentation-web-yar.js');
+  loadAsset('public/widget/presentation-default.js');
   loadAsset('public/widget/runtime.js');
 
   const host = document.createElement('gs-widget-test');

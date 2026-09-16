@@ -2,33 +2,33 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 /**
- * Web Yar design contract lock.
+ * Widget design contract lock.
  *
  * These tests do NOT merely assert that an element exists — they lock the
- * exact values taken from the design source (Web Yar Chat Widget), so a
+ * exact values taken from the design source, so a
  * future refactor cannot silently drift the typography, the chat header box
  * or the composer geometry.
  */
 
 const RUNTIME_CSS = readFileSync('public/widget/runtime.css', 'utf8');
-const PRES_CSS = readFileSync('public/widget/presentation-web-yar.css', 'utf8');
-const PRES_FONTS_CSS = readFileSync('public/widget/presentation-web-yar-fonts.css', 'utf8');
+const PRES_CSS = readFileSync('public/widget/presentation-default.css', 'utf8');
+const PRES_FONTS_CSS = readFileSync('public/widget/presentation-default-fonts.css', 'utf8');
 const RUNTIME_JS = readFileSync('public/widget/runtime.js', 'utf8');
 const REGISTRY_SRC = readFileSync('public/widget/presentation-registry.js', 'utf8');
-const RENDERER_SRC = readFileSync('public/widget/presentation-web-yar.js', 'utf8');
+const RENDERER_SRC = readFileSync('public/widget/presentation-default.js', 'utf8');
 
 function renderer(cfgExtra: Record<string, unknown> = {}) {
   // eslint-disable-next-line no-new-func
   new Function(REGISTRY_SRC).call(window);
   // eslint-disable-next-line no-new-func
   new Function(RENDERER_SRC).call(window);
-  return (window as any).__gs_presentation_web_yar.create({
+  return (window as any).__gs_presentation_default.create({
     t: (k: string) => k,
     escapeHtml: (v: unknown) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string),
     config: {
       brandName: 'Acme',
-      platformName: 'Web Yar',
+      platformName: 'Acme Platform',
       launcherText: 'با ما گفتگو کنید',
       attachments: { enabled: true, voiceNotesEnabled: true },
       composer: { emojiEnabled: true },
@@ -97,7 +97,7 @@ describe('typography ownership', () => {
   });
 
   it('exposes the font asset generically through the registry descriptor', () => {
-    expect(REGISTRY_SRC).toContain("fonts: 'presentation-web-yar-fonts.css'");
+    expect(REGISTRY_SRC).toContain("fonts: 'presentation-default-fonts.css'");
     const loader = readFileSync('public/widget/loader.js', 'utf8');
     // The loader must stay template-agnostic: no font family, no fixed path.
     expect(loader).not.toContain('IRANSans');

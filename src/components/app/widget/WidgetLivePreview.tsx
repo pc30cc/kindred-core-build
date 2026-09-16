@@ -284,7 +284,7 @@ export function WidgetLivePreview({
     const shadowColor: string = shadowFromPrimary(primary);
     const pos = s.position === 'bottom-left' ? 'bottom-left' : 'bottom-right';
     /* Header titles use workspace identity only — launcher_text is a launcher
-       concern and is not consumed by the Web Yar presentation. */
+       concern and is not consumed by the presentation layer. */
     // An explicit empty brand_name means "cleared" — show no name at all.
     const title = (typeof s.brand_name === 'string'
       ? s.brand_name.trim()

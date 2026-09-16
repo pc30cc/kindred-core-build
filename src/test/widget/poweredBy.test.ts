@@ -5,7 +5,7 @@ import { buildPoweredByConfig, isPoweredByAllowedForPlan } from '../../../server
 import { CAPABILITY_REGISTRY } from '../../../server/services/billing/capabilityRegistry';
 
 const PRES_JS = readFileSync(
-  resolve(__dirname, '../../../public/widget/presentation-web-yar.js'),
+  resolve(__dirname, '../../../public/widget/presentation-default.js'),
   'utf8',
 );
 
@@ -85,7 +85,7 @@ function renderFooter(poweredBy: unknown, showPoweredBy?: boolean): string {
   const sandbox: any = { window: {}, document: undefined, setTimeout, Promise };
   vm.createContext(sandbox);
   vm.runInContext(PRES_JS, sandbox);
-  const renderer = sandbox.window.__gs_presentation_web_yar.create({
+  const renderer = sandbox.window.__gs_presentation_default.create({
     escapeHtml: (v: unknown) =>
       String(v == null ? '' : v).replace(/[&<>"']/g, (c) =>
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string,
@@ -93,7 +93,7 @@ function renderFooter(poweredBy: unknown, showPoweredBy?: boolean): string {
     locale: 'en',
     config: {
       workspaceName: 'Acme',
-      platformName: 'Web Yar',
+      platformName: 'Acme Platform',
       poweredBy,
       ...(showPoweredBy === undefined ? {} : { showPoweredBy }),
     },
@@ -105,9 +105,9 @@ function renderFooter(poweredBy: unknown, showPoweredBy?: boolean): string {
 
 describe('powered-by link behaviour (rendered markup)', () => {
   it('renders a native anchor with noopener nofollow and a strict-origin referrer', () => {
-    const html = renderFooter({ text: 'Powered by', brand: 'Web Yar', url: 'https://webyar.example/' });
+    const html = renderFooter({ text: 'Powered by', brand: 'Acme Platform', url: 'https://platform.example/' });
     expect(html).toContain('<a class="wy-powered"');
-    expect(html).toContain('href="https://webyar.example/"');
+    expect(html).toContain('href="https://platform.example/"');
     expect(html).toContain('target="_blank"');
     expect(html).toMatch(/rel="[^"]*noopener[^"]*"/);
     expect(html).toMatch(/rel="[^"]*nofollow[^"]*"/);
@@ -116,11 +116,11 @@ describe('powered-by link behaviour (rendered markup)', () => {
     // Native navigation only — no scripted click / window.open hooks.
     expect(html).not.toContain('data-powered');
     expect(html).not.toContain('onclick');
-    expect(html).toContain('Powered by Web Yar');
+    expect(html).toContain('Powered by Acme Platform');
   });
 
   it('renders a non-interactive span when no url is configured', () => {
-    const html = renderFooter({ text: 'Powered by', brand: 'Web Yar', url: null });
+    const html = renderFooter({ text: 'Powered by', brand: 'Acme Platform', url: null });
     expect(html).toContain('<span class="wy-powered">');
     expect(html).not.toContain('<a ');
     expect(html).not.toContain('href');
@@ -137,8 +137,8 @@ describe('powered-by link behaviour (rendered markup)', () => {
   it('degrades unsafe schemes to a non-clickable span', () => {
     for (const url of ['javascript:alert(1)', 'data:text/html,x', 'file:///etc/passwd']) {
       const safe = buildPoweredByConfig(
-        { powered_by_enabled: true, powered_by_text: 'Powered by', powered_by_brand_text: 'Web Yar', powered_by_url: url },
-        'Web Yar',
+        { powered_by_enabled: true, powered_by_text: 'Powered by', powered_by_brand_text: 'Acme Platform', powered_by_url: url },
+        'Acme Platform',
         true,
       );
       expect(safe?.url).toBeNull();

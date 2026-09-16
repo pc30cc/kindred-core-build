@@ -15,7 +15,7 @@ const preview = fs.readFileSync(
   'utf8',
 );
 const css = fs.readFileSync(
-  path.resolve(process.cwd(), 'public/widget/presentation-web-yar.css'),
+  path.resolve(process.cwd(), 'public/widget/presentation-default.css'),
   'utf8',
 );
 const loader = fs.readFileSync(path.resolve(process.cwd(), 'public/widget/loader.js'), 'utf8');
@@ -87,7 +87,9 @@ describe('generic presentation readiness', () => {
   it('lets the active presentation prepare itself without font/template knowledge in Core', () => {
     expect(loader).toContain('typeof presentationModule.prepare === "function"');
     expect(loader).not.toContain('IRANSans');
-    expect(loader).not.toContain('web-yar');
+    // The loader must name no template asset: it asks the registry.
+    // (The bare id is too common a word to assert on.)
+    expect(loader).not.toContain('presentation-default');
     expect(preview).toContain("typeof mod.prepare === 'function'");
   });
 
@@ -128,7 +130,7 @@ describe('silent preload lifecycle', () => {
 describe('home surface — design renderVals() contract', () => {
   it('keeps article chips visible even with recent conversations', () => {
     const js = fs.readFileSync(
-      path.resolve(process.cwd(), 'public/widget/presentation-web-yar.js'),
+      path.resolve(process.cwd(), 'public/widget/presentation-default.js'),
       'utf8',
     );
     // renderVals(): showArticleChips true, showArticlesButton false.
@@ -139,7 +141,7 @@ describe('home surface — design renderVals() contract', () => {
 
   it('the footer credits the platform, not the workspace brand', () => {
     const js = fs.readFileSync(
-      path.resolve(process.cwd(), 'public/widget/presentation-web-yar.js'),
+      path.resolve(process.cwd(), 'public/widget/presentation-default.js'),
       'utf8',
     );
     expect(js).toContain('(pb && pb.brand) || (config && config.platformName)');

@@ -24,24 +24,34 @@
 (function () {
   'use strict';
 
-  var DEFAULT_ID = 'web-yar';
+  var DEFAULT_ID = 'default';
 
   var TEMPLATES = {
-    // The official Web Yar widget design — the single, default template.
-    'web-yar': {
-      id: 'web-yar',
-      name: 'Web Yar',
-      globalKey: '__gs_presentation_web_yar',
-      script: 'presentation-web-yar.js',
-      style: 'presentation-web-yar.css',
+    // The shipped widget design — the single, default template. The id is
+    // deliberately generic: it is baked into asset file names and persisted
+    // in widget settings, so naming it after a product would outlive the
+    // product.
+    'default': {
+      id: 'default',
+      name: 'Default',
+      globalKey: '__gs_presentation_default',
+      script: 'presentation-default.js',
+      style: 'presentation-default.css',
       // Single source of font bytes for this template (base64-inlined faces).
-      fonts: 'presentation-web-yar-fonts.css',
+      fonts: 'presentation-default-fonts.css',
     },
   };
 
+  /**
+   * Ids this template used to be called. An embed or a settings row written
+   * before the rename still resolves here instead of 404ing on assets that
+   * no longer exist.
+   */
+  var LEGACY_IDS = { 'web-yar': 'default' };
 
   function resolve(id) {
     if (id && TEMPLATES[id]) return TEMPLATES[id];
+    if (id && LEGACY_IDS[id]) return TEMPLATES[LEGACY_IDS[id]];
     return TEMPLATES[DEFAULT_ID];
   }
 

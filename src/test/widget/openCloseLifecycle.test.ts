@@ -4,7 +4,7 @@ import path from "node:path";
 
 const root = path.resolve(process.cwd(), "public/widget");
 const loader = fs.readFileSync(path.join(root, "loader.js"), "utf8");
-const css = fs.readFileSync(path.join(root, "presentation-web-yar.css"), "utf8");
+const css = fs.readFileSync(path.join(root, "presentation-default.css"), "utf8");
 const runtime = fs.readFileSync(path.join(root, "runtime.js"), "utf8");
 
 describe("widget open/close lifecycle contract", () => {
@@ -30,7 +30,7 @@ describe("widget open/close lifecycle contract", () => {
     expect(loader).toContain(".launcher.enter,.launcher.enter:hover{transform:translateY(var(--gs-fab-exit,112px));");
     expect(loader).toContain(".launcher.open svg.chat-icon{display:none;}");
     expect(loader).toContain(".launcher:not(.open) svg.close-icon{display:none;}");
-    const tpl = fs.readFileSync(path.join(root, "presentation-web-yar.js"), "utf8");
+    const tpl = fs.readFileSync(path.join(root, "presentation-default.js"), "utf8");
     expect(tpl).toContain("data-panel-close");
   });
 
@@ -62,7 +62,7 @@ describe("widget open/close lifecycle contract", () => {
   });
 
   it("no header close control is added by the template", () => {
-    const tpl = fs.readFileSync(path.join(root, "presentation-web-yar.js"), "utf8");
+    const tpl = fs.readFileSync(path.join(root, "presentation-default.js"), "utf8");
     expect(tpl).not.toContain("data-close-panel");
   });
 });

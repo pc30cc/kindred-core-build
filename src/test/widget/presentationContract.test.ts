@@ -7,12 +7,16 @@ import { readFileSync, existsSync } from 'node:fs';
  * Widget Core (runtime.js) must never build markup itself; the active
  * template renderer is the single source of truth for HTML. These tests
  * pin that boundary so a future patch cannot quietly move markup back
- * into Core, and they lock "web-yar" as the ONLY shipped template.
+ * into Core, and they lock "default" as the ONLY shipped template.
  */
 
 const RUNTIME = readFileSync('public/widget/runtime.js', 'utf8');
+import {
+  resolveWidgetTemplateId, widgetTemplateAssetKeys,
+} from '../../../server/services/widget/presentationAssets.js';
+
 const REGISTRY_SRC = readFileSync('public/widget/presentation-registry.js', 'utf8');
-const RENDERER_SRC = readFileSync('public/widget/presentation-web-yar.js', 'utf8');
+const RENDERER_SRC = readFileSync('public/widget/presentation-default.js', 'utf8');
 
 function loadPresentation() {
   // eslint-disable-next-line no-new-func
@@ -20,7 +24,7 @@ function loadPresentation() {
   // eslint-disable-next-line no-new-func
   new Function(RENDERER_SRC).call(window);
   const registry = (window as any).__gs_presentation_registry;
-  const desc = registry.resolve('web-yar');
+  const desc = registry.resolve('default');
   const mod = (window as any)[desc.globalKey];
   return mod.create({
     t: (k: string) => k,
@@ -40,14 +44,14 @@ function loadPresentation() {
 }
 
 describe('widget presentation — template registry', () => {
-  it('ships web-yar as the only template and resolves unknown ids to it', () => {
+  it('ships default as the only template and resolves unknown ids to it', () => {
     // eslint-disable-next-line no-new-func
     new Function(REGISTRY_SRC).call(window);
     const registry = (window as any).__gs_presentation_registry;
-    expect(registry.defaultId).toBe('web-yar');
-    expect(registry.resolve('web-yar').script).toBe('presentation-web-yar.js');
-    expect(registry.resolve('web-yar').style).toBe('presentation-web-yar.css');
-    expect(registry.resolve('does-not-exist').id).toBe('web-yar');
+    expect(registry.defaultId).toBe('default');
+    expect(registry.resolve('default').script).toBe('presentation-default.js');
+    expect(registry.resolve('default').style).toBe('presentation-default.css');
+    expect(registry.resolve('does-not-exist').id).toBe('default');
     expect(registry.list().length).toBe(1);
   });
 
@@ -57,11 +61,11 @@ describe('widget presentation — template registry', () => {
     expect(REGISTRY_SRC.includes('classic')).toBe(false);
     expect(RUNTIME.includes('presentation-classic')).toBe(false);
     const serverDefault = readFileSync('server/services/widget/presentationAssets.ts', 'utf8');
-    expect(serverDefault).toContain("DEFAULT_WIDGET_TEMPLATE_ID = 'web-yar'");
+    expect(serverDefault).toContain("DEFAULT_WIDGET_TEMPLATE_ID = 'default'");
   });
 });
 
-describe('widget presentation — web-yar renderer contract', () => {
+describe('widget presentation — default renderer contract', () => {
   let r: any;
   beforeAll(() => { r = loadPresentation(); });
 
@@ -190,7 +194,7 @@ describe('widget core — no markup left behind', () => {
 
   it('keeps template CSS out of the core stylesheet', () => {
     const core = readFileSync('public/widget/runtime.css', 'utf8');
-    const template = readFileSync('public/widget/presentation-web-yar.css', 'utf8');
+    const template = readFileSync('public/widget/presentation-default.css', 'utf8');
     expect(core.includes('.home-root')).toBe(false);
     expect(core.includes('.msg-bubble')).toBe(false);
     expect(template).toContain('.panel');
@@ -250,9 +254,9 @@ describe('widget preview — template-agnostic single source of truth', () => {
   const PREVIEW = readFileSync('src/components/app/widget/WidgetLivePreview.tsx', 'utf8');
 
   it('never hard-codes a template asset', () => {
-    expect(PREVIEW.includes('presentation-web-yar.js')).toBe(false);
-    expect(PREVIEW.includes('presentation-web-yar.css')).toBe(false);
-    expect(PREVIEW.includes('__gs_presentation_web_yar')).toBe(false);
+    expect(PREVIEW.includes('presentation-default.js')).toBe(false);
+    expect(PREVIEW.includes('presentation-default.css')).toBe(false);
+    expect(PREVIEW.includes('__gs_presentation_default')).toBe(false);
     expect(PREVIEW.includes('presentation-classic')).toBe(false);
   });
 
@@ -276,8 +280,10 @@ describe('widget build pipeline — template-agnostic', () => {
   it('discovers presentation assets instead of listing them', () => {
     const hashScript = readFileSync('scripts/widget-hash.js', 'utf8');
     expect(hashScript).toContain('presentation-');
-    expect(/['"]presentation-web-yar\.js['"]/.test(hashScript)).toBe(false);
-    expect(/['"]presentation-web-yar\.css['"]/.test(hashScript)).toBe(false);
+    // The build must DISCOVER `presentation-<id>.*`, never enumerate ids —
+    // otherwise renaming a template means editing the build too.
+    expect(/['"]presentation-default\.js['"]/.test(hashScript)).toBe(false);
+    expect(/['"]presentation-default\.css['"]/.test(hashScript)).toBe(false);
     expect(hashScript.includes('presentation-classic')).toBe(false);
   });
 
@@ -285,13 +291,56 @@ describe('widget build pipeline — template-agnostic', () => {
     const route = readFileSync('server/routes/widget.ts', 'utf8');
     expect(route).toContain('resolveWidgetTemplateId');
     expect(route).toContain('widgetTemplateAssetKeys');
-    expect(/const templateId = ['"]web-yar['"]/.test(route)).toBe(false);
+    expect(/const templateId = ['"]default['"]/.test(route)).toBe(false);
   });
 
   it('ships the licensed template fonts', () => {
     for (const f of ['iransans-400.woff2', 'iransans-500.woff2', 'iransans-700.woff2']) {
       expect(existsSync(`public/widget/fonts/${f}`), `missing font ${f}`).toBe(true);
     }
-    expect(RENDERER_SRC).toContain('web-yar');
+  });
+
+  it('registers the renderer under exactly the key the registry declares', () => {
+    // The template id is baked into the asset file names, the window key and
+    // the registry entry. Renaming it in one place and not the others leaves
+    // the loader fetching a file that exists and then looking for a global
+    // that never appears — so this compares them instead of hardcoding.
+    new Function(REGISTRY_SRC).call(window);
+    const registry = (window as unknown as {
+      __gs_presentation_registry: {
+        defaultId: string;
+        resolve: (id: string) => { id: string; globalKey: string; script: string; style: string };
+      };
+    }).__gs_presentation_registry;
+    const desc = registry.resolve(registry.defaultId);
+
+    expect(RENDERER_SRC).toContain(`window.${desc.globalKey} = { id: '${desc.id}'`);
+    expect(desc.script).toBe(`presentation-${desc.id}.js`);
+    expect(desc.style).toBe(`presentation-${desc.id}.css`);
+    expect(existsSync(`public/widget/${desc.script}`), desc.script).toBe(true);
+    expect(existsSync(`public/widget/${desc.style}`), desc.style).toBe(true);
+  });
+
+  it('resolves the legacy id on the server too, where a 404 would result', () => {
+    // The browser registry can fall back for ANY unknown id, so a stale id
+    // is harmless there. The server builds a FILE NAME out of it, so without
+    // an explicit alias it would serve the loader `presentation-web-yar.js`
+    // — a file that no longer exists.
+    expect(resolveWidgetTemplateId('web-yar')).toBe('default');
+    expect(widgetTemplateAssetKeys('web-yar')).toEqual({
+      script: 'presentation-default.js',
+      style: 'presentation-default.css',
+      fonts: 'presentation-default-fonts.css',
+    });
+  });
+
+  it('still resolves the id this template used to have', () => {
+    // A settings row or an embed written before the rename must land on the
+    // real assets, not 404 on files that no longer exist.
+    new Function(REGISTRY_SRC).call(window);
+    const registry = (window as unknown as {
+      __gs_presentation_registry: { resolve: (id: string) => { id: string } };
+    }).__gs_presentation_registry;
+    expect(registry.resolve('web-yar').id).toBe('default');
   });
 });

@@ -1,8 +1,8 @@
 /**
- * Widget Presentation — "web-yar" renderer.
+ * Widget Presentation — the "default" renderer.
  *
  * THE default (and only) presentation template. Registered under
- * `window.__gs_presentation_web_yar` and resolved through
+ * `window.__gs_presentation_default` and resolved through
  * `presentation-registry.js`.
  *
  * CONTRACT (see docs/WIDGET_PRESENTATION_ARCHITECTURE.md)
@@ -1672,7 +1672,7 @@
 
     return {
 
-      id: 'web-yar',
+      id: 'default',
       shellHtml: shellHtml,
       chatFrameHtml: chatFrameHtml,
       homeHtml: homeHtml,
@@ -1730,5 +1730,5 @@
     ]);
   }
 
-  window.__gs_presentation_web_yar = { id: 'web-yar', create: create, prepare: prepare };
+  window.__gs_presentation_default = { id: 'default', create: create, prepare: prepare };
 })();

@@ -1,4 +1,4 @@
-# WebYar Chat Widget — Public JavaScript API
+# Chat Widget — Public JavaScript API
 
 The visitor-facing widget exposes a small, stable command/event surface on
 `window.__gs`. This is the *only* supported way for a host page to control

@@ -12,14 +12,14 @@ import { readFileSync } from 'node:fs';
 
 const RUNTIME = readFileSync('public/widget/runtime.js', 'utf8');
 const REGISTRY_SRC = readFileSync('public/widget/presentation-registry.js', 'utf8');
-const RENDERER_SRC = readFileSync('public/widget/presentation-web-yar.js', 'utf8');
+const RENDERER_SRC = readFileSync('public/widget/presentation-default.js', 'utf8');
 
 function loadPresentation() {
   // eslint-disable-next-line no-new-func
   new Function(REGISTRY_SRC).call(window);
   // eslint-disable-next-line no-new-func
   new Function(RENDERER_SRC).call(window);
-  const mod = (window as any).__gs_presentation_web_yar;
+  const mod = (window as any).__gs_presentation_default;
   return mod.create({
     t: (k: string) => k,
     escapeHtml: (v: unknown) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) =>
@@ -27,7 +27,7 @@ function loadPresentation() {
     config: {
       apiBase: 'https://api.test',
       brandName: 'Acme',
-      platformName: 'Web Yar',
+      platformName: 'Acme Platform',
       logoUrl: '',
       attachments: { enabled: true },
       composer: { emojiEnabled: true },

@@ -13,9 +13,9 @@ import path from 'node:path';
 const root = path.resolve(process.cwd(), 'public/widget');
 const loader = fs.readFileSync(path.join(root, 'loader.js'), 'utf8');
 const runtime = fs.readFileSync(path.join(root, 'runtime.js'), 'utf8');
-const rendererSrc = fs.readFileSync(path.join(root, 'presentation-web-yar.js'), 'utf8');
+const rendererSrc = fs.readFileSync(path.join(root, 'presentation-default.js'), 'utf8');
 const registrySrc = fs.readFileSync(path.join(root, 'presentation-registry.js'), 'utf8');
-const css = fs.readFileSync(path.join(root, 'presentation-web-yar.css'), 'utf8');
+const css = fs.readFileSync(path.join(root, 'presentation-default.css'), 'utf8');
 
 const LOCALES = ['en', 'fa', 'tr'] as const;
 
@@ -50,7 +50,7 @@ function renderer(locale = 'fa') {
   new Function(registrySrc).call(window);
   new Function(rendererSrc).call(window);
   const registered = (window as unknown as Record<string, { create: (env: unknown) => Renderer }>)
-    .__gs_presentation_web_yar;
+    .__gs_presentation_default;
   return registered.create({
     // Mirrors Core: an unknown key comes back as the key itself.
     t: (k: string) => k,

@@ -1,15 +1,22 @@
 /**
  * Call Center — operator Live Desk.
  *
- * The agent desktop: a waiting queue on one side, the call being handled in
- * the middle, and the visitor's context on the other side. Everything an
- * operator does during a call (mute, camera, devices, record, transfer,
- * hang up) lives in ONE toolbar inside the media console — there is no second
+ * Three columns with fixed roles, never rearranged: the queue on one side,
+ * the call being handled in the middle, the visitor's context on the other.
+ * An operator learns where to look once and then stops looking.
+ *
+ * Everything done during a call (mute, camera, devices, record, transfer,
+ * hang up) lives in ONE toolbar inside the media console. There is no second
  * place to look and no decorative control that does nothing.
  *
+ * Every colour comes from the semantic tokens via
+ * `@/features/calls/callCenterUi` — `success`, `warning`, `destructive`,
+ * `info` — so the desk sits in the same light surface as the rest of the
+ * product and follows the theme instead of hardcoding a palette.
+ *
  * All backend vocabulary (call state, end reason, timeline event type,
- * recording state) is rendered through `@/features/calls/callLabels`, so the
- * desk reads in the operator's own language instead of leaking raw codes.
+ * recording state) goes through `@/features/calls/callLabels`, so the desk
+ * reads in the operator's own language instead of leaking raw codes.
  */
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { VisitorNetworkCard, VisitorNetworkInline } from '@/features/visitors/VisitorNetworkCard';
@@ -19,10 +26,8 @@ import {
   useCallCenterQueue, useCallCenterCall, useCallCenterOverview,
   useCallCenterSettings, useCallCenterCalls,
 } from '@/hooks/useCallCenter';
-import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -34,7 +39,7 @@ import {
   Phone, Video, Globe, Headphones, RadioTower, Inbox, PhoneOff,
   PhoneCall, AlertTriangle, Loader2, Search, Clock, User, Mail, Smartphone,
   Copy, Check, ChevronRight, Activity, FileText, History, ArrowUp, ArrowDown,
-  Disc,
+  Disc, Timer,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link, useParams } from 'react-router-dom';
@@ -52,6 +57,10 @@ import {
 } from '@/features/calls/OperatorRecordingControls';
 import { TransferCallDialog } from '@/features/calls/TransferCallDialog';
 import { CallNotesPanel } from '@/features/calls/CallNotesPanel';
+import {
+  EmptyState, LiveDot, Panel, PanelSkeleton, SectionHeading, StatusChip, ToneBar,
+  TONE_DOT, TONE_TEXT, type Tone,
+} from '@/features/calls/callCenterUi';
 
 /** SLA threshold, in seconds, after which a waiting call counts as breached. */
 const SLA_BREACH_SECONDS = 180;
@@ -76,65 +85,57 @@ function RecordingBadge({
   const effective = !!capability?.effective_enabled;
 
   let label: string;
-  let tone = 'bg-muted text-muted-foreground';
+  let tone: Tone = 'neutral';
   if (!effective) {
     label = recordingReasonLabel(t, capability?.reason);
   } else if (state === 'consent_pending') {
-    label = recordingStateLabel(t, 'consent_pending');
-    tone = 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
+    label = recordingStateLabel(t, 'consent_pending'); tone = 'warning';
   } else if (state === 'recording') {
-    label = recordingStateLabel(t, 'recording');
-    tone = 'bg-rose-500/15 text-rose-700 dark:text-rose-300';
+    label = recordingStateLabel(t, 'recording'); tone = 'danger';
   } else if (state === 'failed') {
-    label = recordingStateLabel(t, 'failed');
-    tone = 'bg-destructive/15 text-destructive';
+    label = recordingStateLabel(t, 'failed'); tone = 'danger';
   } else if (state === 'available') {
-    label = recordingStateLabel(t, 'available');
-    tone = 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
+    label = recordingStateLabel(t, 'available'); tone = 'success';
   } else if (state === 'pending' || state === 'finalizing') {
-    label = recordingStateLabel(t, state);
-    tone = 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
+    label = recordingStateLabel(t, state); tone = 'warning';
   } else {
-    label = recordingStateLabel(t, 'ready');
-    tone = 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
+    label = recordingStateLabel(t, 'ready'); tone = 'success';
   }
 
   return (
-    <span className={cn('inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full', tone)}>
-      <Disc className={cn('h-3 w-3', state === 'recording' && 'animate-pulse')} />
+    <StatusChip tone={tone} icon={Disc} pulse={state === 'recording'}>
       {label}
-    </span>
+    </StatusChip>
   );
 }
 
-function urgencyTone(iso: string): 'neutral' | 'warn' | 'danger' {
+function urgencyTone(iso: string): Tone {
   const sec = (Date.now() - new Date(iso).getTime()) / 1000;
   if (sec > SLA_BREACH_SECONDS) return 'danger';
-  if (sec > SLA_WARN_SECONDS) return 'warn';
-  return 'neutral';
+  if (sec > SLA_WARN_SECONDS) return 'warning';
+  return 'success';
 }
 
-function StatChip({
-  label, value, icon: Icon, tone = 'muted',
+/**
+ * A desk counter.
+ *
+ * In the cockpit these sit on the top rail and are read at a glance, so the
+ * figure is large and monospaced-by-numerals and the caption sits under it.
+ */
+function DeskStat({
+  label, value, icon: Icon, tone = 'neutral',
 }: {
   label: string;
   value: React.ReactNode;
   icon?: React.ComponentType<{ className?: string }>;
-  tone?: 'muted' | 'ok' | 'warn' | 'danger' | 'primary';
+  tone?: Tone;
 }) {
-  const map = {
-    muted: 'bg-muted/60 text-foreground ring-border',
-    primary: 'bg-primary/10 text-primary ring-primary/20',
-    ok: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-500/20',
-    warn: 'bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-500/20',
-    danger: 'bg-destructive/10 text-destructive ring-destructive/20',
-  } as const;
   return (
-    <div className={cn('rounded-lg px-3 py-2 ring-1 flex items-center gap-2.5 min-w-[110px]', map[tone])}>
-      {Icon && <Icon className="h-4 w-4 opacity-80" />}
+    <div className="flex min-w-[92px] items-center gap-2.5 rounded-lg bg-muted/40 px-3 py-2 ring-1 ring-border/60">
+      {Icon && <Icon className={cn('h-4 w-4 shrink-0 opacity-80', TONE_TEXT[tone])} />}
       <div className="leading-tight">
-        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
-        <div className="text-sm font-semibold tabular-nums">{value}</div>
+        <div className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground">{label}</div>
+        <div className={cn('text-base font-semibold tabular-nums', TONE_TEXT[tone])}>{value}</div>
       </div>
     </div>
   );
@@ -163,11 +164,11 @@ function CopyButton({ text }: { text: string }) {
           setTimeout(() => setCopied(false), 1200);
         });
       }}
-      className="opacity-60 hover:opacity-100 transition-opacity"
+      className="opacity-60 transition-opacity hover:opacity-100"
       title={copied ? t('callCenter.desk.copied') : t('callCenter.desk.copy')}
       aria-label={t('callCenter.desk.copy')}
     >
-      {copied ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
+      {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
     </button>
   );
 }
@@ -196,8 +197,7 @@ function VisitorCallHistory({
     return all
       .filter((c) => {
         if (c.id === currentCallId) return false;
-        const cc = c as unknown as { visitor_session_id?: string | null };
-        if (sessionId && cc.visitor_session_id === sessionId) return true;
+        if (sessionId && c.visitor_session_id === sessionId) return true;
         if (email && c.visitor_email === email) return true;
         if (phone && c.visitor_phone === phone) return true;
         return false;
@@ -218,13 +218,13 @@ function VisitorCallHistory({
         {history.map((c) => (
           <li key={c.id} className="flex items-center gap-2 text-xs">
             {c.call_type === 'video'
-              ? <Video className="h-3 w-3 text-muted-foreground shrink-0" />
-              : <Phone className="h-3 w-3 text-muted-foreground shrink-0" />}
+              ? <Video className="h-3 w-3 shrink-0 text-muted-foreground" />
+              : <Phone className="h-3 w-3 shrink-0 text-muted-foreground" />}
             <span className="truncate">{callStateLabel(t, c.state)}</span>
-            <span className="text-muted-foreground tabular-nums ms-auto shrink-0">
+            <span className="ms-auto shrink-0 tabular-nums text-muted-foreground">
               {c.duration_seconds ? clock(c.duration_seconds) : t('callCenter.history.noDuration')}
             </span>
-            <span className="text-muted-foreground shrink-0">{formatTime(c.created_at)}</span>
+            <span className="shrink-0 tabular-nums text-muted-foreground">{formatTime(c.created_at)}</span>
           </li>
         ))}
       </ul>
@@ -507,84 +507,103 @@ export default function LiveQueuePage() {
       || detail.call.visitor_phone
       || t('callCenter.common.anonymousVisitor')
     : '';
-
   return (
     <TooltipProvider delayDuration={200}>
-    <div className="flex flex-col h-full gap-4">
-      {/* Command bar */}
-      <Card className="p-3 flex flex-wrap items-center gap-3 bg-gradient-to-r from-primary/5 via-background to-background border-primary/10">
-        <div className="flex items-center gap-2.5 me-2">
-          <div className="h-9 w-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center ring-1 ring-primary/20">
-            <Headphones className="h-4 w-4" />
-          </div>
-          <div>
-            <div className="text-sm font-semibold leading-tight">{t('callCenter.queue.liveDesk')}</div>
-            <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-              <span className="relative inline-flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-              </span>
-              <RadioTower className="h-3 w-3" /> {t('callCenter.queue.livePolling')}
+    <div className="flex h-full flex-col gap-3">
+      {/* ── Top rail ───────────────────────────────────────────────────
+          Identity of the room on the left, the numbers that decide what an
+          operator does next on the right. Everything else on this page is
+          about ONE call; this strip is about the whole floor. */}
+      <Panel flush className="relative overflow-hidden border-border/60">
+        <div className="pointer-events-none absolute -top-16 -end-10 h-40 w-40 rounded-full bg-primary/15 blur-3xl" />
+        <div className="relative flex flex-wrap items-center gap-x-4 gap-y-2 p-3">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/15 text-primary ring-1 ring-primary/25">
+              <Headphones className="h-4 w-4" />
+            </span>
+            <div className="leading-tight">
+              <div className="text-sm font-semibold">{t('callCenter.queue.liveDesk')}</div>
+              <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <LiveDot tone="success" pulse />
+                <RadioTower className="h-3 w-3" />
+                {t('callCenter.queue.livePolling')}
+              </div>
             </div>
           </div>
-        </div>
-        <div className="flex flex-wrap gap-2 ms-auto">
-          <StatChip label={t('callCenter.queue.chips.waiting')} icon={Inbox}
-            value={overview?.waiting_calls ?? rawQueue.length}
-            tone={(overview?.waiting_calls ?? 0) > 0 ? 'warn' : 'muted'} />
-          <StatChip label={t('callCenter.queue.chips.active')} icon={Activity}
-            value={overview?.active_calls ?? 0}
-            tone={(overview?.active_calls ?? 0) > 0 ? 'ok' : 'muted'} />
-          <StatChip label={t('callCenter.queue.chips.longestWait')} icon={Clock}
-            value={queueStats.count > 0 ? clock(queueStats.longest) : '—'}
-            tone={queueStats.longest > SLA_BREACH_SECONDS ? 'danger'
-              : queueStats.longest > SLA_WARN_SECONDS ? 'warn' : 'muted'} />
-          <StatChip label={t('callCenter.queue.chips.slaBreached')} icon={AlertTriangle}
-            value={queueStats.breached}
-            tone={queueStats.breached > 0 ? 'danger' : 'muted'} />
-          <StatChip label={t('callCenter.queue.chips.missedToday')} icon={PhoneOff}
-            value={overview?.missed_today ?? 0}
-            tone={(overview?.missed_today ?? 0) > 0 ? 'danger' : 'muted'} />
-          <StatChip label={t('callCenter.queue.chips.today')} icon={PhoneCall}
-            value={overview?.today_calls ?? 0} tone="primary" />
-          <StatChip label={t('callCenter.queue.chips.callsService')} icon={RadioTower}
-            value={overview?.provider?.ready ? t('callCenter.queue.chips.ready') : t('callCenter.queue.chips.down')}
-            tone={overview?.provider?.ready ? 'ok' : 'danger'} />
-        </div>
-      </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[340px_minmax(0,1fr)_340px] gap-4 flex-1 min-h-0">
-        {/* Queue column */}
-        <Card className="flex flex-col overflow-hidden p-0">
-          <div className="px-3 pt-3 pb-2 border-b bg-muted/30">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-2">
-                <Inbox className="h-3.5 w-3.5" />
-                {t('callCenter.queue.queueTitle')}
-                <Badge variant="secondary" className="ms-1 h-5 px-1.5 text-[10px]">
-                  {queue.length}
-                  {queue.length !== rawQueue.length && <span className="opacity-60">/{rawQueue.length}</span>}
-                </Badge>
-              </h2>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="icon" variant="ghost" className="h-6 w-6"
-                    onClick={() => setSortMode((m) => (m === 'wait_desc' ? 'wait_asc' : 'wait_desc'))}
-                    aria-label={sortMode === 'wait_desc'
-                      ? t('callCenter.queue.sortLongestFirst')
-                      : t('callCenter.queue.sortNewestFirst')}
-                  >
-                    {sortMode === 'wait_desc' ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="left">
-                  {sortMode === 'wait_desc' ? t('callCenter.queue.sortLongestFirst') : t('callCenter.queue.sortNewestFirst')}
-                </TooltipContent>
-              </Tooltip>
-            </div>
-            <div className="relative mb-2">
-              <Search className="h-3.5 w-3.5 absolute start-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <div className="ms-auto flex flex-wrap gap-1.5">
+            <DeskStat
+              label={t('callCenter.queue.chips.waiting')} icon={Inbox}
+              value={overview?.waiting_calls ?? rawQueue.length}
+              tone={(overview?.waiting_calls ?? 0) > 0 ? 'warning' : 'neutral'}
+            />
+            <DeskStat
+              label={t('callCenter.queue.chips.active')} icon={Activity}
+              value={overview?.active_calls ?? 0}
+              tone={(overview?.active_calls ?? 0) > 0 ? 'success' : 'neutral'}
+            />
+            <DeskStat
+              label={t('callCenter.queue.chips.longestWait')} icon={Timer}
+              value={queueStats.count > 0 ? clock(queueStats.longest) : '—'}
+              tone={queueStats.longest > SLA_BREACH_SECONDS ? 'danger'
+                : queueStats.longest > SLA_WARN_SECONDS ? 'warning' : 'neutral'}
+            />
+            <DeskStat
+              label={t('callCenter.queue.chips.slaBreached')} icon={AlertTriangle}
+              value={queueStats.breached}
+              tone={queueStats.breached > 0 ? 'danger' : 'neutral'}
+            />
+            <DeskStat
+              label={t('callCenter.queue.chips.missedToday')} icon={PhoneOff}
+              value={overview?.missed_today ?? 0}
+              tone={(overview?.missed_today ?? 0) > 0 ? 'danger' : 'neutral'}
+            />
+            <DeskStat
+              label={t('callCenter.queue.chips.today')} icon={PhoneCall}
+              value={overview?.today_calls ?? 0} tone="primary"
+            />
+            <DeskStat
+              label={t('callCenter.queue.chips.callsService')} icon={RadioTower}
+              value={overview?.provider?.ready ? t('callCenter.queue.chips.ready') : t('callCenter.queue.chips.down')}
+              tone={overview?.provider?.ready ? 'success' : 'danger'}
+            />
+          </div>
+        </div>
+      </Panel>
+
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[340px_minmax(0,1fr)_340px]">
+        {/* ── Queue ──────────────────────────────────────────────────── */}
+        <Panel flush className="flex min-h-0 flex-col overflow-hidden">
+          <div className="border-b border-border/60 bg-muted/20 px-3 pb-2 pt-3">
+            <SectionHeading
+              icon={Inbox}
+              title={t('callCenter.queue.queueTitle')}
+              count={
+                queue.length !== rawQueue.length
+                  ? `${queue.length}/${rawQueue.length}`
+                  : queue.length || undefined
+              }
+              action={
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="icon" variant="ghost" className="h-7 w-7"
+                      onClick={() => setSortMode((m) => (m === 'wait_desc' ? 'wait_asc' : 'wait_desc'))}
+                      aria-label={sortMode === 'wait_desc'
+                        ? t('callCenter.queue.sortLongestFirst')
+                        : t('callCenter.queue.sortNewestFirst')}
+                    >
+                      {sortMode === 'wait_desc' ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left">
+                    {sortMode === 'wait_desc' ? t('callCenter.queue.sortLongestFirst') : t('callCenter.queue.sortNewestFirst')}
+                  </TooltipContent>
+                </Tooltip>
+              }
+            />
+            <div className="relative mt-2.5">
+              <Search className="absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -592,212 +611,213 @@ export default function LiveQueuePage() {
                 className="h-8 ps-8 text-xs"
               />
             </div>
-            <div className="flex gap-1">
+            {/* Channel filter as a segmented track rather than three loose
+                buttons — it is one choice, so it reads as one control. */}
+            <div className="mt-2 flex rounded-lg bg-muted/60 p-0.5 ring-1 ring-border/60">
               {([
                 { k: 'all', label: t('callCenter.queue.filterAll'), count: rawQueue.length },
                 { k: 'voice', label: t('callCenter.queue.filterVoice'), count: queueStats.voice, icon: Phone },
                 { k: 'video', label: t('callCenter.queue.filterVideo'), count: queueStats.video, icon: Video },
               ] as const).map((opt) => {
                 const OptIcon = (opt as { icon?: React.ComponentType<{ className?: string }> }).icon;
+                const on = channelFilter === opt.k;
                 return (
-                <button
-                  key={opt.k}
-                  onClick={() => setChannelFilter(opt.k)}
-                  className={cn(
-                    'flex-1 inline-flex items-center justify-center gap-1.5 text-[11px] py-1 rounded-md border transition-colors',
-                    channelFilter === opt.k
-                      ? 'bg-primary/10 border-primary/30 text-primary font-medium'
-                      : 'border-transparent text-muted-foreground hover:bg-muted',
-                  )}
-                >
-                  {OptIcon ? <OptIcon className="h-3 w-3" /> : null}
-                  {opt.label}
-                  <span className="text-[10px] opacity-60">{opt.count}</span>
-                </button>
+                  <button
+                    key={opt.k}
+                    onClick={() => setChannelFilter(opt.k)}
+                    className={cn(
+                      'inline-flex flex-1 items-center justify-center gap-1.5 rounded-md py-1 text-[11px] transition-all',
+                      on
+                        ? 'bg-card font-semibold text-foreground shadow-[var(--shadow-card)]'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {OptIcon ? <OptIcon className="h-3 w-3" /> : null}
+                    {opt.label}
+                    <span className="tabular-nums opacity-60">{opt.count}</span>
+                  </button>
                 );
               })}
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-2 space-y-2">
-          {isLoading && (
-            <div className="space-y-2">
-              {[0, 1, 2].map((i) => (
-                <div key={i} className="h-24 rounded-lg bg-muted/40 animate-pulse" />
-              ))}
-            </div>
-          )}
-          {!isLoading && queue.length === 0 && rawQueue.length === 0 && (
-            <Card className="p-6 text-center space-y-3">
-              <Headphones className="h-8 w-8 mx-auto text-muted-foreground" />
-              <div>
-                <p className="text-sm font-medium">{t('callCenter.queue.noCallsWaiting')}</p>
-                <p className="text-xs text-muted-foreground">{t('callCenter.queue.noCallsHint')}</p>
-              </div>
-              <div className="flex flex-col gap-2">
-                <Button asChild size="sm" variant="outline"><Link to={`${base}/install`}>{t('callCenter.queue.installWidget')}</Link></Button>
-                <Button asChild size="sm" variant="ghost"><Link to={`${base}/settings`}>{t('callCenter.queue.openSettings')}</Link></Button>
-              </div>
-            </Card>
-          )}
-          {!isLoading && queue.length === 0 && rawQueue.length > 0 && (
-            <div className="text-xs text-muted-foreground text-center p-6">
-              {t('callCenter.queue.noMatches')}
-            </div>
-          )}
-          {queue.map((q, idx) => {
-            const c = q.call_session ?? null;
-            const tone = urgencyTone(q.created_at);
-            const isSel = selectedCallId === q.call_session_id;
-            const isAccepted = accepted?.callId === q.call_session_id;
-            const waitSec = elapsedSince(q.created_at);
-            const slaPct = Math.min(100, (waitSec / SLA_BREACH_SECONDS) * 100);
-            const isVideo = q.channel === 'video' || c?.call_type === 'video';
-            const net = c?.visitor_session_id ? networkBySession?.[c.visitor_session_id] ?? null : null;
-            // Same identity rule as the rest of the app: stable, geo-aware label.
-            const name =
-              c?.visitor_name ||
-              c?.visitor_email ||
-              c?.visitor_phone ||
-              contactDisplayName(
-                null,
-                c?.contact_id ?? c?.visitor_session_id ?? q.call_session_id,
-                t,
-                net?.geo,
-                locale,
-              );
-            return (
-              <div
-                key={q.id}
-                onClick={() => setSelectedCallId(q.call_session_id)}
-                className={cn(
-                  'group relative rounded-lg border bg-card cursor-pointer transition-all overflow-hidden',
-                  isSel
-                    ? 'border-primary shadow-sm ring-1 ring-primary/30'
-                    : 'border-border hover:border-primary/40 hover:shadow-sm',
-                  tone === 'danger' && !isSel && 'border-destructive/40',
-                )}
-              >
-                {/* Urgency stripe */}
-                <div className={cn(
-                  'absolute start-0 top-0 bottom-0 w-1',
-                  tone === 'danger' ? 'bg-destructive' : tone === 'warn' ? 'bg-amber-500' : 'bg-emerald-500',
-                )} />
-                <div className="p-3 ps-3.5">
-                  <div className="flex items-start gap-2.5">
-                    <div className="relative">
-                      <ContactAvatar
-                        name={name}
-                        email={c?.visitor_email}
-                        os={net?.device?.os}
-                        device={net?.device?.device}
-                        countryCode={net?.geo?.country_code}
-                        size="sm"
-                      />
-                      <div className={cn(
-                        'absolute -bottom-0.5 -end-0.5 h-4 w-4 rounded-full flex items-center justify-center ring-2 ring-card',
-                        isVideo ? 'bg-indigo-500 text-white' : 'bg-emerald-500 text-white',
-                      )}>
-                        {isVideo ? <Video className="h-2.5 w-2.5" /> : <Phone className="h-2.5 w-2.5" />}
-                      </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <div className="font-medium truncate text-sm">{name}</div>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted ms-auto tabular-nums">#{idx + 1}</span>
-                      </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <div className={cn(
-                          'text-[11px] tabular-nums font-medium flex items-center gap-1',
-                          tone === 'danger' ? 'text-destructive' : tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground',
-                        )}>
-                          <Clock className="h-3 w-3" />
-                          {clock(waitSec)}
-                        </div>
-                        {q.priority > 0 && (
-                          <Badge variant="outline" className="h-4 px-1 text-[9px]">P{q.priority}</Badge>
-                        )}
-                        {isAccepted && (
-                          <Badge className="h-4 px-1 text-[9px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30">
-                            {t('callCenter.queue.onCallBadge')}
-                          </Badge>
-                        )}
-                      </div>
-                      {c?.subject && (
-                        <div className="text-[11px] text-muted-foreground truncate mt-1">{c.subject}</div>
-                      )}
-                      {c?.page_title && (
-                        <div className="text-[10px] text-muted-foreground truncate mt-0.5 flex items-center gap-1">
-                          <Globe className="h-2.5 w-2.5 shrink-0" />
-                          <span className="truncate">{c.page_title}</span>
-                        </div>
-                      )}
-                      <div className="mt-0.5 truncate">
-                        <VisitorNetworkInline
-                          profile={
-                            c?.visitor_session_id
-                              ? networkBySession?.[c.visitor_session_id] ?? null
-                              : null
-                          }
-                          t={t}
-                          locale={locale}
+
+          <div className="flex-1 space-y-2 overflow-y-auto p-2">
+            {isLoading && <PanelSkeleton rows={3} />}
+
+            {!isLoading && queue.length === 0 && rawQueue.length === 0 && (
+              <EmptyState
+                icon={Headphones}
+                title={t('callCenter.queue.noCallsWaiting')}
+                hint={t('callCenter.queue.noCallsHint')}
+                action={
+                  <>
+                    <Button asChild size="sm" variant="outline">
+                      <Link to={`${base}/install`}>{t('callCenter.queue.installWidget')}</Link>
+                    </Button>
+                    <Button asChild size="sm" variant="ghost">
+                      <Link to={`${base}/settings`}>{t('callCenter.queue.openSettings')}</Link>
+                    </Button>
+                  </>
+                }
+              />
+            )}
+            {!isLoading && queue.length === 0 && rawQueue.length > 0 && (
+              <p className="p-6 text-center text-xs text-muted-foreground">
+                {t('callCenter.queue.noMatches')}
+              </p>
+            )}
+
+            {queue.map((q, idx) => {
+              const c = q.call_session ?? null;
+              const tone = urgencyTone(q.created_at);
+              const isSel = selectedCallId === q.call_session_id;
+              const isAccepted = accepted?.callId === q.call_session_id;
+              const waitSec = elapsedSince(q.created_at);
+              const slaPct = Math.min(100, (waitSec / SLA_BREACH_SECONDS) * 100);
+              const isVideo = q.channel === 'video' || c?.call_type === 'video';
+              const net = c?.visitor_session_id ? networkBySession?.[c.visitor_session_id] ?? null : null;
+              // Same identity rule as the rest of the app: stable, geo-aware label.
+              const name =
+                c?.visitor_name ||
+                c?.visitor_email ||
+                c?.visitor_phone ||
+                contactDisplayName(
+                  null,
+                  c?.contact_id ?? c?.visitor_session_id ?? q.call_session_id,
+                  t,
+                  net?.geo,
+                  locale,
+                );
+              return (
+                <div
+                  key={q.id}
+                  onClick={() => setSelectedCallId(q.call_session_id)}
+                  className={cn(
+                    'group relative cursor-pointer overflow-hidden rounded-xl border bg-card transition-all',
+                    isSel
+                      ? 'border-primary/60 shadow-[var(--shadow-glow)]'
+                      : 'border-border/70 hover:border-primary/40 hover:bg-muted/30',
+                  )}
+                >
+                  {/* Urgency edge */}
+                  <span className={cn('absolute inset-y-0 start-0 w-[3px]', TONE_DOT[tone])} />
+
+                  <div className="p-3 ps-3.5">
+                    <div className="flex items-start gap-2.5">
+                      <div className="relative">
+                        <ContactAvatar
+                          name={name}
+                          email={c?.visitor_email}
+                          os={net?.device?.os}
+                          device={net?.device?.device}
+                          countryCode={net?.geo?.country_code}
+                          size="sm"
                         />
+                        <span
+                          className={cn(
+                            'absolute -bottom-0.5 -end-0.5 flex h-4 w-4 items-center justify-center rounded-full ring-2 ring-card',
+                            isVideo ? 'bg-info text-info-foreground' : 'bg-success text-success-foreground',
+                          )}
+                        >
+                          {isVideo ? <Video className="h-2.5 w-2.5" /> : <Phone className="h-2.5 w-2.5" />}
+                        </span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <div className="truncate text-sm font-medium">{name}</div>
+                          <span className="ms-auto rounded bg-muted px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+                            #{idx + 1}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-2">
+                          <span
+                            className={cn(
+                              'flex items-center gap-1 text-[11px] font-medium tabular-nums',
+                              TONE_TEXT[tone],
+                            )}
+                          >
+                            <Clock className="h-3 w-3" />
+                            {clock(waitSec)}
+                          </span>
+                          {q.priority > 0 && (
+                            <StatusChip tone="info" className="h-4 px-1.5 text-[9px]">P{q.priority}</StatusChip>
+                          )}
+                          {isAccepted && (
+                            <StatusChip tone="success" dot pulse className="h-4 px-1.5 text-[9px]">
+                              {t('callCenter.queue.onCallBadge')}
+                            </StatusChip>
+                          )}
+                        </div>
+                        {c?.subject && (
+                          <div className="mt-1 truncate text-[11px] text-muted-foreground">{c.subject}</div>
+                        )}
+                        {c?.page_title && (
+                          <div className="mt-0.5 flex items-center gap-1 truncate text-[10px] text-muted-foreground">
+                            <Globe className="h-2.5 w-2.5 shrink-0" />
+                            <span className="truncate">{c.page_title}</span>
+                          </div>
+                        )}
+                        <div className="mt-0.5 truncate">
+                          <VisitorNetworkInline
+                            profile={c?.visitor_session_id ? networkBySession?.[c.visitor_session_id] ?? null : null}
+                            t={t}
+                            locale={locale}
+                          />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  {/* SLA bar */}
-                  <div className="mt-2.5 h-1 rounded-full bg-muted overflow-hidden">
-                    <div
-                      className={cn(
-                        'h-full transition-all',
-                        tone === 'danger' ? 'bg-destructive' : tone === 'warn' ? 'bg-amber-500' : 'bg-emerald-500',
-                      )}
-                      style={{ width: `${slaPct}%` }}
-                    />
-                  </div>
-                  <div className="flex gap-1.5 mt-2.5">
-                    <Button
-                      variant="outline" size="sm" className="flex-1 h-7 text-xs"
-                      onClick={(e) => { e.stopPropagation(); reject(q.call_session_id); }}
-                      disabled={busy === q.call_session_id || isAccepted}
-                    >
-                      {t('callCenter.desk.decline')}
-                    </Button>
-                    <Button
-                      size="sm" className="flex-1 h-7 text-xs"
-                      onClick={(e) => { e.stopPropagation(); accept(q.call_session_id); }}
-                      disabled={busy === q.call_session_id || isAccepted}
-                    >
-                      {busy === q.call_session_id
-                        ? <Loader2 className="h-3 w-3 animate-spin" />
-                        : isAccepted ? t('callCenter.queue.onCall') : (<><PhoneCall className="h-3 w-3 me-1" />{t('callCenter.desk.answer')}</>)}
-                    </Button>
+
+                    <ToneBar className="mt-2.5" tone={tone} value={slaPct} />
+
+                    <div className="mt-2.5 flex gap-1.5">
+                      <Button
+                        variant="outline" size="sm" className="h-7 flex-1 text-xs"
+                        onClick={(e) => { e.stopPropagation(); reject(q.call_session_id); }}
+                        disabled={busy === q.call_session_id || isAccepted}
+                      >
+                        {t('callCenter.desk.decline')}
+                      </Button>
+                      <Button
+                        size="sm" className="h-7 flex-1 text-xs"
+                        onClick={(e) => { e.stopPropagation(); accept(q.call_session_id); }}
+                        disabled={busy === q.call_session_id || isAccepted}
+                      >
+                        {busy === q.call_session_id
+                          ? <Loader2 className="h-3 w-3 animate-spin" />
+                          : isAccepted
+                            ? t('callCenter.queue.onCall')
+                            : (<><PhoneCall className="me-1 h-3 w-3" />{t('callCenter.desk.answer')}</>)}
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
           </div>
-        </Card>
+        </Panel>
 
-        {/* Active call column */}
-        <div className="space-y-3 overflow-y-auto min-h-0">
+        {/* ── The call ───────────────────────────────────────────────── */}
+        <div className="min-h-0 space-y-3 overflow-y-auto">
           {!detail ? (
-            <Card className="p-16 text-center border-dashed">
-              <div className="h-16 w-16 rounded-full bg-primary/5 mx-auto flex items-center justify-center mb-4 ring-1 ring-primary/10">
-                <PhoneCall className="h-7 w-7 text-primary/60" />
-              </div>
-              <p className="text-base font-semibold">{t('callCenter.queue.noCallSelected')}</p>
-              <p className="text-sm text-muted-foreground mt-1 max-w-sm mx-auto">
-                {t('callCenter.queue.noCallSelectedHint')}
-              </p>
-            </Card>
+            <Panel flush className="border-dashed">
+              <EmptyState
+                className="py-20"
+                icon={PhoneCall}
+                title={t('callCenter.queue.noCallSelected')}
+                hint={t('callCenter.queue.noCallSelectedHint')}
+              />
+            </Panel>
           ) : (
             <>
-              <Card className="p-5 bg-gradient-to-br from-primary/5 via-card to-card border-primary/20 overflow-hidden relative">
+              <Panel
+                flush
+                glow={isActive}
+                className="relative overflow-hidden"
+              >
                 {detail.call.state === 'ringing' && (
-                  <div className="absolute top-0 inset-x-0 h-0.5 bg-amber-500 animate-pulse" />
+                  <span className="absolute inset-x-0 top-0 h-0.5 animate-pulse bg-warning" />
                 )}
-                <div className="flex items-start gap-4 flex-wrap">
+                <div className="flex flex-wrap items-start gap-4 p-4">
                   <div className="relative shrink-0">
                     <ContactAvatar
                       name={visitorLabel}
@@ -807,16 +827,20 @@ export default function LiveQueuePage() {
                       countryCode={selectedProfile?.geo?.country_code}
                       size="lg"
                     />
-                    <div className={cn(
-                      'absolute -bottom-0.5 -end-0.5 h-5 w-5 rounded-full flex items-center justify-center ring-2 ring-card',
-                      detail.call.call_type === 'video' ? 'bg-indigo-500 text-white' : 'bg-emerald-500 text-white',
-                    )}>
+                    <span
+                      className={cn(
+                        'absolute -bottom-0.5 -end-0.5 flex h-5 w-5 items-center justify-center rounded-full ring-2 ring-card',
+                        detail.call.call_type === 'video'
+                          ? 'bg-info text-info-foreground'
+                          : 'bg-success text-success-foreground',
+                      )}
+                    >
                       {detail.call.call_type === 'video' ? <Video className="h-3 w-3" /> : <Phone className="h-3 w-3" />}
-                    </div>
+                    </span>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xl font-semibold leading-tight truncate">{visitorLabel}</div>
-                    <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-muted-foreground">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-xl font-semibold leading-tight">{visitorLabel}</div>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                       {detail.call.visitor_email && (
                         <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" />{detail.call.visitor_email}</span>
                       )}
@@ -828,27 +852,27 @@ export default function LiveQueuePage() {
                         {t('callCenter.desk.startedAt')} {formatTime(detail.call.created_at)}
                       </span>
                     </div>
-                    <div className="flex flex-wrap gap-1.5 mt-2.5">
-                      <Badge variant="secondary">
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      <StatusChip tone="neutral" icon={detail.call.call_type === 'video' ? Video : Phone}>
                         {detail.call.call_type === 'video'
                           ? t('callCenter.queue.videoLabel')
                           : t('callCenter.queue.voiceLabel')}
-                      </Badge>
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          detail.call.state === 'active' && 'border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10',
-                          detail.call.state === 'ringing' && 'border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10',
-                          detail.call.state === 'ended' && 'border-muted text-muted-foreground',
-                        )}
+                      </StatusChip>
+                      <StatusChip
+                        tone={
+                          detail.call.state === 'active' ? 'success'
+                            : detail.call.state === 'ringing' ? 'warning'
+                            : detail.call.state === 'missed' || detail.call.state === 'failed' ? 'danger'
+                            : 'neutral'
+                        }
+                        dot
+                        pulse={detail.call.state === 'active' || detail.call.state === 'ringing'}
                       >
                         {callStateLabel(t, detail.call.state)}
-                      </Badge>
+                      </StatusChip>
                       <RecordingBadge capability={overview?.recording} meta={recordingMeta} />
                       {detail.call.end_reason && (
-                        <Badge variant="outline" className="text-muted-foreground">
-                          {endReasonLabel(t, detail.call.end_reason)}
-                        </Badge>
+                        <StatusChip tone="neutral">{endReasonLabel(t, detail.call.end_reason)}</StatusChip>
                       )}
                     </div>
                   </div>
@@ -860,8 +884,8 @@ export default function LiveQueuePage() {
                         </Button>
                         <Button onClick={() => accept(detail.call.id)} disabled={busy === detail.call.id}>
                           {busy === detail.call.id
-                            ? <Loader2 className="h-4 w-4 animate-spin me-1.5" />
-                            : <PhoneCall className="h-4 w-4 me-1.5" />}
+                            ? <Loader2 className="me-1.5 h-4 w-4 animate-spin" />
+                            : <PhoneCall className="me-1.5 h-4 w-4" />}
                           {busy === detail.call.id ? t('callCenter.desk.answering') : t('callCenter.desk.answer')}
                         </Button>
                       </>
@@ -874,13 +898,13 @@ export default function LiveQueuePage() {
                           enabled={transferEnabled}
                         />
                         <Button variant="destructive" onClick={() => endActive(detail.call.id)}>
-                          <PhoneOff className="h-4 w-4 me-1.5" /> {t('callCenter.queue.end')}
+                          <PhoneOff className="me-1.5 h-4 w-4" /> {t('callCenter.queue.end')}
                         </Button>
                       </>
                     )}
                   </div>
                 </div>
-              </Card>
+              </Panel>
 
               {/* Media console — every live control lives in its toolbar. */}
               {accepted && accepted.callId === detail.call.id ? (
@@ -923,71 +947,70 @@ export default function LiveQueuePage() {
               ) : wrapUpCallId === detail.call.id ? (
                 /* Wrap-up — the few seconds after hang-up when an operator
                    records what the call was about. */
-                <Card className="p-4 space-y-3 border-primary/30">
-                  <div className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-primary" />
-                    <div className="flex-1">
-                      <div className="text-sm font-semibold">{t('callCenter.desk.wrapUp')}</div>
-                      <p className="text-xs text-muted-foreground">{t('callCenter.desk.wrapUpHint')}</p>
-                    </div>
-                    <Button size="sm" variant="ghost" onClick={() => setWrapUpCallId(null)}>
-                      {t('callCenter.desk.closeWrapUp')}
-                    </Button>
-                  </div>
+                <Panel glow className="space-y-3">
+                  <SectionHeading
+                    icon={FileText}
+                    title={t('callCenter.desk.wrapUp')}
+                    hint={t('callCenter.desk.wrapUpHint')}
+                    action={
+                      <Button size="sm" variant="ghost" onClick={() => setWrapUpCallId(null)}>
+                        {t('callCenter.desk.closeWrapUp')}
+                      </Button>
+                    }
+                  />
                   <CallNotesPanel workspaceId={workspace?.id} callId={detail.call.id} compact />
-                </Card>
+                </Panel>
               ) : (
-                <Card className="p-5 border-dashed bg-muted/20 flex items-start gap-3">
-                  <div className="h-8 w-8 rounded-full bg-amber-500/15 text-amber-600 flex items-center justify-center shrink-0">
-                    <AlertTriangle className="h-4 w-4" />
-                  </div>
-                  <div className="text-sm flex-1">
-                    <div className="font-semibold">{t('callCenter.queue.mediaIdle')}</div>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {t('callCenter.queue.mediaIdleHint')}
-                    </p>
-                  </div>
-                  {detail.call.state === 'pending' && (
-                    <Button size="sm" onClick={() => accept(detail.call.id)} disabled={busy === detail.call.id}>
-                      <PhoneCall className="h-3.5 w-3.5 me-1.5" /> {t('callCenter.queue.acceptNow')}
-                    </Button>
-                  )}
-                </Card>
+                <Panel className="border-dashed bg-muted/20">
+                  <SectionHeading
+                    icon={AlertTriangle}
+                    tone="warning"
+                    title={t('callCenter.queue.mediaIdle')}
+                    hint={t('callCenter.queue.mediaIdleHint')}
+                    action={
+                      detail.call.state === 'pending' ? (
+                        <Button size="sm" onClick={() => accept(detail.call.id)} disabled={busy === detail.call.id}>
+                          <PhoneCall className="me-1.5 h-3.5 w-3.5" /> {t('callCenter.queue.acceptNow')}
+                        </Button>
+                      ) : undefined
+                    }
+                  />
+                </Panel>
               )}
             </>
           )}
         </div>
 
-        {/* Context column */}
-        <Card className="flex flex-col overflow-hidden p-0 min-h-0">
+        {/* ── Context ────────────────────────────────────────────────── */}
+        <Panel flush className="flex min-h-0 flex-col overflow-hidden">
           {detail ? (
-            <Tabs value={contextTab} onValueChange={(v) => setContextTab(v as typeof contextTab)} className="flex flex-col h-full">
-              <TabsList className="grid grid-cols-3 m-2 mb-0">
-                <TabsTrigger value="contact" className="text-xs gap-1.5"><User className="h-3.5 w-3.5" />{t('callCenter.queue.contact')}</TabsTrigger>
-                <TabsTrigger value="timeline" className="text-xs gap-1.5"><History className="h-3.5 w-3.5" />{t('callCenter.queue.timeline')}</TabsTrigger>
-                <TabsTrigger value="notes" className="text-xs gap-1.5"><FileText className="h-3.5 w-3.5" />{t('callCenter.queue.notes')}</TabsTrigger>
+            <Tabs value={contextTab} onValueChange={(v) => setContextTab(v as typeof contextTab)} className="flex h-full flex-col">
+              <TabsList className="m-2 mb-0 grid grid-cols-3">
+                <TabsTrigger value="contact" className="gap-1.5 text-xs"><User className="h-3.5 w-3.5" />{t('callCenter.queue.contact')}</TabsTrigger>
+                <TabsTrigger value="timeline" className="gap-1.5 text-xs"><History className="h-3.5 w-3.5" />{t('callCenter.queue.timeline')}</TabsTrigger>
+                <TabsTrigger value="notes" className="gap-1.5 text-xs"><FileText className="h-3.5 w-3.5" />{t('callCenter.queue.notes')}</TabsTrigger>
               </TabsList>
-              <div className="flex-1 overflow-y-auto p-3 space-y-3">
+              <div className="flex-1 space-y-3 overflow-y-auto p-3">
                 <TabsContent value="contact" className="m-0 space-y-3">
                   <div className="space-y-2.5">
                     <div>
-                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{t('callCenter.queue.name')}</div>
+                      <div className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">{t('callCenter.queue.name')}</div>
                       <div className="text-sm font-medium">{detail.call.visitor_name || t('callCenter.common.anonymous')}</div>
                     </div>
                     {detail.call.visitor_email && (
                       <div>
-                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{t('callCenter.queue.email')}</div>
-                        <div className="text-sm flex items-center gap-1.5 group">
+                        <div className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">{t('callCenter.queue.email')}</div>
+                        <div className="group flex items-center gap-1.5 text-sm">
                           <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-                          <a href={`mailto:${detail.call.visitor_email}`} className="hover:underline truncate">{detail.call.visitor_email}</a>
+                          <a href={`mailto:${detail.call.visitor_email}`} className="truncate hover:underline">{detail.call.visitor_email}</a>
                           <CopyButton text={detail.call.visitor_email} />
                         </div>
                       </div>
                     )}
                     {detail.call.visitor_phone && (
                       <div>
-                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{t('callCenter.queue.phone')}</div>
-                        <div className="text-sm flex items-center gap-1.5 group">
+                        <div className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">{t('callCenter.queue.phone')}</div>
+                        <div className="group flex items-center gap-1.5 text-sm">
                           <Smartphone className="h-3.5 w-3.5 text-muted-foreground" />
                           <a href={`tel:${detail.call.visitor_phone}`} className="hover:underline">{detail.call.visitor_phone}</a>
                           <CopyButton text={detail.call.visitor_phone} />
@@ -1014,9 +1037,9 @@ export default function LiveQueuePage() {
                           <div className="text-sm"><span className="text-muted-foreground">{t('callCenter.queue.subjectLabel')}: </span>{detail.call.subject}</div>
                         )}
                         {detail.call.page_url && (
-                          <div className="text-sm flex items-center gap-1.5">
-                            <Globe className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                            <a href={detail.call.page_url} target="_blank" rel="noreferrer" className="underline truncate">
+                          <div className="flex items-center gap-1.5 text-sm">
+                            <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <a href={detail.call.page_url} target="_blank" rel="noreferrer" className="truncate underline">
                               {detail.call.page_title || detail.call.page_url}
                             </a>
                           </div>
@@ -1047,7 +1070,7 @@ export default function LiveQueuePage() {
                   )}
                   <Separator />
                   <div>
-                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">{t('callCenter.history.title')}</div>
+                    <div className="mb-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">{t('callCenter.history.title')}</div>
                     <VisitorCallHistory
                       workspaceId={workspace?.id}
                       currentCallId={detail.call.id}
@@ -1061,13 +1084,13 @@ export default function LiveQueuePage() {
 
                 <TabsContent value="timeline" className="m-0">
                   {detail.events.length === 0 ? (
-                    <p className="text-xs text-muted-foreground text-center py-6">{t('callCenter.queue.noEvents')}</p>
+                    <p className="py-6 text-center text-xs text-muted-foreground">{t('callCenter.queue.noEvents')}</p>
                   ) : (
                     <ol className="relative space-y-3 ps-4 before:absolute before:start-1 before:top-1.5 before:bottom-1.5 before:w-px before:bg-border">
                       {detail.events.map((e) => (
                         <li key={e.id} className="relative">
-                          <span className="absolute -start-[14px] top-1.5 h-2 w-2 rounded-full bg-primary ring-2 ring-background" />
-                          <div className="text-[10px] text-muted-foreground tabular-nums">{formatTime(e.created_at)}</div>
+                          <span className="absolute -start-[14px] top-1.5 h-2 w-2 rounded-full bg-primary ring-2 ring-card" />
+                          <div className="text-[10px] tabular-nums text-muted-foreground">{formatTime(e.created_at)}</div>
                           <div className="text-xs font-medium">{callEventLabel(t, e.event_type)}</div>
                         </li>
                       ))}
@@ -1081,12 +1104,13 @@ export default function LiveQueuePage() {
               </div>
             </Tabs>
           ) : (
-            <div className="p-8 text-center text-xs text-muted-foreground">
-              <ChevronRight className="h-5 w-5 mx-auto mb-2 opacity-40" />
-              {t('callCenter.queue.selectCallToView')}
-            </div>
+            <EmptyState
+              className="h-full"
+              icon={ChevronRight}
+              title={t('callCenter.queue.selectCallToView')}
+            />
           )}
-        </Card>
+        </Panel>
       </div>
     </div>
     </TooltipProvider>

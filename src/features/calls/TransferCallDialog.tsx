@@ -27,12 +27,14 @@ import {
 } from '@/hooks/useCallCenter';
 import { useAuth } from '@/features/auth/AuthContext';
 import type { CallCenterAgentPresence, CallCenterPresenceStatus } from '@/lib/call-center-api';
+import { TONE_DOT, type Tone } from '@/features/calls/callCenterUi';
 
-const PRESENCE_TONE: Record<CallCenterPresenceStatus | string, string> = {
-  available: 'bg-emerald-500',
-  busy: 'bg-primary',
-  away: 'bg-amber-500',
-  offline: 'bg-muted-foreground/40',
+/** Presence → the module's shared status vocabulary. */
+const PRESENCE_TONE: Record<CallCenterPresenceStatus | string, Tone> = {
+  available: 'success',
+  busy: 'primary',
+  away: 'warning',
+  offline: 'neutral',
 };
 
 function agentLabel(p: CallCenterAgentPresence): string {
@@ -119,7 +121,13 @@ export function TransferCallDialog({
           type="button"
           size="sm"
           variant="secondary"
-          className={cn(variant === 'console' && 'bg-zinc-800 text-zinc-100 hover:bg-zinc-700', className)}
+          className={cn(
+            // Inside the media console the button sits on the dark call
+            // stage, so it borrows those tokens rather than the page's.
+            variant === 'console'
+              && 'bg-call-stage-muted text-call-stage-foreground hover:bg-call-stage-muted/80',
+            className,
+          )}
           title={t('callCenter.transfer.title')}
         >
           <ArrowRightLeft className="h-4 w-4" />
@@ -157,7 +165,7 @@ export function TransferCallDialog({
                         : 'border-border hover:bg-muted/50',
                     )}
                   >
-                    <span className={cn('h-2 w-2 rounded-full shrink-0', PRESENCE_TONE[a.status] || PRESENCE_TONE.offline)} />
+                    <span className={cn('h-2 w-2 shrink-0 rounded-full', TONE_DOT[PRESENCE_TONE[a.status] || 'neutral'])} />
                     <span className="flex-1 min-w-0">
                       <span className="block text-sm font-medium truncate">{agentLabel(a)}</span>
                       <span className="block text-[11px] text-muted-foreground">

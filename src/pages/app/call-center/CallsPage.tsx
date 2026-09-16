@@ -8,7 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { callCenterApi } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
-import { Phone, Video, Search, Copy, Star, Play, Download, Link as LinkIcon } from 'lucide-react';
+import { Phone, Video, Search, Copy, Star, Play, Download, Mic, Link as LinkIcon } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { RecordingTimeline } from '@/components/recordings/RecordingTimeline';
@@ -16,6 +16,9 @@ import { useTranslation } from '@/i18n';
 import {
   callEventLabel, callStateLabel, endReasonLabel, recordingStateLabel, recordingTypeLabel,
 } from '@/features/calls/callLabels';
+import {
+  EmptyState, MetricTile, Panel, SectionHeading, StatusChip, type Tone,
+} from '@/features/calls/callCenterUi';
 import { VisitorNetworkCard, VisitorNetworkInline } from '@/features/visitors/VisitorNetworkCard';
 import { useVisitorNetworkBatchBySession } from '@/hooks/useVisitorNetwork';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
@@ -366,12 +369,12 @@ function RecordingsPanel({ workspaceId, callId }: { workspaceId: string; callId:
   );
 }
 
-function stateTone(s: string) {
-  if (['active', 'ringing', 'connecting'].includes(s)) return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
-  if (['ended'].includes(s)) return 'bg-muted text-muted-foreground';
-  if (['missed', 'failed'].includes(s)) return 'bg-destructive/15 text-destructive';
-  if (['cancelled'].includes(s)) return 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
-  return 'bg-muted text-muted-foreground';
+/** Map a backend call state onto the module's shared status vocabulary. */
+function stateTone(s: string): Tone {
+  if (['active', 'ringing', 'connecting'].includes(s)) return 'success';
+  if (['missed', 'failed'].includes(s)) return 'danger';
+  if (['cancelled'].includes(s)) return 'warning';
+  return 'neutral';
 }
 
 export default function CallsPage() {
@@ -503,36 +506,79 @@ export default function CallsPage() {
 
   return (
     <div className="space-y-4">
-      <Card className="p-4 space-y-3">
+      {/* Filters — each row is ONE segmented control, so a set of mutually
+          exclusive choices reads as a single switch rather than a row of
+          buttons that happen to sit together. */}
+      <Panel className="space-y-2.5">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="text-xs text-muted-foreground me-1">{t('callCenter.calls.statusLabel')}</div>
-          {STATUS.map((s) => (
-            <Button key={s} size="sm" variant={status === s ? 'default' : 'outline'} className="h-7 text-xs" onClick={() => setStatus(s)}>
-              {s === 'all' ? t('callCenter.calls.filterAll') : callStateLabel(t, s)}
-            </Button>
-          ))}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="text-xs text-muted-foreground me-1">{t('callCenter.calls.typeLabel')}</div>
-          {TYPES.map((s) => (
-            <Button key={s} size="sm" variant={type === s ? 'default' : 'outline'} className="h-7 text-xs" onClick={() => setType(s)}>
-              {s === 'all'
-                ? t('callCenter.calls.filterAll')
-                : s === 'video' ? t('callCenter.calls.typeVideo') : t('callCenter.calls.typeAudio')}
-            </Button>
-          ))}
-          <div className="relative flex-1 min-w-[200px] ms-auto max-w-sm">
-            <Search className="h-3.5 w-3.5 absolute start-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input className="ps-8 h-8 text-sm" placeholder={t('callCenter.calls.searchPlaceholder')} value={search} onChange={(e) => setSearch(e.target.value)} />
+          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            {t('callCenter.calls.statusLabel')}
+          </span>
+          <div className="flex flex-wrap gap-0.5 rounded-lg bg-muted/60 p-0.5 ring-1 ring-border/60">
+            {STATUS.map((s) => (
+              <button
+                key={s}
+                onClick={() => setStatus(s)}
+                className={cn(
+                  'rounded-md px-2.5 py-1 text-xs transition-all',
+                  status === s
+                    ? 'bg-card font-semibold text-foreground shadow-[var(--shadow-card)]'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {s === 'all' ? t('callCenter.calls.filterAll') : callStateLabel(t, s)}
+              </button>
+            ))}
           </div>
         </div>
-      </Card>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            {t('callCenter.calls.typeLabel')}
+          </span>
+          <div className="flex gap-0.5 rounded-lg bg-muted/60 p-0.5 ring-1 ring-border/60">
+            {TYPES.map((s) => (
+              <button
+                key={s}
+                onClick={() => setType(s)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition-all',
+                  type === s
+                    ? 'bg-card font-semibold text-foreground shadow-[var(--shadow-card)]'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {s === 'video' && <Video className="h-3 w-3" />}
+                {s === 'audio' && <Phone className="h-3 w-3" />}
+                {s === 'all'
+                  ? t('callCenter.calls.filterAll')
+                  : s === 'video' ? t('callCenter.calls.typeVideo') : t('callCenter.calls.typeAudio')}
+              </button>
+            ))}
+          </div>
+          <div className="relative ms-auto min-w-[200px] max-w-sm flex-1">
+            <Search className="absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input className="h-8 ps-8 text-sm" placeholder={t('callCenter.calls.searchPlaceholder')} value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+        </div>
+      </Panel>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card className="p-3"><div className="text-xs text-muted-foreground">{t('callCenter.calls.summary.answered')}</div><div className="text-xl font-semibold">{summary.answered}</div></Card>
-        <Card className="p-3"><div className="text-xs text-muted-foreground">{t('callCenter.calls.summary.missed')}</div><div className="text-xl font-semibold text-destructive">{summary.missed}</div></Card>
-        <Card className="p-3"><div className="text-xs text-muted-foreground">{t('callCenter.calls.summary.rejectedCancelled')}</div><div className="text-xl font-semibold">{summary.rejected}</div></Card>
-        <Card className="p-3"><div className="text-xs text-muted-foreground">{t('callCenter.calls.summary.avgDuration')}</div><div className="text-xl font-semibold">{summary.avg != null ? fmtDuration(summary.avg) : '—'}</div></Card>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <MetricTile
+          label={t('callCenter.calls.summary.answered')} value={summary.answered}
+          tone={summary.answered > 0 ? 'success' : 'neutral'} size="sm"
+        />
+        <MetricTile
+          label={t('callCenter.calls.summary.missed')} value={summary.missed}
+          tone={summary.missed > 0 ? 'danger' : 'neutral'} size="sm"
+        />
+        <MetricTile
+          label={t('callCenter.calls.summary.rejectedCancelled')} value={summary.rejected}
+          tone={summary.rejected > 0 ? 'warning' : 'neutral'} size="sm"
+        />
+        <MetricTile
+          label={t('callCenter.calls.summary.avgDuration')}
+          value={summary.avg != null ? fmtDuration(summary.avg) : '—'} size="sm"
+        />
       </div>
 
       <div className="flex items-center justify-between gap-2 px-1">
@@ -554,18 +600,18 @@ export default function CallsPage() {
         </Button>
       </div>
 
-      <Card className="overflow-x-auto">
+      <Panel flush className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-xs text-muted-foreground border-b">
-              <th className="text-start py-2 px-3 w-8"></th>
-              <th className="text-start py-2 px-3">{t('callCenter.calls.headers.visitor')}</th>
-              <th className="text-start py-2 px-3">{t('callCenter.calls.headers.type')}</th>
-              <th className="text-start py-2 px-3">{t('callCenter.calls.headers.state')}</th>
-              <th className="text-start py-2 px-3">{t('callCenter.calls.headers.duration')}</th>
-              <th className="text-start py-2 px-3">{t('callCenter.calls.headers.rating')}</th>
-              <th className="text-start py-2 px-3">{t('callCenter.calls.headers.page')}</th>
-              <th className="text-start py-2 px-3">{t('callCenter.calls.headers.created')}</th>
+            <tr className="border-b border-border/60 bg-muted/30 text-[10px] uppercase tracking-wider text-muted-foreground">
+              <th className="text-start py-2.5 px-3 w-8"></th>
+              <th className="text-start py-2.5 px-3">{t('callCenter.calls.headers.visitor')}</th>
+              <th className="text-start py-2.5 px-3">{t('callCenter.calls.headers.type')}</th>
+              <th className="text-start py-2.5 px-3">{t('callCenter.calls.headers.state')}</th>
+              <th className="text-start py-2.5 px-3">{t('callCenter.calls.headers.duration')}</th>
+              <th className="text-start py-2.5 px-3">{t('callCenter.calls.headers.rating')}</th>
+              <th className="text-start py-2.5 px-3">{t('callCenter.calls.headers.page')}</th>
+              <th className="text-start py-2.5 px-3">{t('callCenter.calls.headers.created')}</th>
             </tr>
           </thead>
           <tbody>
@@ -587,7 +633,11 @@ export default function CallsPage() {
                   locale,
                 );
               return (
-              <tr key={c.id} onClick={() => setSelected(c.id)} className="border-b cursor-pointer hover:bg-muted/40">
+              <tr
+                key={c.id}
+                onClick={() => setSelected(c.id)}
+                className="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/40"
+              >
                 <td className="py-2 px-3" onClick={(e) => e.stopPropagation()}>
                   <Checkbox
                     checked={pickedCalls.has(c.id)}
@@ -626,12 +676,16 @@ export default function CallsPage() {
                     {c.call_type === 'video' ? t('callCenter.calls.typeVideo') : t('callCenter.calls.typeAudio')}
                   </span>
                 </td>
-                <td className="py-2 px-3"><span className={cn('text-xs px-2 py-0.5 rounded-full', stateTone(c.state))}>{callStateLabel(t, c.state)}</span></td>
+                <td className="px-3 py-2">
+                  <StatusChip tone={stateTone(c.state)} dot pulse={c.state === 'active' || c.state === 'ringing'}>
+                    {callStateLabel(t, c.state)}
+                  </StatusChip>
+                </td>
                 <td className="py-2 px-3">{fmtDuration(c.duration_seconds)}</td>
                 <td className="py-2 px-3">
                   {(c as any).rating ? (
                     <span className="inline-flex items-center gap-1 text-xs">
-                      <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+                      <Star className="h-3 w-3 fill-warning text-warning" />
                       {(c as any).rating.rating}
                     </span>
                   ) : (
@@ -643,10 +697,16 @@ export default function CallsPage() {
               </tr>
               );
             })}
-            {filtered.length === 0 && (<tr><td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">{t('callCenter.calls.noMatches')}</td></tr>)}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={8}>
+                  <EmptyState icon={Search} title={t('callCenter.calls.noMatches')} />
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
-      </Card>
+      </Panel>
 
       <Sheet open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
         <SheetContent className="w-[480px] sm:max-w-[480px] overflow-y-auto">
@@ -656,10 +716,12 @@ export default function CallsPage() {
               <div className="space-y-2">
                 <div className="text-sm font-semibold">{detail.call.visitor_name || detail.call.visitor_email || t('callCenter.common.anonymous')}</div>
                 <div className="flex flex-wrap gap-2">
-                  <span className={cn('text-xs px-2 py-0.5 rounded-full', stateTone(detail.call.state))}>{callStateLabel(t, detail.call.state)}</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-muted">
+                  <StatusChip tone={stateTone(detail.call.state)} dot>
+                    {callStateLabel(t, detail.call.state)}
+                  </StatusChip>
+                  <StatusChip tone="neutral" icon={detail.call.call_type === 'video' ? Video : Phone}>
                     {detail.call.call_type === 'video' ? t('callCenter.calls.typeVideo') : t('callCenter.calls.typeAudio')}
-                  </span>
+                  </StatusChip>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2 text-sm">
@@ -687,8 +749,8 @@ export default function CallsPage() {
                 const artifact = rec?.artifact_id ? String(rec.artifact_id) : null;
                 const artifactMasked = artifact ? (artifact.length > 12 ? artifact.slice(0, 6) + '…' + artifact.slice(-4) : artifact) : null;
                 return (
-                  <div className="space-y-1.5 rounded-md border p-3 bg-muted/20">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('callCenter.calls.recordingTitle')}</div>
+                  <div className="space-y-2 rounded-xl border border-border/70 bg-muted/20 p-3">
+                    <SectionHeading icon={Mic} tone="danger" title={t('callCenter.calls.recordingTitle')} />
                     {rec ? (
                       <div className="text-xs grid grid-cols-2 gap-x-3 gap-y-1">
                         <span className="text-muted-foreground">{t('callCenter.calls.state')}</span><span>{recordingStateLabel(t, state)}</span>
@@ -708,8 +770,8 @@ export default function CallsPage() {
                 );
               })()}
               {(detail as any).rating && (
-                <div className="space-y-2 rounded-md border p-3 bg-amber-500/5 border-amber-500/30">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <div className="space-y-2 rounded-xl border border-warning/30 bg-warning/[0.06] p-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     {t('callCenter.calls.visitorRating')}
                   </div>
                   <div className="flex items-center gap-1">
@@ -719,7 +781,7 @@ export default function CallsPage() {
                         className={cn(
                           'h-4 w-4',
                           n <= ((detail as any).rating.rating || 0)
-                            ? 'fill-amber-400 text-amber-400'
+                            ? 'fill-warning text-warning'
                             : 'text-muted-foreground/40',
                         )}
                       />

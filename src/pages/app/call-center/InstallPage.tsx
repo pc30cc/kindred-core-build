@@ -1,11 +1,11 @@
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useCallCenterSettings, useUpdateCallCenterSettings, useCallCenterOverview } from '@/hooks/useCallCenter';
-import { Card } from '@/components/ui/card';
+import { Panel, SectionHeading } from '@/features/calls/callCenterUi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useState, useEffect } from 'react';
 import { toast } from '@/hooks/use-toast';
-import { Copy, AlertCircle, CheckCircle2, Plus, Trash2, Activity, Code2 } from 'lucide-react';
+import { Copy, AlertCircle, CheckCircle2, Plus, Trash2, Activity, Code2, Globe, FlaskConical } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/i18n';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
@@ -13,7 +13,7 @@ import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 function HealthRow({ ok, label, hint }: { ok: boolean; label: string; hint?: string }) {
   return (
     <div className="flex items-center gap-2 py-1.5 text-sm">
-      {ok ? <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" /> : <AlertCircle className="h-4 w-4 text-amber-500 shrink-0" />}
+      {ok ? <CheckCircle2 className="h-4 w-4 text-success shrink-0" /> : <AlertCircle className="h-4 w-4 text-warning shrink-0" />}
       <span className="flex-1">{label}</span>
       {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
     </div>
@@ -99,49 +99,48 @@ export default function InstallPage() {
   return (
     <div className="space-y-6 max-w-3xl">
       {/* Install health */}
-      <Card className="p-5 space-y-1">
-        <div className="flex items-center gap-2 mb-2">
-          <Activity className="h-4 w-4 text-primary" />
-          <h2 className="font-semibold">{t('callCenter.install.installHealth')}</h2>
-        </div>
+      <Panel className="space-y-1">
+        <SectionHeading icon={Activity} title={t('callCenter.install.installHealth')} className="mb-2" />
         <HealthRow ok={platformOk} label={t('callCenter.install.platformEnabled')} />
         <HealthRow ok={wsOk} label={t('callCenter.install.workspaceEnabled')} />
         <HealthRow ok={providerOk} label={t('callCenter.install.callsServiceReady')} />
         <HealthRow ok={hasKey} label={t('callCenter.install.publicKeyGenerated')} />
         <HealthRow ok={domainsOk} label={t('callCenter.install.allowedDomainConfigured')} hint={t('callCenter.install.domainCount', { count: String(data?.settings?.allowed_domains?.length || 0) })} />
-      </Card>
+      </Panel>
 
       {/* Embed code */}
-      <Card className="p-5 space-y-4">
-        <div className="flex items-center gap-2">
-          <Code2 className="h-4 w-4 text-primary" />
-          <h2 className="font-semibold">{t('callCenter.install.embedCode')}</h2>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          {t('callCenter.install.embedCodeHint', { assets: widgetAssetBase, api: apiBase })}
-        </p>
+      <Panel className="space-y-4">
+        <SectionHeading
+          icon={Code2}
+          title={t('callCenter.install.embedCode')}
+          hint={t('callCenter.install.embedCodeHint', { assets: widgetAssetBase, api: apiBase })}
+        />
         <div>
           <div className="text-xs text-muted-foreground mb-1">{t('callCenter.install.workspaceIdInstall')}</div>
-          <pre className="bg-muted p-3 rounded text-xs overflow-x-auto">{snippetWs}</pre>
+          <pre className="overflow-x-auto rounded-lg border border-border/60 bg-muted/60 p-3 text-xs">{snippetWs}</pre>
           <Button size="sm" className="mt-2" onClick={() => copy(snippetWs)}><Copy className="h-3.5 w-3.5 me-1" />{t('callCenter.common.copy')}</Button>
         </div>
         <div>
           <div className="text-xs text-muted-foreground mb-1">{t('callCenter.install.publicKeyInstall')}</div>
           {snippetPk ? (
             <>
-              <pre className="bg-muted p-3 rounded text-xs overflow-x-auto">{snippetPk}</pre>
+              <pre className="overflow-x-auto rounded-lg border border-border/60 bg-muted/60 p-3 text-xs">{snippetPk}</pre>
               <Button size="sm" className="mt-2" onClick={() => copy(snippetPk)}><Copy className="h-3.5 w-3.5 me-1" />{t('callCenter.common.copy')}</Button>
             </>
           ) : (
             <p className="text-xs text-muted-foreground">{t('callCenter.install.publicKeyNotAvailable')}</p>
           )}
         </div>
-      </Card>
+      </Panel>
 
       {/* Domain allowlist */}
-      <Card className="p-5 space-y-3">
-        <h2 className="font-semibold">{t('callCenter.install.allowedDomains')}</h2>
-        <p className="text-xs text-muted-foreground">{t('callCenter.install.allowedDomainsHint')}</p>
+      <Panel className="space-y-3">
+        <SectionHeading
+          icon={Globe}
+          title={t('callCenter.install.allowedDomains')}
+          hint={t('callCenter.install.allowedDomainsHint')}
+          count={domains.length || undefined}
+        />
         <div className="space-y-2">
           {domains.length === 0 && <p className="text-sm text-muted-foreground">{t('callCenter.install.noDomainsYet')}</p>}
           {domains.map((d, i) => (
@@ -158,20 +157,23 @@ export default function InstallPage() {
           <Button variant="outline" size="sm" onClick={addDomain}><Plus className="h-3.5 w-3.5 me-1" />{t('callCenter.install.addDomain')}</Button>
           <Button onClick={saveDomains} disabled={update.isPending || Object.values(errors).some(Boolean)}>{t('callCenter.common.save')}</Button>
         </div>
-      </Card>
+      </Panel>
 
       {/* Bootstrap test */}
-      <Card className="p-5 space-y-3">
-        <h2 className="font-semibold">{t('callCenter.install.testBootstrap')}</h2>
-        <p className="text-xs text-muted-foreground">{t('callCenter.install.testBootstrapHint')}</p>
+      <Panel className="space-y-3">
+        <SectionHeading
+          icon={FlaskConical}
+          title={t('callCenter.install.testBootstrap')}
+          hint={t('callCenter.install.testBootstrapHint')}
+        />
         <Button variant="outline" onClick={testBootstrap}>{t('callCenter.install.runTest')}</Button>
         {bootstrapResult && (
           <div className="rounded border p-3 text-sm space-y-2">
             <div className="flex items-center gap-2">
               {bootstrapResult.httpStatus === 200 && bootstrapResult.status !== 'disabled' ? (
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                <CheckCircle2 className="h-4 w-4 text-success" />
               ) : (
-                <AlertCircle className="h-4 w-4 text-amber-500" />
+                <AlertCircle className="h-4 w-4 text-warning" />
               )}
               <span className="font-medium">{t('callCenter.install.statusLabel')} {bootstrapResult.status || `HTTP ${bootstrapResult.httpStatus}`}</span>
             </div>
@@ -189,7 +191,7 @@ export default function InstallPage() {
             </details>
           </div>
         )}
-      </Card>
+      </Panel>
     </div>
   );
 }

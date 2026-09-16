@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/i18n';
 import { callbackStatusLabel } from '@/features/calls/callLabels';
+import { MetricTile, StatusChip, type Tone } from '@/features/calls/callCenterUi';
 import { useVisitorNetworkBatchBySession, type VisitorNetworkProfile } from '@/hooks/useVisitorNetwork';
 import { useGeoEnrichmentRealtime } from '@/hooks/useGeoEnrichmentRealtime';
 import { VisitorNetworkInline } from '@/features/visitors/VisitorNetworkCard';
@@ -40,19 +41,26 @@ function relativeTime(iso?: string | null): string {
   return `${d}d ago`;
 }
 
+/** Callback status → the module's shared status vocabulary. */
+const CALLBACK_TONE: Record<string, Tone> = {
+  requested: 'warning',
+  in_progress: 'info',
+  scheduled: 'primary',
+  completed: 'success',
+  cancelled: 'neutral',
+};
+
 function StatusPill({ status }: { status: string }) {
   const { t } = useTranslation();
-  const map: Record<string, string> = {
-    requested: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/20',
-    in_progress: 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/20',
-    scheduled: 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/20',
-    completed: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/20',
-    cancelled: 'bg-muted text-muted-foreground border-border',
-  };
   return (
-    <span className={cn('text-[10px] px-2 py-0.5 rounded-full border font-semibold uppercase tracking-wide', map[status])}>
+    <StatusChip
+      tone={CALLBACK_TONE[status] ?? 'neutral'}
+      dot
+      pulse={status === 'in_progress'}
+      className="text-[10px] uppercase tracking-wide"
+    >
       {callbackStatusLabel(t, status)}
-    </span>
+    </StatusChip>
   );
 }
 
@@ -116,11 +124,11 @@ function CallbackRow({
     <div ref={rowRef as any} className="scroll-mt-24">
     <Card className={cn(
       'p-0 overflow-hidden transition hover:shadow-md',
-      isUrgent && isOpen && 'ring-1 ring-red-500/40',
+      isUrgent && isOpen && 'ring-1 ring-destructive/40',
       highlight && 'ring-2 ring-primary shadow-lg animate-pulse-once',
     )}>
       {isUrgent && isOpen && (
-        <div className="bg-red-500/10 text-red-700 dark:text-red-300 px-4 py-1.5 text-xs font-semibold flex items-center gap-1.5 border-b border-red-500/20">
+        <div className="flex items-center gap-1.5 border-b border-destructive/20 bg-destructive/10 px-4 py-1.5 text-xs font-semibold text-destructive">
           <Flame className="h-3.5 w-3.5" /> {t('callCenter.callbacks.urgentHandle')}
         </div>
       )}
@@ -128,7 +136,7 @@ function CallbackRow({
         <div className="flex items-start gap-3">
           <div className={cn(
             'h-11 w-11 rounded-xl flex items-center justify-center shrink-0 shadow-sm',
-            isVideo ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400' : 'bg-primary/10 text-primary',
+            isVideo ? 'bg-info/10 text-info' : 'bg-primary/10 text-primary',
           )}>
             {isVideo ? <Video className="h-5 w-5" /> : <Phone className="h-5 w-5" />}
           </div>
@@ -195,14 +203,14 @@ function CallbackRow({
               </span>
               <VisitorNetworkInline profile={profile} t={(k: string) => t(k as Parameters<typeof t>[0])} locale={locale} />
               {c.scheduled_for && (
-                <span className="inline-flex items-center gap-1 text-violet-600 dark:text-violet-400">
+                <span className="inline-flex items-center gap-1 text-info">
                   <CalendarClock className="h-3 w-3" />{new Date(c.scheduled_for).toLocaleString()}
                 </span>
               )}
             </div>
             {c.status === 'completed' && resolutionNote && (
-              <div className="mt-3 rounded-md border bg-emerald-500/5 border-emerald-500/20 p-2.5 text-xs">
-                <div className="text-[10px] uppercase tracking-wide font-semibold text-emerald-700 dark:text-emerald-400 mb-1 flex items-center gap-1">
+              <div className="mt-3 rounded-xl border border-success/25 bg-success/[0.06] p-2.5 text-xs">
+                <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-success">
                   <CheckCircle2 className="h-3 w-3" /> {t('callCenter.callbacks.resolutionNote')}
                 </div>
                 <div className="text-foreground/90 whitespace-pre-wrap">{resolutionNote}</div>
@@ -370,12 +378,27 @@ export default function CallbacksPage() {
 
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-        <KpiCard label={t('callCenter.callbacks.kpi.pending')} value={counts.requested || 0} icon={PhoneCall} accent="bg-amber-500/15 text-amber-600" />
-        <KpiCard label={t('callCenter.callbacks.kpi.inProgress')} value={counts.in_progress || 0} icon={User2} accent="bg-blue-500/15 text-blue-600" />
-        <KpiCard label={t('callCenter.callbacks.kpi.scheduled')} value={counts.scheduled || 0} icon={CalendarClock} accent="bg-violet-500/15 text-violet-600" />
-        <KpiCard label={t('callCenter.callbacks.kpi.urgentOpen')} value={urgent} icon={Flame} accent="bg-red-500/15 text-red-600" />
-        <KpiCard label={t('callCenter.callbacks.kpi.today')} value={today} icon={Clock} accent="bg-primary/15 text-primary" />
-        <KpiCard label={t('callCenter.callbacks.kpi.completed')} value={counts.completed || 0} icon={CheckCircle2} accent="bg-emerald-500/15 text-emerald-600" />
+        <MetricTile
+          label={t('callCenter.callbacks.kpi.pending')} value={counts.requested || 0}
+          icon={PhoneCall} size="sm" tone={(counts.requested || 0) > 0 ? 'warning' : 'neutral'}
+        />
+        <MetricTile
+          label={t('callCenter.callbacks.kpi.inProgress')} value={counts.in_progress || 0}
+          icon={User2} size="sm" tone={(counts.in_progress || 0) > 0 ? 'info' : 'neutral'}
+        />
+        <MetricTile
+          label={t('callCenter.callbacks.kpi.scheduled')} value={counts.scheduled || 0}
+          icon={CalendarClock} size="sm" tone={(counts.scheduled || 0) > 0 ? 'primary' : 'neutral'}
+        />
+        <MetricTile
+          label={t('callCenter.callbacks.kpi.urgentOpen')} value={urgent}
+          icon={Flame} size="sm" tone={urgent > 0 ? 'danger' : 'neutral'}
+        />
+        <MetricTile label={t('callCenter.callbacks.kpi.today')} value={today} icon={Clock} size="sm" />
+        <MetricTile
+          label={t('callCenter.callbacks.kpi.completed')} value={counts.completed || 0}
+          icon={CheckCircle2} size="sm" tone={(counts.completed || 0) > 0 ? 'success' : 'neutral'}
+        />
       </div>
 
       {/* Filters */}
@@ -438,7 +461,7 @@ export default function CallbacksPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+              <CheckCircle2 className="h-5 w-5 text-success" />
               {t('callCenter.callbacks.completeTitle')}
             </DialogTitle>
             <DialogDescription>

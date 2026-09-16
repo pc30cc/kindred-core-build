@@ -1,6 +1,7 @@
 import { useActiveWorkspace } from '@/hooks/useWorkspace';
 import { useCallCenterSettings, useUpdateCallCenterSettings } from '@/hooks/useCallCenter';
 import { Card } from '@/components/ui/card';
+import { Panel, SectionHeading } from '@/features/calls/callCenterUi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,7 +13,10 @@ import { useEffect, useMemo, useState, useRef } from 'react';
 import { toast } from '@/hooks/use-toast';
 import { callCenterApi } from '@/lib/call-center-api';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, ChevronDown, RotateCcw, Save, Languages, Plus, Trash2 } from 'lucide-react';
+import {
+  AlertCircle, ChevronDown, RotateCcw, Save, Languages, Plus, Trash2,
+  Palette, Phone, ClipboardList, CalendarClock, Route, Mic,
+} from 'lucide-react';
 import { CheckCircle2, XCircle, ShieldCheck, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Link, useParams } from 'react-router-dom';
@@ -26,27 +30,47 @@ import { listDepartments } from '@/lib/workspace-departments-api';
 import { useTranslation } from '@/i18n';
 import { SkeletonForm, SkeletonCard, Skeleton } from '@/components/common/Skeletons';
 
-function Section({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
+/**
+ * One settings group.
+ *
+ * `icon` is optional so existing call sites keep working; where it is given,
+ * the tinted square matches every other section heading in the module.
+ */
+function Section({
+  title, description, icon, children,
+}: {
+  title: string;
+  description?: string;
+  icon?: React.ComponentType<{ className?: string }>;
+  children: React.ReactNode;
+}) {
   return (
-    <Card className="p-5 space-y-4">
-      <div>
-        <h2 className="font-semibold">{title}</h2>
-        {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
-      </div>
-      {children}
-    </Card>
+    <Panel className="space-y-4">
+      <SectionHeading icon={icon} title={title} hint={description} />
+      <div className="space-y-1">{children}</div>
+    </Panel>
   );
 }
 
+/**
+ * One setting.
+ *
+ * Rows are separated by a hairline rather than by whitespace alone: a long
+ * settings page scans much faster when each control is visibly its own line.
+ */
 function Row({ label, hint, locked, children }: { label: string; hint?: string; locked?: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-1">
+    <div className="flex items-center justify-between gap-4 border-b border-border/50 py-2.5 last:border-0">
       <div className="min-w-0">
         <Label>{label}</Label>
-        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
-        {locked && <p className="text-xs text-amber-600 flex items-center gap-1"><AlertCircle className="h-3 w-3" />{locked}</p>}
+        {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
+        {locked && (
+          <p className="mt-0.5 flex items-center gap-1 text-xs text-warning">
+            <AlertCircle className="h-3 w-3" />{locked}
+          </p>
+        )}
       </div>
-      <div className={cn(locked && 'opacity-50 pointer-events-none')}>{children}</div>
+      <div className={cn('shrink-0', locked && 'pointer-events-none opacity-50')}>{children}</div>
     </div>
   );
 }
@@ -173,7 +197,7 @@ export default function CallCenterSettingsPage() {
   return (
     <div className={cn('space-y-6 pb-24', (tab === 'presentation' || tab === 'general') ? 'max-w-6xl' : 'max-w-3xl')} dir={dir}>
       {platformOff && (
-        <Card className="p-4 border-destructive/40 bg-destructive/5 flex gap-2 items-start">
+        <Card className="flex items-start gap-2 rounded-xl border-destructive/40 bg-destructive/5 p-4">
           <AlertCircle className="h-4 w-4 text-destructive mt-0.5" />
           <div className="text-sm">{t('callCenter.settingsPage.platformDisabledBanner')}</div>
         </Card>
@@ -194,7 +218,7 @@ export default function CallCenterSettingsPage() {
 
       <TabsContent value="general" className="mt-0">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px] items-start">
-        <Section title={t('callCenter.settingsPage.identityBranding')} description={t('callCenter.settingsPage.identityBrandingHint')}>
+        <Section icon={Palette} title={t('callCenter.settingsPage.identityBranding')} description={t('callCenter.settingsPage.identityBrandingHint')}>
         <Row label={t('callCenter.settingsPage.displayName')}>
           <Input value={s.display_name || ''} onChange={(e) => setS({ ...s, display_name: e.target.value })} placeholder="Support" className="w-60" />
         </Row>
@@ -236,6 +260,7 @@ export default function CallCenterSettingsPage() {
       <TabsContent value="presentation" className="mt-0">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px] items-start">
         <Section
+          icon={Palette}
           title={t('callCenter.settingsPage.presentationTitle')}
           description={t('callCenter.settingsPage.presentationHint')}
         >
@@ -343,6 +368,7 @@ export default function CallCenterSettingsPage() {
         const singleLanguage = !regionMultilingual || platformAvail.length <= 1;
         return (
           <Section
+            icon={Languages}
             title={t('callCenter.settingsPage.widgetLanguages')}
             description={t('callCenter.settingsPage.widgetLanguagesHint')}
           >
@@ -425,7 +451,7 @@ export default function CallCenterSettingsPage() {
       </TabsContent>
 
       <TabsContent value="channels" className="space-y-6 mt-0">
-      <Section title={t('callCenter.settingsPage.callModes')} description={t('callCenter.settingsPage.callModesHint')}>
+      <Section icon={Phone} title={t('callCenter.settingsPage.callModes')} description={t('callCenter.settingsPage.callModesHint')}>
         <Row label={t('callCenter.settingsPage.voiceCalls')} locked={!platformVoice ? t('callCenter.settingsPage.disabledByPlatform') : undefined}>
           <Switch checked={!!s.voice_enabled} onCheckedChange={(v) => setS({ ...s, voice_enabled: v })} disabled={!platformVoice} />
         </Row>
@@ -453,7 +479,7 @@ export default function CallCenterSettingsPage() {
         </Row>
       </Section>
 
-      <Section title={t('callCenter.settingsPage.preCallFormSection')} description={t('callCenter.settingsPage.preCallFormSectionHint')}>
+      <Section icon={ClipboardList} title={t('callCenter.settingsPage.preCallFormSection')} description={t('callCenter.settingsPage.preCallFormSectionHint')}>
         <PreCallFormBuilder
           value={Array.isArray(s.pre_call_form_schema) ? s.pre_call_form_schema : []}
           onChange={(value) => setS({ ...s, pre_call_form_schema: value })}
@@ -463,7 +489,7 @@ export default function CallCenterSettingsPage() {
       </TabsContent>
 
       <TabsContent value="availability" className="space-y-6 mt-0">
-      <Section title={t('callCenter.settingsPage.availabilityOffline')} description={t('callCenter.settingsPage.availabilityOfflineHint')}>
+      <Section icon={CalendarClock} title={t('callCenter.settingsPage.availabilityOffline')} description={t('callCenter.settingsPage.availabilityOfflineHint')}>
         <Row label={t('callCenter.settingsPage.offlineBehavior')}>
           <Select value={s.offline_behavior || 'show_callback'} onValueChange={(v) => setS({ ...s, offline_behavior: v })}>
             <SelectTrigger className="w-60"><SelectValue /></SelectTrigger>
@@ -487,7 +513,7 @@ export default function CallCenterSettingsPage() {
       </TabsContent>
 
       <TabsContent value="routing" className="space-y-6 mt-0">
-      <Section title={t('callCenter.settingsPage.routing')} description={t('callCenter.settingsPage.routingHint')}>
+      <Section icon={Route} title={t('callCenter.settingsPage.routing')} description={t('callCenter.settingsPage.routingHint')}>
         <Row label={t('callCenter.settingsPage.routingMode')}>
           <Select value={s.routing_mode || 'broadcast'} onValueChange={(v) => setS({ ...s, routing_mode: v })}>
             <SelectTrigger className="w-60"><SelectValue /></SelectTrigger>
@@ -504,8 +530,8 @@ export default function CallCenterSettingsPage() {
         title={t('callCenter.settingsPage.departmentsRouting')}
         description={t('callCenter.settingsPage.departmentsRoutingHint')}>
         {ccDepartments.length === 0 && (
-          <div className="flex gap-2 items-start text-xs p-3 rounded bg-amber-500/10 border border-amber-500/30">
-            <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5" />
+          <div className="flex gap-2 items-start text-xs p-3 rounded bg-warning/10 border border-warning/30">
+            <AlertCircle className="h-4 w-4 text-warning mt-0.5" />
             <span>
               {t('callCenter.settingsPage.noDeptEnabled')}{' '}
               <Link to={`/${slug}/settings/team-departments`} className="text-primary underline">
@@ -554,7 +580,7 @@ export default function CallCenterSettingsPage() {
       {/* Sticky save bar */}
       {dirty && (
         <div className="fixed bottom-4 inset-x-0 mx-auto max-w-3xl px-6 z-30">
-          <Card className="p-3 flex items-center gap-3 shadow-lg border-primary/30 bg-card">
+          <Card className="flex items-center gap-3 rounded-xl border-primary/30 bg-card p-3 shadow-[var(--shadow-elevated)]">
             <span className="text-sm flex-1">{t('callCenter.common.unsavedChanges')}</span>
             <Button variant="ghost" size="sm" onClick={reset}><RotateCcw className="h-3.5 w-3.5 me-1" />{t('callCenter.common.reset')}</Button>
             <Button size="sm" onClick={save} disabled={update.isPending}><Save className="h-3.5 w-3.5 me-1" />{t('callCenter.common.saveChanges')}</Button>
@@ -599,7 +625,7 @@ function PreCallFormBuilder({
         <p className="text-xs text-muted-foreground">{t('callCenter.settingsPage.defaultFormHint')}</p>
       )}
       {value.map((field, index) => (
-        <Card key={`${field.id}-${index}`} className="p-3 space-y-3 bg-muted/20">
+        <Card key={`${field.id}-${index}`} className="space-y-3 rounded-xl border-border/70 bg-muted/20 p-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div className="space-y-1">
               <Label>{t('callCenter.settingsPage.fieldLabel')}</Label>
@@ -769,6 +795,7 @@ function LivePreviewSection({ t, settings, previewOnline, setPreviewOnline }: {
 }) {
   return (
     <Section
+      icon={Palette}
       title={t('callCenter.settingsPage.livePreview')}
       description={t('callCenter.settingsPage.livePreviewHint')}
     >
@@ -864,6 +891,7 @@ function RecordingSection({
 
   return (
     <Section
+      icon={Mic}
       title={t('callCenter.recording.title')}
       description={t('callCenter.recording.description')}
     >
@@ -871,14 +899,14 @@ function RecordingSection({
         className={cn(
           'rounded-md border p-3 flex items-start gap-2',
           eff
-            ? 'border-emerald-500/30 bg-emerald-500/5'
-            : 'border-amber-500/30 bg-amber-500/5',
+            ? 'border-success/30 bg-success/[0.06]'
+            : 'border-warning/30 bg-warning/[0.06]',
         )}
       >
         {eff ? (
-          <CheckCircle2 className="h-4 w-4 text-emerald-600 mt-0.5" />
+          <CheckCircle2 className="h-4 w-4 text-success mt-0.5" />
         ) : (
-          <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5" />
+          <AlertCircle className="h-4 w-4 text-warning mt-0.5" />
         )}
         <div className="text-xs space-y-1">
           <div className="font-semibold">
@@ -936,7 +964,7 @@ function CheckRow({ ok, label }: { ok: boolean; label: string }) {
   return (
     <div className="flex items-center gap-1.5">
       {ok ? (
-        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+        <CheckCircle2 className="h-3.5 w-3.5 text-success" />
       ) : (
         <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
       )}

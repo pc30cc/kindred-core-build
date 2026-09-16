@@ -80,6 +80,7 @@ import {
 } from '../services/widget/security.js';
 import { createStorageUrlResolver, hydrateUserAvatars } from '../services/storage/urlResolver.js';
 import { resolveAgentLogoUrl, type AgentMode } from '../services/ai-agent/settings.js';
+import { enrichMessagesWithSender } from '../services/widget/senderIdentity.js';
 
 /**
  * What the widget security middleware attaches to a request after it has
@@ -1253,90 +1254,6 @@ widgetRouter.post('/nudge/evaluate', widgetRateLimit('default'), async (req: Req
     res.json({ decision: 'suppress' });
   }
 });
-
-/**
- * Resolve operator profile (full_name + avatar_url) for any agent/ai message.
- * Single batched lookup keeps /poll and /history fast even on long threads.
- * Visitor + system messages are passed through unchanged.
- */
-async function enrichMessagesWithSender(
-  config: ServerConfig,
-  supabase,
-  messages,
-  workspaceId?: string | null,
-): Promise<unknown[]> {
-  if (!messages || !messages.length) return messages || [];
-  // Internal staffing notices (assignment transfers) never reach the visitor.
-  // Canonical helper — see widgetAttachments.ts's filterVisitorVisibleMessages
-  // doc comment for why this must be the ONE place this rule lives (also
-  // used directly by GET /identity/history, which has no sender-profile
-  // enrichment step to piggyback the filter on).
-  messages = filterVisitorVisibleMessages(messages);
-  if (!messages.length) return messages;
-
-  const ids = Array.from(new Set(
-    messages
-      .filter((m) => m._sender_id && (m.role === 'agent' || m.sender_type === 'agent' || m.sender_type === 'ai'))
-      .map((m) => m._sender_id as string)
-  ));
-  const profileMap = new Map<string, { name: string | null; avatar: string | null }>();
-  if (ids.length) {
-    try {
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, full_name, avatar_storage_key')
-        .in('id', ids);
-      // Derived from the stored key for the provider that is primary now —
-      // one resolution for the whole thread.
-      await hydrateUserAvatars(config, (profiles || []));
-      (profiles || []).forEach((p) => {
-        profileMap.set(p.id, { name: p.full_name || null, avatar: p.avatar_url || null });
-      });
-    } catch (e) {
-      console.warn('[widget-sender-enrich] profile lookup failed:', e?.message || e);
-    }
-  }
-  // AI messages have no operator profile — their identity comes from the
-  // agent settings (name + logo). Older rows may predate the metadata
-  // snapshot, so fall back to the workspace's current agent settings.
-  let aiDisplay: { name: string | null; avatar: string | null } | null = null;
-  const hasAi = messages.some((m) => m.sender_type === 'ai');
-  if (hasAi && workspaceId) {
-    try {
-      const { data: s } = await supabase
-        .from('ai_agent_settings')
-        .select('agent_name, agent_logo_url, metadata')
-        .eq('workspace_id', workspaceId)
-        .maybeSingle();
-      if (s) aiDisplay = { name: s.agent_name || null, avatar: await resolveAgentLogoUrl(config, workspaceId, s) };
-    } catch (e) {
-      console.warn('[widget-sender-enrich] ai settings lookup failed:', e?.message || e);
-    }
-  }
-  return messages.map((m) => {
-    if (m.sender_type === 'ai') {
-      const { _sender_id: _ignored, ...rest } = m;
-      const meta = (m.metadata && typeof m.metadata === 'object') ? m.metadata : {};
-      return {
-        ...rest,
-        sender_name: meta.agent_name || aiDisplay?.name || null,
-        // No `meta.agent_logo_url` fallback: a provider URL is no longer
-        // snapshotted into a message row (see ai-agent/responder.ts).
-        sender_avatar: aiDisplay?.avatar || null,
-      };
-    }
-    const { _sender_id, ...rest } = m;
-    if (m.role === 'agent' || m.sender_type === 'agent' || m.sender_type === 'ai') {
-      const profile = _sender_id ? profileMap.get(_sender_id) : null;
-      return {
-        ...rest,
-        sender_name: profile?.name || null,
-        sender_avatar: profile?.avatar || null,
-      };
-    }
-    return rest;
-  });
-}
 
 widgetRouter.get('/poll', widgetRateLimit('poll'), async (req: Request, res: Response) => {
   const config = serverConfigOf(req);

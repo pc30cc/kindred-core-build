@@ -34,6 +34,7 @@ const widgetRoute = read('server/routes/widget.ts');
 const widgetIdentityRoute = read('server/routes/widgetIdentity.ts');
 const widgetAttachmentsSvc = read('server/routes/widgetAttachments.ts');
 const publishSvc = read('server/services/realtime/publish.ts');
+const senderIdentitySvc = read('server/services/widget/senderIdentity.ts');
 const conversationsRoute = read('server/routes/conversations.ts');
 const replyMigrationSelfHost = read('database/migrations/176_widget_message_reply_to.sql');
 const replyMigrationHosted = read('supabase/migrations/20260914120000_widget_message_reply_to.sql');
@@ -304,9 +305,13 @@ describe('reply-to-message — every read path resolves the structured relation 
 
   it('GET /identity/history (smart continuation / page-reload path) also resolves it, scoped to the continued conversation', () => {
     const idx = widgetIdentityRoute.indexOf("widgetIdentityRouter.get('/history'");
-    const body = widgetIdentityRoute.slice(idx, idx + 3000);
+    const body = widgetIdentityRoute.slice(idx, idx + 4000);
     expect(body).toContain('reply_to_message_id');
     expect(body).toContain('enrichMessagesWithReplyTo(config, conv.id, withAttachments)');
+    // Sender identity too: this is the endpoint the widget calls when it
+    // opens and replays a thread, and it used to return every operator and
+    // AI bubble with no name and no avatar.
+    expect(body).toContain('enrichMessagesWithSender(config, supabase, withReplies, workspaceId)');
   });
 
   it('enrichMessagesWithReplyTo is scoped by a conversationId parameter and applies the canonical visitor-visibility + same-conversation checks before attaching any preview', () => {
@@ -320,11 +325,15 @@ describe('reply-to-message — every read path resolves the structured relation 
     expect(widgetAttachmentsSvc).toContain('export function isVisitorVisibleMessageMeta(');
     expect(widgetAttachmentsSvc).toContain('export function filterVisitorVisibleMessages<T extends { metadata?: unknown }>(messages: T[]): T[] {');
     expect(widgetAttachmentsSvc).toContain('return messages.filter((m) => isVisitorVisibleMessageMeta(m?.metadata));');
-    expect(widgetRoute).toContain('messages = filterVisitorVisibleMessages(messages);');
+    // enrichMessagesWithSender now lives in services/widget/senderIdentity.ts
+    // so /poll, /history and /identity/history can all share it; the filter
+    // moved with it and still runs on every enriched batch.
+    expect(senderIdentitySvc).toContain('messages = filterVisitorVisibleMessages(messages);');
     expect(widgetIdentityRoute).toContain('const baseMessages = filterVisitorVisibleMessages(');
     // The old inline duplicates must be gone, not just supplemented.
     expect(widgetRoute).not.toContain("return !(meta && (meta as any).internal === true);");
     expect(widgetRoute).not.toContain('messages.filter((m) => isVisitorVisibleMessageMeta(m?.metadata));');
+    expect(senderIdentitySvc).not.toContain('messages.filter((m) => isVisitorVisibleMessageMeta(m?.metadata));');
   });
 
   it('the realtime envelope builder (buildMessageEnvelope) carries reply_to_message_id/reply_to when the caller supplies them', () => {

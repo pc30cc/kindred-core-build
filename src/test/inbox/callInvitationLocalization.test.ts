@@ -51,17 +51,24 @@ describe('the invitation notice is localized for the operator', () => {
   });
 
   it('picks the key by channel, and names the operator when known', () => {
-    expect(INBOX).toContain('inbox.system.callInviteVideoFrom');
-    expect(INBOX).toContain('inbox.system.callInviteAudioFrom');
-    expect(INBOX).toContain('inbox.system.callInviteVideo');
-    expect(INBOX).toContain('inbox.system.callInviteAudio');
+    // The key selection now lives in the one shared localizer, so the same
+    // sentence is produced for the thread, the list preview and the contact
+    // page (see systemMessageText.test.ts for the behaviour itself).
+    const LOCALIZER = readFileSync('src/lib/systemMessageText.ts', 'utf8');
+    expect(LOCALIZER).toContain('inbox.system.callInviteVideoFrom');
+    expect(LOCALIZER).toContain('inbox.system.callInviteAudioFrom');
+    expect(LOCALIZER).toContain('inbox.system.callInviteVideo');
+    expect(LOCALIZER).toContain('inbox.system.callInviteAudio');
+    expect(INBOX).toContain('systemMessageText(meta as SystemMessageMeta, t)');
   });
 
   it('shows the live invitation status, not only that one was sent', () => {
     // The card mutates in place as the visitor acts on it.
+    const LOCALIZER = readFileSync('src/lib/systemMessageText.ts', 'utf8');
     for (const status of ['Joined', 'Expired', 'Cancelled', 'Declined', 'Pending']) {
-      expect(INBOX, status).toContain(`inbox.callInvite.status${status}`);
+      expect(LOCALIZER, status).toContain(`inbox.callInvite.status${status}`);
     }
+    expect(INBOX).toContain('invitationStatusText(t, status)');
   });
 
   it('carries every key in every locale', () => {

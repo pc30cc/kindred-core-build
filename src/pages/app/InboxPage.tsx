@@ -82,6 +82,11 @@ import {
 } from '@/features/notifications/operatorMessageSound';
 import { Volume2, VolumeX } from 'lucide-react';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
+import { useStickToBottom } from '@/hooks/useStickToBottom';
+import {
+  systemMessageText, invitationStatusText,
+  type SystemMessageMeta,
+} from '@/lib/systemMessageText';
 
 const API_BASE = RESOLVED_API_BASE || '';
 const ALLOWED_OPERATOR_MIMES = new Set([
@@ -386,6 +391,7 @@ export default function InboxPage() {
 
   const [activeCallConversationId, setActiveCallConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContentRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const selectedSnapshotRef = useRef<any>(null);
   const pendingScrollConvRef = useRef<string | null>(null);
@@ -625,10 +631,15 @@ export default function InboxPage() {
     return () => cancelAnimationFrame(raf);
   }, [conversations, selectedId]);
 
-  // Auto-scroll
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [rawMessages?.length]);
+  // Keep the thread pinned to its newest message. Opening a conversation
+  // jumps; a message arriving while you are already at the bottom glides;
+  // a late-loading image re-pins instead of pushing the newest message out
+  // of view. See useStickToBottom for why the old one-line version was not
+  // enough.
+  useStickToBottom(messagesContainerRef, messagesContentRef, {
+    conversationKey: selectedId,
+    revision: rawMessages?.length,
+  });
 
   // ─── Phase 2 — Operator attachment composer state ───
   // Single pending attachment per draft (mirrors widget's design).
@@ -1575,22 +1586,19 @@ export default function InboxPage() {
                         )}>
                           {(() => {
                             const last = (conv as any).last_message as
-                              | { body: string; sender_type: string; sender_id?: string | null; sender_name?: string | null; attachment_kind?: string | null; system_kind?: string | null; actor_name?: string | null; to_name?: string | null }
+                              | { body: string; sender_type: string; sender_id?: string | null; sender_name?: string | null; attachment_kind?: string | null; system_kind?: string | null; system_meta?: SystemMessageMeta | null }
                               | null
                               | undefined;
-                            // System routing notices are persisted in English —
-                            // render them from metadata so the preview follows
-                            // the app locale (fa/tr included).
-                            if (last?.system_kind === 'conversation_transferred' || last?.system_kind === 'conversation_unassigned') {
-                              const actor = String(last.actor_name || '').trim();
-                              const to = String(last.to_name || '').trim();
-                              const isTransfer = last.system_kind === 'conversation_transferred';
-                              const tpl = isTransfer ? t('inbox.system.transferred') : t('inbox.system.unassigned');
-                              return tpl && !tpl.startsWith('inbox.')
-                                ? tpl.replace('{actor}', actor).replace('{to}', to)
-                                : (isTransfer
-                                  ? `${actor} transferred this conversation to ${to}`
-                                  : `${actor} unassigned this conversation`);
+                            // Every system notice is persisted in English and
+                            // frozen at insert time — rebuild the sentence from
+                            // metadata so the preview follows the app locale.
+                            // One shared localizer, so the list can never know
+                            // about fewer kinds than the thread beside it.
+                            if (last?.system_kind) {
+                              const localized = systemMessageText(
+                                { ...(last.system_meta || {}), kind: last.system_kind }, t,
+                              );
+                              if (localized) return localized;
                             }
                             // Name the operator who actually wrote the last
                             // reply; only fall back to "You" when it was me.
@@ -2060,6 +2068,11 @@ export default function InboxPage() {
               aria-live="polite"
               aria-relevant="additions"
             >
+              {/* One wrapper around every row, so a ResizeObserver can watch
+                  the content height directly — that is how a late image gets
+                  the thread re-pinned instead of leaving the newest message
+                  below the fold. */}
+              <div ref={messagesContentRef}>
               {rawMessages?.map((msg, idx) => {
                 const isVisitor = msg.sender_type === 'contact';
                 const isAgent = !isVisitor;
@@ -2155,16 +2168,8 @@ export default function InboxPage() {
                 // Routing system notices are stored in English by the server;
                 // render them from metadata so they follow the app locale.
                 if (msg.sender_type === 'system'
-                  && ((meta as any).kind === 'conversation_transferred' || (meta as any).kind === 'conversation_unassigned')) {
-                  const actor = String((meta as any).actor_name || '').trim();
-                  const to = String((meta as any).to_name || '').trim();
-                  const isTransfer = (meta as any).kind === 'conversation_transferred';
-                  const tpl = isTransfer ? t('inbox.system.transferred') : t('inbox.system.unassigned');
-                  const text = tpl && !tpl.startsWith('inbox.')
-                    ? tpl.replace('{actor}', actor).replace('{to}', to)
-                    : (isTransfer
-                      ? `${actor} transferred this conversation to ${to}`
-                      : `${actor} unassigned this conversation`);
+                  && (meta.kind === 'conversation_transferred' || meta.kind === 'conversation_unassigned')) {
+                  const text = systemMessageText(meta as SystemMessageMeta, t) ?? msg.body;
                   return (
                     <div key={msg.id} className="flex justify-center my-1">
                       <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
@@ -2173,13 +2178,8 @@ export default function InboxPage() {
                     </div>
                   );
                 }
-                if (msg.sender_type === 'system' && (meta as any).kind === 'routing_agent_joined') {
-
-                  const name = String((meta as any).agent_name || '').trim();
-                  const tpl = name ? t('inbox.system.agentJoined') : t('inbox.system.agentJoinedGeneric');
-                  const text = tpl && !tpl.startsWith('inbox.')
-                    ? tpl.replace('{name}', name)
-                    : (name ? `${name} joined the conversation` : 'A colleague joined the conversation');
+                if (msg.sender_type === 'system' && meta.kind === 'routing_agent_joined') {
+                  const text = systemMessageText(meta as SystemMessageMeta, t) ?? msg.body;
                   return (
                     <div key={msg.id} className="flex justify-center my-1">
                       <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
@@ -2188,11 +2188,8 @@ export default function InboxPage() {
                     </div>
                   );
                 }
-                if (msg.sender_type === 'system' && (meta as any).kind === 'routing_no_agent_available') {
-                  const tpl = t('inbox.system.noAgentAvailable');
-                  const text = tpl && !tpl.startsWith('inbox.')
-                    ? tpl
-                    : "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can.";
+                if (msg.sender_type === 'system' && meta.kind === 'routing_no_agent_available') {
+                  const text = systemMessageText(meta as SystemMessageMeta, t) ?? msg.body;
                   return (
                     <div key={msg.id} className="flex justify-center my-1">
                       <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
@@ -2210,26 +2207,14 @@ export default function InboxPage() {
                 // showed "You have been invited to an audio call."
                 if (msg.sender_type === 'system' && meta.kind === 'call_invitation') {
                   const isVideo = meta.channel === 'video';
-                  const op = String(meta.operator_name || '').trim();
-                  const key = op
-                    ? (isVideo ? 'inbox.system.callInviteVideoFrom' : 'inbox.system.callInviteAudioFrom')
-                    : (isVideo ? 'inbox.system.callInviteVideo' : 'inbox.system.callInviteAudio');
-                  const tpl = t(key);
-                  const text = tpl && !tpl.startsWith('inbox.')
-                    ? tpl.replace('{op}', op)
-                    : (op
-                      ? `${op} invited the visitor to ${isVideo ? 'a video' : 'an audio'} call`
-                      : `Visitor invited to ${isVideo ? 'a video' : 'an audio'} call`);
-                  // The card mutates in place as the visitor acts on it, so
-                  // the row carries the live status rather than only "sent".
+                  // The shared localizer appends the live status; the thread
+                  // shows it as its own chip, so take the sentence alone.
+                  const full = systemMessageText(meta as SystemMessageMeta, t) ?? msg.body;
                   const status = String(meta.status || 'pending');
-                  const statusKey = status === 'joined' ? 'inbox.callInvite.statusJoined'
-                    : status === 'expired' ? 'inbox.callInvite.statusExpired'
-                    : status === 'cancelled' ? 'inbox.callInvite.statusCancelled'
-                    : status === 'declined' ? 'inbox.callInvite.statusDeclined'
-                    : 'inbox.callInvite.statusPending';
-                  const rawStatus = t(statusKey);
-                  const statusText = rawStatus && !rawStatus.startsWith('inbox.') ? rawStatus : status;
+                  const statusText = invitationStatusText(t, status);
+                  const text = full.endsWith(` · ${statusText}`)
+                    ? full.slice(0, -(statusText.length + 3))
+                    : full;
                   return (
                     <div key={msg.id} className="flex justify-center my-1">
                       <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
@@ -2240,39 +2225,8 @@ export default function InboxPage() {
                     </div>
                   );
                 }
-                if (msg.sender_type === 'system' && (meta as any).kind === 'call_ended') {
-
-                  const endedBy = String((meta as any).ended_by || 'system');
-                  const endReason = String((meta as any).end_reason || '');
-                  const dur = Number((meta as any).duration_seconds || 0);
-                  const fmtDur = (() => {
-                    const s = Math.max(0, Math.floor(dur));
-                    const hh = Math.floor(s / 3600);
-                    const mm = Math.floor((s % 3600) / 60);
-                    const ss = s % 60;
-                    const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
-                    return hh > 0 ? `${pad(hh)}:${pad(mm)}:${pad(ss)}` : `${pad(mm)}:${pad(ss)}`;
-                  })();
-                  const isMissed = endReason === 'failed' || dur <= 0;
-                  const key =
-                    isMissed
-                      ? 'inbox.callEnded.summary.notConnected'
-                      : endedBy === 'operator'
-                        ? 'inbox.callEnded.summary.byOperator'
-                        : endedBy === 'visitor'
-                          ? 'inbox.callEnded.summary.byVisitor'
-                          : 'inbox.callEnded.summary.bySystem';
-                  const fallback = isMissed
-                    ? 'Call did not connect'
-                    : endedBy === 'operator'
-                      ? `Call ended by operator · Duration ${fmtDur}`
-                      : endedBy === 'visitor'
-                        ? `Call ended by visitor · Duration ${fmtDur}`
-                        : `Call ended · Duration ${fmtDur}`;
-                  const raw = t(key);
-                  const text = raw && raw !== key
-                    ? raw.replace('{duration}', fmtDur)
-                    : fallback;
+                if (msg.sender_type === 'system' && meta.kind === 'call_ended') {
+                  const text = systemMessageText(meta as SystemMessageMeta, t) ?? msg.body;
                   return (
                     <div key={msg.id} className="flex justify-center my-1">
                       <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-muted/60 text-muted-foreground text-[11px] border border-border/60">
@@ -2459,6 +2413,7 @@ export default function InboxPage() {
                 );
               })}
               <div ref={messagesEndRef} />
+              </div>
             </div>
 
             {/* ── Visitor typing indicator ── */}

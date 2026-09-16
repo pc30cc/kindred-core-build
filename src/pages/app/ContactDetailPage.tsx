@@ -37,6 +37,7 @@ import { useVisitorNetwork } from '@/hooks/useVisitorNetwork';
 import { Globe, Lock } from 'lucide-react';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
+import { systemMessageText, type SystemMessageMeta } from '@/lib/systemMessageText';
 
 /**
  * Conversation subjects are sometimes persisted with an English default
@@ -379,11 +380,19 @@ export default function ContactDetailPage() {
                                 <p className="font-medium text-sm text-foreground line-clamp-1">
                                   {conversationTitle(conv, t)}
                                 </p>
-                                {conv.last_message_body ? (
-                                  <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
-                                    {conv.last_message_body}
-                                  </p>
-                                ) : null}
+                                {(() => {
+                                  // A system notice is stored in English and
+                                  // frozen at insert time, so its sentence is
+                                  // rebuilt from metadata rather than shown raw.
+                                  const preview = systemMessageText(
+                                    conv.last_message_meta as SystemMessageMeta | null, t,
+                                  ) ?? conv.last_message_body;
+                                  return preview ? (
+                                    <p className="text-xs text-muted-foreground line-clamp-1 mt-1">
+                                      {preview}
+                                    </p>
+                                  ) : null;
+                                })()}
                                 <div className="flex items-center gap-2 mt-1.5">
                                   {conv.handled_by_operator ? (
                                     <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-primary/10 text-primary">

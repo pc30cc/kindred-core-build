@@ -94,38 +94,19 @@ adminReliabilityRouter.get('/business', async (req, res) => {
 });
 
 // ─── Workspace health snapshots ────────────────────────────────────────────
-adminReliabilityRouter.get('/workspace-health', async (req, res) => {
-  try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const sb = getServiceClient(config);
-    // Latest snapshot per workspace (last 7d window)
-    const { data, error } = await sb
-      .from('workspace_health_snapshots')
-      .select('id, workspace_id, captured_at, health_score, state, components')
-      .gte('captured_at', new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString())
-      .order('captured_at', { ascending: false })
-      .limit(5000);
-    if (error) return res.status(500).json({ error: error.message });
-    const seen = new Set<string>();
-    const latest: any[] = [];
-    for (const row of data || []) {
-      if (seen.has(row.workspace_id)) continue;
-      seen.add(row.workspace_id);
-      latest.push(row);
-    }
-    const counts = {
-      healthy: latest.filter((r) => r.state === 'healthy').length,
-      warning: latest.filter((r) => r.state === 'warning').length,
-      at_risk: latest.filter((r) => r.state === 'at_risk').length,
-    };
-    const at_risk = latest
-      .filter((r) => r.state !== 'healthy')
-      .sort((a, b) => a.health_score - b.health_score)
-      .slice(0, 10);
-    res.json({ counts, total: latest.length, latest, at_risk });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'Failed to load workspace health' });
-  }
+//
+// The workspace_health_snapshots family — the table, its monthly partitions,
+// the _legacy table and the workspace_health_snapshot_compute() function —
+// was dropped from the database. Every read here returned a 404 from
+// PostgREST, which this handler turned into a 500, several times a minute.
+//
+// The ROUTE stays rather than being deleted, because the admin System page
+// and ReliabilityPanel both fetch it: a 404 would break their render, while
+// the empty payload below leaves them showing zero workspaces, which is the
+// truth. The response keeps its exact shape so no client needs changing, and
+// restoring the table is enough to bring the real data back.
+adminReliabilityRouter.get('/workspace-health', async (_req, res) => {
+  res.json({ counts: { healthy: 0, warning: 0, at_risk: 0 }, total: 0, latest: [], at_risk: [] });
 });
 
 // ─── SLO definitions ───────────────────────────────────────────────────────
@@ -176,12 +157,13 @@ adminReliabilityRouter.post('/rollup', async (req, res) => {
     const sb = getServiceClient(config);
     const sla = await (sb as any).rpc('sla_reliability_rollup_and_prune');
     const biz = await (sb as any).rpc('business_metrics_rollup_and_prune');
-    const hs = await (sb as any).rpc('workspace_health_snapshot_compute');
     res.json({
       ok: true,
       sla: sla.error ? { error: sla.error.message } : sla.data,
       business: biz.error ? { error: biz.error.message } : biz.data,
-      health: hs.error ? { error: hs.error.message } : hs.data,
+      // workspace_health_snapshot_compute() no longer exists; the key is kept
+      // so the admin client's response shape is unchanged.
+      health: null,
     });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || 'Rollup failed' });

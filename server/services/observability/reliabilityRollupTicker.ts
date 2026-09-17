@@ -21,7 +21,10 @@ export function startReliabilityRollup(config: ServerConfig): void {
 async function runOnce(config: ServerConfig): Promise<void> {
   await runRpc(config, 'sla_reliability_rollup_and_prune', 'sla_reliability_rollup');
   await runRpc(config, 'business_metrics_rollup_and_prune', 'business_metrics_rollup');
-  await runRpc(config, 'workspace_health_snapshot_compute', 'workspace_health_snapshot');
+  // workspace_health_snapshot_compute is deliberately absent: the
+  // workspace_health_snapshots family (table, partitions and compute
+  // function) was dropped from the database, so calling it only produced a
+  // 404 every cycle. See the note in server/routes/adminReliability.ts.
 }
 
 async function runRpc(config: ServerConfig, fn: string, logSlug: string): Promise<void> {

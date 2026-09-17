@@ -48,14 +48,28 @@ function makeFakeSb(state: FakeState) {
           return { data: null, error: { message: 'boom-openRead' } };
         }
         const rows: any[] = [];
+        const slugsAlreadyCarried = new Set<string>();
         for (const [ruleId, evts] of Object.entries(state.openEventsByRule)) {
           const owning = state.rules.find((r) => r.id === ruleId);
+          if (owning?.slug) slugsAlreadyCarried.add(owning.slug);
           for (const e of evts) rows.push({ ...e, rule_id: ruleId, rule_slug: owning?.slug ?? null });
         }
-        // Open subrule incidents the tests declare by slug alone, with no
-        // corresponding rule row. A synthetic rule_id keeps them distinct in
-        // the index; duplicates collapse, which is what COUNT(DISTINCT) did.
+        // Open subrule incidents a test declares by slug ALONE, with no
+        // corresponding openEventsByRule row. A synthetic rule_id keeps those
+        // distinct in the index.
+        //
+        // A slug already carried by a real row above is skipped, because the
+        // two fake fields are two ways of describing ONE open incident: a
+        // test that sets openEventsByRule['r-child'] AND lists r-child's slug
+        // in combinedOpenSlugs means a single alert, and the two split
+        // queries this batched read replaced could never have seen it twice.
+        // Emitting both would put a duplicate in the index that a resolve
+        // cannot clear — the evaluator deletes by rule id, so the synthetic
+        // twin would survive and a combined rule would go on counting a child
+        // that had just resolved. Postgres has no such twin: one open
+        // incident is one row.
         for (const slug of state.combinedOpenSlugs) {
+          if (slugsAlreadyCarried.has(slug)) continue;
           rows.push({ id: `synthetic-${slug}`, severity: 'critical', rule_id: `__slug__:${slug}`, rule_slug: slug });
         }
         return { data: rows, error: null };

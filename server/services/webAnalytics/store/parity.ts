@@ -37,12 +37,9 @@
 
 import { createHash } from 'node:crypto';
 import type { ServerConfig } from '../../../config.js';
-import { getServiceClient } from '../../../supabase.js';
-import { emitLog, emitMetric } from '../../observability/metrics.js';
 import type { DateRange } from '../reportService.js';
 import type { WebAnalyticsStore } from './types.js';
 
-export const PARITY_STATE_KEY = 'analytics_parity_state';
 
 /** Percentage points two independently-rounded rates may differ by. */
 const RATE_TOLERANCE = 0.2;
@@ -339,20 +336,7 @@ export async function runParity(
     if (report.error) run.regressions++;
   }
 
-  emitMetric(config, {
-    metric: 'analytics_s3_parity_differences',
-    tags: { regressions: run.regressions, expected: run.expectedDifferences },
-  });
-  emitLog(config, run.regressions > 0 ? 'warn' : 'info', 'analytics_parity_run', {
-    workspace_id: workspaceId,
-    range: `${range.startDate}..${range.endDate}`,
-    reports: run.reports.length,
-    regressions: run.regressions,
-    expected_differences: run.expectedDifferences,
-    unavailable: run.unavailable ?? null,
-  });
 
-  await persistParity(config, run);
   return run;
 }
 
@@ -410,51 +394,14 @@ export function redactParityRun(run: ParityRun): ParityRun {
 }
 
 /**
- * Keep the last run for the admin panel.
+ * Parity is a VERIFICATION TOOL, not a monitored metric.
  *
- * In `app_runtime_config` — the same generic key/value table the storage
- * pools use — rather than a new table: this is one diagnostic blob that is
- * overwritten, not a history anyone queries.
+ * It used to persist its last run into `app_runtime_config` so an admin panel
+ * could show a parity badge. That made PostgreSQL the home of analytics
+ * history — exactly what this subsystem exists to stop — and a stored badge
+ * describes a comparison that may be days old and made against different
+ * code.
+ *
+ * So there is no `persistParity` and no `readParityState`. A run returns its
+ * result to whoever asked for it, and that is the end of it.
  */
-async function persistParity(config: ServerConfig, run: ParityRun): Promise<void> {
-  try {
-    const sb = getServiceClient(config);
-    await sb.from('app_runtime_config').upsert({
-      key: PARITY_STATE_KEY,
-      value: {
-        at: run.at,
-        workspaceId: run.workspaceId,
-        range: run.range,
-        regressions: run.regressions,
-        expectedDifferences: run.expectedDifferences,
-        unavailable: run.unavailable ?? null,
-        summary: paritySummary(run),
-        reports: redactParityRun(run).reports.map((report) => ({
-          report: report.report,
-          ok: report.ok,
-          status: report.status,
-          postgresMs: report.postgresMs,
-          s3Ms: report.s3Ms,
-          error: report.error ?? null,
-          // Bounded and digested: the panel shows a summary, not a diff dump
-          // of the workspace's own dimension values.
-          differences: report.differences,
-        })),
-      },
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'key' });
-  } catch (err: unknown) {
-    console.error('[analytics] could not persist parity run:', err instanceof Error ? err.message : err);
-  }
-}
-
-export async function readParityState(config: ServerConfig): Promise<ParityRun | null> {
-  try {
-    const sb = getServiceClient(config);
-    const { data } = await sb.from('app_runtime_config').select('value').eq('key', PARITY_STATE_KEY).maybeSingle();
-    const value = (data as { value?: unknown } | null)?.value;
-    return value && typeof value === 'object' ? (value as ParityRun) : null;
-  } catch {
-    return null;
-  }
-}

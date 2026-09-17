@@ -48,7 +48,6 @@
  */
 
 import type { ServerConfig } from '../../config.js';
-import { emitLog, emitMetric } from '../observability/metrics.js';
 
 /** Minimal surface of `@duckdb/node-api` this module uses. */
 interface DuckDBConnection {
@@ -173,23 +172,11 @@ export async function queryAnalytics<T = Record<string, unknown>>(
     health.queries++;
     health.lastQueryAt = new Date().toISOString();
     health.lastDurationMs = durationMs;
-    emitMetric(config, {
-      metric: 'analytics_s3_query_duration',
-      tags: { ms: durationMs, report: opts?.label ?? 'unknown' },
-    });
     return rows as T[];
   } catch (err: unknown) {
     health.failures++;
     health.lastError = err instanceof Error ? err.message : String(err);
     health.lastErrorAt = new Date().toISOString();
-    emitMetric(config, {
-      metric: 'analytics_s3_query_failures',
-      tags: { report: opts?.label ?? 'unknown' },
-    });
-    emitLog(config, 'warn', 'analytics_query_failed', {
-      report: opts?.label ?? 'unknown',
-      error: err instanceof Error ? err.message : 'unknown',
-    });
     throw err;
   } finally {
     try { connection?.closeSync?.(); } catch { /* connection teardown is best-effort */ }

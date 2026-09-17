@@ -53,14 +53,11 @@
 
 import { createHash } from 'node:crypto';
 import type { ServerConfig } from '../../config.js';
-import { emitLog, emitMetric } from '../observability/metrics.js';
 import { uploadWithConfig, type StorageConfig } from '../storage/index.js';
 import {
   markAnalyticsReplicaDirty,
   markAnalyticsReplicationUncertain,
   readAnalyticsPool,
-  recordAnalyticsError,
-  recordAnalyticsWrite,
   resolveAnalyticsTopology,
   type AnalyticsStoragePool,
 } from './pool.js';
@@ -70,7 +67,6 @@ import {
   commitSpool,
   replaySpool,
   spoolAvailability,
-  spoolStats,
 } from './spool.js';
 import {
   ANALYTICS_COLUMNS,
@@ -135,12 +131,6 @@ function shedOldestRows(config: ServerConfig): void {
     shed += batch.rows.length;
   }
 
-  emitMetric(config, { metric: 'analytics_s3_buffer_shed_rows', tags: { count: shed } });
-  emitLog(config, 'error', 'analytics_buffer_overflow', {
-    shed_rows: shed,
-    remaining_rows: buffered,
-    note: 'rows remain in PostgreSQL and are restored when the day is sealed',
-  });
 }
 
 /** Guards against a timer tick overlapping a threshold-triggered flush. */
@@ -160,32 +150,26 @@ function spoolEnabled(): boolean {
 }
 
 export interface DurabilityReadiness {
-  /** Safe to run `writeMode: 's3_only'` on this deployment? */
+  /** Is the spool directory writable by THIS process, right now? */
   ready: boolean;
-  spoolEnabled: boolean;
-  available: boolean;
   dir: string;
   reason?: string;
-  stats: ReturnType<typeof spoolStats>;
 }
 
 /**
- * Is durable ingestion actually working HERE?
+ * Is durable ingestion working here?
  *
- * Answers by probing the real directory rather than by reading a setting,
- * because the thing that goes wrong in production is a volume that is not
- * mounted, not a flag that is not set. The cutover readiness card and the
- * `s3_only` gate both read this.
+ * Probes the real directory rather than reading a setting, because the thing
+ * that goes wrong in production is an unmounted volume, not an unset flag.
+ * Returns a boolean and a path — deliberately no counters, no segment sizes,
+ * no replay totals. Those were only ever panel decoration.
  */
 export function analyticsDurabilityReadiness(): DurabilityReadiness {
   const availability = spoolAvailability();
   return {
     ready: availability.available,
-    spoolEnabled: spoolEnabled(),
-    available: availability.available,
     dir: availability.dir,
     reason: availability.reason,
-    stats: spoolStats(),
   };
 }
 
@@ -291,9 +275,6 @@ export function enqueueAnalyticsRow(
     // down under Node's default policy — losing every workspace's buffer to
     // punish one failed flush.
     void flushAnalytics(config, { reason: 'threshold' }).catch((err: unknown) => {
-      emitLog(config, 'warn', 'analytics_threshold_flush_threw', {
-        error: err instanceof Error ? err.message : 'unknown',
-      });
     });
   }
 }
@@ -335,9 +316,6 @@ export async function flushAnalytics(
     } catch (err: unknown) {
       // Cannot tell whether analytics is even enabled — keep the rows and
       // retry on the next tick rather than dropping them.
-      emitLog(config, 'warn', 'analytics_pool_read_failed', {
-        error: err instanceof Error ? err.message : 'unknown',
-      });
       return empty;
     }
 
@@ -353,8 +331,6 @@ export async function flushAnalytics(
       const reason = topology.missingCredentials.length
         ? `analytics primary has no stored credentials: ${topology.missingCredentials.join(', ')}`
         : 'no analytics primary is configured';
-      await recordAnalyticsError(config, reason);
-      emitMetric(config, { metric: 'analytics_s3_primary_write_failures', tags: { reason: 'no_primary' } });
       return empty;
     }
 
@@ -383,22 +359,6 @@ export async function flushAnalytics(
     if (result.failures > 0) shedOldestRows(config);
 
     if (result.objects > 0) {
-      await recordAnalyticsWrite(config, {
-        objects: result.objects,
-        bytes: result.bytes,
-        rows: result.rows,
-        replicated: anyReplicated,
-      });
-      emitMetric(config, { metric: 'analytics_s3_objects_written', tags: { count: result.objects } });
-      emitMetric(config, { metric: 'analytics_s3_rows_written', tags: { count: result.rows } });
-      emitMetric(config, { metric: 'analytics_s3_bytes_written', tags: { count: result.bytes } });
-      emitLog(config, 'info', 'analytics_flush', {
-        reason: opts?.reason ?? 'tick',
-        objects: result.objects,
-        rows: result.rows,
-        bytes: result.bytes,
-        failures: result.failures,
-      });
     }
 
     // Acknowledge the spool only when NOTHING is left buffered: that is the
@@ -408,7 +368,6 @@ export async function flushAnalytics(
       commitSpool(config);
     }
 
-    emitMetric(config, { metric: 'analytics_s3_buffer_rows', tags: { count: bufferedRowCount() } });
     return result;
   } finally {
     flushing = false;
@@ -466,9 +425,6 @@ async function writeBatch(
     objectKey = analyticsObjectKey(pool.prefix, batch.workspaceId, new Date(`${batch.day}T00:00:00.000Z`));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'parquet encode failed';
-    await recordAnalyticsError(config, `encode_failed: ${message}`);
-    emitMetric(config, { metric: 'analytics_s3_primary_write_failures', tags: { reason: 'encode' } });
-    emitLog(config, 'error', 'analytics_encode_failed', { error: message, rows: batch.rows.length });
     // Unencodable rows fail identically on every retry, so requeueing them
     // is a poison pill: the batch never drains and grows on each tick. They
     // are dropped here — PostgreSQL still holds every one of them, and the
@@ -502,14 +458,6 @@ async function writeBatch(
 
   if (!primaryResult.success) {
     const message = primaryResult.error ?? 'unknown error';
-    await recordAnalyticsError(config, `primary_write_failed[${primary.name}]: ${message}`);
-    emitMetric(config, {
-      metric: 'analytics_s3_primary_write_failures',
-      tags: { provider: primary.name },
-    });
-    emitLog(config, 'error', 'analytics_primary_write_failed', {
-      provider: primary.name, object_key: objectKey, rows: metadata.rowCount, error: message,
-    });
     return { ok: false, error: message };
   }
 
@@ -564,13 +512,6 @@ async function replicateObject(
       outcome.name,
       `mirror_upload_failed: ${outcome.error ?? 'unknown'}`,
     );
-    emitMetric(config, {
-      metric: 'analytics_s3_replica_write_failures',
-      tags: { provider: outcome.name },
-    });
-    emitLog(config, 'warn', 'analytics_replica_write_failed', {
-      provider: outcome.name, object_key: metadata.objectKey, error: outcome.error ?? 'unknown',
-    });
   }
   return anyOk;
 }
@@ -584,7 +525,6 @@ export async function reportReplicationUnresolved(
   reason: string,
 ): Promise<void> {
   await markAnalyticsReplicationUncertain(config, reason);
-  emitMetric(config, { metric: 'analytics_s3_replica_write_failures', tags: { reason: 'unresolved' } });
 }
 
 /**

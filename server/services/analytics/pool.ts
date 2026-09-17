@@ -111,10 +111,12 @@ export interface AnalyticsReplicaState {
   /** Proven to hold everything the CURRENT analytics primary holds. */
   syncedAt?: string | null;
   syncedFrom?: string | null;
-  /** A known replication gap, recorded server-side on the write path. */
+  /**
+   * A known replication gap. Kept because PROMOTION correctness depends on
+   * it — promoting a replica that missed writes loses data — not for
+   * reporting. No reason string, no error string, no history.
+   */
   dirtyAt?: string | null;
-  dirtyReason?: string | null;
-  lastError?: string | null;
   sync?: AnalyticsSyncState | null;
 }
 
@@ -152,13 +154,6 @@ export interface AnalyticsStoragePool {
   readMode: AnalyticsReadMode;
   replicaState: Record<string, AnalyticsReplicaState>;
   /** Last successful canonical write, for the admin status panel. */
-  lastWriteAt: string | null;
-  lastReplicationAt: string | null;
-  lastError: string | null;
-  lastErrorAt: string | null;
-  objectsWritten: number;
-  bytesWritten: number;
-  rowsWritten: number;
   revision: number;
 }
 
@@ -206,13 +201,6 @@ export function emptyAnalyticsPool(): AnalyticsStoragePool {
     writeMode: 'dual_write',
     readMode: 'postgres',
     replicaState: {},
-    lastWriteAt: null,
-    lastReplicationAt: null,
-    lastError: null,
-    lastErrorAt: null,
-    objectsWritten: 0,
-    bytesWritten: 0,
-    rowsWritten: 0,
     revision: 0,
   };
 }
@@ -331,8 +319,6 @@ export function normalizeAnalyticsPool(value: unknown): AnalyticsStoragePool {
       syncedAt: asIsoOrNull(entry.syncedAt),
       syncedFrom: asIsoOrNull(entry.syncedFrom),
       dirtyAt: asIsoOrNull(entry.dirtyAt),
-      dirtyReason: asIsoOrNull(entry.dirtyReason),
-      lastError: asIsoOrNull(entry.lastError),
       sync: normalizeSyncState(entry.sync),
     };
   }
@@ -354,13 +340,6 @@ export function normalizeAnalyticsPool(value: unknown): AnalyticsStoragePool {
     writeMode: raw.writeMode === 's3_only' ? 's3_only' : 'dual_write',
     readMode: raw.readMode === 's3' ? 's3' : 'postgres',
     replicaState,
-    lastWriteAt: asIsoOrNull(raw.lastWriteAt),
-    lastReplicationAt: asIsoOrNull(raw.lastReplicationAt),
-    lastError: typeof raw.lastError === 'string' ? raw.lastError : null,
-    lastErrorAt: asIsoOrNull(raw.lastErrorAt),
-    objectsWritten: asCount(raw.objectsWritten),
-    bytesWritten: asCount(raw.bytesWritten),
-    rowsWritten: asCount(raw.rowsWritten),
     revision: asCount(raw.revision),
   };
 }
@@ -413,37 +392,20 @@ export async function writeAnalyticsPool(
 }
 
 /**
- * Record one flush's counters and timestamps WITHOUT rewriting the rest of
- * the pool. The write path runs on every flush and must never be able to
- * restore a stale primary, replica list or setting that an admin changed
- * while a flush was in flight.
+ * Analytics deliberately keeps NO usage counters, no last-write timestamp and
+ * no error history.
+ *
+ * `recordAnalyticsWrite` and `recordAnalyticsError` used to write to
+ * PostgreSQL on every flush and every failure, which turned the database into
+ * a telemetry store for a subsystem whose entire point is to stop writing to
+ * it. The information they collected only ever fed an admin panel, and the
+ * panel now answers the one question that matters — is the provider reachable
+ * RIGHT NOW — by running a live round trip instead of reading a stale row.
+ *
+ * The SQL functions `record_analytics_storage_write` and
+ * `record_analytics_storage_error` are left in the database (dropping them is
+ * a destructive migration nobody needs) but nothing calls them any more.
  */
-export async function recordAnalyticsWrite(
-  serverConfig: ServerConfig,
-  stats: { objects: number; bytes: number; rows: number; replicated: boolean },
-): Promise<void> {
-  try {
-    const sb = getServiceClient(serverConfig);
-    await sb.rpc('record_analytics_storage_write', {
-      _objects: stats.objects,
-      _bytes: stats.bytes,
-      _rows: stats.rows,
-      _replicated: stats.replicated,
-    });
-  } catch (err: unknown) {
-    // Bookkeeping must never fail a write that already landed on the primary.
-    console.error('[analytics] could not record write stats:', err instanceof Error ? err.message : err);
-  }
-}
-
-export async function recordAnalyticsError(serverConfig: ServerConfig, message: string): Promise<void> {
-  try {
-    const sb = getServiceClient(serverConfig);
-    await sb.rpc('record_analytics_storage_error', { _error: message.slice(0, 500) });
-  } catch {
-    /* already on the failure path — never escalate */
-  }
-}
 
 export interface AnalyticsSyncPersistOutcome {
   ok: boolean;
@@ -538,20 +500,21 @@ export function isAnalyticsReplicaSynchronized(pool: AnalyticsStoragePool, name:
   return true;
 }
 
-export type AnalyticsReplicaHealth =
-  | 'synchronized'
-  | 'behind'
-  | 'dirty'
-  | 'failed'
-  | 'never_synchronized';
+/**
+ * Three states, because three is what promotion needs to decide.
+ *
+ * There used to be five, separating "behind" from "never synchronized" from
+ * "failed" — distinctions that only existed to fill a status column. What
+ * matters is whether this replica may be promoted without losing data, and
+ * `dirty` says why it may not.
+ */
+export type AnalyticsReplicaHealth = 'synchronized' | 'dirty' | 'never_synchronized';
 
 export function analyticsReplicaHealth(pool: AnalyticsStoragePool, name: string): AnalyticsReplicaHealth {
   const state = pool.replicaState[name];
   if (!state) return 'never_synchronized';
-  if (state.lastError) return 'failed';
   if (isAnalyticsReplicaSynchronized(pool, name)) return 'synchronized';
   if (state.dirtyAt) return 'dirty';
-  if (state.syncedAt || state.sync) return 'behind';
   return 'never_synchronized';
 }
 
@@ -560,7 +523,6 @@ export function clearAnalyticsReadiness(state: AnalyticsReplicaState): void {
   state.syncedAt = null;
   state.syncedFrom = null;
   state.dirtyAt = null;
-  state.dirtyReason = null;
   state.sync = null;
 }
 

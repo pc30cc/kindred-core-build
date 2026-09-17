@@ -36,13 +36,12 @@ import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/i18n';
 import {
-  adminGetAnalyticsStorage, adminSaveAnalyticsSettings, adminSetAnalyticsPrimary,
+  adminGetAnalyticsStorage,
+  adminGetAnalyticsConnections, adminSaveAnalyticsSettings, adminSetAnalyticsPrimary,
   adminSetAnalyticsReplicas, adminSyncAnalyticsReplica, adminTestAnalyticsProvider,
-  adminRunAnalyticsSeal,
   type AnalyticsProviderDto, type AnalyticsStorageDto, type AnalyticsSyncReport,
 } from '@/lib/analytics-storage-api';
 import { PROVIDER_SCHEMAS } from './schemas';
-import { AdminAnalyticsCutoverSection } from './AdminAnalyticsCutoverSection';
 
 const ANALYTICS_KEY = ['admin-analytics-storage'];
 
@@ -61,18 +60,76 @@ function useVendorLabel() {
   );
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes <= 0) return '0';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
-}
-
+/**
+ * Live progress for a manual sync — shown while it runs, never persisted.
+ */
 function StatCell({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
     <div className="bg-card px-2.5 py-2 min-w-0">
       <p className={cn('text-sm font-semibold truncate', tone ?? 'text-foreground')}>{value}</p>
       <p className="text-[10px] text-muted-foreground truncate">{label}</p>
+    </div>
+  );
+}
+
+/**
+ * One row of the only table this panel has: a role, a vendor, and whether the
+ * backend could reach it a moment ago.
+ */
+type ConnectionState = 'connected' | 'disconnected' | 'checking' | 'none';
+
+function connectionState(
+  result: { connected: boolean } | null | undefined,
+): ConnectionState {
+  if (result === null || result === undefined) return 'none';
+  return result.connected ? 'connected' : 'disconnected';
+}
+
+function ConnectionBadge({ state }: { state: ConnectionState }) {
+  const { t } = useI18n();
+  if (state === 'checking') {
+    return (
+      <Badge variant="outline" className="text-[10px] h-5 border-border/60 text-muted-foreground shrink-0">
+        {t('analyticsStorage.connection.checking')}
+      </Badge>
+    );
+  }
+  if (state === 'none') {
+    return (
+      <Badge variant="outline" className="text-[10px] h-5 border-border/60 text-muted-foreground shrink-0">
+        {t('analyticsStorage.connection.notConfigured')}
+      </Badge>
+    );
+  }
+  const connected = state === 'connected';
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        'text-[10px] h-5 gap-1 shrink-0',
+        connected
+          ? 'border-emerald-500/40 text-emerald-700 dark:text-emerald-400'
+          : 'border-destructive/40 text-destructive',
+      )}
+    >
+      {connected ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+      {connected
+        ? t('analyticsStorage.connection.connected')
+        : t('analyticsStorage.connection.notConnected')}
+    </Badge>
+  );
+}
+
+function ConnectionRow(
+  { role, provider, state }: { role: string; provider: string | null; state: ConnectionState },
+) {
+  return (
+    <div className="flex items-center justify-between gap-3 bg-card px-3 py-2.5">
+      <div className="min-w-0">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{role}</p>
+        <p className="text-[12px] font-medium text-foreground truncate">{provider ?? '—'}</p>
+      </div>
+      <ConnectionBadge state={state} />
     </div>
   );
 }
@@ -113,6 +170,20 @@ export function AdminAnalyticsStoragePanel() {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const vendorLabel = useVendorLabel();
+
+  /**
+   * Live connection status. Runs a real round trip per provider on the
+   * server every time it is fetched — never cached, never stored. That is
+   * why `staleTime` is 0 and why it refetches on mount: a "Connected" badge
+   * has to describe now, not the last time someone looked.
+   */
+  const connections = useQuery({
+    queryKey: ['admin-analytics-connections'],
+    queryFn: adminGetAnalyticsConnections,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    retry: false,
+  });
 
   const { data, isLoading, error } = useQuery({
     queryKey: ANALYTICS_KEY,
@@ -182,20 +253,6 @@ export function AdminAnalyticsStoragePanel() {
 
   const testProvider = useMutation({
     mutationFn: adminTestAnalyticsProvider,
-    onError,
-  });
-
-  const runSeal = useMutation({
-    mutationFn: adminRunAnalyticsSeal,
-    onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: ANALYTICS_KEY });
-      toast({
-        title: t('analyticsStorage.phase2.sealDone'),
-        description: t('analyticsStorage.phase2.sealDoneDesc', {
-          sealed: result.sealed, rows: result.rows,
-        }),
-      });
-    },
     onError,
   });
 
@@ -362,208 +419,65 @@ export function AdminAnalyticsStoragePanel() {
         </CardContent>
       </Card>
 
-      {/* ── Status overview ──────────────────────────────────────── */}
+      {/* ── Connection status ────────────────────────────────────── */}
+      {/*
+        The only question this panel answers: can the backend reach the
+        analytics providers RIGHT NOW. Every value below comes from a live
+        round trip performed when the panel opened or when Test Connection
+        was pressed — nothing is read back from a stored status, because a
+        remembered "Connected" describes a moment that has passed.
+
+        Deliberately absent: objects written, rows written, bytes written,
+        query counts, failure counts, last write, last replication, latency,
+        parity history, backfill history, spool statistics. Analytics stores
+        and reads data; it is not a system to be monitored from here.
+      */}
       <Card className="border-border/60">
         <CardContent className="p-4 space-y-3">
-          <h4 className="text-xs font-semibold text-foreground">{t('analyticsStorage.status.title')}</h4>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-px rounded-lg border border-border/60 bg-border/60 overflow-hidden">
-            <StatCell
-              label={t('analyticsStorage.status.state')}
-              value={pool?.enabled ? t('analyticsStorage.status.enabled') : t('analyticsStorage.status.disabled')}
-              tone={pool?.enabled ? 'text-emerald-400' : 'text-muted-foreground'}
-            />
-            <StatCell
-              label={t('analyticsStorage.status.writeMode')}
-              value={t(`analyticsStorage.writeMode.${pool?.writeMode ?? 'dual_write'}` as never)}
-            />
-            <StatCell
-              label={t('analyticsStorage.status.readMode')}
-              value={t(`analyticsStorage.readMode.${pool?.readMode ?? 'postgres'}` as never)}
-            />
-            <StatCell
-              label={t('analyticsStorage.status.replicas')}
-              value={String(pool?.replicas.length ?? 0)}
-            />
-            <StatCell
-              label={t('analyticsStorage.status.objects')}
-              value={String(pool?.objectsWritten ?? 0)}
-            />
-            <StatCell
-              label={t('analyticsStorage.status.bytes')}
-              value={formatBytes(pool?.bytesWritten ?? 0)}
-            />
-          </div>
-
-          <div className="grid gap-2 sm:grid-cols-2 text-[11px] text-muted-foreground">
-            <p>
-              {t('analyticsStorage.status.replication')}:{' '}
-              <HealthBadge health={replicaHealthSummary} />
-            </p>
-            <p>
-              {t('analyticsStorage.status.lastWrite')}:{' '}
-              <span className="text-foreground">
-                {pool?.lastWriteAt ? new Date(pool.lastWriteAt).toLocaleString() : t('analyticsStorage.never')}
-              </span>
-            </p>
-            <p>
-              {t('analyticsStorage.status.lastReplication')}:{' '}
-              <span className="text-foreground">
-                {pool?.lastReplicationAt ? new Date(pool.lastReplicationAt).toLocaleString() : t('analyticsStorage.never')}
-              </span>
-            </p>
-            <p>
-              {t('analyticsStorage.status.buffered')}:{' '}
-              <span className="text-foreground">{pool?.bufferedRows ?? 0}</span>
-            </p>
-          </div>
-
-          {pool?.lastError && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-2.5 flex items-start gap-2">
-              <XCircle className="h-3.5 w-3.5 text-destructive mt-0.5 shrink-0" />
-              <p className="text-[11px] leading-relaxed text-destructive break-all">
-                {t('analyticsStorage.status.lastError')}: {pool.lastError}
-              </p>
-            </div>
-          )}
-
-          {(pool?.missingCredentials.length ?? 0) > 0 && (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5 flex items-start gap-2">
-              <AlertTriangle className="h-3.5 w-3.5 text-amber-400 mt-0.5 shrink-0" />
-              <p className="text-[11px] leading-relaxed text-amber-400">
-                {t('analyticsStorage.missingCredentials', {
-                  vendors: (pool?.missingCredentials ?? []).map(vendorLabel).join('، '),
-                })}
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* ── Phase 2: read path + parity ──────────────────────────── */}
-      <Card className="border-border/60">
-        <CardContent className="p-4 space-y-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h4 className="text-xs font-semibold text-foreground">{t('analyticsStorage.phase2.title')}</h4>
-              <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed max-w-2xl">
-                {t('analyticsStorage.phase2.desc')}
-              </p>
-            </div>
+          <div className="flex items-center justify-between gap-3">
+            <h4 className="text-xs font-semibold text-foreground">
+              {t('analyticsStorage.connection.title')}
+            </h4>
             <Button
               size="sm"
               variant="outline"
-              className="h-7 text-[11px] gap-1 shrink-0"
-              disabled={runSeal.isPending}
-              onClick={() => runSeal.mutate()}
+              className="h-7 text-[11px] gap-1"
+              disabled={connections.isFetching}
+              onClick={() => void connections.refetch()}
             >
-              <RefreshCw className={cn('h-3 w-3', runSeal.isPending && 'animate-spin')} />
-              {t('analyticsStorage.phase2.sealNow')}
+              <RefreshCw className={cn('h-3 w-3', connections.isFetching && 'animate-spin')} />
+              {t('analyticsStorage.connection.test')}
             </Button>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-px rounded-lg border border-border/60 bg-border/60 overflow-hidden">
-            <StatCell
-              label={t('analyticsStorage.phase2.s3Read')}
-              value={
-                pool?.s3Read?.engineAvailable
-                  ? (pool.s3Read?.failures > 0
-                    ? t('analyticsStorage.phase2.error')
-                    : t('analyticsStorage.phase2.healthy'))
-                  : t('analyticsStorage.phase2.engineMissing')
-              }
-              tone={
-                !pool?.s3Read?.engineAvailable
-                  ? 'text-muted-foreground'
-                  : pool.s3Read?.failures > 0 ? 'text-destructive' : 'text-emerald-400'
-              }
+          <div className="rounded-lg border border-border/60 divide-y divide-border/60 overflow-hidden">
+            <ConnectionRow
+              role={t('analyticsStorage.connection.primary')}
+              provider={pool?.primary ? vendorLabel(pool.primary) : null}
+              state={connections.isFetching ? 'checking' : connectionState(connections.data?.primary)}
             />
-            <StatCell
-              label={t('analyticsStorage.phase2.parity')}
-              value={
-                !pool?.parity
-                  ? t('analyticsStorage.never')
-                  : pool.parity.regressions > 0
-                    ? t('analyticsStorage.phase2.differences', { count: pool.parity.regressions })
-                    : t('analyticsStorage.phase2.healthy')
-              }
-              tone={pool?.parity && pool.parity.regressions > 0 ? 'text-destructive' : 'text-emerald-400'}
-            />
-            <StatCell
-              label={t('analyticsStorage.phase2.queryLatency')}
-              value={pool?.s3Read?.lastQueryMs !== null && pool?.s3Read?.lastQueryMs !== undefined
-                ? `${pool.s3Read?.lastQueryMs} ms`
-                : t('analyticsStorage.never')}
-            />
-            <StatCell
-              label={t('analyticsStorage.phase2.lastParity')}
-              value={pool?.parity ? new Date(pool.parity.at).toLocaleString() : t('analyticsStorage.never')}
-            />
+            {(pool?.replicas ?? []).map((name) => (
+              <ConnectionRow
+                key={name}
+                role={t('analyticsStorage.connection.replica')}
+                provider={vendorLabel(name)}
+                state={
+                  connections.isFetching
+                    ? 'checking'
+                    : connectionState((connections.data?.replicas ?? []).find((r) => r.provider === name))
+                }
+              />
+            ))}
           </div>
 
-          {!pool?.s3Read?.engineAvailable && pool?.s3Read?.engineReason && (
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              {t('analyticsStorage.phase2.engineMissingHint')}
+          {/* A capability, not a metric: without the engine an S3 read cannot run at all. */}
+          {pool && !pool.duckdbAvailable && (
+            <p className="text-[11px] text-amber-600">
+              {t('analyticsStorage.connection.engineMissing')}
             </p>
-          )}
-
-          {pool?.s3Read?.lastError && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-2.5 flex items-start gap-2">
-              <XCircle className="h-3.5 w-3.5 text-destructive mt-0.5 shrink-0" />
-              <p className="text-[11px] leading-relaxed text-destructive break-all">
-                {t('analyticsStorage.phase2.lastQueryError')}: {pool.s3Read?.lastError}
-              </p>
-            </div>
-          )}
-
-          {pool?.parity?.unavailable && (
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              {t('analyticsStorage.phase2.parityUnavailable')}: {pool.parity.unavailable}
-            </p>
-          )}
-
-          {/* Only the reports that actually differ — the page stays readable. */}
-          {(pool?.parity?.reports ?? []).some((r) => r.differences.length > 0 || r.error) && (
-            <div className="space-y-1.5">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                {t('analyticsStorage.phase2.differencesTitle')}
-              </p>
-              {(pool?.parity?.reports ?? [])
-                .filter((r) => r.differences.length > 0 || r.error)
-                .slice(0, 8)
-                .map((report) => (
-                  <div key={report.report} className="rounded-md border border-border bg-muted/10 p-2 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[11px] font-mono text-foreground">{report.report}</span>
-                      {report.differences.every((d) => d.expected) && !report.error ? (
-                        <Badge variant="outline" className="h-4 text-[9px] border-border text-muted-foreground">
-                          {t('analyticsStorage.phase2.expected')}
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="h-4 text-[9px] border-destructive/30 text-destructive">
-                          {t('analyticsStorage.phase2.regression')}
-                        </Badge>
-                      )}
-                    </div>
-                    {report.error && (
-                      <p className="text-[10px] text-destructive break-all">{report.error}</p>
-                    )}
-                    {report.differences.slice(0, 3).map((difference) => (
-                      <p key={`${difference.field}`} className="text-[10px] text-muted-foreground break-all">
-                        {difference.field}: {t('analyticsStorage.phase2.postgresVsS3', {
-                          postgres: difference.postgres, s3: difference.s3,
-                        })}
-                      </p>
-                    ))}
-                  </div>
-                ))}
-            </div>
           )}
         </CardContent>
       </Card>
-
-      {/* ── Phase 2.5: cutover readiness + production tooling ────── */}
-      <AdminAnalyticsCutoverSection pool={pool} />
 
       {/* ── Primary selection ────────────────────────────────────── */}
       <Card className="border-border/60">

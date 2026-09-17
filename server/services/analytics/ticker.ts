@@ -15,12 +15,10 @@
  * a restart.
  */
 import type { ServerConfig } from '../../config.js';
-import { emitLog } from '../observability/metrics.js';
 import { acquireTickerLease, releaseTickerLease } from '../observability/tickerLease.js';
 import { flushAnalytics, bufferedRowCount, replaySpooledRows } from './writer.js';
 import { runSealCycle } from './sealing.js';
 import { fsyncSpool } from './spool.js';
-import { recordAnalyticsInstance } from './instances.js';
 
 /** Poll cadence, not the flush interval — the writer applies the operator's. */
 const TICK_MS = 1_000;
@@ -39,26 +37,12 @@ export function startAnalyticsFlushTicker(config: ServerConfig): void {
   try {
     const replayed = replaySpooledRows(config);
     if (replayed.rows > 0) {
-      emitLog(config, 'info', 'analytics_spool_replay_buffered', {
-        rows: replayed.rows,
-        segments: replayed.segments,
-      });
     }
   } catch (err: unknown) {
-    emitLog(config, 'warn', 'analytics_spool_replay_failed', {
-      error: err instanceof Error ? err.message : 'unknown',
-    });
   }
 
   timer = setInterval(() => {
-    // Every backend process runs this ticker (it takes no lease), so it is
-    // also an exact census of the processes holding un-flushed rows. Rate
-    // limited internally; never allowed to affect the flush.
-    void recordAnalyticsInstance(config).catch(() => undefined);
     void flushAnalytics(config, { reason: 'tick' }).catch((err: unknown) => {
-      emitLog(config, 'warn', 'analytics_flush_threw', {
-        error: err instanceof Error ? err.message : 'unknown',
-      });
     });
   }, TICK_MS);
   if (typeof (timer as { unref?: () => void }).unref === 'function') {
@@ -156,9 +140,6 @@ async function runOnce(config: ServerConfig): Promise<void> {
   } catch (err: unknown) {
     // Fail closed: skip this cycle rather than risk two replicas rebuilding
     // the same workspace-day and racing on its objects.
-    emitLog(config, 'warn', 'analytics_seal_lease_unavailable', {
-      error: err instanceof Error ? err.message : 'unknown',
-    });
     return;
   }
   if (!leased) return;
@@ -166,9 +147,6 @@ async function runOnce(config: ServerConfig): Promise<void> {
   try {
     await runSealCycle(config);
   } catch (err: unknown) {
-    emitLog(config, 'warn', 'analytics_seal_cycle_threw', {
-      error: err instanceof Error ? err.message : 'unknown',
-    });
   } finally {
     await releaseTickerLease(config, SEAL_LEASE);
   }

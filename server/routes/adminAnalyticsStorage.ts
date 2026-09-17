@@ -36,15 +36,11 @@ import {
 } from '../services/analytics/backfill.js';
 import { bufferedRowCount, flushAnalytics } from '../services/analytics/writer.js';
 import { duckDbAvailability, queryHealth } from '../services/analytics/duckdb.js';
-import { analyticsDurabilityReadiness } from '../services/analytics/writer.js';
-import { cutoverReadiness } from '../services/analytics/readiness.js';
-import { readAnalyticsInstances, acknowledgeMultiInstanceDurability } from '../services/analytics/instances.js';
-import { spoolCapacityPlan } from '../services/analytics/spool.js';
 import type { FunnelStepDefinition } from '../services/webAnalytics/store/types.js';
 import { paritySummary, redactParityRun } from '../services/webAnalytics/store/parity.js';
 import { runSealCycle, unsealDays } from '../services/analytics/sealing.js';
 import {
-  officialStore, readParityState, runParity, shadowStore,
+  officialStore, runParity, shadowStore,
 } from '../services/webAnalytics/store/index.js';
 import { readStoragePool } from '../services/storage/pool.js';
 import { storageConfigFromRecord } from '../services/storage/index.js';
@@ -125,112 +121,21 @@ async function serialize(serverConfig: ServerConfig, pool: AnalyticsStoragePool)
       analyticsPrimaryEligible: isAnalyticsPrimaryEligible(name),
       analyticsReplicaEligible: isAnalyticsReplicaEligible(name),
       analyticsRole: isPrimary ? 'primary' : isReplica ? 'replica' : 'none',
+      /** Promotion correctness only — not a status feed. */
       health: isReplica ? analyticsReplicaHealth(pool, name) : null,
       synchronized: isPrimary || (isReplica && isAnalyticsReplicaSynchronized(pool, name)),
-      syncedAt: pool.replicaState[name]?.syncedAt ?? null,
-      dirtyAt: pool.replicaState[name]?.dirtyAt ?? null,
-      dirtyReason: pool.replicaState[name]?.dirtyReason ?? null,
-      lastError: pool.replicaState[name]?.lastError ?? null,
-      sync: pool.replicaState[name]?.sync
-        ? {
-            prefix: pool.replicaState[name]!.sync!.prefix,
-            from: pool.replicaState[name]!.sync!.from,
-            done: pool.replicaState[name]!.sync!.done,
-            hasMore: !!pool.replicaState[name]!.sync!.cursor,
-            total: pool.replicaState[name]!.sync!.total,
-            updatedAt: pool.replicaState[name]!.sync!.updatedAt,
-          }
-        : null,
+      /** Whether a sync walk is mid-flight, so the button can resume it. */
+      syncInFlight: !!pool.replicaState[name]?.sync && !pool.replicaState[name]!.sync!.done,
     };
   });
 
-  const [topology, engine, parity, readiness, instances] = await Promise.all([
+  const [topology, engine] = await Promise.all([
     resolveAnalyticsTopology(serverConfig, pool),
     duckDbAvailability(),
-    readParityState(serverConfig),
-    cutoverReadiness(serverConfig),
-    readAnalyticsInstances(serverConfig),
   ]);
-
-  const queries = queryHealth();
 
   return {
     enabled: pool.enabled,
-    /**
-     * Phase 2 read path. `available: false` is a normal state, not a fault:
-     * the engine is an optional dependency and the S3 path is shadow-only.
-     */
-    s3Read: {
-      engineAvailable: engine.available,
-      engineReason: engine.available === false ? engine.reason : null,
-      lastQueryAt: queries.lastQueryAt,
-      lastQueryMs: queries.lastDurationMs,
-      lastError: queries.lastError,
-      lastErrorAt: queries.lastErrorAt,
-      queries: queries.queries,
-      failures: queries.failures,
-    },
-    /** Last shadow comparison. `regressions` is the number that matters. */
-    parity: parity
-      ? {
-          at: parity.at,
-          workspaceId: parity.workspaceId,
-          range: parity.range,
-          regressions: parity.regressions,
-          expectedDifferences: parity.expectedDifferences,
-          unavailable: parity.unavailable ?? null,
-          reports: parity.reports.map((report) => ({
-            report: report.report,
-            ok: report.ok,
-            postgresMs: report.postgresMs,
-            s3Ms: report.s3Ms,
-            error: report.error ?? null,
-            differences: report.differences,
-          })),
-        }
-      : null,
-    /**
-     * Phase 2.5 cutover readiness. Keys only — the panel translates them —
-     * and short non-secret details. Never a credential or an endpoint.
-     */
-    readiness,
-    /** Durable ingestion, reported from a live probe of the spool directory. */
-    durability: (() => {
-      const d = analyticsDurabilityReadiness();
-      return {
-        ready: d.ready,
-        enabled: d.spoolEnabled,
-        reason: d.reason ?? null,
-        segments: d.stats.segments,
-        bytes: d.stats.bytes,
-        replayedRows: d.stats.replayed,
-        droppedForSize: d.stats.droppedForSize,
-        lastError: d.stats.lastError,
-        /** Configured ceiling and the MEASURED frame size behind it. */
-        capacity: (() => {
-          const plan = spoolCapacityPlan();
-          return {
-            maxBytes: plan.maxBytes,
-            segmentBytes: plan.segmentBytes,
-            fsyncIntervalMs: plan.fsyncIntervalMs,
-            averageFrameBytes: plan.averageFrameBytes,
-            // What the ceiling buys at a few reference rates, 2x safety.
-            outageSeconds: {
-              at100: plan.outageSecondsAt(100),
-              at500: plan.outageSecondsAt(500),
-              at1000: plan.outageSecondsAt(1000),
-            },
-          };
-        })(),
-      };
-    })(),
-    /** Backend processes holding un-flushed analytics rows. */
-    instances: {
-      count: instances.count,
-      multiInstance: instances.multiInstance,
-      acknowledged: instances.acknowledged,
-      acknowledgedAt: instances.acknowledgedAt,
-    },
     primary: pool.primary,
     replicas: pool.replicas,
     replicationEnabled: pool.replicationEnabled,
@@ -242,18 +147,16 @@ async function serialize(serverConfig: ServerConfig, pool: AnalyticsStoragePool)
     compression: pool.compression,
     writeMode: pool.writeMode,
     readMode: pool.readMode,
+    /** Compare-and-set token; bumped by every committed write. */
     revision: pool.revision,
-    lastWriteAt: pool.lastWriteAt,
-    lastReplicationAt: pool.lastReplicationAt,
-    lastError: pool.lastError,
-    lastErrorAt: pool.lastErrorAt,
-    objectsWritten: pool.objectsWritten,
-    bytesWritten: pool.bytesWritten,
-    rowsWritten: pool.rowsWritten,
-    bufferedRows: bufferedRowCount(),
+    /**
+     * Whether the embedded query engine is present in THIS build. Not a
+     * metric — a capability, and the reason an S3 read may be impossible.
+     */
+    duckdbAvailable: engine.available,
     /** Named as an analytics role but holding no credentials — the panel links to Provider Settings. */
     missingCredentials: topology.missingCredentials,
-    /** Read-only, for the independence callout. Never written by this router. */
+    /** The GENERAL storage primary — shown so the independence is visible. Read-only. */
     generalPrimary: generalPool.primary,
     providers,
     limits: ANALYTICS_LIMITS,
@@ -300,23 +203,13 @@ adminAnalyticsStorageRouter.put('/settings', async (req, res) => {
     const serverConfig = ctx(req).serverConfig;
 
     if (body.writeMode === 's3_only') {
-      // Two independent reasons, reported separately so the operator learns
-      // something either way. The phase lock is the one in force today; the
-      // durability check is what Phase 3 will still have to satisfy once the
-      // lock is lifted, and it is evaluated here so it is exercised now
-      // rather than discovered at cutover.
-      const durability = analyticsDurabilityReadiness();
       return res.status(409).json({
         error: 'S3-only writes are a Phase 3 cutover and are not enabled in this build. '
           + 'Analytics stays dual-write until the S3 read path has been validated.',
         reason: 'phase_locked',
-        durability: {
-          ready: durability.ready,
-          dir: durability.dir,
-          reason: durability.reason ?? null,
-        },
       });
     }
+
     if (body.readMode === 's3') {
       // Phase-locked today. The engine check runs anyway and is reported
       // alongside, because it is the condition that outlives the lock: a
@@ -582,26 +475,81 @@ adminAnalyticsStorageRouter.post('/sync', async (req, res) => {
 
 // ─── Provider health ─────────────────────────────────────────────
 
+/**
+ * Is this provider reachable RIGHT NOW?
+ *
+ * A live round trip, every time — never a stored status. The whole reason
+ * the panel shows nothing but "Connected" is that the word has to mean
+ * something at the moment it is read, and a cached badge cannot.
+ *
+ * Writes a tiny Parquet object under `<prefix>_healthcheck/`, reads it back,
+ * queries it with the embedded engine when one is available, and deletes it.
+ * Nothing is recorded anywhere: the answer is the HTTP response.
+ */
 adminAnalyticsStorageRouter.post('/test/:providerName', async (req, res) => {
   try {
     const name = String(req.params.providerName ?? '');
     if (!isAnalyticsReplicaEligible(name)) {
-      return res.status(400).json({ error: 'This vendor cannot hold analytics objects.' });
+      return res.status(400).json({ connected: false, error: 'not_eligible' });
     }
     if (!allowExpensiveCall(`analytics-test:${adminId(req) ?? 'unknown'}`)) {
-      return res.status(429).json({ error: 'Too many connection tests — try again in a minute' });
+      return res.status(429).json({ connected: false, error: 'rate_limited' });
     }
     const serverConfig = ctx(req).serverConfig;
     const generalPool = await readStoragePool(serverConfig);
     const entry = generalPool.providers[name];
     if (!entry || Object.keys(entry.config).length === 0) {
-      return res.status(404).json({ error: 'This vendor has no stored credentials.' });
+      return res.status(404).json({ connected: false, error: 'not_configured' });
     }
     const pool = await readAnalyticsPool(serverConfig);
     const result = await testAnalyticsProvider(
       serverConfig, name, storageConfigFromRecord(name, entry.config), pool.prefix,
     );
-    res.json(result);
+    // Deliberately narrow: connected, and a short machine-readable reason.
+    // No latency, no per-step breakdown, nothing persisted.
+    res.json(
+      result.success
+        ? { connected: true }
+        : { connected: false, error: 'connection_failed' },
+    );
+  } catch {
+    res.json({ connected: false, error: 'connection_failed' });
+  }
+});
+
+/**
+ * The same live test for the primary and every replica at once, so opening
+ * the panel shows current truth rather than a remembered one.
+ */
+adminAnalyticsStorageRouter.get('/connections', async (req, res) => {
+  try {
+    const serverConfig = ctx(req).serverConfig;
+    const pool = await readAnalyticsPool(serverConfig);
+    const generalPool = await readStoragePool(serverConfig);
+
+    const check = async (name: string) => {
+      const entry = generalPool.providers[name];
+      if (!entry || Object.keys(entry.config).length === 0) {
+        return { provider: name, connected: false, error: 'not_configured' };
+      }
+      try {
+        const result = await testAnalyticsProvider(
+          serverConfig, name, storageConfigFromRecord(name, entry.config), pool.prefix,
+        );
+        return result.success
+          ? { provider: name, connected: true }
+          : { provider: name, connected: false, error: 'connection_failed' };
+      } catch {
+        return { provider: name, connected: false, error: 'connection_failed' };
+      }
+    };
+
+    const [primary, replicas] = await Promise.all([
+      pool.primary ? check(pool.primary) : Promise.resolve(null),
+      Promise.all(pool.replicas.map(check)),
+    ]);
+
+    res.json({ primary, replicas });
   } catch (e) { fail(res, e); }
 });
 
@@ -826,32 +774,6 @@ adminAnalyticsStorageRouter.post('/parity', async (req, res) => {
     if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
     fail(res, e);
   }
-});
-
-/**
- * Record that every backend instance has its own durable volume.
- *
- * The spool is node-local, and nothing inside a container can verify that a
- * mount exists, survives redeployment and is reattached to the same node —
- * so on a multi-instance deployment this is the one readiness fact that has
- * to come from a person. It is stored against the exact hostnames it was
- * made for, so scaling out afterwards invalidates it rather than silently
- * carrying over to machines nobody vouched for.
- */
-adminAnalyticsStorageRouter.post('/instances/acknowledge', async (req, res) => {
-  try {
-    const census = await acknowledgeMultiInstanceDurability(
-      ctx(req).serverConfig, adminId(req) ?? 'unknown',
-    );
-    res.json({
-      instances: {
-        count: census.count,
-        multiInstance: census.multiInstance,
-        acknowledged: census.acknowledged,
-        acknowledgedAt: census.acknowledgedAt,
-      },
-    });
-  } catch (e) { fail(res, e); }
 });
 
 // ─── Phase 2 — day sealing (buffer durability) ───────────────────

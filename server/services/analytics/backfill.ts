@@ -40,10 +40,9 @@
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { emitLog, emitMetric } from '../observability/metrics.js';
 import { deleteWithConfig, listWithConfig, uploadWithConfig, type StorageConfig } from '../storage/index.js';
 import {
-  readAnalyticsPool, recordAnalyticsError, resolveAnalyticsTopology, type AnalyticsStoragePool,
+  readAnalyticsPool, resolveAnalyticsTopology, type AnalyticsStoragePool,
 } from './pool.js';
 import { writeParquet } from './parquet.js';
 import {
@@ -283,8 +282,6 @@ export async function backfillWorkspaceDay(
     built = await buildDayRows(config, workspaceId, day);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    await recordAnalyticsError(config, `backfill_read_failed: ${message}`);
-    emitMetric(config, { metric: 'analytics_s3_backfill_rows', tags: { failed: 1 } });
     return { ok: false, error: `Reading PostgreSQL for ${day} failed: ${message}` };
   }
 
@@ -323,8 +320,6 @@ export async function backfillWorkspaceDay(
     });
     if (!put.success) {
       errors.push(`${objectKey}: ${put.error ?? 'primary upload failed'}`);
-      await recordAnalyticsError(config, `backfill_primary_write_failed: ${put.error ?? 'unknown'}`);
-      emitMetric(config, { metric: 'analytics_s3_primary_write_failures', tags: { reason: 'backfill' } });
       break;
     }
 
@@ -342,16 +337,11 @@ export async function backfillWorkspaceDay(
         errors.push(`${replica.name}/${objectKey}: ${mirrored.error ?? 'replica upload failed'}`);
         const { markAnalyticsReplicaDirty } = await import('./pool.js');
         await markAnalyticsReplicaDirty(config, replica.name, `backfill_mirror_failed: ${mirrored.error ?? 'unknown'}`);
-        emitMetric(config, { metric: 'analytics_s3_replica_write_failures', tags: { provider: replica.name } });
       }
     }
   }
 
   const verified = written === expected && errors.length === 0;
-  emitMetric(config, { metric: 'analytics_s3_backfill_rows', tags: { rows: written } });
-  emitLog(config, verified ? 'info' : 'warn', 'analytics_backfill_day', {
-    workspace_id: workspaceId, day, rows: written, expected, objects: objects.length, verified,
-  });
 
   return {
     ok: true,

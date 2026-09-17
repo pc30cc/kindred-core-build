@@ -109,7 +109,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import type { ServerConfig } from '../../config.js';
-import { emitLog, emitMetric } from '../observability/metrics.js';
 import type { AnalyticsEventRow } from './schema.js';
 
 const MAGIC = 0x57414c31;
@@ -256,8 +255,6 @@ function recordError(config: ServerConfig | null, message: string): void {
   stats.lastError = message;
   stats.lastErrorAt = new Date().toISOString();
   if (config) {
-    emitMetric(config, { metric: 'analytics_spool_errors', tags: { reason: 'io' } });
-    emitLog(config, 'warn', 'analytics_spool_error', { error: message });
   }
 }
 
@@ -448,12 +445,6 @@ function enforceCeiling(config: ServerConfig | null): void {
       bytes -= size;
       stats.droppedForSize++;
       if (config) {
-        emitMetric(config, { metric: 'analytics_spool_segments_dropped', tags: { reason: 'ceiling' } });
-        emitLog(config, 'error', 'analytics_spool_ceiling_exceeded', {
-          segment: oldest,
-          bytes_after: bytes,
-          note: 'spooled analytics rows were discarded to stay under the disk ceiling',
-        });
       }
     } catch { break; }
     files = files.slice(1);
@@ -542,7 +533,6 @@ export function commitSpool(config: ServerConfig): void {
     }
 
     stats.committed++;
-    emitMetric(config, { metric: 'analytics_spool_commits', tags: { count: 1 } });
   } catch (err: unknown) {
     recordError(config, err instanceof Error ? err.message : 'spool commit failed');
   }
@@ -608,9 +598,6 @@ export function replaySpool(config: ServerConfig): ReplayResult {
 
   const lock = acquireLock(dir);
   if (!lock) {
-    emitLog(config, 'info', 'analytics_spool_replay_skipped', {
-      reason: 'another process holds the replay lock',
-    });
     return empty;
   }
 
@@ -634,7 +621,6 @@ export function replaySpool(config: ServerConfig): ReplayResult {
       if (frames.length === 0 && buf.length > 0) {
         const quarantine = `${full}.corrupt`;
         try { fs.renameSync(full, quarantine); result.quarantined.push(path.basename(quarantine)); } catch { /* best effort */ }
-        emitLog(config, 'error', 'analytics_spool_segment_corrupt', { segment: name, bytes: buf.length });
         continue;
       }
 
@@ -674,13 +660,6 @@ export function replaySpool(config: ServerConfig): ReplayResult {
 
   stats.replayed += result.rows.length;
   if (result.rows.length > 0 || result.corruptSegments > 0) {
-    emitMetric(config, { metric: 'analytics_spool_replayed_rows', tags: { count: result.rows.length } });
-    emitLog(config, 'info', 'analytics_spool_replayed', {
-      rows: result.rows.length,
-      segments: result.segments,
-      skipped_committed: result.skippedCommitted,
-      corrupt_segments: result.corruptSegments,
-    });
   }
   return result;
 }

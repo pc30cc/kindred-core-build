@@ -11,7 +11,6 @@
 import type { ServerConfig } from '../../../config.js';
 import { readAnalyticsPool } from '../../analytics/pool.js';
 import { duckDbAvailability } from '../../analytics/duckdb.js';
-import { emitLog } from '../../observability/metrics.js';
 import type { DateRange } from '../reportService.js';
 import { PostgresWebAnalyticsStore } from './postgres.js';
 import { S3ParquetWebAnalyticsStore } from './s3.js';
@@ -20,8 +19,8 @@ import type { WebAnalyticsStore } from './types.js';
 
 export { PostgresWebAnalyticsStore } from './postgres.js';
 export { S3ParquetWebAnalyticsStore, AnalyticsSourceUnavailable } from './s3.js';
-export { runParity, readParityState, PARITY_STATE_KEY } from './parity.js';
-export type { ParityRun, ParityReport, ParityDifference } from './parity.js';
+export { runParity, paritySummary, redactParityField, redactParityRun } from './parity.js';
+export type { ParityRun, ParityReport, ParityDifference, ParityStatus, ParitySummary } from './parity.js';
 export type * from './types.js';
 
 /** The store whose answer is returned to the caller. */
@@ -59,27 +58,17 @@ export async function shadowReadiness(config: ServerConfig): Promise<ShadowReadi
 }
 
 /**
- * Run a parity comparison beside a report that has already been answered.
+ * There is deliberately no `shadowCompare`.
  *
- * Fire-and-forget by contract: it is never awaited by a request handler,
- * never throws into one, and never touches the response. A shadow read that
- * could affect the official answer would not be a shadow read.
+ * It used to run beside a customer's report: open the Web Analytics page and
+ * the backend answered from PostgreSQL, then quietly asked the same question
+ * of the lake and compared them. That put a second full analytics query —
+ * listing and downloading objects, starting the query engine — on the path of
+ * a page view nobody asked to validate, and it wrote the comparison to the
+ * database afterwards.
+ *
+ * Verification belongs in a verification tool, run deliberately by an
+ * operator, against a workspace and range they chose. That is `runParity`,
+ * exposed on the admin route. A customer request now queries exactly one
+ * store: the official one.
  */
-export function shadowCompare(
-  config: ServerConfig,
-  workspaceId: string,
-  range: DateRange,
-  opts?: { funnelSteps?: Parameters<WebAnalyticsStore['computeFunnel']>[1] },
-): void {
-  void (async () => {
-    try {
-      const readiness = await shadowReadiness(config);
-      if (!readiness.ready) return;
-      await runParity(config, officialStore(config), shadowStore(config), workspaceId, range, opts);
-    } catch (err: unknown) {
-      emitLog(config, 'warn', 'analytics_shadow_compare_failed', {
-        error: err instanceof Error ? err.message : 'unknown',
-      });
-    }
-  })();
-}

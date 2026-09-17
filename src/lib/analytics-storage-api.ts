@@ -64,11 +64,8 @@ export interface AnalyticsProviderDto {
   analyticsRole: AnalyticsRole;
   health: AnalyticsReplicaHealth | null;
   synchronized: boolean;
-  syncedAt: string | null;
-  dirtyAt: string | null;
-  dirtyReason: string | null;
-  lastError: string | null;
-  sync: AnalyticsSyncStateDto | null;
+  /** A sync walk is mid-flight, so the button can resume it. */
+  syncInFlight: boolean;
 }
 
 /** Phase 2 — the S3 read path's health on the node that answered. */
@@ -78,8 +75,6 @@ export interface AnalyticsS3ReadDto {
   engineReason: string | null;
   lastQueryAt: string | null;
   lastQueryMs: number | null;
-  lastError: string | null;
-  lastErrorAt: string | null;
   queries: number;
   failures: number;
 }
@@ -114,57 +109,6 @@ export interface AnalyticsParityDto {
   reports: AnalyticsParityReportDto[];
 }
 
-/** ready = done; warning = degraded but safe; blocked = would risk data at cutover. */
-export type ReadinessState = 'ready' | 'warning' | 'blocked';
-
-export interface AnalyticsReadinessCheckDto {
-  /** Stable key, translated in the UI — never prose from the server. */
-  key: string;
-  state: ReadinessState;
-  detail?: string | null;
-}
-
-export interface AnalyticsReadinessDto {
-  checks: AnalyticsReadinessCheckDto[];
-  /** No check is blocked. Warnings do not block. */
-  s3OnlyEligible: boolean;
-  /** Always false in this build — readiness reports, it does not grant. */
-  s3OnlyUnlocked: boolean;
-  blockedCount: number;
-  warningCount: number;
-}
-
-/** What the configured spool ceiling buys, from the MEASURED frame size. */
-export interface AnalyticsSpoolCapacityDto {
-  maxBytes: number;
-  segmentBytes: number;
-  fsyncIntervalMs: number;
-  averageFrameBytes: number | null;
-  outageSeconds: { at100: number | null; at500: number | null; at1000: number | null };
-}
-
-/** Durable ingestion, probed live rather than read from a flag. */
-export interface AnalyticsDurabilityDto {
-  ready: boolean;
-  enabled: boolean;
-  reason: string | null;
-  segments: number;
-  bytes: number;
-  replayedRows: number;
-  droppedForSize: number;
-  lastError: string | null;
-  capacity?: AnalyticsSpoolCapacityDto;
-}
-
-/** Backend processes holding un-flushed analytics rows. */
-export interface AnalyticsInstancesDto {
-  count: number;
-  multiInstance: boolean;
-  /** Operator confirmed each instance has its own durable volume, for THIS fleet. */
-  acknowledged: boolean;
-  acknowledgedAt: string | null;
-}
-
 export type ParityStatus = 'matched' | 'mismatched' | 'skipped' | 'error';
 
 export interface AnalyticsParitySummaryDto {
@@ -176,11 +120,8 @@ export interface AnalyticsParitySummaryDto {
 
 export interface AnalyticsStorageDto {
   enabled: boolean;
-  s3Read: AnalyticsS3ReadDto;
-  parity: AnalyticsParityDto | null;
-  readiness: AnalyticsReadinessDto;
-  durability: AnalyticsDurabilityDto;
-  instances: AnalyticsInstancesDto;
+  /** Whether the embedded query engine exists in this build — a capability, not a metric. */
+  duckdbAvailable: boolean;
   primary: string | null;
   replicas: string[];
   replicationEnabled: boolean;
@@ -191,18 +132,6 @@ export interface AnalyticsStorageDto {
   format: 'parquet';
   compression: 'zstd';
   writeMode: AnalyticsWriteMode;
-  readMode: AnalyticsReadMode;
-  /** Compare-and-set token; bumped by every committed write. */
-  revision: number;
-  lastWriteAt: string | null;
-  lastReplicationAt: string | null;
-  lastError: string | null;
-  lastErrorAt: string | null;
-  objectsWritten: number;
-  bytesWritten: number;
-  rowsWritten: number;
-  /** Rows buffered in the backend process that answered this request. */
-  bufferedRows: number;
   missingCredentials: string[];
   /** The GENERAL storage primary — shown so the independence is visible. Read-only. */
   generalPrimary: string | null;
@@ -376,16 +305,23 @@ export function adminBackfillAnalyticsRange(payload: {
   );
 }
 
+export interface AnalyticsConnectionDto {
+  provider: string;
+  connected: boolean;
+  error?: string;
+}
+
 /**
- * Phase 3A — confirm every backend instance has its own durable volume.
+ * Live connection status for the primary and every replica.
  *
- * Recorded against the CURRENT hostnames, so scaling out afterwards
- * invalidates it rather than carrying over to machines nobody vouched for.
+ * Runs a real round trip per provider on the server. Nothing is cached and
+ * nothing is stored: the answer describes this moment, which is the only
+ * thing "Connected" can honestly mean.
  */
-export function adminAcknowledgeAnalyticsInstances() {
-  return request<{ instances: AnalyticsInstancesDto }>(`${BASE}/instances/acknowledge`, {
-    method: 'POST',
-  });
+export function adminGetAnalyticsConnections() {
+  return request<{ primary: AnalyticsConnectionDto | null; replicas: AnalyticsConnectionDto[] }>(
+    `${BASE}/connections`,
+  );
 }
 
 /** Phase 2 — force a day-sealing cycle (buffer durability catch-up). */

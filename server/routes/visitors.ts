@@ -31,7 +31,7 @@ import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visit
 import {
   recordPageView, recordSessionStart, analyticsSessionFrom,
 } from '../services/analytics/ingest.js';
-import { officialStore, shadowStore, shadowReadiness } from '../services/webAnalytics/store/index.js';
+import { officialStore } from '../services/webAnalytics/store/index.js';
 import { emitLog, emitMetric } from '../services/observability/metrics.js';
 
 export const visitorRouter = Router();
@@ -875,26 +875,6 @@ visitorsAdminRouter.get('/:id/page-history', async (req: Request, res: Response)
     const history = await officialStore(config).getVisitorPageHistory(workspaceId, req.params.id, limit);
     res.json(history);
 
-    // Shadow read: the same session's history is read from the analytics
-    // lake and compared. Fire-and-forget — it can neither delay nor alter
-    // the response already sent.
-    void (async () => {
-      try {
-        const readiness = await shadowReadiness(config);
-        if (!readiness.ready) return;
-        const shadow = await shadowStore(config).getVisitorPageHistory(workspaceId, req.params.id, limit);
-        const matches = shadow.items.length === history.items.length
-          && shadow.items.every((item, index) => item.url === history.items[index]?.url);
-        if (!matches) {
-          emitMetric(config, { metric: 'analytics_s3_parity_differences', tags: { report: 'pageHistory' } });
-          emitLog(config, 'warn', 'analytics_page_history_parity', {
-            workspace_id: workspaceId,
-            postgres_items: history.items.length,
-            s3_items: shadow.items.length,
-          });
-        }
-      } catch { /* a shadow read never surfaces */ }
-    })();
   } catch (err) {
     console.error('[visitors.page-history] failed:', err);
     res.status(500).json({ error: 'Internal error' });

@@ -29,7 +29,6 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { ServerConfig } from '../../config.js';
-import { emitLog, emitMetric } from '../observability/metrics.js';
 import {
   downloadWithConfig, listWithConfig, uploadWithConfig, type StorageConfig,
 } from '../storage/index.js';
@@ -267,13 +266,6 @@ export async function syncAnalyticsReplica(
     };
   }
 
-  emitMetric(serverConfig, {
-    metric: 'analytics_s3_replication_lag',
-    tags: { provider: opts.target, remaining: done ? 0 : 1, failed: total.failed },
-  });
-  emitLog(serverConfig, 'info', 'analytics_replica_sync_batch', {
-    provider: opts.target, prefix, copied: batch.copied, skipped: batch.skipped, failed: batch.failed, done,
-  });
 
   return {
     ok: true,

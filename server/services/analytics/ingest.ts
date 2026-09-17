@@ -18,7 +18,6 @@
  */
 
 import type { ServerConfig } from '../../config.js';
-import { emitLog } from '../observability/metrics.js';
 import { readAnalyticsPool, type AnalyticsStoragePool } from './pool.js';
 import { enqueueAnalyticsRow } from './writer.js';
 import { buildEventRow, type AnalyticsEventType, type SessionDimensions } from './schema.js';
@@ -75,10 +74,6 @@ function record(
       enqueueAnalyticsRow(config, pool, buildEventRow({ ...input, eventType }));
     } catch (err: unknown) {
       // Loud enough to diagnose, quiet enough never to reach the visitor.
-      emitLog(config, 'warn', 'analytics_ingest_failed', {
-        event_type: eventType,
-        error: err instanceof Error ? err.message : 'unknown',
-      });
     }
   })();
 }

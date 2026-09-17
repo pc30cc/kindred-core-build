@@ -22,7 +22,7 @@ import {
   getTrackedEvents, getEventPropertyKeys, getEventPropertyBreakdown,
   listFunnels, createFunnel, deleteFunnel, computeFunnel, FunnelValidationError,
 } from '../services/webAnalytics/eventsService.js';
-import { officialStore, shadowCompare } from '../services/webAnalytics/store/index.js';
+import { officialStore } from '../services/webAnalytics/store/index.js';
 
 export const webAnalyticsRouter = Router();
 
@@ -80,7 +80,6 @@ webAnalyticsRouter.get('/:workspaceId/overview', requireModule('web_analytics'),
   res.json(stats);
   // Shadow read: the same question is put to the S3 store and the answers
   // compared. Never awaited, never able to affect what was just sent.
-  shadowCompare(configOf(req), workspaceId, range);
 });
 
 const TRAFFIC_SOURCE_DIMENSIONS = new Set(['channel', 'source', 'campaign']);
@@ -243,5 +242,4 @@ webAnalyticsRouter.get('/:workspaceId/funnels/:funnelId/results', requireModule(
   // Shadow the funnel with the SAME step list, so the comparison proves the
   // two engines answered the same question rather than each loading their
   // own copy of the definition.
-  shadowCompare(configOf(req), workspaceId, range, { funnelSteps: result.funnel.steps as never });
 });

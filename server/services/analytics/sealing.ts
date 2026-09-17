@@ -65,17 +65,32 @@
  * live objects with a few large ones, which is a net reduction in object
  * count.
  *
- * ── The limit, stated plainly ────────────────────────────────────
+ * ── What this is for, and when it stops being needed ─────────────
  *
- * The rebuild reads PostgreSQL. Under `writeMode: 's3_only'` PostgreSQL
- * stops receiving the rows, the source disappears, and this mechanism stops
- * guaranteeing anything. `s3_only` therefore stays phase-locked until a
- * genuine durable spool exists — that is Phase 3 work and is not built here.
+ * Sealing exists to make a lost in-memory buffer free WHILE PostgreSQL is
+ * still receiving every row. It rebuilds the day from that source. So it is
+ * a `dual_write` mechanism, and under `s3_only` it cannot do its job at all:
+ * the source it rebuilds from is gone.
+ *
+ * The durable spool (./spool.ts) is what carries durability after cutover —
+ * an accepted event is on disk before the enqueue returns, and replays on the
+ * next boot. Those two mechanisms answer the same question for different
+ * write modes; they are not layered.
+ *
+ * Therefore:
+ *   dual_write — sealing runs, and is the backstop.
+ *   s3_only    — sealing does NOT run. `runSealCycle` returns immediately,
+ *                because rebuilding a day from a database that no longer has
+ *                the rows would replace good objects with incomplete ones.
+ *
+ * `analytics_day_seals` keeps one row per workspace-day holding CURRENT
+ * state, updated in place on retry. It is not a log: there is no attempt
+ * history, no error history, no timing. Nothing drops the table — after
+ * cutover it simply stops being written to.
  */
 
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { emitLog, emitMetric } from '../observability/metrics.js';
 import { readAnalyticsPool } from './pool.js';
 import { backfillWorkspaceDay } from './backfill.js';
 
@@ -310,6 +325,12 @@ export async function runSealCycle(
   const pool = await readAnalyticsPool(config);
   if (!pool.enabled || !pool.primary) return empty;
 
+  // Sealing rebuilds a day FROM PostgreSQL. Under `s3_only` PostgreSQL no
+  // longer receives the rows, so a rebuild would replace complete objects
+  // with an incomplete day. See this file's header: after cutover the spool
+  // carries durability and this mechanism retires rather than degrades.
+  if (pool.writeMode === 's3_only') return empty;
+
   const candidates = await findSealCandidates(config, opts);
   if (candidates.length === 0) return empty;
 
@@ -323,15 +344,9 @@ export async function runSealCycle(
       result.objects += outcome.objects;
     } else {
       result.failed++;
-      emitMetric(config, { metric: 'analytics_s3_seal_failures', tags: { day: candidate.day } });
-      emitLog(config, 'warn', 'analytics_day_seal_failed', {
-        workspace_id: candidate.workspaceId, day: candidate.day, error: outcome.error ?? 'unknown',
-      });
     }
   }
 
-  emitMetric(config, { metric: 'analytics_s3_days_sealed', tags: { count: result.sealed } });
-  emitLog(config, 'info', 'analytics_seal_cycle', result as unknown as Record<string, unknown>);
   return result;
 }
 

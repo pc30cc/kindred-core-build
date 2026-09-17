@@ -1,50 +1,13 @@
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
- * Operator activity API — self-hosted Express endpoints.
+ * Operator heartbeat API — self-hosted Express endpoint.
  *   POST /api/operator-activity/heartbeat
- *   GET  /api/operator-activity/:workspaceId/stats?days=
+ *
+ * The beat only feeds live presence and the internal active/away split. The
+ * online-time report (and the 5-minute analytics buckets behind it) was
+ * removed, so there is no stats endpoint any more.
  */
 const API_BASE = RESOLVED_API_BASE;
-
-export interface OperatorActivityRow {
-  user_id: string;
-  role: string;
-  profile: { id: string; full_name: string | null; email: string | null; avatar_url: string | null } | null;
-  online_minutes: number;
-  present_minutes: number;
-  active_days: number;
-  avg_minutes_per_active_day: number;
-  last_seen: string | null;
-  daily: Record<string, number>;
-  conversations_assigned: number;
-  conversations_resolved: number;
-  replies_sent: number;
-  current_state: 'online' | 'offline';
-  current_reason: string;
-}
-
-export interface OperatorActivityStats {
-  days: number;
-  since: string;
-  totals: {
-    operators: number;
-    online_minutes: number;
-    replies_sent: number;
-    conversations_assigned: number;
-    online_now: number;
-  };
-  operators: OperatorActivityRow[];
-}
-
-export async function fetchOperatorActivity(workspaceId: string, days: number): Promise<OperatorActivityStats> {
-  const res = await fetch(
-    `${API_BASE}/api/operator-activity/${workspaceId}/stats?days=${days}`,
-    { credentials: 'include' },
-  );
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((body as any)?.error || `Request failed: ${res.status}`);
-  return body as OperatorActivityStats;
-}
 
 /**
  * `interacted` reports whether the operator actually did something since the

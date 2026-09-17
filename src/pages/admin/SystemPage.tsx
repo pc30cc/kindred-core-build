@@ -13,7 +13,7 @@ import {
 } from '@/lib/admin-auto-actions-api';
 import SystemDegradedBanner from '@/components/admin/observability/SystemDegradedBanner';
 import EffectivePolicyPanel from '@/components/admin/observability/EffectivePolicyPanel';
-import { fetchSla, fetchWorkspaceHealth } from '@/lib/admin-reliability-api';
+import { fetchSla } from '@/lib/admin-reliability-api';
 import { useTranslation } from '@/i18n';
 
 export default function AdminSystemPage() {
@@ -47,11 +47,6 @@ export default function AdminSystemPage() {
   const slaQ = useQuery({
     queryKey: ['admin-sla', '24h'],
     queryFn: () => fetchSla('24h'),
-    refetchInterval: 120_000,
-  });
-  const healthQ = useQuery({
-    queryKey: ['admin-workspace-health'],
-    queryFn: () => fetchWorkspaceHealth(),
     refetchInterval: 120_000,
   });
   const counts = summary.data?.counts || {};
@@ -327,20 +322,6 @@ export default function AdminSystemPage() {
             <div className="text-xs text-muted-foreground">{t('admin.system.criticalAlerts' as any)}</div>
             <div className="text-foreground font-medium">
               {slaQ.data?.summary.critical_alert_count ?? '—'}
-            </div>
-          </div>
-          <div className="rounded-md border border-border px-3 py-2 col-span-2 md:col-span-4">
-            <div className="text-xs text-muted-foreground mb-1">{t('admin.system.workspaceHealth' as any)}</div>
-            <div className="flex items-center gap-2">
-              <Badge className="bg-success/20 text-success">
-                {t('admin.common.healthy' as any)} {healthQ.data?.counts.healthy ?? 0}
-              </Badge>
-              <Badge className="bg-warning/20 text-warning">
-                {t('admin.system.warning' as any)} {healthQ.data?.counts.warning ?? 0}
-              </Badge>
-              <Badge className="bg-destructive/20 text-destructive">
-                {t('admin.system.atRisk' as any)} {healthQ.data?.counts.at_risk ?? 0}
-              </Badge>
             </div>
           </div>
         </CardContent>

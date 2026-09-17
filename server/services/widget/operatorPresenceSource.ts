@@ -16,7 +16,8 @@
  *      polling_builtin / disabled / Supabase (supportsPresence = false)
  *      and whenever Centrifugo presence is unreadable.
  *
- * `operator_activity_samples` is ANALYTICS ONLY and is never consulted here.
+ * No analytics/history table feeds presence: the only PostgreSQL input is the
+ * single-row-per-operator lease above.
  *
  * ─── TRANSITION HANDOFF (realtime → database) ─────────────────────────
  * While Centrifugo is healthy nobody writes the lease, so at the moment of

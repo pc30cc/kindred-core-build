@@ -108,7 +108,6 @@ import SettingsPrivacyPage from "@/pages/app/settings/PrivacyPage";
 import SettingsInterfacePage from "@/pages/app/settings/InterfacePage";
 import TeamDepartmentsPage from "@/pages/app/settings/TeamDepartmentsPage";
 import StaffAccessPage from "@/pages/app/settings/StaffAccessPage";
-import OperatorActivityPage from "@/pages/app/settings/OperatorActivityPage";
 import PrivacyRequestsPage from "@/pages/app/PrivacyRequestsPage";
 
 import AdminDashboardPage from "@/pages/admin/DashboardPage";
@@ -371,7 +370,6 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   <Route path="access-profiles" element={<Navigate to="../staff-access" replace />} />
                   <Route path="team-departments" element={<RequireWorkspaceAdmin><TeamDepartmentsPage /></RequireWorkspaceAdmin>} />
                   <Route path="staff-access" element={<RequireWorkspaceAdmin><StaffAccessPage /></RequireWorkspaceAdmin>} />
-                  <Route path="operator-activity" element={<RequireWorkspaceAdmin><OperatorActivityPage /></RequireWorkspaceAdmin>} />
                   <Route path="privacy-requests" element={<RequireWorkspaceAdmin><PrivacyRequestsPage /></RequireWorkspaceAdmin>} />
                   {/* Legacy settings entry → canonical Knowledge Base route. */}
                   <Route path="knowledge-base" element={<WorkspaceKnowledgeBaseRedirect />} />

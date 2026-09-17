@@ -1,5 +1,5 @@
 /**
- * Phase 7 — Admin reliability / SLA / business KPIs / workspace health API.
+ * Phase 7 — Admin reliability / SLA / business KPIs API.
  * Mounted under /api/admin/reliability (admin-auth applied by adminRouter).
  */
 import { Router } from 'express';
@@ -93,41 +93,6 @@ adminReliabilityRouter.get('/business', async (req, res) => {
   }
 });
 
-// ─── Workspace health snapshots ────────────────────────────────────────────
-adminReliabilityRouter.get('/workspace-health', async (req, res) => {
-  try {
-    const config: ServerConfig = (req as any).serverConfig;
-    const sb = getServiceClient(config);
-    // Latest snapshot per workspace (last 7d window)
-    const { data, error } = await sb
-      .from('workspace_health_snapshots')
-      .select('id, workspace_id, captured_at, health_score, state, components')
-      .gte('captured_at', new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString())
-      .order('captured_at', { ascending: false })
-      .limit(5000);
-    if (error) return res.status(500).json({ error: error.message });
-    const seen = new Set<string>();
-    const latest: any[] = [];
-    for (const row of data || []) {
-      if (seen.has(row.workspace_id)) continue;
-      seen.add(row.workspace_id);
-      latest.push(row);
-    }
-    const counts = {
-      healthy: latest.filter((r) => r.state === 'healthy').length,
-      warning: latest.filter((r) => r.state === 'warning').length,
-      at_risk: latest.filter((r) => r.state === 'at_risk').length,
-    };
-    const at_risk = latest
-      .filter((r) => r.state !== 'healthy')
-      .sort((a, b) => a.health_score - b.health_score)
-      .slice(0, 10);
-    res.json({ counts, total: latest.length, latest, at_risk });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || 'Failed to load workspace health' });
-  }
-});
-
 // ─── SLO definitions ───────────────────────────────────────────────────────
 adminReliabilityRouter.get('/slos', async (req, res) => {
   try {
@@ -176,12 +141,10 @@ adminReliabilityRouter.post('/rollup', async (req, res) => {
     const sb = getServiceClient(config);
     const sla = await (sb as any).rpc('sla_reliability_rollup_and_prune');
     const biz = await (sb as any).rpc('business_metrics_rollup_and_prune');
-    const hs = await (sb as any).rpc('workspace_health_snapshot_compute');
     res.json({
       ok: true,
       sla: sla.error ? { error: sla.error.message } : sla.data,
       business: biz.error ? { error: biz.error.message } : biz.data,
-      health: hs.error ? { error: hs.error.message } : hs.data,
     });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || 'Rollup failed' });

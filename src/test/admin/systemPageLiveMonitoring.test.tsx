@@ -42,9 +42,6 @@ function baselineRoute(url: string) {
       rows: [],
     });
   }
-  if (url.includes('/api/admin/reliability/workspace-health')) {
-    return jsonOk({ counts: { healthy: 0, warning: 0, at_risk: 0 }, total: 0, latest: [], at_risk: [] });
-  }
   if (url.includes('/api/admin/management/runtime-config')) return jsonOk({ config: [] });
   return null;
 }

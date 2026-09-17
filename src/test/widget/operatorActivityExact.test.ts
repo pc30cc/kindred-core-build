@@ -1,15 +1,17 @@
 /**
- * CROSS-NODE ACTIVITY MUST BE EXACT.
+ * CROSS-NODE ACTIVITY MUST BE EXACT — AND MUST NEVER TOUCH POSTGRESQL.
  *
- * The coarse `operator_activity_samples` fallback (5-minute buckets) could
- * keep an operator "active" for up to ~10 minutes when the beat landed on
- * another node. With the exact ephemeral index configured, `away` must
- * trigger at exactly 5 minutes and the coarse fallback must NOT run.
+ * A coarse 5-minute analytics fallback used to sit behind this module and
+ * could keep an operator "active" for up to ~10 minutes when the beat landed
+ * on another node. It was removed with the `operator_activity_samples` table.
+ * With the exact ephemeral index configured, `away` must trigger at exactly
+ * 5 minutes; without one, the module must degrade to the process-local map
+ * rather than read the database.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const zset = new Map<string, Map<string, number>>();
-let bucketReads = 0;
+let dbReads = 0;
 
 // Set to false to emulate a Redis/Valkey older than 6.2 (no ZADD GT).
 export let supportsGt = true;
@@ -57,7 +59,7 @@ const fakeClient = {
       select: () => api,
       eq: () => api,
       in: () => api,
-      gte: async () => { bucketReads += 1; return { data: [] }; },
+      gte: async () => { dbReads += 1; return { data: [] }; },
     };
     return api;
   },
@@ -80,7 +82,7 @@ const T0 = Date.parse('2026-01-07T12:00:01Z');
 describe('exact cross-node operator activity', () => {
   beforeEach(() => {
     zset.clear();
-    bucketReads = 0;
+    dbReads = 0;
     setSupportsGt(true);
     resetOperatorActivity();
     process.env.OPERATOR_ACTIVITY_REDIS_URL = 'redis://127.0.0.1:6379';
@@ -105,10 +107,10 @@ describe('exact cross-node operator activity', () => {
     expect(await at(OPERATOR_ACTIVITY_ACTIVE_MS + 60_000)).toBe(false);
   });
 
-  it('does not consult the coarse analytics buckets when the exact index answers', async () => {
+  it('reads no database row when the exact index answers', async () => {
     await publishOperatorActivity('ws', 'u1', T0);
     await getOperatorLastActivity({} as any, 'ws', ['u1'], new Date(T0 + 10 * 60_000));
-    expect(bucketReads).toBe(0);
+    expect(dbReads).toBe(0);
   });
 
   it('coalesces repeated writes into at most one command per window', async () => {
@@ -118,11 +120,13 @@ describe('exact cross-node operator activity', () => {
     expect(zset.get('op:activity:ws')!.get('u1')).toBe(T0);
   });
 
-  it('falls back to the analytics buckets only when no exact index is configured', async () => {
+  it('degrades to the local map — never a database read — with no exact index', async () => {
     delete process.env.OPERATOR_ACTIVITY_REDIS_URL;
     delete process.env.REALTIME_REDIS_URL;
     await getOperatorLastActivity({} as any, 'ws', ['u1'], new Date(T0));
-    expect(bucketReads).toBe(1);
+    // The analytics-bucket fallback was removed with its table: this path must
+    // now issue ZERO PostgreSQL reads, whatever the Redis configuration.
+    expect(dbReads).toBe(0);
   });
 });
 
@@ -134,7 +138,7 @@ describe('exact cross-node operator activity', () => {
 describe('trailing-edge flush of coalesced activity', () => {
   beforeEach(() => {
     zset.clear();
-    bucketReads = 0;
+    dbReads = 0;
     setSupportsGt(true);
     resetOperatorActivity();
     process.env.OPERATOR_ACTIVITY_REDIS_URL = 'redis://127.0.0.1:6379';

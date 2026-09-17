@@ -1,6 +1,6 @@
 /**
- * Phase 7 — In-process reliability + business + health rollup ticker.
- * Calls three SQL functions every 10 minutes. Each only rolls up the
+ * Phase 7 — In-process reliability + business rollup ticker.
+ * Calls two SQL functions every 10 minutes. Each only rolls up the
  * previous full hour, so running it more often is safe and idempotent.
  * No pg_cron dependency (self-host friendly).
  */
@@ -21,7 +21,6 @@ export function startReliabilityRollup(config: ServerConfig): void {
 async function runOnce(config: ServerConfig): Promise<void> {
   await runRpc(config, 'sla_reliability_rollup_and_prune', 'sla_reliability_rollup');
   await runRpc(config, 'business_metrics_rollup_and_prune', 'business_metrics_rollup');
-  await runRpc(config, 'workspace_health_snapshot_compute', 'workspace_health_snapshot');
 }
 
 async function runRpc(config: ServerConfig, fn: string, logSlug: string): Promise<void> {

@@ -298,36 +298,6 @@ async function evaluateRule(
     };
   }
 
-  if (rule.trigger_type === 'health_score') {
-    const max = Number(rule.condition_json?.max_score);
-    const min = rule.condition_json?.min_score != null ? Number(rule.condition_json.min_score) : null;
-    if (!Number.isFinite(max)) return null;
-    // Look for the worst recent workspace health snapshot.
-    const { data } = await sb
-      .from('workspace_health_snapshots')
-      .select('workspace_id, health_score, captured_at')
-      .lt('health_score', max)
-      .order('captured_at', { ascending: false })
-      .limit(50);
-    let worst: { workspace_id: string; health_score: number; captured_at: string } | null = null;
-    const seen = new Set<string>();
-    for (const row of (data || []) as any[]) {
-      if (seen.has(row.workspace_id)) continue;
-      seen.add(row.workspace_id);
-      if (min != null && row.health_score >= min) continue;
-      if (!worst || row.health_score < worst.health_score) worst = row;
-    }
-    if (!worst) return null;
-    return {
-      scope_type: 'workspace',
-      scope_key: worst.workspace_id,
-      trigger_payload: {
-        health_score: worst.health_score,
-        captured_at: worst.captured_at,
-      },
-    };
-  }
-
   if (rule.trigger_type === 'alert_rate') {
     const minCritical = Math.max(1, Number(rule.condition_json?.min_critical_in_window || 5));
     const windowSec = Math.max(60, Number(rule.condition_json?.window_seconds || 600));

@@ -14,7 +14,7 @@
  *   G — Centrifugo failure ⇒ DB fallback writes resume; recovery ⇒ stop.
  *   H — Supabase / polling (no presence capability) ⇒ DB fallback.
  *   I — channel security (visitor channels can never be the operator one).
- *   J — load: many heartbeats ⇒ 0 live-presence writes, analytics ≤1/5min.
+ *   J — load: many heartbeats ⇒ 0 live-presence writes at all.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -39,7 +39,6 @@ const state = vi.hoisted(() => ({
 interface Row { [k: string]: any }
 const db: Record<string, Row[]> = {};
 let presenceWrites = 0;
-let analyticsInserts = 0;
 
 function makeQuery(table: string) {
   const filters: Array<(r: Row) => boolean> = [];
@@ -62,7 +61,6 @@ function makeQuery(table: string) {
       if (existing) { if (!opts?.ignoreDuplicates) Object.assign(existing, payload); }
       else {
         db[table].push({ ...payload });
-        if (table === 'operator_activity_samples') analyticsInserts++;
       }
       if (table === 'operator_presence_live') presenceWrites++;
       return { data: null, error: null };
@@ -132,7 +130,6 @@ import {
   resetPresenceSourceCache,
   PRESENCE_LIVENESS_MS,
 } from '../../../server/services/widget/operatorPresenceSource';
-import { floorToBucket } from '../../../server/routes/operatorActivity';
 import {
   buildOperatorPresenceChannelName,
   isOperatorPresenceChannel,
@@ -146,27 +143,15 @@ const T0 = new Date('2026-01-05T12:00:30.000Z').getTime();
 const at = (min: number) => new Date(T0 + min * 60_000);
 
 /** Mirrors POST /api/operator-activity/heartbeat. */
-const lastBucket = new Map<string, string>();
 async function heartbeat(when: Date) {
   if (await shouldWriteFallbackPresence(cfg, when.getTime(), WS)) {
     await recordOperatorPresenceBeat(cfg, WS, USER, when);
   }
-  const bucket = floorToBucket(when);
-  const key = `${WS}:${USER}`;
-  if (lastBucket.get(key) === bucket) return;
-  db.operator_activity_samples = db.operator_activity_samples || [];
-  if (!db.operator_activity_samples.some((r) => r.bucket === bucket && r.user_id === USER)) {
-    db.operator_activity_samples.push({ workspace_id: WS, user_id: USER, bucket, available: true });
-    analyticsInserts++;
-  }
-  lastBucket.set(key, bucket);
 }
 
 function reset() {
   for (const k of Object.keys(db)) delete db[k];
   presenceWrites = 0;
-  analyticsInserts = 0;
-  lastBucket.clear();
   resetPresenceSourceCache();
   state.vendor = 'centrifugo';
   state.supportsPresence = true;
@@ -182,7 +167,6 @@ function reset() {
   db.workspace_members = [{ workspace_id: WS, user_id: USER }];
   db.profiles = [{ id: USER, full_name: 'Op', email: 'op@x.io', avatar_url: null }];
   db.user_availability_prefs = [];
-  db.operator_activity_samples = [];
   db.operator_presence_live = [];
   db.operator_presence_fallback_state = [];
 }
@@ -207,8 +191,6 @@ describe('operator presence — realtime-first', () => {
     // No periodic live-presence write happened at any point.
     expect(presenceWrites).toBe(0);
     expect(db.operator_presence_live.length).toBe(0);
-    // Analytics unchanged: 30 min ⇒ 7 five-minute buckets (12:00 … 12:30).
-    expect(analyticsInserts).toBe(7);
   });
 
   it('B — hidden tab drops membership and goes offline within seconds', async () => {
@@ -391,11 +373,10 @@ describe('operator presence — realtime-first', () => {
 
   it('J — load: 200 heartbeats produce 0 live-presence writes in realtime mode', async () => {
     for (let i = 0; i < 200; i++) await heartbeat(at(i * 2));
+    // Realtime presence is authoritative, so a beat storm writes nothing at
+    // all now that the per-bucket analytics rows are gone.
     expect(presenceWrites).toBe(0);
-    // Analytics: at most one row per 5-minute bucket.
-    const buckets = new Set(db.operator_activity_samples.map((r) => r.bucket));
-    expect(db.operator_activity_samples.length).toBe(buckets.size);
-    expect(db.operator_activity_samples.length).toBeLessThanOrEqual(200);
+    expect(db.operator_presence_live.length).toBe(0);
   });
 
   it('L — global Centrifugo outage: two workspaces keep their OWN operators, no roster leakage', async () => {

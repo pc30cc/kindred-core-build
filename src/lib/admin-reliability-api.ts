@@ -1,6 +1,6 @@
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 /**
- * Phase 7 — Admin reliability / SLA / business / workspace-health client.
+ * Phase 7 — Admin reliability / SLA / business KPI client.
  * All endpoints require global admin (server-enforced).
  */
 const API_BASE = RESOLVED_API_BASE;
@@ -30,15 +30,6 @@ export interface BusinessSummary {
   avg_resolution_seconds: number | null;
 }
 
-export interface WorkspaceHealthRow {
-  id: string;
-  workspace_id: string;
-  captured_at: string;
-  health_score: number;
-  state: 'healthy' | 'warning' | 'at_risk';
-  components: Record<string, number>;
-}
-
 export interface SloDefinition {
   id: string;
   slug: string;
@@ -63,17 +54,6 @@ export async function fetchBusinessMetrics(range: Range = '24h') {
   const r = await fetch(`${API_BASE}/api/admin/reliability/business?range=${range}`, { credentials: 'include' });
   if (!r.ok) throw new Error(`Business metrics load failed: ${r.status}`);
   return r.json() as Promise<{ range: Range; summary: BusinessSummary; rows: any[] }>;
-}
-
-export async function fetchWorkspaceHealth() {
-  const r = await fetch(`${API_BASE}/api/admin/reliability/workspace-health`, { credentials: 'include' });
-  if (!r.ok) throw new Error(`Workspace health load failed: ${r.status}`);
-  return r.json() as Promise<{
-    counts: { healthy: number; warning: number; at_risk: number };
-    total: number;
-    latest: WorkspaceHealthRow[];
-    at_risk: WorkspaceHealthRow[];
-  }>;
 }
 
 export async function fetchSlos() {

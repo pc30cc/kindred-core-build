@@ -11,7 +11,6 @@
  * Explicitly NOT inputs:
  *   - Centrifugo channel membership / connection state
  *   - `operator_presence_live` leases
- *   - `operator_activity_samples`
  *   - tab visibility, minimize, sleep, network blips
  *
  * MANUAL STATUS CONTRACT (mapped onto the existing schema — no migration):

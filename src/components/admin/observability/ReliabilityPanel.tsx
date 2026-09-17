@@ -6,7 +6,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import {
   fetchSla,
   fetchBusinessMetrics,
-  fetchWorkspaceHealth,
   fetchSlos,
   triggerReliabilityRollup,
 } from '@/lib/admin-reliability-api';
@@ -32,11 +31,6 @@ function fmtSecs(
   if (v < 3600) return `${(v / 60).toLocaleString(locale, { maximumFractionDigits: 1 })} ${units.minute}`;
   return `${(v / 3600).toLocaleString(locale, { maximumFractionDigits: 1 })} ${units.hour}`;
 }
-function stateColor(s: string) {
-  if (s === 'healthy') return 'bg-success/20 text-success';
-  if (s === 'warning') return 'bg-warning/20 text-warning';
-  return 'bg-destructive/20 text-destructive';
-}
 
 export default function ReliabilityPanel() {
   const [range] = useState<'24h' | '7d'>('24h');
@@ -52,11 +46,6 @@ export default function ReliabilityPanel() {
   const bizQ = useQuery({
     queryKey: ['admin-business', range],
     queryFn: () => fetchBusinessMetrics(range),
-    refetchInterval: 60_000,
-  });
-  const healthQ = useQuery({
-    queryKey: ['admin-workspace-health'],
-    queryFn: () => fetchWorkspaceHealth(),
     refetchInterval: 60_000,
   });
   const slosQ = useQuery({ queryKey: ['admin-slos'], queryFn: () => fetchSlos(), refetchInterval: 120_000 });
@@ -77,7 +66,6 @@ export default function ReliabilityPanel() {
               toast({ title: t('admin.observability.reliability.rollupTriggered' as any) });
               slaQ.refetch();
               bizQ.refetch();
-              healthQ.refetch();
             } catch (e: any) {
               toast({
                 title: t('admin.observability.reliability.rollupFailed' as any),
@@ -180,68 +168,6 @@ export default function ReliabilityPanel() {
                 value={fmtSecs(biz.avg_resolution_seconds, locale, units)}
               />
             </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Workspace Health */}
-      <Card className="bg-card border-border">
-        <CardHeader>
-          <CardTitle className="text-foreground text-sm">
-            {t('admin.observability.reliability.workspaceHealth' as any)}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {healthQ.isLoading && <p className="text-muted-foreground text-sm">{t('admin.common.loading' as any)}</p>}
-          {healthQ.data && (
-            <>
-              <div className="flex items-center gap-2">
-                <Badge className="bg-success/20 text-success">
-                  {t('admin.observability.reliability.healthyCount' as any, { count: healthQ.data.counts.healthy })}
-                </Badge>
-                <Badge className="bg-warning/20 text-warning">
-                  {t('admin.observability.reliability.warningCount' as any, { count: healthQ.data.counts.warning })}
-                </Badge>
-                <Badge className="bg-destructive/20 text-destructive">
-                  {t('admin.observability.reliability.atRiskCount' as any, { count: healthQ.data.counts.at_risk })}
-                </Badge>
-                <span className="text-xs text-muted-foreground ms-auto">
-                  {t('admin.observability.reliability.trackedWorkspaces' as any, { count: healthQ.data.total })}
-                </span>
-              </div>
-              {healthQ.data.at_risk.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t('admin.observability.reliability.workspace' as any)}</TableHead>
-                      <TableHead>{t('admin.observability.reliability.score' as any)}</TableHead>
-                      <TableHead>{t('admin.observability.reliability.state' as any)}</TableHead>
-                      <TableHead>{t('admin.observability.reliability.captured' as any)}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {healthQ.data.at_risk.map((w) => (
-                      <TableRow key={w.id}>
-                        <TableCell className="font-mono text-xs">{w.workspace_id}</TableCell>
-                        <TableCell>{w.health_score}</TableCell>
-                        <TableCell>
-                          <Badge className={stateColor(w.state)}>
-                            {t(`admin.observability.reliability.states.${w.state}` as any)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {new Date(w.captured_at).toLocaleString(locale)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ) : (
-                <p className="text-muted-foreground text-sm">
-                  {t('admin.observability.reliability.allHealthy' as any)}
-                </p>
-              )}
-            </>
           )}
         </CardContent>
       </Card>

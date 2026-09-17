@@ -21,23 +21,19 @@
  *      ACTIVITY_WRITE_COALESCE_MS while they are interacting) — never on a
  *      timer, never against PostgreSQL. Read with ZSCORE, so cross-node
  *      `away` lands exactly at 5 minutes, not 5–10.
- *   3. `operator_activity_samples` (5-minute analytics buckets) — READ ONLY,
- *      and only as a LAST RESORT when no exact index is configured/reachable.
- *      Coarse by construction (±5 min); it can only make an operator look
- *      active longer, never falsely away.
+ * There is no third tier: without a reachable exact index the process-local
+ * map is authoritative, so an operator whose beat landed on another node shows
+ * as `away` rather than active. (A coarse PostgreSQL analytics fallback used
+ * to sit here; it was removed together with `operator_activity_samples`.)
  *
- * ZERO new PostgreSQL writes are introduced by this module.
+ * ZERO PostgreSQL writes OR reads are introduced by this module.
  */
 
 import type { ServerConfig } from '../../config.js';
-import { getServiceClient } from '../../supabase.js';
 import { getRedisClient } from '../../lib/redisClient.js';
 
 /** Inactivity threshold that separates `active` from `away`. */
 export const OPERATOR_ACTIVITY_ACTIVE_MS = 5 * 60_000;
-/** Analytics buckets are floored to 5 minutes; add that to the read window. */
-const ANALYTICS_BUCKET_MS = 5 * 60_000;
-
 /** At most one Redis write per operator per this window while interacting. */
 export const ACTIVITY_WRITE_COALESCE_MS = 20_000;
 /** Opportunistic GC of the exact index, per workspace, on the write path. */
@@ -59,7 +55,7 @@ const metrics = { writes: 0, writes_coalesced: 0, write_failures: 0, reads: 0, r
 export const operatorActivityKey = (workspaceId: string) => `op:activity:${workspaceId}`;
 
 export function getOperatorActivityMetrics() {
-  return { ...metrics, backend: activityRedisUrl() ? 'redis' : 'analytics_buckets' };
+  return { ...metrics, backend: activityRedisUrl() ? 'redis' : 'local' };
 }
 
 function key(workspaceId: string, userId: string): string {
@@ -289,34 +285,14 @@ export async function getOperatorLastActivity(
       const capped = Math.min(at, ts);
       if (capped > (out.get(id) || 0)) out.set(id, capped);
     }
-    // The exact index answered — the coarse analytics fallback must NOT run,
-    // otherwise it would re-inflate a correctly-aged operator back to active.
+    // The exact index answered — nothing coarser may re-inflate a correctly
+    // aged operator back to active.
     return out;
   }
 
-  missing = staleOrMissing();
-  if (!missing.length) return out;
-
-  try {
-    const sb = getServiceClient(config);
-    const since = new Date(ts - OPERATOR_ACTIVITY_ACTIVE_MS - ANALYTICS_BUCKET_MS).toISOString();
-    const { data } = await sb
-      .from('operator_activity_samples')
-      .select('user_id, bucket')
-      .eq('workspace_id', workspaceId)
-      .in('user_id', missing)
-      .gte('bucket', since);
-    for (const row of (data || []) as Array<{ user_id: string; bucket: string }>) {
-      // A bucket labelled T covers [T, T+5m); credit its end so a beat inside
-      // the bucket is not aged by up to five extra minutes.
-      const at = (Date.parse(row.bucket) || 0) + ANALYTICS_BUCKET_MS;
-      const capped = Math.min(at, ts);
-      const prev = out.get(row.user_id) || 0;
-      if (capped > prev) out.set(row.user_id, capped);
-    }
-  } catch {
-    // Analytics unreadable ⇒ fall back to the local map only. Worst case an
-    // operator on another node shows as `away`, never as offline.
-  }
+  // No exact index configured/reachable ⇒ the process-local map is the only
+  // source left. Worst case an operator whose beat landed on another node
+  // shows as `away`, never as offline. (The former coarse
+  // `operator_activity_samples` fallback was removed with that table.)
   return out;
 }

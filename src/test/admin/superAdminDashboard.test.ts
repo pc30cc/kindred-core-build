@@ -42,7 +42,6 @@ describe('Super Admin dashboard', () => {
     [
       'fetchBusinessMetrics',
       'fetchSla',
-      'fetchWorkspaceHealth',
       'fetchActiveAlerts',
       'fetchPerfSummary',
       'useAdminProfiles',

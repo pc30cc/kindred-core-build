@@ -1,21 +1,19 @@
 /**
- * Operator presence — live liveness vs. analytics sampling.
+ * Operator presence — live liveness across a real heartbeat timeline.
  *
- * Regression guard for the bug where `operator_activity_samples` (5-minute
- * ANALYTICS buckets) was read as a live liveness signal: a continuously
- * connected operator flickered to `not_connected` between bucket writes.
- *
- * Live presence now comes from `operator_presence_live` (one UPSERTed row
- * per workspace+user). These tests replay a real 10+ minute heartbeat
- * timeline through the actual server code, asserting presence stays online
- * the whole time while the analytics table keeps ~1 row per 5-minute bucket.
+ * Regression guard for the bug where a coarse 5-minute analytics bucket was
+ * read as a live liveness signal: a continuously connected operator flickered
+ * to `not_connected` between bucket writes. That analytics table is gone; live
+ * presence comes solely from `operator_presence_live` (one UPSERTed row per
+ * workspace+user). These tests replay a real 10+ minute heartbeat timeline
+ * through the actual server code and assert presence stays online throughout
+ * while the lease never grows beyond a single row.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── In-memory fake of the tiny slice of PostgREST the code uses ──────
 interface Row { [k: string]: any }
 const db: Record<string, Row[]> = {};
-let insertCount = 0;
 let presenceWrites = 0;
 
 function makeQuery(table: string) {
@@ -46,7 +44,6 @@ function makeQuery(table: string) {
         if (!opts?.ignoreDuplicates) Object.assign(existing, payload);
       } else {
         db[table].push({ ...payload });
-        if (table === 'operator_activity_samples') insertCount++;
       }
       if (table === 'operator_presence_live') presenceWrites++;
       return { data: null, error: null };
@@ -88,43 +85,26 @@ import {
   listWorkspacePresence,
   anyOperatorOnline,
   recordOperatorPresenceBeat,
-  computeOperatorState,
   PRESENCE_LIVENESS_MS,
 } from '../../../server/services/widget/operatorPresence';
-import { floorToBucket, BUCKET_MINUTES } from '../../../server/routes/operatorActivity';
 import { resetPresenceSourceCache } from '../../../server/services/widget/operatorPresenceSource';
 
 const WS = 'ws-1';
 const USER = 'user-1';
 const cfg: any = {};
 
-/** Mirrors the heartbeat route: live beat always, analytics at most per bucket. */
-const lastBucket = new Map<string, string>();
+/** Mirrors the heartbeat route: one live presence beat, nothing else. */
 async function heartbeat(at: Date) {
   await recordOperatorPresenceBeat(cfg, WS, USER, at);
-  const bucket = floorToBucket(at);
-  const key = `${WS}:${USER}`;
-  if (lastBucket.get(key) === bucket) return;
-  const prefs = (db.user_availability_prefs || []).find((p) => p.user_id === USER) || null;
-  const { state } = computeOperatorState(prefs as any, at);
-  db.operator_activity_samples = db.operator_activity_samples || [];
-  if (!db.operator_activity_samples.some((r) => r.bucket === bucket && r.user_id === USER)) {
-    db.operator_activity_samples.push({ workspace_id: WS, user_id: USER, bucket, available: state === 'online' });
-    insertCount++;
-  }
-  lastBucket.set(key, bucket);
 }
 
 function reset(prefs?: Row | null) {
   for (const k of Object.keys(db)) delete db[k];
-  insertCount = 0;
   presenceWrites = 0;
-  lastBucket.clear();
   resetPresenceSourceCache();
   db.workspace_members = [{ workspace_id: WS, user_id: USER }];
   db.profiles = [{ id: USER, full_name: 'Op', email: 'op@x.io', avatar_url: null }];
   db.user_availability_prefs = prefs ? [prefs] : [];
-  db.operator_activity_samples = [];
   db.operator_presence_live = [];
 }
 
@@ -148,24 +128,20 @@ describe('operator presence — live timeline', () => {
     expect(observations.length).toBe(25);
   });
 
-  it('Test 2 — analytics writes stay at ~1 row per 5-minute bucket', async () => {
+  it('Test 2 — the presence lease never grows, however many beats arrive', async () => {
     for (let halfMin = 0; halfMin <= 24; halfMin += 4) await heartbeat(at(halfMin / 2));
     const beats = 7; // 0,2,4,6,8,10,12
-    expect(db.operator_activity_samples.length).toBe(insertCount);
-    // 12 minutes spans 3 five-minute buckets (12:00, 12:05, 12:10).
-    expect(insertCount).toBe(3);
-    expect(insertCount).toBeLessThan(beats);
-    expect(BUCKET_MINUTES).toBe(5);
-    // Live presence never grows: exactly one row regardless of beat count.
+    // One UPSERTed row per (workspace, user) regardless of beat count — this
+    // is what replaced the per-bucket history rows.
     expect(db.operator_presence_live.length).toBe(1);
     expect(presenceWrites).toBe(beats);
   });
 
-  it('Test 3 — routing eligibility survives an aging analytics bucket', async () => {
+  it('Test 3 — routing eligibility survives a gap between beats', async () => {
     await heartbeat(at(0));
     await heartbeat(at(2));
-    // 3.5 min after the bucket timestamp: the OLD 3-minute analytics-based
-    // liveness would have dropped this operator from the candidate list.
+    // 3.5 min in: the OLD 3-minute analytics-based liveness would have dropped
+    // this operator from the candidate list.
     const t = at(3.5);
     const presence = await listWorkspacePresence(cfg, WS, t);
     const online = presence.filter((p) => p.state === 'online').map((p) => p.user_id);

@@ -1,6 +1,24 @@
 # Phase 3 — PostgreSQL Partitioning
 
-**Status: READY — PARTITIONING PHASE VERIFIED**
+> **⚠️ SUPERSEDED 2026-09-17 — this phase no longer has a subject.**
+>
+> Migration **185** removed both partitioned tables outright, together with the
+> product features that produced and consumed them (`workspace_health_snapshots`
+> with the admin health dashboard, its SLO metric and its enforcement trigger;
+> `operator_activity_samples` with the Operator Activity online-time report).
+> See §12.
+>
+> **No table in this schema is partitioned any more.** The partition
+> *infrastructure* — migrations 176, 177, 179 and 181, `partition_ensure_all()`,
+> `partition_health()`, `retention_partition_preview()` and the Super Admin
+> badge — is intact and table-agnostic, so it is ready for the next table that
+> needs it and reports an empty inventory until then.
+>
+> Everything below §1 is kept as the historical record of how these two tables
+> were partitioned and verified: it is the worked example to follow next time,
+> not a description of the current schema.
+
+**Original status: READY — PARTITIONING PHASE VERIFIED**
 
 PostgreSQL 17.6. Forward-only migrations 176–181. Migrations 169–175 untouched.
 
@@ -297,3 +315,47 @@ and 0 scans because both are attributed to the child partitions, not because
 they are idle.
 
 Reclaimed ~1.6 MB. Recovery, if ever needed, is a point-in-time restore.
+
+---
+
+## 12. Feature removal (2026-09-17) — both partitioned tables retired
+
+Migration **185** dropped `workspace_health_snapshots` and
+`operator_activity_samples` themselves, three days after their rollback copies.
+This was a product decision, not a storage cleanup: both features were removed
+whole, in the same change, across the database and the application.
+
+**What went with each table**
+
+| Table | Feature removed | Code removed |
+|---|---|---|
+| `workspace_health_snapshots` | Admin dashboard health donut, System-page health card, Observability → Reliability health section, `health_score` SLO metric, `health_score` enforcement trigger | `/api/admin/reliability/workspace-health`, `workspace_health_snapshot_compute()` and its rollup-ticker call, `fetchWorkspaceHealth`, the `health_score` branches in `sloEvaluator` and `enforcementEngine` |
+| `operator_activity_samples` | Settings → Operator Activity online-time report and its three CSV exports | `/api/operator-activity/:id/stats`, the analytics half of the heartbeat route, `OperatorActivityPage`, `operator-activity-export`, `fetchOperatorActivity` |
+
+Configuration rows were deleted with the code that read them: 2 enabled
+`enforcement_rules` (`health_score_critical`, `health_score_warning`), 1 enabled
+`slo_definitions` row (`workspace_health_score`), and both
+`data_retention_policies` entries. `enforcement_rules_trigger_type_check` was
+narrowed to `('slo_breach','alert_rate')` so no rule can be created against a
+trigger the engine can no longer evaluate. Dependent history
+(`slo_breach_events`, `enforcement_actions`, `data_retention_runs`) followed via
+existing `ON DELETE CASCADE`.
+
+**Live operator presence is unaffected.** It never read either table:
+teammate presence is the `operator_presence_live` lease (one row per operator,
+no history) plus the ephemeral in-memory/Redis activity index, and the heartbeat
+endpoint still refreshes both. One documented behaviour change: on a
+**multi-node** deployment with no `OPERATOR_ACTIVITY_REDIS_URL` /
+`REALTIME_REDIS_URL` set, an operator whose beat landed on another node now
+reads `away` instead of `active`. That coarse cross-node fallback was the only
+read these tables served outside the removed reports; it could never produce
+`offline`, and customer-facing availability is decided solely by manual status
+plus personal schedule.
+
+**Why removal rather than tuning.** Both tables were per-entity time series:
+~288 rows/day/workspace and ~288 rows/day/operator, so cost scaled with
+customer count, and the health table had no enabled retention at all. Cheaper
+options existed — hourly instead of 5-minutely snapshots, a daily roll-up for
+old operator buckets, S3/Parquet archiving through the `ArchiveAdapter` socket
+that `server/services/retention/archive.ts` already exposes — but the features
+themselves were not in use, so the reports were retired instead of optimised.

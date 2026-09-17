@@ -6,7 +6,7 @@ import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 
 const API_BASE = RESOLVED_API_BASE;
 
-export type EnforcementTriggerType = 'slo_breach' | 'health_score' | 'alert_rate';
+export type EnforcementTriggerType = 'slo_breach' | 'alert_rate';
 
 export interface EnforcementRule {
   id: string;

@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts';
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,13 +9,12 @@ import { Progress } from '@/components/ui/progress';
 import { useAdminAuditLogs, useAdminFeatureFlags, useAdminProfileCount, useAdminProfiles, useAdminProviderConfigs, useAdminWorkspaceCount, useAdminWorkspaces } from '@/hooks/useAdmin';
 import { fetchActiveAlerts } from '@/lib/admin-alerts-api';
 import { fetchPerfSummary } from '@/lib/admin-perf-api';
-import { fetchBusinessMetrics, fetchSla, fetchWorkspaceHealth, type Range as ReliabilityRange } from '@/lib/admin-reliability-api';
-import { Activity, AlertTriangle, ArrowUpRight, BarChart3, BellRing, Building2, CheckCircle2, Clock3, CreditCard, Flag, Gauge, HeartPulse, Loader2, MessageSquare, Plug, RefreshCw, Settings2, ShieldCheck, Sparkles, TrendingUp, UserRoundPlus, Users, Workflow } from 'lucide-react';
+import { fetchBusinessMetrics, fetchSla, type Range as ReliabilityRange } from '@/lib/admin-reliability-api';
+import { Activity, AlertTriangle, ArrowUpRight, BarChart3, BellRing, Building2, CheckCircle2, Clock3, CreditCard, Flag, Gauge, Loader2, MessageSquare, Plug, RefreshCw, Settings2, ShieldCheck, Sparkles, TrendingUp, UserRoundPlus, Users, Workflow } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 
 type DashboardRange = '24h' | '7d' | '30d';
-const HEALTH_COLORS = ['hsl(var(--primary))', '#f59e0b', 'hsl(var(--destructive))'];
 
 function numberValue(value: unknown): number {
   const parsed = Number(value);
@@ -45,27 +44,23 @@ export default function AdminDashboardPage() {
   const auditQ = useAdminAuditLogs({ limit: 8 });
   const businessQ = useQuery({ queryKey: ['admin-dashboard', 'business', range], queryFn: () => fetchBusinessMetrics(range as ReliabilityRange), refetchInterval: 60_000 });
   const slaQ = useQuery({ queryKey: ['admin-dashboard', 'sla', range], queryFn: () => fetchSla(range as ReliabilityRange), refetchInterval: 60_000 });
-  const healthQ = useQuery({ queryKey: ['admin-dashboard', 'workspace-health'], queryFn: fetchWorkspaceHealth, refetchInterval: 60_000 });
   const alertsQ = useQuery({ queryKey: ['admin-dashboard', 'active-alerts'], queryFn: fetchActiveAlerts, refetchInterval: 30_000 });
   const perfQ = useQuery({ queryKey: ['admin-dashboard', 'performance'], queryFn: () => fetchPerfSummary('24h'), refetchInterval: 60_000 });
 
-  const allQueries = [userCountQ, workspaceCountQ, usersQ, workspacesQ, flagsQ, providersQ, auditQ, businessQ, slaQ, healthQ, alertsQ, perfQ];
+  const allQueries = [userCountQ, workspaceCountQ, usersQ, workspacesQ, flagsQ, providersQ, auditQ, businessQ, slaQ, alertsQ, perfQ];
   const isRefreshing = allQueries.some((query) => query.isFetching);
   const hasUnavailableData = allQueries.some((query) => query.isError);
   const lastUpdatedAt = Math.max(...allQueries.map((query) => query.dataUpdatedAt || 0));
   const refresh = () => Promise.all(allQueries.map((query) => query.refetch()));
   const business = businessQ.data?.summary;
   const sla = slaQ.data?.summary;
-  const workspaceHealth = healthQ.data;
   const activeAlerts = alertsQ.data?.active ?? [];
   const criticalAlerts = activeAlerts.filter((alert) => alert.severity === 'critical').length;
   const warningAlerts = activeAlerts.filter((alert) => alert.severity === 'warn').length;
-  const atRiskCount = workspaceHealth?.counts.at_risk ?? 0;
-  const warningWorkspaceCount = workspaceHealth?.counts.warning ?? 0;
   const activeProviders = (providersQ.data ?? []).filter((provider: any) => provider.is_active !== false).length;
   const enabledFlags = (flagsQ.data ?? []).filter((flag: any) => flag.enabled === true || flag.value === true).length;
   const resolutionRate = business?.new_conversations ? Math.min(100, (business.resolved_conversations / business.new_conversations) * 100) : 0;
-  const platformState = hasUnavailableData ? 'unavailable' : criticalAlerts > 0 ? 'critical' : warningAlerts > 0 || atRiskCount > 0 || warningWorkspaceCount > 0 ? 'attention' : 'healthy';
+  const platformState = hasUnavailableData ? 'unavailable' : criticalAlerts > 0 ? 'critical' : warningAlerts > 0 ? 'attention' : 'healthy';
 
   const chartData = useMemo(() => {
     const buckets = new Map<string, { timestamp: number; label: string; conversations: number; resolved: number }>();
@@ -87,12 +82,6 @@ export default function AdminDashboardPage() {
     return Array.from(buckets.values()).sort((a, b) => a.timestamp - b.timestamp);
   }, [businessQ.data?.rows, dateLocale, range]);
 
-  const healthData = [
-    { name: t('admin.dashboard.health.healthy' as any), value: workspaceHealth?.counts.healthy ?? 0 },
-    { name: t('admin.dashboard.health.warning' as any), value: warningWorkspaceCount },
-    { name: t('admin.dashboard.health.atRisk' as any), value: atRiskCount },
-  ];
-  const trackedHealth = healthData.reduce((sum, item) => sum + item.value, 0);
   const perfTotals = useMemo(() => {
     const rows = perfQ.data?.rows ?? [];
     const requestCount = rows.reduce((sum, row) => sum + numberValue(row.count), 0);
@@ -136,7 +125,7 @@ export default function AdminDashboardPage() {
         {statCards.map((stat) => <Link key={stat.label} to={stat.href} className="group focus:outline-none"><StatCard {...stat} value={stat.value == null ? '—' : number.format(stat.value)} /></Link>)}
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.8fr)]">
+      <section className="grid gap-4">
         <Card className="overflow-hidden border-border/70 bg-card/90 shadow-sm">
           <CardHeader className="flex flex-row items-start justify-between gap-4 pb-2"><div><CardTitle className="flex items-center gap-2 text-base"><TrendingUp className="h-4 w-4 text-primary" />{t('admin.dashboard.activity.title' as any)}</CardTitle><p className="mt-1 text-xs text-muted-foreground">{t('admin.dashboard.activity.description' as any)}</p></div><Link to="/admin/observability" className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline">{t('admin.dashboard.viewDetails' as any)}<ArrowUpRight className="h-3.5 w-3.5 rtl:-scale-x-100" /></Link></CardHeader>
           <CardContent className="pt-3">
@@ -145,13 +134,6 @@ export default function AdminDashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-border/70 bg-card/90 shadow-sm">
-          <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><HeartPulse className="h-4 w-4 text-emerald-500" />{t('admin.dashboard.health.title' as any)}</CardTitle><p className="text-xs text-muted-foreground">{t('admin.dashboard.health.description' as any)}</p></CardHeader>
-          <CardContent>
-            {healthQ.isLoading ? <ChartSkeleton compact /> : trackedHealth > 0 ? <div className="relative mx-auto h-[180px] max-w-[250px]" dir="ltr"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={healthData} dataKey="value" nameKey="name" innerRadius={58} outerRadius={78} paddingAngle={3} stroke="none">{healthData.map((entry, index) => <Cell key={entry.name} fill={HEALTH_COLORS[index]} />)}</Pie><ChartTooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 12, fontSize: 12 }} /></PieChart></ResponsiveContainer><div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"><span className="text-2xl font-bold text-foreground">{number.format(trackedHealth)}</span><span className="text-[11px] text-muted-foreground">{t('admin.dashboard.health.tracked' as any)}</span></div></div> : <EmptyState icon={HeartPulse} text={t('admin.dashboard.health.empty' as any)} compact />}
-            <div className="grid grid-cols-3 gap-2">{healthData.map((item, index) => <div key={item.name} className="rounded-xl bg-muted/50 p-2 text-center"><div className="mx-auto mb-1 h-2 w-2 rounded-full" style={{ backgroundColor: HEALTH_COLORS[index] }} /><p className="text-lg font-bold tabular-nums">{number.format(item.value)}</p><p className="truncate text-[10px] text-muted-foreground">{item.name}</p></div>)}</div>
-          </CardContent>
-        </Card>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

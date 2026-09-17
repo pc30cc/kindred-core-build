@@ -2,8 +2,8 @@
  * Phase 7.5 — SLO evaluator.
  *
  * Reads slo_definitions + the rollups produced in Phase 7
- * (sla_reliability_hourly, business_metrics_hourly, workspace_health_snapshots)
- * and converts them into sustained-breach events in slo_breach_events.
+ * (sla_reliability_hourly, business_metrics_hourly) and converts them into
+ * sustained-breach events in slo_breach_events.
  *
  * Hard rules:
  *   • Pure read of rollups + write to slo_breach_events. Never mutates rollups.
@@ -207,29 +207,8 @@ async function loadSamplesForSlo(
     return out;
   }
 
-  // Workspace scope — business metrics + health
+  // Workspace scope — business metrics
   if (def.scope_type === 'workspace') {
-    if (def.metric_key === 'health_score') {
-      const { data } = await sb
-        .from('workspace_health_snapshots')
-        .select('workspace_id, health_score, captured_at')
-        .order('captured_at', { ascending: false })
-        .limit(500);
-      const seen = new Set<string>();
-      const out: ObservedSample[] = [];
-      for (const row of (data || []) as any[]) {
-        if (seen.has(row.workspace_id)) continue;
-        seen.add(row.workspace_id);
-        out.push({
-          scope_type: 'workspace',
-          scope_key: row.workspace_id,
-          observed: row.health_score,
-          details: { captured_at: row.captured_at },
-        });
-      }
-      return out;
-    }
-
     const validBizCols = new Set([
       'first_response_time_p50',
       'first_response_time_p95',

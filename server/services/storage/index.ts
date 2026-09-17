@@ -857,7 +857,7 @@ async function bunnyDownload(config: StorageConfig, fileKey: string): Promise<Do
 }
 
 async function s3Download(config: StorageConfig, fileKey: string): Promise<DownloadResult> {
-  const url = `${s3BucketBase(config)}/${fileKey}`;
+  const url = `${s3BucketBase(config)}/${encodeS3Key(fileKey)}`;
   const headers = signS3Request('GET', url, config);
   const res = await fetch(url, { method: 'GET', headers });
   if (!res.ok) return { success: false, error: `S3 download failed: ${res.status}` };

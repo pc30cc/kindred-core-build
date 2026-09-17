@@ -29,6 +29,14 @@ import {
   type PushPlatformSettings,
 } from './platformSettings.js';
 
+/** The conversation columns this module reads. */
+interface ConversationRow {
+  id: string;
+  workspace_id: string;
+  assigned_to: string | null;
+  status: string;
+}
+
 export interface InboundPushInput {
   workspaceId: string;
   conversationId: string;
@@ -63,17 +71,18 @@ export async function notifyInboundMessage(
 
     // Conversation state is read server-side; the caller's IDs are never
     // treated as authority for who may be notified.
-    const { data: conv } = await sb
+    const { data: conversationRow } = await sb
       .from('conversations')
       .select('id, workspace_id, assigned_to, status')
       .eq('id', input.conversationId)
       .maybeSingle();
-    if (!conv || String((conv as any).workspace_id) !== input.workspaceId) return;
+    const conv = conversationRow as ConversationRow | null;
+    if (!conv || String(conv.workspace_id) !== input.workspaceId) return;
 
     const recipients = await resolveRecipients(config, {
       workspaceId: input.workspaceId,
       conversationId: input.conversationId,
-      assignedTo: ((conv as any).assigned_to as string | null) ?? null,
+      assignedTo: conv.assigned_to ?? null,
       eventType,
       actorId: input.actorId ?? null,
       mentionedUserIds: input.mentionedUserIds,

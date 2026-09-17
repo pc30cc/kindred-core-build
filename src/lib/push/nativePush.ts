@@ -56,17 +56,47 @@ function deviceId(): string {
   return id;
 }
 
-async function messaging(): Promise<any | null> {
+/**
+ * The slice of @capacitor-firebase/messaging this module uses. Typed here
+ * rather than imported so the web build never pulls the plugin in.
+ */
+interface MessagingPlugin {
+  addListener(event: string, handler: (payload: MessagingEvent) => void): Promise<unknown>;
+  checkPermissions(): Promise<{ receive?: string }>;
+  requestPermissions(): Promise<{ receive?: string }>;
+  getToken(): Promise<{ token?: string }>;
+  createChannel(channel: {
+    id: string;
+    name: string;
+    description: string;
+    importance: number;
+    visibility: number;
+  }): Promise<void>;
+  // Optional: absent in older plugin builds, which is why every call site
+  // reaches them through `?.`.
+  removeAllDeliveredNotifications?(): Promise<void>;
+  deleteToken?(): Promise<void>;
+}
+
+/** What the plugin hands back on a token, a tap or a foreground delivery. */
+interface MessagingEvent {
+  token?: string;
+  actionId?: string;
+  inputValue?: string;
+  notification?: { data?: Record<string, unknown> };
+}
+
+async function messaging(): Promise<MessagingPlugin | null> {
   if (!isNativePlatform()) return null;
   try {
     const mod = await import('@capacitor-firebase/messaging');
-    return (mod as any).FirebaseMessaging ?? null;
+    return (mod.FirebaseMessaging as unknown as MessagingPlugin) ?? null;
   } catch {
     return null;
   }
 }
 
-function parseTarget(data: Record<string, any> | undefined): PushNavigationTarget | null {
+function parseTarget(data: Record<string, unknown> | undefined): PushNavigationTarget | null {
   if (!data) return null;
   const workspaceId = String(data.workspaceId ?? '');
   const conversationId = String(data.conversationId ?? '');
@@ -159,7 +189,7 @@ async function registerToken(token: string, workspaceId?: string | null): Promis
         push_token: token,
         device_id: deviceId(),
         device_name: navigator.userAgent.slice(0, 120),
-        app_version: (import.meta as any).env?.VITE_APP_VERSION ?? undefined,
+        app_version: import.meta.env?.VITE_APP_VERSION ?? undefined,
         permission_status: 'granted',
         workspace_id: workspaceId ?? undefined,
       }),
@@ -181,14 +211,14 @@ export async function initNativePush(workspaceId?: string | null): Promise<void>
     if (!initialized) {
       initialized = true;
 
-      FirebaseMessaging.addListener('tokenReceived', (event: any) => {
+      void FirebaseMessaging.addListener('tokenReceived', (event) => {
         void registerToken(String(event?.token ?? ''), workspaceId);
       });
 
       // Tap on a notification, or one of its action buttons (background OR
       // cold launch). iOS delivers the action the moment the app is resumed,
       // which is the earliest point this JS runtime exists at all.
-      FirebaseMessaging.addListener('notificationActionPerformed', (event: any) => {
+      void FirebaseMessaging.addListener('notificationActionPerformed', (event) => {
         const target = parseTarget(event?.notification?.data);
         void performNotificationAction(
           String(event?.actionId ?? ''),
@@ -240,11 +270,19 @@ export async function initNativePush(workspaceId?: string | null): Promise<void>
  * (read on another device, resolved thread) really clears the icon instead of
  * silently doing nothing.
  */
-async function badgePlugin(): Promise<any | null> {
+interface BadgePlugin {
+  set(options: { count: number }): Promise<void>;
+  clear(): Promise<void>;
+  // Android-only permission surface; absent on iOS.
+  checkPermissions?(): Promise<{ display?: string }>;
+  requestPermissions?(): Promise<{ display?: string }>;
+}
+
+async function badgePlugin(): Promise<BadgePlugin | null> {
   if (!isNativePlatform()) return null;
   try {
     const mod = await import('@capawesome/capacitor-badge');
-    return (mod as any).Badge ?? null;
+    return (mod.Badge as unknown as BadgePlugin) ?? null;
   } catch {
     return null;
   }

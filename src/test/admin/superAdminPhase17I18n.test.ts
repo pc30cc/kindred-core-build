@@ -73,16 +73,19 @@ describe('Super Admin phase 17 localization', () => {
   it.each(['mobileApp', 'notifications'] as const)(
     'keeps the complete %s key tree identical in all locales',
     (namespace) => {
-      const expected = leaves((en.admin as any)[namespace]).sort();
-      expect(leaves((fa.admin as any)[namespace]).sort()).toEqual(expected);
-      expect(leaves((tr.admin as any)[namespace]).sort()).toEqual(expected);
+      const branch = (locale: typeof en) =>
+        (locale.admin as unknown as Record<string, unknown>)[namespace];
+      const expected = leaves(branch(en)).sort();
+      expect(leaves(branch(fa)).sort()).toEqual(expected);
+      expect(leaves(branch(tr)).sort()).toEqual(expected);
     },
   );
 
   it('adds both navigation entries in every locale', () => {
     for (const locale of [en, fa, tr]) {
-      expect((locale.admin as any).nav.mobileApp).toBeTruthy();
-      expect((locale.admin as any).nav.notifications).toBeTruthy();
+      const nav = (locale.admin as unknown as { nav: Record<string, string> }).nav;
+      expect(nav.mobileApp).toBeTruthy();
+      expect(nav.notifications).toBeTruthy();
     }
   });
 

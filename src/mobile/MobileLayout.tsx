@@ -60,7 +60,7 @@ export function MobileLayout() {
   if (notFound) return <WorkspaceNotFound />;
 
   const unread = (openConversations ?? []).reduce(
-    (sum: number, c: any) => sum + (c.unread_count || 0),
+    (sum: number, c: { unread_count?: number | null }) => sum + (c.unread_count || 0),
     0,
   );
 

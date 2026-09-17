@@ -12,13 +12,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Inbox as InboxIcon, MoreHorizontal, Bot, Check, RotateCcw } from 'lucide-react';
 
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useConversations, useUpdateConversation, type InboxQueue } from '@/hooks/useConversations';
 import { useInboxListRealtime } from '@/hooks/useInboxListRealtime';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { ChannelBadge, resolveChannelKey } from '@/components/inbox/ChannelBadge';
-import { contactDisplayName } from '@/lib/contact-display';
+import { contactDisplayName, type ContactDisplayT } from '@/lib/contact-display';
 import { formatRelative } from '@/lib/date';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -44,6 +44,11 @@ export default function MobileInboxPage() {
   const [filter, setFilter] = useState<MobileFilter>('open');
   const [query, setQuery] = useState('');
 
+  // `contactDisplayName`/`getDisplayName` take a plain (key, vars) function;
+  // the app's `t` is keyed by TranslationKey. This adapter bridges the two
+  // without erasing either type.
+  const displayT: ContactDisplayT = (key, vars) => t(key as TranslationKey, vars);
+
   const active = QUEUES[filter];
   const queryClient = useQueryClient();
   const { data: conversations, isLoading } = useConversations(
@@ -66,8 +71,8 @@ export default function MobileInboxPage() {
     const list = conversations ?? [];
     const q = query.trim().toLowerCase();
     if (!q) return list;
-    return list.filter((c: any) => {
-      const name = contactDisplayName(c.contacts, c.id, t as any, c.visitor_country_name, locale);
+    return list.filter((c) => {
+      const name = contactDisplayName(c.contacts, c.id, displayT, c.visitor_country_name, locale);
       return (
         name.toLowerCase().includes(q) ||
         (c.last_message?.body || '').toLowerCase().includes(q) ||
@@ -121,8 +126,8 @@ export default function MobileInboxPage() {
         </div>
       ) : (
         <ul className="bg-card divide-y divide-border/70">
-          {rows.map((c: any) => {
-            const name = contactDisplayName(c.contacts, c.id, t as any, c.visitor_country_name, locale);
+          {rows.map((c) => {
+            const name = contactDisplayName(c.contacts, c.id, displayT, c.visitor_country_name, locale);
             const unread = c.unread_count || 0;
             const last = c.last_message;
             const channel = resolveChannelKey(c.metadata, c.contacts?.metadata);
@@ -197,7 +202,7 @@ export default function MobileInboxPage() {
                     </div>
 
                     <div className="mt-1.5 flex justify-end">
-                      <ChannelBadge channel={channel} t={t as any} size="xs" />
+                      <ChannelBadge channel={channel} t={displayT} size="xs" />
                     </div>
                   </div>
                 </button>

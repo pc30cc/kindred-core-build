@@ -1,4 +1,5 @@
 import type { CapacitorConfig } from '@capacitor/cli';
+import { KeyboardResize } from '@capacitor/keyboard';
 
 /**
  * Native iOS shell for the SAME React app that ships to the web.
@@ -16,7 +17,7 @@ const config: CapacitorConfig = {
     // The keyboard must never resize or scroll the web view: the app's own
     // nav bar and tab bar stay pinned and only the composer lifts, driven by
     // the `--kb-inset` CSS variable (src/lib/keyboardInset.ts).
-    Keyboard: { resize: 'none' as any, resizeOnFullScreen: false },
+    Keyboard: { resize: KeyboardResize.None, resizeOnFullScreen: false },
     // The installed plugin is @capacitor-firebase/messaging, whose config key
     // is `FirebaseMessaging` (NOT the core `PushNotifications` plugin).
     FirebaseMessaging: { presentationOptions: ['badge', 'sound', 'alert'] },

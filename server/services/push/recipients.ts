@@ -45,6 +45,12 @@ export interface Recipient {
   locale: string;
 }
 
+/** The `workspace_members` columns the resolver reads. */
+interface MemberRow {
+  user_id: string;
+  suspended_at: string | null;
+}
+
 interface PrefsRow {
   user_id: string;
   disable_all: boolean | null;
@@ -133,9 +139,9 @@ export async function resolveRecipients(
   }
 
   const mentioned = new Set(ctx.mentionedUserIds ?? []);
-  const eligible = (members ?? [])
-    .filter((m: any) => !m.suspended_at)
-    .map((m: any) => String(m.user_id))
+  const eligible = (members as MemberRow[] | null ?? [])
+    .filter((m) => !m.suspended_at)
+    .map((m) => String(m.user_id))
     .filter((id) => id !== ctx.actorId);
 
   if (!eligible.length) return [];
@@ -270,7 +276,7 @@ export async function unreadBadgeCount(
       .select('workspace_id')
       .eq('user_id', userId)
       .is('suspended_at', null);
-    workspaceIds = (rows ?? []).map((r: any) => String(r.workspace_id));
+    workspaceIds = (rows as { workspace_id: string }[] | null ?? []).map((r) => String(r.workspace_id));
   }
   if (!workspaceIds.length) return 0;
 
@@ -280,7 +286,7 @@ export async function unreadBadgeCount(
     .in('workspace_id', workspaceIds)
     .in('status', ['open', 'pending'])
     .limit(500);
-  const ids = (convs ?? []).map((c: any) => String(c.id));
+  const ids = (convs as { id: string }[] | null ?? []).map((c) => String(c.id));
   if (!ids.length) return 0;
 
   const { data: msgs } = await sb
@@ -291,5 +297,7 @@ export async function unreadBadgeCount(
     .is('seen_at', null)
     .limit(2000);
 
-  return new Set((msgs ?? []).map((m: any) => String(m.conversation_id))).size;
+  return new Set(
+    (msgs as { conversation_id: string }[] | null ?? []).map((m) => String(m.conversation_id)),
+  ).size;
 }

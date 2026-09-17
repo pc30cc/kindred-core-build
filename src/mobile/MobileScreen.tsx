@@ -16,7 +16,7 @@
  * away underneath it rather than staying pinned — that is where iOS puts it,
  * and pinning it while the title scrolls is the detail that reads as "web".
  */
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ElementType, type ReactNode } from 'react';
 import { Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { haptic } from '@/lib/haptics';
@@ -290,7 +290,9 @@ export function MobileRow({
   chevron?: boolean;
   destructive?: boolean;
 }) {
-  const Tag: any = onClick ? 'button' : 'div';
+  // A row is a real button when it acts, and a plain div when it does not —
+  // so a non-interactive row is not announced as tappable.
+  const Tag: ElementType = onClick ? 'button' : 'div';
   return (
     <Tag
       {...(onClick

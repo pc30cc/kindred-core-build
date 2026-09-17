@@ -12,6 +12,7 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
+import { insertAuditLogRows } from '../services/auditLog.js';
 import { getServiceClient } from '../supabase.js';
 import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { assertPhoneVerificationSatisfied } from '../services/phoneVerification/index.js';
@@ -423,7 +424,7 @@ widgetSettingsRouter.patch('/:workspaceId/debug', async (req, res) => {
   // writer in this file, rather than relying on a try/catch that a normal
   // failure response would never trigger. Best-effort either way: a
   // logging failure must never fail the actual setting change.
-  const { error: auditError } = await sb.from('audit_logs').insert({
+  const { error: auditError } = await insertAuditLogRows(config, sb, {
     workspace_id: workspaceId,
     user_id: actorUserId,
     entity_type: 'widget_settings',

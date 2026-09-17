@@ -93,9 +93,26 @@ notifications, etc.) and starts in-process tickers/workers:
 - Realtime failover ticker
 - Reliability rollup, enforcement ticker
 
-The reporting-only ones (alerting ticker, perf collectors, reliability
-rollup) are skipped when `OBSERVABILITY_REPORTING_TICKERS=off`; everything
-else, including auto-actions and enforcement, always starts.
+Six reversible env switches decide how much of this runs. **Every one
+defaults to today's behaviour**: only the literal value `off` (trimmed,
+lowercased) disables anything, so unset — or a typo — changes nothing. Each
+is read once at boot, and a switch that IS off logs one line at startup
+naming what was skipped and how to restore it. See `server/.env.example`
+for the full cost of turning each one off.
+
+| Env var | Risk | What `off` skips |
+|---|---|---|
+| `OBSERVABILITY_REPORTING_TICKERS` | safe | The six observe-and-report tickers: alerting, perf collectors, reliability+business rollup, auto-actions ticker, auto-actions cache, SLO+enforcement. Reports stop; nothing refuses work and no visitor sees a change (auto-actions only ever remove capability, and the runtime check fails open). |
+| `REALTIME_FAILOVER_TICKER` | caution | The 30s realtime provider health probe and failover/failback engine — the largest periodic writer left. Realtime keeps working, pinned to its last provider; automatic failover and failback stop. |
+| `PRODUCT_ANALYTICS_LOGGING` | safe | Charts-only telemetry writes (`visitor_page_views`, `web_analytics_events`, `widget_smart_events`, `ai_agent_debug_events`, `ai_usage_logs`). Analytics panels go blank. AI billing is unaffected — it reads `ai_usage_events`, written in Postgres. |
+| `DELIVERY_DIAGNOSTICS_LOGGING` | caution | The "did it actually send/sync" trails (`email_logs`, `channel_delivery_attempts`, `ai_source_sync_logs`). Sending, retry and ingestion are unaffected; you lose the evidence afterwards. |
+| `COMPLIANCE_AUDIT_LOGGING` | **do not disable in production** | The financial, security and legal record (`audit_logs`, `security_events`, `login_attempts`, `admin_gate_bypass_log`, `plan_change_log`, `commerce_tool_audit`, `realtime_provider_audit`). Saves nothing on an idle install and removes the only forensic trail. |
+| `CHANNELS_WORKER_HEARTBEAT` | caution | The channels worker's 45s liveness beacon. Set it on **both** Core and the worker: Core relaxes its staleness gate under the same flag so no request path starts refusing work. Raising `CHANNELS_HEARTBEAT_MS` (up to ~100s) is the cheaper lever. |
+
+Functional tickers — call queue, billing schedulers, AI-billing recovery,
+deletions, invitations and the retention/privacy janitors — have no switch
+here and always start: they change what the product *does*, not just what it
+records.
 
 `trust proxy` is set to `loopback, linklocal, uniquelocal` so that
 `x-forwarded-for` / `cf-connecting-ip` are only honored from private

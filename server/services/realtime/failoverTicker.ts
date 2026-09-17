@@ -14,7 +14,6 @@
  */
 
 import type { ServerConfig } from '../../config.js';
-import { getServiceClient } from '../../supabase.js';
 import { loadControlPlane } from './controlPlane.js';
 import { evaluateProviderHealth } from './failoverHealth.js';
 import {
@@ -23,6 +22,7 @@ import {
   invalidateFailoverStateCache,
 } from './failoverState.js';
 import { decideFailover } from './failoverEngine.js';
+import { recordRealtimeProviderAudit } from './providerAudit.js';
 import { invalidatePublisherCache } from './resolvePublisher.js';
 import { emitLog } from '../observability/metrics.js';
 import { acquireTickerLease, releaseTickerLease } from '../observability/tickerLease.js';
@@ -62,8 +62,7 @@ export async function runFailoverTickOnce(config: ServerConfig): Promise<void> {
     if (decision.transition) {
       const t = decision.transition;
       try {
-        const sb = getServiceClient(config);
-        await sb.from('realtime_provider_audit').insert({
+        await recordRealtimeProviderAudit(config, {
           changed_by: null,
           action: `failover_engine:${t.kind}`,
           prev_vendor: t.from_provider,

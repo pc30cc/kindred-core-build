@@ -9,6 +9,7 @@ import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { recordAiAgentDebugEvent } from '../../services/ai-agent/debugEvents.js';
 import { requireModule } from '../../middleware/featureGating.js';
 import { getOrCreateSettings } from '../../services/ai-agent/settings.js';
 import { runPlayground } from '../../services/ai-agent/playground.js';
@@ -204,17 +205,15 @@ internalQaRouter.post('/debug/retrieval', async (req: Request, res: Response) =>
     else if (top.final_score >= 0.3) recommendation = 'needs_clarification';
     else recommendation = 'handoff_likely';
 
-    // Best-effort observability event (no visitor side-effect).
+    // Best-effort observability event, no visitor side-effect
+    // (PRODUCT_ANALYTICS_LOGGING).
     const sb = getServiceClient(config);
-    try {
-      await sb.from('ai_agent_debug_events').insert({
-        workspace_id: workspaceId,
-        run_id: null,
-        event_type: 'retrieval_debug_run',
-        actor_user_id: auth.userId,
-        metadata: { top_score: top?.final_score ?? 0, count: hybrid.sources.length },
-      });
-    } catch { /* noop */ }
+    await recordAiAgentDebugEvent(config, sb, {
+      workspaceId,
+      eventType: 'retrieval_debug_run',
+      actorUserId: auth.userId,
+      metadata: { top_score: top?.final_score ?? 0, count: hybrid.sources.length },
+    });
 
     return res.json(redactDeep({
       retrieval_debug: hybrid.retrievalDebug,

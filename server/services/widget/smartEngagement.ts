@@ -11,6 +11,8 @@
  * `public/widget/smart-engine.js`. This module must never re-implement it.
  */
 
+import type { ServerConfig } from '../../config.js';
+
 export const SMART_PUBLIC_RULE_LIMIT = 20;
 const MAX_BODY = 400;
 const MAX_TITLE = 80;
@@ -149,6 +151,17 @@ export async function recordSmartEvent(
     pagePath?: string | null;
     idempotencyKey: string;
   },
+  /**
+   * Optional so existing direct callers (the cross-workspace security tests)
+   * keep compiling and keep exercising the write.
+   *
+   * Of the two callers in server/routes/widget.ts, only :1127 (the 'rule'
+   * branch) passes it — and that is the only one that can reach this insert.
+   * :2325 uses source:'ai_proactive', which returns earlier and never writes,
+   * so it correctly omits config. PRODUCT_ANALYTICS_LOGGING therefore does
+   * reach every reachable write site, but not because every caller passes it.
+   */
+  config?: ServerConfig,
 ): Promise<{ ok: boolean; reason?: string }> {
   if (!EVENT_TYPES.has(payload.eventType)) return { ok: false, reason: 'invalid_event_type' };
   if (!payload.idempotencyKey) return { ok: false, reason: 'missing_idempotency_key' };
@@ -211,6 +224,17 @@ export async function recordSmartEvent(
   if (!ruleRow || ruleRow.workspace_id !== payload.workspaceId) {
     return { ok: false, reason: 'rule_workspace_mismatch' };
   }
+
+  // PRODUCT_ANALYTICS_LOGGING — conversion telemetry for smart rules, read
+  // only by the smart-rule analytics panel. Placed AFTER the tenant check
+  // above on purpose: a forged/cross-workspace rule_id still gets its
+  // `rule_workspace_mismatch` answer whether or not the row is kept, so the
+  // flag removes the write and nothing else. Only this TypeScript half is
+  // reachable — 'ai_proactive' events are inserted by the
+  // ai_nudge_apply_lifecycle_event SQL function and are out of reach of any
+  // env flag. `config` is optional so the security tests, which call this
+  // helper directly with a fake client, keep exercising the write path.
+  if (config?.productAnalyticsLoggingEnabled === false) return { ok: true };
 
   const { error } = await supabase.from('widget_smart_events').insert({
     workspace_id: payload.workspaceId,

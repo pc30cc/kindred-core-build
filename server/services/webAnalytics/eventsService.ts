@@ -60,6 +60,11 @@ export interface TrackEventInput {
 export async function trackEvent(config: ServerConfig, input: TrackEventInput): Promise<{ ok: boolean }> {
   const eventName = input.eventName.trim().slice(0, MAX_EVENT_NAME_LEN);
   if (!eventName) return { ok: false };
+  // PRODUCT_ANALYTICS_LOGGING — the single writer of web_analytics_events.
+  // A suppressed telemetry write is a SUCCESSFUL no-op: the caller still
+  // answers 200, because nothing downstream depends on the row existing.
+  // Rejecting a malformed event name above stays an error either way.
+  if (config.productAnalyticsLoggingEnabled === false) return { ok: true };
   const sb = getServiceClient(config);
   const { error } = await sb.from('web_analytics_events').insert({
     workspace_id: input.workspaceId,

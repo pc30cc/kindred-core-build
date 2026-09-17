@@ -129,6 +129,7 @@ import { emitMetric, emitLog } from '../services/observability/metrics.js';
 import { resolveEffectivePolicy } from '../services/realtime/effectivePolicy.js';
 import { enforceMaxConversationsLimit } from '../services/billing/conversationLimit.js';
 import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visitorLimit.js';
+import { recordVisitorPageView } from '../services/webAnalytics/pageViews.js';
 import { getPlatformAllowedLocales } from '../services/platformRegion.js';
 
 /**
@@ -1134,7 +1135,7 @@ widgetRouter.post('/smart/event', widgetRateLimit('default'), async (req: Reques
       eventType: parsed.data.event_type,
       pagePath: parsed.data.page_path ?? null,
       idempotencyKey: parsed.data.idempotency_key,
-    });
+    }, config);
     if (!result.ok) {
       const status = (result.reason === 'rule_workspace_mismatch' || result.reason === 'nudge_workspace_mismatch') ? 403 : 400;
       return res.status(status).json({ error: result.reason || 'rejected' });
@@ -2617,16 +2618,13 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
         // First page_view of an existing session also counts (prevPage may
         // be null on rehydrated sessions).
         if (normalizedPageUrl && normalizedPageUrl !== prevPage) {
-          try {
-            await supabase.from('visitor_page_views').insert({
-              workspace_id: workspaceId,
-              visitor_session_id: existing.id,
-              url: String(normalizedPageUrl).slice(0, 2048),
-              title: page_title ? String(page_title).slice(0, 300) : null,
-            });
-          } catch (e) {
-            console.warn('[widget-track] page-view insert failed:', e?.message);
-          }
+          await recordVisitorPageView(config, supabase, {
+            workspaceId,
+            sessionId: existing.id,
+            url: normalizedPageUrl,
+            title: page_title,
+            context: 'widget-track',
+          });
         }
       } else if (visitor_id) {
         // Phase 10 — gate true-new-this-month visitors on the public widget
@@ -2674,16 +2672,13 @@ widgetRouter.post('/track', widgetRateLimit('default'), async (req: Request, res
           });
           // Always log the very first page view of a brand-new session.
           if (normalizedPageUrl) {
-            try {
-              await supabase.from('visitor_page_views').insert({
-                workspace_id: workspaceId,
-                visitor_session_id: newSession.id,
-                url: String(normalizedPageUrl).slice(0, 2048),
-                title: page_title ? String(page_title).slice(0, 300) : null,
-              });
-            } catch (e) {
-              console.warn('[widget-track] first page-view insert failed:', e?.message);
-            }
+            await recordVisitorPageView(config, supabase, {
+              workspaceId,
+              sessionId: newSession.id,
+              url: normalizedPageUrl,
+              title: page_title,
+              context: 'widget-track',
+            });
           }
           // Fire-and-forget geo enrichment — never block the widget response.
           // Uses MaxMind local DB when configured (city-level), with cache.
@@ -2841,16 +2836,13 @@ widgetRouter.put('/action', widgetRateLimit('default'), perfHttpMiddleware('widg
         }
 
         if (touch.pageChanged && current_page) {
-          try {
-            await supabase.from('visitor_page_views').insert({
-              workspace_id: workspaceId,
-              visitor_session_id: session_id,
-              url: String(current_page).slice(0, 2048),
-              title: page_title ? String(page_title).slice(0, 300) : null,
-            });
-          } catch (e) {
-            console.warn('[widget-action] page-view insert failed:', e?.message);
-          }
+          await recordVisitorPageView(config, supabase, {
+            workspaceId,
+            sessionId: session_id,
+            url: current_page,
+            title: page_title,
+            context: 'widget-action',
+          });
         }
 
         return res.json({ ok: true, presence_mode: presenceMode });

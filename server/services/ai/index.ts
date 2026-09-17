@@ -14,7 +14,7 @@
  */
 
 import type { ServerConfig } from '../../config.js';
-import { getServiceClient } from '../../supabase.js';
+import { getServiceClient, type ServiceClient } from '../../supabase.js';
 import { redactSecrets } from '../../lib/redactSecrets.js';
 import { runtimeComplete, AiRuntimeError } from './runtimeClient.js';
 import { withAiIdempotency, newAiRequestId } from './idempotency.js';
@@ -154,6 +154,28 @@ export async function executeAICompletion(
 }
 
 /**
+ * The single choke point for `ai_usage_logs` — the LEGACY analytics
+ * projection (see ../ai-billing/normalize.ts). Both writers below (the
+ * runtime-failure row and the success row) go through here so
+ * PRODUCT_ANALYTICS_LOGGING has one place to stop.
+ *
+ * This is NOT the billing record. The authoritative, immutable financial
+ * events (`ai_usage_events`) are written inside Postgres from the same
+ * normalized usage object and are untouched by any env flag, so AI billing
+ * keeps working exactly as today with this logging off — only the admin
+ * provider/model breakdown chart and the per-workspace usage panel lose
+ * their data source.
+ */
+async function recordAiUsageLog(
+  serverConfig: ServerConfig,
+  sb: ServiceClient,
+  row: Record<string, unknown>,
+): Promise<void> {
+  if (serverConfig.productAnalyticsLoggingEnabled === false) return;
+  await sb.from('ai_usage_logs').insert(row as any);
+}
+
+/**
  * Same as executeAICompletion but for callers that already resolved the
  * provider config (engine generation stage) — avoids a duplicate DB lookup
  * on every visitor turn.
@@ -227,7 +249,7 @@ async function runOneCompletion(
     );
     // Log failure. Runtime-boundary failures are recorded as such so an
     // operator can tell "AI runtime down" from "provider rejected the key".
-    await sb.from('ai_usage_logs').insert({
+    await recordAiUsageLog(serverConfig, sb, {
       workspace_id: request.workspaceId,
       provider_name: aiConfig.provider,
       model: request.model || aiConfig.model,
@@ -253,7 +275,7 @@ async function runOneCompletion(
     raw: { finishReason: response.finishReason },
   });
 
-  await sb.from('ai_usage_logs').insert({
+  await recordAiUsageLog(serverConfig, sb, {
     workspace_id: request.workspaceId,
     provider_name: usage.provider,
     model: usage.actualModel,

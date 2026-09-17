@@ -327,17 +327,24 @@ export async function sendEmail(
   }
 
   // --- Log delivery attempt ---
-  await supabase.from('email_logs').insert({
-    workspace_id: workspaceId,
-    template_slug: templateSlug || null,
-    recipient_email: to,
-    subject,
-    status: result.success ? 'sent' : 'failed',
-    provider_name: providerName,
-    error_message: result.error || null,
-    metadata: { templateData, messageId: result.id },
-    sent_at: result.success ? new Date().toISOString() : null,
-  });
+  // DELIVERY_DIAGNOSTICS_LOGGING — the single writer of email_logs (platform
+  // -level email at line ~213 deliberately never writes here). This row is
+  // the only evidence that a transactional email was actually handed to a
+  // provider; the send itself, and the SendResult every caller branches on,
+  // are already decided above and are unaffected either way.
+  if (config.deliveryDiagnosticsLoggingEnabled !== false) {
+    await supabase.from('email_logs').insert({
+      workspace_id: workspaceId,
+      template_slug: templateSlug || null,
+      recipient_email: to,
+      subject,
+      status: result.success ? 'sent' : 'failed',
+      provider_name: providerName,
+      error_message: result.error || null,
+      metadata: { templateData, messageId: result.id },
+      sent_at: result.success ? new Date().toISOString() : null,
+    });
+  }
 
   return result;
 }

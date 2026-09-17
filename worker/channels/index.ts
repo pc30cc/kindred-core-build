@@ -29,6 +29,7 @@ import {
   type ChannelJob,
 } from '../../server/services/channels/jobs.js';
 import { IdleBackoff } from '../../server/services/jobs/idleBackoff.js';
+import { envFlagEnabled } from '../../server/config.js';
 import { decryptPluginSecret } from '../../server/lib/pluginCrypto.js';
 import {
   TelegramApiError,
@@ -86,6 +87,15 @@ const LEASE_SECONDS = parseInt(process.env.CHANNELS_LEASE_SECONDS || '120', 10);
 // cadence burned ~5.7k writes/day for liveness that is only read against a
 // 120s / 150s staleness window. 45s keeps three beats inside every window.
 const HEARTBEAT_INTERVAL_MS = parseInt(process.env.CHANNELS_HEARTBEAT_MS || '45000', 10);
+// CHANNELS_WORKER_HEARTBEAT=off stops the beacon entirely. Read straight from
+// the environment because this entrypoint never builds a ServerConfig (same
+// reason CHANNELS_HEARTBEAT_MS is read here), via the one shared parsing rule
+// so only the literal `off` disables. Core relaxes channelsWorkerOffline() on
+// the same flag, so no request path starts refusing work on a silenced signal
+// — see server/config.ts. CHEAPER LEVER FIRST: raising CHANNELS_HEARTBEAT_MS
+// (up to ~100s, below Core's 120s staleness window) drops ~85% of the writes
+// and keeps the gate working.
+const HEARTBEAT_ENABLED = envFlagEnabled('CHANNELS_WORKER_HEARTBEAT');
 const CORE_AUTH_RECHECK_MS = parseInt(process.env.CHANNELS_CORE_AUTH_RECHECK_MS || '15000', 10);
 const CODE_VERSION = process.env.APP_VERSION || process.env.GIT_SHA || null;
 
@@ -1133,10 +1143,23 @@ export function startChannelsWorker(): void {
 
   let stopping = false;
 
-  void writeHeartbeat();
-  const heartbeat = setInterval(() => {
-    if (!stopping) void writeHeartbeat();
-  }, Math.max(HEARTBEAT_INTERVAL_MS, 5000));
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+  if (HEARTBEAT_ENABLED) {
+    void writeHeartbeat();
+    heartbeat = setInterval(() => {
+      if (!stopping) void writeHeartbeat();
+    }, Math.max(HEARTBEAT_INTERVAL_MS, 5000));
+  } else {
+    console.warn(
+      '[channels-worker] liveness heartbeat NOT started (CHANNELS_WORKER_HEARTBEAT=off): ' +
+        'no channel_worker_heartbeats rows, so the Super Admin channels-health panel ' +
+        'reports this worker offline/unknown forever even while it drains channel_jobs ' +
+        'normally. Set the SAME value on Core so channelsWorkerOffline() fails open and ' +
+        'Telegram diagnostics / webhook repair do not 503 on a signal you silenced. ' +
+        'Claiming, delivery and retry are unaffected. To restore: unset ' +
+        'CHANNELS_WORKER_HEARTBEAT (or set any value other than "off") and restart.',
+    );
+  }
 
   // A fixed 1.5s idle poll cost ~57,600 claim_channel_jobs round trips a day,
   // essentially all of them against an empty queue. Busy behaviour is
@@ -1166,7 +1189,7 @@ export function startChannelsWorker(): void {
 
   const shutdown = () => {
     stopping = true;
-    clearInterval(heartbeat);
+    if (heartbeat) clearInterval(heartbeat);
     console.log('[channels-worker] shutting down');
   };
   process.on('SIGTERM', shutdown);

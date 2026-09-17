@@ -965,7 +965,13 @@ internalChannelsRouter.post('/heartbeat', async (req: Request, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
 
   try {
-    const sb = getServiceClient(serverConfigOf(req));
+    const config = serverConfigOf(req);
+    // CHANNELS_WORKER_HEARTBEAT=off — the Core-side mirror of the worker's
+    // own beacon. Answer ok so a worker that has NOT been given the same
+    // value never treats a deliberately silenced write as a delivery
+    // failure; plugins.ts relaxes its staleness gate under the same flag.
+    if (config.channelsWorkerHeartbeatEnabled === false) return res.json({ ok: true, skipped: true });
+    const sb = getServiceClient(config);
     const { error } = await sb.from('channel_worker_heartbeats').upsert(
       {
         worker_id: parsed.data.worker_id,

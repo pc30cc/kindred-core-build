@@ -5,6 +5,7 @@
 
 import { Router } from 'express';
 import { createClient } from '@supabase/supabase-js';
+import type { ServerConfig } from '../config.js';
 import {
   getWorkspacePlanInfoDetailed,
   clearEntitlementCache,
@@ -34,6 +35,29 @@ export const plansRouter = Router();
 function getConfig(req: any) {
   const c = req.serverConfig;
   return { url: c.supabaseUrl, key: c.supabaseServiceRoleKey };
+}
+
+/**
+ * The single writer of `plan_change_log` — the billing-dispute record of what
+ * plan a workspace was on and when an admin changed it. Both call sites (the
+ * admin assign and the admin revoke) go through here so
+ * COMPLIANCE_AUDIT_LOGGING has one place to stop.
+ *
+ * Entitlements themselves are unaffected: the authoritative state lives on
+ * `workspace_subscriptions` and is written above, and the entitlement-change
+ * funnel runs either way. This row is evidence, not state.
+ *
+ * This router reads the URL/key pair rather than holding a ServerConfig, so
+ * the flag is read off `req.serverConfig` the same way getConfig() does.
+ */
+async function insertPlanChangeLog(
+  req: any,
+  supabase: any,
+  row: Record<string, unknown>,
+): Promise<void> {
+  const config = req.serverConfig as ServerConfig | undefined;
+  if (config?.complianceAuditLoggingEnabled === false) return;
+  await supabase.from('plan_change_log').insert(row);
 }
 
 /**
@@ -418,7 +442,7 @@ plansRouter.post('/admin/assign', async (req, res) => {
 
 
   // Log plan change
-  await supabase.from('plan_change_log').insert({
+  await insertPlanChangeLog(req, supabase, {
     workspace_id: workspaceId,
     old_plan_id: oldSub?.plan_id || null,
     new_plan_id: planId,
@@ -450,7 +474,7 @@ plansRouter.post('/admin/revoke', async (req, res) => {
     .maybeSingle();
 
   if (oldSub) {
-    await supabase.from('plan_change_log').insert({
+    await insertPlanChangeLog(req, supabase, {
       workspace_id: workspaceId,
       old_plan_id: oldSub.plan_id,
       new_plan_id: null,

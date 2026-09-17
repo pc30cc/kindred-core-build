@@ -24,6 +24,7 @@ import {
 import { resolveRealtimeProvider, loadRealtimeConfig } from '../services/realtime/index.js';
 import { loadFailoverState } from '../services/realtime/failoverState.js';
 import { runFailoverTickOnce } from '../services/realtime/failoverTicker.js';
+import { recordRealtimeProviderAudit } from '../services/realtime/providerAudit.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 
 export const realtimeControlRouter = Router();
@@ -122,7 +123,7 @@ realtimeControlRouter.put('/', async (req, res) => {
     const diff = diffControlPlane(prev, next);
     const action = categorizeAction(diff);
     if (Object.keys(diff).length > 0) {
-      await getServiceClient(config).from('realtime_provider_audit').insert({
+      await recordRealtimeProviderAudit(config, {
         changed_by: adminUser.id,
         action,
         vendor: (next.realtime_provider_lock ?? null) as RealtimeProviderId | null,

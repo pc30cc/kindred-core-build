@@ -86,8 +86,11 @@ import { runScopeCleanupTick, type ScopeCleanupState } from '../storage/scopeCle
 import { livekitProvider, findActiveEgressForRoom } from '../calls/providers/livekitProvider.js';
 import { hasActiveOwnerWriteLeases } from '../storage/writerLease.js';
 import type { WorkspaceDeletionJobRow } from './types.js';
+import { IdleBackoff } from '../jobs/idleBackoff.js';
 
 const POLL_INTERVAL_MS = 5_000;
+/** Ceiling for the idle backoff — see the start function below. */
+const MAX_IDLE_POLL_MS = 60_000;
 const LEASE_SECONDS = 60;
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const MAX_DELETE_ATTEMPTS_PER_KEY = 3;
@@ -470,17 +473,17 @@ export async function runDbCleanup(config: ServerConfig, job: WorkspaceDeletionJ
   });
 }
 
-async function tick(config: ServerConfig): Promise<void> {
-  if (tickRunning) return; // same-process guard — defense in depth alongside DB-level fencing, never a substitute for it
+async function tick(config: ServerConfig): Promise<boolean> {
+  if (tickRunning) return false; // same-process guard — defense in depth alongside DB-level fencing, never a substitute for it
   tickRunning = true;
   try {
     const job = await claimNext(config);
-    if (!job) return;
+    if (!job) return false;
 
     try {
       if (job.status === 'storage_cleanup') {
         await runStorageCleanup(config, job);
-        return; // re-claimed next tick to pick up db_cleanup, keeps each tick single-purpose and observable
+        return true; // re-claimed next tick to pick up db_cleanup, keeps each tick single-purpose and observable
       }
       if (job.status === 'db_cleanup') {
         await runDbCleanup(config, job);
@@ -488,10 +491,13 @@ async function tick(config: ServerConfig): Promise<void> {
     } catch (err) {
       if (err instanceof LeaseFencedError) {
         console.warn('[workspace deletion]', err.message);
-        return; // job is now owned by another worker — nothing more to do here
+        return true; // job is now owned by another worker — nothing more to do here
       }
       throw err;
     }
+    // A job WAS claimed and advanced, whatever branch handled it, so the
+    // caller keeps polling at the busy cadence rather than backing off.
+    return true;
   } finally {
     tickRunning = false;
   }
@@ -500,10 +506,48 @@ async function tick(config: ServerConfig): Promise<void> {
 export function startWorkspaceDeletionWorker(config: ServerConfig): void {
   if (started) return;
   started = true;
-  tick(config).catch((e) => console.error('[workspace deletion] initial tick error:', errMessage(e)));
-  const id = setInterval(() => {
-    tick(config).catch((e) => console.error('[workspace deletion] tick error:', errMessage(e)));
-  }, POLL_INTERVAL_MS);
-  id.unref?.();
-  console.log('[workspace deletion] worker started, id', WORKER_ID, 'interval', POLL_INTERVAL_MS, 'ms');
+
+  // A fixed 5s poll cost ~17,280 claim round trips a day against a queue that
+  // is empty almost always. Busy behaviour is unchanged: the first empty poll
+  // still waits POLL_INTERVAL_MS, and any claimed job resets the cadence.
+  //
+  // Deliberately still setInterval, re-armed only when the cadence actually
+  // changes, rather than a self-rescheduling setTimeout. Overlap is already
+  // prevented by tickRunning, so setTimeout would buy nothing here — and
+  // src/test/storage/workspaceDeletionWorker.test.ts neutralises the periodic
+  // loop by stubbing setInterval while relying on a real setTimeout for its
+  // own flushes. Switching schedulers would quietly un-stub that loop and let
+  // real timers fire between tests.
+  const backoff = new IdleBackoff({
+    busyMs: POLL_INTERVAL_MS,
+    idleMs: POLL_INTERVAL_MS,
+    maxIdleMs: MAX_IDLE_POLL_MS,
+  });
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let armedDelayMs = -1;
+
+  const arm = (delayMs: number) => {
+    if (delayMs === armedDelayMs) return; // cadence unchanged — keep the timer we have
+    if (timer) clearInterval(timer);
+    armedDelayMs = delayMs;
+    timer = setInterval(() => {
+      void runTick();
+    }, delayMs);
+    timer?.unref?.();
+  };
+
+  const runTick = async () => {
+    const worked = await tick(config).catch((e) => {
+      console.error('[workspace deletion] tick error:', errMessage(e));
+      // Errors count as idle so a failing dependency is polled progressively
+      // less often instead of every 5s for the whole outage.
+      return false;
+    });
+    arm(backoff.next(worked));
+  };
+
+  void runTick(); // initial immediate tick, as before
+  arm(POLL_INTERVAL_MS);
+
+  console.log('[workspace deletion] worker started, id', WORKER_ID, 'interval', POLL_INTERVAL_MS, 'ms busy /', MAX_IDLE_POLL_MS, 'ms idle');
 }

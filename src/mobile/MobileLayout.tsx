@@ -6,9 +6,10 @@
  *     edge-swipe-back gesture (src/mobile/ios/NavStack.tsx),
  *   • a translucent tab bar that hides on a pushed screen, exactly as iOS
  *     hides it behind a detail view controller,
- *   • the status bar styled to the active theme and the launch image held
- *     until the first real frame,
  *   • push registration and the server-authoritative app badge.
+ *
+ * The status bar tint and the launch-image handoff are NOT here: they are set
+ * up in src/main.tsx, because they have to apply to the login screen too.
  *
  * Only mounted inside the Capacitor shell; the web dashboard keeps AppLayout.
  */
@@ -20,7 +21,6 @@ import { useActiveWorkspace, useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useConversations } from '@/hooks/useConversations';
 import { WorkspaceNotFound } from '@/features/workspace/WorkspaceNotFound';
 import { initNativePush, setPushNavigationHandler, syncBadge } from '@/lib/push/nativePush';
-import { installNativeAppearance, hideSplashWhenReady } from '@/lib/appearance';
 import { isNativePlatform } from '@/lib/native';
 import { NavStack } from './ios/NavStack';
 import { TabBar, type TabItem } from './ios/TabBar';
@@ -36,13 +36,6 @@ export function MobileLayout() {
   const { data: openConversations } = useConversations(workspace?.id, 'open', 'main');
   const navigate = useNavigate();
   const location = useLocation();
-
-  // Status bar tint follows the theme for the whole session, and the launch
-  // image is held until React has actually painted a frame.
-  useEffect(() => {
-    installNativeAppearance();
-    hideSplashWhenReady();
-  }, []);
 
   // Native push: permission + token registration once a workspace is known,
   // and notification taps routed to the EXACT conversation inside the mobile

@@ -35,6 +35,7 @@ import { duckDbAvailability } from './duckdb.js';
 import { parquetRuntimeSupport } from './parquet.js';
 import { analyticsDurabilityReadiness } from './writer.js';
 import { readParityState } from '../webAnalytics/store/parity.js';
+import { readAnalyticsInstances } from './instances.js';
 
 export type ReadinessState = 'ready' | 'warning' | 'blocked';
 
@@ -152,6 +153,37 @@ async function deletionCheck(config: ServerConfig, pool: AnalyticsStoragePool): 
   }
 }
 
+/**
+ * Has erasure been carried through to the lake?
+ *
+ * An erasure marks the affected workspace-days for rebuild; the seal cycle
+ * then rewrites them from the anonymized source. A day that is marked and
+ * still not rebuilt means the erased value is still in the objects, which is
+ * the one state that must never be cut over on.
+ */
+async function erasureCheck(config: ServerConfig, pool: AnalyticsStoragePool): Promise<ReadinessCheck> {
+  if (!pool.enabled) return { key: 'erasureApplied', state: 'blocked', detail: null };
+  try {
+    const sb = getServiceClient(config);
+    const { data, error } = await sb
+      .from('analytics_day_seals')
+      .select('sealed_at, attempts')
+      .is('sealed_at', null)
+      .limit(1000);
+    if (error) return { key: 'erasureApplied', state: 'warning', detail: null };
+
+    // Days that were unsealed and have already been retried are the ones
+    // stuck: a day unsealed a moment ago is simply waiting for the cycle.
+    const rows = (data ?? []) as { sealed_at: string | null; attempts: number }[];
+    const stuck = rows.filter((r) => (r.attempts ?? 0) > 0).length;
+    if (stuck > 0) return { key: 'erasureApplied', state: 'blocked', detail: `${stuck}` };
+    if (rows.length > 0) return { key: 'erasureApplied', state: 'warning', detail: `${rows.length}` };
+    return { key: 'erasureApplied', state: 'ready', detail: '0' };
+  } catch {
+    return { key: 'erasureApplied', state: 'warning', detail: null };
+  }
+}
+
 export async function cutoverReadiness(config: ServerConfig): Promise<CutoverReadiness> {
   const pool = await readAnalyticsPool(config);
   const topology = await resolveAnalyticsTopology(config, pool);
@@ -213,6 +245,24 @@ export async function cutoverReadiness(config: ServerConfig): Promise<CutoverRea
     state: runtime.supported ? 'ready' : 'blocked',
     detail: runtime.nodeVersion,
   });
+
+  // 10 — how many processes hold un-flushed rows, and does each have its own
+  // durable volume? The spool is node-local, so a fleet is only as durable as
+  // its weakest mount, and nothing inside a container can verify a mount.
+  // One instance needs no promise; several need an explicit one, recorded
+  // against the exact hostnames it was made for.
+  const census = await readAnalyticsInstances(config);
+  checks.push({
+    key: 'multiInstanceDurability',
+    state: !census.multiInstance ? 'ready' : census.acknowledged ? 'warning' : 'blocked',
+    detail: `${census.count}`,
+  });
+
+  // 11 — erasure reaches the lake. `unseal_analytics_days` is what the
+  // privacy anonymizer calls so a rebuilt day drops the erased values; a day
+  // still sitting unsealed means an erasure was requested and the rebuild
+  // that carries it out has not run.
+  checks.push(await erasureCheck(config, pool));
 
   const blockedCount = checks.filter((c) => c.state === 'blocked').length;
   const warningCount = checks.filter((c) => c.state === 'warning').length;

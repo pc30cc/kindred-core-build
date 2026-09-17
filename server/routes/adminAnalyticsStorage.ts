@@ -38,6 +38,8 @@ import { bufferedRowCount, flushAnalytics } from '../services/analytics/writer.j
 import { duckDbAvailability, queryHealth } from '../services/analytics/duckdb.js';
 import { analyticsDurabilityReadiness } from '../services/analytics/writer.js';
 import { cutoverReadiness } from '../services/analytics/readiness.js';
+import { readAnalyticsInstances, acknowledgeMultiInstanceDurability } from '../services/analytics/instances.js';
+import { spoolCapacityPlan } from '../services/analytics/spool.js';
 import type { FunnelStepDefinition } from '../services/webAnalytics/store/types.js';
 import { paritySummary, redactParityRun } from '../services/webAnalytics/store/parity.js';
 import { runSealCycle, unsealDays } from '../services/analytics/sealing.js';
@@ -142,11 +144,12 @@ async function serialize(serverConfig: ServerConfig, pool: AnalyticsStoragePool)
     };
   });
 
-  const [topology, engine, parity, readiness] = await Promise.all([
+  const [topology, engine, parity, readiness, instances] = await Promise.all([
     resolveAnalyticsTopology(serverConfig, pool),
     duckDbAvailability(),
     readParityState(serverConfig),
     cutoverReadiness(serverConfig),
+    readAnalyticsInstances(serverConfig),
   ]);
 
   const queries = queryHealth();
@@ -203,8 +206,31 @@ async function serialize(serverConfig: ServerConfig, pool: AnalyticsStoragePool)
         replayedRows: d.stats.replayed,
         droppedForSize: d.stats.droppedForSize,
         lastError: d.stats.lastError,
+        /** Configured ceiling and the MEASURED frame size behind it. */
+        capacity: (() => {
+          const plan = spoolCapacityPlan();
+          return {
+            maxBytes: plan.maxBytes,
+            segmentBytes: plan.segmentBytes,
+            fsyncIntervalMs: plan.fsyncIntervalMs,
+            averageFrameBytes: plan.averageFrameBytes,
+            // What the ceiling buys at a few reference rates, 2x safety.
+            outageSeconds: {
+              at100: plan.outageSecondsAt(100),
+              at500: plan.outageSecondsAt(500),
+              at1000: plan.outageSecondsAt(1000),
+            },
+          };
+        })(),
       };
     })(),
+    /** Backend processes holding un-flushed analytics rows. */
+    instances: {
+      count: instances.count,
+      multiInstance: instances.multiInstance,
+      acknowledged: instances.acknowledged,
+      acknowledgedAt: instances.acknowledgedAt,
+    },
     primary: pool.primary,
     replicas: pool.replicas,
     replicationEnabled: pool.replicationEnabled,
@@ -800,6 +826,32 @@ adminAnalyticsStorageRouter.post('/parity', async (req, res) => {
     if (e instanceof z.ZodError) return res.status(400).json({ error: 'Invalid input' });
     fail(res, e);
   }
+});
+
+/**
+ * Record that every backend instance has its own durable volume.
+ *
+ * The spool is node-local, and nothing inside a container can verify that a
+ * mount exists, survives redeployment and is reattached to the same node —
+ * so on a multi-instance deployment this is the one readiness fact that has
+ * to come from a person. It is stored against the exact hostnames it was
+ * made for, so scaling out afterwards invalidates it rather than silently
+ * carrying over to machines nobody vouched for.
+ */
+adminAnalyticsStorageRouter.post('/instances/acknowledge', async (req, res) => {
+  try {
+    const census = await acknowledgeMultiInstanceDurability(
+      ctx(req).serverConfig, adminId(req) ?? 'unknown',
+    );
+    res.json({
+      instances: {
+        count: census.count,
+        multiInstance: census.multiInstance,
+        acknowledged: census.acknowledged,
+        acknowledgedAt: census.acknowledgedAt,
+      },
+    });
+  } catch (e) { fail(res, e); }
 });
 
 // ─── Phase 2 — day sealing (buffer durability) ───────────────────

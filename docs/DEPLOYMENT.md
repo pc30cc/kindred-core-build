@@ -84,6 +84,50 @@ its own un-flushed rows, and no other instance can recover them. While writes
 stay dual-write (the default), PostgreSQL remains the backstop and the spool is
 an optimisation rather than a requirement.
 
+The backend counts itself: every instance stamps its hostname into the analytics
+instance census (the flush ticker runs on all of them, by design). Super Admin →
+Analytics Storage reports how many instances are live, and on a multi-instance
+deployment the cutover readiness check is **blocked** until an operator confirms
+that each instance has its own durable volume. That confirmation is recorded
+against the exact hostnames it was made for, so scaling out afterwards
+invalidates it rather than silently carrying over.
+
+Sizing the spool. The ceiling defaults to 2 GiB and is configurable:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `ANALYTICS_SPOOL_DIR` | `/app/data/analytics-spool` | Where segments are written |
+| `ANALYTICS_SPOOL_MAX_BYTES` | `2147483648` | Total ceiling; past it the oldest segment is dropped and the loss is logged |
+| `ANALYTICS_SPOOL_SEGMENT_BYTES` | `67108864` | Rotation size |
+| `ANALYTICS_SPOOL_FSYNC_MS` | `1000` | Upper bound on what a host power loss can cost |
+| `ANALYTICS_SPOOL_ENABLED` | unset | `1` spools under dual-write too, so the mechanism can be exercised before cutover |
+
+Size it from the outage you intend to survive, using the **measured** frame size
+(Super Admin reports it; it depends on your URL and UTM lengths):
+
+```
+required_bytes = events_per_second x average_frame_bytes x outage_seconds x safety_factor
+```
+
+A safety factor of 2 or more is the recommendation.
+
+Measured on a 4-core Ubuntu 24.04 VPS inside `node:22-alpine`, a realistic
+page-view event (full URL with UTM parameters, denormalized session dimensions)
+frames to **764 bytes**. At that size the 2 GiB default buys, at 2x safety:
+
+| Ingest rate | Outage covered by the 2 GiB default |
+|---|---|
+| 100 events/sec | ~3.9 hours |
+| 500 events/sec | ~47 minutes |
+| 1,000 events/sec | ~23 minutes |
+
+So the default is comfortable for a low-traffic install and **too small for a
+busy one**: a deployment doing 1,000 events/sec that wants to survive a 6-hour
+object-store outage needs `764 x 1000 x 21600 x 2` = about **31 GiB**. Set
+`ANALYTICS_SPOOL_MAX_BYTES` accordingly, and give `/app/data` a volume that can
+hold it — the ceiling silently becomes the thing that loses data if it is
+reached.
+
 ## 3. Database migrations
 
 Run `database/migrations/*.sql` **in numeric order**, starting with

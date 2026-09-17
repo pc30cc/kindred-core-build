@@ -20,6 +20,7 @@ import { acquireTickerLease, releaseTickerLease } from '../observability/tickerL
 import { flushAnalytics, bufferedRowCount, replaySpooledRows } from './writer.js';
 import { runSealCycle } from './sealing.js';
 import { fsyncSpool } from './spool.js';
+import { recordAnalyticsInstance } from './instances.js';
 
 /** Poll cadence, not the flush interval — the writer applies the operator's. */
 const TICK_MS = 1_000;
@@ -50,6 +51,10 @@ export function startAnalyticsFlushTicker(config: ServerConfig): void {
   }
 
   timer = setInterval(() => {
+    // Every backend process runs this ticker (it takes no lease), so it is
+    // also an exact census of the processes holding un-flushed rows. Rate
+    // limited internally; never allowed to affect the flush.
+    void recordAnalyticsInstance(config).catch(() => undefined);
     void flushAnalytics(config, { reason: 'tick' }).catch((err: unknown) => {
       emitLog(config, 'warn', 'analytics_flush_threw', {
         error: err instanceof Error ? err.message : 'unknown',

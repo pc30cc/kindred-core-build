@@ -134,6 +134,15 @@ export interface AnalyticsReadinessDto {
   warningCount: number;
 }
 
+/** What the configured spool ceiling buys, from the MEASURED frame size. */
+export interface AnalyticsSpoolCapacityDto {
+  maxBytes: number;
+  segmentBytes: number;
+  fsyncIntervalMs: number;
+  averageFrameBytes: number | null;
+  outageSeconds: { at100: number | null; at500: number | null; at1000: number | null };
+}
+
 /** Durable ingestion, probed live rather than read from a flag. */
 export interface AnalyticsDurabilityDto {
   ready: boolean;
@@ -144,6 +153,16 @@ export interface AnalyticsDurabilityDto {
   replayedRows: number;
   droppedForSize: number;
   lastError: string | null;
+  capacity?: AnalyticsSpoolCapacityDto;
+}
+
+/** Backend processes holding un-flushed analytics rows. */
+export interface AnalyticsInstancesDto {
+  count: number;
+  multiInstance: boolean;
+  /** Operator confirmed each instance has its own durable volume, for THIS fleet. */
+  acknowledged: boolean;
+  acknowledgedAt: string | null;
 }
 
 export type ParityStatus = 'matched' | 'mismatched' | 'skipped' | 'error';
@@ -161,6 +180,7 @@ export interface AnalyticsStorageDto {
   parity: AnalyticsParityDto | null;
   readiness: AnalyticsReadinessDto;
   durability: AnalyticsDurabilityDto;
+  instances: AnalyticsInstancesDto;
   primary: string | null;
   replicas: string[];
   replicationEnabled: boolean;
@@ -354,6 +374,18 @@ export function adminBackfillAnalyticsRange(payload: {
     `${BASE}/backfill/range`,
     { method: 'POST', body: JSON.stringify(payload) },
   );
+}
+
+/**
+ * Phase 3A — confirm every backend instance has its own durable volume.
+ *
+ * Recorded against the CURRENT hostnames, so scaling out afterwards
+ * invalidates it rather than carrying over to machines nobody vouched for.
+ */
+export function adminAcknowledgeAnalyticsInstances() {
+  return request<{ instances: AnalyticsInstancesDto }>(`${BASE}/instances/acknowledge`, {
+    method: 'POST',
+  });
 }
 
 /** Phase 2 — force a day-sealing cycle (buffer durability catch-up). */

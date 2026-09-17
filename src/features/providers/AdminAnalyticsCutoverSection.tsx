@@ -22,7 +22,7 @@
  */
 
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, Lock, PlayCircle, RefreshCw, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -34,7 +34,7 @@ import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/i18n';
 import {
-  adminBackfillAnalyticsRange, adminRunAnalyticsParity,
+  adminAcknowledgeAnalyticsInstances, adminBackfillAnalyticsRange, adminRunAnalyticsParity,
   type AnalyticsBackfillRangeReport, type AnalyticsParitySummaryDto,
   type AnalyticsStorageDto, type ReadinessState,
 } from '@/lib/analytics-storage-api';
@@ -63,8 +63,22 @@ function stateClasses(state: ReadinessState): string {
 
 export function AdminAnalyticsCutoverSection({ pool }: { pool: AnalyticsStorageDto | undefined }) {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
   const readiness = pool?.readiness;
   const durability = pool?.durability;
+  const instances = pool?.instances;
+
+  const acknowledge = useMutation({
+    mutationFn: () => adminAcknowledgeAnalyticsInstances(),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['admin-analytics-storage'] }); },
+    onError: (error: unknown) => {
+      toast({
+        variant: 'destructive',
+        title: t('analyticsStorage.phase25.instances.title'),
+        description: error instanceof Error ? error.message : undefined,
+      });
+    },
+  });
 
   const [workspaceId, setWorkspaceId] = useState('');
   const [parityFrom, setParityFrom] = useState('');
@@ -227,6 +241,57 @@ export function AdminAnalyticsCutoverSection({ pool }: { pool: AnalyticsStorageD
             </p>
             {durability.lastError && (
               <p className="text-[10px] text-destructive break-all">{durability.lastError}</p>
+            )}
+          </div>
+        )}
+
+        {/* ── Backend instances ────────────────────────────────── */}
+        {instances && (
+          <div className="rounded-lg border border-border/60 p-3 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <h5 className="text-[11px] font-semibold text-foreground">
+                {t('analyticsStorage.phase25.instances.title')}
+              </h5>
+              <Badge
+                variant="outline"
+                className={cn(
+                  'text-[10px] h-5',
+                  stateClasses(!instances.multiInstance ? 'ready' : instances.acknowledged ? 'warning' : 'blocked'),
+                )}
+              >
+                {instances.multiInstance
+                  ? t('analyticsStorage.phase25.instances.multiple', { count: instances.count })
+                  : t('analyticsStorage.phase25.instances.single')}
+              </Badge>
+            </div>
+            <p className="text-[10px] text-muted-foreground leading-relaxed max-w-2xl">
+              {t('analyticsStorage.phase25.instances.desc')}
+            </p>
+
+            {/* Only a multi-instance fleet needs a promise. */}
+            {instances.multiInstance && (
+              instances.acknowledged ? (
+                <p className="text-[10px] text-emerald-600">
+                  {instances.acknowledgedAt
+                    ? t('analyticsStorage.phase25.instances.acknowledgedAt', {
+                      at: new Date(instances.acknowledgedAt).toLocaleString(),
+                    })
+                    : t('analyticsStorage.phase25.instances.acknowledged')}
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  <p className="text-[10px] text-destructive">
+                    {t('analyticsStorage.phase25.instances.notAcknowledged')}
+                  </p>
+                  <Button
+                    size="sm" variant="outline" className="h-7 text-[11px]"
+                    disabled={acknowledge.isPending}
+                    onClick={() => acknowledge.mutate()}
+                  >
+                    {t('analyticsStorage.phase25.instances.acknowledge')}
+                  </Button>
+                </div>
+              )
             )}
           </div>
         )}

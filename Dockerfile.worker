@@ -43,8 +43,9 @@ RUN node -e "const [maj,min]=process.versions.node.split('.').map(Number); if (m
 #
 # --omit=dev keeps optionalDependencies, so @duckdb/node-api is installed
 # here when a prebuilt binary exists for the platform.
+# `npm ci` with NO fallback — see Dockerfile.server for the reasoning.
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev || npm install --omit=dev
+RUN npm ci --omit=dev --no-audit --no-fund
 
 RUN node -e "try { require.resolve('@duckdb/node-api'); console.log('✅ @duckdb/node-api present'); } catch { console.warn('⚠️  @duckdb/node-api NOT installed — Web Analytics S3 reads unavailable in this image'); }"
 

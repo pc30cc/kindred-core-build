@@ -117,19 +117,82 @@ const HEADER_BYTES = 4 + 1 + 4 + 4;
 const KIND_ROW = 0x52; // 'R'
 const KIND_COMMIT = 0x43; // 'C'
 
+function envBytes(name: string, fallback: number, min: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < min) return fallback;
+  return Math.floor(parsed);
+}
+
 /** Rotate at this size so a committed segment can actually be deleted. */
-const SEGMENT_MAX_BYTES = 64 * 1024 * 1024;
+function segmentMaxBytes(): number {
+  return envBytes('ANALYTICS_SPOOL_SEGMENT_BYTES', 64 * 1024 * 1024, 1024 * 1024);
+}
 
 /**
  * Total spool ceiling. Past this the OLDEST segment is dropped, which is a
  * data-loss event and is logged and metered as one. It exists so a
  * multi-day S3 outage degrades instead of filling the volume and taking
  * down every other thing that writes to /app/data.
+ *
+ * CONFIGURABLE, because the right value is a property of the deployment,
+ * not of this code. Size it from the outage you intend to survive:
+ *
+ *   required_bytes = events_per_second
+ *                  x average_frame_bytes     (see spoolCapacityPlan())
+ *                  x outage_seconds
+ *                  x safety_factor           (2x or more)
+ *
+ * The default of 2 GiB is a starting point, not an answer — at a measured
+ * ~180 bytes/frame it covers roughly a 3-hour outage at 1,000 events/sec
+ * with a 2x margin, and roughly 30 hours at 100 events/sec. A deployment
+ * whose traffic or tolerated outage is larger than that MUST raise it, or
+ * the ceiling silently becomes the thing that loses the data the spool
+ * exists to protect.
  */
-const SPOOL_MAX_BYTES = 2 * 1024 * 1024 * 1024;
+function spoolMaxBytes(): number {
+  return envBytes('ANALYTICS_SPOOL_MAX_BYTES', 2 * 1024 * 1024 * 1024, 16 * 1024 * 1024);
+}
 
 /** Upper bound on how much a host power loss can cost. See the header. */
-const FSYNC_INTERVAL_MS = 1000;
+function fsyncIntervalMs(): number {
+  return envBytes('ANALYTICS_SPOOL_FSYNC_MS', 1000, 0);
+}
+
+export interface SpoolCapacityPlan {
+  maxBytes: number;
+  segmentBytes: number;
+  fsyncIntervalMs: number;
+  /** Measured mean bytes per framed row so far, or null before anything is written. */
+  averageFrameBytes: number | null;
+  /** How long the configured ceiling covers at a given rate, using the measured frame size. */
+  outageSecondsAt: (eventsPerSecond: number, safetyFactor?: number) => number | null;
+}
+
+/**
+ * What the configured ceiling actually buys, in seconds of outage.
+ *
+ * Reported rather than assumed: the frame size depends on URL lengths, UTM
+ * parameters and event properties, which differ per deployment by more than
+ * any default could account for.
+ */
+export function spoolCapacityPlan(): SpoolCapacityPlan {
+  const maxBytes = spoolMaxBytes();
+  const average = stats.appended > 0 && stats.appendedBytes > 0
+    ? stats.appendedBytes / stats.appended
+    : null;
+  return {
+    maxBytes,
+    segmentBytes: segmentMaxBytes(),
+    fsyncIntervalMs: fsyncIntervalMs(),
+    averageFrameBytes: average,
+    outageSecondsAt: (eventsPerSecond: number, safetyFactor = 2) => {
+      if (!average || eventsPerSecond <= 0 || safetyFactor <= 0) return null;
+      return maxBytes / (eventsPerSecond * average * safetyFactor);
+    },
+  };
+}
 
 /** A single frame's payload ceiling — a guard against a corrupt length. */
 const MAX_FRAME_BYTES = 8 * 1024 * 1024;
@@ -146,6 +209,8 @@ export interface SpoolStats {
   bytes: number;
   activeSegment: string | null;
   appended: number;
+  /** Total framed bytes appended — the numerator of the measured frame size. */
+  appendedBytes: number;
   committed: number;
   replayed: number;
   droppedForSize: number;
@@ -156,7 +221,7 @@ export interface SpoolStats {
 
 const stats: SpoolStats = {
   dir: '', segments: 0, bytes: 0, activeSegment: null,
-  appended: 0, committed: 0, replayed: 0, droppedForSize: 0, corruptFrames: 0,
+  appended: 0, appendedBytes: 0, committed: 0, replayed: 0, droppedForSize: 0, corruptFrames: 0,
   lastError: null, lastErrorAt: null,
 };
 
@@ -373,7 +438,8 @@ function enforceCeiling(config: ServerConfig | null): void {
   const dir = spoolDir();
   let files = listSegments(dir);
   let bytes = segmentBytes(dir, files);
-  while (bytes > SPOOL_MAX_BYTES && files.length > 1) {
+  const ceiling = spoolMaxBytes();
+  while (bytes > ceiling && files.length > 1) {
     const oldest = files[0]!;
     if (active && path.join(dir, oldest) === active.file) break;
     try {
@@ -421,13 +487,14 @@ export function appendRows(config: ServerConfig, rows: AnalyticsEventRow[]): boo
     fs.writeSync(active.fd, payload);
     active.bytes += payload.length;
     stats.appended += rows.length;
+    stats.appendedBytes += payload.length;
 
     const now = Date.now();
-    if (now - active.lastFsyncAt >= FSYNC_INTERVAL_MS) {
+    if (now - active.lastFsyncAt >= fsyncIntervalMs()) {
       try { fs.fsyncSync(active.fd); active.lastFsyncAt = now; } catch { /* reported on the next real failure */ }
     }
 
-    if (active.bytes >= SEGMENT_MAX_BYTES) {
+    if (active.bytes >= segmentMaxBytes()) {
       closeActive();
       enforceCeiling(config);
     }
@@ -646,7 +713,7 @@ export function __resetSpoolForTests(dir?: string): void {
   disabledReason = null;
   Object.assign(stats, {
     dir: '', segments: 0, bytes: 0, activeSegment: null,
-    appended: 0, committed: 0, replayed: 0, droppedForSize: 0, corruptFrames: 0,
+    appended: 0, appendedBytes: 0, committed: 0, replayed: 0, droppedForSize: 0, corruptFrames: 0,
     lastError: null, lastErrorAt: null,
   });
   if (dir) process.env.ANALYTICS_SPOOL_DIR = dir;

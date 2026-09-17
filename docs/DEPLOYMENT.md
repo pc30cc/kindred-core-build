@@ -111,22 +111,26 @@ required_bytes = events_per_second x average_frame_bytes x outage_seconds x safe
 
 A safety factor of 2 or more is the recommendation.
 
-Measured on a 4-core Ubuntu 24.04 VPS inside `node:22-alpine`, a realistic
+Measured on a 4-core Ubuntu 24.04 VPS running the real ingest path, a realistic
 page-view event (full URL with UTM parameters, denormalized session dimensions)
-frames to **764 bytes**. At that size the 2 GiB default buys, at 2x safety:
+frames to **780 bytes**. At that size the 2 GiB default buys, at 2x safety:
 
-| Ingest rate | Outage covered by the 2 GiB default |
-|---|---|
-| 100 events/sec | ~3.9 hours |
-| 500 events/sec | ~47 minutes |
-| 1,000 events/sec | ~23 minutes |
+| Ingest rate | Outage covered by the 2 GiB default | For a 24h outage |
+|---|---|---|
+| 100 events/sec | 3.8 hours | 12.6 GiB |
+| 500 events/sec | 46 minutes | 62.8 GiB |
+| 1,000 events/sec | 23 minutes | 125.6 GiB |
 
 So the default is comfortable for a low-traffic install and **too small for a
-busy one**: a deployment doing 1,000 events/sec that wants to survive a 6-hour
-object-store outage needs `764 x 1000 x 21600 x 2` = about **31 GiB**. Set
-`ANALYTICS_SPOOL_MAX_BYTES` accordingly, and give `/app/data` a volume that can
-hold it — the ceiling silently becomes the thing that loses data if it is
-reached.
+busy one**. Set `ANALYTICS_SPOOL_MAX_BYTES` from the outage you actually intend
+to survive, and give `/app/data` a volume that can hold it — if the ceiling is
+reached it starts dropping the oldest segments, which makes it the thing that
+loses the data the spool exists to protect.
+
+Same measurement run, for reference: enqueue latency stayed at p99 < 1.3 ms up
+to 1,000 events/sec, and a 90-day range (90 sealed objects, 658 KB) answered
+all six main reports in 1.63 s total, with partition pruning reading exactly as
+many objects as the window has days.
 
 ## 3. Database migrations
 

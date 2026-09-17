@@ -426,6 +426,52 @@ function publicBase(base: string): string {
   return /^https?:\/\//i.test(base) ? base : `https://${base}`;
 }
 
+/**
+ * Percent-encode one URI component to RFC 3986's unreserved set.
+ *
+ * `encodeURIComponent` leaves `!'()*` alone, and SigV4 requires them encoded,
+ * so they are finished off by hand. `-_.~` are unreserved and stay literal.
+ */
+function encodeRfc3986(component: string): string {
+  return encodeURIComponent(component)
+    .replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+/**
+ * Encode an object key for BOTH the request URL and the SigV4 canonical URI.
+ *
+ * This is not cosmetic. SigV4 signs the percent-encoded path, and S3 (and
+ * MinIO, and every S3-compatible vendor) canonicalizes the path it receives
+ * before checking the signature. Send `workspace=abc` literally and the
+ * server signs `workspace%3Dabc`, the two signatures differ, and the request
+ * is rejected with SignatureDoesNotMatch.
+ *
+ * That is not a hypothetical: analytics keys are Hive-partitioned
+ * (`analytics/web/workspace=<id>/year=2026/month=08/day=10/part-*.parquet`),
+ * so EVERY analytics object write failed against a real S3 endpoint until
+ * this existed. It went unnoticed because the general storage pool's keys
+ * (`workspace/<id>/...`) contain no `=`, and because the unit tests stub
+ * `fetch` and never verify a signature. Found by running the real driver
+ * against a real MinIO server.
+ *
+ * `/` is preserved: it is the path separator, not part of a segment.
+ */
+function encodeS3Key(fileKey: string): string {
+  return fileKey.split('/').map(encodeRfc3986).join('/');
+}
+
+/**
+ * SigV4's canonical query string: sorted by key, both sides encoded, joined
+ * with `&`. `URLSearchParams.toString()` is NOT a substitute — it preserves
+ * insertion order and encodes a space as `+` where SigV4 demands `%20`.
+ */
+function canonicalQueryString(params: Record<string, string>): string {
+  return Object.keys(params)
+    .sort()
+    .map((k) => `${encodeRfc3986(k)}=${encodeRfc3986(params[k]!)}`)
+    .join('&');
+}
+
 function signS3Request(
   method: string,
   url: string,
@@ -485,7 +531,7 @@ function signS3Request(
 }
 
 async function s3Upload(config: StorageConfig, req: ProviderUploadRequest): Promise<StorageResult> {
-  const url = `${s3BucketBase(config)}/${req.fileKey}`;
+  const url = `${s3BucketBase(config)}/${encodeS3Key(req.fileKey)}`;
   const headers = signS3Request('PUT', url, config, req.contentType, req.data);
 
   const res = await fetchWithTimeout(url, {
@@ -502,14 +548,14 @@ async function s3Upload(config: StorageConfig, req: ProviderUploadRequest): Prom
   }
 
   const publicUrl = config.cdnUrl
-    ? `${publicBase(config.cdnUrl)}/${req.fileKey}`
-    : `${s3BucketBase(config)}/${req.fileKey}`;
+    ? `${publicBase(config.cdnUrl)}/${encodeS3Key(req.fileKey)}`
+    : `${s3BucketBase(config)}/${encodeS3Key(req.fileKey)}`;
 
   return { success: true, url: publicUrl, fileKey: req.fileKey };
 }
 
 async function s3Delete(config: StorageConfig, fileKey: string): Promise<StorageResult> {
-  const url = `${s3BucketBase(config)}/${fileKey}`;
+  const url = `${s3BucketBase(config)}/${encodeS3Key(fileKey)}`;
   const headers = signS3Request('DELETE', url, config);
 
   const res = await fetch(url, { method: 'DELETE', headers });
@@ -517,8 +563,8 @@ async function s3Delete(config: StorageConfig, fileKey: string): Promise<Storage
 }
 
 function s3GetUrl(config: StorageConfig, fileKey: string): string {
-  if (config.cdnUrl) return `${publicBase(config.cdnUrl)}/${fileKey}`;
-  return `${s3BucketBase(config)}/${fileKey}`;
+  if (config.cdnUrl) return `${publicBase(config.cdnUrl)}/${encodeS3Key(fileKey)}`;
+  return `${s3BucketBase(config)}/${encodeS3Key(fileKey)}`;
 }
 
 /** Minimal ListObjectsV2 XML extraction — no XML parser dependency in this project, and the response shape is fixed/well-known enough for a targeted regex to be reliable. */
@@ -531,9 +577,11 @@ function extractXmlTags(xml: string, tag: string): string[] {
 }
 
 async function s3List(config: StorageConfig, prefix: string, cursor?: string): Promise<ListResult> {
-  const params = new URLSearchParams({ 'list-type': '2', prefix, 'max-keys': '1000' });
-  if (cursor) params.set('continuation-token', cursor);
-  const url = `${s3BucketBase(config)}?${params.toString()}`;
+  // Built with the SigV4 canonical form, not URLSearchParams: the signature
+  // covers this exact string, so URL and canonical request cannot diverge.
+  const params: Record<string, string> = { 'list-type': '2', prefix, 'max-keys': '1000' };
+  if (cursor) params['continuation-token'] = cursor;
+  const url = `${s3BucketBase(config)}?${canonicalQueryString(params)}`;
   const headers = signS3Request('GET', url, config);
 
   const res = await fetch(url, { method: 'GET', headers });
@@ -688,7 +736,7 @@ async function s3DownloadRange(
   fileKey: string,
   rangeHeader?: string,
 ): Promise<RangedDownloadResult> {
-  const url = `${s3BucketBase(config)}/${fileKey}`;
+  const url = `${s3BucketBase(config)}/${encodeS3Key(fileKey)}`;
   const baseHeaders = signS3Request('GET', url, config);
   const headers: Record<string, string> = { ...baseHeaders };
   if (rangeHeader) headers['Range'] = rangeHeader;

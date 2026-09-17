@@ -314,33 +314,22 @@ export function makeFakeSupabaseClient() {
           return { data: { ok: true }, error: null };
         }
 
-        case 'record_analytics_storage_write': {
-          const current = get(ANALYTICS_POOL_KEY);
-          if (!current) return { data: { ok: true, skipped: 'pool_missing' }, error: null };
-          runtimeConfig.set(ANALYTICS_POOL_KEY, {
-            ...current,
-            objectsWritten: (Number(current.objectsWritten) || 0) + Number(args._objects ?? 0),
-            bytesWritten: (Number(current.bytesWritten) || 0) + Number(args._bytes ?? 0),
-            rowsWritten: (Number(current.rowsWritten) || 0) + Number(args._rows ?? 0),
-            lastWriteAt: nowIso(),
-            ...(args._replicated ? { lastReplicationAt: nowIso() } : {}),
-            lastError: null, lastErrorAt: null,
-            revision: revisionOf(current) + 1,
-          });
-          return { data: { ok: true }, error: null };
-        }
+        /*
+          TRIPWIRES. These two SQL functions still exist in the database —
+          nothing drops them — but no code may call them again. They were the
+          per-flush and per-failure telemetry writes: analytics counting
+          itself into PostgreSQL on every batch.
 
-        case 'record_analytics_storage_error': {
-          const current = get(ANALYTICS_POOL_KEY);
-          if (!current) return { data: { ok: true, skipped: 'pool_missing' }, error: null };
-          runtimeConfig.set(ANALYTICS_POOL_KEY, {
-            ...current,
-            lastError: args._error as string,
-            lastErrorAt: nowIso(),
-            revision: revisionOf(current) + 1,
-          });
-          return { data: { ok: true }, error: null };
-        }
+          Answering them here would let that come back silently and still go
+          green, so the fake refuses instead. Any test that trips one of these
+          is telling you a write path started recording again.
+        */
+        case 'record_analytics_storage_write':
+        case 'record_analytics_storage_error':
+          throw new Error(
+            `analytics telemetry has returned: ${String(fn)} was called. `
+            + 'Analytics must not write counters or error history to PostgreSQL.',
+          );
 
         case 'record_analytics_day_seal': {
           const key = `${args._workspace_id}|${args._day}`;

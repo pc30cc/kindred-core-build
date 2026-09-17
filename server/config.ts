@@ -40,6 +40,39 @@ export interface ServerConfig {
    * condition.
    */
   selfHostBillingUnlimited: boolean;
+  /**
+   * Whether the REPORTING-ONLY observability tickers start at boot
+   * (server/index.ts): the alerting ticker, the perf/process trend
+   * collectors and the reliability/business hourly rollup. These three
+   * observe the system and write history; nothing on a request path reads
+   * what they produce, so an install with no traffic pays their DB churn
+   * (observability_ticker_lease + alert_events writes every 60s, hourly
+   * rollup RPCs every 10 min) for reports nobody reads.
+   *
+   * Set OBSERVABILITY_REPORTING_TICKERS to exactly `off` to skip them.
+   * Defaults to `true` (fail-open) for ANY other value, including unset or
+   * a typo — an unrecognized value never silently stops alerting.
+   *
+   * Deliberately NOT covered by this flag: the auto-actions ticker, the
+   * auto-actions cache and the enforcement ticker. They also write
+   * auto_action_events, which effectivePolicy.ts and the typing handlers
+   * read on live request paths — see the comments at their call sites.
+   * The functional tickers (failover, call queue, billing, deletions,
+   * invitations, retention janitors) are never affected either.
+   *
+   * This is a process-level boot switch, not a substitute for the
+   * per-workspace `alerting_enabled` toggle in widget_platform_settings:
+   * that one short-circuits INSIDE runAlertCycle, after the ticker has
+   * already taken and released its lease. When this flag is off the admin
+   * UI's alerting toggle becomes cosmetic — the env wins.
+   *
+   * OPTIONAL on the interface on purpose: the worker entrypoints
+   * (worker/commerce-sync, worker/source-sync, worker/intelligence) build a
+   * ServerConfig literal by hand and never start a ticker, so requiring it
+   * would break their builds for a field they cannot act on. Read it as
+   * `!== false` so an omitted field keeps the fail-open default.
+   */
+  observabilityReportingTickersEnabled?: boolean;
 
   // ── Channels runtime (Plugin Platform) ──────────────────────────────
   /**
@@ -146,6 +179,8 @@ export function loadConfig(): ServerConfig {
     rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
     initialAdminEmail: process.env.INITIAL_ADMIN_EMAIL?.trim().toLowerCase() || undefined,
     selfHostBillingUnlimited: process.env.SELF_HOST_BILLING_MODE === 'unlimited',
+    observabilityReportingTickersEnabled:
+      process.env.OBSERVABILITY_REPORTING_TICKERS?.trim().toLowerCase() !== 'off',
     coreInternalSecret,
     channelsWebhookSigningKey,
     publicChannelsBaseUrl: normalizeBaseUrl(optional('PUBLIC_CHANNELS_BASE_URL')),

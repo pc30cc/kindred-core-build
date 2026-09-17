@@ -93,6 +93,10 @@ notifications, etc.) and starts in-process tickers/workers:
 - Realtime failover ticker
 - Reliability rollup, enforcement ticker
 
+The reporting-only ones (alerting ticker, perf collectors, reliability
+rollup) are skipped when `OBSERVABILITY_REPORTING_TICKERS=off`; everything
+else, including auto-actions and enforcement, always starts.
+
 `trust proxy` is set to `loopback, linklocal, uniquelocal` so that
 `x-forwarded-for` / `cf-connecting-ip` are only honored from private
 upstream hops.

@@ -639,7 +639,22 @@ app.listen(config.port, () => {
   startBillingV2Schedulers(config);
 
   // Phase 4 — start in-process alerting ticker (every 60s). Best-effort.
-  startAlertingTicker(config);
+  // Reporting-only: nothing on a request path reads alert_events, so this
+  // ticker (and the two other reporting tickers below) is skipped wholesale
+  // when OBSERVABILITY_REPORTING_TICKERS=off. See server/config.ts.
+  if (config.observabilityReportingTickersEnabled !== false) {
+    startAlertingTicker(config);
+  } else {
+    console.warn(
+      '[observability] reporting tickers NOT started (OBSERVABILITY_REPORTING_TICKERS=off): ' +
+        'alerting ticker, perf/process collectors, reliability+business rollup. ' +
+        'No new alert_events rows, no outbound alert webhooks, no new hourly rollup ' +
+        'buckets and an empty admin process-trend chart until this is turned back on. ' +
+        'Auto-actions, enforcement, realtime failover, call queue, billing, deletions ' +
+        'and every other worker keep running. To restore: unset ' +
+        'OBSERVABILITY_REPORTING_TICKERS (or set any value other than "off") and restart.',
+    );
+  }
 
   // E2 — in-process Data Hub source-sync worker.
   // Production: run as a separate WORKER_KIND=source-sync container.
@@ -657,13 +672,31 @@ app.listen(config.port, () => {
   }
 
   // Phase 5A — start perf sample flusher + process sampler. Best-effort.
-  startPerfCollectors(config);
+  // Reporting-only, and purely in-memory: this starts the collector's 60s
+  // process-trend sampler, nothing else. Gating it costs ZERO Postgres
+  // traffic — perfHttpMiddleware and getMonitoringCollector() are lazy and
+  // keep feeding request/realtime metrics either way, so failover health
+  // and the live process snapshot are unaffected. Only the admin
+  // process-trend series stops filling.
+  if (config.observabilityReportingTickersEnabled !== false) {
+    startPerfCollectors(config);
+  }
 
   // Phase 5C — start in-process auto-actions ticker (every 60s). Best-effort.
+  // NOT covered by OBSERVABILITY_REPORTING_TICKERS: this ticker writes
+  // auto_action_events, which the cache below serves to live request paths
+  // (typing suppression, transport selection, call media policy). It only
+  // ever removes capability, but keep producer and consumer coherent rather
+  // than letting the admin panel claim a throttle the runtime ignores.
   startAutoActionsTicker(config);
 
   // Phase 5C.1 — start fast in-memory cache for active auto-actions
   // (refresh ~7s). Required by hot-path checks like typing suppression.
+  // NOT covered by OBSERVABILITY_REPORTING_TICKERS: isActionActive() is read
+  // by effectivePolicy.ts, routes/conversations.ts and routes/widget.ts. It
+  // fails open when never refreshed, but leaving it running preserves the
+  // manual admin cycle (POST /api/admin/auto-actions) exactly, and one
+  // indexed SELECT every 7s is negligible next to what the flag does turn off.
   startAutoActionsCache(config);
 
   // Phase 6B — start realtime failover engine ticker (every 30s). Best-effort.
@@ -675,9 +708,18 @@ app.listen(config.port, () => {
 
 
   // Phase 7 — start reliability/business/health rollup (every 10 min). Best-effort.
-  startReliabilityRollup(config);
+  // Reporting-only: the hourly aggregates it writes are read by the admin
+  // reliability charts and by the SLO evaluator, never by a request path.
+  if (config.observabilityReportingTickersEnabled !== false) {
+    startReliabilityRollup(config);
+  }
 
   // Phase 7.5 — SLA enforcement engine (SLO eval + rule-driven actions, every 60s).
+  // NOT covered by OBSERVABILITY_REPORTING_TICKERS: SLO evaluation is
+  // reporting, but the same cycle runs enforcement rules that can INSERT
+  // auto_action_events (and drive workspace-level enforcement actions), so
+  // it is functional in the same sense as the auto-actions pair above. With
+  // the rollup gated off it simply evaluates against the buckets that exist.
   startEnforcementTicker(config);
 
   // Phase 8C — Call queue expiry sweeper (every 30s). Best-effort.

@@ -94,6 +94,7 @@ npm run dev        # Vite dev server on http://localhost:5173
 | `INVITATION_LINK_KEY_VERSION` | Yes | Active invitation derivation-key version. |
 | `SELF_HOST_SEAT_LIMIT` | Yes* | Authoritative seat limit unless billing mode is explicitly unlimited; missing value fails acceptance closed. |
 | `INVITATION_WORKER_INPROC` | No | Development fallback only. Production uses a dedicated `WORKER_KIND=invitations` service. |
+| `OBSERVABILITY_REPORTING_TICKERS` | No | Set to exactly `off` to skip the reporting-only tickers at boot (alerting, perf/process collectors, reliability+business rollup) and the database churn they generate. Safe on an install with no users; nothing on a request path reads what they write. Any other value (or unset) leaves them running. Auto-actions, enforcement, failover, call queue, billing and deletions are unaffected. |
 
 ## Frontend Environment Variables
 

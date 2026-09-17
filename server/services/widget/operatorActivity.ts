@@ -222,6 +222,7 @@ export function __evictActivityCoalesceState(): void {
 /** Test/ops hook. */
 export function resetOperatorActivity(): void {
   zaddGtSupported = null;
+  analyticsTableMissing = false;
   local.clear();
   lastRedisWriteAt.clear();
   lastPruneAt.clear();
@@ -255,6 +256,44 @@ async function readExactActivity(
     return null;
   }
 }
+
+/**
+ * `operator_activity_samples` has been dropped on installs that ran the
+ * Live Monitoring cleanup — its writer is already gone (see
+ * server/routes/operatorActivity.ts). The coarse read below stays for
+ * installs that still have the table, but where it is absent every call was
+ * a guaranteed PostgREST 404 that could only ever return zero rows, several
+ * hundred times a day. Latch the first "this relation does not exist"
+ * answer and stop asking; the fallback behaviour is identical either way
+ * (local map only). Cleared by resetOperatorActivity(), so a restart — or a
+ * restored table — re-probes exactly once.
+ */
+let analyticsTableMissing = false;
+
+/**
+ * True ONLY when the database reports that `operator_activity_samples`
+ * ITSELF is absent. A missing column, a missing function, a permission
+ * error or a 42P01 naming some other relation is a different bug and must
+ * keep using the ordinary fallback instead of latching this read off for
+ * the life of the process. Same shape as isPlatformSettingsTableMissing in
+ * server/services/ai-agent/platformSettings.ts.
+ */
+const isAnalyticsRelationMissing = (
+  error: { code?: string; message?: string; details?: string } | null | undefined,
+): boolean => {
+  const code = String(error?.code || '');
+  // 42P01 = undefined_table, the genuine Postgres answer for a dropped
+  // relation. PostgREST's PGRST205 ("not found in schema cache") is NOT
+  // accepted: it also fires transiently while the schema cache is stale —
+  // notably right after a migration, on an install where the table really
+  // does still exist — and latching on that would disable this read for the
+  // life of the process over a blip. Once the cache settles, a genuinely
+  // dropped table reports 42P01 and the latch arms then.
+  if (code !== '42P01') return false;
+  const haystack = `${error?.message || ''} ${error?.details || ''}`.toLowerCase();
+  if (!haystack.includes('operator_activity_samples')) return false;
+  return !/\bcolumn\b|\bfunction\b|permission denied/.test(haystack);
+};
 
 /**
  * Last-activity timestamp (ms) per operator. Missing ⇒ no activity known.
@@ -297,15 +336,21 @@ export async function getOperatorLastActivity(
   missing = staleOrMissing();
   if (!missing.length) return out;
 
+  if (analyticsTableMissing) return out;
+
   try {
     const sb = getServiceClient(config);
     const since = new Date(ts - OPERATOR_ACTIVITY_ACTIVE_MS - ANALYTICS_BUCKET_MS).toISOString();
-    const { data } = await sb
+    const { data, error } = await sb
       .from('operator_activity_samples')
       .select('user_id, bucket')
       .eq('workspace_id', workspaceId)
       .in('user_id', missing)
       .gte('bucket', since);
+    if (isAnalyticsRelationMissing(error)) {
+      analyticsTableMissing = true;
+      return out;
+    }
     for (const row of (data || []) as Array<{ user_id: string; bucket: string }>) {
       // A bucket labelled T covers [T, T+5m); credit its end so a beat inside
       // the bucket is not aged by up to five extra minutes.

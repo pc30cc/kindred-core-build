@@ -83,10 +83,13 @@
  *                because rebuilding a day from a database that no longer has
  *                the rows would replace good objects with incomplete ones.
  *
- * `analytics_day_seals` keeps one row per workspace-day holding CURRENT
- * state, updated in place on retry. It is not a log: there is no attempt
- * history, no error history, no timing. Nothing drops the table — after
- * cutover it simply stops being written to.
+ * `analytics_day_seals` records ONE fact per workspace-day: that the day is
+ * canonical. `sealed_at` is the only column any code reads back, so it is
+ * now the only one written — a failed rebuild stores nothing at all and the
+ * day is simply offered as work again next cycle. The counters and error
+ * strings the table used to carry were analytics recording its own history,
+ * and are gone. Nothing drops the table or its columns; after cutover it
+ * simply stops being written to.
  */
 
 import type { ServerConfig } from '../../config.js';

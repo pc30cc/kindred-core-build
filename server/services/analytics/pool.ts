@@ -153,7 +153,11 @@ export interface AnalyticsStoragePool {
   writeMode: AnalyticsWriteMode;
   readMode: AnalyticsReadMode;
   replicaState: Record<string, AnalyticsReplicaState>;
-  /** Last successful canonical write, for the admin status panel. */
+  /**
+   * Compare-and-set token, bumped by every committed write to this record.
+   * A concurrency guard, not a write counter — it says nothing about how
+   * much analytics data exists or when it was last written.
+   */
   revision: number;
 }
 

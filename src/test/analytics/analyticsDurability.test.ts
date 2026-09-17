@@ -221,23 +221,36 @@ describe('sealing', () => {
     expect(localKeys()).toEqual(first);
   });
 
-  it('records the seal with the source row count, so the claim is verifiable', async () => {
+  it('verifies the rebuild against the source, and reports it to the caller', async () => {
+    // The verification happens, and its numbers come back in the result —
+    // they are simply not written down. A seal row records that the day is
+    // canonical; it is not a report on how the rebuild went.
+    const outcome = await sealWorkspaceDay(serverConfig, WS, DAY);
+    expect(outcome.verified).toBe(true);
+    expect(outcome.rows).toBe(EXPECTED);
+    expect(outcome.sourceRows).toBe(outcome.rows);
+  });
+
+  it('records the seal as ONE fact — this day is canonical — and nothing else', async () => {
     await sealWorkspaceDay(serverConfig, WS, DAY);
     const seal = (tableRows.analytics_day_seals ?? [])[0] as Record<string, unknown>;
     expect(seal.sealed_at).toBeTruthy();
-    expect(seal.verified).toBe(true);
-    expect(seal.row_count).toBe(EXPECTED);
-    expect(seal.source_row_count).toBe(seal.row_count);
+    // No counters and no error history: the only column any code reads back
+    // is sealed_at, so the rest stopped being written.
+    for (const gone of ['attempts', 'last_error', 'row_count', 'objects_written', 'source_row_count', 'verified']) {
+      expect(seal[gone]).toBeUndefined();
+    }
   });
 
   it('leaves a day UNSEALED when the rebuild could not complete, so it is retried', async () => {
     usePrimary(null);
     const outcome = await sealWorkspaceDay(serverConfig, WS, DAY);
     expect(outcome.sealed).toBe(false);
-    const seal = (tableRows.analytics_day_seals ?? [])[0] as Record<string, unknown>;
-    expect(seal.sealed_at).toBeNull();
-    expect(Number(seal.attempts)).toBeGreaterThan(0);
-    expect(seal.last_error).toBeTruthy();
+    // A failed rebuild writes nothing at all — not a row with an error in
+    // it. What matters is that the day is still offered as work.
+    const rows = tableRows.analytics_day_seals ?? [];
+    expect(rows.every((r) => (r as Record<string, unknown>).sealed_at == null)).toBe(true);
+    expect(await findSealCandidates(serverConfig, { now: NOW })).toEqual([{ workspaceId: WS, day: DAY }]);
   });
 });
 

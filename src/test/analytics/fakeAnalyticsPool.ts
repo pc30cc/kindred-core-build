@@ -332,25 +332,22 @@ export function makeFakeSupabaseClient() {
           );
 
         case 'record_analytics_day_seal': {
+          // Mirrors the SQL: a seal records that a day is canonical, and
+          // nothing else. A failed rebuild records NOTHING, so the next
+          // cycle retries it. No attempt counter, no error string, no row
+          // or object counts — the sealing pass reads back only sealed_at.
+          if (args._error !== null && args._error !== undefined) {
+            return { data: { ok: true, sealed: false }, error: null };
+          }
           const key = `${args._workspace_id}|${args._day}`;
           const existing = (tableRows.analytics_day_seals ??= []).find(
             (row) => `${row.workspace_id}|${row.day}` === key,
           );
-          const failed = args._error !== null && args._error !== undefined;
-          const next: Json = {
-            workspace_id: args._workspace_id,
-            day: args._day,
-            sealed_at: failed ? (existing?.sealed_at ?? null) : nowIso(),
-            row_count: failed ? (existing?.row_count ?? 0) : args._row_count,
-            objects_written: failed ? (existing?.objects_written ?? 0) : args._objects,
-            source_row_count: failed ? (existing?.source_row_count ?? 0) : args._source_row_count,
-            verified: failed ? (existing?.verified ?? false) : args._verified,
-            attempts: failed ? Number(existing?.attempts ?? 0) + 1 : 0,
-            last_error: args._error ?? null,
-          };
-          if (existing) Object.assign(existing, next);
-          else tableRows.analytics_day_seals.push(next);
-          return { data: { ok: true }, error: null };
+          if (existing) existing.sealed_at = nowIso();
+          else tableRows.analytics_day_seals.push({
+            workspace_id: args._workspace_id, day: args._day, sealed_at: nowIso(),
+          });
+          return { data: { ok: true, sealed: true }, error: null };
         }
 
         case 'unseal_analytics_days': {
@@ -359,7 +356,6 @@ export function makeFakeSupabaseClient() {
             if (row.workspace_id !== args._workspace_id) continue;
             if (String(row.day) < String(args._from) || String(row.day) > String(args._to)) continue;
             row.sealed_at = null;
-            row.verified = false;
             unsealed++;
           }
           return { data: { ok: true, unsealed }, error: null };

@@ -1,18 +1,20 @@
 /**
  * Native (iOS) inbox list.
  *
- * Phone-first rewrite of the desktop three-column Inbox: a pinned navigation
- * bar, live search, an iOS segmented filter and one full-bleed conversation
- * list. Opening a row pushes the thread screen (MobileConversationPage).
+ * Phone-first rewrite of the desktop three-column Inbox: a large title that
+ * collapses into the nav bar, live search, an iOS segmented filter and one
+ * full-bleed conversation list. Opening a row pushes the thread screen
+ * (MobileConversationPage), and a swipe on a row reveals the same resolve /
+ * reopen action the desktop inbox exposes as a button.
  */
 import { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Inbox as InboxIcon, MoreHorizontal, Bot } from 'lucide-react';
+import { Inbox as InboxIcon, MoreHorizontal, Bot, Check, RotateCcw } from 'lucide-react';
 
 import { useTranslation } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
-import { useConversations, type InboxQueue } from '@/hooks/useConversations';
+import { useConversations, useUpdateConversation, type InboxQueue } from '@/hooks/useConversations';
 import { useInboxListRealtime } from '@/hooks/useInboxListRealtime';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { ChannelBadge, resolveChannelKey } from '@/components/inbox/ChannelBadge';
@@ -21,6 +23,7 @@ import { formatRelative } from '@/lib/date';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { MobileScreen, MobileNavButton } from './MobileScreen';
+import { SwipeRow } from './ios/SwipeRow';
 import { MobileSearchField } from './MobileSearchField';
 import { MobileSegmented } from './MobileSegmented';
 
@@ -33,7 +36,7 @@ const QUEUES: Record<MobileFilter, { queue: InboxQueue; status?: string }> = {
 };
 
 export default function MobileInboxPage() {
-  const { t, locale } = useTranslation();
+  const { t, locale, dir } = useTranslation();
   const navigate = useNavigate();
   const { slug } = useParams<{ slug: string }>();
   const workspace = useCurrentWorkspace();
@@ -49,6 +52,15 @@ export default function MobileInboxPage() {
     active.queue,
   );
   useInboxListRealtime(workspace?.id);
+  const updateConversation = useUpdateConversation();
+
+  // The same status change the desktop inbox exposes as a button, reached the
+  // way a phone reaches it. The mutation is optimistic, so the row leaves the
+  // list immediately and rolls back on failure.
+  const setStatus = (id: string, status: 'open' | 'resolved') => {
+    if (!workspace?.id) return;
+    updateConversation.mutate({ id, workspace_id: workspace.id, status });
+  };
 
   const rows = useMemo(() => {
     const list = conversations ?? [];
@@ -66,7 +78,7 @@ export default function MobileInboxPage() {
 
   return (
     <MobileScreen
-      centered
+      largeTitle
       title={workspace?.name || t('nav.inbox')}
       actions={<MobileNavButton icon={MoreHorizontal} label={t('nav.settings')} onClick={() => navigate(`/${slug}/settings`)} />}
       toolbar={
@@ -86,7 +98,7 @@ export default function MobileInboxPage() {
       onRefresh={() =>
         queryClient.refetchQueries({ queryKey: ['conversations'], type: 'active' })
       }
-      bodyClassName="pb-[104px]"
+      bodyClassName="pb-6"
     >
       {isLoading ? (
         <div className="divide-y divide-border/70 bg-card">
@@ -116,6 +128,24 @@ export default function MobileInboxPage() {
             const channel = resolveChannelKey(c.metadata, c.contacts?.metadata);
             return (
               <li key={c.id}>
+                <SwipeRow
+                  rtl={dir === 'rtl'}
+                  actions={[
+                    filter === 'resolved'
+                      ? {
+                          key: 'reopen',
+                          label: t('inbox.open'),
+                          icon: RotateCcw,
+                          onAction: () => setStatus(c.id, 'open'),
+                        }
+                      : {
+                          key: 'resolve',
+                          label: t('inbox.resolved'),
+                          icon: Check,
+                          onAction: () => setStatus(c.id, 'resolved'),
+                        },
+                  ]}
+                >
                 <button
                   type="button"
                   onClick={() => navigate(`/${slug}/inbox/${c.id}`)}
@@ -171,6 +201,7 @@ export default function MobileInboxPage() {
                     </div>
                   </div>
                 </button>
+                </SwipeRow>
               </li>
             );
           })}

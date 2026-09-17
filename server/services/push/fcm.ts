@@ -141,6 +141,34 @@ export interface FcmMessage {
   sound?: boolean;
   collapseKey?: string;
   androidChannelId?: string;
+  /** APNs delivery semantics, from Super Admin → Notifications. */
+  apns?: ApnsDelivery;
+}
+
+/**
+ * The APNs-specific half of a send. Every field maps 1:1 to a documented
+ * `aps` key or `apns-*` header — nothing here is invented, so a value an
+ * operator sets in Super Admin is exactly what Apple receives.
+ */
+export interface ApnsDelivery {
+  /** 10 = immediate, 5 = power-considerate, 1 = lowest. */
+  priority?: number;
+  /** Seconds APNs keeps retrying. 0 = deliver now or discard. */
+  ttlSeconds?: number;
+  interruptionLevel?: 'passive' | 'active' | 'time-sensitive' | 'critical';
+  /** 0–1: ranks this notification inside a grouped summary. */
+  relevanceScore?: number;
+  /** Groups notifications in Notification Center (usually the thread id). */
+  threadId?: string;
+  /** Registered `UNNotificationCategory` id; drives the action buttons. */
+  categoryId?: string;
+  /** Custom sound file shipped in the app bundle, or 'default'. */
+  soundName?: string;
+  /** Lets a Notification Service Extension rewrite the payload. */
+  mutableContent?: boolean;
+  /** Critical alerts pierce Silent Mode — requires an Apple entitlement. */
+  critical?: boolean;
+  criticalVolume?: number;
 }
 
 export async function sendFcmMessage(msg: FcmMessage): Promise<FcmSendOutcome> {
@@ -168,20 +196,7 @@ export async function sendFcmMessage(msg: FcmMessage): Promise<FcmSendOutcome> {
           sound: msg.sound === false ? undefined : 'default',
         },
       },
-      apns: {
-        headers: {
-          'apns-priority': '10',
-          ...(msg.collapseKey ? { 'apns-collapse-id': msg.collapseKey.slice(0, 64) } : {}),
-        },
-        payload: {
-          aps: {
-            alert: { title: msg.title, body: msg.body },
-            sound: msg.sound === false ? undefined : 'default',
-            badge: msg.badge,
-            'mutable-content': 1,
-          },
-        },
-      },
+      apns: buildApns(msg),
     },
   };
 
@@ -214,6 +229,53 @@ export async function sendFcmMessage(msg: FcmMessage): Promise<FcmSendOutcome> {
   } catch (err) {
     return { ok: false, unregistered: false, status: 0, error: safeError(err) };
   }
+}
+
+/**
+ * The `apns` block of an FCM v1 message.
+ *
+ * `sound` is an object only when the operator enabled critical alerts —
+ * APNs rejects `{critical: 1}` from an app without the Critical Alerts
+ * entitlement, so the plain string form stays the default.
+ */
+function buildApns(msg: FcmMessage): Record<string, unknown> {
+  const a = msg.apns ?? {};
+  const headers: Record<string, string> = {
+    'apns-priority': String(a.priority ?? 10),
+    'apns-push-type': 'alert',
+  };
+  if (a.ttlSeconds !== undefined) {
+    // APNs wants an absolute UNIX expiry; 0 means "deliver now or drop".
+    headers['apns-expiration'] =
+      a.ttlSeconds <= 0 ? '0' : String(Math.floor(Date.now() / 1000) + a.ttlSeconds);
+  }
+  if (msg.collapseKey) headers['apns-collapse-id'] = msg.collapseKey.slice(0, 64);
+
+  const silent = msg.sound === false;
+  const soundName = a.soundName || 'default';
+  const sound = silent
+    ? undefined
+    : a.critical
+      ? { critical: 1, name: soundName, volume: clamp01(a.criticalVolume ?? 0.7) }
+      : soundName;
+
+  const aps: Record<string, unknown> = {
+    alert: { title: msg.title, body: msg.body },
+    sound,
+    badge: msg.badge,
+    'mutable-content': a.mutableContent === false ? undefined : 1,
+  };
+  if (a.interruptionLevel) aps['interruption-level'] = a.interruptionLevel;
+  if (a.relevanceScore !== undefined) aps['relevance-score'] = clamp01(a.relevanceScore);
+  if (a.threadId) aps['thread-id'] = a.threadId;
+  if (a.categoryId) aps.category = a.categoryId;
+
+  return { headers, payload: { aps } };
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
 }
 
 function safeError(err: unknown): string {

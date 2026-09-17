@@ -8,6 +8,8 @@
  *  • registers/rotates it against the Webyar backend using the existing
  *    authenticated mobile session,
  *  • routes a notification tap to the exact conversation,
+ *  • carries out the notification's ACTION BUTTONS (inline reply, mark as
+ *    read) when iOS hands them back,
  *  • keeps the app badge reconciled with the server count.
  *
  * Everything here is inert on the web: each entry point returns immediately
@@ -16,6 +18,7 @@
 import { isNativePlatform, getNativePlatform } from '@/lib/native';
 import { authFetch } from '@/lib/authFetch';
 import { API_BASE } from '@/lib/apiBase';
+import { conversationsApi, newClientMessageId } from '@/lib/conversations-api';
 
 const DEVICE_ID_KEY = 'webyar.push.deviceId';
 
@@ -89,6 +92,61 @@ function deliver(target: PushNavigationTarget | null): void {
   else pendingTarget = target; // cold launch: replay once the router mounts
 }
 
+/**
+ * Runs the button the operator pressed on the notification.
+ *
+ * The action ids are the ones registered natively in
+ * ios/App/App/NotificationCategories.swift and configured in Super Admin →
+ * Notifications → Actions. An unknown id (an older build, an id an operator
+ * renamed on only one side) falls through to plain navigation rather than
+ * doing nothing — the notification still takes the operator where they meant
+ * to go.
+ *
+ * Every branch still goes through the normal authorized API, so an action
+ * cannot reach a conversation the operator may not open.
+ */
+async function performNotificationAction(
+  actionId: string,
+  inputValue: string,
+  target: PushNavigationTarget | null,
+): Promise<void> {
+  if (!target) return;
+
+  if (actionId === 'MARK_READ') {
+    try {
+      await conversationsApi.markSeen(target.conversationId);
+      await syncBadge(target.workspaceId);
+    } catch {
+      // Falling through to navigation is the right failure mode: the
+      // operator opens the thread and it is marked read by being read.
+      deliver(target);
+    }
+    return;
+  }
+
+  if (actionId === 'REPLY' && inputValue.trim()) {
+    try {
+      await conversationsApi.sendMessage({
+        workspace_id: target.workspaceId,
+        conversation_id: target.conversationId,
+        body: inputValue.trim(),
+        // A resumed app can replay the same action event; the idempotency key
+        // makes a duplicate delivery send exactly once.
+        client_message_id: newClientMessageId(),
+      });
+      await syncBadge(target.workspaceId);
+      return;
+    } catch {
+      // The reply did not go out — open the thread with the text lost rather
+      // than silently swallowing it.
+      deliver(target);
+      return;
+    }
+  }
+
+  deliver(target);
+}
+
 async function registerToken(token: string, workspaceId?: string | null): Promise<void> {
   if (!token) return;
   try {
@@ -127,9 +185,16 @@ export async function initNativePush(workspaceId?: string | null): Promise<void>
         void registerToken(String(event?.token ?? ''), workspaceId);
       });
 
-      // Tap on a notification (background OR cold launch).
+      // Tap on a notification, or one of its action buttons (background OR
+      // cold launch). iOS delivers the action the moment the app is resumed,
+      // which is the earliest point this JS runtime exists at all.
       FirebaseMessaging.addListener('notificationActionPerformed', (event: any) => {
-        deliver(parseTarget(event?.notification?.data));
+        const target = parseTarget(event?.notification?.data);
+        void performNotificationAction(
+          String(event?.actionId ?? ''),
+          String(event?.inputValue ?? ''),
+          target,
+        );
       });
 
       // Foreground delivery: realtime already updated the UI, so we do NOT

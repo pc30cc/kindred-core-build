@@ -81,13 +81,12 @@ const LAST_WRITTEN_MAX = 5000;
 let lastPruneAt = 0;
 const PRUNE_EVERY_MS = 60 * 60_000;
 
-async function pruneOldSamples(sb: ReturnType<typeof getServiceClient>): Promise<void> {
-  const now = Date.now();
-  if (now - lastPruneAt < PRUNE_EVERY_MS) return;
-  lastPruneAt = now;
-  const cutoff = new Date(now - RETENTION_DAYS * 86_400_000).toISOString();
-  const { error } = await sb.from('operator_activity_samples').delete().lt('bucket', cutoff);
-  if (error) console.warn('[operator-activity] retention prune failed:', error.message);
+// operator_activity_samples was dropped from the database, so there is
+// nothing left to prune. Kept as a no-op rather than deleted so the call
+// sites and the retention constants stay in one place if the analytics
+// table is ever reinstated.
+async function pruneOldSamples(_sb: ReturnType<typeof getServiceClient>): Promise<void> {
+  return;
 }
 
 // ── POST /heartbeat ───────────────────────────────────────────────
@@ -146,19 +145,15 @@ operatorActivityRouter.post('/heartbeat', async (req, res) => {
 
     const { state } = computeOperatorState(prefs, now);
 
-    const { error } = await sb
-      .from('operator_activity_samples')
-      .upsert(
-        {
-          workspace_id: workspaceId,
-          user_id: auth.userId,
-          bucket,
-          available: state === 'online',
-        },
-        { onConflict: 'workspace_id,user_id,bucket', ignoreDuplicates: true },
-      );
-    if (error) return res.status(500).json({ error: error.message });
-
+    // The analytics sample write is gone with its table: operator_activity_samples
+    // was dropped from the database. It used to 404 here and this handler
+    // turned that into a 500 — on the FIRST beat of every five-minute bucket
+    // for every operator, since later beats in the same bucket short-circuit
+    // on the memo above. Live presence is unaffected either way: the lease on
+    // operator_presence_live is written earlier in this handler, before this
+    // point, and that table still exists. So the beat now succeeds and
+    // reports the operator's state exactly as it did before; only the
+    // online-time history is no longer recorded.
     if (lastWrittenBucket.size >= LAST_WRITTEN_MAX) lastWrittenBucket.clear();
     lastWrittenBucket.set(memoKey, bucket);
 
@@ -209,21 +204,13 @@ operatorActivityRouter.get('/:workspaceId/stats', async (req, res) => {
 
     await hydrateUserAvatars(config, (profiles || []));
 
-    // Activity samples for the window (bounded).
+    // Activity samples for the window. Always empty now: the
+    // operator_activity_samples table was dropped from the database, so the
+    // online-time series this report was built on no longer exists. The rest
+    // of the report — assigned conversations and operator message counts —
+    // still comes from live tables and is unaffected, so the endpoint keeps
+    // its shape and returns zero online minutes instead of a 500.
     const samples: Array<{ user_id: string; bucket: string; available: boolean }> = [];
-    const PAGE = 1000;
-    for (let page = 0; page < 50; page++) {
-      const { data, error } = await sb
-        .from('operator_activity_samples')
-        .select('user_id, bucket, available')
-        .eq('workspace_id', workspaceId)
-        .gte('bucket', sinceIso)
-        .order('bucket', { ascending: true })
-        .range(page * PAGE, page * PAGE + PAGE - 1);
-      if (error) return res.status(500).json({ error: error.message });
-      samples.push(...(data || []));
-      if (!data || data.length < PAGE) break;
-    }
 
     // Conversations assigned + operator messages in the window.
     const { data: convs } = await sb

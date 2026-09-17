@@ -31,6 +31,7 @@ import {
 import { uploadWithConfigForOwner, logWorkspaceStorageUsage, type StorageOwner } from '../storage/index.js';
 import { privacyExportKey } from '../storage/keys.js';
 import type { PrivacyJobRow } from './types.js';
+import { IdleBackoff } from '../jobs/idleBackoff.js';
 
 /**
  * Contact/visitor jobs always carry workspace_id (DB-enforced by the
@@ -44,6 +45,8 @@ export function ownerForJob(job: Pick<PrivacyJobRow, 'workspace_id' | 'subject_i
 }
 
 const POLL_INTERVAL_MS = 5_000;
+/** Ceiling for the idle backoff — see startPrivacyWorker. */
+const MAX_IDLE_POLL_MS = 60_000;
 const STUCK_AFTER_MS = 10 * 60_000;
 const ARTIFACT_TTL_MS = 7 * 24 * 60 * 60_000; // 7 days
 
@@ -187,10 +190,10 @@ export async function processJob(config: ServerConfig, job: PrivacyJobRow): Prom
   throw new Error(`Unknown action: ${job.action}`);
 }
 
-async function tick(config: ServerConfig) {
+async function tick(config: ServerConfig): Promise<boolean> {
   try {
     const job = await claimNext(config);
-    if (!job) return;
+    if (!job) return false;
     try {
       await processJob(config, job);
     } catch (err: unknown) {
@@ -208,8 +211,12 @@ async function tick(config: ServerConfig) {
         metadata: { error: message },
       });
     }
+    return true;
   } catch (err) {
     console.error('[privacy worker] tick error:', err);
+    // Counted as idle so a failing dependency is polled progressively less
+    // often instead of every 5s for the duration of an outage.
+    return false;
   }
 }
 
@@ -221,7 +228,23 @@ export function startPrivacyWorker(config: ServerConfig) {
   if (started) return;
   started = true;
   recoverStuckJobs(config).catch((e) => console.error('[privacy worker] recovery error:', e));
-  const id = setInterval(() => tick(config), POLL_INTERVAL_MS);
-  id.unref?.();
-  console.log('[privacy worker] started, polling every', POLL_INTERVAL_MS, 'ms');
+
+  // A fixed 5s poll cost ~17,280 privacy_jobs reads a day against a queue
+  // that is empty almost always. Busy behaviour is unchanged: the first empty
+  // poll still waits POLL_INTERVAL_MS and any claimed job resets the cadence.
+  // Self-rescheduling rather than setInterval so a slow job cannot queue
+  // ticks up behind itself.
+  const backoff = new IdleBackoff({
+    busyMs: POLL_INTERVAL_MS,
+    idleMs: POLL_INTERVAL_MS,
+    maxIdleMs: MAX_IDLE_POLL_MS,
+  });
+  const schedule = (delayMs: number) => {
+    const id = setTimeout(() => {
+      void tick(config).then((worked) => schedule(backoff.next(worked)));
+    }, delayMs);
+    id.unref?.();
+  };
+  schedule(POLL_INTERVAL_MS);
+  console.log('[privacy worker] started, polling every', POLL_INTERVAL_MS, 'ms when busy, backing off to', MAX_IDLE_POLL_MS, 'ms when idle');
 }

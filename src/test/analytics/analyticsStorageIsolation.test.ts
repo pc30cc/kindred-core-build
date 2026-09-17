@@ -112,7 +112,9 @@ function installS3Stub(): () => void {
     const segments = url.pathname.split('/').filter(Boolean);
     const bucketName = segments[0] ?? '';
     const store = bucketFor(bucketName);
-    const key = segments.slice(1).join('/');
+    // A real S3 server decodes the percent-encoded path before it addresses an
+    // object, so the stub must too — keys are signed and sent encoded.
+    const key = segments.slice(1).map(decodeURIComponent).join('/');
 
     if (downVendors.has(bucketName)) return new Response('vendor down', { status: 503 });
 

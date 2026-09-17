@@ -83,7 +83,8 @@ function installS3Stub(): () => void {
     if (!mirrorReachable) return new Response('nope', { status: 503 });
     const url = new URL(String(input));
     const method = init?.method ?? 'GET';
-    const [, , ...rest] = url.pathname.split('/');
+    // Decoded, as a real S3 server does — keys are sent percent-encoded.
+    const [, , ...rest] = url.pathname.split('/').map((s, i) => (i > 1 ? decodeURIComponent(s) : s));
 
     if (method === 'GET' && url.searchParams.get('list-type') === '2') {
       const prefix = url.searchParams.get('prefix') ?? '';

@@ -75,7 +75,8 @@ function installS3Stub(): () => void {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     const method = init?.method ?? 'GET';
-    const [, bucket, ...rest] = url.pathname.split('/');
+    // Decoded, as a real S3 server does — keys are sent percent-encoded.
+    const [, bucket, ...rest] = url.pathname.split('/').map((s, i) => (i > 1 ? decodeURIComponent(s) : s));
     const objects = buckets[bucket] ?? (buckets[bucket] = new Map());
 
     if (method === 'GET' && url.searchParams.get('list-type') === '2') {

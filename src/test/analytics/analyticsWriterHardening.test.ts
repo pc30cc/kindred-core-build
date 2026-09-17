@@ -120,7 +120,8 @@ describe('a network-level failure must not destroy the batch', () => {
     const stored = new Map<string, Buffer>();
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input));
-      const key = url.pathname.split('/').filter(Boolean).slice(1).join('/');
+      // Decoded, as a real S3 server does — keys are sent percent-encoded.
+      const key = url.pathname.split('/').filter(Boolean).slice(1).map(decodeURIComponent).join('/');
       if ((init?.method ?? 'GET') === 'PUT') {
         const body = init?.body as ArrayBuffer | ArrayBufferView | undefined;
         stored.set(key, ArrayBuffer.isView(body)

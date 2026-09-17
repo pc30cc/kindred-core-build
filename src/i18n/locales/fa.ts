@@ -1384,17 +1384,6 @@ const fa: TranslationKeys = {
       views: 'بازدیدها',
       helpful: 'مفید بود',
     },
-    connection: {
-      title: 'اتصال',
-      primary: 'Primary',
-      replica: 'Replica',
-      test: 'تست اتصال',
-      checking: 'در حال بررسی…',
-      connected: 'متصل',
-      notConnected: 'متصل نیست',
-      notConfigured: 'پیکربندی نشده',
-      engineMissing: 'موتور Query در این build نصب نیست، پس گزارش‌ها از Object Storage سرو نمی‌شوند. نوشتن تحت تأثیر نیست.',
-    },
     status: {
       all: 'همه وضعیت‌ها',
     },
@@ -6200,6 +6189,17 @@ const fa: TranslationKeys = {
     },
   },
   analyticsStorage: {
+    connection: {
+      title: 'اتصال',
+      primary: 'Primary',
+      replica: 'Replica',
+      test: 'تست اتصال',
+      checking: 'در حال بررسی…',
+      connected: 'متصل',
+      notConnected: 'متصل نیست',
+      notConfigured: 'پیکربندی نشده',
+      engineMissing: 'موتور Query در این build نصب نیست، پس گزارش‌ها از Object Storage سرو نمی‌شوند. نوشتن تحت تأثیر نیست.',
+    },
     title: 'ذخیره‌سازی آنالیتیکس',
     subtitle: 'وب‌آنالیتیکس رویدادهای خام خود را به صورت فایل‌های Parquet در فضای نام analytics می‌نویسد. این توپولوژی — پرایمری و رپلیکاهایش — جدا از استخر ذخیره‌سازی عمومی انتخاب می‌شود؛ تنها اعتبارنامه‌های ذخیره‌شدهٔ ارائه‌دهنده‌ها مشترک است.',
     enabled: 'فعال',
@@ -6297,8 +6297,6 @@ const fa: TranslationKeys = {
     },
     test: {
       run: 'آزمایش',
-      passed: 'نوشتن، بازخوانی، فهرست‌کردن و حذف، همگی در {{ms}} میلی‌ثانیه موفق بودند.',
-      failedStep: 'آزمایش آنالیتیکس در این مرحله شکست خورد: {{step}}',
     },
     advanced: {
       title: 'تنظیمات پیشرفته',

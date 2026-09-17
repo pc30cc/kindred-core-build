@@ -1388,17 +1388,6 @@ const tr: TranslationKeys = {
       views: 'Görüntülenme',
       helpful: 'Faydalı',
     },
-    connection: {
-      title: 'Bağlantı',
-      primary: 'Birincil',
-      replica: 'Replika',
-      test: 'Bağlantıyı test et',
-      checking: 'Kontrol ediliyor…',
-      connected: 'Bağlı',
-      notConnected: 'Bağlı değil',
-      notConfigured: 'Yapılandırılmadı',
-      engineMissing: 'Gömülü sorgu motoru bu derlemede kurulu değil, bu yüzden raporlar nesne depolamadan sunulamaz. Yazma etkilenmez.',
-    },
     status: {
       all: 'Tüm durumlar',
     },
@@ -6203,6 +6192,17 @@ const tr: TranslationKeys = {
     },
   },
   analyticsStorage: {
+    connection: {
+      title: 'Bağlantı',
+      primary: 'Birincil',
+      replica: 'Replika',
+      test: 'Bağlantıyı test et',
+      checking: 'Kontrol ediliyor…',
+      connected: 'Bağlı',
+      notConnected: 'Bağlı değil',
+      notConfigured: 'Yapılandırılmadı',
+      engineMissing: 'Gömülü sorgu motoru bu derlemede kurulu değil, bu yüzden raporlar nesne depolamadan sunulamaz. Yazma etkilenmez.',
+    },
     title: 'Analitik Depolama',
     subtitle: 'Web Analitiği ham olaylarını analytics ad alanı altında Parquet nesneleri olarak yazar. Bu topoloji — birincili ve replikaları — genel depolama havuzundan ayrı seçilir; yalnızca kayıtlı sağlayıcı kimlik bilgileri ortaktır.',
     enabled: 'Etkin',
@@ -6300,8 +6300,6 @@ const tr: TranslationKeys = {
     },
     test: {
       run: 'Test',
-      passed: 'Yazma, geri okuma, listeleme ve silme {{ms}} ms içinde başarılı oldu.',
-      failedStep: 'Analitik tur testi şu adımda başarısız oldu: {{step}}',
     },
     advanced: {
       title: 'Gelişmiş ayarlar',

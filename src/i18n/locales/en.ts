@@ -1396,17 +1396,6 @@ const en = {
       views: 'Views',
       helpful: 'Helpful',
     },
-    connection: {
-      title: 'Connection',
-      primary: 'Primary',
-      replica: 'Replica',
-      test: 'Test connection',
-      checking: 'Checking…',
-      connected: 'Connected',
-      notConnected: 'Not connected',
-      notConfigured: 'Not configured',
-      engineMissing: 'The embedded query engine is not installed in this build, so reports cannot be served from object storage. Writing is unaffected.',
-    },
     status: {
       all: 'All statuses',
     },
@@ -6218,6 +6207,17 @@ const en = {
     },
   },
   analyticsStorage: {
+    connection: {
+      title: 'Connection',
+      primary: 'Primary',
+      replica: 'Replica',
+      test: 'Test connection',
+      checking: 'Checking…',
+      connected: 'Connected',
+      notConnected: 'Not connected',
+      notConfigured: 'Not configured',
+      engineMissing: 'The embedded query engine is not installed in this build, so reports cannot be served from object storage. Writing is unaffected.',
+    },
     title: 'Analytics Storage',
     subtitle: 'Web Analytics writes its raw events as Parquet objects under the analytics namespace. This topology — its primary and its replicas — is chosen separately from the general storage pool; only the stored vendor credentials are shared.',
     enabled: 'Enabled',
@@ -6315,8 +6315,6 @@ const en = {
     },
     test: {
       run: 'Test',
-      passed: 'Write, read-back, list and delete all succeeded in {{ms}} ms.',
-      failedStep: 'The analytics round trip failed at: {{step}}',
     },
     advanced: {
       title: 'Advanced settings',

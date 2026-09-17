@@ -41,99 +41,30 @@ const BASE_STATE = {
   writeMode: 'dual_write',
   readMode: 'postgres',
   revision: 4,
-  lastWriteAt: '2026-09-16T20:00:00.000Z',
-  lastReplicationAt: '2026-09-16T20:00:00.000Z',
-  lastError: null,
-  lastErrorAt: null,
-  objectsWritten: 12,
-  bytesWritten: 4_194_304,
-  rowsWritten: 91_000,
-  bufferedRows: 42,
+  /** A capability, not a metric — the only non-config field left. */
+  duckdbAvailable: true,
   missingCredentials: [],
   generalPrimary: 'bunny_storage',
-  s3Read: {
-    engineAvailable: true,
-    engineReason: null,
-    lastQueryAt: '2026-09-16T20:01:00.000Z',
-    lastQueryMs: 42,
-    lastError: null,
-    lastErrorAt: null,
-    queries: 7,
-    failures: 0,
-  },
-  parity: {
-    at: '2026-09-16T20:02:00.000Z',
-    workspaceId: '33333333-3333-3333-3333-333333333333',
-    range: { startDate: '2026-09-01', endDate: '2026-09-16' },
-    regressions: 0,
-    expectedDifferences: 2,
-    unavailable: null,
-    reports: [
-      {
-        report: 'overview', ok: true, postgresMs: 31, s3Ms: 44, error: null,
-        differences: [
-          { report: 'overview', field: 'uniqueVisitors', postgres: '120', s3: '84', expected: true },
-        ],
-      },
-      { report: 'pages.top', ok: true, postgresMs: 12, s3Ms: 19, error: null, differences: [] },
-    ],
-  },
-  readiness: {
-    checks: [
-      { key: 'primaryConfigured', state: 'ready', detail: 'arvan_storage' },
-      { key: 'primaryHealth', state: 'ready', detail: '2026-09-16T20:00:00.000Z' },
-      { key: 'replicaHealth', state: 'warning', detail: '0/1' },
-      { key: 'duckdbAvailable', state: 'ready', detail: 'installed' },
-      { key: 'historicalBackfill', state: 'ready', detail: '31' },
-      { key: 'productionParity', state: 'ready', detail: '2026-09-16T20:02:00.000Z' },
-      { key: 'workspaceDeletion', state: 'warning', detail: null },
-      { key: 'durableIngestion', state: 'blocked', detail: null },
-      { key: 'nodeRuntime', state: 'ready', detail: 'v22.15.0' },
-      { key: 'multiInstanceDurability', state: 'ready', detail: '1' },
-      { key: 'erasureApplied', state: 'ready', detail: '0' },
-    ],
-    s3OnlyEligible: false,
-    s3OnlyUnlocked: false,
-    blockedCount: 1,
-    warningCount: 2,
-  },
-  instances: {
-    count: 1,
-    multiInstance: false,
-    acknowledged: false,
-    acknowledgedAt: null,
-  },
-  durability: {
-    ready: false,
-    enabled: false,
-    reason: 'the spool directory is not writable',
-    segments: 0,
-    bytes: 0,
-    replayedRows: 0,
-    droppedForSize: 0,
-    lastError: null,
-  },
   providers: [
     {
       name: 'bunny_storage', configured: true, generalEnabled: true, generalRole: 'primary',
       analyticsPrimaryEligible: false, analyticsReplicaEligible: true, analyticsRole: 'none',
-      health: null, synchronized: false, syncedAt: null, dirtyAt: null, dirtyReason: null, lastError: null, sync: null,
+      health: null, synchronized: false, syncInFlight: false,
     },
     {
       name: 'arvan_storage', configured: true, generalEnabled: true, generalRole: 'mirror',
       analyticsPrimaryEligible: true, analyticsReplicaEligible: true, analyticsRole: 'primary',
-      health: null, synchronized: true, syncedAt: null, dirtyAt: null, dirtyReason: null, lastError: null, sync: null,
+      health: null, synchronized: true, syncInFlight: false,
     },
     {
       name: 'cloudflare_r2', configured: true, generalEnabled: false, generalRole: 'off',
       analyticsPrimaryEligible: true, analyticsReplicaEligible: true, analyticsRole: 'replica',
-      health: 'behind', synchronized: false, syncedAt: null, dirtyAt: '2026-09-16T19:00:00.000Z',
-      dirtyReason: 'mirror_upload_failed: 503', lastError: null, sync: null,
+      health: 'behind', synchronized: false, syncInFlight: false,
     },
     {
       name: 'minio', configured: true, generalEnabled: true, generalRole: 'mirror',
       analyticsPrimaryEligible: true, analyticsReplicaEligible: true, analyticsRole: 'none',
-      health: null, synchronized: false, syncedAt: null, dirtyAt: null, dirtyReason: null, lastError: null, sync: null,
+      health: null, synchronized: false, syncInFlight: false,
     },
   ],
   limits: {
@@ -148,13 +79,30 @@ const BASE_STATE = {
 
 type Call = { url: string; init?: RequestInit };
 
-function stubApi(overrides: Partial<typeof BASE_STATE> = {}, onCall?: (c: Call) => unknown) {
+/**
+ * Live connection status — the ONLY status this panel shows. It comes from
+ * its own endpoint, which performs a real round trip per provider on every
+ * fetch, so the stub answers it separately from the config endpoint.
+ */
+const BASE_CONNECTIONS = {
+  primary: { provider: 'arvan_storage', connected: true },
+  replicas: [{ provider: 'cloudflare_r2', connected: true }],
+};
+
+function stubApi(
+  overrides: Partial<typeof BASE_STATE> = {},
+  onCall?: (c: Call) => unknown,
+  connections: unknown = BASE_CONNECTIONS,
+) {
   const calls: Call[] = [];
   vi.spyOn(global, 'fetch' as never).mockImplementation((async (url: unknown, init?: RequestInit) => {
     const call = { url: String(url), init };
     calls.push(call);
     const custom = onCall?.(call);
     if (custom) return custom as Response;
+    if (call.url.includes('/connections')) {
+      return { ok: true, status: 200, json: async () => connections } as Response;
+    }
     return { ok: true, status: 200, json: async () => ({ ...BASE_STATE, ...overrides }) } as Response;
   }) as never);
   return calls;
@@ -387,13 +335,12 @@ describe('sync', () => {
 });
 
 describe('provider test', () => {
-  it('reports the failing step of the analytics round trip', async () => {
+  it('says Not connected — and nothing more — when the round trip fails', async () => {
     stubApi({}, (call) => {
       if (call.url.includes('/test/')) {
-        return {
-          ok: true, status: 200,
-          json: async () => ({ success: false, latencyMs: 12, steps: { put: true, get: true, list: false, delete: false }, error: 'listing is not supported for minio' }),
-        };
+        // The narrowed server contract: connected, plus a machine-readable
+        // reason. No latency, no per-step breakdown, nothing persisted.
+        return { ok: true, status: 200, json: async () => ({ connected: false, error: 'connection_failed' }) };
       }
       return null;
     });
@@ -401,7 +348,110 @@ describe('provider test', () => {
     await screen.findAllByText(en.analyticsStorage.primary.make);
 
     fireEvent.click(screen.getAllByText(en.analyticsStorage.test.run)[0]);
-    expect(await screen.findByText(/listing is not supported/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(en.analyticsStorage.connection.notConnected)).length)
+      .toBeGreaterThan(0);
+  });
+
+  it('says Connected when it succeeds', async () => {
+    stubApi({}, (call) => {
+      if (call.url.includes('/test/')) {
+        return { ok: true, status: 200, json: async () => ({ connected: true }) };
+      }
+      return null;
+    });
+    renderPanel();
+    await screen.findAllByText(en.analyticsStorage.primary.make);
+
+    fireEvent.click(screen.getAllByText(en.analyticsStorage.test.run)[0]);
+    expect((await screen.findAllByText(en.analyticsStorage.connection.connected)).length)
+      .toBeGreaterThan(0);
+  });
+
+  it('does not crash on a response carrying only the narrowed fields', async () => {
+    // Guards the regression this contract already had once: the panel read
+    // `result.steps` after the server stopped sending it, which threw inside
+    // the click handler rather than showing a result.
+    stubApi({}, (call) => (call.url.includes('/test/')
+      ? { ok: true, status: 200, json: async () => ({ connected: true }) }
+      : null));
+    const { container } = renderPanel();
+    await screen.findAllByText(en.analyticsStorage.primary.make);
+
+    fireEvent.click(screen.getAllByText(en.analyticsStorage.test.run)[0]);
+    await waitFor(() => expect(container.textContent).toContain(en.analyticsStorage.connection.connected));
+    expect(container.textContent).not.toMatch(/undefined|NaN/);
+  });
+});
+
+/**
+ * CONNECTION STATUS — the whole of what this panel reports.
+ *
+ * The mandate is one sentence: for Analytics Storage the operator wants to
+ * know Connected or Not Connected, and nothing else. So these tests pin both
+ * halves of that — that the answer is shown, and that the things deliberately
+ * removed have not crept back in.
+ */
+describe('connection status', () => {
+  it('asks the server for a LIVE check, on its own endpoint', async () => {
+    const calls = stubApi();
+    renderPanel();
+    await waitFor(() => expect(calls.some((c) => c.url.includes('/connections'))).toBe(true));
+  });
+
+  it('shows Connected for a reachable primary and replica', async () => {
+    stubApi();
+    const { container } = renderPanel();
+    await waitFor(() =>
+      expect(container.textContent).toContain(en.analyticsStorage.connection.title));
+    await waitFor(() =>
+      expect(screen.getAllByText(en.analyticsStorage.connection.connected).length).toBe(2));
+  });
+
+  it('shows Not connected when the round trip fails, without explaining the vendor error', async () => {
+    stubApi({}, undefined, {
+      primary: { provider: 'arvan_storage', connected: false, error: 'connection_failed' },
+      replicas: [{ provider: 'cloudflare_r2', connected: false, error: 'connection_failed' }],
+    });
+    const { container } = renderPanel();
+    await waitFor(() =>
+      expect(screen.getAllByText(en.analyticsStorage.connection.notConnected).length).toBe(2));
+    // A raw vendor error is an operational detail, not an answer to the question.
+    expect(container.textContent).not.toContain('connection_failed');
+  });
+
+  it('re-runs the live check when Test connection is pressed', async () => {
+    const calls = stubApi();
+    renderPanel();
+    await waitFor(() => expect(calls.some((c) => c.url.includes('/connections'))).toBe(true));
+    const before = calls.filter((c) => c.url.includes('/connections')).length;
+
+    fireEvent.click(screen.getByText(en.analyticsStorage.connection.test));
+    await waitFor(() =>
+      expect(calls.filter((c) => c.url.includes('/connections')).length).toBeGreaterThan(before));
+  });
+
+  it('shows NO counters, latency, history or parity — analytics is not monitored from here', async () => {
+    stubApi();
+    const { container } = renderPanel();
+    await waitFor(() =>
+      expect(container.textContent).toContain(en.analyticsStorage.connection.title));
+
+    const text = container.textContent ?? '';
+    // The removed telemetry, by the words it would have to render as.
+    for (const gone of [
+      'objectsWritten', 'rowsWritten', 'bytesWritten', 'bufferedRows',
+      'lastQueryMs', 'lastWriteAt', 'lastReplicationAt', 'replayedRows',
+      /\d+\s*ms/, /parity/i, /backfill/i, /readiness/i, /instances?/i,
+    ]) {
+      expect(text).not.toMatch(typeof gone === 'string' ? new RegExp(gone) : gone);
+    }
+  });
+
+  it('names the missing query engine as a capability, not as an error', async () => {
+    stubApi({ duckdbAvailable: false });
+    const { container } = renderPanel();
+    await waitFor(() =>
+      expect(container.textContent).toContain(en.analyticsStorage.connection.engineMissing));
   });
 });
 
@@ -435,119 +485,6 @@ describe('settings', () => {
       expect(container.textContent).toContain(en.analyticsStorage.advanced.compressionBadge);
     });
     expect(container.querySelector('select[name="format"]')).toBeNull();
-  });
-});
-
-describe('status overview', () => {
-  it('shows the migration mode, so nobody has to guess whether PostgreSQL is still being written', async () => {
-    stubApi();
-    const { container } = renderPanel();
-    await screen.findAllByText(en.analyticsStorage.primary.make);
-    expect(container.textContent).toContain(en.analyticsStorage.writeMode.dual_write);
-    expect(container.textContent).toContain(en.analyticsStorage.readMode.postgres);
-  });
-
-  it('surfaces the last error rather than showing a healthy-looking blank', async () => {
-    stubApi({ lastError: 'primary_write_failed[arvan_storage]: 503' });
-    const { container } = renderPanel();
-    await screen.findAllByText(en.analyticsStorage.primary.make);
-    expect(container.textContent).toContain('primary_write_failed[arvan_storage]: 503');
-  });
-});
-
-describe('phase 2 status', () => {
-  it('shows the read-path health, parity result and query latency', async () => {
-    stubApi();
-    const { container } = renderPanel();
-    await screen.findAllByText(en.analyticsStorage.primary.make);
-
-    expect(container.textContent).toContain(en.analyticsStorage.phase2.title);
-    expect(container.textContent).toContain(en.analyticsStorage.phase2.healthy);
-    expect(container.textContent).toContain('42 ms');
-  });
-
-  it('shows an EXPECTED divergence as expected, not as a regression', async () => {
-    stubApi();
-    const { container } = renderPanel();
-    await screen.findAllByText(en.analyticsStorage.primary.make);
-
-    // uniqueVisitors is a declared, intentional difference.
-    expect(container.textContent).toContain('uniqueVisitors');
-    expect(container.textContent).toContain(en.analyticsStorage.phase2.expected);
-    expect(container.textContent).not.toContain(en.analyticsStorage.phase2.regression);
-  });
-
-  it('flags an undeclared difference as a regression', async () => {
-    stubApi({
-      parity: {
-        ...BASE_STATE.parity!,
-        regressions: 1,
-        reports: [{
-          report: 'pages.top', ok: false, postgresMs: 10, s3Ms: 20, error: null,
-          differences: [{ report: 'pages.top', field: '/pricing', postgres: '9', s3: '4', expected: false }],
-        }],
-      },
-    });
-    const { container } = renderPanel();
-    await screen.findAllByText(en.analyticsStorage.primary.make);
-
-    expect(container.textContent).toContain(en.analyticsStorage.phase2.regression);
-    expect(container.textContent).toContain('/pricing');
-  });
-
-  it('says the engine is simply absent rather than showing an error', async () => {
-    stubApi({
-      s3Read: {
-        engineAvailable: false,
-        engineReason: 'the optional @duckdb/node-api package is not installed',
-        lastQueryAt: null, lastQueryMs: null, lastError: null, lastErrorAt: null, queries: 0, failures: 0,
-      },
-      parity: null,
-    });
-    const { container } = renderPanel();
-    await screen.findAllByText(en.analyticsStorage.primary.make);
-
-    expect(container.textContent).toContain(en.analyticsStorage.phase2.engineMissing);
-    expect(container.textContent).toContain(en.analyticsStorage.phase2.engineMissingHint);
-  });
-
-  it('surfaces a query error instead of a healthy-looking blank', async () => {
-    stubApi({
-      s3Read: {
-        ...BASE_STATE.s3Read, failures: 2,
-        lastError: 'IO Error: could not read parquet footer',
-      },
-    });
-    const { container } = renderPanel();
-    await screen.findAllByText(en.analyticsStorage.primary.make);
-
-    expect(container.textContent).toContain('could not read parquet footer');
-    expect(container.textContent).toContain(en.analyticsStorage.phase2.error);
-  });
-
-  it('triggers a sealing cycle from the panel', async () => {
-    const calls = stubApi({}, (call) => {
-      if (call.url.endsWith('/seal')) {
-        return { ok: true, status: 200, json: async () => ({ considered: 3, sealed: 3, failed: 0, rows: 900, objects: 3 }) };
-      }
-      return null;
-    });
-    renderPanel();
-    await screen.findAllByText(en.analyticsStorage.primary.make);
-
-    fireEvent.click(screen.getByText(en.analyticsStorage.phase2.sealNow));
-    await waitFor(() => {
-      expect(calls.some((c) => c.url.endsWith('/seal') && c.init?.method === 'POST')).toBe(true);
-    });
-  });
-
-  it('still renders when the server has not sent the phase 2 fields yet', async () => {
-    // A rolling deploy can put an older server behind a newer panel; the
-    // page must degrade, not crash.
-    stubApi({ s3Read: undefined as never, parity: null });
-    const { container } = renderPanel();
-    await screen.findAllByText(en.analyticsStorage.primary.make);
-    expect(container.textContent).toContain(en.analyticsStorage.phase2.title);
   });
 });
 
@@ -587,115 +524,5 @@ describe('storage section shell', () => {
 
     fireEvent.click(tab);
     expect(await screen.findByText(en.analyticsStorage.primary.title)).toBeInTheDocument();
-  });
-});
-
-/**
- * PHASE 2.5 — cutover readiness.
- *
- * The one thing this card must never do is imply permission. It reports what
- * is still blocking; it does not grant a cutover, and a fully green list
- * still shows BLOCKED because the phase lock is a separate decision.
- */
-describe('cutover readiness', () => {
-  it('lists every readiness check with a state', async () => {
-    stubApi();
-    renderPanel();
-    // The card's title renders before the query resolves, so waiting on it
-    // would assert against an empty list.
-    await waitFor(() =>
-      expect(screen.getByText(en.analyticsStorage.phase25.check.primaryConfigured)).toBeInTheDocument());
-
-    for (const label of Object.values(en.analyticsStorage.phase25.check)) {
-      expect(screen.getByText(label)).toBeInTheDocument();
-    }
-  });
-
-  it('shows S3-only activation as BLOCKED', async () => {
-    stubApi();
-    renderPanel();
-    await waitFor(() => expect(screen.getByText(en.analyticsStorage.phase25.activation)).toBeInTheDocument());
-    expect(screen.getByText(en.analyticsStorage.phase25.activationBlocked)).toBeInTheDocument();
-  });
-
-  it('still shows BLOCKED when every check is green — the lock is not the checklist', async () => {
-    stubApi({
-      readiness: {
-        checks: [{ key: 'primaryConfigured', state: 'ready', detail: null }],
-        s3OnlyEligible: true,
-        s3OnlyUnlocked: false,
-        blockedCount: 0,
-        warningCount: 0,
-      },
-    } as never);
-    renderPanel();
-    await waitFor(() => expect(screen.getByText(en.analyticsStorage.phase25.activation)).toBeInTheDocument());
-    expect(screen.getByText(en.analyticsStorage.phase25.activationBlocked)).toBeInTheDocument();
-  });
-
-  it('surfaces durable ingestion as the blocker when the spool is unavailable', async () => {
-    stubApi();
-    renderPanel();
-    await waitFor(() =>
-      expect(screen.getByText(en.analyticsStorage.phase25.durability.notReady)).toBeInTheDocument());
-  });
-
-  it('states the multi-instance limitation rather than leaving it to be discovered', async () => {
-    stubApi();
-    renderPanel();
-    await waitFor(() =>
-      expect(screen.getByText(en.analyticsStorage.phase25.durability.multiInstance)).toBeInTheDocument());
-  });
-
-  it('renders in all three locales with no raw translation keys', async () => {
-    for (const [locale, translations] of LOCALES) {
-      stubApi();
-      const { unmount } = renderPanel(locale, translations);
-      await waitFor(() =>
-        expect(screen.getByText(
-          (translations as typeof en).analyticsStorage.phase25.check.primaryConfigured,
-        )).toBeInTheDocument());
-      expect(document.body.textContent).not.toMatch(/analyticsStorage\.phase25\./);
-      unmount();
-      vi.restoreAllMocks();
-    }
-  });
-});
-
-describe('production parity runner', () => {
-  it('refuses to run without a workspace id', async () => {
-    stubApi();
-    renderPanel();
-    await waitFor(() => expect(screen.getByText(en.analyticsStorage.phase25.parityRun.title)).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: new RegExp(en.analyticsStorage.phase25.parityRun.run, 'i') }))
-      .toBeDisabled();
-  });
-
-  it('warns when the requested range exceeds the bound', async () => {
-    stubApi();
-    renderPanel();
-    await waitFor(() => expect(screen.getByText(en.analyticsStorage.phase25.parityRun.title)).toBeInTheDocument());
-
-    fireEvent.change(screen.getByLabelText(en.analyticsStorage.phase25.parityRun.workspaceId), {
-      target: { value: '33333333-3333-3333-3333-333333333333' },
-    });
-    const [from] = screen.getAllByLabelText(en.analyticsStorage.phase25.parityRun.from);
-    const [to] = screen.getAllByLabelText(en.analyticsStorage.phase25.parityRun.to);
-    fireEvent.change(from, { target: { value: '2025-01-01' } });
-    fireEvent.change(to, { target: { value: '2026-01-01' } });
-
-    await waitFor(() => expect(
-      screen.getByText(
-        en.analyticsStorage.phase25.parityRun.rangeTooLong.replace('{{max}}', '92'),
-      ),
-    ).toBeInTheDocument());
-  });
-
-  it('never renders a credential field', async () => {
-    stubApi();
-    renderPanel();
-    await waitFor(() => expect(screen.getByText(en.analyticsStorage.phase25.title)).toBeInTheDocument());
-    expect(document.querySelector('input[type="password"]')).toBeNull();
-    expect(document.body.textContent).not.toMatch(/secret|access_key|password/i);
   });
 });

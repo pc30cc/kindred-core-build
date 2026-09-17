@@ -158,11 +158,15 @@ export interface AnalyticsSyncReport {
   markedSynchronized: boolean;
 }
 
+/**
+ * The result of one live round trip against a provider.
+ *
+ * Deliberately narrow: connected, and a short machine-readable reason when
+ * it is not. No latency, no per-step breakdown — the panel answers one
+ * question, and anything more would be a status feed nobody asked for.
+ */
 export interface AnalyticsProviderTestResult {
-  success: boolean;
-  latencyMs: number;
-  /** Which half of the analytics contract passed: PUT, GET-back, LIST, DELETE. */
-  steps: Record<string, boolean>;
+  connected: boolean;
   error?: string;
 }
 

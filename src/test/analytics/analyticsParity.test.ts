@@ -35,7 +35,7 @@ const { __clearAnalyticsObjectCache } = await import('../../../server/services/a
 const { sealWorkspaceDay } = await import('../../../server/services/analytics/sealing.js');
 const { __resetAnalyticsBuffer } = await import('../../../server/services/analytics/writer.js');
 const {
-  officialStore, shadowStore, runParity, readParityState, shadowReadiness, PARITY_STATE_KEY,
+  officialStore, shadowStore, runParity, shadowReadiness,
 } = await import('../../../server/services/webAnalytics/store/index.js');
 
 const serverConfig = {} as never;
@@ -258,12 +258,17 @@ describe('shadow read', () => {
     expect(funnel!.differences.filter((d) => !d.expected)).toEqual([]);
   });
 
-  maybe('persists the run so the admin panel can show it', async () => {
-    await parity();
-    const state = await readParityState(serverConfig);
-    expect(state).toBeTruthy();
-    expect(state!.workspaceId).toBe(WS);
-    expect(runtimeConfig.has(PARITY_STATE_KEY)).toBe(true);
+  maybe('writes NOTHING to PostgreSQL — the result is returned, never stored', async () => {
+    // Analytics keeps no history of itself. A parity run is a question asked
+    // and answered in the moment; if it ever starts leaving a record behind,
+    // that is the telemetry store growing back and this test fails.
+    const before = new Set(runtimeConfig.keys());
+    const run = await parity();
+    expect(run.reports.length).toBeGreaterThan(0);
+
+    const written = [...runtimeConfig.keys()].filter((k) => !before.has(k));
+    expect(written).toEqual([]);
+    expect([...runtimeConfig.keys()].some((k) => k.includes('parity'))).toBe(false);
   });
 
   maybe('times both sides so a slow read path is visible', async () => {

@@ -260,14 +260,13 @@ export function AdminAnalyticsStoragePanel() {
     async (name: string) => {
       try {
         const result = await testProvider.mutateAsync(name);
-        const failedStep = Object.entries(result.steps).find(([, ok]) => !ok)?.[0];
         setTestResults((prev) => ({
           ...prev,
           [name]: {
-            ok: result.success,
-            message: result.success
-              ? t('analyticsStorage.test.passed', { ms: result.latencyMs })
-              : result.error ?? t('analyticsStorage.test.failedStep', { step: failedStep ?? '—' }),
+            ok: result.connected,
+            message: result.connected
+              ? t('analyticsStorage.connection.connected')
+              : t('analyticsStorage.connection.notConnected'),
           },
         }));
       } catch {

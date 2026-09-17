@@ -14,6 +14,7 @@
  *  • Preferences are enforced HERE, before dispatch — never in the client UI.
  */
 import type { ServerConfig } from '../../config.js';
+import type { PushPlatformSettings } from './platformSettings.js';
 import { getServiceClient } from '../../supabase.js';
 
 export type PushEventType = 'new_message' | 'internal_note' | 'mention';
@@ -26,6 +27,13 @@ export interface RecipientContext {
   /** Operator who authored the note/mention; never notified. */
   actorId?: string | null;
   mentionedUserIds?: string[];
+  /**
+   * Platform-wide policy (Super Admin → Notifications). Supplies the defaults
+   * for an operator who never opened their own notification preferences, and
+   * decides whether a direct @mention may break quiet hours. Omitted in
+   * tests, where the historical hardcoded defaults apply.
+   */
+  policy?: PushPlatformSettings | null;
 }
 
 export interface Recipient {
@@ -33,6 +41,14 @@ export interface Recipient {
   /** false → privacy mode: no message preview in the notification. */
   preview: boolean;
   sound: boolean;
+  /** The operator's own UI language; picks the notification copy template. */
+  locale: string;
+}
+
+/** The `workspace_members` columns the resolver reads. */
+interface MemberRow {
+  user_id: string;
+  suspended_at: string | null;
 }
 
 interface PrefsRow {
@@ -123,9 +139,9 @@ export async function resolveRecipients(
   }
 
   const mentioned = new Set(ctx.mentionedUserIds ?? []);
-  const eligible = (members ?? [])
-    .filter((m: any) => !m.suspended_at)
-    .map((m: any) => String(m.user_id))
+  const eligible = (members as MemberRow[] | null ?? [])
+    .filter((m) => !m.suspended_at)
+    .map((m) => String(m.user_id))
     .filter((id) => id !== ctx.actorId);
 
   if (!eligible.length) return [];
@@ -141,18 +157,36 @@ export async function resolveRecipients(
   const prefsByUser = new Map<string, PrefsRow>();
   for (const row of (prefRows ?? []) as PrefsRow[]) prefsByUser.set(row.user_id, row);
 
+  // The notification copy is rendered in the recipient's OWN language, not
+  // the sender's: a Turkish operator must not get a Persian push because the
+  // customer wrote in Persian.
+  const localeByUser = new Map<string, string>();
+  const { data: profileRows } = await sb
+    .from('profiles')
+    .select('id, preferred_locale')
+    .in('id', eligible);
+  for (const row of (profileRows ?? []) as { id: string; preferred_locale: string | null }[]) {
+    if (row.preferred_locale) localeByUser.set(String(row.id), String(row.preferred_locale));
+  }
+
+  // Platform defaults apply ONLY where the operator has no explicit value of
+  // their own — a saved preference always wins over an admin default.
+  const platformDefaults = policyDefaults(ctx.policy);
+  const mentionBypassesQuietHours = ctx.policy?.mention_bypasses_quiet_hours !== false;
+
   const now = new Date();
   const out: Recipient[] = [];
   for (const userId of eligible) {
-    const p = { ...DEFAULT_PREFS, ...cleanPrefs(prefsByUser.get(userId)) };
+    const p = { ...DEFAULT_PREFS, ...platformDefaults, ...cleanPrefs(prefsByUser.get(userId)) };
     if (p.disable_all) continue;
     if (p.push_scope === 'none') continue;
 
     const isMentioned = mentioned.has(userId);
     const isAssignee = ctx.assignedTo === userId;
 
-    // Quiet hours: silenced unless the operator was personally mentioned.
-    if (!isMentioned && isWithinQuietHours(p, now)) continue;
+    // Quiet hours: silenced unless the operator was personally mentioned AND
+    // the platform allows a mention to break the window.
+    if (!(isMentioned && mentionBypassesQuietHours) && isWithinQuietHours(p, now)) continue;
 
 
     if (ctx.eventType === 'mention' && !isMentioned) continue;
@@ -169,9 +203,32 @@ export async function resolveRecipients(
       if (ctx.assignedTo && !isAssignee && !isMentioned) continue;
     }
 
-    out.push({ userId, preview: p.push_preview !== false, sound: p.play_sound !== false });
+    out.push({
+      userId,
+      preview: p.push_preview !== false,
+      sound: p.play_sound !== false,
+      locale: localeByUser.get(userId) ?? 'en',
+    });
   }
   return out;
+}
+
+/**
+ * The platform-wide defaults, shaped like a prefs row so they can be merged
+ * UNDER the operator's own saved values.
+ */
+function policyDefaults(policy: PushPlatformSettings | null | undefined): Partial<typeof DEFAULT_PREFS> {
+  if (!policy) return {};
+  return {
+    play_sound: policy.default_sound,
+    push_scope: policy.default_scope,
+    push_preview: policy.default_preview,
+    push_internal_notes: policy.default_internal_notes,
+    quiet_hours_enabled: policy.default_quiet_hours_enabled,
+    quiet_hours_start: policy.default_quiet_hours_start,
+    quiet_hours_end: policy.default_quiet_hours_end,
+    quiet_hours_timezone: policy.default_quiet_hours_timezone,
+  };
 }
 
 function cleanPrefs(row: PrefsRow | undefined): Partial<typeof DEFAULT_PREFS> {
@@ -219,7 +276,7 @@ export async function unreadBadgeCount(
       .select('workspace_id')
       .eq('user_id', userId)
       .is('suspended_at', null);
-    workspaceIds = (rows ?? []).map((r: any) => String(r.workspace_id));
+    workspaceIds = (rows as { workspace_id: string }[] | null ?? []).map((r) => String(r.workspace_id));
   }
   if (!workspaceIds.length) return 0;
 
@@ -229,7 +286,7 @@ export async function unreadBadgeCount(
     .in('workspace_id', workspaceIds)
     .in('status', ['open', 'pending'])
     .limit(500);
-  const ids = (convs ?? []).map((c: any) => String(c.id));
+  const ids = (convs as { id: string }[] | null ?? []).map((c) => String(c.id));
   if (!ids.length) return 0;
 
   const { data: msgs } = await sb
@@ -240,5 +297,7 @@ export async function unreadBadgeCount(
     .is('seen_at', null)
     .limit(2000);
 
-  return new Set((msgs ?? []).map((m: any) => String(m.conversation_id))).size;
+  return new Set(
+    (msgs as { conversation_id: string }[] | null ?? []).map((m) => String(m.conversation_id)),
+  ).size;
 }

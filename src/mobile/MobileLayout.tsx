@@ -1,16 +1,32 @@
 /**
- * Native (iOS) app shell — fixed tab bar, no page-level scrolling.
+ * Native (iOS) app shell.
+ *
+ * A real UIKit shell rather than a page with a bottom nav:
+ *   • a navigation stack that pushes and pops detail screens, with the system
+ *     edge-swipe-back gesture (src/mobile/ios/NavStack.tsx),
+ *   • a translucent tab bar that hides on a pushed screen, exactly as iOS
+ *     hides it behind a detail view controller,
+ *   • push registration and the server-authoritative app badge.
+ *
+ * The status bar tint and the launch-image handoff are NOT here: they are set
+ * up in src/main.tsx, because they have to apply to the login screen too.
+ *
  * Only mounted inside the Capacitor shell; the web dashboard keeps AppLayout.
  */
 import { useEffect } from 'react';
-import { NavLink, Outlet, useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { MessageCircle, Users, Radar, Settings as SettingsIcon } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { useActiveWorkspace, useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useConversations } from '@/hooks/useConversations';
 import { WorkspaceNotFound } from '@/features/workspace/WorkspaceNotFound';
-import { cn } from '@/lib/utils';
 import { initNativePush, setPushNavigationHandler, syncBadge } from '@/lib/push/nativePush';
+import { isNativePlatform } from '@/lib/native';
+import { NavStack } from './ios/NavStack';
+import { TabBar, type TabItem } from './ios/TabBar';
+
+/** A pushed screen is one level deeper than its tab root. */
+const DETAIL_ROUTE = /\/(inbox|contacts)\/[^/]+$|\/settings\/[^/]+$/;
 
 export function MobileLayout() {
   const { t, dir } = useTranslation();
@@ -44,94 +60,29 @@ export function MobileLayout() {
   if (notFound) return <WorkspaceNotFound />;
 
   const unread = (openConversations ?? []).reduce(
-    (sum: number, c: any) => sum + (c.unread_count || 0),
+    (sum: number, c: { unread_count?: number | null }) => sum + (c.unread_count || 0),
     0,
   );
 
-  const tabs = [
+  const tabs: TabItem[] = [
     { to: `/${slug}/inbox`, icon: MessageCircle, label: t('nav.inbox'), badge: unread },
     { to: `/${slug}/contacts`, icon: Users, label: t('nav.contacts'), badge: 0 },
     { to: `/${slug}/visitors`, icon: Radar, label: t('nav.visitors'), badge: 0 },
     { to: `/${slug}/settings`, icon: SettingsIcon, label: t('nav.settings'), badge: 0 },
   ];
 
-  // Detail screens (a conversation thread, a contact card) are pushed
-  // full-screen like a native navigation stack — the floating tab bar hides so
-  // it can never sit on top of the composer.
-  const isDetail = /\/(inbox|contacts)\/[^/]+$/.test(location.pathname);
-  const activeIndex = Math.max(
-    0,
-    tabs.findIndex((tab) => location.pathname.startsWith(tab.to)),
-  );
+  const isDetail = DETAIL_ROUTE.test(location.pathname);
 
   return (
     <div dir={dir} className="fixed inset-0 flex flex-col overflow-hidden bg-muted/40">
       {/* Screens own their own scrolling; the shell never scrolls. */}
-      <main className="flex-1 min-h-0 overflow-hidden">
-        <Outlet />
+      <main className="relative min-h-0 flex-1">
+        <NavStack depth={isDetail ? 1 : 0} enabled={isNativePlatform()} rtl={dir === 'rtl'} />
       </main>
 
-      {!isDetail && (
-        <nav
-          className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-2.5"
-          style={{
-            paddingBottom: 'calc(max(2px, env(safe-area-inset-bottom) - 18px) + var(--kb-inset, 0px))',
-          }}
-        >
-          <div className="pointer-events-auto relative mx-auto flex max-w-md items-stretch rounded-[24px] border border-border/60 bg-card/85 p-1 shadow-[0_10px_30px_-12px_hsl(220_40%_20%/0.45)] backdrop-blur-2xl">
-
-            {/* The animated bubble slides between tabs. */}
-            <span
-              className="absolute inset-y-1 rounded-[20px] bg-primary/12 transition-[inset-inline-start] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
-              style={{
-                width: `calc(${100 / tabs.length}% - 8px)`,
-                insetInlineStart: `calc(${(activeIndex * 100) / tabs.length}% + 4px)`,
-              }}
-            />
-
-            {tabs.map((tab) => (
-              <NavLink
-                key={tab.to}
-                to={tab.to}
-                className={({ isActive }) =>
-                  cn(
-                    'relative z-10 flex flex-1 flex-col items-center justify-center gap-1 rounded-[20px] py-2 transition-colors active:scale-95',
-                    isActive ? 'text-primary' : 'text-muted-foreground',
-                  )
-                }
-              >
-                {({ isActive }) => (
-                  <>
-                    <span className="relative">
-                      <tab.icon
-                        className={cn(
-                          'h-[22px] w-[22px] transition-transform duration-300',
-                          isActive && '-translate-y-px scale-110',
-                        )}
-                        strokeWidth={isActive ? 2.4 : 1.9}
-                      />
-                      {tab.badge > 0 && (
-                        <span className="absolute -end-2.5 -top-1.5 flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground ring-2 ring-card">
-                          {tab.badge > 99 ? '99+' : tab.badge}
-                        </span>
-                      )}
-                    </span>
-                    <span
-                      className={cn(
-                        'text-[10.5px] leading-none transition-all',
-                        isActive ? 'font-bold' : 'font-medium opacity-80',
-                      )}
-                    >
-                      {tab.label}
-                    </span>
-                  </>
-                )}
-              </NavLink>
-            ))}
-          </div>
-        </nav>
-      )}
+      {/* iOS hides the tab bar behind a pushed detail view; so do we, which
+          also keeps it off the conversation composer. */}
+      {!isDetail && <TabBar tabs={tabs} />}
     </div>
   );
 }
-

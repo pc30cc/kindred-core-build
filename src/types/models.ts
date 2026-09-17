@@ -121,6 +121,8 @@ export interface Conversation {
   assigned_to: string | null;
   priority: 'low' | 'normal' | 'high' | 'urgent';
   tags: string[];
+  /** Channel routing + AI state, written concurrently server-side. */
+  metadata?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }

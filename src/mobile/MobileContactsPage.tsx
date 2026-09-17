@@ -5,11 +5,12 @@ import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Users, ChevronLeft, ChevronRight } from 'lucide-react';
 
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import { useContacts } from '@/hooks/useContacts';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
-import { getDisplayName, timeAgo } from '@/features/contacts/utils';
+import { getDisplayName } from '@/features/contacts/utils';
+import type { ContactDisplayT } from '@/lib/contact-display';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MobileScreen } from './MobileScreen';
 import { MobileSearchField } from './MobileSearchField';
@@ -22,12 +23,17 @@ export default function MobileContactsPage() {
   const { data: contacts, isLoading } = useContacts(workspace?.id);
   const [query, setQuery] = useState('');
 
+  // `contactDisplayName`/`getDisplayName` take a plain (key, vars) function;
+  // the app's `t` is keyed by TranslationKey. This adapter bridges the two
+  // without erasing either type.
+  const displayT: ContactDisplayT = (key, vars) => t(key as TranslationKey, vars);
+
   const rows = useMemo(() => {
     const list = contacts ?? [];
     const q = query.trim().toLowerCase();
     if (!q) return list;
-    return list.filter((c: any) =>
-      [c.name, c.email, c.phone].some((v: string | null) => (v || '').toLowerCase().includes(q)),
+    return list.filter((c) =>
+      [c.name, c.email, c.phone].some((v) => (v || '').toLowerCase().includes(q)),
     );
   }, [contacts, query]);
 
@@ -35,10 +41,11 @@ export default function MobileContactsPage() {
 
   return (
     <MobileScreen
+      largeTitle
       title={t('nav.contacts')}
       subtitle={contacts ? `${contacts.length}` : undefined}
       toolbar={<MobileSearchField value={query} onChange={setQuery} placeholder={t('contacts.searchPlaceholder')} />}
-      bodyClassName="pb-[104px]"
+      bodyClassName="pb-6"
     >
       {isLoading ? (
         <div className="space-y-2 px-4 pt-3">
@@ -56,7 +63,7 @@ export default function MobileContactsPage() {
         <EmptyState icon={Users} label={t('contacts.emptyTitle')} />
       ) : (
         <ul className="mt-3 overflow-hidden border-y border-border bg-card divide-y divide-border">
-          {rows.map((c: any) => (
+          {rows.map((c) => (
             <li key={c.id}>
               <button
                 type="button"
@@ -66,17 +73,12 @@ export default function MobileContactsPage() {
                 <ContactAvatar name={c.name} email={c.email} avatarUrl={c.avatar_url} size="md" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[16px] font-semibold text-foreground">
-                    {getDisplayName(c as any, t as any, locale as any)}
+                    {getDisplayName(c, displayT, undefined, locale)}
                   </p>
                   <p className="truncate text-[13px] text-muted-foreground" dir="ltr">
                     {c.email || c.phone || '—'}
                   </p>
                 </div>
-                {c.last_seen_at && (
-                  <span className="shrink-0 text-[11px] text-muted-foreground">
-                    {timeAgo(c.last_seen_at)}
-                  </span>
-                )}
                 <Chevron className="h-4 w-4 shrink-0 text-muted-foreground/60" />
               </button>
             </li>

@@ -38,7 +38,7 @@ export function MobileSubScreen({
           <BackIcon className="h-[26px] w-[26px]" />
         </button>
       }
-      bodyClassName="pb-[120px]"
+      bodyClassName="pb-8"
     >
       <div className="px-3 py-4 [&_.grid]:grid-cols-1">{children}</div>
     </MobileScreen>

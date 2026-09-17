@@ -7,6 +7,7 @@ import { getStoredLocale, loadLocaleMessages } from "./i18n";
 import { installLocalizedDateDefaults, setAppDateLocale } from "./lib/date";
 import { CALL_VIDEO_ORIENTATION_CORRECTION_MODE } from "./features/calls/videoOrientation";
 import { applyNativeShellClasses } from "./lib/native";
+import { installNativeAppearance, hideSplashWhenReady } from "./lib/appearance";
 import { hydrateMobileSession } from "./lib/mobileSession";
 import { installAuthTransport } from "./lib/authFetch";
 import { applyUiPreferences, loadPlatformUiDefaults, loadUiPreferences, resolveUiPreferences } from "./lib/ui-preferences";
@@ -80,6 +81,14 @@ async function bootstrap() {
   logCallUiBuildVersion();
   // Reveal UI only after React has mounted with correct translations
   requestAnimationFrame(() => { root.style.opacity = '1'; });
+
+  // Native shell only. Both of these belong HERE, not in the authenticated
+  // layout: the launch image is configured not to auto-hide, so hiding it
+  // from a screen that only mounts after sign-in would leave an unauthenticated
+  // user staring at the splash forever. Same for the status-bar tint — the
+  // login screen needs the right glyph colour too.
+  installNativeAppearance();
+  hideSplashWhenReady();
 }
 
 void bootstrap();

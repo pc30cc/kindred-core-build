@@ -5,10 +5,22 @@
  * status-bar inset (no stray gap above the title) and a single scrolling body.
  * Nothing outside the body ever scrolls — that is what makes the shell feel
  * like an app instead of a web page.
+ *
+ * The nav bar reproduces UIKit's large-title behaviour: a 34pt title sits
+ * inside the scrolling content and, as it passes under the bar, fades out
+ * while the 17pt centred title fades in and the hairline appears. Both titles
+ * are driven by the same scroll offset, so they cross over exactly once
+ * instead of both being visible at any point.
+ *
+ * With a large title the toolbar (search field, segmented control) scrolls
+ * away underneath it rather than staying pinned — that is where iOS puts it,
+ * and pinning it while the title scrolls is the detail that reads as "web".
  */
-import { useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ElementType, type ReactNode } from 'react';
 import { Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { haptic } from '@/lib/haptics';
+import { SCROLL_TO_TOP_EVENT } from './ios/TabBar';
 
 
 interface MobileScreenProps {
@@ -27,10 +39,18 @@ interface MobileScreenProps {
   compact?: boolean;
   /** iOS navigation-bar style: title centered between leading/trailing slots. */
   centered?: boolean;
+  /**
+   * UIKit large title: a 34pt heading that scrolls with the content and
+   * collapses into the nav bar. Tab-root screens use it; pushed detail
+   * screens do not, exactly as in the system apps.
+   */
+  largeTitle?: boolean;
   /** Enables iOS-style pull-to-refresh on the body. */
   onRefresh?: () => Promise<unknown> | void;
 }
 
+/** Scroll distance over which the large title hands over to the nav bar. */
+const COLLAPSE_PX = 44;
 
 export function MobileScreen({
   title,
@@ -42,14 +62,30 @@ export function MobileScreen({
   bodyClassName,
   compact = false,
   centered = false,
+  largeTitle = false,
   onRefresh,
 }: MobileScreenProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const startY = useRef<number | null>(null);
   const [pull, setPull] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const [collapsed, setCollapsed] = useState(0);
 
   const THRESHOLD = 68;
+
+  // ── Large title ↔ nav bar handover ────────────────────────────────────
+  const onScroll = useCallback(() => {
+    if (!largeTitle) return;
+    const top = bodyRef.current?.scrollTop ?? 0;
+    setCollapsed(Math.min(1, Math.max(0, top / COLLAPSE_PX)));
+  }, [largeTitle]);
+
+  // Re-tapping the active tab returns this screen to the top, like iOS.
+  useEffect(() => {
+    const handler = () => bodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    window.addEventListener(SCROLL_TO_TOP_EVENT, handler);
+    return () => window.removeEventListener(SCROLL_TO_TOP_EVENT, handler);
+  }, []);
 
   const onTouchStart = (e: React.TouchEvent) => {
     if (!onRefresh || refreshing) return;
@@ -73,6 +109,9 @@ export function MobileScreen({
     if (startY.current === null) return;
     startY.current = null;
     if (pull >= THRESHOLD && onRefresh) {
+      // The refresh has actually been committed — this is the one moment the
+      // user cannot see yet and would otherwise wait to confirm.
+      haptic('light');
       setRefreshing(true);
       setPull(46);
       try {
@@ -89,31 +128,44 @@ export function MobileScreen({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-muted/40">
-      <header className="relative z-10 shrink-0 bg-card/90 pt-[env(safe-area-inset-top)] shadow-[0_1px_0_0_hsl(var(--border)/0.7)] backdrop-blur-2xl">
+      <header
+        className={cn(
+          'relative z-10 shrink-0 bg-card/90 pt-[env(safe-area-inset-top)] backdrop-blur-2xl transition-shadow',
+          // The hairline belongs under a collapsed bar only: a large title
+          // sits on the same surface as the content it scrolls with.
+          largeTitle && collapsed < 0.9
+            ? 'shadow-none'
+            : 'shadow-[0_1px_0_0_hsl(var(--border)/0.7)]',
+        )}
+      >
         <div className={cn('flex items-center gap-2 px-3', compact ? 'h-12' : 'h-[52px]')}>
           <div className="flex min-w-[44px] shrink-0 items-center justify-start">{leading}</div>
 
-          <div className={cn('min-w-0 flex-1', centered && 'text-center')}>
+          <div className={cn('min-w-0 flex-1', (centered || largeTitle) && 'text-center')}>
             <h1
               className={cn(
                 'truncate font-bold tracking-tight text-foreground',
                 compact ? 'text-[17px]' : 'text-[19px]',
+                largeTitle && 'text-[17px] transition-opacity duration-150',
               )}
+              style={largeTitle ? { opacity: collapsed } : undefined}
+              aria-hidden={largeTitle && collapsed < 0.5}
             >
               {title}
             </h1>
-            {subtitle && (
+            {subtitle && !largeTitle && (
               <p className="truncate text-[12px] leading-tight text-muted-foreground">{subtitle}</p>
             )}
           </div>
 
           <div className="flex min-w-[44px] shrink-0 items-center justify-end gap-1">{actions}</div>
         </div>
-        {toolbar && <div className="px-4 pb-3">{toolbar}</div>}
+        {toolbar && !largeTitle && <div className="px-4 pb-3">{toolbar}</div>}
       </header>
 
       <div
         ref={bodyRef}
+        onScroll={onScroll}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
@@ -131,6 +183,22 @@ export function MobileScreen({
             />
           </div>
         )}
+        {largeTitle && (
+          <div className="bg-card px-4 pb-2 pt-1">
+            <h2
+              className="truncate text-[34px] font-bold leading-tight tracking-[-0.02em] text-foreground"
+              style={{ opacity: 1 - collapsed }}
+            >
+              {title}
+            </h2>
+            {subtitle && (
+              <p className="truncate text-[13px] text-muted-foreground" style={{ opacity: 1 - collapsed }}>
+                {subtitle}
+              </p>
+            )}
+          </div>
+        )}
+        {toolbar && largeTitle && <div className="bg-card px-4 pb-3 pt-1">{toolbar}</div>}
         {children}
       </div>
 
@@ -153,7 +221,10 @@ export function MobileNavButton({
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={() => {
+        haptic('light');
+        onClick?.();
+      }}
       aria-label={label}
       className={cn(
         'flex h-9 w-9 items-center justify-center rounded-full transition-transform active:scale-90',
@@ -219,10 +290,20 @@ export function MobileRow({
   chevron?: boolean;
   destructive?: boolean;
 }) {
-  const Tag: any = onClick ? 'button' : 'div';
+  // A row is a real button when it acts, and a plain div when it does not —
+  // so a non-interactive row is not announced as tappable.
+  const Tag: ElementType = onClick ? 'button' : 'div';
   return (
     <Tag
-      {...(onClick ? { type: 'button', onClick } : {})}
+      {...(onClick
+        ? {
+            type: 'button',
+            onClick: () => {
+              haptic('light');
+              onClick();
+            },
+          }
+        : {})}
       className="flex w-full items-center gap-3 px-4 py-3 text-start active:bg-muted/60"
     >
       {Icon &&
@@ -273,4 +354,3 @@ export function MobileChevron() {
     </>
   );
 }
-

@@ -35,6 +35,8 @@ import { adminManagementRouter } from './adminManagement.js';
 import { adminDatabaseRouter } from './adminDatabase.js';
 import { adminRetentionRouter } from './adminRetention.js';
 import { adminBackupRouter } from './adminBackup.js';
+import { adminMobileAppRouter } from './adminMobileApp.js';
+import { adminNotificationsRouter } from './adminNotifications.js';
 import { normalizePhoneToE164 } from '../services/phoneVerification/phone.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { findIdentityById } from '../services/auth/identity.js';
@@ -121,6 +123,12 @@ adminRouter.use('/retention', adminRetentionRouter);
 
 // Backup & disaster recovery diagnostics (super admin only, read-focused)
 adminRouter.use('/backup', adminBackupRouter);
+
+// Native app (iOS) identity, build, privacy and App Store readiness
+adminRouter.use('/mobile-app', adminMobileAppRouter);
+
+// Platform-wide push/notification policy, categories, copy and diagnostics
+adminRouter.use('/notifications', adminNotificationsRouter);
 
 // Widget templates registry (super admin only)
 

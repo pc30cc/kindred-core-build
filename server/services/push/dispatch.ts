@@ -20,9 +20,22 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
-import { sendFcmMessage, isPushConfigured } from './fcm.js';
+import { sendFcmMessage, isPushConfigured, type ApnsDelivery } from './fcm.js';
 import { listActiveDevices, disableToken } from './devices.js';
 import { resolveRecipients, unreadBadgeCount, type PushEventType } from './recipients.js';
+import {
+  loadPushPlatformSettings,
+  renderTemplate,
+  type PushPlatformSettings,
+} from './platformSettings.js';
+
+/** The conversation columns this module reads. */
+interface ConversationRow {
+  id: string;
+  workspace_id: string;
+  assigned_to: string | null;
+  status: string;
+}
 
 export interface InboundPushInput {
   workspaceId: string;
@@ -48,25 +61,32 @@ export async function notifyInboundMessage(
 ): Promise<void> {
   try {
     if (!isPushConfigured()) return;
+    // Platform policy (Super Admin → Notifications). The master switch is
+    // honoured before any work is done, so turning push off is immediate and
+    // does not depend on removing credentials.
+    const policy = await loadPushPlatformSettings(config);
+    if (!policy.push_enabled) return;
     const eventType: PushEventType = input.eventType ?? 'new_message';
     const sb = getServiceClient(config);
 
     // Conversation state is read server-side; the caller's IDs are never
     // treated as authority for who may be notified.
-    const { data: conv } = await sb
+    const { data: conversationRow } = await sb
       .from('conversations')
       .select('id, workspace_id, assigned_to, status')
       .eq('id', input.conversationId)
       .maybeSingle();
-    if (!conv || String((conv as any).workspace_id) !== input.workspaceId) return;
+    const conv = conversationRow as ConversationRow | null;
+    if (!conv || String(conv.workspace_id) !== input.workspaceId) return;
 
     const recipients = await resolveRecipients(config, {
       workspaceId: input.workspaceId,
       conversationId: input.conversationId,
-      assignedTo: ((conv as any).assigned_to as string | null) ?? null,
+      assignedTo: conv.assigned_to ?? null,
       eventType,
       actorId: input.actorId ?? null,
       mentionedUserIds: input.mentionedUserIds,
+      policy,
     });
     if (!recipients.length) return;
 
@@ -99,8 +119,11 @@ export async function notifyInboundMessage(
         continue;
       }
 
-      const badge = await unreadBadgeCount(config, recipient.userId, input.workspaceId);
-      const { title, body } = renderContent(input, eventType, recipient.preview);
+      const badge = policy.badge_enabled
+        ? await unreadBadgeCount(config, recipient.userId, input.workspaceId)
+        : undefined;
+      const { title, body } = renderContent(input, eventType, recipient.preview, policy, recipient.locale);
+      const apns = apnsDeliveryFor(policy, eventType, input);
 
       let accepted = 0;
       let failed = 0;
@@ -112,7 +135,9 @@ export async function notifyInboundMessage(
           data,
           badge,
           sound: recipient.sound,
-          collapseKey: `conv-${input.conversationId}`,
+          collapseKey: policy.collapse_enabled ? `conv-${input.conversationId}` : undefined,
+          androidChannelId: policy.android_channel_id,
+          apns,
         });
         if (outcome.ok) {
           accepted += 1;
@@ -179,17 +204,34 @@ async function finish(
  * Notification copy. Privacy mode is a per-user server-side preference, so the
  * text never reaches the device at all when previews are off — hiding it in
  * the app would be theatre, since the payload is visible on a locked phone.
+ *
+ * With a policy present the operator-editable templates decide the wording,
+ * rendered in the RECIPIENT's language. Without one (tests, or a deployment
+ * that has not applied migration 195) the original hardcoded copy is used, so
+ * behaviour is identical to before the templates existed.
  */
 export function renderContent(
   input: InboundPushInput,
   eventType: PushEventType,
   preview: boolean,
+  policy?: PushPlatformSettings | null,
+  locale = 'en',
 ): { title: string; body: string } {
-  if (!preview) return { title: PRIVACY_TITLE, body: PRIVACY_BODY };
-
   const name = (input.senderName || '').trim() || 'Customer';
   const text = (input.text || '').trim();
   const fallback = input.attachmentCount ? '📎 Attachment' : 'New message';
+
+  if (policy) {
+    const rendered = renderTemplate(policy, eventType, locale, preview, {
+      sender: name,
+      preview: truncate(text || fallback),
+      count: String(input.attachmentCount ?? 0),
+    });
+    // A template edited down to nothing must not produce a blank banner.
+    if (rendered.title.trim() && rendered.body.trim()) return rendered;
+  }
+
+  if (!preview) return { title: PRIVACY_TITLE, body: PRIVACY_BODY };
   if (eventType === 'internal_note') {
     return { title: `${name} · internal note`, body: truncate(text || fallback) };
   }
@@ -197,6 +239,37 @@ export function renderContent(
     return { title: `${name} mentioned you`, body: truncate(text || fallback) };
   }
   return { title: name, body: truncate(text || fallback) };
+}
+
+/**
+ * The APNs half of a send, derived from platform policy. The category id is
+ * the one registered for this event type, which is what gives the banner its
+ * action buttons ("Reply", "Mark as read") on the device.
+ */
+function apnsDeliveryFor(
+  policy: PushPlatformSettings,
+  eventType: PushEventType,
+  input: InboundPushInput,
+): ApnsDelivery {
+  const category = (policy.categories ?? []).find((c) => c.eventTypes?.includes(eventType));
+  const threadId =
+    policy.thread_id_strategy === 'conversation'
+      ? input.conversationId
+      : policy.thread_id_strategy === 'workspace'
+        ? input.workspaceId
+        : undefined;
+  return {
+    priority: policy.apns_priority,
+    ttlSeconds: policy.apns_ttl_seconds,
+    interruptionLevel: policy.interruption_level,
+    relevanceScore: policy.relevance_score,
+    threadId,
+    categoryId: category?.id,
+    soundName: policy.sound_name,
+    mutableContent: policy.mutable_content,
+    critical: policy.critical_alerts_enabled,
+    criticalVolume: policy.critical_alert_volume,
+  };
 }
 
 function truncate(value: string, max = 180): string {

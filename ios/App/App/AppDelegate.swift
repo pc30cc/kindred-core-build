@@ -7,7 +7,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // The action buttons on a push banner come from a category registered
+        // by the app, not from the payload — so this has to run before the
+        // first notification can arrive.
+        NotificationCategories.register()
         return true
     }
 

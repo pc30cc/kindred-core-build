@@ -78,13 +78,12 @@ export function floorToBucket(d: Date | string): string {
 const lastWrittenBucket = new Map<string, string>();
 const LAST_WRITTEN_MAX = 5000;
 
-let lastPruneAt = 0;
-const PRUNE_EVERY_MS = 60 * 60_000;
-
 // operator_activity_samples was dropped from the database, so there is
 // nothing left to prune. Kept as a no-op rather than deleted so the call
-// sites and the retention constants stay in one place if the analytics
-// table is ever reinstated.
+// sites stay in one place if the analytics table is ever reinstated; the
+// hourly-throttle state it used to carry went with the body, since a no-op
+// has nothing to throttle. RETENTION_DAYS above is left as the documented
+// retention window.
 async function pruneOldSamples(_sb: ReturnType<typeof getServiceClient>): Promise<void> {
   return;
 }

@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { getMonitoringCollector, __resetMonitoringCollectorForTests } from './collector/index.js';
+import type { ServerConfig } from '../../config.js';
 
 type ForceError = 'rulesRead' | 'openRead' | 'insert' | 'update' | 'settingsRead' | undefined;
 
@@ -198,7 +199,7 @@ describe('alertEvaluator — count kind', () => {
     fakeState.rules = [rule({ id: 'r-count', slug: 'subscribe-failed-spike', kind: 'count', metric: 'realtime.subscribe_failed', warn_threshold: 5, critical_threshold: 10 })];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    const result = await evaluateAlertRulesInMemory({} as any);
+    const result = await evaluateAlertRulesInMemory({} as ServerConfig);
 
     expect(result.evaluated).toBe(1);
     expect(result.state_changes).toBe(1);
@@ -212,7 +213,7 @@ describe('alertEvaluator — count kind', () => {
     fakeState.rules = [rule({ id: 'r-count', kind: 'count', metric: 'realtime.subscribe_failed' })];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    const result = await evaluateAlertRulesInMemory({} as any);
+    const result = await evaluateAlertRulesInMemory({} as ServerConfig);
 
     expect(result.state_changes).toBe(0);
     expect(fakeState.inserted).toHaveLength(0);
@@ -223,7 +224,7 @@ describe('alertEvaluator — count kind', () => {
     fakeState.rules = [rule({ id: 'r-count', kind: 'count', metric: 'realtime.subscribe_failed' })];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    const result = await evaluateAlertRulesInMemory({} as any);
+    const result = await evaluateAlertRulesInMemory({} as ServerConfig);
 
     expect(result.state_changes).toBe(1);
     expect(fakeState.updated).toHaveLength(1);
@@ -241,7 +242,7 @@ describe('alertEvaluator — ratio kind', () => {
     ];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    await evaluateAlertRulesInMemory({} as any);
+    await evaluateAlertRulesInMemory({} as ServerConfig);
 
     // 5/20 = 0.25 >= critical_threshold 0.2
     expect(fakeState.inserted[0]).toMatchObject({ severity: 'critical', metric_value: 0.25, sample_size: 20 });
@@ -256,7 +257,7 @@ describe('alertEvaluator — ratio kind', () => {
     ];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    const result = await evaluateAlertRulesInMemory({} as any);
+    const result = await evaluateAlertRulesInMemory({} as ServerConfig);
 
     // 1/1 = 100% would fire if not gated by min_sample — must not fire.
     expect(result.state_changes).toBe(0);
@@ -273,7 +274,7 @@ describe('alertEvaluator — perf_p95 / perf_error_rate kinds', () => {
     fakeState.rules = [rule({ id: 'r-p95', kind: 'perf_p95', route_group: 'realtime.operator_connect', warn_threshold: 800, critical_threshold: 1500, min_sample: 20 })];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    await evaluateAlertRulesInMemory({} as any);
+    await evaluateAlertRulesInMemory({} as ServerConfig);
 
     expect(fakeState.inserted[0]).toMatchObject({ severity: 'critical' });
   });
@@ -286,7 +287,7 @@ describe('alertEvaluator — perf_p95 / perf_error_rate kinds', () => {
     fakeState.rules = [rule({ id: 'r-err', kind: 'perf_error_rate', route_group: 'widget.bootstrap', warn_threshold: 0.1, critical_threshold: 0.3, min_sample: 10 })];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    await evaluateAlertRulesInMemory({} as any);
+    await evaluateAlertRulesInMemory({} as ServerConfig);
 
     expect(fakeState.inserted[0]).toMatchObject({ severity: 'critical', metric_value: 0.5 });
   });
@@ -302,7 +303,7 @@ describe('alertEvaluator — process_avg / process_ratio kinds', () => {
     fakeState.rules = [rule({ id: 'r-proc', kind: 'process_avg', metric: 'rss_pct_of_budget', warn_threshold: 0.5, critical_threshold: 0.8, min_sample: 1 })];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    const result = await evaluateAlertRulesInMemory({} as any);
+    const result = await evaluateAlertRulesInMemory({} as ServerConfig);
 
     // No trend samples recorded yet in this fresh collector — never fires
     // on an empty window rather than misreporting.
@@ -313,7 +314,7 @@ describe('alertEvaluator — process_avg / process_ratio kinds', () => {
   it('unknown process_avg metric name is inert (matches SQL ELSE v_value:=0 branch)', async () => {
     fakeState.rules = [rule({ id: 'r-proc-bad', kind: 'process_avg', metric: 'not_a_real_metric', warn_threshold: 0, critical_threshold: 0 })];
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    const result = await evaluateAlertRulesInMemory({} as any);
+    const result = await evaluateAlertRulesInMemory({} as ServerConfig);
     expect(result.state_changes).toBe(0);
   });
 });
@@ -324,7 +325,7 @@ describe('alertEvaluator — combined kind', () => {
     fakeState.rules = [rule({ id: 'r-combined', kind: 'combined', subrules: ['sub-a', 'sub-b', 'sub-c'], warn_threshold: 1, critical_threshold: 2 })];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    await evaluateAlertRulesInMemory({} as any);
+    await evaluateAlertRulesInMemory({} as ServerConfig);
 
     expect(fakeState.inserted[0]).toMatchObject({ severity: 'critical', metric_value: 2, sample_size: 3 });
   });
@@ -335,7 +336,7 @@ describe('alertEvaluator — combined kind', () => {
     fakeState.rules = [rule({ id: 'r-combined', kind: 'combined', subrules: ['sub-a', 'sub-b'], warn_threshold: 1, critical_threshold: 2 })];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    await evaluateAlertRulesInMemory({} as any);
+    await evaluateAlertRulesInMemory({} as ServerConfig);
 
     expect(fakeState.updated[0]).toMatchObject({ id: 'evt-combined', patch: { state: 'resolved' } });
   });
@@ -349,7 +350,7 @@ describe('alertEvaluator — lifecycle edge cases', () => {
     fakeState.rules = [rule({ id: 'r-count', kind: 'count', metric: 'realtime.subscribe_failed', warn_threshold: 5, critical_threshold: 10 })];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    const result = await evaluateAlertRulesInMemory({} as any);
+    const result = await evaluateAlertRulesInMemory({} as ServerConfig);
 
     expect(result.state_changes).toBe(1);
     expect(fakeState.inserted).toHaveLength(0);
@@ -363,10 +364,10 @@ describe('alertEvaluator — lifecycle edge cases', () => {
     fakeState.rules = [rule({ id: 'r-count', kind: 'count', metric: 'realtime.subscribe_failed', warn_threshold: 5, critical_threshold: 10 })];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    const result = await evaluateAlertRulesInMemory({} as any);
+    const result = await evaluateAlertRulesInMemory({} as ServerConfig);
     // A second cycle with a wildly different metric value must still not write.
     for (let i = 0; i < 40; i++) collector.recordRealtimeMetric({ metric: 'realtime.subscribe_failed' });
-    await evaluateAlertRulesInMemory({} as any);
+    await evaluateAlertRulesInMemory({} as ServerConfig);
 
     expect(result.state_changes).toBe(0);
     expect(fakeState.updated).toHaveLength(0);
@@ -377,7 +378,7 @@ describe('alertEvaluator — lifecycle edge cases', () => {
   it('disabled rules are never evaluated (excluded by the enabled=true filter)', async () => {
     fakeState.rules = []; // the fake sb.from('alert_rules') query already only returns what the "DB" would for eq('enabled', true)
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    const result = await evaluateAlertRulesInMemory({} as any);
+    const result = await evaluateAlertRulesInMemory({} as ServerConfig);
     expect(result.evaluated).toBe(0);
   });
 });
@@ -389,7 +390,7 @@ describe('alertEvaluator — Supabase error handling (Fix 3)', () => {
     fakeState.rules = [rule({ id: 'r-count', kind: 'count', metric: 'realtime.subscribe_failed' })];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    await expect(evaluateAlertRulesInMemory({} as any)).rejects.toThrow(/boom-openRead/);
+    await expect(evaluateAlertRulesInMemory({} as ServerConfig)).rejects.toThrow(/boom-openRead/);
 
     // Must not have interpreted the failed read as "no open row" and
     // inserted a duplicate alert on top of the one that's actually open.
@@ -404,7 +405,7 @@ describe('alertEvaluator — Supabase error handling (Fix 3)', () => {
     fakeState.rules = [rule({ id: 'r-count', kind: 'count', metric: 'realtime.subscribe_failed', warn_threshold: 5, critical_threshold: 10 })];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    await expect(evaluateAlertRulesInMemory({} as any)).rejects.toThrow(/boom-insert/);
+    await expect(evaluateAlertRulesInMemory({} as ServerConfig)).rejects.toThrow(/boom-insert/);
     expect(fakeState.inserted).toHaveLength(0);
   });
 
@@ -416,7 +417,7 @@ describe('alertEvaluator — Supabase error handling (Fix 3)', () => {
     fakeState.rules = [rule({ id: 'r-count', kind: 'count', metric: 'realtime.subscribe_failed', warn_threshold: 5, critical_threshold: 10 })];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    await expect(evaluateAlertRulesInMemory({} as any)).rejects.toThrow(/boom-update/);
+    await expect(evaluateAlertRulesInMemory({} as ServerConfig)).rejects.toThrow(/boom-update/);
     expect(fakeState.updated).toHaveLength(0);
   });
 
@@ -426,7 +427,7 @@ describe('alertEvaluator — Supabase error handling (Fix 3)', () => {
     fakeState.rules = [rule({ id: 'r-count', kind: 'count', metric: 'realtime.subscribe_failed' })];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    await expect(evaluateAlertRulesInMemory({} as any)).rejects.toThrow(/boom-update/);
+    await expect(evaluateAlertRulesInMemory({} as ServerConfig)).rejects.toThrow(/boom-update/);
     expect(fakeState.updated).toHaveLength(0);
   });
 
@@ -441,7 +442,7 @@ describe('alertEvaluator — Supabase error handling (Fix 3)', () => {
     fakeState.rules = [rule({ id: 'r-combined', kind: 'combined', subrules: ['sub-a', 'sub-b'], warn_threshold: 1, critical_threshold: 2 })];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    await expect(evaluateAlertRulesInMemory({} as any)).rejects.toThrow(/boom-openRead/);
+    await expect(evaluateAlertRulesInMemory({} as ServerConfig)).rejects.toThrow(/boom-openRead/);
     expect(fakeState.inserted).toHaveLength(0);
     expect(fakeState.updated).toHaveLength(0);
   });
@@ -476,7 +477,7 @@ describe('alertEvaluator — alert_events read count is independent of rule coun
     );
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    const result = await evaluateAlertRulesInMemory({} as any);
+    const result = await evaluateAlertRulesInMemory({} as ServerConfig);
 
     expect(result.evaluated).toBe(29);
     expect(fakeState.alertEventReads).toBe(1);
@@ -495,7 +496,7 @@ describe('alertEvaluator — alert_events read count is independent of rule coun
     ];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    await evaluateAlertRulesInMemory({} as any);
+    await evaluateAlertRulesInMemory({} as ServerConfig);
 
     const combinedInsert = fakeState.inserted.find((r) => r.rule_id === 'r-comb');
     expect(combinedInsert).toBeTruthy();
@@ -513,7 +514,7 @@ describe('alertEvaluator — alert_events read count is independent of rule coun
     ];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    await evaluateAlertRulesInMemory({} as any);
+    await evaluateAlertRulesInMemory({} as ServerConfig);
 
     // No metrics recorded -> the base rule clears and resolves, so the
     // combined rule must evaluate against zero open subrules and not open.
@@ -553,7 +554,7 @@ describe('alertEvaluator — deterministic combined-rule evaluation (Fix 4)', ()
     fakeState.combinedOpenSlugs = [];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    const result = await evaluateAlertRulesInMemory({} as any);
+    const result = await evaluateAlertRulesInMemory({} as ServerConfig);
 
     expect(result.evaluated).toBe(2);
     const childAlert = fakeState.inserted.find((i) => i.rule_id === 'r-child');
@@ -578,7 +579,7 @@ describe('alertEvaluator — deterministic combined-rule evaluation (Fix 4)', ()
     fakeState.rules = [comboRule, childRule];
 
     const { evaluateAlertRulesInMemory } = await importEvaluator();
-    await evaluateAlertRulesInMemory({} as any);
+    await evaluateAlertRulesInMemory({} as ServerConfig);
 
     const childResolve = fakeState.updated.find((u) => u.id === 'evt-child');
     const comboResolve = fakeState.updated.find((u) => u.id === 'evt-combo');
@@ -597,11 +598,11 @@ describe('alertEvaluator — flap damping', () => {
     const ev = await importEvaluator();
     ev.__resetAlertFlapStateForTests(); // back to production tuning
 
-    await ev.evaluateAlertRulesInMemory({} as any);
+    await ev.evaluateAlertRulesInMemory({} as ServerConfig);
     expect(fakeState.inserted).toHaveLength(0);
-    await ev.evaluateAlertRulesInMemory({} as any);
+    await ev.evaluateAlertRulesInMemory({} as ServerConfig);
     expect(fakeState.inserted).toHaveLength(0);
-    await ev.evaluateAlertRulesInMemory({} as any);
+    await ev.evaluateAlertRulesInMemory({} as ServerConfig);
     expect(fakeState.inserted).toHaveLength(1);
   });
 
@@ -612,11 +613,11 @@ describe('alertEvaluator — flap damping', () => {
     const ev = await importEvaluator();
     ev.__resetAlertFlapStateForTests();
 
-    const first = await ev.evaluateAlertRulesInMemory({} as any);
+    const first = await ev.evaluateAlertRulesInMemory({} as ServerConfig);
     expect(first.state_changes).toBe(0);
     expect(fakeState.updated).toHaveLength(0);
-    await ev.evaluateAlertRulesInMemory({} as any);
-    const third = await ev.evaluateAlertRulesInMemory({} as any);
+    await ev.evaluateAlertRulesInMemory({} as ServerConfig);
+    const third = await ev.evaluateAlertRulesInMemory({} as ServerConfig);
     expect(third.state_changes).toBe(1);
     expect(fakeState.updated).toHaveLength(1);
   });
@@ -630,9 +631,9 @@ describe('alertEvaluator — flap damping', () => {
     const ev = await importEvaluator();
     ev.__resetAlertFlapStateForTests();
 
-    await ev.evaluateAlertRulesInMemory({} as any);
+    await ev.evaluateAlertRulesInMemory({} as ServerConfig);
     const afterFirst = fakeState.updated.length;
-    await ev.evaluateAlertRulesInMemory({} as any);
+    await ev.evaluateAlertRulesInMemory({} as ServerConfig);
     expect(fakeState.updated.length).toBe(afterFirst); // identical value → no write
   });
 });

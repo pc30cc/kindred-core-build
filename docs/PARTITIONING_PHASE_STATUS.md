@@ -64,6 +64,7 @@ excluded — no evidence justifies touching them.
 | **179** `partition_rls_hardening` | Enables RLS on every partition (existing and future) and revokes `anon`/`authenticated` on them. |
 | **180** `partition_operator_activity_samples` | Converts `operator_activity_samples` to monthly RANGE on `bucket`. |
 | **181** `retention_partition_integration` | Read-only `retention_partition_preview(policy_key)` linking partitions to the retention system. |
+| **184** `drop_legacy_partition_rollback_tables` | Drops `workspace_health_snapshots_legacy` and `operator_activity_samples_legacy`, the rollback copies 178/180 left behind. Asserts row-for-row redundancy in-transaction first and aborts rather than drop a copy holding anything the partitioned table lacks. |
 
 ---
 
@@ -71,13 +72,15 @@ excluded — no evidence justifies touching them.
 
 | Table | Rows before | Rows after copy | Default-partition rows | Duplicate IDs | Rollback copy |
 |---|---|---|---|---|---|
-| workspace_health_snapshots | 2,262 | 2,262 | 0 | 0 | `workspace_health_snapshots_legacy` |
-| operator_activity_samples | 1,290 | 1,290 | 0 | 0 | `operator_activity_samples_legacy` |
+| workspace_health_snapshots | 2,262 | 2,262 | 0 | 0 | dropped 2026-09-17 (184) |
+| operator_activity_samples | 1,290 | 1,290 | 0 | 0 | dropped 2026-09-17 (184) |
 
 Each migration validates itself **inside the transaction** and aborts on any
 mismatch of: row count, `min`/`max` timestamp, distinct workspace count,
 duplicate IDs, or any row landing in the DEFAULT partition. Nothing was
-deleted; the pre-partitioning tables were renamed, not dropped.
+deleted at migration time; the pre-partitioning tables were renamed, not
+dropped. Those rollback copies were retired later by migration 184 — see
+§11.
 
 Live writes have continued into the partitioned tables since the swap
 (2,282 and 1,297 rows at the time of writing, versus 2,262/1,290 copied), with
@@ -260,8 +263,37 @@ log and the admin badge: `rows_in_default_partition` (critical),
 
 ## 11. Destructive cleanup
 
-Still disabled. The only enabled retention policies are the 13 `permanent`
-ones, which delete nothing by definition. No partition has been detached or
-dropped, no legacy table has been dropped, and no drop/detach code path exists.
-`workspace_health_snapshots_legacy` and `operator_activity_samples_legacy` are
-retained as rollback copies.
+Retention-driven deletion is still disabled. The only enabled retention
+policies are the 13 `permanent` ones, which delete nothing by definition. No
+partition has been detached or dropped, and no automated drop/detach code path
+exists.
+
+One deliberate, manual exception: on **2026-09-17** migration **184** dropped
+the two pre-partitioning rollback copies,
+`workspace_health_snapshots_legacy` and `operator_activity_samples_legacy`.
+This was the "explicit decision" 178 and 180 required before removal, taken
+on this evidence:
+
+* **Lossless** — every legacy row verified present column-for-column in the
+  partitioned table (`EXCEPT` both ways: 2,262/2,262 and 1,290/1,290, zero
+  missing). The migration re-asserts this inside its own transaction and
+  raises rather than drop a copy that still holds anything unique.
+* **No readers** — no foreign key, view, function, trigger or application
+  code path referenced either table.
+* **Settled** — four days of live writes routing to the partitioned tables,
+  both DEFAULT partitions still at 0, so the rollback path these copies
+  existed to serve was no longer plausible.
+
+A caveat worth recording, because it nearly blocked this cleanup: the scan
+counters in `pg_stat_user_tables` made both copies look busy (91,281 seq
+scans / 24,627 idx scans). They are **not** evidence of current reads.
+`ALTER TABLE ... RENAME` preserves the relation's OID, so those counters are
+lifetime history accumulated while these tables *were* the live ones, carried
+across the rename. `last_seq_scan`/`last_idx_scan` (PG 16+) are the columns
+that answer "is anything reading this *now*"; on the health copy
+`last_seq_scan` matched the 178 migration's own copy step to the second.
+The mirror-image trap applies to the partitioned parents: they report 0 rows
+and 0 scans because both are attributed to the child partitions, not because
+they are idle.
+
+Reclaimed ~1.6 MB. Recovery, if ever needed, is a point-in-time restore.

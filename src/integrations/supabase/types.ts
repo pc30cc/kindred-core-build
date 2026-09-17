@@ -9975,33 +9975,6 @@ export type Database = {
         }
         Relationships: []
       }
-      operator_activity_samples_legacy: {
-        Row: {
-          available: boolean
-          bucket: string
-          created_at: string
-          id: string
-          user_id: string
-          workspace_id: string
-        }
-        Insert: {
-          available?: boolean
-          bucket: string
-          created_at?: string
-          id?: string
-          user_id: string
-          workspace_id: string
-        }
-        Update: {
-          available?: boolean
-          bucket?: string
-          created_at?: string
-          id?: string
-          user_id?: string
-          workspace_id?: string
-        }
-        Relationships: []
-      }
       operator_call_availability: {
         Row: {
           active_call_session_id: string | null
@@ -16889,36 +16862,6 @@ export type Database = {
         Relationships: []
       }
       workspace_health_snapshots_default: {
-        Row: {
-          captured_at: string
-          components: Json
-          health_score: number
-          id: string
-          inputs: Json
-          state: string
-          workspace_id: string
-        }
-        Insert: {
-          captured_at?: string
-          components?: Json
-          health_score: number
-          id?: string
-          inputs?: Json
-          state: string
-          workspace_id: string
-        }
-        Update: {
-          captured_at?: string
-          components?: Json
-          health_score?: number
-          id?: string
-          inputs?: Json
-          state?: string
-          workspace_id?: string
-        }
-        Relationships: []
-      }
-      workspace_health_snapshots_legacy: {
         Row: {
           captured_at: string
           components: Json

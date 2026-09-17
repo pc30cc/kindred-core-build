@@ -5,9 +5,13 @@
  * never throws, never awaits storage, and never delays the caller. The
  * callers are widget endpoints on a visitor's page load, and the rule from
  * the requirements is explicit — a failure in the analytics lake must not
- * break widget tracking, but it must not be silent either. So failures land
- * in the existing observability surface (emitLog / emitMetric) and on the
- * Analytics Storage admin panel, never in the visitor's response.
+ * break widget tracking. It never reaches the visitor's response.
+ *
+ * Nor is it recorded: analytics emits no logs, no metrics and no error
+ * history. A write that fails is retried from the durable spool, and the
+ * admin panel answers the only question anyone asks of this subsystem —
+ * whether the backend can reach its providers right now — by running a
+ * live round trip when asked, not by reading back something remembered.
  *
  * Phase 1 is DUAL-WRITE. Each call site keeps its existing PostgreSQL
  * insert exactly as it was and adds one call here. Nothing reads from S3

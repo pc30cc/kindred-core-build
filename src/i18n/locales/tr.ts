@@ -6239,9 +6239,7 @@ const tr: TranslationKeys = {
     },
     health: {
       synchronized: 'Eşitlenmiş',
-      behind: 'Geride',
       dirty: 'Tutarsız',
-      failed: 'Başarısız',
       never_synchronized: 'Hiç eşitlenmedi',
     },
     status: {
@@ -6281,9 +6279,6 @@ const tr: TranslationKeys = {
       desc: 'Seçilen her sağlayıcı, her analitik nesnesinin bayt bayt aynısını aynı anahtarla alır. Analitik birincili aynı anda replika olamaz.',
       replicationEnabled: 'Yazmaları replikalara kopyala',
       noneEligible: 'Yapılandırılmış başka hiçbir sağlayıcı henüz analitik replikası tutamaz.',
-      lastSync: 'Son tam eşitleme',
-      dirtyReason: 'Çoğaltma boşluğu',
-      lastError: 'Son hata',
     },
     sync: {
       run: 'Şimdi eşitle',

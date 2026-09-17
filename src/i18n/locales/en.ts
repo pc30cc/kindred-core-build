@@ -6254,9 +6254,7 @@ const en = {
     },
     health: {
       synchronized: 'Synchronized',
-      behind: 'Behind',
       dirty: 'Dirty',
-      failed: 'Failed',
       never_synchronized: 'Never synchronized',
     },
     status: {
@@ -6296,9 +6294,6 @@ const en = {
       desc: 'Each selected vendor receives a byte-identical copy of every analytics object, under the same key. The analytics primary cannot also be a replica.',
       replicationEnabled: 'Copy writes to replicas',
       noneEligible: 'No other configured vendor can hold analytics replicas yet.',
-      lastSync: 'Last full sync',
-      dirtyReason: 'Replication gap',
-      lastError: 'Last error',
     },
     sync: {
       run: 'Sync now',

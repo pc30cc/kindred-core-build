@@ -362,7 +362,10 @@ describe('analytics writes follow the ANALYTICS topology', () => {
 
     const pool = await readAnalyticsPool(serverConfig);
     expect(analyticsReplicaHealth(pool, 'minio')).toBe('dirty');
-    expect(pool.replicaState.minio?.dirtyReason).toMatch(/mirror_upload_failed/);
+    // WHEN it went dirty is kept, because promotion depends on it. WHY is not:
+    // the vendor's error string was history, and analytics keeps none.
+    expect(pool.replicaState.minio?.dirtyAt).toBeTruthy();
+    expect((pool.replicaState.minio as Record<string, unknown>).dirtyReason).toBeUndefined();
     // The healthy replica is untouched by its sibling's failure.
     expect(pool.replicaState.cloudflare_r2?.dirtyAt ?? null).toBeNull();
   });
@@ -383,9 +386,13 @@ describe('analytics writes follow the ANALYTICS topology', () => {
     enqueueAnalyticsRow(serverConfig, pool, row());
     const result = await flushAnalytics(serverConfig, { force: true });
 
+    // The failure is reported to THIS caller, in the moment.
     expect(result.objects).toBe(0);
     expect(result.failures).toBe(1);
-    expect(getAnalyticsPool()!.lastError).toMatch(/primary_write_failed/);
+    // ...and recorded nowhere. `lastError` used to be written to PostgreSQL
+    // on every failed flush; a failing primary must not accumulate an error
+    // log in the database.
+    expect((getAnalyticsPool() as Record<string, unknown>).lastError).toBeUndefined();
     // Replicas must not hold an object the primary never accepted.
     expect(buckets.get(BUCKET_OF.cloudflare_r2)?.size ?? 0).toBe(0);
     // The rows are kept for the next flush, not dropped on the floor.

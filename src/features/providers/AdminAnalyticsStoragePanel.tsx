@@ -138,9 +138,7 @@ function ConnectionRow(
 
 const HEALTH_TONE: Record<string, string> = {
   synchronized: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400',
-  behind: 'border-amber-500/30 bg-amber-500/10 text-amber-400',
   dirty: 'border-amber-500/30 bg-amber-500/10 text-amber-400',
-  failed: 'border-destructive/30 bg-destructive/10 text-destructive',
   never_synchronized: 'border-border bg-muted/20 text-muted-foreground',
 };
 
@@ -342,14 +340,6 @@ export function AdminAnalyticsStoragePanel() {
       </Card>
     );
   }
-
-  const replicaHealthSummary = pool?.replicas.length
-    ? pool.replicas.every((name) => providers.find((p) => p.name === name)?.health === 'synchronized')
-      ? 'synchronized'
-      : pool.replicas.some((name) => providers.find((p) => p.name === name)?.health === 'failed')
-        ? 'failed'
-        : 'behind'
-    : 'never_synchronized';
 
   return (
     <div className="space-y-4">
@@ -845,25 +835,12 @@ function ReplicaDetail({
 
   return (
     <div className="space-y-2 border-t border-border/60 pt-2">
-      <div className="grid gap-1.5 sm:grid-cols-2 text-[10px] text-muted-foreground">
-        <p>
-          {t('analyticsStorage.replicas.lastSync')}:{' '}
-          <span className="text-foreground">
-            {provider.syncedAt ? new Date(provider.syncedAt).toLocaleString() : t('analyticsStorage.never')}
-          </span>
-        </p>
-        {provider.dirtyReason && (
-          <p className="text-amber-400 break-all">
-            {t('analyticsStorage.replicas.dirtyReason')}: {provider.dirtyReason}
-          </p>
-        )}
-        {provider.lastError && (
-          <p className="text-destructive break-all">
-            {t('analyticsStorage.replicas.lastError')}: {provider.lastError}
-          </p>
-        )}
-      </div>
-
+      {/*
+        A replica's health badge says synchronized / dirty / never — which is
+        what promotion depends on. The timestamps and vendor error strings
+        that used to sit here are gone with the rest of the analytics history:
+        the server no longer records them, so there is nothing to show.
+      */}
       {banner && (
         <div className={cn('flex items-start gap-2 rounded-md border p-2', banner.tone)}>
           <banner.icon className={cn('h-3.5 w-3.5 mt-0.5 shrink-0', run.phase === 'running' && 'animate-spin')} />

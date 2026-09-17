@@ -59,7 +59,7 @@ const BASE_STATE = {
     {
       name: 'cloudflare_r2', configured: true, generalEnabled: false, generalRole: 'off',
       analyticsPrimaryEligible: true, analyticsReplicaEligible: true, analyticsRole: 'replica',
-      health: 'behind', synchronized: false, syncInFlight: false,
+      health: 'dirty', synchronized: false, syncInFlight: false,
     },
     {
       name: 'minio', configured: true, generalEnabled: true, generalRole: 'mirror',
@@ -271,12 +271,23 @@ describe('choosing replicas', () => {
     });
   });
 
-  it('shows a selected replica’s health and the reason it fell behind', async () => {
+  it('shows a selected replica’s health, which is what promotion depends on', async () => {
     stubApi();
     const { container } = renderPanel();
     await screen.findByLabelText('Cloudflare R2');
-    expect(container.textContent).toContain(en.analyticsStorage.health.behind);
-    expect(container.textContent).toContain('mirror_upload_failed: 503');
+    expect(container.textContent).toContain(en.analyticsStorage.health.dirty);
+  });
+
+  it('shows no vendor error string or sync timestamp beside a replica', async () => {
+    // The health badge is a correctness signal. The error text and timestamps
+    // that used to sit next to it were history the server no longer keeps —
+    // rendering them would mean something had started recording again.
+    stubApi();
+    const { container } = renderPanel();
+    await screen.findByLabelText('Cloudflare R2');
+    const text = container.textContent ?? '';
+    expect(text).not.toContain('mirror_upload_failed');
+    expect(text).not.toMatch(/dirtyReason|lastError|lastSync/i);
   });
 });
 
@@ -422,7 +433,10 @@ describe('connection status', () => {
   it('re-runs the live check when Test connection is pressed', async () => {
     const calls = stubApi();
     renderPanel();
-    await waitFor(() => expect(calls.some((c) => c.url.includes('/connections'))).toBe(true));
+    // Wait for the FIRST check to settle: the button is disabled while a
+    // check is in flight, so clicking earlier would be a no-op.
+    await waitFor(() =>
+      expect(screen.getAllByText(en.analyticsStorage.connection.connected).length).toBe(2));
     const before = calls.filter((c) => c.url.includes('/connections')).length;
 
     fireEvent.click(screen.getByText(en.analyticsStorage.connection.test));

@@ -85,17 +85,19 @@ describe('the lock is not the checklist', () => {
     expect(readiness.s3OnlyUnlocked).toBe(false);
   });
 
-  it('reports every one of the nine checks', async () => {
+  it('reports every one of the eleven checks', async () => {
     const readiness = await cutoverReadiness(serverConfig);
     const keys = readiness.checks.map((c) => c.key);
     for (const key of [
       'primaryConfigured', 'primaryHealth', 'replicaHealth', 'duckdbAvailable',
       'historicalBackfill', 'productionParity', 'workspaceDeletion',
       'durableIngestion', 'nodeRuntime',
+      // Phase 3A additions.
+      'multiInstanceDurability', 'erasureApplied',
     ]) {
       expect(keys, `${key} is missing from the readiness card`).toContain(key);
     }
-    expect(readiness.checks).toHaveLength(9);
+    expect(readiness.checks).toHaveLength(11);
   });
 
   it('is ineligible while ANY check is blocked', async () => {

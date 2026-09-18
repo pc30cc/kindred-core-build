@@ -17,6 +17,7 @@ struct InboxView: View {
             // worth of height to say something the operator just tapped.
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
+            .statusBarScrim()
             .floatingTabBarInset()
             .refreshable {
                 await model.refresh(workspaceID: workspaceID, appState: appState)

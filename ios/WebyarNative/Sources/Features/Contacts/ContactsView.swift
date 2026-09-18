@@ -67,6 +67,7 @@ struct ContactsView: View {
             // search field comes down on a pull rather than sitting there.
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
+            .statusBarScrim()
             .floatingTabBarInset()
             .refreshable {
                 await model.refresh(workspaceID: workspaceID, appState: appState)

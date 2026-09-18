@@ -66,15 +66,23 @@ struct CallScreen: View {
                 .foregroundStyle(.white.opacity(0.75))
                 .monospacedDigit()
 
-            if session.relayWarning, session.phase.isLive {
-                // Worth saying out loud rather than only in a log: this is the
-                // reason a call works in the office and fails on a train.
-                Label(Str.callRelayWarning(language), systemImage: "exclamationmark.triangle.fill")
-                    .font(Theme.Typo.meta)
-                    .foregroundStyle(Theme.Palette.warning)
-                    .padding(.top, Theme.Space.xs)
+            // Two different warnings, both worth saying out loud rather than
+            // only in a log: one explains why a call fails on a train, the
+            // other why the person on the other end cannot see or hear.
+            if let degraded = session.degraded, session.phase == .connected {
+                notice(degraded.title(language))
+            } else if session.relayWarning, session.phase.isLive {
+                notice(Str.callRelayWarning(language))
             }
         }
+    }
+
+    private func notice(_ text: String) -> some View {
+        Label(text, systemImage: "exclamationmark.triangle.fill")
+            .font(Theme.Typo.meta)
+            .foregroundStyle(Theme.Palette.warning)
+            .multilineTextAlignment(.center)
+            .padding(.top, Theme.Space.xs)
     }
 
     @ViewBuilder

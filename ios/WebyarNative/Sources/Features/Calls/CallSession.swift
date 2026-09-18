@@ -26,6 +26,25 @@ enum CallPhase: Equatable, Sendable {
     }
 }
 
+/// A call that connected, but not with everything it was supposed to carry.
+///
+/// Worth its own type rather than a boolean: an operator who cannot be heard
+/// and an operator who cannot be seen have different problems, and telling
+/// them "something went wrong" helps with neither.
+enum CallDegradation: Equatable, Sendable {
+    /// The microphone would not start — permission, or another app holding it.
+    case noMicrophone
+    /// The camera would not start. The call carries on as audio.
+    case noCamera
+
+    func title(_ language: Language) -> String {
+        switch self {
+        case .noMicrophone: Str.callNoMicrophone(language)
+        case .noCamera: Str.callNoCamera(language)
+        }
+    }
+}
+
 /// How a call finished. Each of these reads differently to an operator, and
 /// telling them apart is most of what makes the screen feel honest.
 enum CallOutcome: Equatable, Sendable {
@@ -65,6 +84,8 @@ final class CallSession {
     /// Set when the server warned that TURN is unconfigured. Not fatal, but
     /// the first thing to look at when a call fails on a mobile network.
     private(set) var relayWarning = false
+    /// Set when the call connected but something could not be published.
+    private(set) var degraded: CallDegradation?
 
     let channel: CallChannel
     let contactName: String
@@ -169,18 +190,41 @@ final class CallSession {
                 )
             )
 
-            try await room.localParticipant.setMicrophone(enabled: true)
+            // Publishing is best-effort, deliberately. A camera that will not
+            // start — no camera at all on the simulator, permission refused,
+            // another app holding it — is a reason to carry on without video,
+            // not a reason to drop a call the visitor has already answered.
+            // Before this, one throw here took the whole call down.
+            do {
+                try await room.localParticipant.setMicrophone(enabled: true)
+            } catch {
+                isMuted = true
+                degraded = .noMicrophone
+            }
+
             if channel == .video {
-                try await room.localParticipant.setCamera(enabled: true)
+                do {
+                    try await room.localParticipant.setCamera(enabled: true)
+                } catch {
+                    isCameraOn = false
+                    if degraded == nil { degraded = .noCamera }
+                }
             }
 
             phase = .connected
             connectedAt = Date()
             refreshVisitorPresence()
         } catch {
-            phase = .ended(.failed(String(describing: error)))
-            await teardown()
+            // Only a failure to reach the room itself gets here now.
+            await finish(.failed(Self.describe(error)))
         }
+    }
+
+    /// LiveKit errors stringify into a paragraph. The operator needs the one
+    /// sentence, and the log keeps the rest.
+    private static func describe(_ error: Error) -> String {
+        if let error = error as? LiveKitError { return error.message ?? "\(error.type)" }
+        return (error as NSError).localizedDescription
     }
 
     private func iceServers(from credentials: CallToken) -> [IceServer] {
@@ -212,32 +256,50 @@ final class CallSession {
 
     /// Earpiece or loudspeaker. A voice call starts on the loudspeaker
     /// because the operator is at a desk, not holding the phone to their ear.
+    ///
+    /// Routed through LiveKit rather than `AVAudioSession` directly: the SDK
+    /// owns the session's configuration, and overriding the port behind its
+    /// back made the audio engine tear itself down and rebuild mid-call.
     func toggleSpeaker() {
         isSpeakerOn.toggle()
-        let session = AVAudioSession.sharedInstance()
-        try? session.overrideOutputAudioPort(isSpeakerOn ? .speaker : .none)
+        AudioManager.shared.isSpeakerOutputPreferred = isSpeakerOn
     }
 
     /// Ends the call for both sides.
     func hangUp() async {
+        await finish(.hungUp)
+    }
+
+    /// Called when the room tells us the other side has gone.
+    fileprivate func visitorDisconnected() {
+        guard phase.isLive else { return }
+        Task { await finish(.visitorLeft) }
+    }
+
+    /// The single way a call ends.
+    ///
+    /// Every path goes through here because the server has to be told on all
+    /// of them — including the ones that failed. It was not, and the evidence
+    /// was two call sessions left in `connecting` forever: the app had given
+    /// up, the visitor's browser had not, and the platform still counted a
+    /// call that nobody was on.
+    private func finish(_ outcome: CallOutcome) async {
+        guard phase.isLive else { return }
+        phase = .ended(outcome)
         pollTask?.cancel()
         pollTask = nil
+
         if let callSessionID {
+            // Idempotent server-side, which is what makes it safe to send
+            // even when the visitor hung up first and the call is already
+            // over as far as the server is concerned.
             try? await api.hangUp(callSessionID: callSessionID)
         } else {
             // Never answered: there is no session to end, only an offer to
             // withdraw.
             try? await api.cancelInvitation(id: invitationID)
         }
-        phase = .ended(.hungUp)
         await teardown()
-    }
-
-    /// Called when the room tells us the other side has gone.
-    fileprivate func visitorDisconnected() {
-        guard phase.isLive else { return }
-        phase = .ended(.visitorLeft)
-        Task { await teardown() }
     }
 
     fileprivate func refreshVisitorPresence() {
@@ -245,30 +307,16 @@ final class CallSession {
     }
 
     private func teardown() async {
-        await room?.disconnect()
+        if let room {
+            // Unpublish before disconnecting. Tearing the room down with a
+            // capturer still running leaves the camera light on and makes the
+            // SDK complain that it was deinitialised mid-capture.
+            try? await room.localParticipant.setCamera(enabled: false)
+            try? await room.localParticipant.setMicrophone(enabled: false)
+            await room.disconnect()
+        }
         room = nil
         roomDelegate = nil
-        // Handing the session back is what lets other audio — music, a real
-        // phone call — resume instead of staying ducked forever.
-        try? AVAudioSession.sharedInstance().setActive(
-            false,
-            options: .notifyOthersOnDeactivation
-        )
-    }
-
-    // MARK: - Audio
-
-    /// `.voiceChat` is what turns on echo cancellation, noise suppression and
-    /// the earpiece/loudspeaker routing a call needs. It also implies
-    /// Bluetooth HFP, so a headset works without asking for it by name.
-    private func configureAudioSession() {
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(
-            .playAndRecord,
-            mode: .voiceChat,
-            options: [.allowBluetoothA2DP, .defaultToSpeaker]
-        )
-        try? session.setActive(true)
     }
 }
 

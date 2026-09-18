@@ -991,3 +991,22 @@ extension Str {
         }
     }
 }
+
+extension Str {
+
+    static func callNoMicrophone(_ l: Language) -> String {
+        switch l {
+        case .en: "Your microphone is unavailable — they cannot hear you"
+        case .fa: "میکروفون در دسترس نیست — صدای شما را نمی‌شنوند"
+        case .tr: "Mikrofonunuz kullanılamıyor — sizi duyamıyorlar"
+        }
+    }
+
+    static func callNoCamera(_ l: Language) -> String {
+        switch l {
+        case .en: "Camera unavailable — continuing with audio only"
+        case .fa: "دوربین در دسترس نیست — تماس فقط صوتی ادامه دارد"
+        case .tr: "Kamera kullanılamıyor — yalnızca sesle devam ediliyor"
+        }
+    }
+}

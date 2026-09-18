@@ -272,3 +272,38 @@ extension CallOutcome {
         }
     }
 }
+
+/// Owns the call for as long as it is on screen.
+///
+/// The session has to be created once and live for the whole call. Building
+/// it inside the presentation's content closure would make a new one on every
+/// re-render — a fresh poll, a fresh room, a call that restarts itself while
+/// somebody is talking into it.
+struct CallHost: View {
+    let language: Language
+    let onClose: () -> Void
+
+    @State private var session: CallSession
+
+    init(
+        invitation: CallInvitation,
+        contactName: String,
+        contactAvatarURL: String?,
+        language: Language,
+        onClose: @escaping () -> Void
+    ) {
+        self.language = language
+        self.onClose = onClose
+        _session = State(
+            initialValue: CallSession(
+                invitation: invitation,
+                contactName: contactName,
+                contactAvatarURL: contactAvatarURL
+            )
+        )
+    }
+
+    var body: some View {
+        CallScreen(session: session, language: language, onClose: onClose)
+    }
+}

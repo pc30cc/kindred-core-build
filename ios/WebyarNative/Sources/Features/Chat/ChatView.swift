@@ -49,6 +49,23 @@ struct ChatView: View {
         @Bindable var model = model
 
         transcript
+            // The call takes the whole screen from the moment the invitation
+            // goes out: waiting for the visitor, connecting, talking and the
+            // outcome are one continuous thing to the operator, and a banner
+            // would make the first two look like nothing was happening.
+            //
+            // Attached here rather than alongside the conversation sheets
+            // because SwiftUI honours one presentation per view — a second
+            // one on the same view is silently ignored.
+            .fullScreenCover(item: $actions.pendingInvitation) { invitation in
+                CallHost(
+                    invitation: invitation,
+                    contactName: title,
+                    contactAvatarURL: conversation.contact?.avatarURL,
+                    language: language,
+                    onClose: { actions.pendingInvitation = nil }
+                )
+            }
             .background(Theme.Palette.background)
             .navigationBarTitleDisplayMode(.inline)
             // A custom principal item rather than `navigationTitle`: the
@@ -128,21 +145,6 @@ struct ChatView: View {
                 default: break
                 }
                 #endif
-            }
-            // The call takes the whole screen from the moment the invitation
-            // goes out: waiting for the visitor, connecting, talking and the
-            // outcome are one continuous thing to the operator, and a banner
-            // would make the first two look like nothing was happening.
-            .fullScreenCover(item: $actions.pendingInvitation) { invitation in
-                CallScreen(
-                    session: CallSession(
-                        invitation: invitation,
-                        contactName: title,
-                        contactAvatarURL: conversation.contact?.avatarURL
-                    ),
-                    language: language,
-                    onClose: { actions.pendingInvitation = nil }
-                )
             }
             .alert(
                 Str.inviteFailed(language),

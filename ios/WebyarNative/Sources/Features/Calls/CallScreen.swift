@@ -194,7 +194,7 @@ private struct VideoStage: View {
             }
 
             if isCameraOn, let localTrack {
-                SwiftUIVideoView(localTrack, layoutMode: .fill, mirrored: true)
+                SwiftUIVideoView(localTrack, layoutMode: .fill, mirrorMode: .mirror)
                     .frame(width: 96, height: 132)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
                     .overlay(

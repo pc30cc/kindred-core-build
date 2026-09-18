@@ -31,3 +31,4 @@ dist-e2e/
 
 # XcodeGen output — regenerate with: xcodegen generate (ios/WebyarNative)
 ios/WebyarNative/*.xcodeproj/
+ios/WebyarNative/Generated/

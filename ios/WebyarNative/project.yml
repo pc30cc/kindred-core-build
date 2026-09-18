@@ -22,8 +22,11 @@ targets:
       - path: Sources
       - path: Resources
         buildPhase: resources
+    # Generated, and deliberately NOT inside `Resources` — a plist sitting in
+    # a resources build phase is also copied verbatim, which makes two
+    # commands produce the same output file and fails the build.
     info:
-      path: Resources/Info.plist
+      path: Generated/Info.plist
       properties:
         CFBundleDisplayName: Webyar
         CFBundleShortVersionString: "1.0.0"

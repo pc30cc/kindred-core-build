@@ -29,20 +29,36 @@ struct ChatView: View {
         )
     }
 
+    private var capabilities: ComposerCapabilities {
+        ComposerCapabilities.resolve(
+            conversation: conversation,
+            entitlements: appState.entitlements.value
+        )
+    }
+
     var body: some View {
         @Bindable var model = model
 
         transcript
             .background(Theme.Palette.background)
-            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
-            // A transcript is a full-screen task. Leaving the tab bar up would
-            // both crowd the composer and invite a tap that silently abandons
-            // a half-typed reply.
+            // A custom principal item rather than `navigationTitle`: the
+            // header carries the visitor's avatar, which is what tells an
+            // operator at a glance which device and country they are talking
+            // to without opening the contact.
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    ChatHeader(
+                        title: title,
+                        avatarURL: conversation.contact?.avatarURL,
+                        visitor: model.visitor,
+                        aiState: AIState.resolve(conversation),
+                        language: language
+                    )
+                }
+            }
+            // A transcript is a full-screen task.
             .toolbar(.hidden, for: .tabBar)
-            // The composer is a safe-area inset, not a stacked view: that is
-            // what makes the transcript scroll *behind* it and what lets the
-            // keyboard push it up without covering the last message.
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Composer(
                     text: $model.draft,
@@ -50,6 +66,9 @@ struct ChatView: View {
                     sendLabel: Str.send(language),
                     canSend: model.canSend,
                     isSending: model.isSending,
+                    capabilities: capabilities,
+                    language: language,
+                    aiNotice: Str.aiOwnsThread(language),
                     onSend: { Task { await model.send(appState: appState) } }
                 )
             }
@@ -98,27 +117,31 @@ struct ChatView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: Theme.Space.md) {
+                        LazyVStack(spacing: Theme.Space.xxs) {
                             ForEach(days) { day in
                                 Section {
-                                    ForEach(day.messages) { message in
-                                        MessageBubble(
+                                    ForEach(Array(day.messages.enumerated()), id: \.element.id) { index, message in
+                                        MessageRow(
                                             message: message,
+                                            // An avatar is drawn only on the
+                                            // last message of a run, the way
+                                            // every chat app does it: repeating
+                                            // it beside each line of a
+                                            // three-line reply is visual noise.
+                                            showsAvatar: Self.endsRun(day.messages, at: index),
+                                            contactAvatarURL: conversation.contact?.avatarURL,
+                                            contactName: title,
+                                            visitor: model.visitor,
                                             language: language,
                                             locale: locale
                                         )
                                         .id(message.id)
                                     }
                                 } header: {
-                                    DayHeader(
-                                        text: Format.dayHeader(day.id, locale: locale)
-                                    )
+                                    DayHeader(text: Format.dayHeader(day.id, locale: locale))
                                 }
                             }
 
-                            // A zero-height anchor is a more reliable scroll
-                            // target than the last bubble, whose height is not
-                            // known until it lays out.
                             Color.clear
                                 .frame(height: 1)
                                 .id(Self.bottomAnchor)
@@ -140,12 +163,73 @@ struct ChatView: View {
         }
     }
 
+    /// Whether this message is the last of a consecutive run from the same
+    /// sender — the one that gets the avatar and the timestamp.
+    private static func endsRun(_ messages: [Message], at index: Int) -> Bool {
+        guard index + 1 < messages.count else { return true }
+        return messages[index + 1].senderType != messages[index].senderType
+    }
+
     private static let bottomAnchor = "chat.bottom"
+}
+
+// MARK: - Header
+
+/// The visitor's identity in the navigation bar.
+struct ChatHeader: View {
+    let title: String
+    let avatarURL: String?
+    let visitor: VisitorProfile?
+    let aiState: AIState?
+    let language: Language
+
+    /// Where they are and what they are on, when the server resolved it.
+    private var subtitle: String? {
+        var parts: [String] = []
+        if let city = visitor?.geo?.city, !city.isEmpty { parts.append(city) }
+        else if let country = visitor?.geo?.country, !country.isEmpty { parts.append(country) }
+        if let os = visitor?.device?.os, !os.isEmpty { parts.append(os) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        HStack(spacing: Theme.Space.sm) {
+            Avatar(
+                name: title,
+                imageURL: avatarURL,
+                size: Theme.Size.avatarSmall,
+                os: visitor?.device?.os,
+                device: visitor?.device?.device,
+                countryCode: visitor?.geo?.countryCode
+            )
+
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: Theme.Space.xs) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+
+                    if aiState == .aiManaged {
+                        Image(systemName: "sparkles")
+                            .font(.caption2)
+                            .foregroundStyle(Theme.Palette.brand)
+                    }
+                }
+
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(Theme.Palette.labelSecondary)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
 }
 
 // MARK: - Day header
 
-/// The centred date divider between days of transcript.
 struct DayHeader: View {
     let text: String
 
@@ -161,36 +245,34 @@ struct DayHeader: View {
     }
 }
 
-// MARK: - Bubble
+// MARK: - Message row
 
-/// One message.
+/// One message plus, on the last of a run, the sender's avatar.
 ///
-/// Outgoing sits against the trailing edge in the brand tint, incoming against
-/// the leading edge on a neutral surface — and because "leading" and
-/// "trailing" are direction-relative, the whole transcript mirrors correctly
-/// in Persian without a single conditional.
-struct MessageBubble: View {
+/// The avatar is the whole point of this row: an operator scanning a thread
+/// needs to tell at a glance which replies came from a colleague and which the
+/// AI sent on their behalf, and a name in small grey text does not carry that
+/// as fast as a face does.
+struct MessageRow: View {
     let message: Message
+    let showsAvatar: Bool
+    let contactAvatarURL: String?
+    let contactName: String
+    let visitor: VisitorProfile?
     let language: Language
     let locale: Locale
 
     private var isOutgoing: Bool { message.senderType.isOutgoing }
 
-    private var bubbleColor: Color {
-        isOutgoing ? Theme.Palette.bubbleOutgoing : Theme.Palette.bubbleIncoming
+    private var isAI: Bool {
+        message.senderType == .ai || message.senderType == .bot
     }
 
-    private var textColor: Color {
-        isOutgoing ? Theme.Palette.bubbleOutgoingText : Theme.Palette.bubbleIncomingText
-    }
-
-    /// Who sent it, when that is not obvious. An operator's own name is
-    /// redundant on their own message; an AI reply is worth labelling.
-    private var attribution: String? {
+    private var senderLabel: String {
         switch message.senderType {
         case .ai, .bot: Str.aiReply(language)
-        case .agent: message.senderName
-        case .contact, .system: nil
+        case .agent: message.senderName ?? ""
+        case .contact, .system: contactName
         }
     }
 
@@ -198,45 +280,85 @@ struct MessageBubble: View {
         if message.senderType == .system {
             systemNote
         } else {
-            HStack {
-                if isOutgoing { Spacer(minLength: Theme.Space.huge) }
-
-                VStack(alignment: isOutgoing ? .trailing : .leading, spacing: Theme.Space.xxs) {
-                    if let attribution, !attribution.isEmpty {
-                        Text(attribution)
-                            .font(Theme.Typo.meta)
-                            .foregroundStyle(Theme.Palette.labelSecondary)
-                            .padding(.horizontal, Theme.Space.xs)
-                    }
-
-                    Text(message.body)
-                        .font(Theme.Typo.message)
-                        .foregroundStyle(textColor)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, Theme.Space.md)
-                        .padding(.vertical, Theme.Space.sm + 2)
-                        .background(
-                            RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
-                                .fill(bubbleColor)
-                        )
-                        // Text selection is expected in a transcript — an
-                        // operator copies an order number out of it.
-                        .textSelection(.enabled)
-
-                    Text(Format.bubbleTime(message.createdAt, locale: locale))
-                        .font(.caption2)
-                        .foregroundStyle(Theme.Palette.labelTertiary)
-                        .padding(.horizontal, Theme.Space.xs)
+            HStack(alignment: .bottom, spacing: Theme.Space.sm) {
+                if isOutgoing {
+                    Spacer(minLength: Theme.Space.xl)
+                    bubbleColumn
+                    avatarSlot
+                } else {
+                    avatarSlot
+                    bubbleColumn
+                    Spacer(minLength: Theme.Space.xl)
                 }
-
-                if !isOutgoing { Spacer(minLength: Theme.Space.huge) }
             }
+            .padding(.vertical, Theme.Space.xxs)
             .accessibilityElement(children: .combine)
         }
     }
 
-    /// A state change, not something a person said — so it gets no bubble.
+    /// Keeps a fixed-width gutter whether or not an avatar is drawn, so every
+    /// bubble in a run starts on the same vertical line instead of stepping in
+    /// and out.
+    @ViewBuilder
+    private var avatarSlot: some View {
+        Group {
+            if showsAvatar {
+                if isAI {
+                    AIAvatar(size: Theme.Size.avatarSmall - 4)
+                } else if isOutgoing {
+                    // The operator's own uploaded photo when there is one.
+                    Avatar(
+                        name: message.senderName ?? "—",
+                        imageURL: message.senderAvatar,
+                        size: Theme.Size.avatarSmall - 4
+                    )
+                } else {
+                    Avatar(
+                        name: contactName,
+                        imageURL: contactAvatarURL,
+                        size: Theme.Size.avatarSmall - 4,
+                        os: visitor?.device?.os,
+                        device: visitor?.device?.device
+                    )
+                }
+            } else {
+                Color.clear
+            }
+        }
+        .frame(width: Theme.Size.avatarSmall - 4, height: Theme.Size.avatarSmall - 4)
+    }
+
+    private var bubbleColumn: some View {
+        VStack(alignment: isOutgoing ? .trailing : .leading, spacing: Theme.Space.xxs) {
+            if showsAvatar, !senderLabel.isEmpty, message.senderType != .contact {
+                Text(senderLabel)
+                    .font(Theme.Typo.meta)
+                    .foregroundStyle(Theme.Palette.labelSecondary)
+                    .padding(.horizontal, Theme.Space.xs)
+            }
+
+            Text(message.body)
+                .font(Theme.Typo.message)
+                .foregroundStyle(isOutgoing ? Theme.Palette.bubbleOutgoingText : Theme.Palette.bubbleIncomingText)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, Theme.Space.md)
+                .padding(.vertical, Theme.Space.sm + 2)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
+                        .fill(isOutgoing ? Theme.Palette.bubbleOutgoing : Theme.Palette.bubbleIncoming)
+                )
+                .textSelection(.enabled)
+
+            if showsAvatar {
+                Text(Format.bubbleTime(message.createdAt, locale: locale))
+                    .font(.caption2)
+                    .foregroundStyle(Theme.Palette.labelTertiary)
+                    .padding(.horizontal, Theme.Space.xs)
+            }
+        }
+    }
+
     private var systemNote: some View {
         Text(message.body)
             .font(Theme.Typo.meta)
@@ -247,72 +369,29 @@ struct MessageBubble: View {
     }
 }
 
-// MARK: - Composer
-
-/// The message field and send button.
+/// The AI's own mark.
 ///
-/// The field grows with the text up to a ceiling and then scrolls internally,
-/// and the send button is pinned to the bottom of the row so it stays under
-/// the thumb as the field grows upward.
-struct Composer: View {
-    @Binding var text: String
-    let placeholder: String
-    let sendLabel: String
-    let canSend: Bool
-    let isSending: Bool
-    let onSend: () -> Void
+/// Deliberately not a letter: an automated reply should never be mistakable
+/// for a colleague's, and a distinct glyph reads faster than the word "AI".
+struct AIAvatar: View {
+    var size: CGFloat = Theme.Size.avatarSmall
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: Theme.Space.sm) {
-            ZStack(alignment: .leading) {
-                // TextField's own placeholder disappears under a non-empty
-                // axis-vertical field on some iOS versions; drawing it here
-                // keeps it reliable.
-                if text.isEmpty {
-                    Text(placeholder)
-                        .font(.body)
-                        .foregroundStyle(Theme.Palette.labelTertiary)
-                        .padding(.horizontal, Theme.Space.md)
-                        .allowsHitTesting(false)
-                }
-
-                TextField("", text: $text, axis: .vertical)
-                    .font(.body)
-                    .lineLimit(1...6)
-                    .padding(.horizontal, Theme.Space.md)
-                    .padding(.vertical, Theme.Space.sm + 2)
-            }
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
-                    .fill(Theme.Palette.surface)
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(hue: 262 / 360, saturation: 0.72, brightness: 0.68),
+                    Color(hue: 232 / 360, saturation: 0.80, brightness: 0.52),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
-                    .strokeBorder(Theme.Palette.separator.opacity(0.6), lineWidth: 0.5)
-            )
-
-            Button(action: onSend) {
-                Group {
-                    if isSending {
-                        ProgressView().tint(.white)
-                    } else {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
-                }
-                .frame(width: Theme.Size.minTouchTarget, height: Theme.Size.minTouchTarget)
-                .background(Circle().fill(Theme.Palette.brand))
-                .opacity(canSend ? 1 : 0.4)
-            }
-            .buttonStyle(.plain)
-            .disabled(!canSend)
-            .accessibilityLabel(sendLabel)
-            .animation(Theme.Motion.standard, value: canSend)
+            Image(systemName: "sparkles")
+                .font(.system(size: size * 0.46, weight: .medium))
+                .foregroundStyle(.white)
         }
-        .padding(.horizontal, Theme.screenInset)
-        .padding(.vertical, Theme.Space.sm)
-        // `.bar` keeps the composer legible over whatever scrolls beneath it.
-        .background(.bar)
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .accessibilityHidden(true)
     }
 }

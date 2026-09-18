@@ -161,6 +161,10 @@ struct Conversation: Codable, Identifiable, Hashable, Sendable {
     let contact: ConversationContact?
     let lastMessage: MessagePreview?
     let unreadCount: Int?
+    let aiState: String?
+    /// Only the keys the app reads are decoded; the rest of the object is
+    /// server bookkeeping.
+    let metadata: [String: JSONValue]?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -173,9 +177,20 @@ struct Conversation: Codable, Identifiable, Hashable, Sendable {
         case contact = "contacts"
         case lastMessage = "last_message"
         case unreadCount = "unread_count"
+        case aiState = "ai_state"
+        case metadata
     }
 
     var hasUnread: Bool { (unreadCount ?? 0) > 0 }
+
+    /// Who is answering: `metadata.ai_state` first, then the top-level column.
+    ///
+    /// Both exist server-side and the nested one is authoritative — this is the
+    /// same precedence `InboxPage.tsx` reads them in.
+    var aiStateValue: String? {
+        if let nested = metadata?["ai_state"]?.stringValue, !nested.isEmpty { return nested }
+        return aiState
+    }
 
     /// The timestamp the list sorts and labels by: when something last
     /// happened in the thread, not when it was created.
@@ -263,4 +278,52 @@ struct ContactsResponse: Decodable, Sendable {
 struct ErrorResponse: Decodable, Sendable {
     let error: String?
     let passwordSetupRequired: Bool?
+}
+
+/// Just enough of a JSON value to read a handful of keys out of a free-form
+/// object without modelling the whole thing.
+///
+/// `metadata` carries server bookkeeping that changes independently of the
+/// app; decoding it into a concrete struct would break the whole response the
+/// first time a field was added.
+enum JSONValue: Codable, Hashable, Sendable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case object([String: JSONValue])
+    case array([JSONValue])
+    case null
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() { self = .null; return }
+        if let value = try? container.decode(Bool.self) { self = .bool(value); return }
+        if let value = try? container.decode(Double.self) { self = .number(value); return }
+        if let value = try? container.decode(String.self) { self = .string(value); return }
+        if let value = try? container.decode([String: JSONValue].self) { self = .object(value); return }
+        if let value = try? container.decode([JSONValue].self) { self = .array(value); return }
+        self = .null
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let value): try container.encode(value)
+        case .number(let value): try container.encode(value)
+        case .bool(let value): try container.encode(value)
+        case .object(let value): try container.encode(value)
+        case .array(let value): try container.encode(value)
+        case .null: try container.encodeNil()
+        }
+    }
+
+    var stringValue: String? {
+        if case .string(let value) = self { return value }
+        return nil
+    }
+
+    subscript(key: String) -> JSONValue? {
+        if case .object(let value) = self { return value[key] }
+        return nil
+    }
 }

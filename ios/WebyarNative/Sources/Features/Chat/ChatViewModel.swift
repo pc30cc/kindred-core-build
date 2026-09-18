@@ -14,6 +14,8 @@ final class ChatViewModel {
     private(set) var state: LoadState<[Message]> = .loading
     private(set) var isSending = false
     private(set) var sendFailed = false
+    /// Device and location behind this thread, for the header avatar.
+    private(set) var visitor: VisitorProfile?
 
     var draft = ""
 
@@ -52,9 +54,13 @@ final class ChatViewModel {
         do {
             let messages = try await api.messages(conversationID: conversation.id)
             state = .loaded(messages)
-            // Marking seen is a side effect of reading, and a failure here
-            // must never surface as a failure to load the transcript.
+            // Both of these are side effects of reading: neither may turn a
+            // loaded transcript into a failure.
             try? await api.markSeen(conversationID: conversation.id)
+            visitor = try? await api.visitorIntel(
+                workspaceID: conversation.workspaceId,
+                conversationIDs: [conversation.id]
+            )[conversation.id]
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()
         } catch let error as APIError {

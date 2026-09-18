@@ -682,6 +682,42 @@ enum Str {
         }
     }
 
+
+    // MARK: - Composer
+
+    static func attachFile(_ l: Language) -> String {
+        switch l {
+        case .en: "Attach a file"
+        case .fa: "پیوست فایل"
+        case .tr: "Dosya ekle"
+        }
+    }
+
+    static func voiceNote(_ l: Language) -> String {
+        switch l {
+        case .en: "Voice note"
+        case .fa: "پیام صوتی"
+        case .tr: "Sesli not"
+        }
+    }
+
+    static func emoji(_ l: Language) -> String {
+        switch l {
+        case .en: "Emoji"
+        case .fa: "شکلک"
+        case .tr: "Emoji"
+        }
+    }
+
+    /// Explains why the composer offers nothing but text right now.
+    static func aiOwnsThread(_ l: Language) -> String {
+        switch l {
+        case .en: "The AI is answering this conversation. You can reply in text; files, voice notes and emoji resume once you take over."
+        case .fa: "هوش مصنوعی در حال پاسخ‌دادن به این گفت‌وگوست. می‌توانید متنی پاسخ دهید؛ فایل و پیام صوتی و شکلک پس از تحویل‌گرفتن گفت‌وگو فعال می‌شوند."
+        case .tr: "Bu görüşmeyi yapay zekâ yanıtlıyor. Metin yazabilirsiniz; dosya, sesli not ve emoji siz devraldığınızda etkinleşir."
+        }
+    }
+
     // MARK: - Errors
 
     static func offlineTitle(_ l: Language) -> String {

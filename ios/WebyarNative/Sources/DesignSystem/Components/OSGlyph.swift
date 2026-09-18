@@ -59,8 +59,11 @@ struct OSGlyph: View {
                 .font(.system(size: size * 0.9))
                 .foregroundStyle(.white)
         case .android:
-            Image(systemName: "candybarphone")
-                .font(.system(size: size * 0.9))
+            // The web uses Lucide's generic `Smartphone`; `iphone` is its
+            // closest SF Symbol and reads as a modern handset rather than the
+            // keypad phone `candybarphone` draws.
+            Image(systemName: "iphone")
+                .font(.system(size: size * 0.92))
                 .foregroundStyle(.white)
         case .windows:
             SVGShape(path: Self.windowsPath, viewBox: 24)

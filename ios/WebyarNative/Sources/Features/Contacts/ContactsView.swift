@@ -67,11 +67,6 @@ struct ContactsView: View {
             // search field comes down on a pull rather than sitting there.
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .searchable(
-                text: $model.searchText,
-                placement: .navigationBarDrawer(displayMode: .automatic),
-                prompt: Str.search(language)
-            )
             .floatingTabBarInset()
             .refreshable {
                 await model.refresh(workspaceID: workspaceID, appState: appState)
@@ -102,30 +97,51 @@ struct ContactsView: View {
             }
 
         case .loaded:
-            if model.visible.isEmpty {
-                ScrollView {
-                    EmptyStateView(
-                        systemImage: model.searchText.isEmpty ? "person.2" : "magnifyingglass",
-                        title: model.searchText.isEmpty
-                            ? Str.contactsEmptyTitle(language)
-                            : Str.noResults(language),
-                        message: model.searchText.isEmpty ? Str.contactsEmptyBody(language) : ""
-                    )
-                }
-                .scrollBounceBehavior(.basedOnSize)
-            } else {
-                List(model.visible) { contact in
-                    NavigationLink(value: contact) {
-                        ContactRow(contact: contact, language: language)
+            ScrollViewReader { proxy in
+                List {
+                    // Same arrangement as the inbox: search inside the list,
+                    // the list resting just below it.
+                    SearchRow(text: $model.searchText, prompt: Str.search(language))
+                        .listRowInsets(EdgeInsets(
+                            top: Theme.Space.xs,
+                            leading: Theme.screenInset,
+                            bottom: Theme.Space.sm,
+                            trailing: Theme.screenInset
+                        ))
+                        .listRowSeparator(.hidden)
+
+                    if model.visible.isEmpty {
+                        EmptyStateView(
+                            systemImage: model.searchText.isEmpty ? "person.2" : "magnifyingglass",
+                            title: model.searchText.isEmpty
+                                ? Str.contactsEmptyTitle(language)
+                                : Str.noResults(language),
+                            message: model.searchText.isEmpty ? Str.contactsEmptyBody(language) : ""
+                        )
+                        .id(Self.listAnchor)
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                    } else {
+                        ForEach(Array(model.visible.enumerated()), id: \.element.id) { index, contact in
+                            NavigationLink(value: contact) {
+                                ContactRow(contact: contact, language: language)
+                            }
+                            // The first row is what the list rests on.
+                            .id(index == 0 ? Self.listAnchor : contact.id)
+                        }
                     }
                 }
                 .listStyle(.plain)
+                .restingBelowSearch(proxy: proxy, anchorID: Self.listAnchor)
                 .navigationDestination(for: Contact.self) { contact in
                     ContactDetailView(contact: contact)
                 }
             }
         }
     }
+
+    /// The row the list rests on, leaving the search field just above the fold.
+    private static let listAnchor = "contacts.top"
 }
 
 /// A contact in the list: avatar, name, and the best secondary identifier we

@@ -17,16 +17,6 @@ struct InboxView: View {
             // worth of height to say something the operator just tapped.
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            // `.automatic` rather than `.always`: the search field stays out
-            // of the way and comes down when the list is pulled, which is how
-            // Mail and Messages behave. `.always` pinned it permanently above
-            // the first row, spending 52pt on a control most sessions never
-            // use.
-            .searchable(
-                text: $model.searchText,
-                placement: .navigationBarDrawer(displayMode: .automatic),
-                prompt: Str.search(language)
-            )
             .floatingTabBarInset()
             .refreshable {
                 await model.refresh(workspaceID: workspaceID, appState: appState)
@@ -56,13 +46,27 @@ struct InboxView: View {
         // silently swallowed the "Inbox" title. Keeping it here also means it
         // stays reachable when the list is empty — otherwise an operator who
         // filtered into an empty queue would have no way back out.
+        ScrollViewReader { proxy in
         List {
+            // Search lives in the list, above the filter, and the list rests
+            // below it — so it is out of the way until the list is pulled
+            // down. See SearchRow for why `.searchable` does not work here.
+            SearchRow(text: $model.searchText, prompt: Str.search(language))
+                .listRowInsets(EdgeInsets(
+                    top: Theme.Space.xs,
+                    leading: Theme.screenInset,
+                    bottom: Theme.Space.sm,
+                    trailing: Theme.screenInset
+                ))
+                .listRowSeparator(.hidden)
+
             FilterPicker(
                 selection: $model.filter,
                 filters: appState.inboxFilters,
                 counts: model.counts,
                 language: language
             )
+                .id(Self.filterAnchor)
                 .listRowInsets(EdgeInsets(
                     top: Theme.Space.xs,
                     leading: Theme.screenInset,
@@ -134,10 +138,15 @@ struct InboxView: View {
             }
         }
         .listStyle(.plain)
+        .restingBelowSearch(proxy: proxy, anchorID: Self.filterAnchor)
         .navigationDestination(for: Conversation.self) { conversation in
             ChatView(conversation: conversation)
         }
+        }
     }
+
+    /// The row the list rests on, leaving the search field just above the fold.
+    private static let filterAnchor = "inbox.filter"
 
     private var rowInsets: EdgeInsets {
         EdgeInsets(

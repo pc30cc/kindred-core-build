@@ -163,6 +163,7 @@ final class CallCenterService: NSObject {
             // `setDelegate(_:queue:)` was given nil, which means the main
             // queue, so this closure is already where it needs to be.
             MainActor.assumeIsolated {
+                print("[RING] reportNewIncomingCall error=\(String(describing: error))")
                 if error != nil {
                     // Do Not Disturb, an active phone call, or a blocked
                     // number: iOS refused to ring. Telling the server keeps
@@ -281,8 +282,21 @@ final class CallCenterService: NSObject {
             "channel": channel.rawValue,
             "caller": "Maryam Hosseini",
         ]
-        guard let call = IncomingCall(push: payload) else { return }
-        reportIncoming(call) {}
+        guard let call = IncomingCall(push: payload) else {
+            print("[RING] payload unreadable")
+            return
+        }
+        print("[RING] reporting \(call.id) caller=\(call.caller)")
+        reportIncoming(call) { print("[RING] report completed") }
+        // The simulator has no CallKit UI to tap, so answer it the way the
+        // system would, to exercise the rest of the chain.
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            let action = CXAnswerCallAction(call: call.id)
+            self.controller.request(CXTransaction(action: action)) { error in
+                print("[RING] answer requested error=\(String(describing: error))")
+            }
+        }
     }
     #endif
 }

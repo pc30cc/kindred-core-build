@@ -81,6 +81,118 @@ actor SampleAPI: WebyarAPI {
 
     func contacts(workspaceID: String) async throws -> [Contact] { Self.contacts }
 
+    func claim(conversationID: String, workspaceID: String) async throws {}
+
+    func inboxCounts(workspaceID: String, scope: String) async throws -> InboxCounts {
+        InboxCounts(open: 4, pending: 0, resolved: 1, all: 6, needsHuman: 2, automated: 1)
+    }
+
+    // MARK: - Plan
+    //
+    // The sample plan turns everything on, because the point of sample mode is
+    // to lay out every screen — including the ones a Free plan hides.
+
+    func entitlements(workspaceID: String) async throws -> Entitlements {
+        let on = EffectiveState<Bool>(value: true, source: "plan", note: nil)
+        return Entitlements(
+            workspaceId: workspaceID,
+            features: [
+                "inbox_ai_queue": on,
+                "inbox_needs_human": on,
+                "contact_notes": on,
+                "contact_tags": on,
+            ],
+            modules: [
+                "chat": on,
+                "contacts": on,
+                "call_center": on,
+                "visitor_tracking": on,
+            ],
+            channels: ["chat_widget": on],
+            limits: [:],
+            plan: Entitlements.PlanSummary(slug: "pro", name: "Pro", tier: "pro")
+        )
+    }
+
+    func callCenterCapabilities(workspaceID: String) async throws -> CallCenterCapabilities {
+        CallCenterCapabilities(
+            platformEnabled: true,
+            workspaceEnabled: true,
+            workspaceCallCenterVisible: true,
+            platformCallbackEnabled: true
+        )
+    }
+
+    func callOverview(workspaceID: String) async throws -> CallOverview {
+        CallOverview(todayCalls: 12, waitingCalls: 2, activeCalls: 1, missedToday: 3, callbacksPending: 1)
+    }
+
+    func callQueue(workspaceID: String) async throws -> [QueueEntry] {
+        [
+            QueueEntry(id: "q-1", channel: "voice", status: "waiting", contactName: "مریم حسینی",
+                       contactEmail: "maryam@example.com", visitorCode: nil,
+                       createdAt: ago(3), waitingSince: ago(3)),
+            QueueEntry(id: "q-2", channel: "video", status: "waiting", contactName: nil,
+                       contactEmail: nil, visitorCode: "8F2C",
+                       createdAt: ago(1), waitingSince: ago(1)),
+        ]
+    }
+
+    func callHistory(workspaceID: String) async throws -> [CallRecord] {
+        [
+            CallRecord(id: "cl-1", status: "completed", direction: "inbound", kind: "voice",
+                       contactName: "Deniz Yılmaz", visitorCode: nil,
+                       startedAt: ago(60), endedAt: ago(56), durationSeconds: 245),
+            CallRecord(id: "cl-2", status: "missed", direction: "inbound", kind: "voice",
+                       contactName: nil, visitorCode: "A19D",
+                       startedAt: ago(180), endedAt: ago(180), durationSeconds: 0),
+            CallRecord(id: "cl-3", status: "completed", direction: "outbound", kind: "video",
+                       contactName: "Jonas Müller", visitorCode: nil,
+                       startedAt: ago(400), endedAt: ago(388), durationSeconds: 720),
+        ]
+    }
+
+    // MARK: - Account
+
+    private var profile: AccountProfile {
+        AccountProfile(id: Self.user.id, fullName: Self.user.fullName,
+                       avatarURL: nil, preferredLocale: "en")
+    }
+
+    func account() async throws -> Account {
+        Account(id: Self.user.id, email: Self.user.email, phone: nil,
+                emailConfirmedAt: "2026-01-01T00:00:00Z", createdAt: ago(100000),
+                profile: profile)
+    }
+
+    func updateProfile(fullName: String?, preferredLocale: String?) async throws -> Account {
+        try await account()
+    }
+
+    func uploadAvatar(imageData: Data, contentType: String, fileName: String?) async throws -> AccountProfile? {
+        profile
+    }
+
+    func deleteAvatar() async throws {}
+
+    func sessions() async throws -> AccountSessionsResponse {
+        AccountSessionsResponse(
+            sessions: [
+                AccountSession(id: "s-1", browser: "Webyar", os: "iOS 26", device: "iPhone",
+                               ip: "—", city: "Istanbul", country: "Türkiye", countryCode: "TR",
+                               isCurrent: true, createdAt: ago(20), lastActiveAt: ago(1)),
+                AccountSession(id: "s-2", browser: "Chrome", os: "macOS", device: nil,
+                               ip: "—", city: "Tehran", country: "Iran", countryCode: "IR",
+                               isCurrent: false, createdAt: ago(4000), lastActiveAt: ago(300)),
+            ],
+            currentSessionId: "s-1"
+        )
+    }
+
+    func revokeSession(id: String) async throws {}
+
+    func changePassword(current: String, new: String) async throws {}
+
     // MARK: - Fixtures
 
     private static func ago(_ minutes: Int) -> Date {

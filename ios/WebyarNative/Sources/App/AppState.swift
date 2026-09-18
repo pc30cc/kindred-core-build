@@ -26,6 +26,17 @@ final class AppState {
     private(set) var workspaces: [Workspace] = []
     private(set) var selectedWorkspace: Workspace?
 
+    /// What the current workspace's plan grants. Every plan-gated tab and
+    /// queue reads this rather than assuming.
+    private(set) var entitlements: EntitlementsState = .loading
+    /// What the call-center module says about itself, which is a separate
+    /// question from the plan — the platform or the workspace can switch it
+    /// off independently.
+    private(set) var callCenter: CallCenterCapabilities?
+    /// Set when the capabilities lookup itself failed, so the gate can fail
+    /// closed rather than guess.
+    private(set) var callCenterLookupFailed = false
+
     /// The operator's chosen language. Device language is deliberately never
     /// consulted, matching the web app: a language someone picked is a
     /// decision, and travelling with a differently-configured phone should not
@@ -136,6 +147,7 @@ final class AppState {
             // back to the first, so the inbox always has something to load.
             if let current = selectedWorkspace, list.contains(where: { $0.id == current.id }) { return }
             selectedWorkspace = list.first
+            await loadPlan()
         } catch APIError.unauthorized {
             await handleUnauthorized()
         } catch {
@@ -144,6 +156,78 @@ final class AppState {
     }
 
     func select(_ workspace: Workspace) {
+        guard workspace.id != selectedWorkspace?.id else { return }
         selectedWorkspace = workspace
+        // A different workspace can be on a different plan, so the gates have
+        // to be re-resolved before any tab decides whether it exists.
+        entitlements = .loading
+        callCenter = nil
+        callCenterLookupFailed = false
+        Task { await loadPlan() }
+    }
+
+    // MARK: - Plan
+
+    /// Resolves what this workspace's plan allows.
+    ///
+    /// The two lookups are independent — a workspace can be on a plan that
+    /// includes the call centre while the platform has the whole module
+    /// switched off — so one failing must not discard the other.
+    func loadPlan() async {
+        guard let workspaceID = selectedWorkspace?.id else {
+            entitlements = .failed
+            return
+        }
+
+        async let plan = try? await api.entitlements(workspaceID: workspaceID)
+        async let caps = try? await api.callCenterCapabilities(workspaceID: workspaceID)
+        let (resolvedPlan, resolvedCaps) = await (plan, caps)
+
+        entitlements = resolvedPlan.map(EntitlementsState.loaded) ?? .failed
+        callCenter = resolvedCaps
+        callCenterLookupFailed = resolvedCaps == nil
+    }
+
+    // MARK: - Gates
+    //
+    // These mirror the web console's sidebar rules exactly. Where they differ
+    // from each other it is deliberate, and the difference is what decides
+    // whether a whole tab exists.
+
+    /// Nothing plan-gated renders until the snapshot resolves one way or the
+    /// other. Showing a tab and taking it away a moment later is worse than
+    /// waiting for the answer.
+    var planResolved: Bool { entitlements.isResolved }
+
+    /// A top-level section belongs in this plan. An unknown key stays visible
+    /// so a module added server-side does not disappear from an older build;
+    /// only an explicit `false` hides it.
+    func moduleInPlan(_ key: String) -> Bool {
+        switch entitlements {
+        case .loading: false
+        case .failed: false
+        case .loaded(let value): value.moduleInPlan(key)
+        }
+    }
+
+    /// Fail-closed, for a single capability rather than a whole section.
+    func featureEnabled(_ key: String) -> Bool {
+        entitlements.value?.featureEnabled(key) == true
+    }
+
+    /// The call centre needs both answers to be yes: the module has to be
+    /// switched on for this workspace *and* be part of the plan. Fail-closed
+    /// on a failed lookup — a tab that dials nowhere is worse than no tab.
+    var callCenterVisible: Bool {
+        !callCenterLookupFailed
+            && callCenter?.isVisible == true
+            && moduleInPlan("call_center")
+    }
+
+    var contactsVisible: Bool { moduleInPlan("contacts") }
+
+    /// The queues this plan includes, in the order they should appear.
+    var inboxFilters: [InboxFilter] {
+        InboxFilter.available(for: entitlements.value)
     }
 }

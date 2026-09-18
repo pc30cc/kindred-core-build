@@ -227,6 +227,9 @@ actor APIClient {
         if let status = filter.status {
             query.append(URLQueryItem(name: "status", value: status))
         }
+        if filter.needsHumanOnly {
+            query.append(URLQueryItem(name: "needsHuman", value: "true"))
+        }
         let request = try makeRequest("GET", "/api/conversations", query: query)
         return try await perform(request, as: ConversationsResponse.self).conversations
     }
@@ -280,6 +283,154 @@ actor APIClient {
         try await performIgnoringBody(request)
     }
 
+    // MARK: - Plan
+
+    func entitlements(workspaceID: String) async throws -> Entitlements {
+        let request = try makeRequest("GET", "/api/plans/workspace/\(workspaceID)/effective")
+        return try await perform(request, as: Entitlements.self)
+    }
+
+    func callCenterCapabilities(workspaceID: String) async throws -> CallCenterCapabilities {
+        let request = try makeRequest(
+            "GET",
+            "/api/call-center/capabilities",
+            query: [URLQueryItem(name: "workspaceId", value: workspaceID)]
+        )
+        return try await perform(request, as: CallCenterCapabilities.self)
+    }
+
+    // MARK: - Call centre
+
+    func callOverview(workspaceID: String) async throws -> CallOverview {
+        let request = try makeRequest(
+            "GET",
+            "/api/call-center/overview",
+            query: [URLQueryItem(name: "workspaceId", value: workspaceID)]
+        )
+        return try await perform(request, as: CallOverviewResponse.self).overview
+    }
+
+    func callQueue(workspaceID: String) async throws -> [QueueEntry] {
+        let request = try makeRequest(
+            "GET",
+            "/api/call-center/queue",
+            query: [URLQueryItem(name: "workspaceId", value: workspaceID)]
+        )
+        return try await perform(request, as: QueueResponse.self).queue
+    }
+
+    func callHistory(workspaceID: String) async throws -> [CallRecord] {
+        let request = try makeRequest(
+            "GET",
+            "/api/call-center/calls",
+            query: [URLQueryItem(name: "workspaceId", value: workspaceID)]
+        )
+        return try await perform(request, as: CallsResponse.self).calls
+    }
+
+    // MARK: - Inbox extras
+
+    func inboxCounts(workspaceID: String, scope: String = "mine") async throws -> InboxCounts {
+        let request = try makeRequest(
+            "GET",
+            "/api/conversations/inbox-tab-counts",
+            query: [
+                URLQueryItem(name: "workspace_id", value: workspaceID),
+                URLQueryItem(name: "scope", value: scope),
+            ]
+        )
+        return try await perform(request, as: InboxCounts.self)
+    }
+
+    private struct ClaimBody: Encodable, Sendable {
+        let workspace_id: String
+    }
+
+    /// Takes ownership of a thread so the rest of the team can see it is
+    /// handled.
+    func claim(conversationID: String, workspaceID: String) async throws {
+        let request = try makeRequest(
+            "POST",
+            "/api/conversations/\(conversationID)/claim",
+            body: ClaimBody(workspace_id: workspaceID)
+        )
+        try await performIgnoringBody(request)
+    }
+
+    // MARK: - Account
+
+    func account() async throws -> Account {
+        let request = try makeRequest("GET", "/api/account/me")
+        return try await perform(request, as: Account.self)
+    }
+
+    private struct ProfileBody: Encodable, Sendable {
+        let full_name: String?
+        let preferred_locale: String?
+    }
+
+    func updateProfile(fullName: String?, preferredLocale: String?) async throws -> Account {
+        let request = try makeRequest(
+            "PATCH",
+            "/api/account/me",
+            body: ProfileBody(full_name: fullName, preferred_locale: preferredLocale)
+        )
+        try await performIgnoringBody(request)
+        return try await account()
+    }
+
+    private struct AvatarBody: Encodable, Sendable {
+        let data: String
+        let contentType: String
+        let fileName: String?
+    }
+
+    /// Uploads a new profile photo.
+    ///
+    /// The endpoint takes base64 in a JSON body rather than multipart, which
+    /// is why the image is re-encoded before sending rather than streamed.
+    func uploadAvatar(imageData: Data, contentType: String, fileName: String?) async throws -> AccountProfile? {
+        let request = try makeRequest(
+            "POST",
+            "/api/account/avatar",
+            body: AvatarBody(
+                data: imageData.base64EncodedString(),
+                contentType: contentType,
+                fileName: fileName
+            )
+        )
+        return try await perform(request, as: AccountAvatarResponse.self).profile
+    }
+
+    func deleteAvatar() async throws {
+        let request = try makeRequest("DELETE", "/api/account/avatar")
+        try await performIgnoringBody(request)
+    }
+
+    func sessions() async throws -> AccountSessionsResponse {
+        let request = try makeRequest("GET", "/api/account/security/sessions")
+        return try await perform(request, as: AccountSessionsResponse.self)
+    }
+
+    func revokeSession(id: String) async throws {
+        let request = try makeRequest("DELETE", "/api/account/security/sessions/\(id)")
+        try await performIgnoringBody(request)
+    }
+
+    private struct PasswordBody: Encodable, Sendable {
+        let currentPassword: String
+        let newPassword: String
+    }
+
+    func changePassword(current: String, new: String) async throws {
+        let request = try makeRequest(
+            "POST",
+            "/api/account/change-password",
+            body: PasswordBody(currentPassword: current, newPassword: new)
+        )
+        try await performIgnoringBody(request)
+    }
+
     // MARK: - Contacts
 
     func contacts(workspaceID: String) async throws -> [Contact] {
@@ -292,9 +443,13 @@ actor APIClient {
     }
 }
 
-/// The three inbox filters, expressed the way the API wants them.
+/// The inbox queues, expressed the way the API wants them.
+///
+/// Two of these are plan-gated, so the set an operator actually sees is
+/// decided by `available(for:)` rather than by `allCases`.
 enum InboxFilter: String, CaseIterable, Identifiable, Sendable {
     case open
+    case needsHuman
     case ai
     case resolved
 
@@ -302,25 +457,43 @@ enum InboxFilter: String, CaseIterable, Identifiable, Sendable {
 
     var queue: String {
         switch self {
-        case .open, .resolved: "main"
+        case .open, .needsHuman, .resolved: "main"
         case .ai: "automated"
         }
     }
 
     var status: String? {
         switch self {
-        case .open: "open"
+        case .open, .needsHuman: "open"
         case .resolved: "resolved"
         case .ai: nil
         }
     }
 
+    /// Narrows Main Inbox to threads the AI has handed back.
+    var needsHumanOnly: Bool { self == .needsHuman }
+
     func title(_ language: Language) -> String {
         switch self {
         case .open: Str.filterOpen(language)
+        case .needsHuman: Str.filterNeedsHuman(language)
         case .ai: Str.filterAI(language)
         case .resolved: Str.filterResolved(language)
         }
+    }
+
+    /// Which queues this workspace's plan actually includes.
+    ///
+    /// Open and Resolved are core and always present. The AI queue and the
+    /// needs-human queue are features an operator either has or does not, and
+    /// showing a tab that returns nothing because the plan excludes it reads
+    /// as a broken app rather than as an upsell.
+    static func available(for entitlements: Entitlements?) -> [InboxFilter] {
+        var filters: [InboxFilter] = [.open]
+        if entitlements?.featureEnabled("inbox_needs_human") == true { filters.append(.needsHuman) }
+        if entitlements?.featureEnabled("inbox_ai_queue") == true { filters.append(.ai) }
+        filters.append(.resolved)
+        return filters
     }
 }
 

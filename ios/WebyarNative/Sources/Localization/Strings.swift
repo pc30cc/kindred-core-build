@@ -359,6 +359,325 @@ enum Str {
         }
     }
 
+
+    // MARK: - Inbox (plan-gated queues)
+
+    static func filterNeedsHuman(_ l: Language) -> String {
+        switch l {
+        case .en: "Needs you"
+        case .fa: "نیاز به شما"
+        case .tr: "Sizi bekliyor"
+        }
+    }
+
+    static func claim(_ l: Language) -> String {
+        switch l {
+        case .en: "Assign to me"
+        case .fa: "به من بسپار"
+        case .tr: "Bana ata"
+        }
+    }
+
+    static func assignedToYou(_ l: Language) -> String {
+        switch l {
+        case .en: "Yours"
+        case .fa: "مال شما"
+        case .tr: "Sizde"
+        }
+    }
+
+    static func priorityUrgent(_ l: Language) -> String {
+        switch l {
+        case .en: "Urgent"
+        case .fa: "فوری"
+        case .tr: "Acil"
+        }
+    }
+
+    static func priorityHigh(_ l: Language) -> String {
+        switch l {
+        case .en: "High"
+        case .fa: "زیاد"
+        case .tr: "Yüksek"
+        }
+    }
+
+    // MARK: - Call centre
+
+    static func tabCalls(_ l: Language) -> String {
+        switch l {
+        case .en: "Calls"
+        case .fa: "تماس‌ها"
+        case .tr: "Aramalar"
+        }
+    }
+
+    static func callsWaiting(_ l: Language) -> String {
+        switch l {
+        case .en: "Waiting"
+        case .fa: "در انتظار"
+        case .tr: "Bekleyen"
+        }
+    }
+
+    static func callsActive(_ l: Language) -> String {
+        switch l {
+        case .en: "Active"
+        case .fa: "در جریان"
+        case .tr: "Aktif"
+        }
+    }
+
+    static func callsToday(_ l: Language) -> String {
+        switch l {
+        case .en: "Today"
+        case .fa: "امروز"
+        case .tr: "Bugün"
+        }
+    }
+
+    static func callsMissed(_ l: Language) -> String {
+        switch l {
+        case .en: "Missed"
+        case .fa: "بی‌پاسخ"
+        case .tr: "Cevapsız"
+        }
+    }
+
+    static func callsQueueTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "In the queue"
+        case .fa: "در صف"
+        case .tr: "Sırada"
+        }
+    }
+
+    static func callsRecentTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Recent calls"
+        case .fa: "تماس‌های اخیر"
+        case .tr: "Son aramalar"
+        }
+    }
+
+    static func callsQueueEmpty(_ l: Language) -> String {
+        switch l {
+        case .en: "Nobody is waiting"
+        case .fa: "کسی در صف نیست"
+        case .tr: "Bekleyen yok"
+        }
+    }
+
+    static func callsEmptyBody(_ l: Language) -> String {
+        switch l {
+        case .en: "Incoming calls appear here the moment someone rings."
+        case .fa: "تماس‌های ورودی به‌محض زنگ‌خوردن همین‌جا ظاهر می‌شوند."
+        case .tr: "Gelen aramalar biri aradığı anda burada görünür."
+        }
+    }
+
+    static func callsHistoryEmpty(_ l: Language) -> String {
+        switch l {
+        case .en: "No calls yet"
+        case .fa: "هنوز تماسی نبوده"
+        case .tr: "Henüz arama yok"
+        }
+    }
+
+    // MARK: - Settings (profile & security)
+
+    static func profile(_ l: Language) -> String {
+        switch l {
+        case .en: "Profile"
+        case .fa: "نمایه"
+        case .tr: "Profil"
+        }
+    }
+
+    static func displayName(_ l: Language) -> String {
+        switch l {
+        case .en: "Name"
+        case .fa: "نام"
+        case .tr: "Ad"
+        }
+    }
+
+    static func changePhoto(_ l: Language) -> String {
+        switch l {
+        case .en: "Change photo"
+        case .fa: "تغییر عکس"
+        case .tr: "Fotoğrafı değiştir"
+        }
+    }
+
+    static func removePhoto(_ l: Language) -> String {
+        switch l {
+        case .en: "Remove photo"
+        case .fa: "حذف عکس"
+        case .tr: "Fotoğrafı kaldır"
+        }
+    }
+
+    static func save(_ l: Language) -> String {
+        switch l {
+        case .en: "Save"
+        case .fa: "ذخیره"
+        case .tr: "Kaydet"
+        }
+    }
+
+    static func saved(_ l: Language) -> String {
+        switch l {
+        case .en: "Saved"
+        case .fa: "ذخیره شد"
+        case .tr: "Kaydedildi"
+        }
+    }
+
+    static func saveFailed(_ l: Language) -> String {
+        switch l {
+        case .en: "Could not save. Try again."
+        case .fa: "ذخیره نشد. دوباره تلاش کنید."
+        case .tr: "Kaydedilemedi. Tekrar deneyin."
+        }
+    }
+
+    static func photoTooLarge(_ l: Language) -> String {
+        switch l {
+        case .en: "That image is too large. Pick a smaller one."
+        case .fa: "این تصویر خیلی بزرگ است. کوچک‌تری انتخاب کنید."
+        case .tr: "Bu görsel çok büyük. Daha küçüğünü seçin."
+        }
+    }
+
+    static func security(_ l: Language) -> String {
+        switch l {
+        case .en: "Security"
+        case .fa: "امنیت"
+        case .tr: "Güvenlik"
+        }
+    }
+
+    static func changePassword(_ l: Language) -> String {
+        switch l {
+        case .en: "Change password"
+        case .fa: "تغییر رمز عبور"
+        case .tr: "Parolayı değiştir"
+        }
+    }
+
+    static func currentPassword(_ l: Language) -> String {
+        switch l {
+        case .en: "Current password"
+        case .fa: "رمز عبور فعلی"
+        case .tr: "Mevcut parola"
+        }
+    }
+
+    static func newPassword(_ l: Language) -> String {
+        switch l {
+        case .en: "New password"
+        case .fa: "رمز عبور تازه"
+        case .tr: "Yeni parola"
+        }
+    }
+
+    static func passwordChanged(_ l: Language) -> String {
+        switch l {
+        case .en: "Password changed"
+        case .fa: "رمز عبور عوض شد"
+        case .tr: "Parola değiştirildi"
+        }
+    }
+
+    static func passwordTooShort(_ l: Language) -> String {
+        switch l {
+        case .en: "Use at least 8 characters."
+        case .fa: "دست‌کم ۸ نویسه بگذارید."
+        case .tr: "En az 8 karakter kullanın."
+        }
+    }
+
+    static func activeSessions(_ l: Language) -> String {
+        switch l {
+        case .en: "Signed-in devices"
+        case .fa: "دستگاه‌های واردشده"
+        case .tr: "Oturum açık cihazlar"
+        }
+    }
+
+    static func thisDevice(_ l: Language) -> String {
+        switch l {
+        case .en: "This device"
+        case .fa: "همین دستگاه"
+        case .tr: "Bu cihaz"
+        }
+    }
+
+    static func revokeSession(_ l: Language) -> String {
+        switch l {
+        case .en: "Sign out this device"
+        case .fa: "خروج این دستگاه"
+        case .tr: "Bu cihazdan çık"
+        }
+    }
+
+    static func lastActive(_ l: Language) -> String {
+        switch l {
+        case .en: "Last active"
+        case .fa: "آخرین فعالیت"
+        case .tr: "Son etkinlik"
+        }
+    }
+
+    static func appearance(_ l: Language) -> String {
+        switch l {
+        case .en: "Appearance"
+        case .fa: "ظاهر"
+        case .tr: "Görünüm"
+        }
+    }
+
+    static func appearanceSystem(_ l: Language) -> String {
+        switch l {
+        case .en: "Match device"
+        case .fa: "مطابق دستگاه"
+        case .tr: "Cihazla aynı"
+        }
+    }
+
+    static func appearanceLight(_ l: Language) -> String {
+        switch l {
+        case .en: "Light"
+        case .fa: "روشن"
+        case .tr: "Açık"
+        }
+    }
+
+    static func appearanceDark(_ l: Language) -> String {
+        switch l {
+        case .en: "Dark"
+        case .fa: "تیره"
+        case .tr: "Koyu"
+        }
+    }
+
+    static func plan(_ l: Language) -> String {
+        switch l {
+        case .en: "Plan"
+        case .fa: "پلن"
+        case .tr: "Plan"
+        }
+    }
+
+    static func emailNotVerified(_ l: Language) -> String {
+        switch l {
+        case .en: "Email not verified"
+        case .fa: "ایمیل تأیید نشده"
+        case .tr: "E-posta doğrulanmadı"
+        }
+    }
+
     // MARK: - Errors
 
     static func offlineTitle(_ l: Language) -> String {

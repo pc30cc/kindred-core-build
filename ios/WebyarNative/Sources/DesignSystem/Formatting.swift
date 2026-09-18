@@ -122,6 +122,22 @@ enum Format {
         return Str.unknownVisitor(language)
     }
 
+    /// A call length or a wait, as `m:ss` or `h:mm:ss`.
+    ///
+    /// Always Latin digits and always this shape, because a duration is read
+    /// as a clock rather than as a sentence — "4:05" lands faster than "4
+    /// minutes 5 seconds", and the fixed shape lets a column of them line up.
+    static func duration(_ seconds: Int) -> String {
+        let clamped = max(0, seconds)
+        let hours = clamped / 3600
+        let minutes = (clamped % 3600) / 60
+        let secs = clamped % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, secs)
+        }
+        return String(format: "%d:%02d", minutes, secs)
+    }
+
     /// Collapses a message body to a single scannable preview line.
     static func preview(_ body: String?) -> String {
         guard let body else { return "" }

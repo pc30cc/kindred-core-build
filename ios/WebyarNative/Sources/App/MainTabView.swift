@@ -2,68 +2,66 @@ import SwiftUI
 
 /// The signed-in shell.
 ///
-/// `TabView` still does the work — it owns each tab's navigation stack, its
-/// state and the switch between them — but its own bar is hidden and replaced
-/// by a floating capsule. Keeping the real `TabView` underneath means tab
-/// state, deep links and the system's own restoration keep behaving normally;
-/// only the chrome is ours.
+/// Which tabs exist is decided by the plan, not by this file. `TabView` still
+/// owns each tab's navigation stack and state; only the chrome is ours, and
+/// only the membership is the plan's.
 struct MainTabView: View {
     @Environment(AppState.self) private var appState
-    @State private var selection: Tab
+    @State private var selection: Tab = .inbox
     @State private var inboxPath = NavigationPath()
     @State private var contactsPath = NavigationPath()
+    @State private var callsPath = NavigationPath()
 
-    enum Tab: Hashable { case inbox, contacts, settings }
-
-    init() {
-        _selection = State(initialValue: Self.initialTab)
-    }
-
-    /// A real launch always opens Inbox. In Debug, a screenshot run may name
-    /// a different starting tab.
-    private static var initialTab: Tab {
-        #if DEBUG
-        switch SampleRoute.current {
-        case .contacts, .contact: .contacts
-        case .settings: .settings
-        case .inbox, .chat, .none: .inbox
-        }
-        #else
-        .inbox
-        #endif
-    }
+    enum Tab: Hashable { case inbox, calls, contacts, settings }
 
     private var language: Language { appState.language }
 
-    /// Whether the floating bar should be on screen.
+    /// The tabs this account actually has.
     ///
-    /// A pushed detail screen — a transcript, a contact — is a full-screen
-    /// task, so the bar goes away rather than hovering over the composer.
+    /// Inbox and Settings are core and always present. Calls and Contacts are
+    /// plan-gated, and while the plan is still resolving neither is rendered —
+    /// a tab that appears and then vanishes reads as a bug.
+    private var tabs: [Tab] {
+        var tabs: [Tab] = [.inbox]
+        if appState.planResolved {
+            if appState.callCenterVisible { tabs.append(.calls) }
+            if appState.contactsVisible { tabs.append(.contacts) }
+        }
+        tabs.append(.settings)
+        return tabs
+    }
+
+    private var items: [FloatingTabBar<Tab>.Item] {
+        tabs.map { tab in
+            switch tab {
+            case .inbox:
+                .init(tab: .inbox, title: Str.tabInbox(language),
+                      icon: "tray", selectedIcon: "tray.fill")
+            case .calls:
+                .init(tab: .calls, title: Str.tabCalls(language),
+                      icon: "phone", selectedIcon: "phone.fill")
+            case .contacts:
+                .init(tab: .contacts, title: Str.tabContacts(language),
+                      icon: "person.2", selectedIcon: "person.2.fill")
+            case .settings:
+                .init(tab: .settings, title: Str.tabSettings(language),
+                      icon: "gearshape", selectedIcon: "gearshape.fill")
+            }
+        }
+    }
+
+    /// A pushed detail screen is a full-screen task, so the bar goes away
+    /// rather than hovering over a composer.
     private var showsTabBar: Bool {
         switch selection {
         case .inbox: inboxPath.isEmpty
         case .contacts: contactsPath.isEmpty
+        case .calls: callsPath.isEmpty
         case .settings: true
         }
     }
 
-    private var items: [FloatingTabBar<Tab>.Item] {
-        [
-            .init(tab: .inbox, title: Str.tabInbox(language),
-                  icon: "tray", selectedIcon: "tray.fill"),
-            .init(tab: .contacts, title: Str.tabContacts(language),
-                  icon: "person.2", selectedIcon: "person.2.fill"),
-            .init(tab: .settings, title: Str.tabSettings(language),
-                  icon: "gearshape", selectedIcon: "gearshape.fill"),
-        ]
-    }
-
     var body: some View {
-        // The default tab style, not `.page`. Page style would also let a
-        // horizontal swipe anywhere on a screen flick between Inbox and
-        // Settings, which is not something an operator ever means to do — and
-        // it conflicts outright with the swipe-to-resolve action on a row.
-        // Hiding the bar per tab is what removes the system chrome.
         TabView(selection: $selection) {
             NavigationStack(path: $inboxPath) {
                 InboxView()
@@ -71,11 +69,21 @@ struct MainTabView: View {
             .toolbar(.hidden, for: .tabBar)
             .tag(Tab.inbox)
 
-            NavigationStack(path: $contactsPath) {
-                ContactsView()
+            if appState.callCenterVisible {
+                NavigationStack(path: $callsPath) {
+                    CallCenterView()
+                }
+                .toolbar(.hidden, for: .tabBar)
+                .tag(Tab.calls)
             }
-            .toolbar(.hidden, for: .tabBar)
-            .tag(Tab.contacts)
+
+            if appState.contactsVisible {
+                NavigationStack(path: $contactsPath) {
+                    ContactsView()
+                }
+                .toolbar(.hidden, for: .tabBar)
+                .tag(Tab.contacts)
+            }
 
             NavigationStack {
                 SettingsView()
@@ -90,18 +98,22 @@ struct MainTabView: View {
             }
         }
         .animation(Theme.Motion.standard, value: showsTabBar)
-        // Keyed on the workspace: session restore is still in flight when the
-        // tab view first appears, so an unkeyed task would run before there is
-        // a workspace to fetch anything from and silently do nothing.
+        .animation(Theme.Motion.standard, value: tabs)
+        // A plan change can remove the tab that is currently open — switching
+        // workspace is the ordinary way that happens. Without this the shell
+        // would be left showing a tab that no longer exists.
+        .onChange(of: tabs) { _, newTabs in
+            if !newTabs.contains(selection) { selection = .inbox }
+        }
         .task(id: appState.selectedWorkspace?.id) {
-            await pushSampleDetailIfRequested()
+            await openRequestedScreen()
         }
     }
 
-    /// Opens a detail screen on launch when sample mode asked for one, so a
-    /// screenshot run can capture the chat and contact screens too. Compiled
+    /// Opens a detail screen on launch when a Debug run asked for one, so a
+    /// screenshot pass can capture the chat and contact screens too. Compiled
     /// out of Release entirely.
-    private func pushSampleDetailIfRequested() async {
+    private func openRequestedScreen() async {
         #if DEBUG
         guard let workspace = appState.selectedWorkspace else { return }
 
@@ -115,12 +127,22 @@ struct MainTabView: View {
             inboxPath.append(conversation)
 
         case .contact:
-            guard contactsPath.isEmpty,
+            guard contactsPath.isEmpty, appState.contactsVisible,
                   let contact = try? await Backend.current.contacts(workspaceID: workspace.id).first
             else { return }
+            selection = .contacts
             contactsPath.append(contact)
 
-        case .inbox, .contacts, .settings, .none:
+        case .contacts:
+            if appState.contactsVisible { selection = .contacts }
+
+        case .calls:
+            if appState.callCenterVisible { selection = .calls }
+
+        case .settings:
+            selection = .settings
+
+        case .inbox, .none:
             break
         }
         #endif

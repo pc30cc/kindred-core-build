@@ -20,7 +20,23 @@ protocol WebyarAPI: Sendable {
     func send(body: String, conversationID: String, workspaceID: String, clientMessageID: String) async throws
     func markSeen(conversationID: String) async throws
     func setStatus(_ status: ConversationStatus, conversationID: String, workspaceID: String) async throws
+    func claim(conversationID: String, workspaceID: String) async throws
+    func inboxCounts(workspaceID: String, scope: String) async throws -> InboxCounts
     func contacts(workspaceID: String) async throws -> [Contact]
+
+    func entitlements(workspaceID: String) async throws -> Entitlements
+    func callCenterCapabilities(workspaceID: String) async throws -> CallCenterCapabilities
+    func callOverview(workspaceID: String) async throws -> CallOverview
+    func callQueue(workspaceID: String) async throws -> [QueueEntry]
+    func callHistory(workspaceID: String) async throws -> [CallRecord]
+
+    func account() async throws -> Account
+    func updateProfile(fullName: String?, preferredLocale: String?) async throws -> Account
+    func uploadAvatar(imageData: Data, contentType: String, fileName: String?) async throws -> AccountProfile?
+    func deleteAvatar() async throws
+    func sessions() async throws -> AccountSessionsResponse
+    func revokeSession(id: String) async throws
+    func changePassword(current: String, new: String) async throws
 }
 
 extension APIClient: WebyarAPI {}
@@ -71,7 +87,7 @@ enum AutoLogin {
 /// and to an auto-signed-in run against the real server alike — the point is
 /// to reach a screen, not to choose where its content comes from.
 enum SampleRoute: String {
-    case inbox, chat, contacts, contact, settings
+    case inbox, chat, contacts, contact, calls, settings
 
     static let current: SampleRoute? = {
         let arguments = ProcessInfo.processInfo.arguments

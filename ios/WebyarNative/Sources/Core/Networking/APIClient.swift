@@ -411,117 +411,12 @@ actor APIClient {
         try await performIgnoringBody(request)
     }
 
-    // MARK: - Device registration
-
-    private struct DeviceBody: Encodable, Sendable {
-        let platform: String
-        let push_token: String?
-        let voip_token: String?
-        let device_id: String
-        let device_name: String?
-        let app_version: String?
-        let permission_status: String?
-        let workspace_id: String?
-    }
-
-    func registerPushDevice(
-        voipToken: String?,
-        deviceID: String,
-        deviceName: String?,
-        appVersion: String?
-    ) async throws {
-        let request = try makeRequest(
-            "POST",
-            "/api/push/devices",
-            body: DeviceBody(
-                platform: "ios",
-                push_token: nil,
-                voip_token: voipToken,
-                device_id: deviceID,
-                device_name: deviceName,
-                app_version: appVersion,
-                permission_status: nil,
-                workspace_id: nil
-            )
-        )
-        try await performIgnoringBody(request)
-    }
-
-    // MARK: - Answering a call
-
-    func acceptCall(callID: String, workspaceID: String) async throws -> CallConnectInfo {
-        let request = try makeRequest(
-            "POST",
-            "/api/call-center/calls/\(callID)/accept",
-            query: [URLQueryItem(name: "workspaceId", value: workspaceID)]
-        )
-        return try await perform(request, as: CallConnectInfo.self)
-    }
-
-    func rejectCall(callID: String, workspaceID: String) async throws {
-        let request = try makeRequest(
-            "POST",
-            "/api/call-center/calls/\(callID)/reject",
-            query: [URLQueryItem(name: "workspaceId", value: workspaceID)]
-        )
-        try await performIgnoringBody(request)
-    }
-
-    func endCall(callID: String, workspaceID: String) async throws {
-        let request = try makeRequest(
-            "POST",
-            "/api/call-center/calls/\(callID)/end",
-            query: [URLQueryItem(name: "workspaceId", value: workspaceID)]
-        )
-        try await performIgnoringBody(request)
-    }
-
     // MARK: - Plan
 
     func entitlements(workspaceID: String) async throws -> Entitlements {
         let request = try makeRequest("GET", "/api/plans/workspace/\(workspaceID)/effective")
         return try await perform(request, as: Entitlements.self)
     }
-
-    func callCenterCapabilities(workspaceID: String) async throws -> CallCenterCapabilities {
-        let request = try makeRequest(
-            "GET",
-            "/api/call-center/capabilities",
-            query: [URLQueryItem(name: "workspaceId", value: workspaceID)]
-        )
-        return try await perform(request, as: CallCenterCapabilities.self)
-    }
-
-    // MARK: - Call centre
-
-    func callOverview(workspaceID: String) async throws -> CallOverview {
-        let request = try makeRequest(
-            "GET",
-            "/api/call-center/overview",
-            query: [URLQueryItem(name: "workspaceId", value: workspaceID)]
-        )
-        return try await perform(request, as: CallOverviewResponse.self).overview
-    }
-
-    func callQueue(workspaceID: String) async throws -> [QueueEntry] {
-        let request = try makeRequest(
-            "GET",
-            "/api/call-center/queue",
-            query: [URLQueryItem(name: "workspaceId", value: workspaceID)]
-        )
-        return try await perform(request, as: QueueResponse.self).queue
-    }
-
-    func callHistory(workspaceID: String) async throws -> [CallRecord] {
-        let request = try makeRequest(
-            "GET",
-            "/api/call-center/calls",
-            query: [URLQueryItem(name: "workspaceId", value: workspaceID)]
-        )
-        return try await perform(request, as: CallsResponse.self).calls
-    }
-
-    // MARK: - Inbox extras
 
     func inboxCounts(workspaceID: String, scope: String = "mine") async throws -> InboxCounts {
         let request = try makeRequest(

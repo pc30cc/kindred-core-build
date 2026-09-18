@@ -154,15 +154,6 @@ actor SampleAPI: WebyarAPI {
 
     func cancelInvitation(id: String) async throws {}
 
-    func registerPushDevice(voipToken: String?, deviceID: String, deviceName: String?, appVersion: String?) async throws {}
-
-    func acceptCall(callID: String, workspaceID: String) async throws -> CallConnectInfo {
-        CallConnectInfo(provider: "sample", providerRoomId: "room-\(callID)", token: "sample-token", expiresAt: nil)
-    }
-
-    func rejectCall(callID: String, workspaceID: String) async throws {}
-
-    func endCall(callID: String, workspaceID: String) async throws {}
 
     /// Gives each sample thread a different device and country so the avatar's
     /// OS-mark and flag paths are actually exercised.
@@ -216,44 +207,6 @@ actor SampleAPI: WebyarAPI {
             limits: [:],
             plan: Entitlements.PlanSummary(slug: "pro", name: "Pro", tier: "pro")
         )
-    }
-
-    func callCenterCapabilities(workspaceID: String) async throws -> CallCenterCapabilities {
-        CallCenterCapabilities(
-            platformEnabled: true,
-            workspaceEnabled: true,
-            workspaceCallCenterVisible: true,
-            platformCallbackEnabled: true
-        )
-    }
-
-    func callOverview(workspaceID: String) async throws -> CallOverview {
-        CallOverview(todayCalls: 12, waitingCalls: 2, activeCalls: 1, missedToday: 3, callbacksPending: 1)
-    }
-
-    func callQueue(workspaceID: String) async throws -> [QueueEntry] {
-        [
-            QueueEntry(id: "q-1", channel: "voice", status: "waiting", contactName: "مریم حسینی",
-                       contactEmail: "maryam@example.com", visitorCode: nil,
-                       createdAt: SampleAPI.ago(3), waitingSince: SampleAPI.ago(3)),
-            QueueEntry(id: "q-2", channel: "video", status: "waiting", contactName: nil,
-                       contactEmail: nil, visitorCode: "8F2C",
-                       createdAt: SampleAPI.ago(1), waitingSince: SampleAPI.ago(1)),
-        ]
-    }
-
-    func callHistory(workspaceID: String) async throws -> [CallRecord] {
-        [
-            CallRecord(id: "cl-1", status: "completed", direction: "inbound", kind: "voice",
-                       contactName: "Deniz Yılmaz", visitorCode: nil,
-                       startedAt: SampleAPI.ago(60), endedAt: SampleAPI.ago(56), durationSeconds: 245),
-            CallRecord(id: "cl-2", status: "missed", direction: "inbound", kind: "voice",
-                       contactName: nil, visitorCode: "A19D",
-                       startedAt: SampleAPI.ago(180), endedAt: SampleAPI.ago(180), durationSeconds: 0),
-            CallRecord(id: "cl-3", status: "completed", direction: "outbound", kind: "video",
-                       contactName: "Jonas Müller", visitorCode: nil,
-                       startedAt: SampleAPI.ago(400), endedAt: SampleAPI.ago(388), durationSeconds: 720),
-        ]
     }
 
     // MARK: - Account

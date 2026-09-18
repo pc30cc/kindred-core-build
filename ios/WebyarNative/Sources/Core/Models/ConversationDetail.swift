@@ -141,21 +141,3 @@ enum CallChannel: String, Codable, Sendable, CaseIterable, Identifiable {
         }
     }
 }
-
-/// What the server hands back when an operator answers a call.
-///
-/// Everything needed to join the media room. The app keeps it so the call
-/// screen can show what it is connected to, and so the media leg has one
-/// place to read its credentials from when it lands.
-struct CallConnectInfo: Codable, Sendable {
-    let provider: String?
-    let providerRoomId: String?
-    let token: String?
-    let expiresAt: Date?
-
-    enum CodingKeys: String, CodingKey {
-        case provider, token
-        case providerRoomId = "provider_room_id"
-        case expiresAt = "expires_at"
-    }
-}

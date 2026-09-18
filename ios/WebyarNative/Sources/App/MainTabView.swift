@@ -14,29 +14,25 @@ struct MainTabView: View {
     /// The two come apart because `TabView` re-seats its own selection when
     /// its children change, and the children change the moment the plan
     /// resolves — several seconds after launch on a cold network. Without
-    /// this the app quietly lands on Calls or Settings while the operator is
+    /// this the app quietly lands on Contacts or Settings while the operator is
     /// looking at the inbox.
     @State private var intent: Tab = .inbox
     @State private var inboxPath = NavigationPath()
     @State private var contactsPath = NavigationPath()
-    @State private var callsPath = NavigationPath()
     @State private var settingsPath = NavigationPath()
 
-    enum Tab: Hashable { case inbox, calls, contacts, settings }
+    enum Tab: Hashable { case inbox, contacts, settings }
 
     private var language: Language { appState.language }
 
     /// The tabs this account actually has.
     ///
-    /// Inbox and Settings are core and always present. Calls and Contacts are
-    /// plan-gated, and while the plan is still resolving neither is rendered —
+    /// Inbox and Settings are core and always present. Contacts is
+    /// plan-gated, and while the plan is still resolving it is not rendered —
     /// a tab that appears and then vanishes reads as a bug.
     private var tabs: [Tab] {
         var tabs: [Tab] = [.inbox]
-        if appState.planResolved {
-            if appState.callCenterVisible { tabs.append(.calls) }
-            if appState.contactsVisible { tabs.append(.contacts) }
-        }
+        if appState.planResolved, appState.contactsVisible { tabs.append(.contacts) }
         tabs.append(.settings)
         return tabs
     }
@@ -47,9 +43,6 @@ struct MainTabView: View {
             case .inbox:
                 .init(tab: .inbox, title: Str.tabInbox(language),
                       icon: "tray", selectedIcon: "tray.fill")
-            case .calls:
-                .init(tab: .calls, title: Str.tabCalls(language),
-                      icon: "phone", selectedIcon: "phone.fill")
             case .contacts:
                 .init(tab: .contacts, title: Str.tabContacts(language),
                       icon: "person.2", selectedIcon: "person.2.fill")
@@ -66,7 +59,6 @@ struct MainTabView: View {
         switch selection {
         case .inbox: inboxPath.isEmpty
         case .contacts: contactsPath.isEmpty
-        case .calls: callsPath.isEmpty
         case .settings: settingsPath.isEmpty
         }
     }
@@ -90,22 +82,14 @@ struct MainTabView: View {
             .toolbar(.hidden, for: .tabBar)
             .tag(Tab.inbox)
 
-            // The plan-gated tabs are always *here* and only sometimes have
-            // anything in them. Adding and removing `TabView` children is what
+            // The plan-gated tab is always *here* and only sometimes has
+            // anything in it. Adding and removing `TabView` children is what
             // makes it re-seat its own selection, and the plan resolves a few
             // seconds after launch — long enough for the operator to be
             // reading the inbox when the app slides out from under them.
             // Keeping the children fixed and their contents conditional costs
             // nothing: an empty stack is never reachable, because the bar only
             // lists the tabs the plan grants.
-            NavigationStack(path: $callsPath) {
-                if appState.callCenterVisible {
-                    CallCenterView()
-                }
-            }
-            .toolbar(.hidden, for: .tabBar)
-            .tag(Tab.calls)
-
             NavigationStack(path: $contactsPath) {
                 if appState.contactsVisible {
                     ContactsView()
@@ -182,9 +166,6 @@ struct MainTabView: View {
 
         case .contacts:
             if appState.contactsVisible { select(.contacts) }
-
-        case .calls:
-            if appState.callCenterVisible { select(.calls) }
 
         case .settings:
             select(.settings)

@@ -31,7 +31,6 @@ enum SettingsRoute: Hashable {
 
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
-    @Environment(CallCenterService.self) private var calls
     @Environment(\.openURL) private var openURL
 
     @State private var isConfirmingSignOut = false
@@ -143,20 +142,6 @@ struct SettingsView: View {
                 }
                 .disabled(isSigningOut)
             }
-
-            #if DEBUG
-            // The simulator cannot receive a VoIP push, so without this there
-            // is no way to see the ring, the lock-screen call UI or the answer
-            // path short of a signed build on a real device with a real
-            // visitor waiting. Compiled out of Release entirely.
-            Section {
-                Button {
-                    calls.simulateIncomingCall()
-                } label: {
-                    Label(Str.ringTest(language), systemImage: "bell.badge")
-                }
-            }
-            #endif
 
             Section {
                 DetailRow(label: Str.version(language), value: appVersion, isLatin: true)

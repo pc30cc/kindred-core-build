@@ -68,27 +68,6 @@ struct Entitlements: Codable, Sendable {
     }
 }
 
-/// What the call-center module reports about itself.
-///
-/// This is a separate question from the plan: the platform can switch the
-/// whole module off for everyone, and a workspace can switch it off for
-/// itself. `GET /api/call-center/capabilities`.
-struct CallCenterCapabilities: Codable, Sendable {
-    let platformEnabled: Bool?
-    let workspaceEnabled: Bool?
-    let workspaceCallCenterVisible: Bool?
-    let platformCallbackEnabled: Bool?
-
-    enum CodingKeys: String, CodingKey {
-        case platformEnabled = "platform_enabled"
-        case workspaceEnabled = "workspace_enabled"
-        case workspaceCallCenterVisible = "workspace_call_center_visible"
-        case platformCallbackEnabled = "platform_callback_enabled"
-    }
-
-    var isVisible: Bool { workspaceCallCenterVisible == true }
-}
-
 /// How far the plan snapshot has got.
 ///
 /// The distinction between `loading` and `failed` is what stops a plan-gated

@@ -139,10 +139,17 @@ struct ChatView: View {
                 // A Debug run can ask to land straight on the call screen, so
                 // its phases can be laid out and screenshotted without
                 // driving the menu by hand every time.
-                switch SampleRoute.current {
-                case .call: await actions.invite(.audio, appState: appState)
-                case .videoCall: await actions.invite(.video, appState: appState)
-                default: break
+                //
+                // Sample data only, deliberately. Against the real server
+                // this would put a genuine call offer in front of a genuine
+                // visitor every time somebody took a screenshot, which is not
+                // a thing a screenshot should be able to do.
+                if Backend.isSample {
+                    switch SampleRoute.current {
+                    case .call: await actions.invite(.audio, appState: appState)
+                    case .videoCall: await actions.invite(.video, appState: appState)
+                    default: break
+                    }
                 }
                 #endif
             }

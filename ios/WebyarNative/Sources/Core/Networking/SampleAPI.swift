@@ -166,10 +166,15 @@ actor SampleAPI: WebyarAPI {
         )
     }
 
+    /// No room to join, so the sample call stops at "connecting" — which is
+    /// the state worth being able to look at. Reaching "connected" needs a
+    /// real visitor in a real room, and pretending otherwise would make this
+    /// screen look finished when it had never carried a voice.
     func callToken(callSessionID: String, displayName: String?) async throws -> CallToken {
         CallToken(
             token: "sample", provider: "livekit",
-            wsURL: nil, rtcURL: nil, turn: nil, icePolicy: "all", warnings: nil
+            wsURL: nil, rtcURL: nil, turn: nil, icePolicy: "all",
+            warnings: ["turn_missing"]
         )
     }
 

@@ -117,8 +117,6 @@ struct ProfileView: View {
 
     private var language: Language { appState.language }
 
-    private var changePhotoLabel: String { Str.changePhoto(language) }
-
     private var displayName: String {
         let typed = model.name.trimmingCharacters(in: .whitespacesAndNewlines)
         if !typed.isEmpty { return typed }
@@ -145,20 +143,11 @@ struct ProfileView: View {
                         }
                     }
 
-                    // The label is resolved here rather than inside the
-                    // picker's builder: that closure is `Sendable`, and
-                    // `language` reads main-actor state.
-                    PhotosPicker(
+                    ChangePhotoButton(
+                        title: Str.changePhoto(language),
                         selection: $photoItem,
-                        matching: .images,
-                        photoLibrary: .shared()
-                    ) {
-                        Text(verbatim: changePhotoLabel)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Theme.Palette.brand)
-                            .frame(minHeight: Theme.Size.minTouchTarget - 8)
-                    }
-                    .disabled(model.isUploadingPhoto)
+                        isDisabled: model.isUploadingPhoto
+                    )
 
                     if model.account?.profile?.avatarURL != nil {
                         Button(role: .destructive) {
@@ -276,5 +265,27 @@ struct ProfileView: View {
             image.draw(in: CGRect(origin: .zero, size: target))
         }
         return rendered.jpegData(compressionQuality: 0.85)
+    }
+}
+
+/// Wraps `PhotosPicker` so its label is a plain stored string.
+///
+/// The picker's label builder is `@Sendable`, so reading main-actor state
+/// inside it — which any `Str.…(language)` call does — is a data race the
+/// compiler is right to flag. Resolving the text into a stored property moves
+/// that read out to the caller, where it is already on the main actor.
+private struct ChangePhotoButton: View {
+    let title: String
+    @Binding var selection: PhotosPickerItem?
+    let isDisabled: Bool
+
+    var body: some View {
+        PhotosPicker(selection: $selection, matching: .images, photoLibrary: .shared()) {
+            Text(verbatim: title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.Palette.brand)
+                .frame(minHeight: Theme.Size.minTouchTarget - 8)
+        }
+        .disabled(isDisabled)
     }
 }

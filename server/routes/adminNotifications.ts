@@ -24,6 +24,8 @@ import { getServiceClient } from '../supabase.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { getFcmCredentials, isPushConfigured, sendFcmMessage } from '../services/push/fcm.js';
 import { listActiveDevices } from '../services/push/devices.js';
+import { isVoipConfigured, getApnsCredentials } from '../services/push/apnsVoip.js';
+import { ringTestDevice } from '../services/push/callRing.js';
 import {
   loadPushPlatformSettings,
   invalidatePushPlatformSettingsCache,
@@ -115,12 +117,21 @@ async function readRow(config: ServerConfig) {
  */
 function transportStatus() {
   const creds = getFcmCredentials();
+  const apns = getApnsCredentials();
   return {
     configured: isPushConfigured(),
     projectId: creds?.projectId ?? null,
     // The service-account address confirms WHICH credential is loaded without
     // revealing anything usable: the private key stays in the environment.
     clientEmailMasked: creds?.clientEmail ? maskEmail(creds.clientEmail) : null,
+    // Calls ride a second, independent transport. A green FCM status says
+    // nothing about whether a phone will ring, so the two are reported apart.
+    voip: {
+      configured: isVoipConfigured(),
+      bundleId: apns?.bundleId ?? null,
+      keyId: apns?.keyId ?? null,
+      environment: apns ? (apns.sandbox ? 'sandbox' : 'production') : null,
+    },
   };
 }
 
@@ -265,6 +276,39 @@ const testSchema = z.object({
  * way to prove the whole chain (credentials → APNs → device) end to end;
  * "configured" says nothing about whether a phone actually rings.
  */
+const testRingSchema = z.object({
+  channel: z.enum(['audio', 'video']).default('audio'),
+  caller_name: z.string().min(1).max(60).default('Webyar test call'),
+});
+
+/**
+ * POST /test-ring — rings the caller's own phone.
+ *
+ * Separate from /test because it exercises an entirely different path: APNs
+ * direct rather than FCM, PushKit rather than a notification, and CallKit
+ * rather than a banner. A green result on one says nothing about the other.
+ */
+adminNotificationsRouter.post('/test-ring', testLimiter, async (req, res) => {
+  const actorId = await requirePlatformAdmin(req, res);
+  if (!actorId) return;
+  const parsed = testRingSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
+  if (!isVoipConfigured()) return res.status(409).json({ error: 'voip_not_configured' });
+
+  const config = serverConfigOf(req);
+  try {
+    const result = await ringTestDevice(config, {
+      userId: actorId,
+      callerName: parsed.data.caller_name,
+      channel: parsed.data.channel,
+    });
+    if (!result.devices) return res.status(409).json({ error: 'no_voip_devices' });
+    return res.json({ success: result.sent > 0, ...result });
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 adminNotificationsRouter.post('/test', testLimiter, async (req, res) => {
   const actorId = await requirePlatformAdmin(req, res);
   if (!actorId) return;

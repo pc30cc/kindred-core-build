@@ -163,7 +163,6 @@ final class CallCenterService: NSObject {
             // `setDelegate(_:queue:)` was given nil, which means the main
             // queue, so this closure is already where it needs to be.
             MainActor.assumeIsolated {
-                print("[RING] reportNewIncomingCall error=\(String(describing: error))")
                 if error != nil {
                     // Do Not Disturb, an active phone call, or a blocked
                     // number: iOS refused to ring. Telling the server keeps
@@ -268,9 +267,13 @@ final class CallCenterService: NSObject {
     #if DEBUG
     /// Rings the phone with a made-up call.
     ///
-    /// The simulator cannot receive a VoIP push at all, so without this there
-    /// would be no way to see the ring, the lock-screen UI or the answer path
-    /// until a signed build is on a real device with a real visitor waiting.
+    /// For a real device: the simulator cannot receive a VoIP push, and its
+    /// CallKit is inert — `reportNewIncomingCall` never calls back and a
+    /// following `CXAnswerCallAction` fails with `unknownCallUUID`, so
+    /// nothing rings there no matter what this does. On a device it is the
+    /// fastest way to see the ring, the lock-screen UI and the answer path
+    /// without waiting for a visitor to call.
+    ///
     /// Compiled out of Release entirely.
     func simulateIncomingCall(channel: CallChannel = .audio) {
         let id = UUID()
@@ -282,21 +285,8 @@ final class CallCenterService: NSObject {
             "channel": channel.rawValue,
             "caller": "Maryam Hosseini",
         ]
-        guard let call = IncomingCall(push: payload) else {
-            print("[RING] payload unreadable")
-            return
-        }
-        print("[RING] reporting \(call.id) caller=\(call.caller)")
-        reportIncoming(call) { print("[RING] report completed") }
-        // The simulator has no CallKit UI to tap, so answer it the way the
-        // system would, to exercise the rest of the chain.
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2))
-            let action = CXAnswerCallAction(call: call.id)
-            self.controller.request(CXTransaction(action: action)) { error in
-                print("[RING] answer requested error=\(String(describing: error))")
-            }
-        }
+        guard let call = IncomingCall(push: payload) else { return }
+        reportIncoming(call) {}
     }
     #endif
 }

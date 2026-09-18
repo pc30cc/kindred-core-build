@@ -24,6 +24,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { randomUUID } from 'node:crypto';
 import { sendVoipPush, isVoipConfigured } from './apnsVoip.js';
 
 /** How long a ring is worth delivering. Past this it is a missed call. */
@@ -348,3 +349,53 @@ function firstNonEmpty(values: Array<string | null | undefined>): string | null 
   }
   return null;
 }
+
+
+/**
+ * Rings the caller's own phone with a made-up call, for diagnostics.
+ *
+ * Push delivery has a long chain — key, topic, environment, token, background
+ * mode, CallKit — and every link fails silently. Without a way to ring on
+ * demand the only test is to have somebody load the website and call, then
+ * guess which link broke. This makes the chain testable in one tap.
+ *
+ * It rings a real CallKit call on the tester's device, with a call id that
+ * belongs to no call session, so answering it finds nothing to answer and the
+ * app ends it. That is the honest behaviour: the point is the ring.
+ */
+export async function ringTestDevice(
+  config: ServerConfig,
+  input: { userId: string; callerName: string; channel: 'audio' | 'video' },
+): Promise<{ devices: number; sent: number; failures: string[] }> {
+  if (!isVoipConfigured()) return { devices: 0, sent: 0, failures: ['not_configured'] };
+  const devices = await voipDevicesFor(config, [input.userId]);
+  if (!devices.length) return { devices: 0, sent: 0, failures: ['no_devices'] };
+
+  const callId = randomUUID();
+  const payload = {
+    event: 'incoming',
+    call_id: callId,
+    workspace_id: TEST_WORKSPACE_ID,
+    channel: input.channel,
+    caller: input.callerName,
+    expires_at: Math.floor(Date.now() / 1000) + RING_TTL_SECONDS,
+  };
+
+  const failures: string[] = [];
+  let sent = 0;
+  for (const device of devices) {
+    const outcome = await sendVoipPush({
+      token: device.voipToken,
+      payload,
+      collapseId: callId,
+      expirationSeconds: RING_TTL_SECONDS,
+    });
+    if (outcome.ok) sent += 1;
+    else failures.push(outcome.reason || `status_${outcome.status ?? 0}`);
+    if (outcome.unregistered) await forgetVoipToken(config, device.id);
+  }
+  return { devices: devices.length, sent, failures };
+}
+
+/** A workspace id that exists nowhere, so a test ring cannot touch real data. */
+const TEST_WORKSPACE_ID = '00000000-0000-0000-0000-000000000000';

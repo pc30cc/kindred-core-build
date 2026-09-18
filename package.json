@@ -37,7 +37,8 @@
     "ios:sync": "npm run ios:app-settings && npm run ios:runtime-config && npm run ios:prune && npx cap sync ios",
     "ios:open": "npx cap open ios",
     "ios:prepare": "npm run build && npm run ios:sync",
-    "ios:app-settings": "tsx scripts/ios/apply-app-settings.ts"
+    "ios:app-settings": "tsx scripts/ios/apply-app-settings.ts",
+    "ios:native-config": "node scripts/ios/write-native-config.mjs"
   },
   "dependencies": {
     "@capacitor-firebase/messaging": "^8.5.1",

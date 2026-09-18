@@ -13,33 +13,121 @@ struct CallScreen: View {
     let language: Language
     let onClose: () -> Void
 
-    @Environment(\.scenePhase) private var scenePhase
+    /// Whether the header and controls are on screen. They get out of the
+    /// way of a full-screen picture and come back on a tap.
+    @State private var chromeVisible = true
+    @State private var hideTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
-            backdrop
-
-            VStack(spacing: 0) {
-                header
-                Spacer(minLength: Theme.Space.lg)
-                stage
-                Spacer(minLength: Theme.Space.lg)
-                controls
+            if isFullScreenVideo {
+                // Their video *is* the screen, edge to edge and under the
+                // status bar — the way a video call has looked since anyone
+                // started making them on a phone. Everything else floats on
+                // top of it.
+                VideoStage(room: session.room, isCameraOn: session.isCameraOn)
+                    .ignoresSafeArea()
+                    .onTapGesture { revealChrome() }
+            } else {
+                backdrop
+                portrait
             }
-            .padding(.horizontal, Theme.Space.xl)
-            .padding(.vertical, Theme.Space.xxl)
+
+            if isFullScreenVideo {
+                chrome
+                    .opacity(chromeVisible ? 1 : 0)
+                    .animation(Theme.Motion.standard, value: chromeVisible)
+                    .allowsHitTesting(chromeVisible)
+            }
         }
         .preferredColorScheme(.dark)
+        .statusBarHidden(isFullScreenVideo && !chromeVisible)
         .task { session.start() }
         .onChange(of: session.phase) { _, phase in
             // An ended call lingers for a moment so the outcome can be read,
             // then gets out of the way on its own. Nobody wants to dismiss a
             // call that is already over.
-            guard case .ended = phase else { return }
+            guard case .ended = phase else {
+                // Arriving at the video screen starts the countdown that
+                // clears the controls away from the picture.
+                revealChrome()
+                return
+            }
+            chromeVisible = true
             Task {
                 try? await Task.sleep(for: .seconds(2))
                 onClose()
             }
+        }
+    }
+
+    /// True only while there is a picture worth filling the screen with.
+    private var isFullScreenVideo: Bool {
+        session.channel == .video && session.phase == .connected && session.room != nil
+    }
+
+    /// The audio layout, and every layout before the picture arrives: name at
+    /// the top, face in the middle, controls at the bottom.
+    private var portrait: some View {
+        VStack(spacing: 0) {
+            header
+            Spacer(minLength: Theme.Space.lg)
+            stage
+            Spacer(minLength: Theme.Space.lg)
+            controls
+        }
+        .padding(.horizontal, Theme.Space.xl)
+        .padding(.vertical, Theme.Space.xxl)
+    }
+
+    /// What floats over the picture: the same header and controls, with just
+    /// enough shading behind them to stay readable over anything.
+    private var chrome: some View {
+        VStack(spacing: 0) {
+            header
+                .padding(.horizontal, Theme.Space.xl)
+                .padding(.top, Theme.Space.sm)
+                .padding(.bottom, Theme.Space.xl)
+                .background(
+                    LinearGradient(
+                        colors: [.black.opacity(0.6), .clear],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .ignoresSafeArea(edges: .top)
+                )
+
+            Spacer()
+
+            controls
+                .padding(.horizontal, Theme.Space.xl)
+                .padding(.top, Theme.Space.xxl)
+                .padding(.bottom, Theme.Space.lg)
+                .background(
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.65)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .ignoresSafeArea(edges: .bottom)
+                )
+        }
+    }
+
+    /// Brings the controls back and starts the clock on hiding them again.
+    ///
+    /// Auto-hiding is the whole point of a full-screen call: the picture is
+    /// what the operator is there for, and a row of buttons sitting on the
+    /// visitor's face for the length of the call is the thing every other
+    /// call app learned to get out of the way.
+    private func revealChrome() {
+        chromeVisible = true
+        hideTask?.cancel()
+        guard isFullScreenVideo else { return }
+        hideTask = Task {
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            chromeVisible = false
         }
     }
 
@@ -103,23 +191,18 @@ struct CallScreen: View {
         }
     }
 
-    /// The middle of the screen: their video if there is any, their face if
-    /// not.
-    @ViewBuilder
+    /// The middle of the audio layout: their face, and a ring while the
+    /// invitation is still out.
     private var stage: some View {
-        if session.channel == .video, session.phase == .connected, let room = session.room {
-            VideoStage(room: room, isCameraOn: session.isCameraOn)
-        } else {
-            Avatar(
-                name: session.contactName,
-                imageURL: session.contactAvatarURL,
-                size: 140
-            )
-            .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
-            .overlay(alignment: .bottom) {
-                if session.phase == .waiting {
-                    PulsingRing()
-                }
+        Avatar(
+            name: session.contactName,
+            imageURL: session.contactAvatarURL,
+            size: 140
+        )
+        .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
+        .overlay(alignment: .bottom) {
+            if session.phase == .waiting {
+                PulsingRing()
             }
         }
     }
@@ -174,42 +257,51 @@ struct CallScreen: View {
 
 /// The visitor's video, with the operator's own camera inset into the corner.
 private struct VideoStage: View {
-    let room: Room
+    let room: Room?
     let isCameraOn: Bool
 
     private var remoteTrack: VideoTrack? {
-        room.remoteParticipants.values
+        room?.remoteParticipants.values
             .flatMap(\.videoTracks)
             .compactMap { $0.track as? VideoTrack }
             .first
     }
 
     private var localTrack: VideoTrack? {
-        room.localParticipant.videoTracks
+        room?.localParticipant.videoTracks
             .compactMap { $0.track as? VideoTrack }
             .first
     }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
+            // Black behind everything, so the picture's letterboxing and the
+            // moment before the first frame both read as "a call", not as a
+            // broken layout.
+            Color.black
+
             if let remoteTrack {
                 SwiftUIVideoView(remoteTrack, layoutMode: .fill)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous))
             } else {
-                RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
-                    .fill(.white.opacity(0.08))
-                    .overlay(ProgressView().tint(.white))
+                // Connected, but their camera has not sent a frame yet.
+                ProgressView().tint(.white)
             }
 
             if isCameraOn, let localTrack {
+                // The operator's own preview, mirrored the way every selfie
+                // camera is: they are looking at themselves, not at a
+                // stranger. Inset from the safe area so it never sits under
+                // the clock or the notch.
                 SwiftUIVideoView(localTrack, layoutMode: .fill, mirrorMode: .mirror)
-                    .frame(width: 96, height: 132)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
+                    .frame(width: 104, height: 144)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                        RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
                             .strokeBorder(.white.opacity(0.25), lineWidth: 0.5)
                     )
-                    .padding(Theme.Space.md)
+                    .shadow(color: .black.opacity(0.4), radius: 12, y: 4)
+                    .padding(Theme.Space.lg)
+                    .padding(.top, Theme.Space.huge)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

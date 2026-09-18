@@ -219,3 +219,22 @@ extension View {
         modifier(LatinIfNeeded(isLatin: isLatin))
     }
 }
+
+/// A centred, quiet line inside a list — "nothing here yet", said without
+/// making a scene of it.
+///
+/// Not an `EmptyStateView`: that one owns a whole screen with an icon and a
+/// title. This is one row saying one section is empty while the rest of the
+/// list carries on around it.
+struct QuietRow: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(Theme.Palette.labelSecondary)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, Theme.Space.sm)
+            .listRowSeparator(.hidden)
+    }
+}

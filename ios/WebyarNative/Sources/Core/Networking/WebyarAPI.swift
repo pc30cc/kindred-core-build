@@ -34,3 +34,22 @@ enum Backend {
 
     static let current: any WebyarAPI = isSample ? SampleAPI() : APIClient.shared
 }
+
+/// Which screen a sample-mode launch should open on.
+///
+/// Screenshot automation cannot tap its way through an app, and Apple wants a
+/// shot of each major screen. Naming the destination on the command line is
+/// how `fastlane snapshot` and friends do it. Honoured only alongside
+/// `-WebyarSampleData`, so it cannot affect a real launch.
+enum SampleRoute: String {
+    case inbox, chat, contacts, contact, settings
+
+    static let current: SampleRoute? = {
+        guard Backend.isSample else { return nil }
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "-WebyarScreen"),
+              arguments.index(after: index) < arguments.endIndex
+        else { return nil }
+        return SampleRoute(rawValue: arguments[arguments.index(after: index)])
+    }()
+}

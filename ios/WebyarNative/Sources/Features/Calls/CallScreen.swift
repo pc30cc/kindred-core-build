@@ -16,7 +16,8 @@ struct CallScreen: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        ZStack {
+        let _ = print("[CALL] CallScreen body, phase=\(session.phase)")
+        return ZStack {
             backdrop
 
             VStack(spacing: 0) {
@@ -304,6 +305,7 @@ struct CallHost: View {
     }
 
     var body: some View {
-        CallScreen(session: session, language: language, onClose: onClose)
+        let _ = print("[CALL] CallHost body")
+        return CallScreen(session: session, language: language, onClose: onClose)
     }
 }

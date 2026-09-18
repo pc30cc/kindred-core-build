@@ -177,14 +177,17 @@ final class ConversationActionsModel {
     /// a ringing tone.
     func invite(_ channel: CallChannel, appState: AppState) async {
         do {
+            print("[CALL] inviting…")
             pendingInvitation = try await api.inviteToCall(
                 conversationID: conversationID,
                 workspaceID: workspaceID,
                 channel: channel
             )
+            print("[CALL] invitation set: \(pendingInvitation?.id ?? "nil")")
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()
         } catch {
+            print("[CALL] invite failed: \(error)")
             inviteFailed = true
         }
     }

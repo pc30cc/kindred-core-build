@@ -102,7 +102,7 @@ enum AutoLogin {
 /// and to an auto-signed-in run against the real server alike — the point is
 /// to reach a screen, not to choose where its content comes from.
 enum SampleRoute: String {
-    case inbox, chat, aiChat, contacts, contact, settings, profile, security
+    case inbox, chat, aiChat, call, videoCall, contacts, contact, settings, profile, security
 
     static let current: SampleRoute? = {
         let arguments = ProcessInfo.processInfo.arguments

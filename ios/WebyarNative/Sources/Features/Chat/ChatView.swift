@@ -118,6 +118,16 @@ struct ChatView: View {
             }
             .task {
                 await actions.load(appState: appState)
+                #if DEBUG
+                // A Debug run can ask to land straight on the call screen, so
+                // its phases can be laid out and screenshotted without
+                // driving the menu by hand every time.
+                switch SampleRoute.current {
+                case .call: await actions.invite(.audio, appState: appState)
+                case .videoCall: await actions.invite(.video, appState: appState)
+                default: break
+                }
+                #endif
             }
             // The call takes the whole screen from the moment the invitation
             // goes out: waiting for the visitor, connecting, talking and the

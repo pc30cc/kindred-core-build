@@ -144,7 +144,7 @@ struct MainTabView: View {
         guard let workspace = appState.selectedWorkspace else { return }
 
         switch SampleRoute.current {
-        case .chat, .aiChat:
+        case .chat, .aiChat, .call, .videoCall:
             guard inboxPath.isEmpty,
                   let all = try? await Backend.current
                       .conversations(workspaceID: workspace.id, filter: .open)

@@ -25,9 +25,14 @@ struct CallScreen: View {
                 // status bar — the way a video call has looked since anyone
                 // started making them on a phone. Everything else floats on
                 // top of it.
-                VideoStage(room: session.room, isCameraOn: session.isCameraOn)
-                    .ignoresSafeArea()
-                    .onTapGesture { revealChrome() }
+                VideoStage(
+                    remote: session.remoteVideoTrack,
+                    local: session.localVideoTrack,
+                    contactName: session.contactName,
+                    contactAvatarURL: session.contactAvatarURL
+                )
+                .ignoresSafeArea()
+                .onTapGesture { revealChrome() }
             } else {
                 backdrop
                 portrait
@@ -61,9 +66,15 @@ struct CallScreen: View {
         }
     }
 
-    /// True only while there is a picture worth filling the screen with.
+    /// A connected video call fills the screen, and keeps filling it.
+    ///
+    /// Deliberately not conditional on a picture actually arriving: a visitor
+    /// who turns their camera off for a moment would otherwise throw the
+    /// operator back to the portrait layout and then forward again, and a
+    /// call that rearranges itself under the thumb is worse than one with a
+    /// face on a black background for a few seconds.
     private var isFullScreenVideo: Bool {
-        session.channel == .video && session.phase == .connected && session.room != nil
+        session.channel == .video && session.phase == .connected
     }
 
     /// The audio layout, and every layout before the picture arrives: name at
@@ -256,43 +267,43 @@ struct CallScreen: View {
 }
 
 /// The visitor's video, with the operator's own camera inset into the corner.
+///
+/// Both tracks arrive as plain values from the session rather than being dug
+/// out of `Room` here: the room is not something SwiftUI watches, so a view
+/// that reads it directly shows whatever was true at its last redraw.
 private struct VideoStage: View {
-    let room: Room?
-    let isCameraOn: Bool
-
-    private var remoteTrack: VideoTrack? {
-        room?.remoteParticipants.values
-            .flatMap(\.videoTracks)
-            .compactMap { $0.track as? VideoTrack }
-            .first
-    }
-
-    private var localTrack: VideoTrack? {
-        room?.localParticipant.videoTracks
-            .compactMap { $0.track as? VideoTrack }
-            .first
-    }
+    let remote: VideoTrack?
+    let local: VideoTrack?
+    let contactName: String
+    let contactAvatarURL: String?
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            // Black behind everything, so the picture's letterboxing and the
-            // moment before the first frame both read as "a call", not as a
-            // broken layout.
-            Color.black
+            ZStack {
+                // Black behind everything, so letterboxing and the moment
+                // before the first frame both read as "a call", not as a
+                // broken layout.
+                Color.black
 
-            if let remoteTrack {
-                SwiftUIVideoView(remoteTrack, layoutMode: .fill)
-            } else {
-                // Connected, but their camera has not sent a frame yet.
-                ProgressView().tint(.white)
+                if let remote {
+                    SwiftUIVideoView(remote, layoutMode: .fill)
+                } else {
+                    // Connected, with nothing coming from their camera —
+                    // switched off, or never there. Their face says the call
+                    // is fine and the picture is not; a spinner that never
+                    // resolves would say the opposite.
+                    Avatar(name: contactName, imageURL: contactAvatarURL, size: 140)
+                        .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if isCameraOn, let localTrack {
+            if let local {
                 // The operator's own preview, mirrored the way every selfie
                 // camera is: they are looking at themselves, not at a
                 // stranger. Inset from the safe area so it never sits under
                 // the clock or the notch.
-                SwiftUIVideoView(localTrack, layoutMode: .fill, mirrorMode: .mirror)
+                SwiftUIVideoView(local, layoutMode: .fill, mirrorMode: .mirror)
                     .frame(width: 104, height: 144)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
                     .overlay(

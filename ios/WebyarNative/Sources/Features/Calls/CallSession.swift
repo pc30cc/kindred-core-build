@@ -95,6 +95,19 @@ final class CallSession {
     /// also what releases the microphone.
     private(set) var room: Room?
 
+    /// The two pictures, held here rather than read out of `Room` whenever a
+    /// view happens to redraw.
+    ///
+    /// `Room` is a LiveKit object; SwiftUI does not observe it. A view that
+    /// reaches into `room.remoteParticipants` therefore only ever sees what
+    /// was true the last time something *else* invalidated it — so a visitor
+    /// who switches their camera on a moment after answering stays invisible
+    /// until, by luck, some unrelated state changes. Keeping the tracks in
+    /// observed properties and updating them from the room's own events is
+    /// what makes the picture arrive when it actually arrives.
+    private(set) var remoteVideoTrack: VideoTrack?
+    private(set) var localVideoTrack: VideoTrack?
+
     private let invitationID: String
     private let api: any WebyarAPI
     private var callSessionID: String?
@@ -215,6 +228,7 @@ final class CallSession {
             phase = .connected
             connectedAt = Date()
             refreshVisitorPresence()
+            syncTracks()
         } catch {
             // Only a failure to reach the room itself gets here now.
             await finish(.failed(Self.describe(error)))
@@ -307,6 +321,24 @@ final class CallSession {
         visitorPresent = !(room?.remoteParticipants.isEmpty ?? true)
     }
 
+    /// Re-reads which cameras are actually sending. Cheap enough to call from
+    /// every event that could change the answer, which is exactly what the
+    /// room observer does.
+    ///
+    /// A muted publication counts as no picture: that is what the other side
+    /// turning their camera off looks like on the wire, and showing a frozen
+    /// last frame would be worse than showing their face.
+    fileprivate func syncTracks() {
+        guard let room else {
+            remoteVideoTrack = nil
+            localVideoTrack = nil
+            return
+        }
+        let remote = room.remoteParticipants.values.flatMap(\.videoTracks)
+        remoteVideoTrack = remote.first { $0.isSubscribed && !$0.isMuted }?.track as? VideoTrack
+        localVideoTrack = room.localParticipant.videoTracks.first { !$0.isMuted }?.track as? VideoTrack
+    }
+
     private func teardown() async {
         if let room {
             // Unpublish before disconnecting. Tearing the room down with a
@@ -318,6 +350,7 @@ final class CallSession {
         }
         room = nil
         roomDelegate = nil
+        syncTracks()
     }
 }
 
@@ -347,5 +380,34 @@ private final class RoomObserver: RoomDelegate, @unchecked Sendable {
     func room(_ room: Room, didUpdateConnectionState connectionState: ConnectionState, from oldConnectionState: ConnectionState) {
         guard connectionState == .disconnected else { return }
         Task { @MainActor [weak session] in session?.visitorDisconnected() }
+    }
+
+    // Everything that can change what is on screen. Subscribing to the
+    // visitor's camera is the one that matters most — it is the event that
+    // says their picture is ready — but a camera switched off mid-call, and
+    // our own publication completing, change the layout too.
+
+    func room(_ room: Room, participant: RemoteParticipant, didSubscribeTrack publication: RemoteTrackPublication) {
+        syncTracks()
+    }
+
+    func room(_ room: Room, participant: RemoteParticipant, didUnsubscribeTrack publication: RemoteTrackPublication) {
+        syncTracks()
+    }
+
+    func room(_ room: Room, participant: LocalParticipant, didPublishTrack publication: LocalTrackPublication) {
+        syncTracks()
+    }
+
+    func room(_ room: Room, participant: LocalParticipant, didUnpublishTrack publication: LocalTrackPublication) {
+        syncTracks()
+    }
+
+    func room(_ room: Room, participant: Participant, trackPublication: TrackPublication, didUpdateIsMuted isMuted: Bool) {
+        syncTracks()
+    }
+
+    private func syncTracks() {
+        Task { @MainActor [weak session] in session?.syncTracks() }
     }
 }

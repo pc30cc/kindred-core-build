@@ -69,6 +69,7 @@ import { readFileSync, existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { serverConfigOf } from '../lib/workspaceAuth.js';
+import { cancelRing } from '../services/push/callRing.js';
 
 export const callWidgetRouter = Router();
 
@@ -1143,6 +1144,13 @@ callWidgetRouter.post('/calls/:id/cancel', async (req, res) => {
     payload: { reason: wasConnected ? 'visitor_hangup' : 'visitor_cancelled', duration_seconds: wasConnected ? duration : null },
   });
   await publishQueueEvent(config, session.workspace_id, wasConnected ? 'call_ended' : 'call_cancelled', { call_id: req.params.id });
+  // The visitor gave up. Every phone still ringing for them has to stop, or
+  // an operator answers a call that nobody is on the other end of.
+  void cancelRing(config, {
+    workspaceId: session.workspace_id,
+    callSessionId: req.params.id,
+    reason: wasConnected ? 'ended' : 'cancelled',
+  });
   await publishCallEvent(config, session.workspace_id, req.params.id, wasConnected ? 'call_ended' : 'call_cancelled', { duration_seconds: wasConnected ? duration : null });
   clearActiveCallCookie(res, req);
   res.json({ ok: true });

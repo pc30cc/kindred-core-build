@@ -29,6 +29,8 @@ export interface RegisterDeviceInput {
   deviceName?: string | null;
   appVersion?: string | null;
   permissionStatus?: string | null;
+  /** PushKit's own token, iOS only. Null clears it. */
+  voipToken?: string | null;
 }
 
 export interface PushDeviceRow {
@@ -54,6 +56,16 @@ export async function registerDevice(
     .eq('push_token', input.pushToken)
     .neq('user_id', input.userId);
 
+  // Same rule for the VoIP address, for a sharper reason: a stale row holding
+  // it would make one operator's phone ring for another operator's calls.
+  if (input.voipToken) {
+    await sb
+      .from('mobile_push_devices')
+      .update({ voip_token: null, voip_token_updated_at: now })
+      .eq('voip_token', input.voipToken)
+      .neq('user_id', input.userId);
+  }
+
   const { data, error } = await sb
     .from('mobile_push_devices')
     .upsert(
@@ -66,6 +78,8 @@ export async function registerDevice(
         device_name: input.deviceName ?? null,
         app_version: input.appVersion ?? null,
         permission_status: input.permissionStatus ?? null,
+        voip_token: input.voipToken ?? null,
+        voip_token_updated_at: input.voipToken ? now : null,
         enabled: true,
         disabled_reason: null,
         last_seen_at: now,

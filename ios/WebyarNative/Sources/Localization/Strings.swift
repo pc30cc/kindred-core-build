@@ -1376,4 +1376,90 @@ extension Str {
         case .tr: "Tablet"
         }
     }
+
+    // MARK: - Attachments
+
+    /// Shown while the bytes are on their way. Taken from the console's
+    /// `inbox.receivingFile`, so the two read the same.
+    static func receivingFile(_ l: Language) -> String {
+        switch l {
+        case .en: "Receiving…"
+        case .fa: "در حال دریافت…"
+        case .tr: "Alınıyor…"
+        }
+    }
+
+    static func attachmentFailed(_ l: Language) -> String {
+        switch l {
+        case .en: "Could not load this file."
+        case .fa: "این فایل بارگیری نشد."
+        case .tr: "Bu dosya yüklenemedi."
+        }
+    }
+
+    /// For a recording in a format this phone has no decoder for — an Opus
+    /// voice note from Telegram, say. The file is still there; only playing
+    /// it here is not possible.
+    static func playbackUnsupported(_ l: Language) -> String {
+        switch l {
+        case .en: "This format can't be played here."
+        case .fa: "این قالب اینجا پخش نمی‌شود."
+        case .tr: "Bu biçim burada oynatılamıyor."
+        }
+    }
+
+    static func photo(_ l: Language) -> String {
+        switch l {
+        case .en: "Photo"
+        case .fa: "تصویر"
+        case .tr: "Fotoğraf"
+        }
+    }
+
+    static func videoFile(_ l: Language) -> String {
+        switch l {
+        case .en: "Video"
+        case .fa: "ویدیو"
+        case .tr: "Video"
+        }
+    }
+
+    static func file(_ l: Language) -> String {
+        switch l {
+        case .en: "File"
+        case .fa: "فایل"
+        case .tr: "Dosya"
+        }
+    }
+
+    static func close(_ l: Language) -> String {
+        switch l {
+        case .en: "Close"
+        case .fa: "بستن"
+        case .tr: "Kapat"
+        }
+    }
+
+    /// Byte units. Latin abbreviations in English and Turkish; Persian has its
+    /// own words for these and the console uses them.
+    static func unitBytes(_ l: Language) -> String {
+        switch l {
+        case .en, .tr: "B"
+        case .fa: "بایت"
+        }
+    }
+
+    static func unitKilobytes(_ l: Language) -> String {
+        switch l {
+        case .en, .tr: "KB"
+        case .fa: "کیلوبایت"
+        }
+    }
+
+    static func unitMegabytes(_ l: Language) -> String {
+        switch l {
+        case .en, .tr: "MB"
+        case .fa: "مگابایت"
+        }
+    }
 }

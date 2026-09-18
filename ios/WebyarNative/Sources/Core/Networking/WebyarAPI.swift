@@ -48,6 +48,7 @@ protocol WebyarAPI: Sendable {
     func account() async throws -> Account
     func updateProfile(fullName: String?, preferredLocale: String?) async throws -> Account
     func uploadAvatar(imageData: Data, contentType: String, fileName: String?) async throws -> AccountProfile?
+    func attachmentData(id: String) async throws -> Data
     func deleteAvatar() async throws
     func sessions() async throws -> AccountSessionsResponse
     func revokeSession(id: String) async throws

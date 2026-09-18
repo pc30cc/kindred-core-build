@@ -210,6 +210,41 @@ enum Format {
         .joined(separator: ":")
     }
 
+    /// A file size the way a person reads one.
+    ///
+    /// Same thresholds and rounding as `humanSize` in
+    /// `src/components/inbox/MessageAttachmentView.tsx`, so an attachment
+    /// reads the same in the app and in the console — with the digits and the
+    /// unit word in the reader's own language.
+    static func fileSize(_ bytes: Int, language: Language) -> String {
+        let locale = language.locale
+        if bytes < 1024 {
+            return "\(number(bytes, locale: locale)) \(Str.unitBytes(language))"
+        }
+        if bytes < 1024 * 1024 {
+            let kb = Int((Double(bytes) / 1024).rounded())
+            return "\(number(kb, locale: locale)) \(Str.unitKilobytes(language))"
+        }
+        let mb = Double(bytes) / (1024 * 1024)
+        // One decimal place below 10 MB, none above — a "12.3 MB" reads no
+        // better than "12 MB" and takes more room in a card.
+        let text = mb < 10
+            ? decimal(mb, locale: locale)
+            : number(Int(mb.rounded()), locale: locale)
+        return "\(text) \(Str.unitMegabytes(language))"
+    }
+
+    /// One decimal place, in the locale's digits and with its decimal mark.
+    private static func decimal(_ value: Double, locale: Locale) -> String {
+        let formatter = NumberFormatter()
+        formatter.locale = locale
+        formatter.numberStyle = .decimal
+        formatter.usesGroupingSeparator = false
+        formatter.minimumFractionDigits = 1
+        formatter.maximumFractionDigits = 1
+        return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.1f", value)
+    }
+
     /// Collapses a message body to a single scannable preview line.
     static func preview(_ body: String?) -> String {
         guard let body else { return "" }

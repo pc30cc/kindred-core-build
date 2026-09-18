@@ -258,6 +258,13 @@ actor SampleAPI: WebyarAPI {
 
     func deleteAvatar() async throws {}
 
+    /// The sample backend has no files. A screenshot run that met one would
+    /// draw the "could not load" card, which is the honest thing for a
+    /// backend that genuinely has nothing to hand over.
+    func attachmentData(id: String) async throws -> Data {
+        throw APIError.server(status: 404, message: nil)
+    }
+
     func sessions() async throws -> AccountSessionsResponse {
         AccountSessionsResponse(
             sessions: [

@@ -267,6 +267,54 @@ enum SenderType: String, Codable, Sendable {
     }
 }
 
+/// A file hanging off a message — a photo, a voice note, a document.
+///
+/// Deliberately carries no URL. The server streams the bytes through
+/// `GET /api/conversation-attachments/:id/file` and never lets a storage
+/// provider's own URL reach a client, so the id is the only handle there is
+/// (`server/routes/conversationAttachments.ts`).
+struct MessageAttachment: Codable, Identifiable, Hashable, Sendable {
+    let id: String
+    let fileName: String?
+    let mimeType: String?
+    let sizeBytes: Int?
+    /// What the server decided this is, from the MIME type.
+    let kind: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind
+        case fileName = "file_name"
+        case mimeType = "mime_type"
+        case sizeBytes = "size_bytes"
+    }
+
+    /// How to draw it.
+    enum Kind: String, Sendable {
+        case image, audio, video, file
+    }
+
+    /// The server sends `kind`, but an older row or a new channel might not,
+    /// so the MIME type is the fallback and `file` is the floor — a card with
+    /// a name on it is never wrong.
+    var resolvedKind: Kind {
+        if let kind, let known = Kind(rawValue: kind) { return known }
+        let mime = mimeType ?? ""
+        if mime.hasPrefix("image/") { return .image }
+        if mime.hasPrefix("audio/") { return .audio }
+        if mime.hasPrefix("video/") { return .video }
+        return .file
+    }
+
+    /// A name worth showing. Some channels send a bare extension as the file
+    /// name — a widget voice note arrives called `m4a` — and a card labelled
+    /// "m4a" tells the operator nothing.
+    var displayName: String? {
+        let trimmed = (fileName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.contains("."), trimmed.count > 4 else { return nil }
+        return trimmed
+    }
+}
+
 struct Message: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let conversationId: String
@@ -279,6 +327,9 @@ struct Message: Codable, Identifiable, Hashable, Sendable {
     /// Server bookkeeping. For a system notice this is what the sentence has
     /// to be rebuilt from, because `body` is English and cannot change.
     let metadata: [String: JSONValue]?
+    /// Files on this message. One inbound channel message can carry several —
+    /// a WhatsApp album, a Telegram document with a caption.
+    let attachments: [MessageAttachment]?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -289,7 +340,7 @@ struct Message: Codable, Identifiable, Hashable, Sendable {
         case createdAt = "created_at"
         case senderName = "sender_name"
         case senderAvatar = "sender_avatar"
-        case metadata
+        case metadata, attachments
     }
 
     init(
@@ -301,7 +352,8 @@ struct Message: Codable, Identifiable, Hashable, Sendable {
         createdAt: Date?,
         senderName: String?,
         senderAvatar: String?,
-        metadata: [String: JSONValue]? = nil
+        metadata: [String: JSONValue]? = nil,
+        attachments: [MessageAttachment]? = nil
     ) {
         self.id = id
         self.conversationId = conversationId
@@ -312,6 +364,15 @@ struct Message: Codable, Identifiable, Hashable, Sendable {
         self.senderName = senderName
         self.senderAvatar = senderAvatar
         self.metadata = metadata
+        self.attachments = attachments
+    }
+
+    /// Whether this message is nothing but its files. The text bubble is
+    /// skipped entirely for these — an empty rounded rectangle beside a photo
+    /// is the bug this was.
+    var isAttachmentOnly: Bool {
+        body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !(attachments ?? []).isEmpty
     }
 }
 

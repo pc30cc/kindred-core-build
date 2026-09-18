@@ -121,9 +121,11 @@ actor APIClient {
         guard let http = response as? HTTPURLResponse else { throw APIError.transport }
 
         guard (200..<300).contains(http.statusCode) else {
-            if http.statusCode == 401 || http.statusCode == 403 {
-                throw APIError.unauthorized
-            }
+            // Only 401 means "this session is void". A 403 means the session
+            // is fine and this particular thing is not allowed — treating the
+            // two the same signed an operator out of the whole app because
+            // one endpoint refused them.
+            if http.statusCode == 401 { throw APIError.unauthorized }
             let message = try? decoder.decode(ErrorResponse.self, from: data).error
             throw APIError.server(status: http.statusCode, message: message)
         }
@@ -145,9 +147,31 @@ actor APIClient {
         }
         guard let http = response as? HTTPURLResponse else { throw APIError.transport }
         guard (200..<300).contains(http.statusCode) else {
-            if http.statusCode == 401 || http.statusCode == 403 { throw APIError.unauthorized }
+            if http.statusCode == 401 { throw APIError.unauthorized }
             throw APIError.server(status: http.statusCode, message: nil)
         }
+    }
+
+    /// Fetches a response body as bytes rather than JSON.
+    ///
+    /// Media does not come back as JSON and cannot be fetched by `AsyncImage`
+    /// or `AVPlayer` either, because the stream endpoint authorizes on the
+    /// operator's bearer token and neither of those can carry a header.
+    private func performData(_ request: URLRequest) async throws -> Data {
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw APIError.transport
+        }
+        guard let http = response as? HTTPURLResponse else { throw APIError.transport }
+        guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 401 { throw APIError.unauthorized }
+            let message = try? decoder.decode(ErrorResponse.self, from: data).error
+            throw APIError.server(status: http.statusCode, message: message)
+        }
+        return data
     }
 
     // MARK: - Auth
@@ -545,6 +569,17 @@ actor APIClient {
             )
         )
         return try await perform(request, as: AccountAvatarResponse.self).profile
+    }
+
+    /// The bytes behind one attachment.
+    ///
+    /// Streams through the server rather than from storage: a provider URL
+    /// never reaches a client, and the route re-checks workspace membership
+    /// per call from the attachment's own row.
+    func attachmentData(id: String) async throws -> Data {
+        let escaped = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        let request = try makeRequest("GET", "/api/conversation-attachments/\(escaped)/file")
+        return try await performData(request)
     }
 
     func deleteAvatar() async throws {

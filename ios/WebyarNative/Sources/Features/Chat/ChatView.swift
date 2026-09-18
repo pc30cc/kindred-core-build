@@ -423,18 +423,33 @@ struct MessageRow: View {
                     .padding(.horizontal, Theme.Space.xs)
             }
 
-            Text(message.body)
-                .font(Theme.Typo.message)
-                .foregroundStyle(isOutgoing ? Theme.Palette.bubbleOutgoingText : Theme.Palette.bubbleIncomingText)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, Theme.Space.md)
-                .padding(.vertical, Theme.Space.sm + 2)
-                .background(
-                    RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
-                        .fill(isOutgoing ? Theme.Palette.bubbleOutgoing : Theme.Palette.bubbleIncoming)
+            // Files first, then whatever was typed with them. A message can
+            // be only files — a photo, a voice note, a document — and its
+            // body is then empty, which is why the text bubble is skipped
+            // rather than drawn empty. An empty rounded rectangle beside a
+            // photo was exactly how this looked before.
+            ForEach(message.attachments ?? []) { attachment in
+                AttachmentView(
+                    attachment: attachment,
+                    isOutgoing: isOutgoing,
+                    language: language
                 )
-                .textSelection(.enabled)
+            }
+
+            if !message.isAttachmentOnly {
+                Text(message.body)
+                    .font(Theme.Typo.message)
+                    .foregroundStyle(isOutgoing ? Theme.Palette.bubbleOutgoingText : Theme.Palette.bubbleIncomingText)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, Theme.Space.md)
+                    .padding(.vertical, Theme.Space.sm + 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
+                            .fill(isOutgoing ? Theme.Palette.bubbleOutgoing : Theme.Palette.bubbleIncoming)
+                    )
+                    .textSelection(.enabled)
+            }
 
             if showsAvatar {
                 Text(Format.bubbleTime(message.createdAt, locale: locale))

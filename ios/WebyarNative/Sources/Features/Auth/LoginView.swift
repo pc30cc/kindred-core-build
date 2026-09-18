@@ -174,7 +174,7 @@ struct LoginView: View {
 
             content()
                 .font(.body)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             trailing()
         }
@@ -182,11 +182,17 @@ struct LoginView: View {
         .padding(.trailing, Theme.Space.xs)
     }
 
+    /// A row with no trailing accessory.
+    ///
+    /// The filler is `EmptyView` rather than a sized `Color`: a `Color` is
+    /// greedy on both axes, and constraining only its width leaves the height
+    /// free, which lets it stretch the row to whatever the screen offers.
     private func fieldRow<Content: View>(
         icon: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        fieldRow(icon: icon, content: content, trailing: { Color.clear.frame(width: Theme.Space.md) })
+        fieldRow(icon: icon, content: content, trailing: { EmptyView() })
+            .padding(.trailing, Theme.Space.md)
     }
 
     private func errorBanner(_ message: String) -> some View {

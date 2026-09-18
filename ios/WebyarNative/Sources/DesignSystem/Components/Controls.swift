@@ -32,10 +32,12 @@ struct PrimaryButton: View {
             .foregroundStyle(.white)
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                    .fill(Theme.Palette.brand)
+                    // Fading the whole button takes the white label down with
+                    // it and leaves the title barely readable. Dimming only
+                    // the fill keeps the text at full contrast, so a disabled
+                    // button still says plainly what it will do.
+                    .fill(Theme.Palette.brand.opacity(isEnabled && !isLoading ? 1 : 0.4))
             )
-            // Disabled state reads as "not yet", not as broken.
-            .opacity(isEnabled && !isLoading ? 1 : 0.45)
         }
         .disabled(!isEnabled || isLoading)
         .buttonStyle(.plain)

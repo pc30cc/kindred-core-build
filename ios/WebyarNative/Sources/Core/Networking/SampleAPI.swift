@@ -239,9 +239,9 @@ actor SampleAPI: WebyarAPI {
                 createdAt: SampleAPI.ago(4),
                 senderType: "contact"
             ),
+            unreadCount: 3,
             aiState: "human_active",
-            metadata: nil,
-            unreadCount: 3
+            metadata: nil
         ),
         Conversation(
             id: "c-2",
@@ -266,9 +266,9 @@ actor SampleAPI: WebyarAPI {
                 createdAt: SampleAPI.ago(52),
                 senderType: "contact"
             ),
+            unreadCount: 128,
             aiState: "human_active",
-            metadata: nil,
-            unreadCount: 128
+            metadata: nil
         ),
         Conversation(
             id: "c-3",
@@ -286,9 +286,9 @@ actor SampleAPI: WebyarAPI {
                 createdAt: SampleAPI.ago(140),
                 senderType: "contact"
             ),
+            unreadCount: 0,
             aiState: nil,
-            metadata: nil,
-            unreadCount: 0
+            metadata: nil
         ),
         Conversation(
             id: "c-4",
@@ -309,9 +309,9 @@ actor SampleAPI: WebyarAPI {
             // No body at all — the row must fall back to the subject rather
             // than render an empty second line.
             lastMessage: MessagePreview(body: "", createdAt: SampleAPI.ago(1400), senderType: "ai"),
+            unreadCount: 0,
             aiState: "ai_managed",
-            metadata: nil,
-            unreadCount: 0
+            metadata: nil
         ),
         Conversation(
             id: "c-5",
@@ -334,9 +334,9 @@ actor SampleAPI: WebyarAPI {
                 createdAt: SampleAPI.ago(4300),
                 senderType: "contact"
             ),
+            unreadCount: 0,
             aiState: "human_active",
-            metadata: nil,
-            unreadCount: 0
+            metadata: nil
         ),
         Conversation(
             id: "c-6",
@@ -354,9 +354,9 @@ actor SampleAPI: WebyarAPI {
                 createdAt: SampleAPI.ago(28),
                 senderType: "ai"
             ),
+            unreadCount: 1,
             aiState: "ai_managed",
-            metadata: nil,
-            unreadCount: 1
+            metadata: nil
         ),
     ]
 
@@ -430,9 +430,9 @@ private extension Conversation {
             lastMessage: lastMessage,
             // Carried over: resolving a thread does not change who was
             // answering it.
+            unreadCount: newStatus == .resolved ? 0 : unreadCount,
             aiState: aiState,
-            metadata: metadata,
-            unreadCount: newStatus == .resolved ? 0 : unreadCount
+            metadata: metadata
         )
     }
 }

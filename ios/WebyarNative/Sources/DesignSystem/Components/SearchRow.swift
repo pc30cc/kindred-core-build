@@ -194,6 +194,9 @@ struct SearchRestingList<Rows: View>: View {
     }
 
     private func rest(with proxy: ScrollViewProxy) {
+        #if DEBUG
+        print("[REST] key=\(restKey) viewport=\(metrics.viewport) content=\(metrics.content) spacer=\(spacer) restedFor=\(restedFor ?? "-")")
+        #endif
         guard isReady, restedFor != resetToken,
               metrics.viewport > 0, metrics.content > 0
         else { return }
@@ -202,6 +205,9 @@ struct SearchRestingList<Rows: View>: View {
             // One turn of the run loop so the spacer row that makes this
             // scroll possible is laid out before it is asked for.
             await Task.yield()
+            #if DEBUG
+            print("[REST] scrolling to \(anchorID)")
+            #endif
             proxy.scrollTo(anchorID, anchor: .top)
         }
     }

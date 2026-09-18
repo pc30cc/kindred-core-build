@@ -345,7 +345,9 @@ enum DateParsing {
         return f
     }()
 
-    nonisolated(unsafe) private static let postgres: DateFormatter = {
+    // `DateFormatter` is itself marked `Sendable`, unlike its ISO8601
+    // counterpart, so this one needs no annotation.
+    private static let postgres: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = TimeZone(secondsFromGMT: 0)

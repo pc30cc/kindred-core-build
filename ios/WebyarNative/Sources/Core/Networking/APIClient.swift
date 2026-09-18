@@ -371,13 +371,20 @@ enum DateParsing {
     }
 
     /// Rewrites `…:15.008353+00:00` as `…:15.008+00:00`, leaving anything
-    /// without a fractional part untouched.
+    /// without an over-long fractional part untouched.
     private static func truncatingFraction(_ raw: String) -> String? {
         guard let dot = raw.firstIndex(of: ".") else { return nil }
+
         let afterDot = raw.index(after: dot)
-        let digits = raw[afterDot...].prefix { $0.isNumber }
-        guard digits.count > 3 else { return nil }
-        let rest = raw[raw.index(afterDot, offsetBy: digits.count)...]
-        return raw[..<afterDot] + digits.prefix(3) + rest
+        var end = afterDot
+        while end < raw.endIndex, raw[end].isNumber {
+            end = raw.index(after: end)
+        }
+
+        let digitCount = raw.distance(from: afterDot, to: end)
+        guard digitCount > 3 else { return nil }
+
+        let keepUntil = raw.index(afterDot, offsetBy: 3)
+        return String(raw[..<keepUntil]) + String(raw[end...])
     }
 }

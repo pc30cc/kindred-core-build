@@ -236,7 +236,10 @@ struct NotesSheet: View {
                     ProgressView()
                         .frame(maxWidth: .infinity)
 
-                case .failed, .loaded where (model.notes.value ?? []).isEmpty:
+                // A list that failed to load and one that is genuinely empty
+                // read the same to an operator, and neither is worth an error
+                // banner over a feature that is nice to have.
+                case .loaded(let notes) where notes.isEmpty, .failed:
                     Text(Str.noNotes(language))
                         .font(Theme.Typo.rowSubtitle)
                         .foregroundStyle(Theme.Palette.labelSecondary)

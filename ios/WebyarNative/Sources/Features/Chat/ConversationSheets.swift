@@ -239,26 +239,34 @@ struct NotesSheet: View {
                 // A list that failed to load and one that is genuinely empty
                 // read the same to an operator, and neither is worth an error
                 // banner over a feature that is nice to have.
-                case .loaded(let notes) where notes.isEmpty, .failed:
-                    Text(Str.noNotes(language))
-                        .font(Theme.Typo.rowSubtitle)
-                        .foregroundStyle(Theme.Palette.labelSecondary)
+                case .failed:
+                    emptyNotes
 
                 case .loaded(let notes):
-                    ForEach(notes) { note in
-                        NoteRow(note: note, language: language, locale: locale)
-                            .swipeActions {
-                                Button(role: .destructive) {
-                                    Task { await model.deleteNote(note, appState: appState) }
-                                } label: {
-                                    Image(systemName: "trash")
+                    if notes.isEmpty {
+                        emptyNotes
+                    } else {
+                        ForEach(notes) { note in
+                            NoteRow(note: note, language: language, locale: locale)
+                                .swipeActions {
+                                    Button(role: .destructive) {
+                                        Task { await model.deleteNote(note, appState: appState) }
+                                    } label: {
+                                        Image(systemName: "trash")
+                                    }
                                 }
-                            }
+                        }
                     }
                 }
             }
         }
         .listStyle(.insetGrouped)
+    }
+
+    private var emptyNotes: some View {
+        Text(Str.noNotes(language))
+            .font(Theme.Typo.rowSubtitle)
+            .foregroundStyle(Theme.Palette.labelSecondary)
     }
 
     private var composer: some View {

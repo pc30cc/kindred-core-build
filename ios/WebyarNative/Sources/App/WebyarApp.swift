@@ -15,6 +15,8 @@ struct WebyarApp: App {
                 // Persian calendar, Turkish month names in Turkish.
                 .environment(\.layoutDirection, appState.language.layoutDirection)
                 .environment(\.locale, appState.language.locale)
+                // nil means "follow the device", which is what `.system` is.
+                .preferredColorScheme(appState.appearance.colorScheme)
         }
     }
 }

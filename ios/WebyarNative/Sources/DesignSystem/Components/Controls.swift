@@ -48,17 +48,32 @@ struct PrimaryButton: View {
 
 // MARK: - Segmented filter
 
-/// The inbox filter. `Picker(.segmented)` is the native control and it already
-/// handles RTL, Dynamic Type and the selection animation, so it is used rather
-/// than reimplemented.
+/// The inbox queue filter.
+///
+/// `Picker(.segmented)` is the native control and already handles RTL, Dynamic
+/// Type and the selection animation, so it is used rather than reimplemented.
+/// The queues come from the plan, not from `allCases` — a segment that leads
+/// to a permanently empty list because the plan excludes it reads as a broken
+/// app, not as an upsell.
+///
+/// A count rides in the segment label when there is one, because the whole
+/// reason to glance at this control is to see where the work is.
 struct FilterPicker: View {
     @Binding var selection: InboxFilter
+    let filters: [InboxFilter]
+    let counts: InboxCounts?
     let language: Language
+
+    private func label(for filter: InboxFilter) -> String {
+        let title = filter.title(language)
+        guard let count = counts?.count(for: filter), count > 0 else { return title }
+        return "\(title) (\(count))"
+    }
 
     var body: some View {
         Picker("", selection: $selection) {
-            ForEach(InboxFilter.allCases) { filter in
-                Text(filter.title(language)).tag(filter)
+            ForEach(filters) { filter in
+                Text(label(for: filter)).tag(filter)
             }
         }
         .pickerStyle(.segmented)

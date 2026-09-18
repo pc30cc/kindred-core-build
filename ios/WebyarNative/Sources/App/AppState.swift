@@ -52,13 +52,28 @@ final class AppState {
     /// screen can say why they are looking at it.
     private(set) var sessionEndedMessage: String?
 
+    /// Light, dark, or whatever the device is set to.
+    ///
+    /// A per-viewer convenience, so `UserDefaults` is the right home for it —
+    /// losing it costs nothing and it never needs to reach the server.
+    var appearance: AppearancePreference {
+        didSet {
+            guard appearance != oldValue else { return }
+            UserDefaults.standard.set(appearance.rawValue, forKey: Self.appearanceKey)
+        }
+    }
+
     private static let languageKey = "app.language"
+    private static let appearanceKey = "app.appearance"
     private let api: any WebyarAPI
 
     init(api: any WebyarAPI = Backend.current) {
         self.api = api
         let stored = UserDefaults.standard.string(forKey: Self.languageKey)
         self.language = stored.flatMap(Language.init(rawValue:)) ?? GeneratedConfig.defaultLanguage
+
+        let storedAppearance = UserDefaults.standard.string(forKey: Self.appearanceKey)
+        self.appearance = storedAppearance.flatMap(AppearancePreference.init(rawValue:)) ?? .system
     }
 
     // MARK: - Session
@@ -145,8 +160,13 @@ final class AppState {
             workspaces = list
             // Keep the current selection if it is still valid; otherwise fall
             // back to the first, so the inbox always has something to load.
-            if let current = selectedWorkspace, list.contains(where: { $0.id == current.id }) { return }
-            selectedWorkspace = list.first
+            let keepsSelection = selectedWorkspace.map { current in
+                list.contains { $0.id == current.id }
+            } ?? false
+            if !keepsSelection { selectedWorkspace = list.first }
+            // Always re-resolve: signing back in keeps the same workspace, and
+            // returning early there would leave every plan gate unresolved and
+            // so every gated tab permanently hidden.
             await loadPlan()
         } catch APIError.unauthorized {
             await handleUnauthorized()

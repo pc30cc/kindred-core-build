@@ -33,6 +33,11 @@ struct InboxView: View {
             .task(id: reloadKey) {
                 model.load(workspaceID: workspaceID, appState: appState)
             }
+            // A plan can drop the queue that is currently selected — switching
+            // workspace is the ordinary way that happens.
+            .onChange(of: appState.inboxFilters) { _, available in
+                model.reconcileFilter(with: available)
+            }
     }
 
     /// Any change to this reloads the list: switching filter, switching
@@ -51,7 +56,12 @@ struct InboxView: View {
         // stays reachable when the list is empty — otherwise an operator who
         // filtered into an empty queue would have no way back out.
         List {
-            FilterPicker(selection: $model.filter, language: language)
+            FilterPicker(
+                selection: $model.filter,
+                filters: appState.inboxFilters,
+                counts: model.counts,
+                language: language
+            )
                 .listRowInsets(EdgeInsets(
                     top: Theme.Space.xs,
                     leading: Theme.screenInset,
@@ -103,11 +113,19 @@ struct InboxView: View {
                             NavigationLink(value: conversation) { EmptyView() }
                                 .opacity(0)
 
-                            ConversationRow(conversation: conversation, language: language, locale: locale)
+                            ConversationRow(
+                                conversation: conversation,
+                                language: language,
+                                locale: locale,
+                                currentUserID: appState.session.user?.id
+                            )
                         }
                         .listRowInsets(rowInsets)
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             swipeAction(for: conversation)
+                        }
+                        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                            claimAction(for: conversation)
                         }
                     }
                 }
@@ -147,6 +165,20 @@ struct InboxView: View {
         }
     }
 
+    /// Taking a thread is a leading-edge action and never a full swipe: it is
+    /// not undoable the way resolving is, so it asks for a deliberate gesture.
+    @ViewBuilder
+    private func claimAction(for conversation: Conversation) -> some View {
+        if conversation.assignedTo == nil {
+            Button {
+                Task { await model.claim(conversation, workspaceID: workspaceID, appState: appState) }
+            } label: {
+                Label(Str.claim(language), systemImage: "person.crop.circle.badge.checkmark")
+            }
+            .tint(Theme.Palette.brand)
+        }
+    }
+
     private func errorMessage(_ error: APIError) -> String {
         switch error {
         case .transport: Str.offlineBody(language)
@@ -169,6 +201,23 @@ struct ConversationRow: View {
     let conversation: Conversation
     let language: Language
     let locale: Locale
+    /// Who is signed in, so a thread assigned to them can say so. Assignment
+    /// to somebody else is deliberately not labelled — on a phone that is
+    /// noise, and the operator's own queue is what they came for.
+    var currentUserID: String?
+
+    private var isMine: Bool {
+        guard let assigned = conversation.assignedTo, let currentUserID else { return false }
+        return assigned == currentUserID
+    }
+
+    /// The third line only exists when it has something to say.
+    private var hasFooter: Bool {
+        conversation.hasUnread
+            || conversation.status == .resolved
+            || conversation.priority?.isElevated == true
+            || isMine
+    }
 
     private var displayName: String {
         Format.contactName(
@@ -219,10 +268,21 @@ struct ConversationRow: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                if conversation.hasUnread || conversation.status == .resolved {
+                if hasFooter {
                     HStack(spacing: Theme.Space.sm) {
+                        if let priority = conversation.priority, priority.isElevated {
+                            StatusPill(
+                                text: priority == .urgent
+                                    ? Str.priorityUrgent(language)
+                                    : Str.priorityHigh(language),
+                                tint: priority == .urgent ? Theme.Palette.danger : Theme.Palette.warning
+                            )
+                        }
                         if conversation.status == .resolved {
                             StatusPill(text: Str.filterResolved(language), tint: Theme.Palette.success)
+                        }
+                        if isMine {
+                            StatusPill(text: Str.assignedToYou(language), tint: Theme.Palette.brand)
                         }
                         Spacer(minLength: 0)
                         if let count = conversation.unreadCount, count > 0 {

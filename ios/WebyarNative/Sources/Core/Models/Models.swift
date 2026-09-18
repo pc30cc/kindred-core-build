@@ -148,7 +148,7 @@ struct Conversation: Codable, Identifiable, Hashable, Sendable {
         case id
         case workspaceId = "workspace_id"
         case contactId = "contact_id"
-        case subject, status
+        case subject, status, priority
         case assignedTo = "assigned_to"
         case createdAt = "created_at"
         case updatedAt = "updated_at"

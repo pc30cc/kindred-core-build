@@ -1,5 +1,28 @@
 import SwiftUI
 
+/// What the app shows regardless of the device's own setting.
+enum AppearancePreference: String, CaseIterable, Identifiable, Sendable {
+    case system, light, dark
+
+    var id: String { rawValue }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+
+    func title(_ language: Language) -> String {
+        switch self {
+        case .system: Str.appearanceSystem(language)
+        case .light: Str.appearanceLight(language)
+        case .dark: Str.appearanceDark(language)
+        }
+    }
+}
+
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.openURL) private var openURL
@@ -7,6 +30,7 @@ struct SettingsView: View {
     @State private var isConfirmingSignOut = false
     @State private var isSigningOut = false
     @State private var signOutFailed = false
+    @State private var profile: AccountProfile?
 
     private var language: Language { appState.language }
 
@@ -21,18 +45,27 @@ struct SettingsView: View {
         @Bindable var appState = appState
 
         List {
-            if let user = appState.session.user {
-                Section {
+            // The account header doubles as the way into the profile editor —
+            // tapping your own name and photo to change them is where anyone
+            // looks first.
+            Section {
+                NavigationLink {
+                    ProfileView()
+                } label: {
                     HStack(spacing: Theme.Space.md) {
-                        Avatar(name: user.displayName, imageURL: nil, size: Theme.Size.avatarMedium + 6)
+                        Avatar(
+                            name: profile?.fullName ?? appState.session.user?.displayName ?? "—",
+                            imageURL: profile?.avatarURL,
+                            size: Theme.Size.avatarMedium + 6
+                        )
 
                         VStack(alignment: .leading, spacing: Theme.Space.xxs) {
-                            Text(user.displayName)
+                            Text(profile?.fullName ?? appState.session.user?.displayName ?? "—")
                                 .font(Theme.Typo.rowTitle)
                                 .foregroundStyle(Theme.Palette.label)
                                 .lineLimit(1)
 
-                            if let email = user.email, !email.isEmpty {
+                            if let email = appState.session.user?.email, !email.isEmpty {
                                 Text(email)
                                     .font(.subheadline)
                                     .foregroundStyle(Theme.Palette.labelSecondary)
@@ -43,16 +76,14 @@ struct SettingsView: View {
                         }
                     }
                     .padding(.vertical, Theme.Space.xs)
-                } header: {
-                    Text(Str.account(language))
                 }
+            } header: {
+                Text(Str.account(language))
             }
 
-            // Workspace and language are both preferences, so they share one
-            // section. Giving each its own header would repeat the row's own
-            // label directly above it, which reads as a mistake.
+            // Workspace, plan and language are all "what am I working in"
+            // questions, so they share one section without a repeated header.
             Section {
-                // A picker is only worth showing when there is a choice.
                 if appState.workspaces.count > 1 {
                     Picker(Str.workspace(language), selection: workspaceBinding) {
                         ForEach(appState.workspaces) { workspace in
@@ -63,10 +94,31 @@ struct SettingsView: View {
                     DetailRow(label: Str.workspace(language), value: workspace.name)
                 }
 
+                // Only shown once the plan has actually resolved — a blank or
+                // guessed plan name is worse than none.
+                if let plan = appState.entitlements.value?.plan,
+                   let name = plan.name ?? plan.slug {
+                    DetailRow(label: Str.plan(language), value: name)
+                }
+
                 Picker(Str.language(language), selection: $appState.language) {
                     ForEach(Language.allCases) { option in
                         Text(option.endonym).tag(option)
                     }
+                }
+
+                Picker(Str.appearance(language), selection: $appState.appearance) {
+                    ForEach(AppearancePreference.allCases) { option in
+                        Text(option.title(language)).tag(option)
+                    }
+                }
+            }
+
+            Section {
+                NavigationLink {
+                    SecurityView()
+                } label: {
+                    Label(Str.security(language), systemImage: "lock.shield")
                 }
             }
 
@@ -114,6 +166,7 @@ struct SettingsView: View {
         .navigationTitle(Str.tabSettings(language))
         .navigationBarTitleDisplayMode(.inline)
         .floatingTabBarInset()
+        .task { await loadProfile() }
         .confirmationDialog(
             Str.signOutConfirm(language),
             isPresented: $isConfirmingSignOut,
@@ -144,6 +197,11 @@ struct SettingsView: View {
                 }
             }
         )
+    }
+
+    /// The header needs the photo, which the session user does not carry.
+    private func loadProfile() async {
+        profile = try? await Backend.current.account().profile
     }
 
     private func signOut() {

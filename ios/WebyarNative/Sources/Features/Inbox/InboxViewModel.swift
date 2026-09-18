@@ -21,6 +21,9 @@ enum LoadState<Value>: Sendable where Value: Sendable {
 final class InboxViewModel {
 
     private(set) var state: LoadState<[Conversation]> = .loading
+    /// The counters behind each queue, so a filter can say how much is in it
+    /// before the operator taps into it.
+    private(set) var counts: InboxCounts?
     var filter: InboxFilter = .open
     var searchText = ""
 
@@ -29,6 +32,16 @@ final class InboxViewModel {
 
     init(api: any WebyarAPI = Backend.current) {
         self.api = api
+    }
+
+    /// Keeps the selected queue inside the set the plan actually grants.
+    ///
+    /// A plan can change under the app — switching workspace is the ordinary
+    /// way — and leaving the selection on a queue that no longer exists would
+    /// show an empty list with no visible reason.
+    func reconcileFilter(with available: [InboxFilter]) {
+        guard !available.isEmpty, !available.contains(filter) else { return }
+        filter = available[0]
     }
 
     /// Conversations after the filter and the search box, sorted newest first.
@@ -65,9 +78,13 @@ final class InboxViewModel {
         loadTask?.cancel()
         loadTask = Task { [filter] in
             do {
+                // The counters are a nice-to-have on top of the list, so a
+                // failure there must not empty the inbox.
+                async let counters = try? await api.inboxCounts(workspaceID: workspaceID, scope: "mine")
                 let conversations = try await api.conversations(workspaceID: workspaceID, filter: filter)
                 guard !Task.isCancelled else { return }
                 state = .loaded(conversations)
+                counts = await counters
             } catch APIError.unauthorized {
                 await appState.handleUnauthorized()
             } catch let error as APIError {
@@ -86,12 +103,31 @@ final class InboxViewModel {
     func refresh(workspaceID: String?, appState: AppState) async {
         guard let workspaceID else { return }
         do {
+            async let counters = try? await api.inboxCounts(workspaceID: workspaceID, scope: "mine")
             let conversations = try await api.conversations(workspaceID: workspaceID, filter: filter)
             state = .loaded(conversations)
+            counts = await counters
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()
         } catch {
             // Keep showing what we have; the next pull can try again.
+        }
+    }
+
+    /// Takes ownership of a thread.
+    ///
+    /// Unlike resolving, this does not remove the row — the conversation stays
+    /// in the same queue, it just becomes yours — so the list is reloaded
+    /// rather than mutated, and the server decides what "yours" now means.
+    func claim(_ conversation: Conversation, workspaceID: String?, appState: AppState) async {
+        do {
+            try await api.claim(conversationID: conversation.id, workspaceID: conversation.workspaceId)
+            Haptics.success()
+            await refresh(workspaceID: workspaceID, appState: appState)
+        } catch APIError.unauthorized {
+            await appState.handleUnauthorized()
+        } catch {
+            // Nothing changed server-side, so nothing changes here either.
         }
     }
 

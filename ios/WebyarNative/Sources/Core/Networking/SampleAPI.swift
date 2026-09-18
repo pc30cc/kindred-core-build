@@ -239,6 +239,8 @@ actor SampleAPI: WebyarAPI {
                 createdAt: SampleAPI.ago(4),
                 senderType: "contact"
             ),
+            aiState: "human_active",
+            metadata: nil,
             unreadCount: 3
         ),
         Conversation(
@@ -264,6 +266,8 @@ actor SampleAPI: WebyarAPI {
                 createdAt: SampleAPI.ago(52),
                 senderType: "contact"
             ),
+            aiState: "human_active",
+            metadata: nil,
             unreadCount: 128
         ),
         Conversation(
@@ -282,6 +286,8 @@ actor SampleAPI: WebyarAPI {
                 createdAt: SampleAPI.ago(140),
                 senderType: "contact"
             ),
+            aiState: nil,
+            metadata: nil,
             unreadCount: 0
         ),
         Conversation(
@@ -303,6 +309,8 @@ actor SampleAPI: WebyarAPI {
             // No body at all — the row must fall back to the subject rather
             // than render an empty second line.
             lastMessage: MessagePreview(body: "", createdAt: SampleAPI.ago(1400), senderType: "ai"),
+            aiState: "ai_managed",
+            metadata: nil,
             unreadCount: 0
         ),
         Conversation(
@@ -326,6 +334,8 @@ actor SampleAPI: WebyarAPI {
                 createdAt: SampleAPI.ago(4300),
                 senderType: "contact"
             ),
+            aiState: "human_active",
+            metadata: nil,
             unreadCount: 0
         ),
         Conversation(
@@ -344,6 +354,8 @@ actor SampleAPI: WebyarAPI {
                 createdAt: SampleAPI.ago(28),
                 senderType: "ai"
             ),
+            aiState: "ai_managed",
+            metadata: nil,
             unreadCount: 1
         ),
     ]
@@ -416,6 +428,10 @@ private extension Conversation {
             updatedAt: updatedAt,
             contact: contact,
             lastMessage: lastMessage,
+            // Carried over: resolving a thread does not change who was
+            // answering it.
+            aiState: aiState,
+            metadata: metadata,
             unreadCount: newStatus == .resolved ? 0 : unreadCount
         )
     }

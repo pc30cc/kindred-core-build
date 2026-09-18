@@ -117,6 +117,8 @@ struct ProfileView: View {
 
     private var language: Language { appState.language }
 
+    private var changePhotoLabel: String { Str.changePhoto(language) }
+
     private var displayName: String {
         let typed = model.name.trimmingCharacters(in: .whitespacesAndNewlines)
         if !typed.isEmpty { return typed }
@@ -143,8 +145,15 @@ struct ProfileView: View {
                         }
                     }
 
-                    PhotosPicker(selection: $photoItem, matching: .images, photoLibrary: .shared()) {
-                        Text(Str.changePhoto(language))
+                    // The label is resolved here rather than inside the
+                    // picker's builder: that closure is `Sendable`, and
+                    // `language` reads main-actor state.
+                    PhotosPicker(
+                        selection: $photoItem,
+                        matching: .images,
+                        photoLibrary: .shared()
+                    ) {
+                        Text(verbatim: changePhotoLabel)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Theme.Palette.brand)
                             .frame(minHeight: Theme.Size.minTouchTarget - 8)

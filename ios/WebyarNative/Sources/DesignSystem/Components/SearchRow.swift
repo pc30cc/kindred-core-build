@@ -185,7 +185,10 @@ struct SearchRestingList<Rows: View>: View {
     }
 
     private func visible(_ geo: GeometryProxy) -> CGFloat {
-        geo.size.height - geo.safeAreaInsets.top - geo.safeAreaInsets.bottom
+        #if DEBUG
+        print("[REST] geo size=\(geo.size.height) top=\(geo.safeAreaInsets.top) bottom=\(geo.safeAreaInsets.bottom)")
+        #endif
+        return geo.size.height - geo.safeAreaInsets.top - geo.safeAreaInsets.bottom
     }
 
     /// Everything the resting position depends on, in one value.

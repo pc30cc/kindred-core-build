@@ -7,7 +7,16 @@ import SwiftUI
 /// only the membership is the plan's.
 struct MainTabView: View {
     @Environment(AppState.self) private var appState
+    /// What `TabView` is showing.
     @State private var selection: Tab = .inbox
+    /// What the operator actually asked for.
+    ///
+    /// The two come apart because `TabView` re-seats its own selection when
+    /// its children change, and the children change the moment the plan
+    /// resolves — several seconds after launch on a cold network. Without
+    /// this the app quietly lands on Calls or Settings while the operator is
+    /// looking at the inbox.
+    @State private var intent: Tab = .inbox
     @State private var inboxPath = NavigationPath()
     @State private var contactsPath = NavigationPath()
     @State private var callsPath = NavigationPath()
@@ -62,6 +71,17 @@ struct MainTabView: View {
         }
     }
 
+    /// The bar writes the operator's choice; `TabView` only ever reads it.
+    private var chosen: Binding<Tab> {
+        Binding(
+            get: { selection },
+            set: { tab in
+                intent = tab
+                selection = tab
+            }
+        )
+    }
+
     var body: some View {
         TabView(selection: $selection) {
             NavigationStack(path: $inboxPath) {
@@ -94,7 +114,7 @@ struct MainTabView: View {
         }
         .overlay(alignment: .bottom) {
             if showsTabBar {
-                FloatingTabBar(selection: $selection, items: items)
+                FloatingTabBar(selection: chosen, items: items)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -104,11 +124,24 @@ struct MainTabView: View {
         // workspace is the ordinary way that happens. Without this the shell
         // would be left showing a tab that no longer exists.
         .onChange(of: tabs) { _, newTabs in
-            if !newTabs.contains(selection) { selection = .inbox }
+            if !newTabs.contains(intent) { intent = .inbox }
+            if selection != intent { selection = intent }
+        }
+        // And this is the other half: adding a tab moves `TabView`'s own
+        // selection even when the current one is still there, so put the
+        // operator back where they were.
+        .onChange(of: selection) { _, now in
+            guard now != intent, tabs.contains(intent) else { return }
+            selection = intent
         }
         .task(id: appState.selectedWorkspace?.id) {
             await openRequestedScreen()
         }
+    }
+
+    private func select(_ tab: Tab) {
+        intent = tab
+        selection = tab
     }
 
     /// Opens a detail screen on launch when a Debug run asked for one, so a
@@ -136,22 +169,22 @@ struct MainTabView: View {
             guard contactsPath.isEmpty, appState.contactsVisible,
                   let contact = try? await Backend.current.contacts(workspaceID: workspace.id).first
             else { return }
-            selection = .contacts
+            select(.contacts)
             contactsPath.append(contact)
 
         case .contacts:
-            if appState.contactsVisible { selection = .contacts }
+            if appState.contactsVisible { select(.contacts) }
 
         case .calls:
-            if appState.callCenterVisible { selection = .calls }
+            if appState.callCenterVisible { select(.calls) }
 
         case .settings:
-            selection = .settings
+            select(.settings)
 
         case .profile, .security:
             // Both live behind Settings, so the tab has to be selected before
             // the destination is pushed onto its stack.
-            selection = .settings
+            select(.settings)
             guard settingsPath.isEmpty else { return }
             settingsPath.append(SampleRoute.current == .profile ? SettingsRoute.profile : .security)
 

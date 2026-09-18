@@ -148,6 +148,8 @@ actor SampleAPI: WebyarAPI {
             status: "pending",
             channel: channel.rawValue,
             conversationId: conversationID,
+            // No session yet: the sample visitor "accepts" on the next poll.
+            callSessionId: nil,
             expiresAt: Date().addingTimeInterval(60)
         )
     }

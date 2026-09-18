@@ -50,7 +50,10 @@ struct FloatingTabBar<Tab: Hashable>: View {
         )
         .shadow(color: .black.opacity(0.14), radius: 18, x: 0, y: 6)
         .padding(.horizontal, Theme.Space.xl)
-        .padding(.bottom, Theme.Space.sm)
+        // Sits on the safe-area edge, which is as low as it can sensibly go:
+        // the strip below it belongs to the home indicator, and a control
+        // placed there competes with the system's own swipe-up gesture.
+        .padding(.bottom, Theme.Space.xxs)
     }
 
     private func button(for item: Item) -> some View {

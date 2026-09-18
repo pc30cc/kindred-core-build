@@ -59,7 +59,8 @@ enum Theme {
         static let rowMinHeight: CGFloat = 60
         /// Room a scrolling screen leaves at the bottom so its last row can
         /// clear the floating tab bar: the bar's own height plus its margin.
-        static let floatingBarClearance: CGFloat = 76
+        /// Tracks `FloatingTabBar`'s own padding — if that changes, this does.
+        static let floatingBarClearance: CGFloat = 68
     }
 
     // MARK: - Colour

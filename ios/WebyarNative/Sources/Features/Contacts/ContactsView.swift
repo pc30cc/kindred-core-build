@@ -63,11 +63,13 @@ struct ContactsView: View {
         @Bindable var model = model
 
         content
-            .navigationTitle(Str.tabContacts(language))
+            // Same as the inbox: the tab already names the screen, and the
+            // search field comes down on a pull rather than sitting there.
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(
                 text: $model.searchText,
-                placement: .navigationBarDrawer(displayMode: .always),
+                placement: .navigationBarDrawer(displayMode: .automatic),
                 prompt: Str.search(language)
             )
             .floatingTabBarInset()

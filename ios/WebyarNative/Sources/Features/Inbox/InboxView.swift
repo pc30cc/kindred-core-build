@@ -12,18 +12,19 @@ struct InboxView: View {
         @Bindable var model = model
 
         content
-            .navigationTitle(Str.tabInbox(language))
-            // Inline, not large. A large title plus its own empty navigation
-            // bar, the search field and the filter put roughly 230pt of chrome
-            // above the first conversation — a quarter of the screen before
-            // any content. Inline gives that back to the list.
+            // No title at all. The screen is reached from a tab that already
+            // says "Inbox", so repeating it costs a whole navigation bar's
+            // worth of height to say something the operator just tapped.
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            // `.searchable` gives the real system search bar: it tucks under
-            // the large title, animates on focus and handles the cancel
-            // button, all mirrored correctly under RTL.
+            // `.automatic` rather than `.always`: the search field stays out
+            // of the way and comes down when the list is pulled, which is how
+            // Mail and Messages behave. `.always` pinned it permanently above
+            // the first row, spending 52pt on a control most sessions never
+            // use.
             .searchable(
                 text: $model.searchText,
-                placement: .navigationBarDrawer(displayMode: .always),
+                placement: .navigationBarDrawer(displayMode: .automatic),
                 prompt: Str.search(language)
             )
             .floatingTabBarInset()

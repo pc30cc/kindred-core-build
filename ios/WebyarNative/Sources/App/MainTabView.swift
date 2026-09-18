@@ -59,26 +59,30 @@ struct MainTabView: View {
     }
 
     var body: some View {
+        // The default tab style, not `.page`. Page style would also let a
+        // horizontal swipe anywhere on a screen flick between Inbox and
+        // Settings, which is not something an operator ever means to do — and
+        // it conflicts outright with the swipe-to-resolve action on a row.
+        // Hiding the bar per tab is what removes the system chrome.
         TabView(selection: $selection) {
             NavigationStack(path: $inboxPath) {
                 InboxView()
             }
+            .toolbar(.hidden, for: .tabBar)
             .tag(Tab.inbox)
 
             NavigationStack(path: $contactsPath) {
                 ContactsView()
             }
+            .toolbar(.hidden, for: .tabBar)
             .tag(Tab.contacts)
 
             NavigationStack {
                 SettingsView()
             }
+            .toolbar(.hidden, for: .tabBar)
             .tag(Tab.settings)
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        // Belt and braces: the style above already removes the bar, and this
-        // covers the tab-bar chrome on OS versions that still draw it.
-        .toolbar(.hidden, for: .tabBar)
         .overlay(alignment: .bottom) {
             if showsTabBar {
                 FloatingTabBar(selection: $selection, items: items)

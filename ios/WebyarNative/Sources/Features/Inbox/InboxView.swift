@@ -4,6 +4,8 @@ struct InboxView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.locale) private var locale
     @State private var model = InboxViewModel()
+    @State private var isSearching = false
+    @State private var isFiltering = false
 
     private var language: Language { appState.language }
     private var workspaceID: String? { appState.selectedWorkspace?.id }
@@ -12,13 +14,16 @@ struct InboxView: View {
         @Bindable var model = model
 
         content
-            // No title at all. The screen is reached from a tab that already
-            // says "Inbox", so repeating it costs a whole navigation bar's
-            // worth of height to say something the operator just tapped.
-            .navigationTitle("")
+            // A small inline title, not a large one: it names the screen in
+            // the 44 points the navigation bar costs anyway, and it gives the
+            // search and filter buttons somewhere to live.
+            .navigationTitle(Str.tabInbox(language))
             .navigationBarTitleDisplayMode(.inline)
-            .statusBarScrim()
+            .toolbar { toolbarButtons }
             .floatingTabBarInset()
+            .sheet(isPresented: $isFiltering) {
+                InboxFilterSheet(filter: $model.fieldFilter, language: language)
+            }
             .refreshable {
                 await model.refresh(workspaceID: workspaceID, appState: appState)
             }
@@ -54,7 +59,8 @@ struct InboxView: View {
             prompt: Str.search(language),
             anchorID: Self.restAnchor,
             resetToken: reloadKey,
-            isReady: model.state.isLoaded
+            isReady: model.state.isLoaded,
+            isSearching: $isSearching
         ) {
             FilterPicker(
                 selection: $model.filter,
@@ -135,6 +141,29 @@ struct InboxView: View {
         }
         .navigationDestination(for: Conversation.self) { conversation in
             ChatView(conversation: conversation)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarButtons: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            Button {
+                isFiltering = true
+            } label: {
+                // A filled funnel when something is filtering, so the state is
+                // visible without opening the sheet to find out.
+                Image(systemName: model.fieldFilter.isEmpty
+                      ? "line.3.horizontal.decrease.circle"
+                      : "line.3.horizontal.decrease.circle.fill")
+            }
+            .accessibilityLabel(Str.filters(language))
+
+            Button {
+                isSearching = true
+            } label: {
+                Image(systemName: "magnifyingglass")
+            }
+            .accessibilityLabel(Str.search(language))
         }
     }
 

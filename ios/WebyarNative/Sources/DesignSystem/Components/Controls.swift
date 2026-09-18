@@ -195,3 +195,27 @@ struct StatusPill: View {
             .background(Capsule().fill(tint.opacity(0.14)))
     }
 }
+
+
+/// Forces left-to-right on a run of text that is Latin whatever the interface
+/// language is — an address, a phone number, a version string.
+///
+/// Reading `operator@webyar.app` right-to-left puts the domain first, which is
+/// wrong in Persian and Turkish just as it would be in English.
+struct LatinIfNeeded: ViewModifier {
+    let isLatin: Bool
+
+    func body(content: Content) -> some View {
+        if isLatin {
+            content.environment(\.layoutDirection, .leftToRight)
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    func latin(_ isLatin: Bool = true) -> some View {
+        modifier(LatinIfNeeded(isLatin: isLatin))
+    }
+}

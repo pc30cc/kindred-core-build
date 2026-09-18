@@ -124,14 +124,3 @@ struct DetailRow: View {
     }
 }
 
-private struct LatinIfNeeded: ViewModifier {
-    let isLatin: Bool
-
-    func body(content: Content) -> some View {
-        if isLatin {
-            content.environment(\.layoutDirection, .leftToRight)
-        } else {
-            content
-        }
-    }
-}

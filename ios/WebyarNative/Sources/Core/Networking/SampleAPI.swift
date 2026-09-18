@@ -13,6 +13,8 @@ import Foundation
 actor SampleAPI: WebyarAPI {
 
     private var statuses: [String: ConversationStatus] = [:]
+    private var sampleTags: [String: [String]] = [:]
+    private var sampleNotes: [String: [ConversationNote]] = [:]
     private var extraMessages: [String: [Message]] = [:]
 
     var hasToken: Bool { true }
@@ -83,6 +85,74 @@ actor SampleAPI: WebyarAPI {
     func contacts(workspaceID: String) async throws -> [Contact] { Self.contacts }
 
     func claim(conversationID: String, workspaceID: String) async throws {}
+
+    func updateConversation(
+        conversationID: String,
+        workspaceID: String,
+        status: ConversationStatus?,
+        priority: ConversationPriority?,
+        assignedTo: String??,
+        tags: [String]?
+    ) async throws {
+        if let status { statuses[conversationID] = status }
+        if let tags { sampleTags[conversationID] = tags }
+    }
+
+    func workspaceMembers(workspaceID: String) async throws -> [WorkspaceMember] {
+        [
+            WorkspaceMember(
+                id: "m-1", userId: "u-1", role: "owner", suspendedAt: nil,
+                profile: MemberProfile(id: "u-1", fullName: "Sara Karimi",
+                                       email: "operator@webyar.app", avatarURL: nil),
+                departmentNames: ["Support"]
+            ),
+            WorkspaceMember(
+                id: "m-2", userId: "u-2", role: "agent", suspendedAt: nil,
+                profile: MemberProfile(id: "u-2", fullName: "Emre Demir",
+                                       email: "emre@webyar.app", avatarURL: nil),
+                departmentNames: ["Sales"]
+            ),
+        ]
+    }
+
+    func notes(conversationID: String, workspaceID: String) async throws -> [ConversationNote] {
+        sampleNotes[conversationID] ?? []
+    }
+
+    func addNote(conversationID: String, workspaceID: String, body: String) async throws {
+        var existing = sampleNotes[conversationID] ?? []
+        existing.append(
+            ConversationNote(
+                id: UUID().uuidString,
+                body: body,
+                authorId: "u-1",
+                author: MemberProfile(id: "u-1", fullName: "Sara Karimi",
+                                      email: "operator@webyar.app", avatarURL: nil),
+                createdAt: Date()
+            )
+        )
+        sampleNotes[conversationID] = existing
+    }
+
+    func deleteNote(conversationID: String, workspaceID: String, noteID: String) async throws {
+        sampleNotes[conversationID]?.removeAll { $0.id == noteID }
+    }
+
+    func inviteToCall(
+        conversationID: String,
+        workspaceID: String,
+        channel: CallChannel
+    ) async throws -> CallInvitation {
+        CallInvitation(
+            id: UUID().uuidString,
+            status: "pending",
+            channel: channel.rawValue,
+            conversationId: conversationID,
+            expiresAt: Date().addingTimeInterval(60)
+        )
+    }
+
+    func cancelInvitation(id: String) async throws {}
 
     /// Gives each sample thread a different device and country so the avatar's
     /// OS-mark and flag paths are actually exercised.

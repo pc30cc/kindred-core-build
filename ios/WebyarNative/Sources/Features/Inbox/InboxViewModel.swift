@@ -37,6 +37,8 @@ final class InboxViewModel {
     private(set) var visitors: [String: VisitorProfile] = [:]
     var filter: InboxFilter = .open
     var searchText = ""
+    /// The filter sheet's three fields.
+    var fieldFilter = InboxFieldFilter()
 
     private let api: any WebyarAPI
     private var loadTask: Task<Void, Never>?
@@ -55,12 +57,17 @@ final class InboxViewModel {
         filter = available[0]
     }
 
-    /// Conversations after the filter and the search box, sorted newest first.
+    /// Conversations after the queue, the search box and the filter sheet,
+    /// sorted newest first.
+    ///
+    /// All three are applied here rather than on the server because
+    /// `GET /api/conversations` has no text search — the web filters its own
+    /// list the same way, so the two surfaces agree on what a match is.
     var visible: [Conversation] {
         guard let all = state.value else { return [] }
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
-        let matched = query.isEmpty ? all : all.filter { conversation in
+        let searched = query.isEmpty ? all : all.filter { conversation in
             let haystack = [
                 conversation.contact?.name,
                 conversation.contact?.email,
@@ -70,6 +77,8 @@ final class InboxViewModel {
             ]
             return haystack.contains { $0?.lowercased().contains(query) == true }
         }
+
+        let matched = fieldFilter.isEmpty ? searched : searched.filter(fieldFilter.matches)
 
         return matched.sorted { lhs, rhs in
             // A thread with no activity at all sorts last rather than
@@ -178,5 +187,40 @@ final class InboxViewModel {
             // Put it back — the server never agreed to the change.
             if let previous { state = .loaded(previous) }
         }
+    }
+}
+
+/// The three things an operator actually looks a conversation up by.
+///
+/// Separate from the search box on purpose: search is one word against
+/// everything, this is a specific word against a specific field, and the two
+/// compose — a subject filter narrows what the search box already found.
+struct InboxFieldFilter: Equatable, Sendable {
+    var name = ""
+    var email = ""
+    var subject = ""
+
+    var isEmpty: Bool {
+        [name, email, subject].allSatisfy {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    var activeCount: Int {
+        [name, email, subject].count {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    func matches(_ conversation: Conversation) -> Bool {
+        contains(conversation.contact?.name, name)
+            && contains(conversation.contact?.email, email)
+            && contains(conversation.subject, subject)
+    }
+
+    private func contains(_ haystack: String?, _ needle: String) -> Bool {
+        let wanted = needle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !wanted.isEmpty else { return true }
+        return haystack?.lowercased().contains(wanted) == true
     }
 }

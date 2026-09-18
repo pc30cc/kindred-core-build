@@ -11,6 +11,9 @@ import Observation
 struct SearchRow: View {
     @Binding var text: String
     let prompt: String
+    /// Owned by the enclosing list so the toolbar's magnifier can put the
+    /// caret straight into the field.
+    var focus: FocusState<Bool>.Binding
 
     /// The room this row takes in a list, its padding included.
     ///
@@ -36,6 +39,7 @@ struct SearchRow: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
+                .focused(focus)
                 .frame(maxWidth: .infinity)
 
             if !text.isEmpty {
@@ -133,6 +137,9 @@ struct SearchRestingList<Rows: View>: View {
     /// False while the rows below are placeholders. Resting on a skeleton is
     /// pointless: the real rows replace it and take the fold with them.
     let isReady: Bool
+    /// Raised by the toolbar's magnifier: brings the field down and puts the
+    /// caret in it. Lowered again when the operator leaves an empty field.
+    @Binding var isSearching: Bool
     @ViewBuilder let rows: Rows
 
     @State private var metrics = ListMetrics()
@@ -145,6 +152,10 @@ struct SearchRestingList<Rows: View>: View {
     /// would be worse than a visible search field.
     @State private var restUntil = Date.distantPast
     @State private var restedAt: CGFloat = -1
+    @FocusState private var searchFocused: Bool
+
+    /// The search row's own scroll id, so the magnifier can bring it back.
+    private var searchAnchorID: String { "\(anchorID).search" }
 
     private var spacer: CGFloat {
         guard metrics.viewport > 0, metrics.content > 0 else { return 0 }
@@ -154,7 +165,8 @@ struct SearchRestingList<Rows: View>: View {
     var body: some View {
         ScrollViewReader { proxy in
             List {
-                SearchRow(text: $text, prompt: prompt)
+                SearchRow(text: $text, prompt: prompt, focus: $searchFocused)
+                    .id(searchAnchorID)
                     .listRowInsets(SearchRow.rowInsets)
                     .listRowSeparator(.hidden)
                     .measuredListRow(insets: Theme.Space.xs + Theme.Space.sm)
@@ -194,6 +206,23 @@ struct SearchRestingList<Rows: View>: View {
             }
             .onChange(of: restKey) { _, _ in
                 rest(with: proxy)
+            }
+            .onChange(of: isSearching) { _, wanted in
+                guard wanted else { return }
+                withAnimation(Theme.Motion.standard) {
+                    proxy.scrollTo(searchAnchorID, anchor: .top)
+                }
+                searchFocused = true
+            }
+            .onChange(of: searchFocused) { _, focused in
+                // Leaving an empty field is the operator saying they are done
+                // looking: put the row away again rather than leaving a blank
+                // box taking up the top of the list.
+                guard !focused, text.isEmpty else { return }
+                isSearching = false
+                withAnimation(Theme.Motion.standard) {
+                    proxy.scrollTo(anchorID, anchor: .top)
+                }
             }
         }
     }

@@ -55,6 +55,7 @@ struct ContactsView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.locale) private var locale
     @State private var model = ContactsViewModel()
+    @State private var isSearching = false
 
     private var language: Language { appState.language }
     private var workspaceID: String? { appState.selectedWorkspace?.id }
@@ -63,11 +64,20 @@ struct ContactsView: View {
         @Bindable var model = model
 
         content
-            // Same as the inbox: the tab already names the screen, and the
-            // search field comes down on a pull rather than sitting there.
-            .navigationTitle("")
+            // Same chrome as the inbox: a small inline title and a magnifier
+            // that brings the in-list field down.
+            .navigationTitle(Str.tabContacts(language))
             .navigationBarTitleDisplayMode(.inline)
-            .statusBarScrim()
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        isSearching = true
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+                    .accessibilityLabel(Str.search(language))
+                }
+            }
             .floatingTabBarInset()
             .refreshable {
                 await model.refresh(workspaceID: workspaceID, appState: appState)
@@ -86,7 +96,8 @@ struct ContactsView: View {
             prompt: Str.search(language),
             anchorID: Self.restAnchor,
             resetToken: workspaceID ?? "-",
-            isReady: model.state.isLoaded
+            isReady: model.state.isLoaded,
+            isSearching: $isSearching
         ) {
             switch model.state {
             case .loading:

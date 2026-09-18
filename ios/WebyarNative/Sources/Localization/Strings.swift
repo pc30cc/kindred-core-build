@@ -752,3 +752,247 @@ enum Str {
         }
     }
 }
+
+// MARK: - Conversation actions
+//
+// The wording follows the web app's own inbox copy, so an operator who uses
+// both does not have to learn two vocabularies for the same four buttons.
+
+extension Str {
+
+    static func filters(_ l: Language) -> String {
+        switch l {
+        case .en: "Filters"
+        case .fa: "پالایه‌ها"
+        case .tr: "Filtreler"
+        }
+    }
+
+    static func clearFilters(_ l: Language) -> String {
+        switch l {
+        case .en: "Clear"
+        case .fa: "پاک کردن"
+        case .tr: "Temizle"
+        }
+    }
+
+    static func apply(_ l: Language) -> String {
+        switch l {
+        case .en: "Apply"
+        case .fa: "اعمال"
+        case .tr: "Uygula"
+        }
+    }
+
+    static func done(_ l: Language) -> String {
+        switch l {
+        case .en: "Done"
+        case .fa: "تمام"
+        case .tr: "Bitti"
+        }
+    }
+
+    static func filterByName(_ l: Language) -> String {
+        switch l {
+        case .en: "Contact name"
+        case .fa: "نام مخاطب"
+        case .tr: "Kişi adı"
+        }
+    }
+
+    static func filterByEmail(_ l: Language) -> String {
+        switch l {
+        case .en: "Email address"
+        case .fa: "نشانی ایمیل"
+        case .tr: "E-posta adresi"
+        }
+    }
+
+    static func filterBySubject(_ l: Language) -> String {
+        switch l {
+        case .en: "Subject"
+        case .fa: "موضوع"
+        case .tr: "Konu"
+        }
+    }
+
+    static func activeFilters(_ count: Int, _ l: Language) -> String {
+        switch l {
+        case .en: count == 1 ? "1 filter" : "\(count) filters"
+        case .fa: "\(count) پالایه"
+        case .tr: "\(count) filtre"
+        }
+    }
+
+    // MARK: Conversation menu
+
+    static func conversationActions(_ l: Language) -> String {
+        switch l {
+        case .en: "Conversation"
+        case .fa: "گفت‌وگو"
+        case .tr: "Görüşme"
+        }
+    }
+
+    static func transferConversation(_ l: Language) -> String {
+        switch l {
+        case .en: "Transfer"
+        case .fa: "انتقال مکالمه"
+        case .tr: "Aktar"
+        }
+    }
+
+    static func changeStatus(_ l: Language) -> String {
+        switch l {
+        case .en: "Status"
+        case .fa: "وضعیت مکالمه"
+        case .tr: "Durum"
+        }
+    }
+
+    static func changePriority(_ l: Language) -> String {
+        switch l {
+        case .en: "Priority"
+        case .fa: "اولویت"
+        case .tr: "Öncelik"
+        }
+    }
+
+    static func tags(_ l: Language) -> String {
+        switch l {
+        case .en: "Tags"
+        case .fa: "برچسب‌ها"
+        case .tr: "Etiketler"
+        }
+    }
+
+    static func addTag(_ l: Language) -> String {
+        switch l {
+        case .en: "Add a tag"
+        case .fa: "افزودن برچسب"
+        case .tr: "Etiket ekle"
+        }
+    }
+
+    static func noTags(_ l: Language) -> String {
+        switch l {
+        case .en: "No tags yet"
+        case .fa: "هنوز برچسبی نیست"
+        case .tr: "Henüz etiket yok"
+        }
+    }
+
+    static func internalNotes(_ l: Language) -> String {
+        switch l {
+        case .en: "Internal notes"
+        case .fa: "یادداشت داخلی"
+        case .tr: "İç notlar"
+        }
+    }
+
+    static func notesPrivacyNote(_ l: Language) -> String {
+        switch l {
+        case .en: "Only your team can see these. The visitor never does."
+        case .fa: "فقط هم‌تیمی‌های شما این‌ها را می‌بینند؛ بازدیدکننده هرگز."
+        case .tr: "Bunları yalnızca ekibiniz görür; ziyaretçi asla görmez."
+        }
+    }
+
+    static func noNotes(_ l: Language) -> String {
+        switch l {
+        case .en: "No notes yet"
+        case .fa: "هنوز یادداشتی نیست"
+        case .tr: "Henüz not yok"
+        }
+    }
+
+    static func writeNote(_ l: Language) -> String {
+        switch l {
+        case .en: "Write a note"
+        case .fa: "یادداشتی بنویسید"
+        case .tr: "Bir not yazın"
+        }
+    }
+
+    static func unassigned(_ l: Language) -> String {
+        switch l {
+        case .en: "Unassigned"
+        case .fa: "بدون مسئول"
+        case .tr: "Atanmamış"
+        }
+    }
+
+    static func statusPending(_ l: Language) -> String {
+        switch l {
+        case .en: "Pending"
+        case .fa: "در انتظار"
+        case .tr: "Beklemede"
+        }
+    }
+
+    static func statusClosed(_ l: Language) -> String {
+        switch l {
+        case .en: "Closed"
+        case .fa: "بسته"
+        case .tr: "Kapalı"
+        }
+    }
+
+    static func priorityLow(_ l: Language) -> String {
+        switch l {
+        case .en: "Low"
+        case .fa: "کم"
+        case .tr: "Düşük"
+        }
+    }
+
+    static func priorityNormal(_ l: Language) -> String {
+        switch l {
+        case .en: "Normal"
+        case .fa: "عادی"
+        case .tr: "Normal"
+        }
+    }
+
+    // MARK: Calls
+
+    static func voiceCall(_ l: Language) -> String {
+        switch l {
+        case .en: "Voice call"
+        case .fa: "تماس صوتی"
+        case .tr: "Sesli arama"
+        }
+    }
+
+    static func videoCall(_ l: Language) -> String {
+        switch l {
+        case .en: "Video call"
+        case .fa: "تماس تصویری"
+        case .tr: "Görüntülü arama"
+        }
+    }
+
+    static func inviteSent(_ l: Language) -> String {
+        switch l {
+        case .en: "Waiting for the visitor to accept"
+        case .fa: "در انتظار پذیرش بازدیدکننده"
+        case .tr: "Ziyaretçinin kabul etmesi bekleniyor"
+        }
+    }
+
+    static func inviteFailed(_ l: Language) -> String {
+        switch l {
+        case .en: "The call could not be started"
+        case .fa: "تماس آغاز نشد"
+        case .tr: "Arama başlatılamadı"
+        }
+    }
+
+    static func saveFailed(_ l: Language) -> String {
+        switch l {
+        case .en: "That change did not save"
+        case .fa: "این تغییر ذخیره نشد"
+        case .tr: "Bu değişiklik kaydedilmedi"
+        }
+    }
+}

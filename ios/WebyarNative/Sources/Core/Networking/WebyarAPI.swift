@@ -25,6 +25,21 @@ protocol WebyarAPI: Sendable {
     func contacts(workspaceID: String) async throws -> [Contact]
     func visitorIntel(workspaceID: String, conversationIDs: [String]) async throws -> [String: VisitorProfile]
 
+    func updateConversation(
+        conversationID: String,
+        workspaceID: String,
+        status: ConversationStatus?,
+        priority: ConversationPriority?,
+        assignedTo: String??,
+        tags: [String]?
+    ) async throws
+    func workspaceMembers(workspaceID: String) async throws -> [WorkspaceMember]
+    func notes(conversationID: String, workspaceID: String) async throws -> [ConversationNote]
+    func addNote(conversationID: String, workspaceID: String, body: String) async throws
+    func deleteNote(conversationID: String, workspaceID: String, noteID: String) async throws
+    func inviteToCall(conversationID: String, workspaceID: String, channel: CallChannel) async throws -> CallInvitation
+    func cancelInvitation(id: String) async throws
+
     func entitlements(workspaceID: String) async throws -> Entitlements
     func callCenterCapabilities(workspaceID: String) async throws -> CallCenterCapabilities
     func callOverview(workspaceID: String) async throws -> CallOverview

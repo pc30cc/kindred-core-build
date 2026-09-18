@@ -283,6 +283,134 @@ actor APIClient {
         try await performIgnoringBody(request)
     }
 
+    /// The full conversation patch the web's action panel sends.
+    ///
+    /// One shape for all four fields rather than a method each: the server
+    /// takes them together, records one diff, and omitted keys are left
+    /// alone — so encoding `nil` for a field has to mean "don't touch it".
+    private struct ConversationPatch: Encodable, Sendable {
+        let workspace_id: String
+        var status: String?
+        var priority: String?
+        var assigned_to: String??
+        var tags: [String]?
+
+        enum CodingKeys: String, CodingKey {
+            case workspace_id, status, priority, assigned_to, tags
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(workspace_id, forKey: .workspace_id)
+            try container.encodeIfPresent(status, forKey: .status)
+            try container.encodeIfPresent(priority, forKey: .priority)
+            try container.encodeIfPresent(tags, forKey: .tags)
+            // Unassigning is an explicit `null`, which is a different thing
+            // from leaving the assignee alone. The double optional is what
+            // keeps those two apart all the way to the wire.
+            if let assigned_to {
+                try container.encode(assigned_to, forKey: .assigned_to)
+            }
+        }
+    }
+
+    func updateConversation(
+        conversationID: String,
+        workspaceID: String,
+        status: ConversationStatus? = nil,
+        priority: ConversationPriority? = nil,
+        assignedTo: String?? = nil,
+        tags: [String]? = nil
+    ) async throws {
+        let request = try makeRequest(
+            "PATCH",
+            "/api/conversations/\(conversationID)",
+            body: ConversationPatch(
+                workspace_id: workspaceID,
+                status: status?.rawValue,
+                priority: priority?.rawValue,
+                assigned_to: assignedTo,
+                tags: tags
+            )
+        )
+        try await performIgnoringBody(request)
+    }
+
+    func workspaceMembers(workspaceID: String) async throws -> [WorkspaceMember] {
+        let request = try makeRequest(
+            "GET",
+            "/api/workspace-members",
+            // This route spells it `workspaceId`; most of the others use
+            // `workspace_id`. Matching the server is what matters.
+            query: [URLQueryItem(name: "workspaceId", value: workspaceID)]
+        )
+        return try await perform(request, as: WorkspaceMembersResponse.self).members
+    }
+
+    // MARK: - Internal notes
+
+    func notes(conversationID: String, workspaceID: String) async throws -> [ConversationNote] {
+        let request = try makeRequest(
+            "GET",
+            "/api/conversations/\(conversationID)/notes",
+            query: [URLQueryItem(name: "workspace_id", value: workspaceID)]
+        )
+        return try await perform(request, as: NotesResponse.self).notes
+    }
+
+    private struct NoteBody: Encodable, Sendable {
+        let workspace_id: String
+        let body: String
+    }
+
+    func addNote(conversationID: String, workspaceID: String, body: String) async throws {
+        let request = try makeRequest(
+            "POST",
+            "/api/conversations/\(conversationID)/notes",
+            body: NoteBody(workspace_id: workspaceID, body: body)
+        )
+        try await performIgnoringBody(request)
+    }
+
+    func deleteNote(conversationID: String, workspaceID: String, noteID: String) async throws {
+        let request = try makeRequest(
+            "DELETE",
+            "/api/conversations/\(conversationID)/notes/\(noteID)",
+            query: [URLQueryItem(name: "workspace_id", value: workspaceID)]
+        )
+        try await performIgnoringBody(request)
+    }
+
+    // MARK: - Calls on a conversation
+
+    private struct InvitationBody: Encodable, Sendable {
+        let workspace_id: String
+        let conversation_id: String
+        let channel: String
+    }
+
+    func inviteToCall(
+        conversationID: String,
+        workspaceID: String,
+        channel: CallChannel
+    ) async throws -> CallInvitation {
+        let request = try makeRequest(
+            "POST",
+            "/api/call-invitations",
+            body: InvitationBody(
+                workspace_id: workspaceID,
+                conversation_id: conversationID,
+                channel: channel.rawValue
+            )
+        )
+        return try await perform(request, as: CallInvitationResponse.self).invitation
+    }
+
+    func cancelInvitation(id: String) async throws {
+        let request = try makeRequest("POST", "/api/call-invitations/\(id)/cancel")
+        try await performIgnoringBody(request)
+    }
+
     // MARK: - Plan
 
     func entitlements(workspaceID: String) async throws -> Entitlements {

@@ -6,10 +6,13 @@ struct ChatView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.locale) private var locale
     @State private var model: ChatViewModel
+    @State private var actions: ConversationActionsModel
+    @State private var sheet: ConversationSheet?
 
     init(conversation: Conversation) {
         self.conversation = conversation
         _model = State(initialValue: ChatViewModel(conversation: conversation))
+        _actions = State(initialValue: ConversationActionsModel(conversation: conversation))
     }
 
     private var language: Language { appState.language }
@@ -27,6 +30,12 @@ struct ChatView: View {
             visitorCode: conversation.contact?.visitorCode,
             language: language
         )
+    }
+
+    /// Which call channels this plan actually offers, read the same way the
+    /// web's sidebar card reads them.
+    private var channels: CallChannels {
+        CallChannels.resolve(appState.entitlements.value)
     }
 
     private var capabilities: ComposerCapabilities {
@@ -56,6 +65,38 @@ struct ChatView: View {
                         language: language
                     )
                 }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    ConversationMenu(
+                        model: actions,
+                        channels: channels,
+                        language: language,
+                        sheet: $sheet,
+                        onStatus: { status in
+                            Task { await actions.setStatus(status, appState: appState) }
+                        },
+                        onPriority: { priority in
+                            Task { await actions.setPriority(priority, appState: appState) }
+                        },
+                        onInvite: { channel in
+                            Task { await actions.invite(channel, appState: appState) }
+                        }
+                    )
+                }
+            }
+            .sheet(item: $sheet) { which in
+                switch which {
+                case .transfer:
+                    TransferSheet(
+                        model: actions,
+                        language: language,
+                        currentUserID: appState.session.user?.id
+                    )
+                case .tags:
+                    TagsSheet(model: actions, language: language)
+                case .notes:
+                    NotesSheet(model: actions, language: language, locale: locale)
+                }
             }
             // A transcript is a full-screen task.
             .toolbar(.hidden, for: .tabBar)
@@ -74,6 +115,33 @@ struct ChatView: View {
             }
             .task {
                 await model.load(appState: appState)
+            }
+            .task {
+                await actions.load(appState: appState)
+            }
+            // An invitation is not a call: it is a request the visitor has to
+            // accept. Saying so, and offering to take it back, is the honest
+            // thing to show while nothing is ringing anywhere.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if actions.pendingInvitation != nil {
+                    InvitationBanner(
+                        message: Str.inviteSent(language),
+                        cancelTitle: Str.cancel(language),
+                        onCancel: { Task { await actions.cancelInvitation() } }
+                    )
+                }
+            }
+            .alert(
+                Str.inviteFailed(language),
+                isPresented: $actions.inviteFailed
+            ) {
+                Button(Str.cancel(language), role: .cancel) {}
+            }
+            .alert(
+                Str.saveFailed(language),
+                isPresented: $actions.saveFailed
+            ) {
+                Button(Str.cancel(language), role: .cancel) {}
             }
             .alert(
                 Str.offlineTitle(language),

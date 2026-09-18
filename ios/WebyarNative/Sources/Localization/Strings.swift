@@ -987,12 +987,4 @@ extension Str {
         case .tr: "Arama başlatılamadı"
         }
     }
-
-    static func saveFailed(_ l: Language) -> String {
-        switch l {
-        case .en: "That change did not save"
-        case .fa: "این تغییر ذخیره نشد"
-        case .tr: "Bu değişiklik kaydedilmedi"
-        }
-    }
 }

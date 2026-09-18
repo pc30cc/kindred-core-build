@@ -302,6 +302,7 @@ actor SampleAPI: WebyarAPI {
             status: .open,
             assignedTo: nil,
             priority: .urgent,
+            tags: [],
             createdAt: SampleAPI.ago(90),
             updatedAt: SampleAPI.ago(4),
             contact: ConversationContact(
@@ -327,6 +328,7 @@ actor SampleAPI: WebyarAPI {
             status: .open,
             assignedTo: "u-1",
             priority: .high,
+            tags: [],
             createdAt: SampleAPI.ago(300),
             updatedAt: SampleAPI.ago(52),
             contact: ConversationContact(
@@ -354,6 +356,7 @@ actor SampleAPI: WebyarAPI {
             status: .open,
             assignedTo: nil,
             priority: .normal,
+            tags: [],
             createdAt: SampleAPI.ago(600),
             updatedAt: SampleAPI.ago(140),
             contact: ConversationContact(name: nil, email: nil, avatarURL: nil, visitorCode: "8F2C"),
@@ -374,6 +377,7 @@ actor SampleAPI: WebyarAPI {
             status: .open,
             assignedTo: nil,
             priority: .normal,
+            tags: [],
             createdAt: SampleAPI.ago(1500),
             updatedAt: SampleAPI.ago(1400),
             contact: ConversationContact(
@@ -397,6 +401,7 @@ actor SampleAPI: WebyarAPI {
             status: .resolved,
             assignedTo: "u-1",
             priority: .normal,
+            tags: [],
             createdAt: SampleAPI.ago(5000),
             updatedAt: SampleAPI.ago(4300),
             contact: ConversationContact(
@@ -422,6 +427,7 @@ actor SampleAPI: WebyarAPI {
             status: .open,
             assignedTo: nil,
             priority: .normal,
+            tags: [],
             createdAt: SampleAPI.ago(200),
             updatedAt: SampleAPI.ago(28),
             contact: ConversationContact(name: nil, email: nil, avatarURL: nil, visitorCode: "A19D"),
@@ -500,6 +506,7 @@ private extension Conversation {
             status: newStatus,
             assignedTo: assignedTo,
             priority: priority,
+            tags: [],
             createdAt: createdAt,
             updatedAt: updatedAt,
             contact: contact,

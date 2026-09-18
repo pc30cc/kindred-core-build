@@ -155,6 +155,9 @@ struct Conversation: Codable, Identifiable, Hashable, Sendable {
     let status: ConversationStatus
     let assignedTo: String?
     let priority: ConversationPriority?
+    /// Free-form labels the team puts on a thread. The server normalizes
+    /// them, so what comes back is what should be shown.
+    let tags: [String]?
     let createdAt: Date?
     let updatedAt: Date?
 
@@ -170,7 +173,7 @@ struct Conversation: Codable, Identifiable, Hashable, Sendable {
         case id
         case workspaceId = "workspace_id"
         case contactId = "contact_id"
-        case subject, status, priority
+        case subject, status, priority, tags
         case assignedTo = "assigned_to"
         case createdAt = "created_at"
         case updatedAt = "updated_at"

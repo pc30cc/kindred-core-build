@@ -27,15 +27,23 @@ extension APIClient: WebyarAPI {}
 
 /// Chooses the backend for this launch.
 ///
-/// Sample mode is opt-in through a launch argument only. It cannot be reached
-/// by a user, by a setting, or by anything on the network — a shipped build
-/// launched normally always gets the real client.
+/// The app talks to the real server. The in-memory sample backend exists only
+/// to lay out and screenshot screens that otherwise need a live account, and
+/// it is fenced off twice over: it is compiled only into Debug builds, so a
+/// Release build physically cannot contain it, and even in Debug it requires
+/// an explicit launch argument. There is no setting, no gesture and no server
+/// response that can reach it.
 enum Backend {
+    #if DEBUG
     static let isSample = ProcessInfo.processInfo.arguments.contains("-WebyarSampleData")
-
     static let current: any WebyarAPI = isSample ? SampleAPI() : APIClient.shared
+    #else
+    static let isSample = false
+    static let current: any WebyarAPI = APIClient.shared
+    #endif
 }
 
+#if DEBUG
 /// Which screen a sample-mode launch should open on.
 ///
 /// Screenshot automation cannot tap its way through an app, and Apple wants a
@@ -54,3 +62,4 @@ enum SampleRoute: String {
         return SampleRoute(rawValue: arguments[arguments.index(after: index)])
     }()
 }
+#endif

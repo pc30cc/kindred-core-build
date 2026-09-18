@@ -1,3 +1,5 @@
+// Compiled only into Debug builds — see Backend in WebyarAPI.swift.
+#if DEBUG
 import Foundation
 
 /// A backend that answers from memory.
@@ -281,3 +283,4 @@ private extension Conversation {
         )
     }
 }
+#endif

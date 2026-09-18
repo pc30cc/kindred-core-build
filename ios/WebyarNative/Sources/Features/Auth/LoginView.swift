@@ -24,11 +24,17 @@ struct LoginView: View {
         GeometryReader { proxy in
             ScrollView {
                 VStack(spacing: 0) {
+                    // A flexible gap above and below the form centres it in
+                    // whatever height is left, instead of pinning it to the
+                    // top and leaving one large dead band underneath. The
+                    // minimum keeps it off the navigation area on a short
+                    // screen or with the keyboard up.
+                    Spacer(minLength: Theme.Space.xl)
+
                     header
-                        .padding(.top, Theme.Space.huge)
 
                     fields
-                        .padding(.top, Theme.Space.xxl)
+                        .padding(.top, Theme.Space.xl)
 
                     // The error sits between the fields and the button, where
                     // the eye already is — not at the top where it would be
@@ -44,7 +50,7 @@ struct LoginView: View {
                         isEnabled: canSubmit,
                         action: submit
                     )
-                    .padding(.top, Theme.Space.xl)
+                    .padding(.top, Theme.Space.lg)
 
                     Button(action: requestReset) {
                         Text(Str.forgotPassword(language))
@@ -59,12 +65,12 @@ struct LoginView: View {
                     Spacer(minLength: Theme.Space.xl)
 
                     languagePicker
-                        .padding(.bottom, Theme.Space.lg)
+                        .padding(.bottom, Theme.Space.md)
                 }
                 .padding(.horizontal, Theme.screenInset)
-                // Pins the language picker to the bottom on a tall screen
-                // while still letting everything scroll on a short one or
-                // when the keyboard is up.
+                // Lets the two spacers above do their work on a tall screen,
+                // while everything still scrolls on a short one or when the
+                // keyboard is up.
                 .frame(minHeight: proxy.size.height)
             }
             .scrollDismissesKeyboard(.interactively)

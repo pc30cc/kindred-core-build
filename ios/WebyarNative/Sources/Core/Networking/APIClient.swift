@@ -359,6 +359,25 @@ enum DateParsing {
         if let d = withFraction.date(from: raw) { return d }
         if let d = plain.date(from: raw) { return d }
         if let d = postgres.date(from: raw) { return d }
+        // Postgres writes however many fractional digits the value needs —
+        // real rows in this database carry 3, 5 and 6 — and
+        // ISO8601DateFormatter is documented for milliseconds. Rather than
+        // depend on how tolerant it happens to be, truncate the fraction to
+        // three digits and try once more. Losing sub-millisecond precision on
+        // a chat timestamp costs nothing; failing to parse it drops the whole
+        // response.
+        if let truncated = truncatingFraction(raw), let d = withFraction.date(from: truncated) { return d }
         return nil
+    }
+
+    /// Rewrites `…:15.008353+00:00` as `…:15.008+00:00`, leaving anything
+    /// without a fractional part untouched.
+    private static func truncatingFraction(_ raw: String) -> String? {
+        guard let dot = raw.firstIndex(of: ".") else { return nil }
+        let afterDot = raw.index(after: dot)
+        let digits = raw[afterDot...].prefix { $0.isNumber }
+        guard digits.count > 3 else { return nil }
+        let rest = raw[raw.index(afterDot, offsetBy: digits.count)...]
+        return raw[..<afterDot] + digits.prefix(3) + rest
     }
 }

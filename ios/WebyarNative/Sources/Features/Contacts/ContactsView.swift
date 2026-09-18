@@ -64,12 +64,13 @@ struct ContactsView: View {
 
         content
             .navigationTitle(Str.tabContacts(language))
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
             .searchable(
                 text: $model.searchText,
                 placement: .navigationBarDrawer(displayMode: .always),
                 prompt: Str.search(language)
             )
+            .floatingTabBarInset()
             .refreshable {
                 await model.refresh(workspaceID: workspaceID, appState: appState)
             }

@@ -57,6 +57,9 @@ enum Theme {
         static let avatarMedium: CGFloat = 44
         static let avatarLarge: CGFloat = 76
         static let rowMinHeight: CGFloat = 60
+        /// Room a scrolling screen leaves at the bottom so its last row can
+        /// clear the floating tab bar: the bar's own height plus its margin.
+        static let floatingBarClearance: CGFloat = 76
     }
 
     // MARK: - Colour
@@ -141,5 +144,9 @@ enum Theme {
         static let standard = Animation.easeOut(duration: 0.22)
         /// Springy, for a message arriving in the chat transcript.
         static let bubble = Animation.spring(response: 0.34, dampingFraction: 0.82)
+        /// The tab bar's selection bubble. Tighter and less bouncy than a
+        /// message: it travels a short distance and should feel crisp, not
+        /// wobbly.
+        static let tabBubble = Animation.spring(response: 0.28, dampingFraction: 0.86)
     }
 }

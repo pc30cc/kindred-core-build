@@ -2,10 +2,11 @@ import SwiftUI
 
 /// The signed-in shell.
 ///
-/// A plain `TabView` with `NavigationStack` per tab is used rather than
-/// anything custom: it gives real UIKit tab-bar behaviour — the translucent
-/// blur over scrolled content, tap-to-pop-to-root, correct safe-area insets
-/// and RTL mirroring — none of which is worth reimplementing.
+/// `TabView` still does the work — it owns each tab's navigation stack, its
+/// state and the switch between them — but its own bar is hidden and replaced
+/// by a floating capsule. Keeping the real `TabView` underneath means tab
+/// state, deep links and the system's own restoration keep behaving normally;
+/// only the chrome is ours.
 struct MainTabView: View {
     @Environment(AppState.self) private var appState
     @State private var selection: Tab
@@ -18,43 +19,73 @@ struct MainTabView: View {
         _selection = State(initialValue: Self.initialTab)
     }
 
-    /// Sample mode may name a starting tab; a real launch always opens Inbox.
+    /// A real launch always opens Inbox. In Debug, a screenshot run may name
+    /// a different starting tab.
     private static var initialTab: Tab {
+        #if DEBUG
         switch SampleRoute.current {
         case .contacts, .contact: .contacts
         case .settings: .settings
         case .inbox, .chat, .none: .inbox
         }
+        #else
+        .inbox
+        #endif
     }
 
     private var language: Language { appState.language }
+
+    /// Whether the floating bar should be on screen.
+    ///
+    /// A pushed detail screen — a transcript, a contact — is a full-screen
+    /// task, so the bar goes away rather than hovering over the composer.
+    private var showsTabBar: Bool {
+        switch selection {
+        case .inbox: inboxPath.isEmpty
+        case .contacts: contactsPath.isEmpty
+        case .settings: true
+        }
+    }
+
+    private var items: [FloatingTabBar<Tab>.Item] {
+        [
+            .init(tab: .inbox, title: Str.tabInbox(language),
+                  icon: "tray", selectedIcon: "tray.fill"),
+            .init(tab: .contacts, title: Str.tabContacts(language),
+                  icon: "person.2", selectedIcon: "person.2.fill"),
+            .init(tab: .settings, title: Str.tabSettings(language),
+                  icon: "gearshape", selectedIcon: "gearshape.fill"),
+        ]
+    }
 
     var body: some View {
         TabView(selection: $selection) {
             NavigationStack(path: $inboxPath) {
                 InboxView()
             }
-            .tabItem {
-                Label(Str.tabInbox(language), systemImage: "tray.full")
-            }
             .tag(Tab.inbox)
 
             NavigationStack(path: $contactsPath) {
                 ContactsView()
-            }
-            .tabItem {
-                Label(Str.tabContacts(language), systemImage: "person.2")
             }
             .tag(Tab.contacts)
 
             NavigationStack {
                 SettingsView()
             }
-            .tabItem {
-                Label(Str.tabSettings(language), systemImage: "gearshape")
-            }
             .tag(Tab.settings)
         }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        // Belt and braces: the style above already removes the bar, and this
+        // covers the tab-bar chrome on OS versions that still draw it.
+        .toolbar(.hidden, for: .tabBar)
+        .overlay(alignment: .bottom) {
+            if showsTabBar {
+                FloatingTabBar(selection: $selection, items: items)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(Theme.Motion.standard, value: showsTabBar)
         // Keyed on the workspace: session restore is still in flight when the
         // tab view first appears, so an unkeyed task would run before there is
         // a workspace to fetch anything from and silently do nothing.
@@ -64,8 +95,10 @@ struct MainTabView: View {
     }
 
     /// Opens a detail screen on launch when sample mode asked for one, so a
-    /// screenshot run can capture the chat and contact screens too.
+    /// screenshot run can capture the chat and contact screens too. Compiled
+    /// out of Release entirely.
     private func pushSampleDetailIfRequested() async {
+        #if DEBUG
         guard let workspace = appState.selectedWorkspace else { return }
 
         switch SampleRoute.current {
@@ -86,5 +119,23 @@ struct MainTabView: View {
         case .inbox, .contacts, .settings, .none:
             break
         }
+        #endif
+    }
+}
+
+/// Reserves room at the bottom of a scrollable screen for the floating bar,
+/// so the last row can always be scrolled clear of it.
+struct FloatingTabBarInset: ViewModifier {
+    func body(content: Content) -> some View {
+        content.safeAreaInset(edge: .bottom, spacing: 0) {
+            Color.clear.frame(height: Theme.Size.floatingBarClearance)
+        }
+    }
+}
+
+extension View {
+    /// Apply to any screen that scrolls under the floating tab bar.
+    func floatingTabBarInset() -> some View {
+        modifier(FloatingTabBarInset())
     }
 }

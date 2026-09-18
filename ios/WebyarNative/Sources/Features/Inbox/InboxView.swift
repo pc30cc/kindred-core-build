@@ -13,7 +13,11 @@ struct InboxView: View {
 
         content
             .navigationTitle(Str.tabInbox(language))
-            .navigationBarTitleDisplayMode(.large)
+            // Inline, not large. A large title plus its own empty navigation
+            // bar, the search field and the filter put roughly 230pt of chrome
+            // above the first conversation — a quarter of the screen before
+            // any content. Inline gives that back to the list.
+            .navigationBarTitleDisplayMode(.inline)
             // `.searchable` gives the real system search bar: it tucks under
             // the large title, animates on focus and handles the cancel
             // button, all mirrored correctly under RTL.
@@ -22,6 +26,7 @@ struct InboxView: View {
                 placement: .navigationBarDrawer(displayMode: .always),
                 prompt: Str.search(language)
             )
+            .floatingTabBarInset()
             .refreshable {
                 await model.refresh(workspaceID: workspaceID, appState: appState)
             }

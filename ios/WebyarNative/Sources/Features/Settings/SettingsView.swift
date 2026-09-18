@@ -112,7 +112,8 @@ struct SettingsView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle(Str.tabSettings(language))
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
+        .floatingTabBarInset()
         .confirmationDialog(
             Str.signOutConfirm(language),
             isPresented: $isConfirmingSignOut,

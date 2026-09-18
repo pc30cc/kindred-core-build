@@ -136,7 +136,15 @@ struct SearchRestingList<Rows: View>: View {
     @ViewBuilder let rows: Rows
 
     @State private var metrics = ListMetrics()
-    @State private var restedFor: String?
+    /// Until when the list is still allowed to put itself back at rest.
+    ///
+    /// The rows land in stages — skeletons, then real rows, then their final
+    /// heights — so one attempt is never enough. The window closes shortly
+    /// after the real rows arrive, because after that the only thing that
+    /// moves the list is the operator, and yanking it back from under them
+    /// would be worse than a visible search field.
+    @State private var restUntil = Date.distantPast
+    @State private var restedAt: CGFloat = -1
 
     private var spacer: CGFloat {
         guard metrics.viewport > 0, metrics.content > 0 else { return 0 }
@@ -169,8 +177,8 @@ struct SearchRestingList<Rows: View>: View {
             .background(
                 GeometryReader { geo in
                     Color.clear
-                        .onAppear { metrics.viewport = visible(geo) }
-                        .onChange(of: visible(geo)) { _, height in
+                        .onAppear { metrics.viewport = geo.size.height }
+                        .onChange(of: geo.size.height) { _, height in
                             metrics.viewport = height
                         }
                 }
@@ -178,39 +186,37 @@ struct SearchRestingList<Rows: View>: View {
             .onPreferenceChange(ListContentHeight.self) { [metrics] height in
                 Task { @MainActor in metrics.content = height }
             }
-            .onChange(of: restKey, initial: true) { _, _ in
+            .onChange(of: readyKey, initial: true) { _, _ in
+                guard isReady else { return }
+                restUntil = .now.addingTimeInterval(0.8)
+                restedAt = -1
+                rest(with: proxy)
+            }
+            .onChange(of: restKey) { _, _ in
                 rest(with: proxy)
             }
         }
     }
 
-    private func visible(_ geo: GeometryProxy) -> CGFloat {
-        #if DEBUG
-        print("[REST] geo size=\(geo.size.height) top=\(geo.safeAreaInsets.top) bottom=\(geo.safeAreaInsets.bottom)")
-        #endif
-        return geo.size.height - geo.safeAreaInsets.top - geo.safeAreaInsets.bottom
-    }
+    /// A new queue or a new workspace starts the list over, and so does the
+    /// moment the real rows replace the placeholders.
+    private var readyKey: String { "\(resetToken)|\(isReady)" }
 
     /// Everything the resting position depends on, in one value.
     private var restKey: String {
-        "\(resetToken)|\(isReady)|\(Int(metrics.viewport))|\(Int(metrics.content))"
+        "\(Int(metrics.viewport))|\(Int(metrics.content))"
     }
 
     private func rest(with proxy: ScrollViewProxy) {
-        #if DEBUG
-        print("[REST] key=\(restKey) viewport=\(metrics.viewport) content=\(metrics.content) spacer=\(spacer) restedFor=\(restedFor ?? "-")")
-        #endif
-        guard isReady, restedFor != resetToken,
-              metrics.viewport > 0, metrics.content > 0
+        guard isReady, .now < restUntil,
+              metrics.viewport > 0, metrics.content > 0,
+              metrics.content != restedAt
         else { return }
-        restedFor = resetToken
+        restedAt = metrics.content
         Task { @MainActor in
             // One turn of the run loop so the spacer row that makes this
             // scroll possible is laid out before it is asked for.
             await Task.yield()
-            #if DEBUG
-            print("[REST] scrolling to \(anchorID)")
-            #endif
             proxy.scrollTo(anchorID, anchor: .top)
         }
     }

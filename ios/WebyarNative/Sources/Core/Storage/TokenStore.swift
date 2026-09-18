@@ -30,7 +30,8 @@ enum TokenStore {
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
-        SecItemAdd(query as CFDictionary, nil)
+        let status = SecItemAdd(query as CFDictionary, nil)
+        print("[KEYCHAIN] save status=\(status)")
     }
 
     static func read() -> String? {
@@ -42,7 +43,9 @@ enum TokenStore {
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        print("[KEYCHAIN] read status=\(status)")
+        guard status == errSecSuccess,
               let data = item as? Data,
               let token = String(data: data, encoding: .utf8),
               !token.isEmpty

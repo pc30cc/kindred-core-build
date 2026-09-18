@@ -40,6 +40,11 @@ protocol WebyarAPI: Sendable {
     func inviteToCall(conversationID: String, workspaceID: String, channel: CallChannel) async throws -> CallInvitation
     func cancelInvitation(id: String) async throws
 
+    func registerPushDevice(voipToken: String?, deviceID: String, deviceName: String?, appVersion: String?) async throws
+    func acceptCall(callID: String, workspaceID: String) async throws -> CallConnectInfo
+    func rejectCall(callID: String, workspaceID: String) async throws
+    func endCall(callID: String, workspaceID: String) async throws
+
     func entitlements(workspaceID: String) async throws -> Entitlements
     func callCenterCapabilities(workspaceID: String) async throws -> CallCenterCapabilities
     func callOverview(workspaceID: String) async throws -> CallOverview

@@ -37,6 +37,18 @@ targets:
           - UIInterfaceOrientationPortrait
         # The app talks to one fixed HTTPS origin; no ATS exceptions needed.
         ITSAppUsesNonExemptEncryption: false
+        # `voip` is what lets PushKit wake the app for an incoming call when
+        # it is backgrounded or not running; `audio` is what lets the call
+        # keep its audio session once the operator answers and locks the
+        # screen. Without the first the phone simply never rings.
+        UIBackgroundModes:
+          - voip
+          - audio
+        NSMicrophoneUsageDescription: >-
+          Webyar uses the microphone so you can answer calls from visitors to
+          your website.
+        NSCameraUsageDescription: >-
+          Webyar uses the camera for video calls with visitors to your website.
         # Persian and Turkish ship in-bundle so the language picker works
         # offline and iOS reports the app as localized for them.
         CFBundleLocalizations:

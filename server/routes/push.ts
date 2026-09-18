@@ -31,7 +31,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const registerSchema = z.object({
   platform: z.enum(['ios', 'android']),
   // FCM registration tokens are long opaque strings; bound them defensively.
-  push_token: z.string().min(20).max(4096).regex(/^[\w:.-]+$/),
+  push_token: z.string().min(20).max(4096).regex(/^[\w:.-]+$/).optional().nullable(),
   // PushKit hands out a hex string, and only iOS has one at all. Its own
   // field because it addresses a different transport: APNs direct, never FCM.
   voip_token: z.string().min(32).max(256).regex(/^[0-9a-fA-F]+$/).optional().nullable(),
@@ -40,6 +40,10 @@ const registerSchema = z.object({
   app_version: z.string().max(40).optional().nullable(),
   permission_status: z.enum(['granted', 'denied', 'prompt']).optional().nullable(),
   workspace_id: z.string().regex(UUID_RE).optional().nullable(),
+}).refine((d) => !!d.push_token || !!d.voip_token, {
+  // One address or the other. A device row with neither cannot be reached by
+  // anything and would only ever be a row to clean up later.
+  message: 'push_token or voip_token is required',
 });
 
 // POST /api/push/devices — register or rotate this device's token.
@@ -54,7 +58,7 @@ pushRouter.post('/devices', writeLimiter, async (req, res) => {
     userId,
     workspaceId: parsed.data.workspace_id ?? null,
     platform: parsed.data.platform,
-    pushToken: parsed.data.push_token,
+    pushToken: parsed.data.push_token ?? null,
     deviceId: parsed.data.device_id,
     deviceName: parsed.data.device_name ?? null,
     appVersion: parsed.data.app_version ?? null,

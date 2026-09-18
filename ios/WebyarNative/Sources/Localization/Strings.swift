@@ -988,3 +988,48 @@ extension Str {
         }
     }
 }
+
+// MARK: - Calls in progress
+
+extension Str {
+
+    static func hangUp(_ l: Language) -> String {
+        switch l {
+        case .en: "End"
+        case .fa: "پایان"
+        case .tr: "Bitir"
+        }
+    }
+
+    static func connecting(_ l: Language) -> String {
+        switch l {
+        case .en: "Connecting…"
+        case .fa: "در حال اتصال…"
+        case .tr: "Bağlanıyor…"
+        }
+    }
+
+    static func incomingCall(_ l: Language) -> String {
+        switch l {
+        case .en: "Incoming call"
+        case .fa: "تماس ورودی"
+        case .tr: "Gelen arama"
+        }
+    }
+
+    static func callAnswerFailed(_ l: Language) -> String {
+        switch l {
+        case .en: "The call could not be answered"
+        case .fa: "تماس پاسخ داده نشد"
+        case .tr: "Arama yanıtlanamadı"
+        }
+    }
+
+    static func ringTest(_ l: Language) -> String {
+        switch l {
+        case .en: "Test the ringtone"
+        case .fa: "آزمایش زنگ تماس"
+        case .tr: "Zil sesini dene"
+        }
+    }
+}

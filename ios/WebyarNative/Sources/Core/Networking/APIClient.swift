@@ -411,6 +411,71 @@ actor APIClient {
         try await performIgnoringBody(request)
     }
 
+    // MARK: - Device registration
+
+    private struct DeviceBody: Encodable, Sendable {
+        let platform: String
+        let push_token: String?
+        let voip_token: String?
+        let device_id: String
+        let device_name: String?
+        let app_version: String?
+        let permission_status: String?
+        let workspace_id: String?
+    }
+
+    func registerPushDevice(
+        voipToken: String?,
+        deviceID: String,
+        deviceName: String?,
+        appVersion: String?
+    ) async throws {
+        let request = try makeRequest(
+            "POST",
+            "/api/push/devices",
+            body: DeviceBody(
+                platform: "ios",
+                push_token: nil,
+                voip_token: voipToken,
+                device_id: deviceID,
+                device_name: deviceName,
+                app_version: appVersion,
+                permission_status: nil,
+                workspace_id: nil
+            )
+        )
+        try await performIgnoringBody(request)
+    }
+
+    // MARK: - Answering a call
+
+    func acceptCall(callID: String, workspaceID: String) async throws -> CallConnectInfo {
+        let request = try makeRequest(
+            "POST",
+            "/api/call-center/calls/\(callID)/accept",
+            query: [URLQueryItem(name: "workspaceId", value: workspaceID)]
+        )
+        return try await perform(request, as: CallConnectInfo.self)
+    }
+
+    func rejectCall(callID: String, workspaceID: String) async throws {
+        let request = try makeRequest(
+            "POST",
+            "/api/call-center/calls/\(callID)/reject",
+            query: [URLQueryItem(name: "workspaceId", value: workspaceID)]
+        )
+        try await performIgnoringBody(request)
+    }
+
+    func endCall(callID: String, workspaceID: String) async throws {
+        let request = try makeRequest(
+            "POST",
+            "/api/call-center/calls/\(callID)/end",
+            query: [URLQueryItem(name: "workspaceId", value: workspaceID)]
+        )
+        try await performIgnoringBody(request)
+    }
+
     // MARK: - Plan
 
     func entitlements(workspaceID: String) async throws -> Entitlements {

@@ -154,6 +154,16 @@ actor SampleAPI: WebyarAPI {
 
     func cancelInvitation(id: String) async throws {}
 
+    func registerPushDevice(voipToken: String?, deviceID: String, deviceName: String?, appVersion: String?) async throws {}
+
+    func acceptCall(callID: String, workspaceID: String) async throws -> CallConnectInfo {
+        CallConnectInfo(provider: "sample", providerRoomId: "room-\(callID)", token: "sample-token", expiresAt: nil)
+    }
+
+    func rejectCall(callID: String, workspaceID: String) async throws {}
+
+    func endCall(callID: String, workspaceID: String) async throws {}
+
     /// Gives each sample thread a different device and country so the avatar's
     /// OS-mark and flag paths are actually exercised.
     func visitorIntel(workspaceID: String, conversationIDs: [String]) async throws -> [String: VisitorProfile] {

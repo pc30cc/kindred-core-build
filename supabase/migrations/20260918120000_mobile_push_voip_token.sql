@@ -26,3 +26,28 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_mobile_push_devices_voip_token
 CREATE INDEX IF NOT EXISTS idx_mobile_push_devices_voip_active
   ON public.mobile_push_devices (user_id)
   WHERE enabled AND voip_token IS NOT NULL;
+
+-- A device that can ring but cannot show a banner is a valid device.
+--
+-- The iOS app obtains its VoIP address from PushKit, which needs no Firebase
+-- at all; the notification token needs the Firebase SDK and the operator's
+-- permission. Requiring both would mean an operator who declined notification
+-- permission also silently loses incoming calls, which is not a trade anyone
+-- would knowingly make.
+ALTER TABLE public.mobile_push_devices
+  ALTER COLUMN push_token DROP NOT NULL;
+
+-- Postgres treats NULLs as distinct in a unique index, so rows with no
+-- notification token coexist happily; re-stating it as partial makes that
+-- intent explicit rather than incidental.
+DROP INDEX IF EXISTS public.uq_mobile_push_devices_token;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_mobile_push_devices_token
+  ON public.mobile_push_devices (push_token)
+  WHERE push_token IS NOT NULL;
+
+-- At least one address, or the row is just noise.
+ALTER TABLE public.mobile_push_devices
+  DROP CONSTRAINT IF EXISTS mobile_push_devices_has_address;
+ALTER TABLE public.mobile_push_devices
+  ADD CONSTRAINT mobile_push_devices_has_address
+  CHECK (push_token IS NOT NULL OR voip_token IS NOT NULL);

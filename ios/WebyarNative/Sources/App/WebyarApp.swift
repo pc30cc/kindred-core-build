@@ -2,12 +2,30 @@ import SwiftUI
 
 @main
 struct WebyarApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var appState = AppState()
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(appState)
+                .environment(delegate.calls)
+                // The call service needs to know who is signed in before it
+                // can tell the server where to ring, and it is created before
+                // any of that exists — so the wiring happens here, once.
+                .task {
+                    delegate.calls.appState = appState
+                    await delegate.calls.registerDevice()
+                }
+                // A ringing call is answered by the system, not by the app;
+                // what the app owns is the screen that comes after.
+                .fullScreenCover(item: Binding(
+                    get: { delegate.calls.active },
+                    set: { if $0 == nil { delegate.calls.hangUp() } }
+                )) { call in
+                    ActiveCallView(call: call, service: delegate.calls)
+                        .environment(appState)
+                }
                 // Language drives BOTH the copy and the writing direction, and
                 // it is applied once at the root so no screen can be left
                 // laid out the wrong way round. `locale` additionally makes

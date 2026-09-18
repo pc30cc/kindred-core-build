@@ -67,7 +67,7 @@ final class CallCenterService: NSObject {
 
     /// Everything about how the incoming call looks and sounds.
     private static var configuration: CXProviderConfiguration {
-        var config = CXProviderConfiguration()
+        let config = CXProviderConfiguration()
         config.supportsVideo = true
         config.maximumCallsPerCallGroup = 1
         config.maximumCallGroups = 1
@@ -119,7 +119,7 @@ final class CallCenterService: NSObject {
         try? await api.registerPushDevice(
             voipToken: voipToken,
             deviceID: DeviceIdentity.current,
-            deviceName: await UIDevice.current.name,
+            deviceName: UIDevice.current.name,
             appVersion: Bundle.main.shortVersion
         )
     }
@@ -142,14 +142,18 @@ final class CallCenterService: NSObject {
         known.insert(call.id)
         ringing[call.id] = call
         provider.reportNewIncomingCall(with: call.id, update: update) { [weak self] error in
-            if error != nil {
-                // Do Not Disturb, an active phone call, or a blocked number:
-                // iOS refused to ring. Telling the server keeps the call in
-                // the queue for somebody who can take it.
-                self?.forget(call.id)
-                Task { [weak self] in await self?.reject(call, silently: true) }
+            // `setDelegate(_:queue:)` was given nil, which means the main
+            // queue, so this closure is already where it needs to be.
+            MainActor.assumeIsolated {
+                if error != nil {
+                    // Do Not Disturb, an active phone call, or a blocked
+                    // number: iOS refused to ring. Telling the server keeps
+                    // the call in the queue for somebody who can take it.
+                    self?.forget(call.id)
+                    Task { [weak self] in await self?.reject(call, silently: true) }
+                }
+                completion()
             }
-            completion()
         }
     }
 
@@ -176,9 +180,11 @@ final class CallCenterService: NSObject {
         let update = CXCallUpdate()
         update.localizedCallerName = IncomingCall.unknownCaller
         provider.reportNewIncomingCall(with: cancellation.id, update: update) { [weak self] _ in
-            self?.provider.reportCall(with: cancellation.id, endedAt: Date(), reason: reason)
-            self?.forget(cancellation.id)
-            completion()
+            MainActor.assumeIsolated {
+                self?.provider.reportCall(with: cancellation.id, endedAt: Date(), reason: reason)
+                self?.forget(cancellation.id)
+                completion()
+            }
         }
     }
 
@@ -228,10 +234,13 @@ final class CallCenterService: NSObject {
     /// with no sound in one direction.
     private func configureAudioSession() {
         let session = AVAudioSession.sharedInstance()
+        // `.voiceChat` already implies Bluetooth HFP routing, which is why the
+        // deprecated `.allowBluetooth` option is not listed here: naming it
+        // would add nothing except a deprecation warning.
         try? session.setCategory(
             .playAndRecord,
             mode: .voiceChat,
-            options: [.allowBluetooth, .allowBluetoothA2DP]
+            options: [.allowBluetoothA2DP]
         )
         try? session.setPreferredIOBufferDuration(0.005)
     }
@@ -270,7 +279,7 @@ extension CallCenterService: PKPushRegistryDelegate {
     ) {
         guard type == .voIP else { return }
         let token = credentials.token.map { String(format: "%02x", $0) }.joined()
-        Task { @MainActor [weak self] in self?.voipToken = token }
+        MainActor.assumeIsolated { self.voipToken = token }
     }
 
     nonisolated func pushRegistry(
@@ -278,12 +287,17 @@ extension CallCenterService: PKPushRegistryDelegate {
         didInvalidatePushTokenFor type: PKPushType
     ) {
         guard type == .voIP else { return }
-        Task { @MainActor [weak self] in self?.voipToken = nil }
+        MainActor.assumeIsolated { self.voipToken = nil }
     }
 
-    /// The one method in this file with a hard deadline. Everything it does is
-    /// either synchronous or explicitly completed, and the completion handler
-    /// runs on every path.
+    /// The one method in this file with a hard deadline.
+    ///
+    /// It runs synchronously, on purpose. The registry was created with
+    /// `queue: .main`, so this is already the main actor, and hopping to a
+    /// `Task` here would push `reportNewIncomingCall` outside the window iOS
+    /// allows — which is not a warning, it is an app that gets killed and
+    /// eventually stops being delivered pushes at all. `assumeIsolated`
+    /// states the guarantee the registry was configured to give.
     nonisolated func pushRegistry(
         _ registry: PKPushRegistry,
         didReceiveIncomingPushWith payload: PKPushPayload,
@@ -293,26 +307,25 @@ extension CallCenterService: PKPushRegistryDelegate {
         guard type == .voIP else { return completion() }
         let dictionary = payload.dictionaryPayload
 
-        Task { @MainActor [weak self] in
-            guard let self else { return completion() }
+        MainActor.assumeIsolated {
             let event = CallPushEvent(rawValue: (dictionary["event"] as? String) ?? "") ?? .incoming
 
             switch event {
             case .incoming:
                 if let call = IncomingCall(push: dictionary) {
-                    self.reportIncoming(call, completion: completion)
+                    reportIncoming(call, completion: completion)
                 } else {
                     // A payload we cannot read is still a payload iOS wants a
                     // call for. Ring with what little we have rather than
                     // being killed for staying silent.
-                    self.reportUnreadable(completion: completion)
+                    reportUnreadable(completion: completion)
                 }
 
             case .cancel:
                 if let cancellation = CallCancellation(push: dictionary) {
-                    self.reportCancellation(cancellation, completion: completion)
+                    reportCancellation(cancellation, completion: completion)
                 } else {
-                    self.reportUnreadable(completion: completion)
+                    reportUnreadable(completion: completion)
                 }
             }
         }
@@ -326,8 +339,10 @@ extension CallCenterService: PKPushRegistryDelegate {
         let update = CXCallUpdate()
         update.localizedCallerName = IncomingCall.unknownCaller
         provider.reportNewIncomingCall(with: id, update: update) { [weak self] _ in
-            self?.provider.reportCall(with: id, endedAt: Date(), reason: .failed)
-            completion()
+            MainActor.assumeIsolated {
+                self?.provider.reportCall(with: id, endedAt: Date(), reason: .failed)
+                completion()
+            }
         }
     }
 }
@@ -340,68 +355,77 @@ extension CallCenterService: CXProviderDelegate {
         // The system tore every call down — an audio reset, or the user
         // killing the app mid-call. Nothing to end server-side: those calls
         // are already gone.
-        Task { @MainActor [weak self] in
-            self?.known.removeAll()
-            self?.answered.removeAll()
-            self?.ringing.removeAll()
-            self?.active = nil
-            self?.isConnecting = false
+        MainActor.assumeIsolated {
+            known.removeAll()
+            answered.removeAll()
+            ringing.removeAll()
+            active = nil
+            isConnecting = false
         }
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
-        Task { @MainActor [weak self] in
-            guard let self, let call = self.ringing[action.callUUID] else {
+        MainActor.assumeIsolated {
+            guard let call = ringing[action.callUUID] else {
                 action.fail()
                 return
             }
-            self.configureAudioSession()
-            self.answered.insert(call.id)
-            self.active = call
-            self.isConnecting = true
+            configureAudioSession()
+            answered.insert(call.id)
+            active = call
+            isConnecting = true
             // Fulfilled straight away: CallKit gives a few seconds before it
-            // assumes the app has hung, and the server round-trip is not
+            // assumes the app has hung, and a server round-trip is not
             // something to gamble that budget on. If it fails, the call is
             // ended below with a reason the operator can see.
             action.fulfill()
 
-            if await self.accept(call) {
-                self.isConnecting = false
-                self.provider.reportOutgoingCall(with: call.id, connectedAt: Date())
-            } else {
-                self.answerFailed = true
-                self.isConnecting = false
-                self.provider.reportCall(with: call.id, endedAt: Date(), reason: .failed)
-                self.forget(call.id)
+            Task { [weak self] in
+                guard let self else { return }
+                if await self.accept(call) {
+                    self.isConnecting = false
+                    self.provider.reportOutgoingCall(with: call.id, connectedAt: Date())
+                } else {
+                    self.answerFailed = true
+                    self.isConnecting = false
+                    self.provider.reportCall(with: call.id, endedAt: Date(), reason: .failed)
+                    self.forget(call.id)
+                }
             }
         }
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
-        Task { @MainActor [weak self] in
-            guard let self, let call = self.ringing[action.callUUID] else {
+        MainActor.assumeIsolated {
+            guard let call = ringing[action.callUUID] else {
                 action.fulfill()
                 return
             }
-            // Ending a call that was never answered is a decline, and the two
-            // are different server-side: a decline leaves the call in the
-            // queue for somebody else, an end finishes it for everyone.
-            if self.answered.contains(call.id) {
-                await self.end(call)
-            } else {
-                await self.reject(call)
-            }
-            self.forget(call.id)
+            let wasAnswered = answered.contains(call.id)
+            forget(call.id)
+            // Fulfilled before the server is told, for the same reason as
+            // answering: the system UI must come down at the speed of the tap,
+            // not at the speed of the network.
             action.fulfill()
+
+            Task { [weak self] in
+                // Ending a call that was never answered is a decline, and the
+                // two are different server-side: a decline leaves the call in
+                // the queue for somebody else, an end finishes it for
+                // everyone.
+                if wasAnswered {
+                    await self?.end(call)
+                } else {
+                    await self?.reject(call, silently: true)
+                }
+            }
         }
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) {
-        Task { @MainActor in
-            // No media engine yet: accepting the action keeps the system UI's
-            // mute button honest about its own state.
-            action.fulfill()
-        }
+        // Accepting the action keeps the system UI's mute button honest about
+        // its own state; the media engine reads it when there is one.
+        action.fulfill()
     }
 
     nonisolated func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {

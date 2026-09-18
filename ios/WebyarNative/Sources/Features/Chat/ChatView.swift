@@ -17,11 +17,7 @@ struct ChatView: View {
 
     private var language: Language { appState.language }
 
-    private var calendar: Calendar {
-        var calendar = Calendar.current
-        calendar.locale = locale
-        return calendar
-    }
+    private var calendar: Calendar { Format.workingCalendar(locale) }
 
     private var title: String {
         Format.contactName(

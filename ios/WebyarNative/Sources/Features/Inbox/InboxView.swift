@@ -222,11 +222,7 @@ struct InboxView: View {
     }
 
     private func errorMessage(_ error: APIError) -> String {
-        switch error {
-        case .transport: Str.offlineBody(language)
-        case .server(_, let message): message ?? Str.offlineBody(language)
-        case .decoding, .unauthorized: Str.offlineBody(language)
-        }
+        error.text(language)
     }
 }
 

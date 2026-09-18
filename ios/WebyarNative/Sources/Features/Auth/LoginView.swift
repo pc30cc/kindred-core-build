@@ -310,17 +310,8 @@ struct LoginView: View {
     }
 
     private func message(for error: APIError) -> String {
-        switch error {
-        case .transport:
-            Str.offlineBody(language)
-        case .unauthorized:
-            Str.loginFailed(language)
-        case .server(_, let message):
-            // The API's own message is more specific than anything we could
-            // guess, so prefer it when there is one.
-            message ?? Str.loginFailed(language)
-        case .decoding:
-            Str.loginFailed(language)
-        }
+        // Here `unauthorized` is a wrong email or password, not a session
+        // that ran out — there is no session yet.
+        error.text(language, unauthorized: Str.loginFailed(language))
     }
 }

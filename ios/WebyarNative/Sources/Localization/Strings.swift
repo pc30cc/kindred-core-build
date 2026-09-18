@@ -288,8 +288,9 @@ enum Str {
     }
 
     static func conversationsCount(_ l: Language, _ n: Int) -> String {
+        let n = Format.number(n, language: l)
         switch l {
-        case .en: n == 1 ? "1 conversation" : "\(n) conversations"
+        case .en: n == "1" ? "1 conversation" : "\(n) conversations"
         case .fa: "\(n) گفت‌وگو"
         case .tr: "\(n) görüşme"
         }
@@ -662,6 +663,67 @@ enum Str {
         }
     }
 
+    // The API answers in English whoever is asking — `server/routes/auth.ts`
+    // returns "Invalid email or password" to every client, and the server
+    // deliberately never reads `Accept-Language`. These are what the operator
+    // reads instead of that, chosen by status code.
+
+    static func errorInvalidInput(_ l: Language) -> String {
+        switch l {
+        case .en: "Something in that request wasn't valid."
+        case .fa: "اطلاعات واردشده درست نیست."
+        case .tr: "Gönderilen bilgiler geçerli değil."
+        }
+    }
+
+    static func errorNotAllowed(_ l: Language) -> String {
+        switch l {
+        case .en: "You don't have access to do that."
+        case .fa: "برای این کار دسترسی ندارید."
+        case .tr: "Bu işlem için yetkiniz yok."
+        }
+    }
+
+    static func errorNotFound(_ l: Language) -> String {
+        switch l {
+        case .en: "That couldn't be found."
+        case .fa: "این مورد پیدا نشد."
+        case .tr: "Bu kayıt bulunamadı."
+        }
+    }
+
+    static func errorConflict(_ l: Language) -> String {
+        switch l {
+        case .en: "That changed since you opened it. Try again."
+        case .fa: "این مورد در این فاصله تغییر کرده است. دوباره تلاش کنید."
+        case .tr: "Bu kayıt siz açtıktan sonra değişti. Tekrar deneyin."
+        }
+    }
+
+    static func errorTooManyRequests(_ l: Language) -> String {
+        switch l {
+        case .en: "Too many attempts. Wait a moment and try again."
+        case .fa: "تلاش‌ها بیش از حد بود. کمی صبر کنید و دوباره تلاش کنید."
+        case .tr: "Çok fazla deneme yapıldı. Biraz bekleyip tekrar deneyin."
+        }
+    }
+
+    static func errorServerProblem(_ l: Language) -> String {
+        switch l {
+        case .en: "The server ran into a problem. Try again shortly."
+        case .fa: "سرور به مشکل خورد. کمی بعد دوباره تلاش کنید."
+        case .tr: "Sunucuda bir sorun oluştu. Birazdan tekrar deneyin."
+        }
+    }
+
+    static func errorUnreadableAnswer(_ l: Language) -> String {
+        switch l {
+        case .en: "The server's answer couldn't be read. Update the app if this keeps happening."
+        case .fa: "پاسخ سرور خوانده نشد. اگر تکرار شد، اپ را به‌روز کنید."
+        case .tr: "Sunucunun yanıtı okunamadı. Sorun sürerse uygulamayı güncelleyin."
+        }
+    }
+
     static func unknownVisitor(_ l: Language) -> String {
         switch l {
         case .en: "Visitor"
@@ -735,10 +797,11 @@ extension Str {
     }
 
     static func activeFilters(_ count: Int, _ l: Language) -> String {
+        let text = Format.number(count, language: l)
         switch l {
-        case .en: count == 1 ? "1 filter" : "\(count) filters"
-        case .fa: "\(count) پالایه"
-        case .tr: "\(count) filtre"
+        case .en: count == 1 ? "1 filter" : "\(text) filters"
+        case .fa: "\(text) پالایه"
+        case .tr: "\(text) filtre"
         }
     }
 

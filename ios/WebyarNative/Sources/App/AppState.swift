@@ -38,7 +38,24 @@ final class AppState {
         didSet {
             guard language != oldValue else { return }
             UserDefaults.standard.set(language.rawValue, forKey: Self.languageKey)
+            Self.syncSystemLanguage(language)
         }
+    }
+
+    /// Tells the *system* which language this app is being used in.
+    ///
+    /// Everything the app draws comes from `Str`, but not everything on
+    /// screen is drawn by the app: the text-selection menu, the photo picker,
+    /// the buttons on a system alert and the accessibility labels UIKit
+    /// supplies all come from the frameworks, in whatever language the bundle
+    /// says it prefers. Without this an operator working in Persian still
+    /// gets "Paste" and "Cancel" in English.
+    ///
+    /// The frameworks read this once, at launch, so a language changed in
+    /// Settings reaches them on the next start; everything the app draws
+    /// itself changes as soon as it is picked.
+    private static func syncSystemLanguage(_ language: Language) {
+        UserDefaults.standard.set([language.rawValue], forKey: "AppleLanguages")
     }
 
     /// Set when the operator's session turns out to be void, so the login
@@ -67,6 +84,10 @@ final class AppState {
 
         let storedAppearance = UserDefaults.standard.string(forKey: Self.appearanceKey)
         self.appearance = storedAppearance.flatMap(AppearancePreference.init(rawValue:)) ?? .system
+
+        // Runs before the first view is built, which is the only moment early
+        // enough for the frameworks to pick it up on this launch.
+        Self.syncSystemLanguage(self.language)
     }
 
     // MARK: - Session

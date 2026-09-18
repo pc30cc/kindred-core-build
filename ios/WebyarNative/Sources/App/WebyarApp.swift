@@ -8,6 +8,20 @@ struct WebyarApp: App {
         WindowGroup {
             RootView()
                 .environment(appState)
+                // The two lines that make the app actually speak the
+                // operator's language rather than merely contain its words.
+                //
+                // `\.locale` is what every date, time and number on every
+                // screen is formatted against — without it a Persian operator
+                // reads "yesterday" and "11:26 PM" under Persian labels.
+                // `\.layoutDirection` is what turns the whole interface
+                // around: rows, stacks, alignment, list swipes, navigation
+                // transitions and the leading/trailing edge of every padding
+                // in the app. Persian text rendered inside a left-to-right
+                // layout still *reads* right-to-left, which is why this was
+                // easy to miss — but every row was built the wrong way round.
+                .environment(\.locale, appState.language.locale)
+                .environment(\.layoutDirection, appState.language.layoutDirection)
                 // nil means "follow the device", which is what `.system` is.
                 .preferredColorScheme(appState.appearance.colorScheme)
         }

@@ -194,7 +194,7 @@ struct CallScreen: View {
         case .connected:
             if let connectedAt = session.connectedAt {
                 TimelineView(.periodic(from: connectedAt, by: 1)) { context in
-                    Text(Format.callDuration(from: connectedAt, to: context.date))
+                    Text(Format.callDuration(from: connectedAt, to: context.date, locale: language.locale))
                 }
             }
         case .ended(let outcome):

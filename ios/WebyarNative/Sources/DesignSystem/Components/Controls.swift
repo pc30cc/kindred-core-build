@@ -67,7 +67,7 @@ struct FilterPicker: View {
     private func label(for filter: InboxFilter) -> String {
         let title = filter.title(language)
         guard let count = counts?.count(for: filter), count > 0 else { return title }
-        return "\(title) (\(count))"
+        return "\(title) (\(Format.number(count, language: language)))"
     }
 
     var body: some View {
@@ -163,12 +163,14 @@ struct ErrorStateView: View {
 /// The unread counter on an inbox row.
 struct UnreadBadge: View {
     let count: Int
+    @Environment(\.locale) private var locale
 
     var body: some View {
-        // Both branches go through Text's localized interpolation, so a
-        // Persian reader sees Persian digits in the capped form too rather
-        // than "۳" on one row and an ASCII "99+" on the next.
-        Text(count > 99 ? "99+" : "\(count)")
+        // Formatted rather than interpolated. A ternary between two string
+        // literals settles on `String`, which is the overload of `Text` that
+        // does *not* localize — so the capped form would have shipped as an
+        // ASCII "99+" beside Persian digits on the row above it.
+        Text(count > 99 ? "\(Format.number(99, locale: locale))+" : Format.number(count, locale: locale))
             .font(Theme.Typo.metaEmphasis)
             .monospacedDigit()
             .foregroundStyle(.white)

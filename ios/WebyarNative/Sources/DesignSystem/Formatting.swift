@@ -38,6 +38,60 @@ enum Format {
         cache.formatter(template: template, locale: locale, calendar: calendar).string(from: date)
     }
 
+    /// The calendar a date should be *read* in, which is not the same as the
+    /// one the device happens to be set to.
+    ///
+    /// A Persian operator reads Persian dates: ۲۷ شهریور, not ۱۸ سپتامبر.
+    /// That is a different calendar, not a different set of month names, so
+    /// starting from `Calendar.current` — Gregorian on a device configured in
+    /// English — and only changing its locale gives Persian *words* over
+    /// Gregorian *dates*, which is worse than either on its own. The clock
+    /// stays the device's: the operator is where they are.
+    static func workingCalendar(_ locale: Locale) -> Calendar {
+        var calendar = Calendar(identifier: locale.calendar.identifier)
+        calendar.locale = locale
+        calendar.timeZone = Calendar.current.timeZone
+        return calendar
+    }
+
+    /// Numbers in the reader's own digits.
+    ///
+    /// Swift's own interpolation always produces Latin digits, so a count
+    /// built with `"\(n)"` lands as "2" in the middle of a Persian sentence.
+    /// Anything a person reads as a quantity goes through here instead.
+    static func number(_ value: Int, locale: Locale) -> String {
+        numberCache.formatter(locale: locale).string(from: NSNumber(value: value))
+            ?? String(value)
+    }
+
+    static func number(_ value: Int, language: Language) -> String {
+        number(value, locale: language.locale)
+    }
+
+    /// Same reasoning as the date cache: building a `NumberFormatter` per row
+    /// per frame is not free.
+    private final class NumberFormatterCache: @unchecked Sendable {
+        private var storage: [String: NumberFormatter] = [:]
+        private let lock = NSLock()
+
+        func formatter(locale: Locale) -> NumberFormatter {
+            lock.lock()
+            defer { lock.unlock() }
+            if let cached = storage[locale.identifier] { return cached }
+
+            let formatter = NumberFormatter()
+            formatter.locale = locale
+            formatter.numberStyle = .decimal
+            // A count is not a measurement: "1,024 conversations" is a
+            // grouping separator doing no work in a badge.
+            formatter.usesGroupingSeparator = false
+            storage[locale.identifier] = formatter
+            return formatter
+        }
+    }
+
+    private static let numberCache = NumberFormatterCache()
+
     /// The timestamp on a list row: a time for today, a weekday inside the
     /// last week, a date beyond that. This is the convention Mail and
     /// Messages use, and it is what lets someone scan a column of timestamps
@@ -45,8 +99,7 @@ enum Format {
     static func listTimestamp(_ date: Date?, locale: Locale, now: Date = Date()) -> String {
         guard let date else { return "" }
 
-        var calendar = Calendar.current
-        calendar.locale = locale
+        let calendar = workingCalendar(locale)
 
         let template: String
         if calendar.isDateInToday(date) {
@@ -71,8 +124,7 @@ enum Format {
 
     /// The header that separates one day of chat from the next.
     static func dayHeader(_ date: Date, locale: Locale, now: Date = Date()) -> String {
-        var calendar = Calendar.current
-        calendar.locale = locale
+        let calendar = workingCalendar(locale)
 
         if calendar.isDateInToday(date) || calendar.isDateInYesterday(date) {
             let relative = RelativeDateTimeFormatter()
@@ -93,8 +145,7 @@ enum Format {
     /// The clock time under a chat bubble.
     static func bubbleTime(_ date: Date?, locale: Locale) -> String {
         guard let date else { return "" }
-        var calendar = Calendar.current
-        calendar.locale = locale
+        let calendar = workingCalendar(locale)
         return string(date, template: "jmm", locale: locale, calendar: calendar)
     }
 
@@ -124,18 +175,36 @@ enum Format {
 
     /// A call length or a wait, as `m:ss` or `h:mm:ss`.
     ///
-    /// Always Latin digits and always this shape, because a duration is read
-    /// as a clock rather than as a sentence — "4:05" lands faster than "4
-    /// minutes 5 seconds", and the fixed shape lets a column of them line up.
-    static func duration(_ seconds: Int) -> String {
+    /// The shape is fixed — a duration is read as a clock rather than as a
+    /// sentence, "4:05" lands faster than "4 minutes 5 seconds", and a column
+    /// of them lines up — but the digits are the reader's own. An iPhone set
+    /// to Persian counts a call in ۰۰:۴۰, and so does this.
+    static func duration(_ seconds: Int, locale: Locale) -> String {
         let clamped = max(0, seconds)
         let hours = clamped / 3600
         let minutes = (clamped % 3600) / 60
         let secs = clamped % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, secs)
+        return hours > 0
+            ? clock([hours, minutes, secs], locale: locale)
+            : clock([minutes, secs], locale: locale)
+    }
+
+    /// Joins clock fields with a colon, zero-padding every field after the
+    /// first in whatever digits the locale writes.
+    ///
+    /// Padding has to happen in the localized digits rather than before
+    /// them: `String(format: "%02d", 5)` gives "05", and swapping the glyphs
+    /// afterwards is exactly the kind of string surgery that breaks on the
+    /// next locale. Formatting each field and padding with the locale's own
+    /// zero keeps it honest.
+    private static func clock(_ fields: [Int], padFirst: Bool = false, locale: Locale) -> String {
+        let zero = number(0, locale: locale)
+        return fields.enumerated().map { index, value in
+            let text = number(value, locale: locale)
+            guard index > 0 || padFirst, text.count < 2 else { return text }
+            return zero + text
         }
-        return String(format: "%d:%02d", minutes, secs)
+        .joined(separator: ":")
     }
 
     /// Collapses a message body to a single scannable preview line.
@@ -151,17 +220,13 @@ enum Format {
 extension Format {
     /// How long a call has been running, as a call timer reads it: mm:ss, and
     /// h:mm:ss only once there is an hour to show.
-    ///
-    /// Deliberately not localized digits. A duration counting up beside a
-    /// hang-up button is read at a glance, and Latin digits are what every
-    /// phone shows there in every language.
-    static func callDuration(from start: Date, to now: Date) -> String {
+    static func callDuration(from start: Date, to now: Date, locale: Locale) -> String {
         let total = max(0, Int(now.timeIntervalSince(start)))
         let seconds = total % 60
         let minutes = (total / 60) % 60
         let hours = total / 3600
         return hours > 0
-            ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
-            : String(format: "%02d:%02d", minutes, seconds)
+            ? clock([hours, minutes, seconds], locale: locale)
+            : clock([minutes, seconds], padFirst: true, locale: locale)
     }
 }

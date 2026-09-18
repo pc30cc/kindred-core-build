@@ -91,7 +91,11 @@ struct ContactDetailView: View {
 
 /// A label on the leading edge and its value on the trailing edge.
 ///
-/// The value is allowed to shrink before it wraps, and `isLatin` forces LTR on
+/// The emphasis follows the iOS convention — label in the primary colour, value
+/// in the secondary one — because that is how every Settings row on the device
+/// reads, and inverting it makes the label look disabled.
+///
+/// The label is never the thing that truncates, and `isLatin` forces LTR on
 /// values — addresses, phone numbers, codes — that are the same in every
 /// language and would be scrambled by mirroring.
 struct DetailRow: View {
@@ -103,7 +107,7 @@ struct DetailRow: View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.lg) {
             Text(label)
                 .font(.body)
-                .foregroundStyle(Theme.Palette.labelSecondary)
+                .foregroundStyle(Theme.Palette.label)
                 .layoutPriority(1)
                 .fixedSize(horizontal: true, vertical: false)
 
@@ -111,7 +115,7 @@ struct DetailRow: View {
 
             Text(value)
                 .font(.body)
-                .foregroundStyle(Theme.Palette.label)
+                .foregroundStyle(Theme.Palette.labelSecondary)
                 .multilineTextAlignment(.trailing)
                 .textSelection(.enabled)
                 .modifier(LatinIfNeeded(isLatin: isLatin))

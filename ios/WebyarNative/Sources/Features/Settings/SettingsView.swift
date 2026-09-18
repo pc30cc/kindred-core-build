@@ -48,31 +48,26 @@ struct SettingsView: View {
                 }
             }
 
-            // Only worth showing when there is actually a choice to make.
-            if appState.workspaces.count > 1 {
-                Section {
+            // Workspace and language are both preferences, so they share one
+            // section. Giving each its own header would repeat the row's own
+            // label directly above it, which reads as a mistake.
+            Section {
+                // A picker is only worth showing when there is a choice.
+                if appState.workspaces.count > 1 {
                     Picker(Str.workspace(language), selection: workspaceBinding) {
                         ForEach(appState.workspaces) { workspace in
                             Text(workspace.name).tag(workspace.id)
                         }
                     }
-                } header: {
-                    Text(Str.workspace(language))
-                }
-            } else if let workspace = appState.selectedWorkspace {
-                Section {
+                } else if let workspace = appState.selectedWorkspace {
                     DetailRow(label: Str.workspace(language), value: workspace.name)
                 }
-            }
 
-            Section {
                 Picker(Str.language(language), selection: $appState.language) {
                     ForEach(Language.allCases) { option in
                         Text(option.endonym).tag(option)
                     }
                 }
-            } header: {
-                Text(Str.language(language))
             }
 
             Section {

@@ -36,6 +36,10 @@ struct ChatView: View {
             .background(Theme.Palette.background)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
+            // A transcript is a full-screen task. Leaving the tab bar up would
+            // both crowd the composer and invite a tap that silently abandons
+            // a half-typed reply.
+            .toolbar(.hidden, for: .tabBar)
             // The composer is a safe-area inset, not a stacked view: that is
             // what makes the transcript scroll *behind* it and what lets the
             // keyboard push it up without covering the last message.

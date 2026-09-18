@@ -101,8 +101,15 @@ enum Theme {
         /// Outgoing chat bubble — the brand tint carries it.
         static let bubbleOutgoing = brand
         static let bubbleOutgoingText = Color.white
-        /// Incoming chat bubble — a neutral surface that reads in both themes.
-        static let bubbleIncoming = Color(uiColor: .secondarySystemBackground)
+        /// Incoming chat bubble.
+        ///
+        /// This has to be the *grouped* secondary surface, not
+        /// `.secondarySystemBackground`: in light mode the latter is the same
+        /// #F2F2F7 as the transcript's own `systemGroupedBackground`, so every
+        /// incoming bubble rendered invisibly against the page. The grouped
+        /// variant is white on light and #1C1C1E on dark, which reads against
+        /// the transcript in both themes.
+        static let bubbleIncoming = Color(uiColor: .secondarySystemGroupedBackground)
         static let bubbleIncomingText = Color(uiColor: .label)
     }
 

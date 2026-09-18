@@ -328,19 +328,24 @@ enum InboxFilter: String, CaseIterable, Identifiable, Sendable {
 /// fractional seconds, occasionally with a space instead of `T`. Rather than
 /// let one variant break an entire response, every known form is tried.
 enum DateParsing {
-    private static let withFraction: ISO8601DateFormatter = {
+    // `nonisolated(unsafe)` because the compiler cannot see what Apple
+    // documents: date formatters are thread-safe for formatting and parsing
+    // on iOS 7 and later. Nothing here mutates them after construction, so
+    // sharing one instance is both safe and considerably cheaper than
+    // building a formatter for every timestamp in a response.
+    nonisolated(unsafe) private static let withFraction: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f
     }()
 
-    private static let plain: ISO8601DateFormatter = {
+    nonisolated(unsafe) private static let plain: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
         return f
     }()
 
-    private static let postgres: DateFormatter = {
+    nonisolated(unsafe) private static let postgres: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = TimeZone(secondsFromGMT: 0)

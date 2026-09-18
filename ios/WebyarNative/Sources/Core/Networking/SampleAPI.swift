@@ -132,10 +132,10 @@ actor SampleAPI: WebyarAPI {
         [
             QueueEntry(id: "q-1", channel: "voice", status: "waiting", contactName: "مریم حسینی",
                        contactEmail: "maryam@example.com", visitorCode: nil,
-                       createdAt: Self.ago(3), waitingSince: Self.ago(3)),
+                       createdAt: SampleAPI.ago(3), waitingSince: SampleAPI.ago(3)),
             QueueEntry(id: "q-2", channel: "video", status: "waiting", contactName: nil,
                        contactEmail: nil, visitorCode: "8F2C",
-                       createdAt: Self.ago(1), waitingSince: Self.ago(1)),
+                       createdAt: SampleAPI.ago(1), waitingSince: SampleAPI.ago(1)),
         ]
     }
 
@@ -143,13 +143,13 @@ actor SampleAPI: WebyarAPI {
         [
             CallRecord(id: "cl-1", status: "completed", direction: "inbound", kind: "voice",
                        contactName: "Deniz Yılmaz", visitorCode: nil,
-                       startedAt: Self.ago(60), endedAt: Self.ago(56), durationSeconds: 245),
+                       startedAt: SampleAPI.ago(60), endedAt: SampleAPI.ago(56), durationSeconds: 245),
             CallRecord(id: "cl-2", status: "missed", direction: "inbound", kind: "voice",
                        contactName: nil, visitorCode: "A19D",
-                       startedAt: Self.ago(180), endedAt: Self.ago(180), durationSeconds: 0),
+                       startedAt: SampleAPI.ago(180), endedAt: SampleAPI.ago(180), durationSeconds: 0),
             CallRecord(id: "cl-3", status: "completed", direction: "outbound", kind: "video",
                        contactName: "Jonas Müller", visitorCode: nil,
-                       startedAt: Self.ago(400), endedAt: Self.ago(388), durationSeconds: 720),
+                       startedAt: SampleAPI.ago(400), endedAt: SampleAPI.ago(388), durationSeconds: 720),
         ]
     }
 
@@ -162,7 +162,7 @@ actor SampleAPI: WebyarAPI {
 
     func account() async throws -> Account {
         Account(id: Self.user.id, email: Self.user.email, phone: nil,
-                emailConfirmedAt: "2026-01-01T00:00:00Z", createdAt: Self.ago(100000),
+                emailConfirmedAt: "2026-01-01T00:00:00Z", createdAt: SampleAPI.ago(100000),
                 profile: profile)
     }
 
@@ -181,10 +181,10 @@ actor SampleAPI: WebyarAPI {
             sessions: [
                 AccountSession(id: "s-1", browser: "Webyar", os: "iOS 26", device: "iPhone",
                                ip: "—", city: "Istanbul", country: "Türkiye", countryCode: "TR",
-                               isCurrent: true, createdAt: Self.ago(20), lastActiveAt: Self.ago(1)),
+                               isCurrent: true, createdAt: SampleAPI.ago(20), lastActiveAt: SampleAPI.ago(1)),
                 AccountSession(id: "s-2", browser: "Chrome", os: "macOS", device: nil,
                                ip: "—", city: "Tehran", country: "Iran", countryCode: "IR",
-                               isCurrent: false, createdAt: Self.ago(4000), lastActiveAt: Self.ago(300)),
+                               isCurrent: false, createdAt: SampleAPI.ago(4000), lastActiveAt: SampleAPI.ago(300)),
             ],
             currentSessionId: "s-1"
         )
@@ -208,8 +208,8 @@ actor SampleAPI: WebyarAPI {
             subject: nil,
             status: .open,
             assignedTo: nil,
-            createdAt: Self.ago(90),
-            updatedAt: Self.ago(4),
+            createdAt: SampleAPI.ago(90),
+            updatedAt: SampleAPI.ago(4),
             contact: ConversationContact(
                 name: "مریم حسینی",
                 email: "maryam@example.com",
@@ -218,7 +218,7 @@ actor SampleAPI: WebyarAPI {
             ),
             lastMessage: MessagePreview(
                 body: "سلام، سفارش من هنوز ارسال نشده. می‌تونید وضعیتش رو بررسی کنید؟",
-                createdAt: Self.ago(4),
+                createdAt: SampleAPI.ago(4),
                 senderType: "contact"
             ),
             unreadCount: 3
@@ -230,8 +230,8 @@ actor SampleAPI: WebyarAPI {
             subject: nil,
             status: .open,
             assignedTo: "u-1",
-            createdAt: Self.ago(300),
-            updatedAt: Self.ago(52),
+            createdAt: SampleAPI.ago(300),
+            updatedAt: SampleAPI.ago(52),
             contact: ConversationContact(
                 name: "Alexander Konstantinopoulos",
                 email: "alexander.konstantinopoulos@verylongcompanyname.example",
@@ -242,7 +242,7 @@ actor SampleAPI: WebyarAPI {
             // instead of pushing the timestamp or the badge out of the row.
             lastMessage: MessagePreview(
                 body: "Thanks for getting back to me. I tried the steps you suggested but the export still fails at around 80% with a timeout, and it happens on both of our accounts.",
-                createdAt: Self.ago(52),
+                createdAt: SampleAPI.ago(52),
                 senderType: "contact"
             ),
             unreadCount: 128
@@ -254,12 +254,12 @@ actor SampleAPI: WebyarAPI {
             subject: nil,
             status: .open,
             assignedTo: nil,
-            createdAt: Self.ago(600),
-            updatedAt: Self.ago(140),
+            createdAt: SampleAPI.ago(600),
+            updatedAt: SampleAPI.ago(140),
             contact: ConversationContact(name: nil, email: nil, avatarURL: nil, visitorCode: "8F2C"),
             lastMessage: MessagePreview(
                 body: "Merhaba, fiyatlandırma hakkında bilgi alabilir miyim?",
-                createdAt: Self.ago(140),
+                createdAt: SampleAPI.ago(140),
                 senderType: "contact"
             ),
             unreadCount: 0
@@ -271,8 +271,8 @@ actor SampleAPI: WebyarAPI {
             subject: "Refund request",
             status: .open,
             assignedTo: nil,
-            createdAt: Self.ago(1500),
-            updatedAt: Self.ago(1400),
+            createdAt: SampleAPI.ago(1500),
+            updatedAt: SampleAPI.ago(1400),
             contact: ConversationContact(
                 name: "Deniz Yılmaz",
                 email: "deniz@example.com",
@@ -281,7 +281,7 @@ actor SampleAPI: WebyarAPI {
             ),
             // No body at all — the row must fall back to the subject rather
             // than render an empty second line.
-            lastMessage: MessagePreview(body: "", createdAt: Self.ago(1400), senderType: "ai"),
+            lastMessage: MessagePreview(body: "", createdAt: SampleAPI.ago(1400), senderType: "ai"),
             unreadCount: 0
         ),
         Conversation(
@@ -291,8 +291,8 @@ actor SampleAPI: WebyarAPI {
             subject: nil,
             status: .resolved,
             assignedTo: "u-1",
-            createdAt: Self.ago(5000),
-            updatedAt: Self.ago(4300),
+            createdAt: SampleAPI.ago(5000),
+            updatedAt: SampleAPI.ago(4300),
             contact: ConversationContact(
                 name: "Jonas Müller",
                 email: "jonas@example.com",
@@ -301,7 +301,7 @@ actor SampleAPI: WebyarAPI {
             ),
             lastMessage: MessagePreview(
                 body: "Perfect, that fixed it. Thank you!",
-                createdAt: Self.ago(4300),
+                createdAt: SampleAPI.ago(4300),
                 senderType: "contact"
             ),
             unreadCount: 0
@@ -313,12 +313,12 @@ actor SampleAPI: WebyarAPI {
             subject: nil,
             status: .open,
             assignedTo: nil,
-            createdAt: Self.ago(200),
-            updatedAt: Self.ago(28),
+            createdAt: SampleAPI.ago(200),
+            updatedAt: SampleAPI.ago(28),
             contact: ConversationContact(name: nil, email: nil, avatarURL: nil, visitorCode: "A19D"),
             lastMessage: MessagePreview(
                 body: "Your order #48120 has shipped and should arrive on Thursday.",
-                createdAt: Self.ago(28),
+                createdAt: SampleAPI.ago(28),
                 senderType: "ai"
             ),
             unreadCount: 1
@@ -328,52 +328,52 @@ actor SampleAPI: WebyarAPI {
     private static let messages: [String: [Message]] = [
         "c-1": [
             Message(id: "m-1", conversationId: "c-1", senderType: .contact, senderId: nil,
-                    body: "سلام وقت بخیر", createdAt: Self.ago(95), senderName: nil, senderAvatar: nil),
+                    body: "سلام وقت بخیر", createdAt: SampleAPI.ago(95), senderName: nil, senderAvatar: nil),
             Message(id: "m-2", conversationId: "c-1", senderType: .ai, senderId: nil,
-                    body: "سلام! چطور می‌تونم کمکتون کنم؟", createdAt: Self.ago(94),
+                    body: "سلام! چطور می‌تونم کمکتون کنم؟", createdAt: SampleAPI.ago(94),
                     senderName: nil, senderAvatar: nil),
             Message(id: "m-3", conversationId: "c-1", senderType: .contact, senderId: nil,
                     body: "سفارش شمارهٔ ۴۸۱۲۰ رو دو هفته پیش ثبت کردم و هنوز چیزی به دستم نرسیده.",
-                    createdAt: Self.ago(92), senderName: nil, senderAvatar: nil),
+                    createdAt: SampleAPI.ago(92), senderName: nil, senderAvatar: nil),
             Message(id: "m-4", conversationId: "c-1", senderType: .system, senderId: nil,
-                    body: "Sara Karimi joined the conversation", createdAt: Self.ago(60),
+                    body: "Sara Karimi joined the conversation", createdAt: SampleAPI.ago(60),
                     senderName: nil, senderAvatar: nil),
             Message(id: "m-5", conversationId: "c-1", senderType: .agent, senderId: "u-1",
                     body: "سلام مریم جان، الان بررسی می‌کنم و چند لحظهٔ دیگر خبر می‌دهم.",
-                    createdAt: Self.ago(58), senderName: "Sara Karimi", senderAvatar: nil),
+                    createdAt: SampleAPI.ago(58), senderName: "Sara Karimi", senderAvatar: nil),
             Message(id: "m-6", conversationId: "c-1", senderType: .contact, senderId: nil,
-                    body: "ممنون می‌شم", createdAt: Self.ago(10), senderName: nil, senderAvatar: nil),
+                    body: "ممنون می‌شم", createdAt: SampleAPI.ago(10), senderName: nil, senderAvatar: nil),
             Message(id: "m-7", conversationId: "c-1", senderType: .contact, senderId: nil,
                     body: "سلام، سفارش من هنوز ارسال نشده. می‌تونید وضعیتش رو بررسی کنید؟",
-                    createdAt: Self.ago(4), senderName: nil, senderAvatar: nil),
+                    createdAt: SampleAPI.ago(4), senderName: nil, senderAvatar: nil),
         ],
         "c-2": [
             Message(id: "n-1", conversationId: "c-2", senderType: .contact, senderId: nil,
                     body: "Hi — we're hitting an issue exporting our reports.",
-                    createdAt: Self.ago(320), senderName: nil, senderAvatar: nil),
+                    createdAt: SampleAPI.ago(320), senderName: nil, senderAvatar: nil),
             Message(id: "n-2", conversationId: "c-2", senderType: .agent, senderId: "u-1",
                     body: "Sorry about that. Could you tell me roughly how large the export is, and whether it fails at the same point every time?",
-                    createdAt: Self.ago(300), senderName: "Sara Karimi", senderAvatar: nil),
+                    createdAt: SampleAPI.ago(300), senderName: "Sara Karimi", senderAvatar: nil),
             Message(id: "n-3", conversationId: "c-2", senderType: .contact, senderId: nil,
                     body: "Thanks for getting back to me. I tried the steps you suggested but the export still fails at around 80% with a timeout, and it happens on both of our accounts.",
-                    createdAt: Self.ago(52), senderName: nil, senderAvatar: nil),
+                    createdAt: SampleAPI.ago(52), senderName: nil, senderAvatar: nil),
         ],
     ]
 
     private static let contacts: [Contact] = [
         Contact(id: "p-1", workspaceId: "ws-1", name: "مریم حسینی", email: "maryam@example.com",
-                phone: "+98 912 000 1122", avatarURL: nil, visitorCode: nil, createdAt: Self.ago(20000)),
+                phone: "+98 912 000 1122", avatarURL: nil, visitorCode: nil, createdAt: SampleAPI.ago(20000)),
         Contact(id: "p-2", workspaceId: "ws-1", name: "Alexander Konstantinopoulos",
                 email: "alexander.konstantinopoulos@verylongcompanyname.example",
-                phone: nil, avatarURL: nil, visitorCode: nil, createdAt: Self.ago(41000)),
+                phone: nil, avatarURL: nil, visitorCode: nil, createdAt: SampleAPI.ago(41000)),
         Contact(id: "p-3", workspaceId: "ws-1", name: nil, email: nil, phone: nil,
-                avatarURL: nil, visitorCode: "8F2C", createdAt: Self.ago(900)),
+                avatarURL: nil, visitorCode: "8F2C", createdAt: SampleAPI.ago(900)),
         Contact(id: "p-4", workspaceId: "ws-1", name: "Deniz Yılmaz", email: "deniz@example.com",
-                phone: "+90 532 000 44 55", avatarURL: nil, visitorCode: nil, createdAt: Self.ago(60000)),
+                phone: "+90 532 000 44 55", avatarURL: nil, visitorCode: nil, createdAt: SampleAPI.ago(60000)),
         Contact(id: "p-5", workspaceId: "ws-1", name: "Jonas Müller", email: "jonas@example.com",
-                phone: nil, avatarURL: nil, visitorCode: nil, createdAt: Self.ago(80000)),
+                phone: nil, avatarURL: nil, visitorCode: nil, createdAt: SampleAPI.ago(80000)),
         Contact(id: "p-6", workspaceId: "ws-1", name: nil, email: nil, phone: nil,
-                avatarURL: nil, visitorCode: "A19D", createdAt: Self.ago(300)),
+                avatarURL: nil, visitorCode: "A19D", createdAt: SampleAPI.ago(300)),
     ]
 }
 

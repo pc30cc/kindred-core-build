@@ -166,13 +166,22 @@ export interface VoipPushInput {
 /**
  * Sends one VoIP push. Resolves with an outcome; never rejects.
  */
-export async function sendVoipPush(input: VoipPushInput): Promise<ApnsSendOutcome> {
-  const creds = getApnsCredentials();
-  if (!creds) return { ok: false, reason: 'not_configured' };
+export interface ApnsRequest {
+  host: string;
+  headers: Record<string, string | number>;
+  body: Buffer;
+}
 
-  const host = creds.sandbox ? SANDBOX_HOST : PRODUCTION_HOST;
+/**
+ * Builds the exact request Apple will see.
+ *
+ * Split out from the send so it can be asserted on: every one of these
+ * headers is a silent failure when it is wrong. A missing `.voip` suffix on
+ * the topic, or `alert` instead of `voip` as the push type, returns a
+ * perfectly successful 200 from APNs and simply never rings.
+ */
+export function buildVoipRequest(creds: ApnsCredentials, input: VoipPushInput): ApnsRequest {
   const body = Buffer.from(JSON.stringify(input.payload), 'utf8');
-
   const headers: Record<string, string | number> = {
     ':method': 'POST',
     ':path': `/3/device/${input.token}`,
@@ -182,11 +191,25 @@ export async function sendVoipPush(input: VoipPushInput): Promise<ApnsSendOutcom
     // 10 is "send immediately". A VoIP push at any other priority is a
     // contradiction: there is nothing to defer.
     'apns-priority': 10,
-    'apns-expiration': Math.floor(Date.now() / 1000) + (input.expirationSeconds ?? 45),
+    'apns-expiration': Math.floor(Date.now() / 1000) + (input.expirationSeconds ?? RING_EXPIRY_SECONDS),
     'content-type': 'application/json',
     'content-length': body.length,
   };
   if (input.collapseId) headers['apns-collapse-id'] = input.collapseId.slice(0, 64);
+  return {
+    host: creds.sandbox ? SANDBOX_HOST : PRODUCTION_HOST,
+    headers,
+    body,
+  };
+}
+
+const RING_EXPIRY_SECONDS = 45;
+
+export async function sendVoipPush(input: VoipPushInput): Promise<ApnsSendOutcome> {
+  const creds = getApnsCredentials();
+  if (!creds) return { ok: false, reason: 'not_configured' };
+
+  const { host, headers, body } = buildVoipRequest(creds, input);
 
   return new Promise<ApnsSendOutcome>((resolve) => {
     let settled = false;

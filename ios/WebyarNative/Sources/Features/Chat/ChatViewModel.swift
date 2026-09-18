@@ -18,9 +18,9 @@ final class ChatViewModel {
     var draft = ""
 
     private let conversation: Conversation
-    private let api: APIClient
+    private let api: any WebyarAPI
 
-    init(conversation: Conversation, api: APIClient = .shared) {
+    init(conversation: Conversation, api: any WebyarAPI = Backend.current) {
         self.conversation = conversation
         self.api = api
     }

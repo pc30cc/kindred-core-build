@@ -42,9 +42,9 @@ final class AppState {
     private(set) var sessionEndedMessage: String?
 
     private static let languageKey = "app.language"
-    private let api: APIClient
+    private let api: any WebyarAPI
 
-    init(api: APIClient = .shared) {
+    init(api: any WebyarAPI = Backend.current) {
         self.api = api
         let stored = UserDefaults.standard.string(forKey: Self.languageKey)
         self.language = stored.flatMap(Language.init(rawValue:)) ?? GeneratedConfig.defaultLanguage

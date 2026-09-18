@@ -24,10 +24,10 @@ final class InboxViewModel {
     var filter: InboxFilter = .open
     var searchText = ""
 
-    private let api: APIClient
+    private let api: any WebyarAPI
     private var loadTask: Task<Void, Never>?
 
-    init(api: APIClient = .shared) {
+    init(api: any WebyarAPI = Backend.current) {
         self.api = api
     }
 

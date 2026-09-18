@@ -245,7 +245,7 @@ struct LoginView: View {
 
         Task {
             do {
-                let user = try await APIClient.shared.logIn(
+                let user = try await Backend.current.logIn(
                     email: Credentials.normalizeEmail(email),
                     password: Credentials.stripInvisible(password)
                 )

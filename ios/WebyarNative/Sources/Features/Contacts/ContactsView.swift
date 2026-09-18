@@ -7,9 +7,9 @@ final class ContactsViewModel {
     private(set) var state: LoadState<[Contact]> = .loading
     var searchText = ""
 
-    private let api: APIClient
+    private let api: any WebyarAPI
 
-    init(api: APIClient = .shared) {
+    init(api: any WebyarAPI = Backend.current) {
         self.api = api
     }
 

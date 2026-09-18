@@ -169,11 +169,13 @@ enum Str {
         }
     }
 
+    /// Short everywhere for the same reason — "هوش مصنوعی" and "Yapay zekâ"
+    /// are both too long to sit in a quarter of the control with a count.
     static func filterAI(_ l: Language) -> String {
         switch l {
         case .en: "AI"
-        case .fa: "هوش مصنوعی"
-        case .tr: "Yapay zekâ"
+        case .fa: "هوش"
+        case .tr: "YZ"
         }
     }
 
@@ -362,11 +364,13 @@ enum Str {
 
     // MARK: - Inbox (plan-gated queues)
 
+    /// Deliberately terse: with four queues and a count beside each, a longer
+    /// label truncates mid-word in the segmented control.
     static func filterNeedsHuman(_ l: Language) -> String {
         switch l {
-        case .en: "Needs you"
-        case .fa: "نیاز به شما"
-        case .tr: "Sizi bekliyor"
+        case .en: "Needs me"
+        case .fa: "با شما"
+        case .tr: "Sizde"
         }
     }
 

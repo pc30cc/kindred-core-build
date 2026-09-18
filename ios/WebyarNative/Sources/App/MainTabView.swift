@@ -90,21 +90,29 @@ struct MainTabView: View {
             .toolbar(.hidden, for: .tabBar)
             .tag(Tab.inbox)
 
-            if appState.callCenterVisible {
-                NavigationStack(path: $callsPath) {
+            // The plan-gated tabs are always *here* and only sometimes have
+            // anything in them. Adding and removing `TabView` children is what
+            // makes it re-seat its own selection, and the plan resolves a few
+            // seconds after launch — long enough for the operator to be
+            // reading the inbox when the app slides out from under them.
+            // Keeping the children fixed and their contents conditional costs
+            // nothing: an empty stack is never reachable, because the bar only
+            // lists the tabs the plan grants.
+            NavigationStack(path: $callsPath) {
+                if appState.callCenterVisible {
                     CallCenterView()
                 }
-                .toolbar(.hidden, for: .tabBar)
-                .tag(Tab.calls)
             }
+            .toolbar(.hidden, for: .tabBar)
+            .tag(Tab.calls)
 
-            if appState.contactsVisible {
-                NavigationStack(path: $contactsPath) {
+            NavigationStack(path: $contactsPath) {
+                if appState.contactsVisible {
                     ContactsView()
                 }
-                .toolbar(.hidden, for: .tabBar)
-                .tag(Tab.contacts)
             }
+            .toolbar(.hidden, for: .tabBar)
+            .tag(Tab.contacts)
 
             NavigationStack(path: $settingsPath) {
                 SettingsView()

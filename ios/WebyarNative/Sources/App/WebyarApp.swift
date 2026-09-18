@@ -17,6 +17,15 @@ struct WebyarApp: App {
                     delegate.calls.appState = appState
                     await delegate.calls.registerDevice()
                 }
+                // The VoIP token usually arrives before anybody has signed
+                // in, and the server can only route a ring to a known
+                // operator — so registration is retried the moment there is
+                // one. Without this the phone would stay silent until the
+                // next cold launch.
+                .onChange(of: appState.session) { _, session in
+                    guard case .signedIn = session else { return }
+                    Task { await delegate.calls.registerDevice() }
+                }
                 // A ringing call is answered by the system, not by the app;
                 // what the app owns is the screen that comes after.
                 .fullScreenCover(item: Binding(

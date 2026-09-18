@@ -127,18 +127,32 @@ final class CallCenterService: NSObject {
         }
     }
 
+    /// The token the server has been told about, so an unchanged token is not
+    /// re-sent on every sign-in.
+    private var registeredToken: String?
+
     /// Tells the server where to ring this phone.
     ///
     /// Re-sent on every token change and on every sign-in, because a token is
-    /// only useful to a server that knows which operator it belongs to.
+    /// only useful to a server that knows which operator it belongs to — and
+    /// iOS hands the token over long before anybody has signed in.
     func registerDevice() async {
         guard let voipToken, appState?.session.user != nil else { return }
-        try? await api.registerPushDevice(
-            voipToken: voipToken,
-            deviceID: DeviceIdentity.current,
-            deviceName: UIDevice.current.name,
-            appVersion: Bundle.main.shortVersion
-        )
+        guard voipToken != registeredToken else { return }
+        do {
+            try await api.registerPushDevice(
+                voipToken: voipToken,
+                deviceID: DeviceIdentity.current,
+                deviceName: UIDevice.current.name,
+                appVersion: Bundle.main.shortVersion
+            )
+            registeredToken = voipToken
+        } catch {
+            // Left unregistered on purpose: the next sign-in or token change
+            // tries again, and a phone that quietly believes it registered is
+            // a phone that never rings.
+            registeredToken = nil
+        }
     }
 
     // MARK: - Ringing

@@ -50,13 +50,14 @@ struct FloatingTabBar<Tab: Hashable>: View {
         )
         .shadow(color: .black.opacity(0.14), radius: 18, x: 0, y: 6)
         .padding(.horizontal, Theme.Space.xl)
-        // Measured from the bottom of the screen rather than the bottom of the
-        // safe area: the bar deliberately sits inside the home-indicator
-        // strip, which is otherwise 34 points of nothing under a bar that is
-        // supposed to float. It stops just short of the indicator itself, so
-        // the system's swipe-up gesture keeps its own room.
-        .padding(.bottom, Theme.Size.floatingBarBottomGap)
-        .ignoresSafeArea(.container, edges: .bottom)
+        // Measured from the bottom of the screen rather than from the bottom
+        // of the safe area, which is why this is usually negative: the bar
+        // deliberately sits inside the home-indicator strip, otherwise 34
+        // points of nothing under a bar that is supposed to float. It stops
+        // just short of the indicator itself, so the system's swipe-up
+        // gesture keeps its own room. On a device with a home button there is
+        // no strip and the padding is simply the gap.
+        .padding(.bottom, Theme.Size.floatingBarBottomGap - ScreenInsets.bottom)
     }
 
     private func button(for item: Item) -> some View {

@@ -5,6 +5,23 @@ import AVFoundation
 import UIKit
 import Observation
 
+/// Carries a value the compiler cannot prove is safe to hand to another
+/// isolation domain, across a boundary a framework guarantees instead.
+///
+/// Every use in this file is the same guarantee: `PKPushRegistry` was created
+/// with `queue: .main` and `CXProvider.setDelegate` was given `nil`, which
+/// also means the main queue. So the completion handlers, payload
+/// dictionaries and `CXAction`s these callbacks hand over are already on the
+/// main actor — they simply are not `Sendable` types, and Swift has no way to
+/// express "this callback is contractually delivered here". Nothing in this
+/// file crosses a real thread boundary; if that ever changes, this box is the
+/// first thing that has to go.
+private struct MainQueueValue<Value>: @unchecked Sendable {
+    let value: Value
+
+    init(_ value: Value) { self.value = value }
+}
+
 /// Makes the phone ring for a visitor's call, and answers it.
 ///
 /// This is the whole point of the feature, so it is worth being precise about
@@ -128,6 +145,7 @@ final class CallCenterService: NSObject {
 
     /// Rings the phone. Must be called synchronously from the push handler.
     private func reportIncoming(_ call: IncomingCall, completion: @escaping () -> Void) {
+        let handler = MainQueueValue(completion)
         let update = CXCallUpdate()
         update.remoteHandle = CXHandle(type: .generic, value: call.caller)
         update.localizedCallerName = call.caller
@@ -152,7 +170,7 @@ final class CallCenterService: NSObject {
                     self?.forget(call.id)
                     Task { [weak self] in await self?.reject(call, silently: true) }
                 }
-                completion()
+                handler.value()
             }
         }
     }
@@ -160,6 +178,7 @@ final class CallCenterService: NSObject {
     /// Stops a ring. Reports the call first when we never rang it, because a
     /// VoIP push that ends without a reported call is what gets an app killed.
     private func reportCancellation(_ cancellation: CallCancellation, completion: @escaping () -> Void) {
+        let handler = MainQueueValue(completion)
         let reason: CXCallEndedReason = switch cancellation.reason {
         case .answered: .answeredElsewhere
         case .declined: .declinedElsewhere
@@ -183,7 +202,7 @@ final class CallCenterService: NSObject {
             MainActor.assumeIsolated {
                 self?.provider.reportCall(with: cancellation.id, endedAt: Date(), reason: reason)
                 self?.forget(cancellation.id)
-                completion()
+                handler.value()
             }
         }
     }
@@ -305,9 +324,12 @@ extension CallCenterService: PKPushRegistryDelegate {
         completion: @escaping () -> Void
     ) {
         guard type == .voIP else { return completion() }
-        let dictionary = payload.dictionaryPayload
+        let push = MainQueueValue(payload.dictionaryPayload)
+        let handler = MainQueueValue(completion)
 
         MainActor.assumeIsolated {
+            let dictionary = push.value
+            let completion = handler.value
             let event = CallPushEvent(rawValue: (dictionary["event"] as? String) ?? "") ?? .incoming
 
             switch event {
@@ -335,13 +357,14 @@ extension CallCenterService: PKPushRegistryDelegate {
     /// which satisfies iOS without lying to the operator for more than an
     /// instant.
     private func reportUnreadable(completion: @escaping () -> Void) {
+        let handler = MainQueueValue(completion)
         let id = UUID()
         let update = CXCallUpdate()
         update.localizedCallerName = IncomingCall.unknownCaller
         provider.reportNewIncomingCall(with: id, update: update) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.provider.reportCall(with: id, endedAt: Date(), reason: .failed)
-                completion()
+                handler.value()
             }
         }
     }
@@ -365,7 +388,9 @@ extension CallCenterService: CXProviderDelegate {
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
+        let request = MainQueueValue(action)
         MainActor.assumeIsolated {
+            let action = request.value
             guard let call = ringing[action.callUUID] else {
                 action.fail()
                 return
@@ -396,7 +421,9 @@ extension CallCenterService: CXProviderDelegate {
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
+        let request = MainQueueValue(action)
         MainActor.assumeIsolated {
+            let action = request.value
             guard let call = ringing[action.callUUID] else {
                 action.fulfill()
                 return

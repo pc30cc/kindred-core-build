@@ -208,6 +208,7 @@ actor SampleAPI: WebyarAPI {
             subject: nil,
             status: .open,
             assignedTo: nil,
+            priority: .urgent,
             createdAt: SampleAPI.ago(90),
             updatedAt: SampleAPI.ago(4),
             contact: ConversationContact(
@@ -230,6 +231,7 @@ actor SampleAPI: WebyarAPI {
             subject: nil,
             status: .open,
             assignedTo: "u-1",
+            priority: .high,
             createdAt: SampleAPI.ago(300),
             updatedAt: SampleAPI.ago(52),
             contact: ConversationContact(
@@ -254,6 +256,7 @@ actor SampleAPI: WebyarAPI {
             subject: nil,
             status: .open,
             assignedTo: nil,
+            priority: .normal,
             createdAt: SampleAPI.ago(600),
             updatedAt: SampleAPI.ago(140),
             contact: ConversationContact(name: nil, email: nil, avatarURL: nil, visitorCode: "8F2C"),
@@ -271,6 +274,7 @@ actor SampleAPI: WebyarAPI {
             subject: "Refund request",
             status: .open,
             assignedTo: nil,
+            priority: .normal,
             createdAt: SampleAPI.ago(1500),
             updatedAt: SampleAPI.ago(1400),
             contact: ConversationContact(
@@ -291,6 +295,7 @@ actor SampleAPI: WebyarAPI {
             subject: nil,
             status: .resolved,
             assignedTo: "u-1",
+            priority: .normal,
             createdAt: SampleAPI.ago(5000),
             updatedAt: SampleAPI.ago(4300),
             contact: ConversationContact(
@@ -313,6 +318,7 @@ actor SampleAPI: WebyarAPI {
             subject: nil,
             status: .open,
             assignedTo: nil,
+            priority: .normal,
             createdAt: SampleAPI.ago(200),
             updatedAt: SampleAPI.ago(28),
             contact: ConversationContact(name: nil, email: nil, avatarURL: nil, visitorCode: "A19D"),
@@ -388,6 +394,7 @@ private extension Conversation {
             subject: subject,
             status: newStatus,
             assignedTo: assignedTo,
+            priority: priority,
             createdAt: createdAt,
             updatedAt: updatedAt,
             contact: contact,

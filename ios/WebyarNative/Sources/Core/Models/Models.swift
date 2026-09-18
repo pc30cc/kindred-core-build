@@ -130,6 +130,23 @@ struct MessagePreview: Codable, Hashable, Sendable {
     }
 }
 
+/// How urgent a thread is.
+///
+/// Only the two levels above normal are ever shown — badging the ordinary case
+/// would make the badge mean nothing.
+enum ConversationPriority: String, Codable, Sendable {
+    case low, normal, high, urgent
+
+    /// An unrecognised level degrades to normal rather than failing the whole
+    /// response, the same way status does.
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = ConversationPriority(rawValue: raw) ?? .normal
+    }
+
+    var isElevated: Bool { self == .high || self == .urgent }
+}
+
 struct Conversation: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let workspaceId: String
@@ -137,6 +154,7 @@ struct Conversation: Codable, Identifiable, Hashable, Sendable {
     let subject: String?
     let status: ConversationStatus
     let assignedTo: String?
+    let priority: ConversationPriority?
     let createdAt: Date?
     let updatedAt: Date?
 

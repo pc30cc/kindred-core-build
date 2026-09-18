@@ -22,14 +22,6 @@ struct InboxView: View {
                 placement: .navigationBarDrawer(displayMode: .always),
                 prompt: Str.search(language)
             )
-            .safeAreaInset(edge: .top, spacing: 0) {
-                // Sits below the search bar and above the list, pinned, so the
-                // filter stays reachable while the list scrolls.
-                FilterPicker(selection: $model.filter, language: language)
-                    .padding(.horizontal, Theme.screenInset)
-                    .padding(.vertical, Theme.Space.sm)
-                    .background(.bar)
-            }
             .refreshable {
                 await model.refresh(workspaceID: workspaceID, appState: appState)
             }
@@ -46,31 +38,45 @@ struct InboxView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch model.state {
-        case .loading:
-            // A skeleton rather than a bare spinner: the row rhythm is already
-            // on screen, so the real content does not shift anything when it
-            // lands.
-            List(0..<8, id: \.self) { _ in
-                ConversationRowSkeleton()
-                    .listRowInsets(rowInsets)
-            }
-            .listStyle(.plain)
-            .disabled(true)
+        // One List across every state, with the filter always its first row.
+        //
+        // The filter rides in the list rather than in a top safe-area inset:
+        // an inset there occupies the navigation bar's large-title space and
+        // silently swallowed the "Inbox" title. Keeping it here also means it
+        // stays reachable when the list is empty — otherwise an operator who
+        // filtered into an empty queue would have no way back out.
+        List {
+            FilterPicker(selection: $model.filter, language: language)
+                .listRowInsets(EdgeInsets(
+                    top: Theme.Space.xs,
+                    leading: Theme.screenInset,
+                    bottom: Theme.Space.md,
+                    trailing: Theme.screenInset
+                ))
+                .listRowSeparator(.hidden)
 
-        case .failed(let error):
-            ScrollView {
+            switch model.state {
+            case .loading:
+                // A skeleton rather than a bare spinner: the row rhythm is
+                // already on screen, so the real content does not shift
+                // anything when it lands.
+                ForEach(0..<8, id: \.self) { _ in
+                    ConversationRowSkeleton()
+                        .listRowInsets(rowInsets)
+                }
+
+            case .failed(let error):
                 ErrorStateView(
                     title: Str.offlineTitle(language),
                     message: errorMessage(error),
                     retryTitle: Str.retry(language),
                     onRetry: { model.load(workspaceID: workspaceID, appState: appState) }
                 )
-            }
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
 
-        case .loaded:
-            if model.visible.isEmpty {
-                ScrollView {
+            case .loaded:
+                if model.visible.isEmpty {
                     EmptyStateView(
                         systemImage: model.searchText.isEmpty ? "tray" : "magnifyingglass",
                         title: model.searchText.isEmpty
@@ -80,10 +86,9 @@ struct InboxView: View {
                             ? Str.inboxEmptyBody(language)
                             : ""
                     )
-                }
-                .scrollBounceBehavior(.basedOnSize)
-            } else {
-                List {
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                } else {
                     ForEach(model.visible) { conversation in
                         ZStack {
                             // A NavigationLink inside a List draws its own
@@ -101,11 +106,11 @@ struct InboxView: View {
                         }
                     }
                 }
-                .listStyle(.plain)
-                .navigationDestination(for: Conversation.self) { conversation in
-                    ChatView(conversation: conversation)
-                }
             }
+        }
+        .listStyle(.plain)
+        .navigationDestination(for: Conversation.self) { conversation in
+            ChatView(conversation: conversation)
         }
     }
 

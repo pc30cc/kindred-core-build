@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import Security
 
 /// Keychain-backed storage for the opaque session token.
@@ -16,6 +17,17 @@ enum TokenStore {
     private static let service = "com.webyar.native.session"
     private static let account = "sessionToken"
 
+    /// The Keychain refuses every write from an app without an
+    /// `application-identifier` entitlement, which is what an unsigned build
+    /// is. It answers `errSecMissingEntitlement` and the app carries on
+    /// perfectly well — until the next launch, when the session is gone and
+    /// the operator is asked to sign in again with nothing to explain it.
+    ///
+    /// This file used to discard every status code, so that failure was
+    /// invisible. It is now logged: whatever else goes wrong with a session,
+    /// it will not be a mystery.
+    private static let log = Logger(subsystem: "com.webyar.native", category: "keychain")
+
     static func save(_ token: String) {
         guard let data = token.data(using: .utf8) else { return }
 
@@ -31,7 +43,9 @@ enum TokenStore {
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
         let status = SecItemAdd(query as CFDictionary, nil)
-        print("[KEYCHAIN] save status=\(status)")
+        if status != errSecSuccess {
+            log.error("Could not store the session token (OSStatus \(status)). The operator will have to sign in again on the next launch.")
+        }
     }
 
     static func read() -> String? {
@@ -44,7 +58,11 @@ enum TokenStore {
         ]
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        print("[KEYCHAIN] read status=\(status)")
+        // `errSecItemNotFound` is the ordinary "nobody is signed in" answer
+        // and is not worth a line in the log; anything else is.
+        if status != errSecSuccess, status != errSecItemNotFound {
+            log.error("Could not read the session token (OSStatus \(status)).")
+        }
         guard status == errSecSuccess,
               let data = item as? Data,
               let token = String(data: data, encoding: .utf8),

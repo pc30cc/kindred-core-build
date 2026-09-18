@@ -165,8 +165,9 @@ final class CallSession {
                 return
             }
 
-            configureAudioSession()
-
+            // No audio-session setup here: `AudioManager` inside the SDK owns
+            // the session and configures `.playAndRecord` itself. Doing it by
+            // hand is what made the engine tear down and rebuild mid-call.
             let room = Room()
             let observer = RoomObserver(session: self)
             room.add(delegate: observer)
@@ -311,8 +312,8 @@ final class CallSession {
             // Unpublish before disconnecting. Tearing the room down with a
             // capturer still running leaves the camera light on and makes the
             // SDK complain that it was deinitialised mid-capture.
-            try? await room.localParticipant.setCamera(enabled: false)
-            try? await room.localParticipant.setMicrophone(enabled: false)
+            _ = try? await room.localParticipant.setCamera(enabled: false)
+            _ = try? await room.localParticipant.setMicrophone(enabled: false)
             await room.disconnect()
         }
         room = nil

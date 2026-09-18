@@ -23,6 +23,12 @@ enum AppearancePreference: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// The sub-screens Settings can push to.
+enum SettingsRoute: Hashable {
+    case profile
+    case security
+}
+
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.openURL) private var openURL
@@ -49,9 +55,7 @@ struct SettingsView: View {
             // tapping your own name and photo to change them is where anyone
             // looks first.
             Section {
-                NavigationLink {
-                    ProfileView()
-                } label: {
+                NavigationLink(value: SettingsRoute.profile) {
                     HStack(spacing: Theme.Space.md) {
                         Avatar(
                             name: profile?.fullName ?? appState.session.user?.displayName ?? "—",
@@ -115,9 +119,7 @@ struct SettingsView: View {
             }
 
             Section {
-                NavigationLink {
-                    SecurityView()
-                } label: {
+                NavigationLink(value: SettingsRoute.security) {
                     Label(Str.security(language), systemImage: "lock.shield")
                 }
             }
@@ -163,6 +165,12 @@ struct SettingsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .navigationDestination(for: SettingsRoute.self) { route in
+            switch route {
+            case .profile: ProfileView()
+            case .security: SecurityView()
+            }
+        }
         .navigationTitle(Str.tabSettings(language))
         .navigationBarTitleDisplayMode(.inline)
         .floatingTabBarInset()

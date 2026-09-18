@@ -11,6 +11,7 @@ struct MainTabView: View {
     @State private var inboxPath = NavigationPath()
     @State private var contactsPath = NavigationPath()
     @State private var callsPath = NavigationPath()
+    @State private var settingsPath = NavigationPath()
 
     enum Tab: Hashable { case inbox, calls, contacts, settings }
 
@@ -57,7 +58,7 @@ struct MainTabView: View {
         case .inbox: inboxPath.isEmpty
         case .contacts: contactsPath.isEmpty
         case .calls: callsPath.isEmpty
-        case .settings: true
+        case .settings: settingsPath.isEmpty
         }
     }
 
@@ -85,7 +86,7 @@ struct MainTabView: View {
                 .tag(Tab.contacts)
             }
 
-            NavigationStack {
+            NavigationStack(path: $settingsPath) {
                 SettingsView()
             }
             .toolbar(.hidden, for: .tabBar)
@@ -141,6 +142,13 @@ struct MainTabView: View {
 
         case .settings:
             selection = .settings
+
+        case .profile, .security:
+            // Both live behind Settings, so the tab has to be selected before
+            // the destination is pushed onto its stack.
+            selection = .settings
+            guard settingsPath.isEmpty else { return }
+            settingsPath.append(SampleRoute.current == .profile ? SettingsRoute.profile : .security)
 
         case .inbox, .none:
             break

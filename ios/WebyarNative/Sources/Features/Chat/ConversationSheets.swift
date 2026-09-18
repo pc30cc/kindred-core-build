@@ -334,30 +334,3 @@ struct NoteRow: View {
         .padding(.vertical, Theme.Space.xxs)
     }
 }
-
-/// A thin strip saying an invitation is out and nothing has been answered.
-struct InvitationBanner: View {
-    let message: String
-    let cancelTitle: String
-    let onCancel: () -> Void
-
-    var body: some View {
-        HStack(spacing: Theme.Space.sm) {
-            ProgressView()
-                .controlSize(.small)
-
-            Text(message)
-                .font(Theme.Typo.meta)
-                .foregroundStyle(Theme.Palette.label)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Button(cancelTitle, action: onCancel)
-                .font(Theme.Typo.metaEmphasis)
-                .foregroundStyle(Theme.Palette.brand)
-        }
-        .padding(.horizontal, Theme.screenInset)
-        .padding(.vertical, Theme.Space.sm)
-        .background(.bar)
-        .transition(.move(edge: .top).combined(with: .opacity))
-    }
-}

@@ -154,6 +154,25 @@ actor SampleAPI: WebyarAPI {
 
     func cancelInvitation(id: String) async throws {}
 
+    /// The sample visitor always accepts, so the call screen can be laid out
+    /// and screenshotted without a browser open somewhere.
+    func invitation(id: String) async throws -> CallInvitation {
+        CallInvitation(
+            id: id, status: "joined", channel: "audio",
+            conversationId: "c-1", callSessionId: "cs-\(id)",
+            expiresAt: Date().addingTimeInterval(120)
+        )
+    }
+
+    func callToken(callSessionID: String, displayName: String?) async throws -> CallToken {
+        CallToken(
+            token: "sample", provider: "livekit",
+            wsURL: nil, rtcURL: nil, turn: nil, icePolicy: "all", warnings: nil
+        )
+    }
+
+    func hangUp(callSessionID: String) async throws {}
+
 
     /// Gives each sample thread a different device and country so the avatar's
     /// OS-mark and flag paths are actually exercised.

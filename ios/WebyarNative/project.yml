@@ -14,10 +14,22 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     SWIFT_STRICT_CONCURRENCY: complete
 
+packages:
+  # The one external dependency in this app, and it earns its place: a call
+  # needs a real WebRTC stack, and the platform's own calls already run on
+  # LiveKit — the operator console uses `livekit-client`, so the phone joining
+  # the same rooms with the same tokens is the only arrangement that cannot
+  # drift from what the web does.
+  LiveKit:
+    url: https://github.com/livekit/client-sdk-swift
+    from: 2.0.0
+
 targets:
   WebyarNative:
     type: application
     platform: iOS
+    dependencies:
+      - package: LiveKit
     sources:
       - path: Sources
       - path: Resources
@@ -37,6 +49,17 @@ targets:
           - UIInterfaceOrientationPortrait
         # The app talks to one fixed HTTPS origin; no ATS exceptions needed.
         ITSAppUsesNonExemptEncryption: false
+        # A call has to survive the operator locking the screen or switching
+        # apps mid-sentence, which is exactly what this background mode is
+        # for. No `voip` here: nothing rings, the operator always starts the
+        # call from inside the app.
+        UIBackgroundModes:
+          - audio
+        NSMicrophoneUsageDescription: >-
+          Webyar uses the microphone when you call a visitor from a
+          conversation.
+        NSCameraUsageDescription: >-
+          Webyar uses the camera when you start a video call with a visitor.
         # Persian and Turkish ship in-bundle so the language picker works
         # offline and iOS reports the app as localized for them.
         CFBundleLocalizations:

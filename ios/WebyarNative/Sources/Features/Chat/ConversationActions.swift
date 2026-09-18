@@ -22,7 +22,8 @@ final class ConversationActionsModel {
     /// Set when a change was rejected, so the screen can say so instead of
     /// silently reverting under the operator's hands.
     var saveFailed = false
-    /// Set when an invitation went out and the visitor has not answered yet.
+    /// The invitation the call screen is showing. Set when one goes out,
+    /// cleared when the operator closes the screen.
     var pendingInvitation: CallInvitation?
     var inviteFailed = false
 
@@ -186,12 +187,6 @@ final class ConversationActionsModel {
         } catch {
             inviteFailed = true
         }
-    }
-
-    func cancelInvitation() async {
-        guard let invitation = pendingInvitation else { return }
-        pendingInvitation = nil
-        try? await api.cancelInvitation(id: invitation.id)
     }
 
     // MARK: - Plumbing

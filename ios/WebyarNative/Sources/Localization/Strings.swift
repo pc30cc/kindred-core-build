@@ -906,3 +906,88 @@ extension Str {
         }
     }
 }
+
+// MARK: - A call in progress
+
+extension Str {
+
+    static func connectingCall(_ l: Language) -> String {
+        switch l {
+        case .en: "Connecting…"
+        case .fa: "در حال اتصال…"
+        case .tr: "Bağlanıyor…"
+        }
+    }
+
+    static func hangUpCall(_ l: Language) -> String {
+        switch l {
+        case .en: "End"
+        case .fa: "پایان"
+        case .tr: "Bitir"
+        }
+    }
+
+    static func mute(_ l: Language) -> String {
+        switch l {
+        case .en: "Mute"
+        case .fa: "بی‌صدا"
+        case .tr: "Sessiz"
+        }
+    }
+
+    static func camera(_ l: Language) -> String {
+        switch l {
+        case .en: "Camera"
+        case .fa: "دوربین"
+        case .tr: "Kamera"
+        }
+    }
+
+    static func speaker(_ l: Language) -> String {
+        switch l {
+        case .en: "Speaker"
+        case .fa: "بلندگو"
+        case .tr: "Hoparlör"
+        }
+    }
+
+    static func callEnded(_ l: Language) -> String {
+        switch l {
+        case .en: "Call ended"
+        case .fa: "تماس پایان یافت"
+        case .tr: "Arama bitti"
+        }
+    }
+
+    static func callDeclined(_ l: Language) -> String {
+        switch l {
+        case .en: "The visitor declined"
+        case .fa: "بازدیدکننده نپذیرفت"
+        case .tr: "Ziyaretçi reddetti"
+        }
+    }
+
+    static func callNoAnswer(_ l: Language) -> String {
+        switch l {
+        case .en: "No answer"
+        case .fa: "پاسخی داده نشد"
+        case .tr: "Yanıt yok"
+        }
+    }
+
+    static func callFailed(_ l: Language) -> String {
+        switch l {
+        case .en: "The call could not connect"
+        case .fa: "تماس برقرار نشد"
+        case .tr: "Arama bağlanamadı"
+        }
+    }
+
+    static func callRelayWarning(_ l: Language) -> String {
+        switch l {
+        case .en: "No relay server configured — this call may fail on some networks"
+        case .fa: "سرور رله تنظیم نشده — ممکن است روی بعضی شبکه‌ها برقرار نشود"
+        case .tr: "Röle sunucusu tanımlı değil — bazı ağlarda bağlanmayabilir"
+        }
+    }
+}

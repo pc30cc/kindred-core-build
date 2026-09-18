@@ -119,17 +119,20 @@ struct ChatView: View {
             .task {
                 await actions.load(appState: appState)
             }
-            // An invitation is not a call: it is a request the visitor has to
-            // accept. Saying so, and offering to take it back, is the honest
-            // thing to show while nothing is ringing anywhere.
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if actions.pendingInvitation != nil {
-                    InvitationBanner(
-                        message: Str.inviteSent(language),
-                        cancelTitle: Str.cancel(language),
-                        onCancel: { Task { await actions.cancelInvitation() } }
-                    )
-                }
+            // The call takes the whole screen from the moment the invitation
+            // goes out: waiting for the visitor, connecting, talking and the
+            // outcome are one continuous thing to the operator, and a banner
+            // would make the first two look like nothing was happening.
+            .fullScreenCover(item: $actions.pendingInvitation) { invitation in
+                CallScreen(
+                    session: CallSession(
+                        invitation: invitation,
+                        contactName: title,
+                        contactAvatarURL: conversation.contact?.avatarURL
+                    ),
+                    language: language,
+                    onClose: { actions.pendingInvitation = nil }
+                )
             }
             .alert(
                 Str.inviteFailed(language),

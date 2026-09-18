@@ -147,3 +147,21 @@ enum Format {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
+
+extension Format {
+    /// How long a call has been running, as a call timer reads it: mm:ss, and
+    /// h:mm:ss only once there is an hour to show.
+    ///
+    /// Deliberately not localized digits. A duration counting up beside a
+    /// hang-up button is read at a glance, and Latin digits are what every
+    /// phone shows there in every language.
+    static func callDuration(from start: Date, to now: Date) -> String {
+        let total = max(0, Int(now.timeIntervalSince(start)))
+        let seconds = total % 60
+        let minutes = (total / 60) % 60
+        let hours = total / 3600
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
+            : String(format: "%02d:%02d", minutes, seconds)
+    }
+}

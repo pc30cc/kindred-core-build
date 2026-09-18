@@ -39,6 +39,9 @@ protocol WebyarAPI: Sendable {
     func deleteNote(conversationID: String, workspaceID: String, noteID: String) async throws
     func inviteToCall(conversationID: String, workspaceID: String, channel: CallChannel) async throws -> CallInvitation
     func cancelInvitation(id: String) async throws
+    func invitation(id: String) async throws -> CallInvitation
+    func callToken(callSessionID: String, displayName: String?) async throws -> CallToken
+    func hangUp(callSessionID: String) async throws
 
     func entitlements(workspaceID: String) async throws -> Entitlements
 

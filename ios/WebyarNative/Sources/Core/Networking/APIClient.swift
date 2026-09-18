@@ -411,6 +411,41 @@ actor APIClient {
         try await performIgnoringBody(request)
     }
 
+    /// Re-reads an invitation, which is how the operator learns the visitor
+    /// accepted: the widget's acceptance mints the call session, and the
+    /// session id appearing here is the signal to go and join it.
+    func invitation(id: String) async throws -> CallInvitation {
+        let request = try makeRequest("GET", "/api/call-invitations/\(id)")
+        return try await perform(request, as: CallInvitationResponse.self).invitation
+    }
+
+    private struct TokenBody: Encodable, Sendable {
+        let participant_type: String
+        let display_name: String?
+    }
+
+    /// Mints this operator's participant token for a call session.
+    ///
+    /// The same endpoint the operator console uses, with the same
+    /// `participant_type`, so the phone and the desktop appear in the room as
+    /// the same kind of participant with the same permissions.
+    func callToken(callSessionID: String, displayName: String?) async throws -> CallToken {
+        let request = try makeRequest(
+            "POST",
+            "/api/calls/\(callSessionID)/token",
+            body: TokenBody(participant_type: "operator", display_name: displayName)
+        )
+        return try await perform(request, as: CallToken.self)
+    }
+
+    /// Ends the call for everyone. Idempotent server-side, which matters: a
+    /// hang-up that races the visitor's own hang-up must not turn into an
+    /// error the operator sees.
+    func hangUp(callSessionID: String) async throws {
+        let request = try makeRequest("POST", "/api/calls/\(callSessionID)/hangup")
+        try await performIgnoringBody(request)
+    }
+
     // MARK: - Plan
 
     func entitlements(workspaceID: String) async throws -> Entitlements {

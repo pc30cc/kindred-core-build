@@ -90,15 +90,71 @@ struct CallInvitation: Codable, Identifiable, Hashable, Sendable {
     let status: String?
     let channel: String?
     let conversationId: String?
+    /// Only set once the visitor has accepted: the invitation is the offer,
+    /// the session is the call. Everything after this point keys off the
+    /// session, not the invitation.
+    let callSessionId: String?
     let expiresAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case id, status, channel
         case conversationId = "conversation_id"
+        case callSessionId = "call_session_id"
         case expiresAt = "expires_at"
     }
 
     var isPending: Bool { status == "pending" }
+    var isJoined: Bool { status == "joined" }
+
+    /// Statuses that mean this invitation will never become a call.
+    var isTerminal: Bool {
+        switch status {
+        case "expired", "cancelled", "declined": true
+        default: false
+        }
+    }
+
+    var kind: CallChannel { CallChannel(rawValue: channel ?? "") ?? .audio }
+}
+
+/// Everything needed to join the media room, exactly as the operator console
+/// receives it from `POST /api/calls/:id/token`.
+struct CallToken: Codable, Sendable {
+    let token: String
+    let provider: String?
+    /// The signalling URL. `rtc_url` is the fallback the web uses too.
+    let wsURL: String?
+    let rtcURL: String?
+    let turn: TurnConfig?
+    let icePolicy: String?
+    /// Non-fatal notes from the server — `turn_missing` above all, which is
+    /// the difference between a call that connects everywhere and one that
+    /// connects on friendly networks.
+    let warnings: [String]?
+
+    struct TurnConfig: Codable, Sendable {
+        let urls: [String]?
+        let username: String?
+        let credential: String?
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case token, provider, turn, warnings
+        case wsURL = "ws_url"
+        case rtcURL = "rtc_url"
+        case icePolicy = "ice_policy"
+    }
+
+    /// The URL to actually dial. The server sends both and the web prefers
+    /// `ws_url`; falling back keeps a workspace configured only with
+    /// `rtc_url` working rather than failing with an empty address.
+    var signallingURL: String? {
+        if let wsURL, !wsURL.isEmpty { return wsURL }
+        if let rtcURL, !rtcURL.isEmpty { return rtcURL }
+        return nil
+    }
+
+    var relayOnly: Bool { icePolicy == "relay" }
 }
 
 struct CallInvitationResponse: Codable, Sendable {

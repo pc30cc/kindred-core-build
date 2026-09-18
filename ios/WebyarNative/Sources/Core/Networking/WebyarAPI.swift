@@ -63,17 +63,17 @@ enum AutoLogin {
     }()
 }
 
-/// Which screen a sample-mode launch should open on.
+/// Which screen a Debug launch should open on.
 ///
 /// Screenshot automation cannot tap its way through an app, and Apple wants a
 /// shot of each major screen. Naming the destination on the command line is
-/// how `fastlane snapshot` and friends do it. Honoured only alongside
-/// `-WebyarSampleData`, so it cannot affect a real launch.
+/// how `fastlane snapshot` and friends do it. It applies to a sample-data run
+/// and to an auto-signed-in run against the real server alike — the point is
+/// to reach a screen, not to choose where its content comes from.
 enum SampleRoute: String {
     case inbox, chat, contacts, contact, settings
 
     static let current: SampleRoute? = {
-        guard Backend.isSample else { return nil }
         let arguments = ProcessInfo.processInfo.arguments
         guard let index = arguments.firstIndex(of: "-WebyarScreen"),
               arguments.index(after: index) < arguments.endIndex

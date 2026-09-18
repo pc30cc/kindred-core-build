@@ -192,6 +192,18 @@ enum Format {
             : clock([minutes, secs], padFirst: true, locale: locale)
     }
 
+    /// The number beside a voice note: `m:ss`, minutes unpadded.
+    ///
+    /// Deliberately not `duration(_:locale:)`. The console has two clocks and
+    /// they differ on purpose — `clockTime` in the attachment view leaves the
+    /// minutes unpadded for a recording, while `formatCallDuration` pads both
+    /// fields for a call summary. A three-second note reads "0:03" on every
+    /// phone anyone has used.
+    static func voiceTime(_ seconds: TimeInterval, locale: Locale) -> String {
+        let total = max(0, Int(seconds.rounded(.down)))
+        return clock([total / 60, total % 60], locale: locale)
+    }
+
     /// Joins clock fields with a colon, zero-padding every field after the
     /// first in whatever digits the locale writes.
     ///

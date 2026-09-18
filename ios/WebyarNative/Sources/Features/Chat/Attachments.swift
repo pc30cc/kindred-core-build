@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import AVKit
+import QuickLook
 
 // MARK: - Fetching
 
@@ -262,7 +263,7 @@ private struct VoiceNoteView: View {
         VStack(alignment: .leading, spacing: 5) {
             if let player {
                 track(progress: player.progress)
-                Text(Format.duration(Int(player.displayedSeconds), locale: language.locale))
+                Text(Format.voiceTime(player.displayedSeconds, locale: language.locale))
                     .font(.caption2)
                     .monospacedDigit()
                     .foregroundStyle(tint.opacity(0.7))
@@ -452,19 +453,55 @@ private struct VideoAttachmentView: View {
 
 // MARK: - Everything else
 
-/// A document: what it is, and how big.
+/// A document: what it is, how big, and — on a tap — what is in it.
+///
+/// A card the operator cannot open is half a feature. Quick Look is the
+/// system's own reader and already knows PDFs, Office files, text and
+/// archives, so the file only has to be put on disk for it.
 private struct FileAttachmentView: View {
     let attachment: MessageAttachment
     let isOutgoing: Bool
     let language: Language
 
+    @State private var url: URL?
+    @State private var isOpening = false
+    @State private var failed = false
+
     var body: some View {
-        FileCard(
-            icon: "doc.fill",
-            title: attachment.displayName ?? Str.file(language),
-            subtitle: attachment.sizeBytes.map { Format.fileSize($0, language: language) },
-            isOutgoing: isOutgoing
-        )
+        Button {
+            Task { await open() }
+        } label: {
+            FileCard(
+                icon: failed ? "doc.badge.ellipsis" : "doc.fill",
+                title: attachment.displayName ?? Str.file(language),
+                subtitle: subtitle,
+                isOutgoing: isOutgoing
+            )
+        }
+        .buttonStyle(.plain)
+        .quickLookPreview($url)
+    }
+
+    private var subtitle: String? {
+        if failed { return Str.attachmentFailed(language) }
+        if isOpening { return Str.receivingFile(language) }
+        return attachment.sizeBytes.map { Format.fileSize($0, language: language) }
+    }
+
+    private func open() async {
+        guard !isOpening else { return }
+        isOpening = true
+        failed = false
+        defer { isOpening = false }
+        do {
+            url = try await AttachmentStore.shared.fileURL(
+                for: attachment.id,
+                fileExtension: AttachmentFormat.fileExtension(for: attachment) ?? "dat",
+                api: Backend.current
+            )
+        } catch {
+            failed = true
+        }
     }
 }
 
@@ -515,6 +552,9 @@ private struct FileCard: View {
 /// uses to decide how to open a file on disk.
 enum AttachmentFormat {
     static func fileExtension(for attachment: MessageAttachment) -> String? {
+        // The name is checked before the MIME type because it is the more
+        // specific of the two — but only when it really carries an extension.
+        // A widget voice note arrives named `m4a`, with no dot in it at all.
         if let name = attachment.fileName,
            let dot = name.lastIndex(of: "."),
            dot < name.index(before: name.endIndex) {

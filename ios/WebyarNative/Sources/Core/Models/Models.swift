@@ -21,6 +21,13 @@ struct User: Codable, Identifiable, Hashable, Sendable {
         case emailConfirmedAt = "email_confirmed_at"
     }
 
+    init(id: String, email: String?, fullName: String?, emailVerified: Bool?) {
+        self.id = id
+        self.email = email
+        self.fullName = fullName
+        self.emailVerified = emailVerified
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)

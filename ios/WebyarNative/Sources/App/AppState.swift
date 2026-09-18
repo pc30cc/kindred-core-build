@@ -93,20 +93,38 @@ final class AppState {
         do {
             let user = try await api.currentUser()
             session = .signedIn(user)
+            SessionCache.save(user)
             await loadWorkspaces()
         } catch APIError.unauthorized {
+            // The server said the session is void. That is the only thing
+            // that signs an operator out.
             await api.discardSession()
+            SessionCache.clear()
             session = .signedOut
         } catch {
-            // Offline at launch: we cannot prove the session is gone, so keep
-            // the operator in and let individual screens show their own retry.
-            session = .signedOut
+            // Offline at launch, or a server that did not answer in twenty
+            // seconds. We cannot prove the session is gone — and it almost
+            // certainly is not, since the token is still in the Keychain and
+            // a mobile session lasts sixty days — so the operator stays in
+            // with the account they were last seen using. Every screen still
+            // makes its own requests, and the first `401` from any of them
+            // signs them out properly.
+            //
+            // The old behaviour here was to sign out, which is what put the
+            // login screen in front of somebody whose session was fine.
+            if let cached = SessionCache.read() {
+                session = .signedIn(cached)
+                await loadWorkspaces()
+            } else {
+                session = .signedOut
+            }
         }
     }
 
     func signedIn(_ user: User) async {
         sessionEndedMessage = nil
         session = .signedIn(user)
+        SessionCache.save(user)
         await loadWorkspaces()
     }
 
@@ -139,6 +157,9 @@ final class AppState {
         session = .signedOut
         workspaces = []
         selectedWorkspace = nil
+        // Whoever signs in next must not be greeted by the last person's
+        // name while the server is being asked who they are.
+        SessionCache.clear()
     }
 
     func clearSessionEndedMessage() {

@@ -195,6 +195,21 @@ actor APIClient {
         setToken(nil)
     }
 
+    private struct ResetBody: Encodable, Sendable {
+        let email: String
+    }
+
+    /// Asks the server to email a reset link.
+    ///
+    /// The response is deliberately not inspected for whether the address
+    /// exists: the endpoint answers the same either way so that it cannot be
+    /// used to discover which addresses have accounts, and the UI must not
+    /// undo that by reporting a difference.
+    func requestPasswordReset(email: String) async throws {
+        let request = try makeRequest("POST", "/api/auth-email/send-reset", body: ResetBody(email: email))
+        try await performIgnoringBody(request)
+    }
+
     // MARK: - Workspaces
 
     func workspaces() async throws -> [Workspace] {

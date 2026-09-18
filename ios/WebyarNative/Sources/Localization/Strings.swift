@@ -91,6 +91,40 @@ enum Str {
         }
     }
 
+    static func resetSentTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Check your email"
+        case .fa: "ایمیل خود را بررسی کنید"
+        case .tr: "E-postanızı kontrol edin"
+        }
+    }
+
+    /// Worded so it does not confirm whether the address has an account —
+    /// the endpoint deliberately answers the same either way.
+    static func resetSentBody(_ l: Language) -> String {
+        switch l {
+        case .en: "If that address has an account, a reset link is on its way."
+        case .fa: "اگر آن نشانی حسابی داشته باشد، پیوند بازنشانی برایش فرستاده می‌شود."
+        case .tr: "Bu adrese ait bir hesap varsa, sıfırlama bağlantısı yolda."
+        }
+    }
+
+    static func resetNeedsEmail(_ l: Language) -> String {
+        switch l {
+        case .en: "Enter your email address first."
+        case .fa: "نخست نشانی ایمیل خود را وارد کنید."
+        case .tr: "Önce e-posta adresinizi girin."
+        }
+    }
+
+    static func ok(_ l: Language) -> String {
+        switch l {
+        case .en: "OK"
+        case .fa: "باشه"
+        case .tr: "Tamam"
+        }
+    }
+
     static func loginFailed(_ l: Language) -> String {
         switch l {
         case .en: "Could not sign you in. Check your email and password."

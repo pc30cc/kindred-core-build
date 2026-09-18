@@ -8,6 +8,8 @@ struct LoginView: View {
     @State private var showPassword = false
     @State private var isSubmitting = false
     @State private var errorMessage: String?
+    @State private var isRequestingReset = false
+    @State private var showResetSent = false
 
     @FocusState private var focus: Field?
     private enum Field { case email, password }
@@ -44,13 +46,14 @@ struct LoginView: View {
                     )
                     .padding(.top, Theme.Space.xl)
 
-                    Button(action: {}) {
+                    Button(action: requestReset) {
                         Text(Str.forgotPassword(language))
                             .font(.subheadline)
                             .foregroundStyle(Theme.Palette.brand)
                             .frame(minHeight: Theme.Size.minTouchTarget)
                     }
                     .buttonStyle(.plain)
+                    .disabled(isRequestingReset)
                     .padding(.top, Theme.Space.xs)
 
                     Spacer(minLength: Theme.Space.xl)
@@ -73,6 +76,11 @@ struct LoginView: View {
                 errorMessage = message
                 appState.clearSessionEndedMessage()
             }
+        }
+        .alert(Str.resetSentTitle(language), isPresented: $showResetSent) {
+            Button(Str.ok(language), role: .cancel) {}
+        } message: {
+            Text(Str.resetSentBody(language))
         }
     }
 
@@ -260,6 +268,38 @@ struct LoginView: View {
                 }
             }
             isSubmitting = false
+        }
+    }
+
+    /// Sends a reset link for whatever is in the email field.
+    ///
+    /// The confirmation is shown whether or not the request succeeded at the
+    /// application level, because the endpoint answers identically for an
+    /// address that has an account and one that does not — reporting a
+    /// difference here would turn the login screen into a way to test which
+    /// addresses are registered. A transport failure is still reported: that
+    /// one says nothing about the address.
+    private func requestReset() {
+        guard Credentials.isPlausibleEmail(email) else {
+            focus = .email
+            withAnimation(Theme.Motion.standard) { errorMessage = Str.resetNeedsEmail(language) }
+            return
+        }
+
+        focus = nil
+        isRequestingReset = true
+        withAnimation(Theme.Motion.standard) { errorMessage = nil }
+
+        Task {
+            do {
+                try await Backend.current.requestPasswordReset(email: Credentials.normalizeEmail(email))
+                showResetSent = true
+            } catch APIError.transport {
+                withAnimation(Theme.Motion.standard) { errorMessage = Str.offlineBody(language) }
+            } catch {
+                showResetSent = true
+            }
+            isRequestingReset = false
         }
     }
 

@@ -150,6 +150,9 @@ struct UnreadBadge: View {
     let count: Int
 
     var body: some View {
+        // Both branches go through Text's localized interpolation, so a
+        // Persian reader sees Persian digits in the capped form too rather
+        // than "۳" on one row and an ASCII "99+" on the next.
         Text(count > 99 ? "99+" : "\(count)")
             .font(Theme.Typo.metaEmphasis)
             .monospacedDigit()
@@ -157,7 +160,8 @@ struct UnreadBadge: View {
             .padding(.horizontal, Theme.Space.sm)
             .frame(minWidth: 22, minHeight: 20)
             .background(Capsule().fill(Theme.Palette.brand))
-            // Digits are Latin here; keep them from reordering under RTL.
+            // The digits themselves localize with the reader's language; this
+            // only stops the capped form rendering as "+99" under RTL.
             .environment(\.layoutDirection, .leftToRight)
     }
 }

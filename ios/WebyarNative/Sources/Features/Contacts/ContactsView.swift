@@ -78,70 +78,65 @@ struct ContactsView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch model.state {
-        case .loading:
-            List(0..<10, id: \.self) { _ in
-                ContactRowSkeleton()
-            }
-            .listStyle(.plain)
-            .disabled(true)
+        // Same arrangement as the inbox: one list for every state, with search
+        // inside it and the list resting just below it.
+        SearchRestingList(
+            text: $model.searchText,
+            prompt: Str.search(language),
+            anchorID: Self.restAnchor,
+            resetToken: workspaceID ?? "-",
+            isReady: model.state.isLoaded
+        ) {
+            switch model.state {
+            case .loading:
+                ForEach(0..<10, id: \.self) { _ in
+                    ContactRowSkeleton()
+                        .measuredListRow()
+                }
 
-        case .failed:
-            ScrollView {
+            case .failed:
                 ErrorStateView(
                     title: Str.offlineTitle(language),
                     message: Str.offlineBody(language),
                     retryTitle: Str.retry(language),
                     onRetry: { Task { await model.load(workspaceID: workspaceID, appState: appState) } }
                 )
-            }
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .measuredListRow()
 
-        case .loaded:
-            ScrollViewReader { proxy in
-                List {
-                    // Same arrangement as the inbox: search inside the list,
-                    // the list resting just below it.
-                    SearchRow(text: $model.searchText, prompt: Str.search(language))
-                        .listRowInsets(EdgeInsets(
-                            top: Theme.Space.xs,
-                            leading: Theme.screenInset,
-                            bottom: Theme.Space.sm,
-                            trailing: Theme.screenInset
-                        ))
-                        .listRowSeparator(.hidden)
-
-                    if model.visible.isEmpty {
-                        EmptyStateView(
-                            systemImage: model.searchText.isEmpty ? "person.2" : "magnifyingglass",
-                            title: model.searchText.isEmpty
-                                ? Str.contactsEmptyTitle(language)
-                                : Str.noResults(language),
-                            message: model.searchText.isEmpty ? Str.contactsEmptyBody(language) : ""
-                        )
-                        .id(Self.listAnchor)
-                        .listRowInsets(EdgeInsets())
-                        .listRowSeparator(.hidden)
-                    } else {
-                        ForEach(Array(model.visible.enumerated()), id: \.element.id) { index, contact in
-                            NavigationLink(value: contact) {
-                                ContactRow(contact: contact, language: language)
-                            }
-                            // The first row is what the list rests on.
-                            .id(index == 0 ? Self.listAnchor : contact.id)
+            case .loaded:
+                if model.visible.isEmpty {
+                    EmptyStateView(
+                        systemImage: model.searchText.isEmpty ? "person.2" : "magnifyingglass",
+                        title: model.searchText.isEmpty
+                            ? Str.contactsEmptyTitle(language)
+                            : Str.noResults(language),
+                        message: model.searchText.isEmpty ? Str.contactsEmptyBody(language) : ""
+                    )
+                    .id(Self.restAnchor)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .measuredListRow()
+                } else {
+                    ForEach(Array(model.visible.enumerated()), id: \.element.id) { index, contact in
+                        NavigationLink(value: contact) {
+                            ContactRow(contact: contact, language: language)
                         }
+                        // The first row is what the list rests on.
+                        .id(index == 0 ? Self.restAnchor : contact.id)
+                        .measuredListRow()
                     }
                 }
-                .listStyle(.plain)
-                .restingBelowSearch(proxy: proxy, anchorID: Self.listAnchor)
-                .navigationDestination(for: Contact.self) { contact in
-                    ContactDetailView(contact: contact)
-                }
             }
+        }
+        .navigationDestination(for: Contact.self) { contact in
+            ContactDetailView(contact: contact)
         }
     }
 
     /// The row the list rests on, leaving the search field just above the fold.
-    private static let listAnchor = "contacts.top"
+    private static let restAnchor = "contacts.top"
 }
 
 /// A contact in the list: avatar, name, and the best secondary identifier we

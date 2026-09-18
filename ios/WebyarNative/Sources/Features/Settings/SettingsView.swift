@@ -118,10 +118,29 @@ struct SettingsView: View {
                 }
             }
 
+            // Sign out is a settings row like any other, not a slab of button
+            // parked under the last section. It sits with security because
+            // that is what it is — the other thing you do to your session —
+            // and keeping it in the list is what lets the list end where its
+            // content ends.
             Section {
                 NavigationLink(value: SettingsRoute.security) {
                     Label(Str.security(language), systemImage: "lock.shield")
                 }
+
+                Button {
+                    isConfirmingSignOut = true
+                } label: {
+                    HStack {
+                        Label(Str.signOut(language), systemImage: "rectangle.portrait.and.arrow.right")
+                            .foregroundStyle(Theme.Palette.danger)
+                        Spacer(minLength: Theme.Space.sm)
+                        if isSigningOut {
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(isSigningOut)
             }
 
             Section {
@@ -144,24 +163,6 @@ struct SettingsView: View {
                 }
             } header: {
                 Text(Str.about(language))
-            }
-
-            Section {
-                Button(role: .destructive) {
-                    isConfirmingSignOut = true
-                } label: {
-                    HStack {
-                        Spacer()
-                        if isSigningOut {
-                            ProgressView()
-                        } else {
-                            Text(Str.signOut(language))
-                        }
-                        Spacer()
-                    }
-                    .frame(minHeight: Theme.Size.minTouchTarget - 10)
-                }
-                .disabled(isSigningOut)
             }
         }
         .listStyle(.insetGrouped)

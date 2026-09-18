@@ -57,10 +57,29 @@ enum Theme {
         static let avatarMedium: CGFloat = 44
         static let avatarLarge: CGFloat = 76
         static let rowMinHeight: CGFloat = 60
+        /// The floating tab bar's own height: one item plus the capsule's
+        /// padding above and below it.
+        static let floatingBarHeight: CGFloat = minTouchTarget + 4 + Space.sm * 2
+
+        /// How far the bar's bottom edge sits from the bottom of the screen —
+        /// not from the safe area, which it deliberately reaches into.
+        ///
+        /// The home indicator is a 5-point bar about 8 points up from the
+        /// edge, so this is as low as the capsule can go and still leave the
+        /// indicator its own room.
+        static let floatingBarBottomGap: CGFloat = 16
+
         /// Room a scrolling screen leaves at the bottom so its last row can
-        /// clear the floating tab bar: the bar's own height plus its margin.
-        /// Tracks `FloatingTabBar`'s own padding — if that changes, this does.
-        static let floatingBarClearance: CGFloat = 68
+        /// clear the floating bar, measured from the safe area the way
+        /// `safeAreaInset` wants it.
+        ///
+        /// The bar is positioned against the screen, so how much of it hangs
+        /// below the safe area depends on the device — hence the subtraction
+        /// rather than a constant.
+        @MainActor
+        static var floatingBarClearance: CGFloat {
+            max(0, floatingBarHeight + floatingBarBottomGap + Space.xs - ScreenInsets.bottom)
+        }
     }
 
     // MARK: - Colour

@@ -14,6 +14,12 @@ enum LoadState<Value>: Sendable where Value: Sendable {
         if case .loaded(let value) = self { return value }
         return nil
     }
+
+    /// True once the rows on screen are real content rather than placeholders.
+    var isLoaded: Bool {
+        if case .loaded = self { return true }
+        return false
+    }
 }
 
 @MainActor

@@ -39,41 +39,32 @@ struct InboxView: View {
 
     @ViewBuilder
     private var content: some View {
-        // One List across every state, with the filter always its first row.
+        // One list across every state, with the queue filter as its first real
+        // row and the search field above that, out of sight until the list is
+        // pulled down.
         //
         // The filter rides in the list rather than in a top safe-area inset:
         // an inset there occupies the navigation bar's large-title space and
         // silently swallowed the "Inbox" title. Keeping it here also means it
         // stays reachable when the list is empty — otherwise an operator who
         // filtered into an empty queue would have no way back out.
-        ScrollViewReader { proxy in
-        List {
-            // Search lives in the list, above the filter, and the list rests
-            // below it — so it is out of the way until the list is pulled
-            // down. See SearchRow for why `.searchable` does not work here.
-            SearchRow(text: $model.searchText, prompt: Str.search(language))
-                .listRowInsets(EdgeInsets(
-                    top: Theme.Space.xs,
-                    leading: Theme.screenInset,
-                    bottom: Theme.Space.sm,
-                    trailing: Theme.screenInset
-                ))
-                .listRowSeparator(.hidden)
-
+        SearchRestingList(
+            text: $model.searchText,
+            prompt: Str.search(language),
+            anchorID: Self.restAnchor,
+            resetToken: reloadKey,
+            isReady: model.state.isLoaded
+        ) {
             FilterPicker(
                 selection: $model.filter,
                 filters: appState.inboxFilters,
                 counts: model.counts,
                 language: language
             )
-                .id(Self.filterAnchor)
-                .listRowInsets(EdgeInsets(
-                    top: Theme.Space.xs,
-                    leading: Theme.screenInset,
-                    bottom: Theme.Space.md,
-                    trailing: Theme.screenInset
-                ))
+                .id(Self.restAnchor)
+                .listRowInsets(filterInsets)
                 .listRowSeparator(.hidden)
+                .measuredListRow(insets: filterInsets.top + filterInsets.bottom)
 
             switch model.state {
             case .loading:
@@ -83,6 +74,7 @@ struct InboxView: View {
                 ForEach(0..<8, id: \.self) { _ in
                     ConversationRowSkeleton()
                         .listRowInsets(rowInsets)
+                        .measuredListRow(insets: rowInsets.top + rowInsets.bottom)
                 }
 
             case .failed(let error):
@@ -94,6 +86,7 @@ struct InboxView: View {
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
+                .measuredListRow()
 
             case .loaded:
                 if model.visible.isEmpty {
@@ -108,6 +101,7 @@ struct InboxView: View {
                     )
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
+                    .measuredListRow()
                 } else {
                     ForEach(model.visible) { conversation in
                         ZStack {
@@ -127,6 +121,7 @@ struct InboxView: View {
                             )
                         }
                         .listRowInsets(rowInsets)
+                        .measuredListRow(insets: rowInsets.top + rowInsets.bottom)
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             swipeAction(for: conversation)
                         }
@@ -137,16 +132,22 @@ struct InboxView: View {
                 }
             }
         }
-        .listStyle(.plain)
-        .restingBelowSearch(proxy: proxy, anchorID: Self.filterAnchor)
         .navigationDestination(for: Conversation.self) { conversation in
             ChatView(conversation: conversation)
-        }
         }
     }
 
     /// The row the list rests on, leaving the search field just above the fold.
-    private static let filterAnchor = "inbox.filter"
+    private static let restAnchor = "inbox.filter"
+
+    private var filterInsets: EdgeInsets {
+        EdgeInsets(
+            top: Theme.Space.xs,
+            leading: Theme.screenInset,
+            bottom: Theme.Space.md,
+            trailing: Theme.screenInset
+        )
+    }
 
     private var rowInsets: EdgeInsets {
         EdgeInsets(

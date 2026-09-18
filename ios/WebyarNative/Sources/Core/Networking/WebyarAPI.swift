@@ -44,6 +44,25 @@ enum Backend {
 }
 
 #if DEBUG
+/// Signs in from launch arguments so a screenshot run can reach the screens
+/// that live behind the login.
+///
+/// The credentials are read from the command line and never appear in source
+/// or in the bundle, and like everything else here this is compiled out of
+/// Release entirely — a shipped build has no automatic sign-in at all.
+enum AutoLogin {
+    static let credentials: (email: String, password: String)? = {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "-WebyarAutoLogin"),
+              arguments.index(index, offsetBy: 2, limitedBy: arguments.endIndex.advanced(by: -1)) != nil
+        else { return nil }
+        return (
+            arguments[arguments.index(after: index)],
+            arguments[arguments.index(index, offsetBy: 2)]
+        )
+    }()
+}
+
 /// Which screen a sample-mode launch should open on.
 ///
 /// Screenshot automation cannot tap its way through an app, and Apple wants a

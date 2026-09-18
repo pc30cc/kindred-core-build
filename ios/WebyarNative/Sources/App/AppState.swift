@@ -56,6 +56,17 @@ final class AppState {
     /// operator signed in with whatever is cached — only the server saying the
     /// session is void signs them out.
     func restore() async {
+        #if DEBUG
+        // Screenshot automation cannot type into a text field, so a Debug run
+        // may carry credentials on the command line. Compiled out of Release.
+        if let credentials = AutoLogin.credentials, await !api.hasToken {
+            if let user = try? await api.logIn(email: credentials.email, password: credentials.password) {
+                await signedIn(user)
+                return
+            }
+        }
+        #endif
+
         guard await api.hasToken else {
             session = .signedOut
             return

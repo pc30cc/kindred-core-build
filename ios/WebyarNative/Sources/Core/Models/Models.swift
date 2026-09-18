@@ -118,15 +118,33 @@ struct ConversationContact: Codable, Hashable, Sendable {
 }
 
 /// The last message preview the list endpoint computes server-side.
+///
+/// `body` alone is not enough to write a preview line with. A system notice's
+/// body is an English sentence frozen into the row when it was written, and an
+/// attachment-only message has no body at all — which is why the list endpoint
+/// ships the pieces to rebuild both (`server/routes/conversations.ts`, the
+/// `lastByConv` block).
 struct MessagePreview: Codable, Hashable, Sendable {
     let body: String?
     let createdAt: Date?
     let senderType: String?
+    let senderName: String?
+    /// `image` / `audio` / `video` / `file` when the message is only an
+    /// attachment.
+    let attachmentKind: String?
+    /// Which system notice this is, when it is one.
+    let systemKind: String?
+    /// Everything that notice needs to be written out again in any language.
+    let systemMeta: [String: JSONValue]?
 
     enum CodingKeys: String, CodingKey {
         case body
         case createdAt = "created_at"
         case senderType = "sender_type"
+        case senderName = "sender_name"
+        case attachmentKind = "attachment_kind"
+        case systemKind = "system_kind"
+        case systemMeta = "system_meta"
     }
 }
 
@@ -237,6 +255,9 @@ struct Message: Codable, Identifiable, Hashable, Sendable {
     let createdAt: Date?
     let senderName: String?
     let senderAvatar: String?
+    /// Server bookkeeping. For a system notice this is what the sentence has
+    /// to be rebuilt from, because `body` is English and cannot change.
+    let metadata: [String: JSONValue]?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -247,6 +268,7 @@ struct Message: Codable, Identifiable, Hashable, Sendable {
         case createdAt = "created_at"
         case senderName = "sender_name"
         case senderAvatar = "sender_avatar"
+        case metadata
     }
 }
 
@@ -323,6 +345,18 @@ enum JSONValue: Codable, Hashable, Sendable {
     var stringValue: String? {
         if case .string(let value) = self { return value }
         return nil
+    }
+
+    /// A whole number, whether the server sent it as one or as a string.
+    /// Postgres `jsonb` round-trips both, depending on who wrote the row.
+    var intValue: Int? {
+        switch self {
+        // `Int(someDouble)` traps on NaN and on anything past `Int.max`, and
+        // this value came off the wire.
+        case .number(let value): Int(exactly: value.rounded())
+        case .string(let value): Int(value)
+        default: nil
+        }
     }
 
     subscript(key: String) -> JSONValue? {

@@ -268,8 +268,31 @@ struct ConversationRow: View {
         )
     }
 
+    /// The one line under the name.
+    ///
+    /// Three things can be there, in this order. A system notice is rebuilt
+    /// from its metadata, because the body the server froze into the row is
+    /// English. An attachment-only message has no body at all and has to be
+    /// described. Everything else is the message itself, and a thread with no
+    /// messages falls back to its subject.
     private var preview: String {
-        let body = Format.preview(conversation.lastMessage?.body)
+        let last = conversation.lastMessage
+
+        if let text = SystemMessage.text(last?.systemMeta, language: language) {
+            return text
+        }
+
+        if let kind = last?.attachmentKind, !kind.isEmpty,
+           Format.preview(last?.body).isEmpty {
+            return SystemMessage.attachmentPreview(
+                kind: kind,
+                isMe: last?.senderType == "agent",
+                name: last?.senderName ?? conversation.contact?.name,
+                language: language
+            )
+        }
+
+        let body = Format.preview(last?.body)
         return body.isEmpty ? Format.preview(conversation.subject) : body
     }
 

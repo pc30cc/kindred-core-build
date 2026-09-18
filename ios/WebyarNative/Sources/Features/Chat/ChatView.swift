@@ -446,7 +446,10 @@ struct MessageRow: View {
     }
 
     private var systemNote: some View {
-        Text(message.body)
+        // Rebuilt from metadata, not read from the row: the body is the
+        // English sentence the server wrote when the notice happened. An
+        // unrecognised kind still shows that body rather than nothing.
+        Text(SystemMessage.text(message.metadata, language: language) ?? message.body)
             .font(Theme.Typo.meta)
             .foregroundStyle(Theme.Palette.labelSecondary)
             .multilineTextAlignment(.center)

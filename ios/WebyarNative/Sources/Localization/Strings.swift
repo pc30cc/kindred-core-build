@@ -288,11 +288,13 @@ enum Str {
     }
 
     static func conversationsCount(_ l: Language, _ n: Int) -> String {
-        let n = Format.number(n, language: l)
+        // A `let` before the switch means the body is no longer a single
+        // expression, so every branch needs its `return` spelled out.
+        let text = Format.number(n, language: l)
         switch l {
-        case .en: n == "1" ? "1 conversation" : "\(n) conversations"
-        case .fa: "\(n) گفت‌وگو"
-        case .tr: "\(n) görüşme"
+        case .en: return n == 1 ? "1 conversation" : "\(text) conversations"
+        case .fa: return "\(text) گفت‌وگو"
+        case .tr: return "\(text) görüşme"
         }
     }
 
@@ -799,9 +801,9 @@ extension Str {
     static func activeFilters(_ count: Int, _ l: Language) -> String {
         let text = Format.number(count, language: l)
         switch l {
-        case .en: count == 1 ? "1 filter" : "\(text) filters"
-        case .fa: "\(text) پالایه"
-        case .tr: "\(text) filtre"
+        case .en: return count == 1 ? "1 filter" : "\(text) filters"
+        case .fa: return "\(text) پالایه"
+        case .tr: return "\(text) filtre"
         }
     }
 
@@ -1071,5 +1073,276 @@ extension Str {
         case .fa: "دوربین در دسترس نیست — تماس فقط صوتی ادامه دارد"
         case .tr: "Kamera kullanılamıyor — yalnızca sesle devam ediliyor"
         }
+    }
+
+
+    // MARK: - System notices
+    //
+    // Every one of these is a sentence the *server* already wrote into the
+    // message row, in English, frozen at insert time — so the stored body can
+    // never follow the reader's language. The web console rebuilds each one
+    // from `metadata` for exactly that reason (`src/lib/systemMessageText.ts`)
+    // and this is the same copy, key for key, taken from `src/i18n/locales`.
+    // Two clients showing the same conversation have to say the same thing.
+
+    static func sysTransferred(_ l: Language, actor: String, to: String) -> String {
+        let text: String
+        switch l {
+        case .en: text = "{actor} transferred this conversation to {to}"
+        case .fa: text = "{actor} این گفتگو را به {to} منتقل کرد"
+        case .tr: text = "{actor} bu görüşmeyi {to} kişisine aktardı"
+        }
+        return text
+            .replacingOccurrences(of: "{actor}", with: actor)
+            .replacingOccurrences(of: "{to}", with: to)
+    }
+
+    static func sysUnassigned(_ l: Language, actor: String) -> String {
+        let text: String
+        switch l {
+        case .en: text = "{actor} unassigned this conversation"
+        case .fa: text = "{actor} این گفتگو را از حالت واگذارشده خارج کرد"
+        case .tr: text = "{actor} bu görüşmenin atamasını kaldırdı"
+        }
+        return text
+            .replacingOccurrences(of: "{actor}", with: actor)
+    }
+
+    static func sysAgentJoined(_ l: Language, name: String) -> String {
+        let text: String
+        switch l {
+        case .en: text = "{name} joined the conversation"
+        case .fa: text = "{name} به گفتگو پیوست"
+        case .tr: text = "{name} sohbete katıldı"
+        }
+        return text
+            .replacingOccurrences(of: "{name}", with: name)
+    }
+
+    static func sysAgentJoinedGeneric(_ l: Language) -> String {
+        switch l {
+        case .en: "A colleague joined the conversation"
+        case .fa: "یکی از همکاران به گفتگو پیوست"
+        case .tr: "Bir meslektaşımız sohbete katıldı"
+        }
+    }
+
+    static func sysNoAgentAvailable(_ l: Language) -> String {
+        switch l {
+        case .en: "All our colleagues are currently busy. Your message was recorded and we'll respond as soon as we can."
+        case .fa: "همه همکاران در حال حاضر مشغول هستند. پیام شما ثبت شد و در اولین فرصت پاسخ می‌دهیم."
+        case .tr: "Tüm ekibimiz şu anda meşgul. Mesajınız kaydedildi, en kısa sürede yanıtlayacağız."
+        }
+    }
+
+    static func sysInQueue(_ l: Language) -> String {
+        switch l {
+        case .en: "You are in the queue — someone will be with you shortly."
+        case .fa: "در صف هستید — به‌زودی همکاری پاسخ می‌دهد."
+        case .tr: "Sıradasınız — kısa süre içinde bir ekip arkadaşımız yanıtlayacak."
+        }
+    }
+
+    static func sysCallInviteAudio(_ l: Language) -> String {
+        switch l {
+        case .en: "Visitor invited to an audio call"
+        case .fa: "کاربر به تماس صوتی دعوت شد"
+        case .tr: "Ziyaretçi sesli aramaya davet edildi"
+        }
+    }
+
+    static func sysCallInviteVideo(_ l: Language) -> String {
+        switch l {
+        case .en: "Visitor invited to a video call"
+        case .fa: "کاربر به تماس تصویری دعوت شد"
+        case .tr: "Ziyaretçi görüntülü aramaya davet edildi"
+        }
+    }
+
+    static func sysCallInviteAudioFrom(_ l: Language, op: String) -> String {
+        let text: String
+        switch l {
+        case .en: text = "{op} invited the visitor to an audio call"
+        case .fa: text = "{op} کاربر را به تماس صوتی دعوت کرد"
+        case .tr: text = "{op} ziyaretçiyi sesli aramaya davet etti"
+        }
+        return text
+            .replacingOccurrences(of: "{op}", with: op)
+    }
+
+    static func sysCallInviteVideoFrom(_ l: Language, op: String) -> String {
+        let text: String
+        switch l {
+        case .en: text = "{op} invited the visitor to a video call"
+        case .fa: text = "{op} کاربر را به تماس تصویری دعوت کرد"
+        case .tr: text = "{op} ziyaretçiyi görüntülü aramaya davet etti"
+        }
+        return text
+            .replacingOccurrences(of: "{op}", with: op)
+    }
+
+    static func callEndedByOperator(_ l: Language, duration: String) -> String {
+        let text: String
+        switch l {
+        case .en: text = "Call ended by operator · Duration {duration}"
+        case .fa: text = "تماس از طرف اپراتور پایان یافت · مدت مکالمه {duration}"
+        case .tr: text = "Görüşme operatör tarafından sonlandırıldı · Süre {duration}"
+        }
+        return text
+            .replacingOccurrences(of: "{duration}", with: duration)
+    }
+
+    static func callEndedByVisitor(_ l: Language, duration: String) -> String {
+        let text: String
+        switch l {
+        case .en: text = "Call ended by visitor · Duration {duration}"
+        case .fa: text = "تماس از طرف کاربر پایان یافت · مدت مکالمه {duration}"
+        case .tr: text = "Görüşme ziyaretçi tarafından sonlandırıldı · Süre {duration}"
+        }
+        return text
+            .replacingOccurrences(of: "{duration}", with: duration)
+    }
+
+    static func callEndedBySystem(_ l: Language, duration: String) -> String {
+        let text: String
+        switch l {
+        case .en: text = "Call ended · Duration {duration}"
+        case .fa: text = "تماس پایان یافت · مدت مکالمه {duration}"
+        case .tr: text = "Görüşme sona erdi · Süre {duration}"
+        }
+        return text
+            .replacingOccurrences(of: "{duration}", with: duration)
+    }
+
+    static func callEndedNotConnected(_ l: Language) -> String {
+        switch l {
+        case .en: "Call did not connect"
+        case .fa: "تماس برقرار نشد"
+        case .tr: "Görüşme bağlanamadı"
+        }
+    }
+
+    static func inviteStatusPending(_ l: Language) -> String {
+        switch l {
+        case .en: "Pending"
+        case .fa: "در انتظار"
+        case .tr: "Bekliyor"
+        }
+    }
+
+    static func inviteStatusJoined(_ l: Language) -> String {
+        switch l {
+        case .en: "Joined"
+        case .fa: "پیوست"
+        case .tr: "Katıldı"
+        }
+    }
+
+    static func inviteStatusExpired(_ l: Language) -> String {
+        switch l {
+        case .en: "Expired"
+        case .fa: "منقضی"
+        case .tr: "Süresi doldu"
+        }
+    }
+
+    static func inviteStatusCancelled(_ l: Language) -> String {
+        switch l {
+        case .en: "Cancelled"
+        case .fa: "لغو شد"
+        case .tr: "İptal edildi"
+        }
+    }
+
+    static func inviteStatusDeclined(_ l: Language) -> String {
+        switch l {
+        case .en: "Declined"
+        case .fa: "رد شد"
+        case .tr: "Reddedildi"
+        }
+    }
+
+    static func previewSomeone(_ l: Language) -> String {
+        switch l {
+        case .en: "A user"
+        case .fa: "کاربر"
+        case .tr: "Bir kullanıcı"
+        }
+    }
+
+    static func previewYouSentImage(_ l: Language) -> String {
+        switch l {
+        case .en: "You sent a photo"
+        case .fa: "شما یک تصویر ارسال کردید"
+        case .tr: "Bir fotoğraf gönderdiniz"
+        }
+    }
+
+    static func previewYouSentAudio(_ l: Language) -> String {
+        switch l {
+        case .en: "You sent a voice message"
+        case .fa: "شما یک پیام صوتی ارسال کردید"
+        case .tr: "Bir sesli mesaj gönderdiniz"
+        }
+    }
+
+    static func previewYouSentVideo(_ l: Language) -> String {
+        switch l {
+        case .en: "You sent a video"
+        case .fa: "شما یک ویدیو ارسال کردید"
+        case .tr: "Bir video gönderdiniz"
+        }
+    }
+
+    static func previewYouSentFile(_ l: Language) -> String {
+        switch l {
+        case .en: "You sent a file"
+        case .fa: "شما یک فایل ارسال کردید"
+        case .tr: "Bir dosya gönderdiniz"
+        }
+    }
+
+    static func previewSentByImage(_ l: Language, name: String) -> String {
+        let text: String
+        switch l {
+        case .en: text = "{name} sent a photo"
+        case .fa: text = "{name} یک تصویر ارسال کرد"
+        case .tr: text = "{name} bir fotoğraf gönderdi"
+        }
+        return text
+            .replacingOccurrences(of: "{name}", with: name)
+    }
+
+    static func previewSentByAudio(_ l: Language, name: String) -> String {
+        let text: String
+        switch l {
+        case .en: text = "{name} sent a voice message"
+        case .fa: text = "{name} یک پیام صوتی ارسال کرد"
+        case .tr: text = "{name} bir sesli mesaj gönderdi"
+        }
+        return text
+            .replacingOccurrences(of: "{name}", with: name)
+    }
+
+    static func previewSentByVideo(_ l: Language, name: String) -> String {
+        let text: String
+        switch l {
+        case .en: text = "{name} sent a video"
+        case .fa: text = "{name} یک ویدیو ارسال کرد"
+        case .tr: text = "{name} bir video gönderdi"
+        }
+        return text
+            .replacingOccurrences(of: "{name}", with: name)
+    }
+
+    static func previewSentByFile(_ l: Language, name: String) -> String {
+        let text: String
+        switch l {
+        case .en: text = "{name} sent a file"
+        case .fa: text = "{name} یک فایل ارسال کرد"
+        case .tr: text = "{name} bir dosya gönderdi"
+        }
+        return text
+            .replacingOccurrences(of: "{name}", with: name)
     }
 }

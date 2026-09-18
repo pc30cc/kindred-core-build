@@ -184,9 +184,12 @@ enum Format {
         let hours = clamped / 3600
         let minutes = (clamped % 3600) / 60
         let secs = clamped % 60
+        // Padded on both sides, which is what `formatCallDuration` in
+        // `src/lib/systemMessageText.ts` does — a call summary has to read
+        // identically in the app and in the console.
         return hours > 0
-            ? clock([hours, minutes, secs], locale: locale)
-            : clock([minutes, secs], locale: locale)
+            ? clock([hours, minutes, secs], padFirst: true, locale: locale)
+            : clock([minutes, secs], padFirst: true, locale: locale)
     }
 
     /// Joins clock fields with a colon, zero-padding every field after the

@@ -67,9 +67,19 @@ enum Theme {
     // a couple of chat-specific surfaces are defined by hand.
 
     enum Palette {
-        /// Brand tint. Also the asset-catalog `AccentColor`, so system
-        /// controls inherit it without being told.
-        static let brand = Color.accentColor
+        /// Brand tint, defined explicitly rather than as `Color.accentColor`.
+        ///
+        /// `accentColor` is *state-dependent*: inside a disabled control
+        /// SwiftUI resolves it to the system's grey disabled tint. A disabled
+        /// primary button would therefore turn grey rather than stay a muted
+        /// brand blue, which reads as broken instead of as "not yet". The same
+        /// values are mirrored in the asset catalog's `AccentColor` so system
+        /// controls still pick the brand up on their own.
+        static let brand = Color(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0.353, green: 0.580, blue: 1.000, alpha: 1)
+                : UIColor(red: 0.231, green: 0.478, blue: 0.949, alpha: 1)
+        })
 
         /// Page background behind grouped content.
         static let background = Color(uiColor: .systemGroupedBackground)
@@ -89,7 +99,7 @@ enum Theme {
         static let warning = Color(uiColor: .systemOrange)
 
         /// Outgoing chat bubble — the brand tint carries it.
-        static let bubbleOutgoing = Color.accentColor
+        static let bubbleOutgoing = brand
         static let bubbleOutgoingText = Color.white
         /// Incoming chat bubble — a neutral surface that reads in both themes.
         static let bubbleIncoming = Color(uiColor: .secondarySystemBackground)

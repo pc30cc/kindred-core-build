@@ -119,12 +119,17 @@ struct MainTabView: View {
         guard let workspace = appState.selectedWorkspace else { return }
 
         switch SampleRoute.current {
-        case .chat:
+        case .chat, .aiChat:
             guard inboxPath.isEmpty,
-                  let conversation = try? await Backend.current
+                  let all = try? await Backend.current
                       .conversations(workspaceID: workspace.id, filter: .open)
-                      .first
             else { return }
+            // `aiChat` picks a thread the AI still owns, so the composer's
+            // AI state can be screenshotted too.
+            let wanted = SampleRoute.current == .aiChat
+                ? all.first { AIState.resolve($0) == .aiManaged }
+                : all.first
+            guard let conversation = wanted else { return }
             inboxPath.append(conversation)
 
         case .contact:

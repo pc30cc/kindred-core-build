@@ -119,6 +119,12 @@ actor SampleAPI: WebyarAPI {
                 "inbox_needs_human": on,
                 "contact_notes": on,
                 "contact_tags": on,
+                // The three composer capabilities, so both states of the
+                // composer can be laid out: granted-and-human-active shows the
+                // controls, granted-but-AI-managed shows the notice instead.
+                "widget_attachments": on,
+                "widget_voice_notes": on,
+                "widget_emoji": on,
             ],
             modules: [
                 "chat": on,

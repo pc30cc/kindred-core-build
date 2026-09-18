@@ -84,6 +84,23 @@ actor SampleAPI: WebyarAPI {
 
     func claim(conversationID: String, workspaceID: String) async throws {}
 
+    /// Gives each sample thread a different device and country so the avatar's
+    /// OS-mark and flag paths are actually exercised.
+    func visitorIntel(workspaceID: String, conversationIDs: [String]) async throws -> [String: VisitorProfile] {
+        [
+            "c-1": VisitorProfile(geo: .init(countryCode: "IR", country: "Iran", city: "Tehran"),
+                                  device: .init(browser: "Safari", os: "iOS", device: "mobile")),
+            "c-2": VisitorProfile(geo: .init(countryCode: "DE", country: "Germany", city: "Berlin"),
+                                  device: .init(browser: "Chrome", os: "Windows", device: "desktop")),
+            "c-3": VisitorProfile(geo: .init(countryCode: "TR", country: "Türkiye", city: "Istanbul"),
+                                  device: .init(browser: "Chrome", os: "Android", device: "mobile")),
+            "c-4": VisitorProfile(geo: .init(countryCode: "NL", country: "Netherlands", city: "Utrecht"),
+                                  device: .init(browser: "Firefox", os: "Ubuntu", device: "desktop")),
+            "c-6": VisitorProfile(geo: .init(countryCode: "US", country: "United States", city: "Austin"),
+                                  device: .init(browser: "Safari", os: "macOS", device: "desktop")),
+        ]
+    }
+
     func inboxCounts(workspaceID: String, scope: String) async throws -> InboxCounts {
         InboxCounts(open: 4, pending: 0, resolved: 1, all: 6, needsHuman: 2, automated: 1)
     }

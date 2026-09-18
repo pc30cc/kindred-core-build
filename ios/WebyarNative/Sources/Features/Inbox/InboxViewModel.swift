@@ -24,6 +24,11 @@ final class InboxViewModel {
     /// The counters behind each queue, so a filter can say how much is in it
     /// before the operator taps into it.
     private(set) var counts: InboxCounts?
+    /// Device and location per conversation, keyed by conversation id.
+    ///
+    /// Decorative, exactly as in the web: the list renders without it, so a
+    /// failure here never becomes an error state.
+    private(set) var visitors: [String: VisitorProfile] = [:]
     var filter: InboxFilter = .open
     var searchText = ""
 
@@ -85,6 +90,7 @@ final class InboxViewModel {
                 guard !Task.isCancelled else { return }
                 state = .loaded(conversations)
                 counts = await counters
+                await loadVisitors(for: conversations, workspaceID: workspaceID)
             } catch APIError.unauthorized {
                 await appState.handleUnauthorized()
             } catch let error as APIError {
@@ -107,11 +113,29 @@ final class InboxViewModel {
             let conversations = try await api.conversations(workspaceID: workspaceID, filter: filter)
             state = .loaded(conversations)
             counts = await counters
+            await loadVisitors(for: conversations, workspaceID: workspaceID)
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()
         } catch {
             // Keep showing what we have; the next pull can try again.
         }
+    }
+
+    /// One batched lookup per page of conversations, never one per row.
+    private func loadVisitors(for conversations: [Conversation], workspaceID: String) async {
+        guard !conversations.isEmpty else { return }
+        let profiles = try? await api.visitorIntel(
+            workspaceID: workspaceID,
+            conversationIDs: conversations.map(\.id)
+        )
+        guard let profiles, !Task.isCancelled else { return }
+        // Merged rather than replaced: switching queue re-uses what is already
+        // known about a thread instead of blanking its avatar for a moment.
+        visitors.merge(profiles) { _, new in new }
+    }
+
+    func visitor(for conversation: Conversation) -> VisitorProfile? {
+        visitors[conversation.id]
     }
 
     /// Takes ownership of a thread.

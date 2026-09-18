@@ -115,6 +115,7 @@ struct InboxView: View {
 
                             ConversationRow(
                                 conversation: conversation,
+                                visitor: model.visitor(for: conversation),
                                 language: language,
                                 locale: locale,
                                 currentUserID: appState.session.user?.id
@@ -199,6 +200,8 @@ struct InboxView: View {
 /// truncates instead of pushing the time off screen.
 struct ConversationRow: View {
     let conversation: Conversation
+    /// Device and country behind this thread, when the server knew them.
+    var visitor: VisitorProfile?
     let language: Language
     let locale: Locale
     /// Who is signed in, so a thread assigned to them can say so. Assignment
@@ -238,7 +241,10 @@ struct ConversationRow: View {
             Avatar(
                 name: displayName,
                 imageURL: conversation.contact?.avatarURL,
-                size: Theme.Size.avatarMedium
+                size: Theme.Size.avatarMedium,
+                os: visitor?.device?.os,
+                device: visitor?.device?.device,
+                countryCode: visitor?.geo?.countryCode
             )
 
             VStack(alignment: .leading, spacing: Theme.Space.xs) {

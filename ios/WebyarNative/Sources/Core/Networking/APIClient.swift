@@ -357,6 +357,28 @@ actor APIClient {
         try await performIgnoringBody(request)
     }
 
+    private struct VisitorIntelBody: Encodable, Sendable {
+        let workspace_id: String
+        let conversation_ids: [String]
+    }
+
+    /// Fetches the visitor device and location behind a page of conversations.
+    ///
+    /// Batched on purpose — one request per page, never one per row — and the
+    /// result is decorative: the inbox renders fine without it, so callers
+    /// treat a failure as "no extra detail" rather than as an error.
+    func visitorIntel(workspaceID: String, conversationIDs: [String]) async throws -> [String: VisitorProfile] {
+        let ids = Array(Set(conversationIDs.filter { !$0.isEmpty })).prefix(500)
+        guard !ids.isEmpty else { return [:] }
+
+        let request = try makeRequest(
+            "POST",
+            "/api/visitor-intel/network/batch",
+            body: VisitorIntelBody(workspace_id: workspaceID, conversation_ids: Array(ids))
+        )
+        return try await perform(request, as: VisitorIntelResponse.self).byConversation ?? [:]
+    }
+
     // MARK: - Account
 
     func account() async throws -> Account {

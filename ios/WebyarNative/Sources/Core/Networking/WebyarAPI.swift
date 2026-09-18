@@ -23,6 +23,7 @@ protocol WebyarAPI: Sendable {
     func claim(conversationID: String, workspaceID: String) async throws
     func inboxCounts(workspaceID: String, scope: String) async throws -> InboxCounts
     func contacts(workspaceID: String) async throws -> [Contact]
+    func visitorIntel(workspaceID: String, conversationIDs: [String]) async throws -> [String: VisitorProfile]
 
     func entitlements(workspaceID: String) async throws -> Entitlements
     func callCenterCapabilities(workspaceID: String) async throws -> CallCenterCapabilities

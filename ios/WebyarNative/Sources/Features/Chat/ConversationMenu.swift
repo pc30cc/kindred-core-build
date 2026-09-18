@@ -118,10 +118,11 @@ struct ConversationMenu: View {
     /// Menus read better when the current value is part of the row, so the
     /// operator does not have to open a submenu to find out what it is.
     private var transferLabel: String {
-        if let name = model.assigneeName {
-            return "\(Str.transferConversation(language)) · \(name)"
-        }
-        return "\(Str.transferConversation(language)) · \(Str.unassigned(language))"
+        // No "· Unassigned" suffix: a menu row is about 22 characters wide
+        // before it hyphenates mid-word, and "nobody owns this" is already
+        // what an operator assumes when they go looking for Transfer.
+        guard let name = model.assigneeName else { return Str.transferConversation(language) }
+        return "\(Str.transferConversation(language)) · \(name)"
     }
 
     private var tagsLabel: String {

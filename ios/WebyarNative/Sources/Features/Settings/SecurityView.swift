@@ -170,7 +170,7 @@ struct SessionRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.xs) {
             HStack(spacing: Theme.Space.sm) {
-                Text(session.deviceLabel)
+                Text(session.deviceLabel(language))
                     .font(Theme.Typo.rowTitle)
                     .lineLimit(1)
 

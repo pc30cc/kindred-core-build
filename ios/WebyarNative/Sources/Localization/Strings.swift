@@ -1345,4 +1345,35 @@ extension Str {
         return text
             .replacingOccurrences(of: "{name}", with: name)
     }
+
+    // MARK: - Device types
+    //
+    // The server labels a session's device in English — `Desktop`, `Mobile`,
+    // `Tablet` — and the console translates those three words rather than
+    // showing them raw (`deviceDesktop` and friends in `src/i18n/locales`).
+    // Everything else in a device label is a proper noun: macOS, Chrome.
+
+    static func deviceDesktop(_ l: Language) -> String {
+        switch l {
+        case .en: "Desktop"
+        case .fa: "رایانه رومیزی"
+        case .tr: "Masaüstü"
+        }
+    }
+
+    static func deviceMobile(_ l: Language) -> String {
+        switch l {
+        case .en: "Mobile"
+        case .fa: "موبایل"
+        case .tr: "Mobil"
+        }
+    }
+
+    static func deviceTablet(_ l: Language) -> String {
+        switch l {
+        case .en: "Tablet"
+        case .fa: "تبلت"
+        case .tr: "Tablet"
+        }
+    }
 }

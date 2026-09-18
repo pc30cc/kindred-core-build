@@ -70,14 +70,29 @@ struct AccountSession: Codable, Identifiable, Hashable, Sendable {
     }
 
     /// "iPhone · Safari", or whichever parts the server managed to identify.
-    var deviceLabel: String {
-        let parts = [device, os, browser]
+    ///
+    /// Only the device *kind* is translated. The server says `Desktop`,
+    /// `Mobile` or `Tablet` there whoever is asking, and the console
+    /// translates exactly those three words; `macOS`, `Chrome` and `iPhone`
+    /// are names and stay as they are in every language.
+    func deviceLabel(_ language: Language) -> String {
+        let parts = [Self.deviceKind(device, language), os, browser]
             .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty && $0.lowercased() != "unknown" }
         // De-duplicated because `device` and `os` often say the same thing.
         var seen = Set<String>()
         let unique = parts.filter { seen.insert($0.lowercased()).inserted }
         return unique.isEmpty ? "—" : unique.joined(separator: " · ")
+    }
+
+    private static func deviceKind(_ raw: String?, _ language: Language) -> String? {
+        switch raw?.trimmingCharacters(in: .whitespaces).lowercased() {
+        case "desktop": Str.deviceDesktop(language)
+        case "mobile": Str.deviceMobile(language)
+        case "tablet": Str.deviceTablet(language)
+        // Anything else is already a name — "iPhone", "Pixel 8".
+        default: raw
+        }
     }
 
     /// "Istanbul, Türkiye" when the server resolved it.

@@ -146,6 +146,27 @@ struct MessagePreview: Codable, Hashable, Sendable {
         case systemKind = "system_kind"
         case systemMeta = "system_meta"
     }
+
+    /// Spelled out rather than left to the memberwise default so the fields
+    /// that only a real server fills in can be omitted at a call site that is
+    /// making up a plain text message.
+    init(
+        body: String?,
+        createdAt: Date?,
+        senderType: String?,
+        senderName: String? = nil,
+        attachmentKind: String? = nil,
+        systemKind: String? = nil,
+        systemMeta: [String: JSONValue]? = nil
+    ) {
+        self.body = body
+        self.createdAt = createdAt
+        self.senderType = senderType
+        self.senderName = senderName
+        self.attachmentKind = attachmentKind
+        self.systemKind = systemKind
+        self.systemMeta = systemMeta
+    }
 }
 
 /// How urgent a thread is.
@@ -269,6 +290,28 @@ struct Message: Codable, Identifiable, Hashable, Sendable {
         case senderName = "sender_name"
         case senderAvatar = "sender_avatar"
         case metadata
+    }
+
+    init(
+        id: String,
+        conversationId: String,
+        senderType: SenderType,
+        senderId: String?,
+        body: String,
+        createdAt: Date?,
+        senderName: String?,
+        senderAvatar: String?,
+        metadata: [String: JSONValue]? = nil
+    ) {
+        self.id = id
+        self.conversationId = conversationId
+        self.senderType = senderType
+        self.senderId = senderId
+        self.body = body
+        self.createdAt = createdAt
+        self.senderName = senderName
+        self.senderAvatar = senderAvatar
+        self.metadata = metadata
     }
 }
 

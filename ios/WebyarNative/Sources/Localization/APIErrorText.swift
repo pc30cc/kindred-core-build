@@ -38,8 +38,11 @@ extension APIError {
             case 404: return Str.errorNotFound(language)
             case 409: return Str.errorConflict(language)
             case 429: return Str.errorTooManyRequests(language)
-            case 500...599: return Str.errorServerProblem(language)
-            default: return Str.errorNotAllowed(language)
+            // 401 and 403 never arrive here — `APIClient` turns both into
+            // `.unauthorized` — but any other refusal is still the caller's
+            // fault rather than the server's, and reads better as one.
+            case 400...499: return Str.errorNotAllowed(language)
+            default: return Str.errorServerProblem(language)
             }
         }
     }

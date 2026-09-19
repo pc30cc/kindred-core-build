@@ -42,6 +42,18 @@ protocol WebyarAPI: Sendable {
     func setEmailThreadStarred(workspaceID: String, threadID: String, starred: Bool) async throws
     func sendEmail(workspaceID: String, threadID: String?, to: [String], subject: String, body: String) async throws
     func gmailConnection(workspaceID: String) async throws -> GmailConnection?
+    // Channel inboxes the workspace has installed — Telegram, Bale and the rest.
+    func channelInboxes(workspaceID: String) async throws -> [ChannelInbox]
+    // Colleagues — operator-to-operator messages.
+    func colleagues(workspaceID: String) async throws -> ColleaguesResponse
+    func teamThread(workspaceID: String, peerID: String) async throws -> TeamThreadResponse
+    func sendTeamMessage(workspaceID: String, recipientID: String, body: String, attachmentID: String?) async throws
+    func markTeamThreadRead(workspaceID: String, peerID: String) async throws
+    // Whether visitors can see this operator.
+    func availability() async throws -> AvailabilityResponse
+    func updateAvailability(_ update: AvailabilityUpdate) async throws -> AvailabilityResponse
+    // What the app may show as a promotion, for this workspace and language.
+    func promotions(workspaceID: String, locale: String) async throws -> Promotions
     func contacts(workspaceID: String) async throws -> [Contact]
     func visitorIntel(workspaceID: String, conversationIDs: [String]) async throws -> [String: VisitorProfile]
     func visitorIntel(workspaceID: String, contactIDs: [String]) async throws -> [String: VisitorProfile]

@@ -35,6 +35,9 @@ struct MainTabView: View {
     @State private var inboxPath = NavigationPath()
     @State private var contactsPath = NavigationPath()
     @State private var settingsPath = NavigationPath()
+    /// Promotions live here rather than in the inbox so the full-screen card
+    /// covers the whole shell — and so a tab change cannot leave one behind.
+    @State private var promotions = PromotionCenter()
 
     typealias Tab = AppTab
 
@@ -140,9 +143,35 @@ struct MainTabView: View {
             guard now != intent, tabs.contains(intent) else { return }
             selection = intent
         }
+        .environment(promotions)
         .task(id: appState.selectedWorkspace?.id) {
             await openRequestedScreen()
         }
+        .task(id: "\(appState.selectedWorkspace?.id ?? "-")|\(appState.language.rawValue)") {
+            await promotions.load(
+                workspaceID: appState.selectedWorkspace?.id,
+                language: appState.language
+            )
+        }
+        // An overlay rather than a `fullScreenCover`, for two reasons. It
+        // reads the state directly in this body, so SwiftUI's observation
+        // tracks it — a binding's getter is evaluated inside the presentation
+        // modifier's own view, and the card simply never appeared. And the
+        // floating tab bar is part of this view, so an overlay covers it the
+        // same way a sheet would, without a gesture that can half-dismiss the
+        // card and leave it looking broken.
+        .overlay {
+            if let creative = promotions.fullscreen {
+                PromoFullScreen(
+                    creative: creative,
+                    language: language,
+                    onDismiss: { promotions.dismissFullScreen() }
+                )
+                .transition(.opacity)
+                .zIndex(1)
+            }
+        }
+        .animation(Theme.Motion.standard, value: promotions.fullscreen)
     }
 
     private func select(_ tab: Tab) {

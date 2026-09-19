@@ -1,13 +1,14 @@
 import SwiftUI
 
 /// Where the inbox's own navigation stack can go besides a conversation.
-enum InboxRoute: Hashable { case email }
+enum InboxRoute: Hashable { case email, colleagues }
 
 struct InboxView: View {
     /// The tab's navigation stack, so the title menu can push the mailbox.
     @Binding var path: NavigationPath
 
     @Environment(AppState.self) private var appState
+    @Environment(PromotionCenter.self) private var promotions
     @Environment(\.locale) private var locale
     @State private var model = InboxViewModel()
     @State private var isSearching = false
@@ -41,6 +42,15 @@ struct InboxView: View {
             .task(id: reloadKey) {
                 model.load(workspaceID: workspaceID, appState: appState)
             }
+            .task(id: workspaceID) {
+                await model.loadChannels(workspaceID: workspaceID)
+            }
+            // Only the inbox offers one, and only once the list is real —
+            // a promotion over a skeleton is a promotion over nothing.
+            .task(id: "\(workspaceID ?? "-")|\(model.state.isLoaded)") {
+                guard model.state.isLoaded else { return }
+                promotions.offerFullScreen(for: appState)
+            }
             // A plan can drop the queue that is currently selected — switching
             // workspace is the ordinary way that happens.
             .onChange(of: appState.inboxFilters) { _, available in
@@ -73,6 +83,17 @@ struct InboxView: View {
             isReady: model.state.isLoaded,
             isSearching: $isSearching
         ) {
+            if let creative = promotions.banner(for: appState) {
+                PromoBanner(
+                    creative: creative,
+                    language: language,
+                    onDismiss: { promotions.dismissBanner() }
+                )
+                .listRowInsets(filterInsets)
+                .listRowSeparator(.hidden)
+                .measuredListRow(insets: filterInsets.top + filterInsets.bottom)
+            }
+
             FilterPicker(
                 selection: $model.filter,
                 filters: appState.inboxChips,
@@ -156,6 +177,7 @@ struct InboxView: View {
         .navigationDestination(for: InboxRoute.self) { route in
             switch route {
             case .email: EmailInboxView()
+            case .colleagues: ColleaguesView()
             }
         }
     }
@@ -166,26 +188,59 @@ struct InboxView: View {
     /// all day; everything else — the AI handover queue, Resolved, Spam, and
     /// the mailbox — lives here, which is how the console arranges it too.
     private var inboxMenu: some View {
-        @Bindable var model = model
-        return Menu {
-            Picker(Str.allInboxes(language), selection: $model.filter) {
+        Menu {
+            // The queues, then the channels the workspace actually runs, then
+            // the two inboxes that are their own screens. A `Picker` would
+            // draw the checkmark for us but only over one set of values, and
+            // these are three sets that behave as one list — so the mark is
+            // put where it belongs by hand.
+            Section {
                 ForEach(appState.inboxFilters) { filter in
-                    Label(filter.title(language), systemImage: filter.icon).tag(filter)
+                    Button {
+                        model.open(filter)
+                    } label: {
+                        Label(
+                            filter.title(language),
+                            systemImage: isCurrent(filter) ? "checkmark" : filter.icon
+                        )
+                    }
                 }
             }
-            .pickerStyle(.inline)
 
-            if appState.emailInboxVisible {
-                Divider()
-                Button {
-                    path.append(InboxRoute.email)
-                } label: {
-                    Label(Str.emailInbox(language), systemImage: "envelope")
+            if !model.channels.isEmpty {
+                Section(Str.otherInboxes(language)) {
+                    ForEach(model.channels) { channel in
+                        Button {
+                            model.open(channel)
+                        } label: {
+                            Label(
+                                channel.title(language),
+                                systemImage: model.channel == channel ? "checkmark" : channel.icon
+                            )
+                        }
+                    }
+                }
+            }
+
+            Section {
+                if appState.colleaguesVisible {
+                    Button {
+                        path.append(InboxRoute.colleagues)
+                    } label: {
+                        Label(Str.colleagues(language), systemImage: "person.2")
+                    }
+                }
+                if appState.emailInboxVisible {
+                    Button {
+                        path.append(InboxRoute.email)
+                    } label: {
+                        Label(Str.emailInbox(language), systemImage: "envelope")
+                    }
                 }
             }
         } label: {
             HStack(spacing: Theme.Space.xs) {
-                Text(model.filter.headerTitle(language))
+                Text(model.channel?.title(language) ?? model.filter.headerTitle(language))
                     .font(.headline)
                     .foregroundStyle(Theme.Palette.label)
                 Image(systemName: "chevron.down")
@@ -218,6 +273,11 @@ struct InboxView: View {
             }
             .accessibilityLabel(Str.search(language))
         }
+    }
+
+    /// A queue is current only when no channel is laid over it.
+    private func isCurrent(_ filter: InboxFilter) -> Bool {
+        model.channel == nil && model.filter == filter
     }
 
     /// The row the list rests on, leaving the search field just above the fold.

@@ -284,6 +284,11 @@ final class AppState {
         InboxFilter.chips(for: entitlements.value)
     }
 
+    /// Whether the internal operator-to-operator inbox belongs in this plan.
+    ///
+    /// Same key the console gates its Colleagues tab on.
+    var colleaguesVisible: Bool { featureEnabled("inbox_team_chat") }
+
     /// Whether the mailbox belongs in this plan.
     ///
     /// `moduleEnabled` rather than `moduleInPlan`: the Email Inbox is off by

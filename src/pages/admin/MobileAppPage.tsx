@@ -15,7 +15,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Smartphone, Fingerprint, Hammer, ToggleRight, ShieldCheck, ClipboardCheck,
-  UserCheck, Rocket, Terminal, Loader2, AlertTriangle,
+  UserCheck, Rocket, Terminal, Loader2, AlertTriangle, Megaphone,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -37,6 +37,7 @@ import { MobileAppStoreTab } from '@/components/admin/mobile/MobileAppStoreTab';
 import { MobileReviewTab } from '@/components/admin/mobile/MobileReviewTab';
 import { MobileReleaseTab } from '@/components/admin/mobile/MobileReleaseTab';
 import { MobileBuildGuideTab } from '@/components/admin/mobile/MobileBuildGuideTab';
+import { MobilePromotionsTab } from '@/components/admin/mobile/MobilePromotionsTab';
 
 const TABS = [
   { value: 'overview', icon: Smartphone },
@@ -44,6 +45,7 @@ const TABS = [
   { value: 'build', icon: Hammer },
   { value: 'capabilities', icon: ToggleRight },
   { value: 'privacy', icon: ShieldCheck },
+  { value: 'promotions', icon: Megaphone },
   { value: 'appStore', icon: ClipboardCheck },
   { value: 'review', icon: UserCheck },
   { value: 'release', icon: Rocket },
@@ -154,6 +156,9 @@ export default function MobileAppPage() {
         </TabsContent>
         <TabsContent value="privacy" className="space-y-4">
           <MobilePrivacyTab draft={draft} set={set} />
+        </TabsContent>
+        <TabsContent value="promotions" className="space-y-4">
+          <MobilePromotionsTab draft={draft} set={set} />
         </TabsContent>
         <TabsContent value="appStore" className="space-y-4">
           <MobileAppStoreTab checks={data.checks} summary={data.summary} settings={data.settings} />

@@ -118,6 +118,11 @@ struct SettingsView: View {
                 }
             }
 
+            // Whether visitors can see you is a thing you change between one
+            // conversation and the next, so it sits above the account plumbing
+            // rather than buried under it.
+            AvailabilitySection(language: language)
+
             // Sign out is a settings row like any other, not a slab of button
             // parked under the last section. It sits with security because
             // that is what it is — the other thing you do to your session —

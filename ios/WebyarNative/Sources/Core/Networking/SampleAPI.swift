@@ -298,6 +298,103 @@ actor SampleAPI: WebyarAPI {
         GmailConnection(connected: true, emailAddress: "support@webyar.example", status: "connected")
     }
 
+    // MARK: - Channel inboxes, colleagues, availability
+
+    func channelInboxes(workspaceID: String) async throws -> [ChannelInbox] {
+        [ChannelInbox(key: "telegram"), ChannelInbox(key: "bale")]
+    }
+
+    func colleagues(workspaceID: String) async throws -> ColleaguesResponse {
+        ColleaguesResponse(
+            colleagues: [
+                Colleague(
+                    userId: "u-2", role: "agent", fullName: "سارا اجکم",
+                    email: "sara@webyar.example", avatarURL: nil, unread: 2,
+                    lastMessage: .init(
+                        body: "این گفتگو را برایت فرستادم", createdAt: Date().addingTimeInterval(-900),
+                        outgoing: false, attachmentKind: nil
+                    )
+                ),
+                Colleague(
+                    userId: "u-3", role: "admin", fullName: "Deniz Yılmaz",
+                    email: "deniz@webyar.example", avatarURL: nil, unread: 0,
+                    lastMessage: .init(
+                        body: "Thanks — picked it up.", createdAt: Date().addingTimeInterval(-7_200),
+                        outgoing: true, attachmentKind: nil
+                    )
+                ),
+            ],
+            totalUnread: 2,
+            me: Self.user.id
+        )
+    }
+
+    func teamThread(workspaceID: String, peerID: String) async throws -> TeamThreadResponse {
+        TeamThreadResponse(
+            messages: [
+                TeamMessage(
+                    id: "tm-1", senderId: peerID, recipientId: Self.user.id,
+                    body: "این گفتگو را برایت فرستادم", attachment: nil,
+                    readAt: nil, createdAt: Date().addingTimeInterval(-900)
+                ),
+                TeamMessage(
+                    id: "tm-2", senderId: Self.user.id, recipientId: peerID,
+                    body: "دیدم، دستت درد نکند.", attachment: nil,
+                    readAt: Date(), createdAt: Date().addingTimeInterval(-600)
+                ),
+            ],
+            me: Self.user.id
+        )
+    }
+
+    func sendTeamMessage(
+        workspaceID: String, recipientID: String, body: String, attachmentID: String?
+    ) async throws {}
+
+    func markTeamThreadRead(workspaceID: String, peerID: String) async throws {}
+
+    func availability() async throws -> AvailabilityResponse {
+        AvailabilityResponse(
+            prefs: AvailabilityPrefs(
+                forceOffline: false, availableWhenUsingApp: true,
+                scheduleEnabled: false, timezone: "Asia/Tehran"
+            ),
+            status: AvailabilityStatus(state: "online", reason: "using_app")
+        )
+    }
+
+    func updateAvailability(_ update: AvailabilityUpdate) async throws -> AvailabilityResponse {
+        AvailabilityResponse(
+            prefs: AvailabilityPrefs(
+                forceOffline: update.force_offline ?? false,
+                availableWhenUsingApp: update.available_when_using_app ?? true,
+                scheduleEnabled: update.schedule_enabled ?? false,
+                timezone: "Asia/Tehran"
+            ),
+            status: AvailabilityStatus(
+                state: (update.force_offline ?? false) ? "offline" : "online",
+                reason: "manual"
+            )
+        )
+    }
+
+    func promotions(workspaceID: String, locale: String) async throws -> Promotions {
+        Promotions(
+            enabled: true,
+            banner: PromoCreative(
+                title: "Your plan is Free",
+                body: "Upgrade for the AI queue, calls and the email inbox.",
+                ctaLabel: nil, ctaURL: nil, imageURL: nil
+            ),
+            fullscreen: PromoCreative(
+                title: "Everything in one inbox",
+                body: "Telegram, WhatsApp and email beside your chat — on every plan above Free.",
+                ctaLabel: nil, ctaURL: nil, imageURL: nil
+            ),
+            minIntervalMinutes: 360, maxPerDay: 3, startAfterLaunches: 2
+        )
+    }
+
     // MARK: - Plan
     //
     // The sample plan turns everything on, because the point of sample mode is
@@ -318,6 +415,11 @@ actor SampleAPI: WebyarAPI {
                 "widget_attachments": on,
                 "widget_voice_notes": on,
                 "widget_emoji": on,
+                "inbox_team_chat": on,
+                // Sample mode is where the promotion surfaces get laid out,
+                // so it carries them even though no real plan does yet.
+                "mobile_promo_banner": on,
+                "mobile_promo_fullscreen": on,
             ],
             modules: [
                 "chat": on,

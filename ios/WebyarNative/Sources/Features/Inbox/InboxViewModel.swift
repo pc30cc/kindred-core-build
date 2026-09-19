@@ -36,6 +36,13 @@ final class InboxViewModel {
     /// failure here never becomes an error state.
     private(set) var visitors: [String: VisitorProfile] = [:]
     var filter: InboxFilter = .open
+    /// A channel inbox laid over the queue — Telegram, Bale, and the rest.
+    ///
+    /// Not a queue: the conversations endpoint has no channel parameter, so
+    /// this narrows what came back, exactly as `?channel=` does on the web.
+    var channel: ChannelInbox?
+    /// Which channels this workspace has installed and can still use.
+    private(set) var channels: [ChannelInbox] = []
     var searchText = ""
     /// The filter sheet's three fields.
     var fieldFilter = InboxFieldFilter()
@@ -79,12 +86,41 @@ final class InboxViewModel {
         }
 
         let matched = fieldFilter.isEmpty ? searched : searched.filter(fieldFilter.matches)
+        let onChannel = channel.map { inbox in
+            matched.filter { $0.channelKey == inbox.key }
+        } ?? matched
 
-        return matched.sorted { lhs, rhs in
+        return onChannel.sorted { lhs, rhs in
             // A thread with no activity at all sorts last rather than
             // crashing into the top on a nil date.
             (lhs.lastActivity ?? .distantPast) > (rhs.lastActivity ?? .distantPast)
         }
+    }
+
+    /// The channels the switcher can offer. Decorative in the same sense the
+    /// visitor lookups are: a failure leaves the menu with its queues and
+    /// nothing else, which is the state the app shipped in.
+    func loadChannels(workspaceID: String?) async {
+        guard let workspaceID else { return }
+        channels = (try? await api.channelInboxes(workspaceID: workspaceID)) ?? []
+        // A channel that has just left the plan must not stay selected with
+        // nothing behind it.
+        if let channel, !channels.contains(channel) { self.channel = nil }
+    }
+
+    /// Opens one inbox from the switcher: either a queue or a channel, never
+    /// both at once. They read as siblings in the menu, so they behave as
+    /// siblings here.
+    func open(_ filter: InboxFilter) {
+        self.filter = filter
+        channel = nil
+    }
+
+    func open(_ channel: ChannelInbox) {
+        self.channel = channel
+        // A channel inbox shows what is open on it; the other queues are
+        // reachable from the same menu.
+        filter = .open
     }
 
     func load(workspaceID: String?, appState: AppState) {

@@ -80,6 +80,34 @@ export interface MobileAppSettings {
   age_rating: string;
   contains_third_party_content: boolean;
 
+  // ─── In-app promotions (iOS) ───
+  //
+  // First-party only. The platform writes the creative; nothing is fetched
+  // from an ad network, no identifier leaves the device and no impression is
+  // reported anywhere — which is what keeps this outside App Tracking
+  // Transparency entirely (guideline 5.1.2 and the ATT rules) rather than
+  // relying on a prompt nobody accepts.
+  //
+  // WHICH workspaces see a promotion is a plan decision, not a platform one:
+  // `mobile_promo_banner` and `mobile_promo_fullscreen` in the capability
+  // registry. This row only decides whether the feature exists at all and
+  // what it says.
+  ads_enabled: boolean;
+  /// `{ cta_url, image_url, text: { en|fa|tr: { title, body, cta_label } } }`
+  ads_banner: Record<string, unknown>;
+  ads_fullscreen: Record<string, unknown>;
+  /// Never twice inside this many minutes, and never more than this in a day.
+  ads_min_interval_minutes: number;
+  ads_max_per_day: number;
+  /// Not on a first run. An app that opens onto a full-screen promotion is
+  /// both a bad first impression and the sort of thing review pushes back on.
+  ads_start_after_launches: number;
+  /// A promotion whose button leaves the app for somewhere a subscription can
+  /// be bought needs Apple's External Purchase Link Entitlement (3.1.1 and
+  /// 3.1.3). Until a human says that is in order, the server serves the
+  /// creative without its link rather than trusting the URL.
+  ads_external_link_acknowledged: boolean;
+
   review_contact_name: string | null;
   review_contact_email: string | null;
   review_contact_phone: string | null;
@@ -167,6 +195,14 @@ export const MOBILE_APP_DEFAULTS: MobileAppSettings = {
   secondary_category: null,
   age_rating: '4+',
   contains_third_party_content: false,
+
+  ads_enabled: false,
+  ads_banner: {},
+  ads_fullscreen: {},
+  ads_min_interval_minutes: 360,
+  ads_max_per_day: 3,
+  ads_start_after_launches: 2,
+  ads_external_link_acknowledged: false,
 
   review_contact_name: null,
   review_contact_email: null,

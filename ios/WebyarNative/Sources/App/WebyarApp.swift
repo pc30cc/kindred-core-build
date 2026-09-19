@@ -79,6 +79,10 @@ struct RootView: View {
             // on. Every screen after this is built with the window already
             // facing the right way.
             WindowDirection.apply(appState.language)
+            // Counted once per launch, before any screen can ask for a
+            // promotion, so "skip the first launches" counts launches rather
+            // than the first time something asked.
+            PromotionCenter.noteLaunch()
             await appState.restore()
         }
     }

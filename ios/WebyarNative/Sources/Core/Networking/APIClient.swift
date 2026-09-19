@@ -634,6 +634,111 @@ actor APIClient {
         return try await perform(request, as: GmailConnectionResponse.self).connection
     }
 
+    // MARK: - Channel inboxes
+
+    /// The messaging channels this workspace can actually work in.
+    ///
+    /// Read from the plugin catalog rather than from entitlements, because a
+    /// channel being *in the plan* and a channel being *installed and
+    /// connected* are different questions and only the second one belongs in
+    /// a switcher. The console builds its "Other inboxes" list from the same
+    /// call.
+    func channelInboxes(workspaceID: String) async throws -> [ChannelInbox] {
+        let request = try makeRequest(
+            "GET", "/api/plugins/catalog",
+            query: [URLQueryItem(name: "workspace_id", value: workspaceID)]
+        )
+        let response = try await perform(request, as: PluginCatalogResponse.self)
+        return (response.items ?? [])
+            .filter(\.isUsableInbox)
+            .compactMap(\.slug)
+            .map(ChannelInbox.init(key:))
+    }
+
+    // MARK: - Colleagues
+
+    func colleagues(workspaceID: String) async throws -> ColleaguesResponse {
+        let request = try makeRequest(
+            "GET", "/api/team-chat/colleagues",
+            query: [URLQueryItem(name: "workspace_id", value: workspaceID)]
+        )
+        return try await perform(request, as: ColleaguesResponse.self)
+    }
+
+    func teamThread(workspaceID: String, peerID: String) async throws -> TeamThreadResponse {
+        let request = try makeRequest(
+            "GET", "/api/team-chat/thread",
+            query: [
+                URLQueryItem(name: "workspace_id", value: workspaceID),
+                URLQueryItem(name: "peer_id", value: peerID),
+            ]
+        )
+        return try await perform(request, as: TeamThreadResponse.self)
+    }
+
+    private struct TeamMessageBody: Encodable, Sendable {
+        let workspace_id: String
+        let recipient_id: String
+        let body: String
+        let attachment_id: String?
+    }
+
+    func sendTeamMessage(
+        workspaceID: String,
+        recipientID: String,
+        body: String,
+        attachmentID: String?
+    ) async throws {
+        let request = try makeRequest(
+            "POST", "/api/team-chat/messages",
+            body: TeamMessageBody(
+                workspace_id: workspaceID,
+                recipient_id: recipientID,
+                body: body,
+                attachment_id: attachmentID
+            )
+        )
+        try await performIgnoringBody(request)
+    }
+
+    private struct TeamReadBody: Encodable, Sendable {
+        let workspace_id: String
+        let peer_id: String
+    }
+
+    func markTeamThreadRead(workspaceID: String, peerID: String) async throws {
+        let request = try makeRequest(
+            "POST", "/api/team-chat/read",
+            body: TeamReadBody(workspace_id: workspaceID, peer_id: peerID)
+        )
+        try await performIgnoringBody(request)
+    }
+
+    // MARK: - Availability
+
+    func availability() async throws -> AvailabilityResponse {
+        let request = try makeRequest("GET", "/api/availability")
+        return try await perform(request, as: AvailabilityResponse.self)
+    }
+
+    func updateAvailability(_ update: AvailabilityUpdate) async throws -> AvailabilityResponse {
+        let request = try makeRequest("PATCH", "/api/availability", body: update)
+        return try await perform(request, as: AvailabilityResponse.self)
+    }
+
+    // MARK: - Promotions
+
+    func promotions(workspaceID: String, locale: String) async throws -> Promotions {
+        let request = try makeRequest(
+            "GET", "/api/mobile-app/promotions",
+            query: [
+                URLQueryItem(name: "workspace_id", value: workspaceID),
+                URLQueryItem(name: "locale", value: locale),
+            ]
+        )
+        return try await perform(request, as: Promotions.self)
+    }
+
     private struct ClaimBody: Encodable, Sendable {
         let workspace_id: String
     }

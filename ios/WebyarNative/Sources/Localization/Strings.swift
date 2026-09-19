@@ -204,6 +204,138 @@ enum Str {
         }
     }
 
+    static func otherInboxes(_ l: Language) -> String {
+        switch l {
+        case .en: "Other inboxes"
+        case .fa: "صندوق‌های دیگر"
+        case .tr: "Diğer gelen kutuları"
+        }
+    }
+
+    // MARK: - Colleagues
+
+    static func colleagues(_ l: Language) -> String {
+        switch l {
+        case .en: "Colleagues"
+        case .fa: "همکاران"
+        case .tr: "Meslektaşlar"
+        }
+    }
+
+    static func colleaguesEmptyTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "No colleagues yet"
+        case .fa: "هنوز همکاری نیست"
+        case .tr: "Henüz meslektaş yok"
+        }
+    }
+
+    static func colleaguesEmptyBody(_ l: Language) -> String {
+        switch l {
+        case .en: "Operators invited to this workspace appear here."
+        case .fa: "اپراتورهایی که به این فضای کاری دعوت شوند اینجا دیده می‌شوند."
+        case .tr: "Bu çalışma alanına davet edilen operatörler burada görünür."
+        }
+    }
+
+    static func colleagueThreadEmpty(_ l: Language) -> String {
+        switch l {
+        case .en: "No messages yet"
+        case .fa: "هنوز پیغامی نیست"
+        case .tr: "Henüz mesaj yok"
+        }
+    }
+
+    // MARK: - Availability
+
+    static func availability(_ l: Language) -> String {
+        switch l {
+        case .en: "Availability"
+        case .fa: "وضعیت دسترس‌پذیری"
+        case .tr: "Uygunluk"
+        }
+    }
+
+    static func availabilitySeenAs(_ l: Language) -> String {
+        switch l {
+        case .en: "You are currently seen as"
+        case .fa: "در حال حاضر شما این‌گونه دیده می‌شوید"
+        case .tr: "Şu anda şöyle görünüyorsunuz"
+        }
+    }
+
+    static func availabilityOnline(_ l: Language) -> String {
+        switch l {
+        case .en: "Online"
+        case .fa: "آنلاین"
+        case .tr: "Çevrimiçi"
+        }
+    }
+
+    static func availabilityOffline(_ l: Language) -> String {
+        switch l {
+        case .en: "Offline"
+        case .fa: "آفلاین"
+        case .tr: "Çevrimdışı"
+        }
+    }
+
+    static func availabilityForceOffline(_ l: Language) -> String {
+        switch l {
+        case .en: "Force offline (invisible mode)"
+        case .fa: "آفلاین اجباری (حالت نامرئی)"
+        case .tr: "Zorla çevrimdışı (görünmez mod)"
+        }
+    }
+
+    static func availabilityForceOfflineHint(_ l: Language) -> String {
+        switch l {
+        case .en: "You appear offline to visitors whatever your schedule says."
+        case .fa: "صرف‌نظر از زمان‌بندی، برای بازدیدکنندگان آفلاین دیده می‌شوید."
+        case .tr: "Programınız ne derse desin ziyaretçilere çevrimdışı görünürsünüz."
+        }
+    }
+
+    static func availabilityWhenUsingApp(_ l: Language) -> String {
+        switch l {
+        case .en: "Available while I use the app"
+        case .fa: "وقتی از برنامه استفاده می‌کنم، در دسترس باشم"
+        case .tr: "Uygulamayı kullanırken uygunum"
+        }
+    }
+
+    static func availabilityWhenUsingAppHint(_ l: Language) -> String {
+        switch l {
+        case .en: "Marks you online automatically while the app is open."
+        case .fa: "تا وقتی برنامه باز است، به‌صورت خودکار آنلاین در نظر گرفته می‌شوید."
+        case .tr: "Uygulama açıkken sizi otomatik olarak çevrimiçi işaretler."
+        }
+    }
+
+    static func availabilitySchedule(_ l: Language) -> String {
+        switch l {
+        case .en: "Use my weekly schedule"
+        case .fa: "از زمان‌بندی هفتگی‌ام استفاده کن"
+        case .tr: "Haftalık programımı kullan"
+        }
+    }
+
+    static func availabilityScheduleHint(_ l: Language) -> String {
+        switch l {
+        case .en: "The hours themselves are set in the web console."
+        case .fa: "خود ساعت‌ها را در کنسول وب تنظیم می‌کنید."
+        case .tr: "Saatlerin kendisi web konsolundan ayarlanır."
+        }
+    }
+
+    static func availabilitySaveFailed(_ l: Language) -> String {
+        switch l {
+        case .en: "That did not save. Try again."
+        case .fa: "ذخیره نشد. دوباره تلاش کنید."
+        case .tr: "Kaydedilemedi. Tekrar deneyin."
+        }
+    }
+
     // MARK: - Email inbox
 
     static func emailInbox(_ l: Language) -> String {
@@ -1544,6 +1676,14 @@ extension Str {
         case .en: "File"
         case .fa: "فایل"
         case .tr: "Dosya"
+        }
+    }
+
+    static func notNow(_ l: Language) -> String {
+        switch l {
+        case .en: "Not now"
+        case .fa: "الان نه"
+        case .tr: "Şimdi değil"
         }
     }
 

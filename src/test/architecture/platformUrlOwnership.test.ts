@@ -290,13 +290,17 @@ describe('the cleanup migration is safe to run anywhere, twice', () => {
     expect(body).toContain('information_schema.columns');
   });
 
-  it('takes the next free number in the self-host chain', () => {
+  it('has a number of its own in the self-host chain', () => {
+    // This used to assert 197 was the *highest* number, which was true on the
+    // day it was written and is not a property worth defending: the next
+    // migration anybody adds makes it false, and the failure says nothing
+    // about whether this file is correct. What matters is that 197 is taken
+    // once — two files sharing a number apply in an order nobody chose.
     const numbers = readdirSync('database/migrations')
       .map((f) => Number(f.split('_')[0]))
-      .filter((n) => Number.isFinite(n))
-      .sort((a, b) => a - b);
+      .filter((n) => Number.isFinite(n));
     expect(numbers.filter((n) => n === 197)).toHaveLength(1);
-    expect(Math.max(...numbers)).toBe(197);
+    expect(new Set(numbers).size).toBe(numbers.length);
   });
 });
 

@@ -903,6 +903,22 @@ enum Str {
         }
     }
 
+    static func shortcutsUnavailableTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Shortcuts are not set up on this server"
+        case .fa: "میان‌برها روی این سرور راه‌اندازی نشده‌اند"
+        case .tr: "Kısayollar bu sunucuda kurulu değil"
+        }
+    }
+
+    static func shortcutsUnavailableBody(_ l: Language) -> String {
+        switch l {
+        case .en: "Your administrator can enable them by bringing the database up to date."
+        case .fa: "مدیر سامانه می‌تواند با به‌روزرسانی پایگاه داده فعالشان کند."
+        case .tr: "Yöneticiniz veritabanını güncelleyerek etkinleştirebilir."
+        }
+    }
+
     static func emoji(_ l: Language) -> String {
         switch l {
         case .en: "Emoji"

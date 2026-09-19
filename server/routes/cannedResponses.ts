@@ -44,7 +44,7 @@
  * locales for a given match tier.
  */
 
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
 import { getServiceClient } from '../supabase.js';
@@ -140,6 +140,33 @@ function matchTier(row: { shortcut: string; title: string; body: string }, q: st
   return 4;
 }
 
+/**
+ * Whether the database has no `canned_responses` table at all.
+ *
+ * Postgres says `42P01` — undefined_table — and PostgREST passes the code
+ * through. It happens for one reason: this deployment's schema came from
+ * `database/migrations`, the self-host chain, which did not carry this table
+ * until `198_canned_responses_selfhost.sql`. An older self-host database that
+ * has not been migrated is therefore not broken; it simply does not have the
+ * feature yet.
+ *
+ * Worth telling apart from a real failure, because the two need opposite
+ * things from whoever sees them. "Something went wrong, try again" invites a
+ * retry that cannot ever succeed.
+ */
+function isMissingTable(error: { code?: string | null } | null): boolean {
+  return error?.code === '42P01';
+}
+
+/**
+ * 501, not 500: the request was fine and the server understood it, there is
+ * just nothing here to answer it with. A client can show "saved replies are
+ * not set up on this server" instead of an error, and can stop asking.
+ */
+function respondNotInstalled(res: Response) {
+  return res.status(501).json({ error: 'FEATURE_NOT_INSTALLED', feature: 'canned_responses' });
+}
+
 const SELECT_COLS =
   'id, workspace_id, created_by, locale, shortcut, title, body, is_active, usage_count, last_used_at, created_at, updated_at';
 
@@ -187,7 +214,10 @@ cannedResponsesRouter.get('/', async (req, res) => {
       .order('updated_at', { ascending: false })
       .limit(Math.max(limit * 4, 100));
 
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      if (isMissingTable(error)) return respondNotInstalled(res);
+      return res.status(500).json({ error: error.message });
+    }
 
     const rows = (data ?? []).map((r) => ({
       ...r,
@@ -248,6 +278,7 @@ cannedResponsesRouter.post('/', async (req, res) => {
       .single();
 
     if (error) {
+      if (isMissingTable(error)) return respondNotInstalled(res);
       // Unique violation → 409 with stable code so the client can show a
       // friendly "shortcut already used" message.
       if ((error as any).code === '23505') {
@@ -285,11 +316,15 @@ cannedResponsesRouter.patch('/:id', async (req, res) => {
     if (!auth) return;
 
     const sb = getServiceClient(config);
-    const { data: existing } = await sb
+    // The error is read, not discarded: without it a database that has no
+    // such table answers "Canned response not found", which sends whoever
+    // sees it looking for a deleted row that never existed.
+    const { data: existing, error: lookupError } = await sb
       .from('canned_responses')
       .select('id, workspace_id, created_by')
       .eq('id', id)
       .maybeSingle();
+    if (isMissingTable(lookupError)) return respondNotInstalled(res);
     if (!existing || existing.workspace_id !== parsed.data.workspace_id) {
       return res.status(404).json({ error: 'Canned response not found' });
     }
@@ -314,6 +349,7 @@ cannedResponsesRouter.patch('/:id', async (req, res) => {
       .select(SELECT_COLS)
       .single();
     if (error) {
+      if (isMissingTable(error)) return respondNotInstalled(res);
       if ((error as any).code === '23505') {
         return res
           .status(409)
@@ -342,11 +378,12 @@ cannedResponsesRouter.delete('/:id', async (req, res) => {
     if (!auth) return;
 
     const sb = getServiceClient(config);
-    const { data: existing } = await sb
+    const { data: existing, error: lookupError } = await sb
       .from('canned_responses')
       .select('id, workspace_id, created_by')
       .eq('id', id)
       .maybeSingle();
+    if (isMissingTable(lookupError)) return respondNotInstalled(res);
     if (!existing || existing.workspace_id !== workspaceId) {
       return res.status(404).json({ error: 'Canned response not found' });
     }
@@ -356,7 +393,10 @@ cannedResponsesRouter.delete('/:id', async (req, res) => {
     if (!canDelete) return res.status(403).json({ error: 'Not allowed to delete this canned response' });
 
     const { error } = await sb.from('canned_responses').delete().eq('id', id);
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      if (isMissingTable(error)) return respondNotInstalled(res);
+      return res.status(500).json({ error: error.message });
+    }
     return res.json({ ok: true });
   } catch (err: any) {
     console.error('[canned-responses DELETE] error:', err);
@@ -382,11 +422,12 @@ cannedResponsesRouter.post('/:id/track-use', async (req, res) => {
 
     const sb = getServiceClient(config);
     // Verify the row belongs to the claimed workspace before mutating.
-    const { data: existing } = await sb
+    const { data: existing, error: lookupError } = await sb
       .from('canned_responses')
       .select('id, workspace_id, usage_count')
       .eq('id', id)
       .maybeSingle();
+    if (isMissingTable(lookupError)) return respondNotInstalled(res);
     if (!existing || existing.workspace_id !== parsed.data.workspace_id) {
       return res.status(404).json({ error: 'Canned response not found' });
     }
@@ -400,7 +441,10 @@ cannedResponsesRouter.post('/:id/track-use', async (req, res) => {
       .from('canned_responses')
       .update({ usage_count: nextCount, last_used_at: nowIso })
       .eq('id', id);
-    if (error) return res.status(500).json({ error: error.message });
+    if (error) {
+      if (isMissingTable(error)) return respondNotInstalled(res);
+      return res.status(500).json({ error: error.message });
+    }
 
     return res.json({ ok: true, usage_count: nextCount, last_used_at: nowIso });
   } catch (err: any) {

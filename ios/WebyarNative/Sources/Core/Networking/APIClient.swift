@@ -18,6 +18,19 @@ enum APIError: Error, Equatable, Sendable {
     case decoding
 
     var isAuthFailure: Bool { self == .unauthorized }
+
+    /// The server understood the request perfectly and has nothing to answer
+    /// it with, because this deployment does not carry the feature.
+    ///
+    /// 501 rather than 500, and worth telling apart, because the two need
+    /// opposite things from whoever sees them: a failure invites "try again",
+    /// and a retry here can never succeed. The one case in practice is a
+    /// database built from the self-host migration chain before
+    /// `198_canned_responses_selfhost.sql` added the saved-replies table.
+    var isFeatureMissing: Bool {
+        if case .server(let status, _) = self { return status == 501 }
+        return false
+    }
 }
 
 /// Talks to the same REST API the web client uses.

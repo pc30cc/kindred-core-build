@@ -35,7 +35,12 @@ function fakeClient() {
       const rows: Row[] = db[table] || (db[table] = []);
       const filters: Array<(r: Row) => boolean> = [];
       let inFilter: { col: string; vals: any[] } | null = null;
-      let orClauses: string[] | null = null;
+      // PostgREST ANDs successive .or() calls together, each one its own
+      // group. The list query makes two — one narrowing ai_state, one
+      // narrowing assignment scope — and a single slot meant the second
+      // silently replaced the first, letting an ai_managed conversation into
+      // the main queue in the fake but not in production.
+      const orGroups: string[][] = [];
       let countMode = false;
       const builder: any = {
         select: (_cols?: string, opts?: { count?: string; head?: boolean }) => {
@@ -46,7 +51,7 @@ function fakeClient() {
         neq(col: string, val: any) { filters.push((r) => r[col] !== val); return builder; },
         is(col: string, val: any) { filters.push((r) => (val === null ? (r[col] === null || r[col] === undefined) : r[col] === val)); return builder; },
         in(col: string, vals: any[]) { inFilter = { col, vals }; return builder; },
-        or(clauseStr: string) { orClauses = clauseStr.split(','); return builder; },
+        or(clauseStr: string) { orGroups.push(clauseStr.split(',')); return builder; },
         order: () => builder,
         limit: () => builder,
         insert(payload: any) {
@@ -94,7 +99,9 @@ function fakeClient() {
         then(resolve: any) {
           let matched = rows.filter((r) => filters.every((f) => f(r)));
           if (inFilter) matched = matched.filter((r) => inFilter!.vals.includes(r[inFilter!.col]));
-          if (orClauses) matched = matched.filter((r) => orClauses!.some((c) => evalOrClause(r, c)));
+          for (const group of orGroups) {
+            matched = matched.filter((r) => group.some((c) => evalOrClause(r, c)));
+          }
           if (countMode) return resolve({ data: null, error: null, count: matched.length });
           return resolve({ data: matched, error: null });
         },

@@ -143,6 +143,14 @@ struct MainTabView: View {
         #if DEBUG
         guard let workspace = appState.selectedWorkspace else { return }
 
+        // The plan decides whether Contacts exists at all, and it resolves a
+        // beat after the workspace does. Without waiting, a Debug run that
+        // asks for Contacts silently lands on the inbox instead — which looks
+        // like the tab is broken rather than like the route was early.
+        for _ in 0..<40 where !appState.planResolved {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+
         switch SampleRoute.current {
         case .chat, .aiChat, .call, .videoCall:
             guard inboxPath.isEmpty,

@@ -107,6 +107,14 @@ const settingsSchema = z.object({
   age_rating: z.enum(['4+', '9+', '12+', '17+']).optional(),
   contains_third_party_content: z.boolean().optional(),
 
+  ads_enabled: z.boolean().optional(),
+  ads_banner: z.record(z.unknown()).optional(),
+  ads_fullscreen: z.record(z.unknown()).optional(),
+  ads_min_interval_minutes: z.coerce.number().int().min(0).max(10_080).optional(),
+  ads_max_per_day: z.coerce.number().int().min(0).max(20).optional(),
+  ads_start_after_launches: z.coerce.number().int().min(0).max(50).optional(),
+  ads_external_link_acknowledged: z.boolean().optional(),
+
   review_contact_name: z.string().trim().max(120).nullable().optional(),
   review_contact_email: z.string().trim().max(200).nullable().optional(),
   review_contact_phone: z.string().trim().max(40).nullable().optional(),

@@ -103,6 +103,15 @@ export interface MobileAppSettings {
   age_rating: string;
   contains_third_party_content: boolean;
 
+  /** First-party in-app promotions. See MobilePromotionsTab for the rules. */
+  ads_enabled: boolean;
+  ads_banner: Record<string, unknown>;
+  ads_fullscreen: Record<string, unknown>;
+  ads_min_interval_minutes: number;
+  ads_max_per_day: number;
+  ads_start_after_launches: number;
+  ads_external_link_acknowledged: boolean;
+
   review_contact_name: string | null;
   review_contact_email: string | null;
   review_contact_phone: string | null;

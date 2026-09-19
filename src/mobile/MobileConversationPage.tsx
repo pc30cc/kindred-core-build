@@ -38,7 +38,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-import { useTranslation } from '@/i18n';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { useCurrentWorkspace } from '@/hooks/useWorkspace';
 import {
   useConversations,
@@ -50,14 +50,52 @@ import {
 import { useInboxRealtime } from '@/hooks/useInboxRealtime';
 import { ContactAvatar } from '@/components/inbox/ContactAvatar';
 import { MessageAttachmentView } from '@/components/inbox/MessageAttachmentView';
-import { contactDisplayName } from '@/lib/contact-display';
+import { contactDisplayName, type ContactDisplayT } from '@/lib/contact-display';
 import { formatTime, formatDate } from '@/lib/date';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
 import { conversationsApi } from '@/lib/conversations-api';
 import { toast } from '@/lib/toast';
+import { useWorkspaceEffectiveEntitlements } from '@/hooks/useEntitlements';
 import { MobileEmojiPicker } from './MobileEmojiPicker';
+
+/** One attachment as `MessageAttachmentView` needs it. */
+interface TimelineAttachment {
+  id: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  kind: string;
+}
+
+/** The fields of a message this screen actually renders. */
+interface TimelineMessage {
+  id: string;
+  body: string | null;
+  sender_type: string;
+  created_at: string;
+  attachments?: TimelineAttachment[] | null;
+  attachment?: TimelineAttachment | null;
+}
+
+/** The fields of a conversation this screen actually reads. */
+interface TimelineConversation {
+  id: string;
+  status?: string;
+  contacts?: {
+    name?: string | null;
+    email?: string | null;
+    avatar_url?: string | null;
+    visitor_code?: string | null;
+  } | null;
+  metadata?: { ai_state?: string | null } | null;
+  ai_state?: string | null;
+  visitor_os?: string | null;
+  visitor_device?: string | null;
+  visitor_country_code?: string | null;
+  visitor_country_name?: string | null;
+}
 
 interface PendingAttachment {
   name: string;
@@ -76,7 +114,10 @@ export default function MobileConversationPage() {
 
   const { data: conversations } = useConversations(workspace?.id, undefined, 'main');
   const conversation = useMemo(
-    () => (conversations ?? []).find((c: any) => c.id === conversationId) as any,
+    () =>
+      ((conversations ?? []) as unknown as TimelineConversation[]).find(
+        (c) => c.id === conversationId,
+      ),
     [conversations, conversationId],
   );
 
@@ -84,6 +125,30 @@ export default function MobileConversationPage() {
   const sendMessage = useSendMessage(conversationId, workspace?.id);
   const updateConversation = useUpdateConversation();
   const markSeen = useMarkConversationSeen();
+
+  // Who is answering, and what the plan allows. Both have to say yes before
+  // a composer control appears.
+  //
+  // `metadata.ai_state` first, then the top-level column — the same precedence
+  // InboxPage reads them in. While the AI owns a thread the operator is
+  // steering it, not talking to the visitor: the desktop inbox swaps the whole
+  // composer for its guidance composer, and sending a file or a voice note
+  // into a conversation the AI is answering would put content in front of the
+  // visitor the AI knows nothing about.
+  const aiManaged =
+    (conversation?.metadata?.ai_state || conversation?.ai_state) === 'ai_managed';
+  const { data: entitlements } = useWorkspaceEffectiveEntitlements(workspace?.id || null);
+  // Fail-closed: an unresolved snapshot offers nothing rather than a control
+  // that would fail on use.
+  const planAllows = (key: string) => entitlements?.features?.[key]?.value === true;
+  const canAttach = !aiManaged && planAllows('widget_attachments');
+  const canRecordVoice = !aiManaged && planAllows('widget_voice_notes');
+  const canUseEmoji = !aiManaged && planAllows('widget_emoji');
+
+  // contactDisplayName and MessageAttachmentView are keyed by plain strings;
+  // the app's `t` is keyed by TranslationKey. This adapter bridges the two
+  // without erasing either type.
+  const displayT: ContactDisplayT = (key, vars) => t(key as TranslationKey, vars);
 
   const [draft, setDraft] = useState('');
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -129,9 +194,9 @@ export default function MobileConversationPage() {
         file,
       });
       setPending((p) => (p ? { ...p, id: init.attachment_id, uploading: false } : p));
-    } catch (err: any) {
+    } catch (err) {
       clearPending();
-      toast.error(err?.message || 'Upload failed');
+      toast.error(err instanceof Error ? err.message : 'Upload failed');
     }
   };
 
@@ -207,7 +272,7 @@ export default function MobileConversationPage() {
 
 
   const name = conversation
-    ? contactDisplayName(conversation.contacts, conversation.id, t as any, conversation.visitor_country_name, locale)
+    ? contactDisplayName(conversation.contacts, conversation.id, displayT, conversation.visitor_country_name, locale)
     : '';
 
   const handleSend = () => {
@@ -344,9 +409,9 @@ export default function MobileConversationPage() {
             ))}
           </div>
         ) : (
-          list.map((m: any, i: number) => {
+          (list as unknown as TimelineMessage[]).map((m, i) => {
             const isOutbound = m.sender_type === 'agent' || m.sender_type === 'ai' || m.sender_type === 'bot';
-            const prev = list[i - 1] as any;
+            const prev = (list as unknown as TimelineMessage[])[i - 1];
             const showDay =
               !prev ||
               new Date(prev.created_at).toDateString() !== new Date(m.created_at).toDateString();
@@ -389,8 +454,8 @@ export default function MobileConversationPage() {
                     )}
                     {atts.length > 0 && (
                       <div className="mb-1 space-y-1">
-                        {atts.map((att: any) => (
-                          <MessageAttachmentView key={att.id} att={att} t={t as any} isAgent={isOutbound} />
+                        {atts.map((att) => (
+                          <MessageAttachmentView key={att.id} att={att} t={displayT} isAgent={isOutbound} />
                         ))}
                       </div>
                     )}
@@ -521,25 +586,29 @@ export default function MobileConversationPage() {
                 if (file) void uploadFile(file);
               }}
             />
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              className="flex h-11 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground active:scale-90"
-              aria-label="Attach file"
-            >
-              <Paperclip className="h-[22px] w-[22px]" />
-            </button>
+            {canAttach && (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="flex h-11 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground active:scale-90"
+                aria-label="Attach file"
+              >
+                <Paperclip className="h-[22px] w-[22px]" />
+              </button>
+            )}
 
             {/* Everything else lives INSIDE the message field. */}
             <div className="flex min-h-[44px] flex-1 items-end gap-0.5 rounded-[22px] bg-muted/70 px-1.5 py-1 focus-within:bg-muted">
-              <button
-                type="button"
-                onClick={toggleRecording}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-transform active:scale-90"
-                aria-label="Record voice message"
-              >
-                <Mic className="h-[21px] w-[21px]" />
-              </button>
+              {canRecordVoice && (
+                <button
+                  type="button"
+                  onClick={toggleRecording}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-transform active:scale-90"
+                  aria-label="Record voice message"
+                >
+                  <Mic className="h-[21px] w-[21px]" />
+                </button>
+              )}
 
               <textarea
                 ref={textRef}
@@ -560,6 +629,7 @@ export default function MobileConversationPage() {
                 className={cn(
                   'flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors active:scale-90',
                   emojiOpen ? 'text-primary' : 'text-muted-foreground',
+                  !canUseEmoji && 'hidden',
                 )}
                 aria-label="Emoji"
               >
@@ -588,7 +658,7 @@ export default function MobileConversationPage() {
           </div>
         )}
 
-        {emojiOpen && !recorder.recording && <MobileEmojiPicker onPick={insertEmoji} />}
+        {emojiOpen && canUseEmoji && !recorder.recording && <MobileEmojiPicker onPick={insertEmoji} />}
       </div>
     </div>
   );

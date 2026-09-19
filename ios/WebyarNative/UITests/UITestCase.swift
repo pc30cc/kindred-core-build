@@ -19,7 +19,15 @@ class UITestCase: XCTestCase {
         super.setUp()
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments = ["-WebyarSampleData", "-WebyarLanguage", language]
+        // No promotions: the full-screen card is paced by launch count and by
+        // a per-day cap, so it lands over some runs of this suite and not
+        // others — see `PromotionCenter.isSuppressed`. It has its own
+        // screenshot path; it has no business over a keyboard test.
+        app.launchArguments = [
+            "-WebyarSampleData",
+            "-WebyarNoPromotions",
+            "-WebyarLanguage", language,
+        ]
 
         // iOS's own first-run keyboard tutorial — "Speed up your typing by
         // sliding your finger across the letters", with a Continue button —

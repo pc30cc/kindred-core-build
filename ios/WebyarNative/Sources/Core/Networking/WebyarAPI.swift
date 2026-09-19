@@ -54,6 +54,8 @@ protocol WebyarAPI: Sendable {
     func updateAvailability(_ update: AvailabilityUpdate) async throws -> AvailabilityResponse
     // What the app may show as a promotion, for this workspace and language.
     func promotions(workspaceID: String, locale: String) async throws -> Promotions
+    // Asks the platform where it lives, before anything else talks to it.
+    func refreshOrigin() async
     func contacts(workspaceID: String) async throws -> [Contact]
     func visitorIntel(workspaceID: String, conversationIDs: [String]) async throws -> [String: VisitorProfile]
     func visitorIntel(workspaceID: String, contactIDs: [String]) async throws -> [String: VisitorProfile]

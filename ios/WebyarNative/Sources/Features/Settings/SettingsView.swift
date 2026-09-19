@@ -151,7 +151,7 @@ struct SettingsView: View {
             Section {
                 DetailRow(label: Str.version(language), value: appVersion, isLatin: true)
 
-                if let support = GeneratedConfig.supportURL {
+                if let support = PlatformOrigin.supportURL {
                     Button {
                         openURL(support)
                     } label: {

@@ -378,6 +378,9 @@ actor SampleAPI: WebyarAPI {
         )
     }
 
+    /// Sample mode answers from memory, so there is no origin to resolve.
+    func refreshOrigin() async {}
+
     func promotions(workspaceID: String, locale: String) async throws -> Promotions {
         Promotions(
             enabled: true,

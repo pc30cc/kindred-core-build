@@ -30,7 +30,7 @@ actor APIClient {
 
     static let shared = APIClient()
 
-    private let baseURL: URL
+    private var baseURL: URL
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
@@ -39,7 +39,7 @@ actor APIClient {
     /// Keychain is not read on every single request.
     private var token: String?
 
-    init(baseURL: URL = GeneratedConfig.apiBaseURL) {
+    init(baseURL: URL = PlatformOrigin.current) {
         self.baseURL = baseURL
 
         let config = URLSessionConfiguration.default
@@ -71,6 +71,52 @@ actor APIClient {
         self.encoder = enc
 
         self.token = TokenStore.read()
+    }
+
+    // MARK: - Where the platform lives
+
+    /// Asks the platform where it lives and moves there if the answer differs.
+    ///
+    /// Run once at launch, before anything else talks to the server, so the
+    /// whole session uses an origin that has just proved it answers.
+    ///
+    /// The retry is the important part. If the origin we remembered has gone
+    /// dark — a domain typed wrong in Super Admin, a certificate that lapsed —
+    /// we forget it and ask the value compiled into the build instead. Without
+    /// that, one bad edit would brick every installed copy until the App Store
+    /// shipped a new one.
+    func refreshOrigin() async {
+        if let origins = await askOrigins(at: baseURL) {
+            adopt(origins)
+            return
+        }
+        guard PlatformOrigin.isStored else { return }
+        PlatformOrigin.forget()
+        baseURL = GeneratedConfig.apiBaseURL
+        if let origins = await askOrigins(at: baseURL) { adopt(origins) }
+    }
+
+    private func adopt(_ origins: PlatformOrigins) {
+        PlatformOrigin.rememberSupport(origins.support)
+        guard let api = origins.api, api != baseURL else { return }
+        PlatformOrigin.remember(api)
+        baseURL = api
+    }
+
+    /// Deliberately its own request rather than going through `perform`: it
+    /// runs before there is a session, it must not be treated as a failure
+    /// worth showing, and it has to be able to ask a host we are about to stop
+    /// trusting.
+    private func askOrigins(at origin: URL) async -> PlatformOrigins? {
+        guard let url = URL(string: "/api/platform/origins", relativeTo: origin) else { return nil }
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 8
+        guard let (data, response) = try? await session.data(for: request),
+              let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode)
+        else { return nil }
+        return try? decoder.decode(PlatformOrigins.self, from: data)
     }
 
     // MARK: - Session lifecycle

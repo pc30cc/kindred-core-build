@@ -109,6 +109,24 @@ enum AutoLogin {
     }()
 }
 
+/// Language for a Debug launch, when one is named on the command line.
+///
+/// Apple wants screenshots in every language the app ships in, and the
+/// operator's choice lives in `UserDefaults` — which a screenshot run cannot
+/// set from outside the app's sandbox. Naming it on the command line is how
+/// `fastlane snapshot` and friends do it, and it is the only way to run the
+/// same screen three times in three languages without tapping through
+/// Settings. Compiled out of Release entirely.
+enum LanguageOverride {
+    static let current: Language? = {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "-WebyarLanguage"),
+              arguments.index(after: index) < arguments.endIndex
+        else { return nil }
+        return Language(rawValue: arguments[arguments.index(after: index)])
+    }()
+}
+
 /// Which screen a Debug launch should open on.
 ///
 /// Screenshot automation cannot tap its way through an app, and Apple wants a

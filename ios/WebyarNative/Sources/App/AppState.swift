@@ -80,7 +80,12 @@ final class AppState {
     init(api: any WebyarAPI = Backend.current) {
         self.api = api
         let stored = UserDefaults.standard.string(forKey: Self.languageKey)
-        self.language = stored.flatMap(Language.init(rawValue:)) ?? GeneratedConfig.defaultLanguage
+        let chosen = stored.flatMap(Language.init(rawValue:)) ?? GeneratedConfig.defaultLanguage
+        #if DEBUG
+        self.language = LanguageOverride.current ?? chosen
+        #else
+        self.language = chosen
+        #endif
 
         let storedAppearance = UserDefaults.standard.string(forKey: Self.appearanceKey)
         self.appearance = storedAppearance.flatMap(AppearancePreference.init(rawValue:)) ?? .system

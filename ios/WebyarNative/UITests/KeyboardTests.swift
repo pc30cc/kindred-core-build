@@ -80,20 +80,10 @@ final class KeyboardTests: UITestCase {
             "the newest message was left behind the keyboard"
         )
 
-        // And down. Tapping the transcript dismisses the keyboard.
-        //
-        // The point is computed rather than guessed. `.tap()` aims at the
-        // middle of an element's frame, and the transcript's frame still spans
-        // the whole screen while the keyboard is up, so its middle is behind
-        // the keys — the tap lands on a letter. A fraction of the way down is
-        // no better: too little and it is under the navigation bar, too much
-        // and it is on the composer, and both were tried. Halfway between the
-        // top of the transcript and the top of the keyboard is inside the
-        // visible transcript by construction.
-        tapVisibleTranscript(transcript, above: keyboard)
+        // And down.
         XCTAssertTrue(
-            waitForDisappearance(app.keyboards.element, timeout: 6),
-            "tapping the transcript did not dismiss the keyboard"
+            dismissKeyboardByTapping(transcript, above: keyboard),
+            "tapping beside the messages did not dismiss the keyboard"
         )
         Thread.sleep(forTimeInterval: 0.8)
 
@@ -107,15 +97,6 @@ final class KeyboardTests: UITestCase {
     }
 
     // MARK: - Finding things
-
-    /// Taps a point that is inside the transcript and above the keyboard.
-    private func tapVisibleTranscript(_ transcript: XCUIElement, above keyboard: XCUIElement) {
-        let top = max(transcript.frame.minY, 0)
-        let bottom = keyboard.frame.minY
-        let point = app.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: transcript.frame.midX, dy: (top + bottom) / 2))
-        point.tap()
-    }
 
     /// The composer, whichever kind of element this iOS decided it is.
     ///

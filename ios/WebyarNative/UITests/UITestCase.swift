@@ -20,6 +20,22 @@ class UITestCase: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = ["-WebyarSampleData", "-WebyarLanguage", language]
+
+        // iOS's own first-run keyboard tutorial — "Speed up your typing by
+        // sliding your finger across the letters", with a Continue button —
+        // appears the first time a keyboard is shown on a freshly erased
+        // device. It sits over the keyboard and swallows every tap, and it
+        // belongs to Springboard rather than to the app, so nothing in here
+        // sees it: the tests simply fail, variously and confusingly, at
+        // whatever they were about to touch. Costing half a day to that once
+        // is enough.
+        addUIInterruptionMonitor(withDescription: "keyboard tutorial") { alert in
+            for label in ["Continue", "ادامه", "Devam"] where alert.buttons[label].exists {
+                alert.buttons[label].tap()
+                return true
+            }
+            return false
+        }
     }
 
     override func tearDown() {
@@ -134,6 +150,35 @@ class UITestCase: XCTestCase {
         }
         field.tap()
         return waitForKeyboard()
+    }
+
+    /// Puts the keyboard away by tapping the transcript, and says whether it
+    /// worked.
+    ///
+    /// Empty space, not a bubble. A bubble has taps of its own — opening a
+    /// photo, selecting text — and swallows this one, which is exactly how
+    /// Messages behaves: you tap beside a message to dismiss, not on it. That
+    /// is easy to miss while the sample conversation is short enough to leave
+    /// the middle of the screen empty, and it stops being true the moment the
+    /// transcript fills up. So this walks the gutters down both edges, where
+    /// the space beside a bubble always is, and stops as soon as the keyboard
+    /// goes.
+    @discardableResult
+    func dismissKeyboardByTapping(_ transcript: XCUIElement, above keyboard: XCUIElement) -> Bool {
+        let frame = transcript.frame
+        let top = max(frame.minY, 0) + 30
+        let bottom = keyboard.frame.minY - 30
+        guard bottom > top else { return false }
+
+        for y in stride(from: top, to: bottom, by: 60) {
+            for x in [frame.maxX - 12, frame.minX + 12] {
+                app.coordinate(withNormalizedOffset: .zero)
+                    .withOffset(CGVector(dx: x, dy: y))
+                    .tap()
+                if waitForDisappearance(app.keyboards.element, timeout: 1.5) { return true }
+            }
+        }
+        return false
     }
 
     /// Waits for an element to go away, which `waitForExistence` cannot do.

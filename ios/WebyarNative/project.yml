@@ -111,6 +111,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.webyar.native.uitests
         TEST_TARGET_NAME: WebyarNative
         TARGETED_DEVICE_FAMILY: "1"
+        # The app writes its own Info.plist above, from `info:`. A test bundle
+        # has nothing to say in one, and without either the key or this it
+        # cannot be signed at all.
+        GENERATE_INFOPLIST_FILE: YES
 
 schemes:
   WebyarNative:

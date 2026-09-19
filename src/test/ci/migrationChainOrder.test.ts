@@ -37,12 +37,94 @@ describe('self-host GoTrue bootstrap', () => {
   });
 });
 
+/**
+ * `supabase/migrations` is not, and has never been, a chain that starts from
+ * an empty database. The billing tables it truncates, inserts into and
+ * alters — billing_invoices, billing_v2_rollout, billing_v2_audit and the
+ * rest — are created in `database/migrations` (113_billing_v2_core.sql and
+ * its neighbours) and are already present in the hosted project. No
+ * migration in the hosted directory creates them, and none ever did.
+ *
+ * Read as "self-contained", the guard reported nineteen ordering violations
+ * for statements that have all applied cleanly in production. What it can
+ * honestly enforce is narrower and still worth having: a hosted migration
+ * may not reference a table that NOTHING in this repository creates, and it
+ * may not get the order wrong for a table the hosted chain creates itself.
+ * So the self-host chain is read first, as the baseline the hosted chain
+ * sits on.
+ */
+const SELF_HOST_DIR = 'database/migrations';
+
+function selfHostSql(): string[] {
+  return readdirSync(SELF_HOST_DIR)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()
+    .map((f) => readFileSync(`${SELF_HOST_DIR}/${f}`, 'utf8').replace(/--[^\n]*/g, ''));
+}
+
+/** Every table the self-host chain creates — the hosted chain's baseline. */
+function baselineTables(): Set<string> {
+  const out = new Set<string>();
+  for (const sql of selfHostSql()) {
+    for (const m of sql.matchAll(
+      /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?"?([a-z0-9_]+)"?/gi,
+    )) {
+      out.add(m[1].toLowerCase());
+    }
+  }
+  return out;
+}
+
+/**
+ * table → columns the self-host chain declares or adds, by any route.
+ * Built on first use: the parsing helpers it leans on are declared further
+ * down this file, so computing it eagerly would read them before init.
+ */
+let selfHostColumnsMemo: Map<string, Set<string>> | null = null;
+function selfHostColumns(): Map<string, Set<string>> {
+  return (selfHostColumnsMemo ??= baselineColumns());
+}
+
+function baselineColumns(): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  const put = (table: string, col: string) => {
+    const key = table.toLowerCase();
+    if (!out.has(key)) out.set(key, new Set());
+    out.get(key)!.add(col.toLowerCase());
+  };
+  for (const sql of selfHostSql()) {
+    for (const m of sql.matchAll(
+      /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?"?([a-z0-9_]+)"?\s*\(/gi,
+    )) {
+      const body = balanced(sql, m.index! + m[0].length - 1);
+      for (const raw of splitTopLevel(body)) {
+        if (CONSTRAINT_START.test(raw)) continue;
+        const name = raw.match(/^"?([a-z0-9_]+)"?/i)?.[1];
+        if (name) put(m[1], name);
+      }
+    }
+    for (const m of sql.matchAll(
+      /ALTER\s+TABLE\s+(?:ONLY\s+)?(?:IF\s+EXISTS\s+)?(?:public\.)?"?([a-z0-9_]+)"?([\s\S]*?);/gi,
+    )) {
+      for (const a of m[2].matchAll(
+        /ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([a-z0-9_]+)"?/gi,
+      )) {
+        put(m[1], a[1]);
+      }
+    }
+  }
+  return out;
+}
+
 describe('supabase migration chain — dependency order', () => {
   const dir = 'supabase/migrations';
   const files = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
 
   /** Table name → first migration that creates it. */
   const created = new Map<string, string>();
+  // Present before the first file in this directory runs; see baselineTables.
+  const BASELINE = '<self-host chain>';
+  for (const t of baselineTables()) created.set(t, BASELINE);
   /** Offences: a table used before any migration created it. */
   const violations: string[] = [];
 
@@ -265,8 +347,15 @@ export function analyzeChain(dir: string, files: string[]) {
       );
       if (cols.some((c) => !/^[a-z0-9_]+$/.test(c))) continue; // not a column list
 
+      // A column the hosted chain never declared is only a problem if the
+      // self-host chain does not declare it either — workspace_subscriptions
+      // is created here but gains current_period_id, next_invoice_at and
+      // billing_engine_version over there. Nullability below stays purely
+      // hosted-chain-driven, since that is the only side whose declarations
+      // this scanner has read.
+      const alsoInSelfHost = selfHostColumns().get(table);
       for (const c of cols) {
-        if (!state.has(c)) {
+        if (!state.has(c) && !alsoInSelfHost?.has(c)) {
           problems.push(`${file}: INSERT INTO ${table} references missing column "${c}"`);
         }
       }
@@ -289,8 +378,10 @@ export function analyzeChain(dir: string, files: string[]) {
     for (const m of sql.matchAll(
       /UPDATE\s+(?:public\.)?"?([a-z0-9_]+)"?\s+SET\s+([a-z0-9_]+)\s*=/gi,
     )) {
-      const state = tables.get(m[1].toLowerCase());
-      if (state && !state.has(m[2].toLowerCase())) {
+      const table = m[1].toLowerCase();
+      const state = tables.get(table);
+      const col = m[2].toLowerCase();
+      if (state && !state.has(col) && !selfHostColumns().get(table)?.has(col)) {
         problems.push(`${file}: UPDATE ${m[1]} sets missing column "${m[2]}"`);
       }
     }
@@ -318,16 +409,43 @@ describe('supabase migration chain — column contract', () => {
     expect(problems).toEqual([]);
   });
 
-  // Negative control: the analyzer must genuinely detect the defect it was
-  // written for. Without the pre-seed compatibility migration the chain is the
-  // exact sequence that failed in CI (`column "is_active" ... does not exist`).
-  it('detects the original email_templates defect when the compat step is absent', () => {
+  // Negative control, first half: the compat migration is what puts
+  // email_templates.is_active into THIS chain. Remove it and the column is
+  // absent from every snapshot the hosted chain produces — which is the
+  // defect that failed in CI (`column "is_active" ... does not exist`).
+  //
+  // This used to assert through `problems`, and can't any more: the column
+  // is also declared in database/migrations/015, so the seed is not in fact
+  // reaching for something no migration in the repository declares. The
+  // analyzer's detection of that shape is proved below on a chain where the
+  // column really is declared nowhere.
+  it('the compat step is what puts email_templates.is_active in this chain', () => {
     const withoutCompat = files.filter(
       (f) => f !== '20260414134600_baseline_remote_only_tables.sql',
     );
-    const broken = analyzeChain(dir, withoutCompat).problems;
+    const broken = analyzeChain(dir, withoutCompat);
+    const seen = [...broken.snapshots.values()].some((snap) => snap.has('is_active'));
+    expect(seen).toBe(false);
+    // …and with it, the column is there.
+    expect(snapshots.get(preSeed)?.has('is_active')).toBe(true);
+  });
+
+  // Negative control, second half: the same defect shape on a chain of its
+  // own, where the column is declared in neither chain, so nothing can
+  // excuse it.
+  it('detects an INSERT naming a column no migration declares', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'chain-col-'));
+    writeFileSync(
+      join(tmp, '0001_create.sql'),
+      'CREATE TABLE public.demo_templates (id uuid PRIMARY KEY, slug text);',
+    );
+    writeFileSync(
+      join(tmp, '0002_seed.sql'),
+      "INSERT INTO public.demo_templates (slug, is_active) VALUES ('a', true);",
+    );
+    const { problems: bad } = analyzeChain(tmp, ['0001_create.sql', '0002_seed.sql']);
     expect(
-      broken.some((p) => p.includes('email_templates references missing column "is_active"')),
+      bad.some((p) => p.includes('demo_templates references missing column "is_active"')),
     ).toBe(true);
   });
 

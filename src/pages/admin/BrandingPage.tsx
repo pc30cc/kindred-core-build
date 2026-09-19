@@ -145,7 +145,7 @@ function VisualIdentitySection() {
             <Switch checked={form.pwa_enabled !== false} onCheckedChange={(v) => set('pwa_enabled', v)} />
           </div>
           <div className="grid gap-5 md:grid-cols-2">
-            <FieldRow label={t('admin.brandingPage.identity.pwaShortName')} desc={t('admin.brandingPage.identity.pwaShortNameHint')} value={form.pwa_short_name ?? ''} onChange={(v) => set('pwa_short_name', v)} placeholder="Webyar" />
+            <FieldRow label={t('admin.brandingPage.identity.pwaShortName')} desc={t('admin.brandingPage.identity.pwaShortNameHint')} value={form.pwa_short_name ?? ''} onChange={(v) => set('pwa_short_name', v)} placeholder={t('admin.brandingPage.identity.pwaShortNamePlaceholder')} />
             <FieldRow label={t('admin.brandingPage.identity.pwaBackgroundColor')} type="color" value={form.pwa_background_color ?? '#ffffff'} onChange={(v) => set('pwa_background_color', v)} />
           </div>
         </div>
@@ -835,6 +835,28 @@ function DomainUrlsSection() {
 }
 
 // ── Email Settings Section ──
+/**
+ * Super Admin → Branding → Email settings.
+ *
+ * ONE field, and that is the whole section. It used to carry seven, and six
+ * of them were read by nothing:
+ *
+ *   sender_email, sender_name  — a second place to answer "who is this from".
+ *     The From header is built entirely from the platform email provider's
+ *     `from_email` / `from_name` (Super Admin → Providers → Email); see
+ *     `resolveFromAddress` in server/services/email/index.ts, the only code
+ *     that decides a sender.
+ *   email_logo_url, email_footer_text, footer_text, support_contact_label —
+ *     email branding that no template can express. Of the 84 stored templates
+ *     (28 slugs) not one references a logo or footer placeholder, and not one
+ *     contains an <img> tag; `{brand}` is the only branding hook, and it comes
+ *     from platform_branding_localized. The code-side wrapper in
+ *     server/services/verification/templates.ts has no slot for either.
+ *
+ * A setting an admin can change that the runtime never reads is worse than no
+ * setting: it looks like it worked. The columns stay for rollback, but nothing
+ * writes them any more.
+ */
 function EmailSettingsSection() {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -846,17 +868,12 @@ function EmailSettingsSection() {
     },
   });
 
-  const [settingsForm, setSettingsForm] = useState({ sender_email: '', reply_to_email: '', email_logo_url: '', email_footer_text: '' });
+  const [replyTo, setReplyTo] = useState('');
   const [settingsDirty, setSettingsDirty] = useState(false);
 
   useEffect(() => {
     if (emailSettings) {
-      setSettingsForm({
-        sender_email: emailSettings.sender_email ?? '',
-        reply_to_email: emailSettings.reply_to_email ?? '',
-        email_logo_url: emailSettings.email_logo_url ?? '',
-        email_footer_text: emailSettings.email_footer_text ?? '',
-      });
+      setReplyTo(emailSettings.reply_to_email ?? '');
       setSettingsDirty(false);
     }
   }, [emailSettings]);
@@ -865,46 +882,15 @@ function EmailSettingsSection() {
     mutationFn: async () => {
       await adminFetch('/api/admin/management/email-settings', {
         method: 'PUT',
-        body: JSON.stringify(settingsForm),
+        body: JSON.stringify({ reply_to_email: replyTo }),
       });
     },
-    onSuccess: () => { toast({ title: t('admin.brandingPage.emailSettings.saved') }); setSettingsDirty(false); qc.invalidateQueries({ queryKey: ['platform-email-settings'] }); },
-    onError: (e) => toast({ title: t('admin.brandingPage.common.error'), description: e.message, variant: 'destructive' }),
-  });
-
-  // Email settings localized
-  const { data: emailLocalized } = useQuery({
-    queryKey: ['platform-email-settings-localized'],
-    queryFn: async () => {
-      const body = await adminFetch<{ rows: EmailSettingsLocalizedRow[] }>('/api/admin/management/email-settings-localized');
-      return body.rows ?? [];
+    onSuccess: () => {
+      toast({ title: t('admin.brandingPage.emailSettings.saved') });
+      setSettingsDirty(false);
+      qc.invalidateQueries({ queryKey: ['platform-email-settings'] });
     },
-  });
-
-  const [emailLocaleForms, setEmailLocaleForms] = useState<Record<string, EmailSettingsLocalizedRow>>({});
-  const [emailLocaleDirty, setEmailLocaleDirty] = useState<Set<string>>(new Set());
-  const [emailLocaleTab, setEmailLocaleTab] = useState('en');
-
-  useEffect(() => {
-    if (emailLocalized) {
-      const map: Record<string, EmailSettingsLocalizedRow> = {};
-      emailLocalized.forEach(r => (map[r.locale] = r));
-      setEmailLocaleForms(map);
-      setEmailLocaleDirty(new Set());
-    }
-  }, [emailLocalized]);
-
-  const saveEmailLocale = useMutation({
-    mutationFn: async (locale: string) => {
-      const row = emailLocaleForms[locale];
-      const { id, created_at, updated_at, workspace_id, ...rest } = row || {};
-      await adminFetch('/api/admin/management/email-settings-localized', {
-        method: 'PUT',
-        body: JSON.stringify({ ...rest, locale }),
-      });
-    },
-    onSuccess: (_data, locale) => { toast({ title: t('admin.brandingPage.emailSettings.localizedSaved', { locale: locale.toUpperCase() }) }); setEmailLocaleDirty((current) => { const next = new Set(current); next.delete(locale); return next; }); qc.invalidateQueries({ queryKey: ['platform-email-settings-localized'] }); },
-    onError: (e) => toast({ title: t('admin.brandingPage.common.error'), description: e.message, variant: 'destructive' }),
+    onError: (e: Error) => toast({ title: t('admin.brandingPage.common.error'), description: e.message, variant: 'destructive' }),
   });
 
   if (settingsLoading) return <LoadingCard />;
@@ -912,55 +898,24 @@ function EmailSettingsSection() {
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-4">
-        <div className="flex items-center gap-2"><Settings2 className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">{t('admin.brandingPage.emailSettings.title')}</CardTitle></div>
+        <div className="flex items-center gap-2"><Settings2 className="h-5 w-5 text-primary" /><CardTitle className="text-foreground text-base">{t('admin.brandingPage.emailSettings.title')}</CardTitle></div>
         <CardDescription>{t('admin.brandingPage.emailSettings.description')}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
-        {/* Global email settings */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-foreground">{t('admin.brandingPage.emailSettings.globalTitle')}</h3>
-            <Button size="sm" onClick={() => saveSettings.mutate()} disabled={!settingsDirty || saveSettings.isPending}>
-              {saveSettings.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}{t('admin.brandingPage.common.save')}
-            </Button>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <FieldRow label={t('admin.brandingPage.emailSettings.senderEmail')} desc={t('admin.brandingPage.emailSettings.senderEmailHint')} value={settingsForm.sender_email} onChange={(v) => { setSettingsForm(p => ({ ...p, sender_email: v })); setSettingsDirty(true); }} placeholder="noreply@example.com" />
-            <FieldRow label={t('admin.brandingPage.emailSettings.replyToEmail')} value={settingsForm.reply_to_email} onChange={(v) => { setSettingsForm(p => ({ ...p, reply_to_email: v })); setSettingsDirty(true); }} placeholder="support@example.com" />
-            <FieldRow label={t('admin.brandingPage.emailSettings.logoUrl')} desc={t('admin.brandingPage.emailSettings.logoUrlHint')} value={settingsForm.email_logo_url} onChange={(v) => { setSettingsForm(p => ({ ...p, email_logo_url: v })); setSettingsDirty(true); }} placeholder="https://cdn.example.com/email-logo.png" />
-            <FieldRow label={t('admin.brandingPage.emailSettings.footerText')} value={settingsForm.email_footer_text} onChange={(v) => { setSettingsForm(p => ({ ...p, email_footer_text: v })); setSettingsDirty(true); }} placeholder={t('admin.brandingPage.emailSettings.footerPlaceholder')} />
-          </div>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-foreground">{t('admin.brandingPage.emailSettings.globalTitle')}</h3>
+          <Button size="sm" onClick={() => saveSettings.mutate()} disabled={!settingsDirty || saveSettings.isPending}>
+            {saveSettings.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}{t('admin.brandingPage.common.save')}
+          </Button>
         </div>
-
-        <Separator />
-
-        {/* Localized email settings */}
-        <div className="space-y-4">
-          <h3 className="text-sm font-semibold text-foreground">{t('admin.brandingPage.emailSettings.localizedTitle')}</h3>
-          <Tabs value={emailLocaleTab} onValueChange={setEmailLocaleTab}>
-            <div className="flex items-center justify-between">
-              <TabsList>
-                {ALL_LOCALES.filter(l => true).slice(0, 3).map(l => (
-                  <TabsTrigger key={l.code} value={l.code} className="gap-1.5">
-                    {t(`admin.brandingPage.languages.${l.labelKey}`)}
-                    {emailLocaleDirty.has(l.code) && <Badge variant="secondary" className="text-[10px] px-1 py-0">{t('admin.brandingPage.common.unsaved')}</Badge>}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-              <Button size="sm" onClick={() => saveEmailLocale.mutate(emailLocaleTab)} disabled={!emailLocaleDirty.has(emailLocaleTab) || saveEmailLocale.isPending}>
-                {saveEmailLocale.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}{t('admin.brandingPage.common.save')}
-              </Button>
-            </div>
-            {ALL_LOCALES.filter(l => true).slice(0, 3).map(l => (
-              <TabsContent key={l.code} value={l.code} className="mt-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <FieldRow label={t('admin.brandingPage.emailSettings.senderName')} desc={t('admin.brandingPage.emailSettings.senderNameHint')} value={emailLocaleForms[l.code]?.sender_name ?? ''} onChange={(v) => { setEmailLocaleForms(p => ({ ...p, [l.code]: { ...p[l.code], sender_name: v, locale: l.code } })); setEmailLocaleDirty(p => new Set(p).add(l.code)); }} placeholder={t('admin.brandingPage.emailSettings.senderNamePlaceholder')} />
-                  <FieldRow label={t('admin.brandingPage.emailSettings.localizedFooter')} value={emailLocaleForms[l.code]?.footer_text ?? ''} onChange={(v) => { setEmailLocaleForms(p => ({ ...p, [l.code]: { ...p[l.code], footer_text: v, locale: l.code } })); setEmailLocaleDirty(p => new Set(p).add(l.code)); }} placeholder={t('admin.brandingPage.emailSettings.localizedFooterPlaceholder')} />
-                  <FieldRow label={t('admin.brandingPage.emailSettings.supportLabel')} value={emailLocaleForms[l.code]?.support_contact_label ?? ''} onChange={(v) => { setEmailLocaleForms(p => ({ ...p, [l.code]: { ...p[l.code], support_contact_label: v, locale: l.code } })); setEmailLocaleDirty(p => new Set(p).add(l.code)); }} placeholder={t('admin.brandingPage.emailSettings.supportPlaceholder')} />
-                </div>
-              </TabsContent>
-            ))}
-          </Tabs>
+        <div className="grid gap-4 md:grid-cols-2">
+          <FieldRow
+            label={t('admin.brandingPage.emailSettings.replyToEmail')}
+            desc={t('admin.brandingPage.emailSettings.replyToEmailHint')}
+            value={replyTo}
+            onChange={(v) => { setReplyTo(v); setSettingsDirty(true); }}
+            placeholder="support@example.com"
+          />
         </div>
       </CardContent>
     </Card>

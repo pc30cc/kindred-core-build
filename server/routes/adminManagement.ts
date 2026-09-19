@@ -762,34 +762,36 @@ adminManagementRouter.get('/email-settings', async (req, res) => {
 });
 
 /**
- * DEAD FIELDS, kept only because removing them would lie to the admin.
+ * Platform email settings — ONE field.
  *
- * `sender_email` here and `sender_name` on the localized schema below are a
- * second place to answer "who is this mail from", and NOTHING READS EITHER.
- * The From header is built entirely from the platform email provider's
- * `from_email` / `from_name` (Super Admin → Providers → Email) — see
- * `resolveFromAddress` in server/services/email/index.ts, which is the only
- * code that decides a sender. An admin who fills these in gets a saved form
- * and no change in behaviour.
+ * `reply_to_email` is the only thing here the runtime reads:
+ * server/routes/widget.ts uses it as the recipient for an offline visitor
+ * message when no operator has an address.
  *
- * They are still accepted because Super Admin → Branding → Email Settings
- * still renders the inputs, and a field that silently discards what you type
- * is worse than one that stores a value nobody reads. Removing the inputs is
- * blocked by an unrelated problem: src/pages/admin/BrandingPage.tsx carries
- * 154 pre-existing `no-explicit-any` errors, and `lint:changed` requires every
- * touched file to be completely clean, so any edit to that page drags in a
- * large unrelated refactor. The two go together or not at all.
+ * Everything else that used to live on this route is gone, because nothing
+ * ever read any of it:
  *
- * `reply_to_email` below is NOT dead: server/routes/widget.ts uses it as the
- * recipient for offline notifications when no operator has an address, which
- * is a different question from who the mail is from.
+ *   sender_email  — a second place to answer "who is this mail from". The
+ *     From header is built entirely from the platform email provider's
+ *     `from_email` / `from_name` (Super Admin → Providers → Email); see
+ *     `resolveFromAddress` in server/services/email/index.ts.
+ *   email_logo_url, email_footer_text — email branding no template can
+ *     express: of the 84 stored templates not one references a logo or footer
+ *     placeholder and not one contains an <img> tag. `{brand}` is the only
+ *     branding hook and it resolves from platform_branding_localized.
+ *
+ * The whole `/email-settings-localized` pair went with them. That table has no
+ * runtime consumer at all — its three columns (sender_name, footer_text,
+ * support_contact_label) were read by nothing — so the routes were a way to
+ * write a row nobody would ever look at.
+ *
+ * A zod object strips undeclared keys, so an older client still posting
+ * `sender_email` is ignored rather than rejected. The COLUMNS stay: dropping
+ * them is a separate decision with rollback consequences, and leaving them is
+ * harmless once nothing writes them.
  */
 const emailSettingsSchema = z.object({
-  /** Dead — see the note above. Accepted, stored, never read. */
-  sender_email: z.string().max(255).default(''),
   reply_to_email: z.string().max(255).default(''),
-  email_logo_url: z.string().max(2000).default(''),
-  email_footer_text: z.string().max(4000).default(''),
 });
 
 adminManagementRouter.put('/email-settings', async (req, res) => {
@@ -808,50 +810,7 @@ adminManagementRouter.put('/email-settings', async (req, res) => {
   return res.json({ success: true });
 });
 
-// ── Global localized email settings (workspace_id IS NULL) ─────────────
-adminManagementRouter.get('/email-settings-localized', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  const sb = getServiceClient(serverConfigOf(req));
-  const { data, error } = await sb
-    .from('email_settings_localized')
-    .select('*')
-    .is('workspace_id', null)
-    .order('locale');
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json({ rows: data ?? [] });
-});
 
-const emailSettingsLocalizedSchema = z.object({
-  locale: z.string().min(2).max(10),
-  /** Dead — see the note on emailSettingsSchema. The From name comes from the
-   *  provider config; the brand a template prints comes from
-   *  platform_branding_localized. */
-  sender_name: z.string().max(255).nullable().optional(),
-
-  footer_text: z.string().max(4000).nullable().optional(),
-  support_contact_label: z.string().max(255).nullable().optional(),
-});
-
-adminManagementRouter.put('/email-settings-localized', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  const parsed = emailSettingsLocalizedSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
-  const sb = getServiceClient(serverConfigOf(req));
-  const payload = { ...parsed.data, workspace_id: null, updated_at: new Date().toISOString() };
-  const { data: existing } = await sb
-    .from('email_settings_localized')
-    .select('id')
-    .is('workspace_id', null)
-    .eq('locale', parsed.data.locale)
-    .maybeSingle();
-  const { error } = existing
-    ? await sb.from('email_settings_localized').update(payload).eq('id', (existing as { id: string }).id)
-    : await sb.from('email_settings_localized').insert(payload);
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json({ success: true });
-});
-
-// ── Feature flag toggle (platform-wide rows only) ──────────────────────
 const featureFlagUpdateSchema = z.object({ enabled: z.boolean() });
 
 adminManagementRouter.patch('/feature-flags/:id', async (req, res) => {

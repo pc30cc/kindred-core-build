@@ -13,10 +13,42 @@ import express from 'express';
 import http from 'node:http';
 import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
+import type { AddressInfo } from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
+
+/** What a PostgREST call resolves to, and what a thenable here hands back. */
+type Resolved = { data: unknown; error: null };
+type Resolve = (value: Resolved) => unknown;
+/** Response JSON. Assertions reach into arbitrary shapes. */
+type JsonBody = Record<string, unknown>;
+
+/**
+ * The fake query builder. A named self-referential interface rather than
+ * `any`, because that self-reference is exactly what is being modelled: filter
+ * methods return the same builder so calls chain, and only a terminal resolves.
+ */
+interface FakeBuilder {
+  select: (columns?: string) => FakeBuilder;
+  eq: (col: string, val: unknown) => FakeBuilder;
+  is: (col: string, val: unknown) => FakeBuilder;
+  order: (col: string, opts?: { ascending?: boolean }) => FakeBuilder;
+  limit: (n: number) => FakeBuilder;
+  maybeSingle: () => Promise<Resolved>;
+  single: () => Promise<Resolved>;
+  insert: (payload: Row) => unknown;
+  upsert: (payload: Row, opts?: { onConflict?: string }) => unknown;
+  update: (patch: Row) => unknown;
+  delete: () => unknown;
+  then: (resolve: Resolve) => unknown;
+}
+
+interface FakeTerminal {
+  eq: (col: string, val: unknown) => FakeTerminal;
+  then: (resolve: Resolve) => unknown;
+}
 const db: Record<string, Row[]> = {};
 
 function fakeClient() {
@@ -24,9 +56,9 @@ function fakeClient() {
     from(table: string) {
       const rows: Row[] = db[table] || (db[table] = []);
       const filters: Array<(r: Row) => boolean> = [];
-      const builder: any = {
+      const builder: FakeBuilder = {
         select: () => builder,
-        eq(col: string, val: any) { filters.push((r: Row) => r[col] === val); return builder; },
+        eq(col: string, val: unknown) { filters.push((r: Row) => r[col] === val); return builder; },
         is(col: string, val: null) { filters.push((r: Row) => r[col] === val); return builder; },
         ilike(col: string, val: string) {
           filters.push((r: Row) => String(r[col] ?? '').toLowerCase() === val.toLowerCase());
@@ -47,16 +79,16 @@ function fakeClient() {
         insert(payload: Row) {
           const inserted = { id: crypto.randomUUID(), ...payload };
           rows.push(inserted);
-          const ib: any = {
+          const ib: { select: () => { single: () => Promise<Resolved> }; then: (resolve: Resolve) => unknown } = {
             select: () => ({ single: async () => ({ data: inserted, error: null }) }),
-            then: (resolve: any) => resolve({ data: inserted, error: null }),
+            then: (resolve: Resolve) => resolve({ data: inserted, error: null }),
           };
           return ib;
         },
         update(patch: Row) {
           const scoped: Array<(r: Row) => boolean> = [...filters];
-          const ub: any = {
-            eq(col: string, val: any) { scoped.push((r: Row) => r[col] === val); return ub; },
+          const ub: FakeTerminal = {
+            eq(col: string, val: unknown) { scoped.push((r: Row) => r[col] === val); return ub; },
             is(col: string, val: null) { scoped.push((r: Row) => r[col] === val); return ub; },
             select: () => ({
               maybeSingle: async () => {
@@ -70,7 +102,7 @@ function fakeClient() {
                 return { data: matched[0] ?? null, error: null };
               },
             }),
-            then(resolve: any) {
+            then(resolve: Resolve) {
               const matched = rows.filter((r) => scoped.every((f) => f(r)));
               for (const r of matched) Object.assign(r, patch);
               return resolve({ data: matched, error: null });
@@ -82,20 +114,20 @@ function fakeClient() {
           const existing = rows.find((r) => r.key === payload.key);
           if (existing) Object.assign(existing, payload);
           else rows.push({ id: crypto.randomUUID(), ...payload });
-          return { then: (resolve: any) => resolve({ data: null, error: null }) };
+          return { then: (resolve: Resolve) => resolve({ data: null, error: null }) };
         },
         delete() {
           const scoped: Array<(r: Row) => boolean> = [...filters];
-          const dbld: any = {
-            eq(col: string, val: any) { scoped.push((r: Row) => r[col] === val); return dbld; },
-            then(resolve: any) {
+          const dbld: FakeTerminal = {
+            eq(col: string, val: unknown) { scoped.push((r: Row) => r[col] === val); return dbld; },
+            then(resolve: Resolve) {
               db[table] = rows.filter((r) => !scoped.every((f) => f(r)));
               return resolve({ data: null, error: null });
             },
           };
           return dbld;
         },
-        then(resolve: any) {
+        then(resolve: Resolve) {
           const matched = rows.filter((r) => filters.every((f) => f(r)));
           return resolve({ data: matched, error: null });
         },
@@ -127,7 +159,7 @@ const { adminManagementRouter } = await import('../../../server/routes/adminMana
 
 const app = express();
 app.use((req, _res, next) => {
-  (req as any).serverConfig = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'] };
+  (req as express.Request & { serverConfig: unknown }).serverConfig = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k', corsOrigins: ['*'] };
   next();
 });
 app.use(cookieParser());
@@ -135,9 +167,9 @@ app.use(express.json());
 app.use('/api/admin/management', adminManagementRouter);
 
 const server = http.createServer(app).listen(0);
-const port = () => (server.address() as any).port;
+const port = () => (server.address() as AddressInfo).port;
 
-function call(method: string, p: string, token: string | null, body?: unknown): Promise<{ status: number; json: any }> {
+function call(method: string, p: string, token: string | null, body?: unknown): Promise<{ status: number; json: JsonBody }> {
   const payload = body === undefined ? null : JSON.stringify(body);
   const headers: Record<string, string> = {};
   if (token) headers.cookie = `gs_session=${token}`;
@@ -150,7 +182,7 @@ function call(method: string, p: string, token: string | null, body?: unknown): 
       let d = '';
       res.on('data', (c) => (d += c));
       res.on('end', () => {
-        let json: any = {};
+        let json: JsonBody = {};
         try { json = JSON.parse(d || '{}'); } catch { json = { raw: d }; }
         resolve({ status: res.statusCode || 0, json });
       });
@@ -168,9 +200,11 @@ const MIGRATED_ROUTES: Array<[string, string, unknown?]> = [
   ['GET', '/api/admin/management/platform-settings'],
   ['PUT', '/api/admin/management/platform-settings', { timezone: 'UTC' }],
   ['GET', '/api/admin/management/email-settings'],
-  ['PUT', '/api/admin/management/email-settings', { sender_email: 'a@b.co' }],
-  ['GET', '/api/admin/management/email-settings-localized'],
-  ['PUT', '/api/admin/management/email-settings-localized', { locale: 'en' }],
+  // `reply_to_email` is the only field this route still takes; the rest were
+  // settings nothing read. `/email-settings-localized` is gone entirely —
+  // that table has no runtime consumer, so the routes only ever wrote a row
+  // nobody would look at.
+  ['PUT', '/api/admin/management/email-settings', { reply_to_email: 'a@b.co' }],
   ['PATCH', '/api/admin/management/feature-flags/f1', { enabled: true }],
   ['GET', '/api/admin/management/domains'],
   ['GET', '/api/admin/management/login-attempts?email=a@b.co'],

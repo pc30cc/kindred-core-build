@@ -89,36 +89,85 @@ describe('workspace provider settings still cover everything except email', () =
 // 7. The localized email-settings table is not in the send path.
 // ───────────────────────────────────────────────────────────────────────────
 
-describe('email_settings_localized is not a transport setting', () => {
-  it('the send path never reads it', () => {
-    expect(stripTs(read(SERVICE))).not.toContain('email_settings_localized');
+describe('Super Admin shows no email setting the runtime ignores', () => {
+  const page = read('src/pages/admin/BrandingPage.tsx');
+  const section = page.slice(page.indexOf('function EmailSettingsSection'));
+  const admin = read('server/routes/adminManagement.ts');
+
+  /**
+   * Every field that used to sit in Super Admin → Branding → Email Settings
+   * and was read by nothing. Six of the seven.
+   */
+  const DEAD = [
+    'sender_email',        // From identity lives on the email provider
+    'sender_name',         // same
+    'email_logo_url',      // no template has an <img> tag
+    'email_footer_text',   // no template has a footer placeholder
+    'footer_text',         // localized copy of the above
+    'support_contact_label',
+  ];
+
+  it('the section renders none of them', () => {
+    for (const field of DEAD) {
+      expect(stripTs(section), `${field} still rendered`).not.toMatch(new RegExp(`\\b${field}\\b`));
+    }
   });
 
-  it('the duplicate From fields are inert and labelled as such', () => {
-    // `email_settings.sender_email` and `email_settings_localized.sender_name`
-    // are a second place to answer "who is this from" and nothing reads
-    // either. They are still ACCEPTED — Super Admin → Branding still renders
-    // the inputs, and a field that silently discards what you type is worse
-    // than one that stores a value nobody reads. What matters is that the
-    // send path cannot reach them, which the test above proves, and that the
-    // schema says so out loud.
-    const admin = read('server/routes/adminManagement.ts');
-    const note = admin.slice(admin.indexOf('DEAD FIELDS'), admin.indexOf('const emailSettingsSchema'));
-    expect(note).toContain('NOTHING READS EITHER');
-    expect(note).toContain('resolveFromAddress');
+  it('the admin API accepts none of them', () => {
+    const schema = admin.slice(admin.indexOf('const emailSettingsSchema'));
+    const body = schema.slice(0, schema.indexOf('});'));
+    for (const field of DEAD) {
+      expect(body, `${field} still accepted`).not.toMatch(new RegExp(`\\b${field}:`));
+    }
+  });
 
-    // reply_to_email is NOT dead: widget.ts uses it as an offline-notification
-    // recipient, which is a different question from who the mail is from.
+  it('the localized email-settings routes are gone', () => {
+    // The table has no runtime consumer at all, so the routes only ever wrote
+    // a row nobody would read.
+    expect(stripTs(admin)).not.toContain("'/email-settings-localized'");
+    expect(stripTs(read('src/pages/admin/BrandingPage.tsx'))).not.toContain('email-settings-localized');
+  });
+
+  it('keeps reply_to_email, which has a real consumer', () => {
+    expect(section).toContain('reply_to_email');
+    const schema = admin.slice(admin.indexOf('const emailSettingsSchema'));
+    expect(schema.slice(0, schema.indexOf('});'))).toContain('reply_to_email');
+    // widget.ts sends an offline visitor message here when no operator has an
+    // address — a recipient, not a sender.
     expect(read('server/routes/widget.ts')).toContain('reply_to_email');
   });
 
-  it('nothing on the send side reads either dead field', () => {
+  it('labels it as a recipient, not as the From address', () => {
+    const en = read('src/i18n/locales/en.ts');
+    const block = en.slice(en.indexOf('emailSettings: {'));
+    const hint = block.slice(0, block.indexOf('}'));
+    expect(hint).toContain('replyToEmailHint');
+    expect(hint).toMatch(/NOT the From address/i);
+  });
+
+  it('the send path never reads the localized table', () => {
+    expect(stripTs(read(SERVICE))).not.toContain('email_settings_localized');
+  });
+
+  it('nothing on the send side reads either dead sender field', () => {
     for (const file of readdirSync('server/services/email')) {
       if (!file.endsWith('.ts')) continue;
       const body = stripTs(read(join('server/services/email', file)));
       expect(body, file).not.toMatch(/\bsender_email\b/);
       expect(body, file).not.toMatch(/\bsender_name\b/);
     }
+  });
+
+  it('no email template can express a logo or a footer, which is why they went', () => {
+    // The evidence for removing them rather than wiring them up: `{brand}` is
+    // the only branding hook the renderer provides, and the code-side wrapper
+    // has no slot for anything else.
+    const service = read(SERVICE);
+    expect(service).toContain('brand: await resolveBrandName');
+    expect(service).not.toMatch(/\blogo\b/i);
+    const wrapper = read('server/services/verification/templates.ts');
+    expect(wrapper).not.toMatch(/<img/i);
+    expect(wrapper).not.toMatch(/\bfooter\b/i);
   });
 });
 

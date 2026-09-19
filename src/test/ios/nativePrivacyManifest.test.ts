@@ -15,6 +15,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import plist from 'plist';
+import { MOBILE_APP_DEFAULTS } from '../../../server/services/mobileApp/settings';
 
 const APP = 'ios/WebyarNative';
 const MANIFEST = join(APP, 'Resources/PrivacyInfo.xcprivacy');
@@ -62,7 +63,12 @@ function code(path: string): string {
 }
 
 const manifest = plist.parse(readFileSync(MANIFEST, 'utf8')) as Record<string, unknown>;
-const project = readFileSync(PROJECT, 'utf8');
+/**
+ * Comments stripped, for the same reason the Swift sources are: this file
+ * explains at length which keys it deliberately does NOT set, and a check for
+ * an absent key must not be satisfied by the sentence saying it is absent.
+ */
+const project = readFileSync(PROJECT, 'utf8').replace(/#[^\n]*/g, '');
 const sources = swiftFiles(SOURCES).map(code).join('\n');
 
 describe('native privacy manifest — placement and shape', () => {
@@ -198,5 +204,30 @@ describe('native app — background modes are earned', () => {
       expect(sources).toMatch(/PKPushRegistry/);
       expect(sources).toMatch(/CXProvider/);
     }
+  });
+});
+
+describe('native app — export compliance agrees with the platform', () => {
+  it('answers exactly what Super Admin derives for the other binary', () => {
+    // generatedConfig.ts builds the Capacitor app's value as
+    // `uses_encryption && !encryption_exempt`. Both binaries are the same
+    // product making the same export claim, so a hardcoded answer here that
+    // disagrees with the platform's is the kind of thing nobody notices until
+    // a compliance question arrives.
+    const derived = MOBILE_APP_DEFAULTS.uses_encryption && !MOBILE_APP_DEFAULTS.encryption_exempt;
+    expect(project).toMatch(
+      new RegExp(`ITSAppUsesNonExemptEncryption:\\s*${derived}\\b`),
+    );
+  });
+
+  it('does not weaken App Transport Security to get there', () => {
+    // The neighbouring comment explains why this key is absent; the test is
+    // what keeps it absent.
+    expect(project).not.toContain('NSAppTransportSecurity');
+    expect(project).not.toContain('NSAllowsArbitraryLoads');
+    // And the client refuses a non-https origin regardless of what the
+    // platform hands it, which is what makes the absence safe.
+    const origin = readFileSync(join(SOURCES, 'Core/Networking/PlatformOrigin.swift'), 'utf8');
+    expect(origin).toMatch(/scheme\?\.lowercased\(\)\s*==\s*"https"/);
   });
 });

@@ -47,8 +47,26 @@ targets:
           UIColorName: LaunchBackground
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-        # The app talks to one fixed HTTPS origin; no ATS exceptions needed.
+        # Export compliance, NOT App Transport Security. The two get confused
+        # because both sound like "is the connection secure", and they are not
+        # the same question: this key answers the US export declaration that
+        # App Store Connect otherwise asks on every single upload.
+        #
+        # The answer mirrors the platform's own declared position rather than
+        # being an independent opinion. Super Admin holds `uses_encryption` and
+        # `encryption_exempt`, and generatedConfig.ts resolves the Capacitor
+        # app's value as `uses_encryption && !encryption_exempt`. This app is
+        # the same product making the same claim: it does use encryption, and
+        # it is the exempt kind — TLS and Keychain are iOS's own, and a call's
+        # DTLS-SRTP is standard WebRTC with nothing proprietary anywhere.
+        # `nativePrivacyManifest.test.ts` fails if the two ever disagree, so
+        # changing the position in Super Admin cannot silently leave this
+        # binary behind.
         ITSAppUsesNonExemptEncryption: false
+        # No NSAppTransportSecurity key on purpose — that is the other
+        # question. ATS's defaults already require HTTPS, and `PlatformOrigin`
+        # refuses to adopt an origin that is not https no matter what the
+        # platform answers, so there is no exception to ask for.
         # A call has to survive the operator locking the screen or switching
         # apps mid-sentence, which is exactly what this background mode is
         # for. No `voip` here: nothing rings, the operator always starts the

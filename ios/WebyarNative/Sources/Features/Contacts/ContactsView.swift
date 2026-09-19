@@ -31,7 +31,9 @@ final class ContactsViewModel {
             return
         }
         do {
-            state = .loaded(try await api.contacts(workspaceID: workspaceID))
+            let contacts = try await api.contacts(workspaceID: workspaceID)
+            state = .loaded(contacts)
+            await loadVisitors(contacts, workspaceID: workspaceID)
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()
         } catch let error as APIError {

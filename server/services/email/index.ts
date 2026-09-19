@@ -10,14 +10,33 @@ import { sendViaResend } from './providers/resend.js';
 import { sendViaSendGrid } from './providers/sendgrid.js';
 import { sendViaSMTP } from './providers/smtp.js';
 
+/**
+ * What a caller may ask this service to send.
+ *
+ * There is no `from` and no `replyTo`, and their absence is the rule rather
+ * than an oversight. Transport identity — who the mail is from — belongs to
+ * the platform email provider and to nothing else, so a caller cannot supply
+ * it and therefore cannot pass one through from a request body. That is
+ * exactly what happened: `POST /api/email/send-channel` read `from` off the
+ * JSON it was handed and passed it straight down, so any workspace with the
+ * email channel could send as any address it liked through the platform's own
+ * Resend account.
+ *
+ * Closing the route alone would not have been enough. The rule has to live
+ * here, in the service, or the next caller re-opens it.
+ *
+ * `replyTo` went for a different reason: it was accepted, typed and threaded
+ * all the way down — then dropped, because not one of the three providers ever
+ * put it in a payload. It is also not the same thing as
+ * `email_settings.reply_to_email`, which is a notification RECIPIENT, not a
+ * `Reply-To` header.
+ */
 export interface EmailRequest {
   workspaceId: string;
   to: string;
   subject?: string;
   html?: string;
   text?: string;
-  from?: string;
-  replyTo?: string;
   templateSlug?: string;
   templateData?: Record<string, string>;
   locale?: string;
@@ -198,12 +217,12 @@ async function resolveBrandName(supabase: SupabaseClient, locale: string): Promi
   return 'Platform';
 }
 
+/** Same rule as EmailRequest: the platform provider owns the From header. */
 export interface PlatformEmailRequest {
   to: string;
   subject: string;
   html?: string;
   text?: string;
-  from?: string;
 }
 
 /**
@@ -224,8 +243,8 @@ export async function sendPlatformEmail(
   const providerConfig = await resolveProviderConfig(supabase);
   const providerName = providerConfig?.provider_name || 'stub';
 
-  let fromAddr = request.from || '';
-  if (!fromAddr && providerConfig) {
+  let fromAddr = '';
+  if (providerConfig) {
     const resolved = await resolveFromAddress(supabase, providerConfig, 'en');
     if (resolved.error) return { success: false, provider: providerName, error: resolved.error };
     fromAddr = resolved.from;
@@ -270,7 +289,7 @@ export async function sendEmail(
   let subject = request.subject || '';
   let html = request.html || '';
   let text = request.text || '';
-  let fromAddr = request.from || '';
+  let fromAddr = '';
 
   if (templateSlug) {
     const tplLocale = locale || 'en';
@@ -297,7 +316,7 @@ export async function sendEmail(
   }
 
   // --- Resolve from address ---
-  if (!fromAddr && providerConfig) {
+  if (providerConfig) {
     const resolved = await resolveFromAddress(supabase, providerConfig, locale || 'en');
     if (resolved.error) return { success: false, provider: providerName, error: resolved.error };
     fromAddr = resolved.from;

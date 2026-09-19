@@ -364,3 +364,95 @@ describe('every send path uses the shared sender', () => {
     }
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// The From header cannot be supplied by a caller, at any layer.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('a caller cannot set the sender identity', () => {
+  beforeEach(() => {
+    fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: 'm' }), text: async () => '' });
+    vi.stubGlobal('fetch', fetchMock);
+    delete process.env.RESEND_API_KEY;
+    runtimeConfigValue = {
+      provider_name: 'resend',
+      config: { api_key: 'platform_key', from_email: 'platform@example.com', from_name: 'Platform Mail' },
+    };
+  });
+  afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
+
+  it('ignores a `from` smuggled past the type system', async () => {
+    const { sendEmail } = await import('../../../server/services/email/index');
+    // The type forbids this; a JSON body reaching an older route would not.
+    const smuggled = {
+      workspaceId: 'ws-1', to: 'victim@example.com', subject: 'S', html: '<p>b</p>',
+      from: 'Support <spoofed@attacker.example>',
+      replyTo: 'spoofed@attacker.example',
+    } as unknown as Parameters<typeof sendEmail>[1];
+
+    const result = await sendEmail(CONFIG, smuggled);
+    expect(result.success).toBe(true);
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.from).toBe('Platform Mail <platform@example.com>');
+    expect(body.from).not.toContain('attacker.example');
+    expect(JSON.stringify(body)).not.toContain('spoofed@attacker.example');
+  });
+
+  it('the same holds for the workspace-less platform sender', async () => {
+    const { sendPlatformEmail } = await import('../../../server/services/email/index');
+    const smuggled = {
+      to: 'victim@example.com', subject: 'S', html: '<p>b</p>',
+      from: 'spoofed@attacker.example',
+    } as unknown as Parameters<typeof sendPlatformEmail>[1];
+
+    await sendPlatformEmail(CONFIG, smuggled);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.from).toBe('Platform Mail <platform@example.com>');
+  });
+
+  it('resolves the From unconditionally, with no caller-supplied branch', () => {
+    const code = stripTs(read(SERVICE));
+    // `let fromAddr = request.from || ''` was the bypass: a value on the
+    // request short-circuited the resolver entirely.
+    expect(code).not.toMatch(/request\.from/);
+    expect(code).not.toMatch(/if \(!fromAddr/);
+    expect(code).not.toMatch(/\breplyTo\b/);
+  });
+
+  it('neither request type still offers the escape hatch', () => {
+    const code = read(SERVICE);
+    for (const name of ['EmailRequest', 'PlatformEmailRequest']) {
+      const block = code.slice(code.indexOf(`export interface ${name} {`));
+      const body = block.slice(0, block.indexOf('}'));
+      expect(body, `${name} still has from`).not.toMatch(/^\s*from\?:/m);
+      expect(body, `${name} still has replyTo`).not.toMatch(/^\s*replyTo\?:/m);
+    }
+  });
+
+  it('the send-channel route rejects the fields instead of dropping them', () => {
+    const route = read('server/routes/email.ts');
+    expect(route).toContain('.strict()');
+    expect(route).toContain('UNSUPPORTED_FIELDS');
+    // and no longer reads them off the body
+    expect(stripTs(route)).not.toMatch(/\bfrom\b\s*,|\breplyTo\b/);
+  });
+
+  it('the browser cannot even express it', () => {
+    const types = read('src/types/providers.ts');
+    const block = types.slice(types.indexOf('export interface EmailMessage {'));
+    const body = block.slice(0, block.indexOf('}'));
+    expect(body).not.toMatch(/\bfrom\?:/);
+    expect(body).not.toMatch(/\breplyTo\?:/);
+    expect(stripTs(read('src/providers/email/api.ts'))).not.toMatch(/from: message\.from|replyTo: message\.replyTo/);
+  });
+
+  it('replyTo reaches no provider, which is why it is gone', () => {
+    // It was accepted, typed and threaded all the way down, then dropped.
+    for (const file of readdirSync('server/services/email/providers')) {
+      if (!file.endsWith('.ts')) continue;
+      const body = stripTs(read(join('server/services/email/providers', file)));
+      expect(body, file).not.toMatch(/reply_to|replyTo/);
+    }
+  });
+});

@@ -285,8 +285,18 @@ private struct VoiceNoteView: View {
             .font(.caption2)
             .foregroundStyle(tint.opacity(0.7))
             .lineLimit(1)
-            .frame(maxWidth: .infinity, alignment: language == .fa ? .trailing : .leading)
-            .environment(\.layoutDirection, language.layoutDirection)
+            // Which end of the bar this sits under is decided physically, not
+            // by an alignment constant: `.trailing` means "right" only in a
+            // left-to-right context, so setting the direction *and* the
+            // alignment from the language cancels the two out and the caption
+            // lands back on the left. The direction is pinned, the side is
+            // chosen.
+            .frame(maxWidth: .infinity, alignment: isRightToLeft ? .trailing : .leading)
+            .environment(\.layoutDirection, .leftToRight)
+    }
+
+    private var isRightToLeft: Bool {
+        language.layoutDirection == .rightToLeft
     }
 
     private var loadingText: String {

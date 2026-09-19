@@ -869,6 +869,40 @@ enum Str {
         }
     }
 
+    // MARK: - Saved replies
+
+    static func shortcuts(_ l: Language) -> String {
+        switch l {
+        case .en: "Shortcuts"
+        case .fa: "میان‌برها"
+        case .tr: "Kısayollar"
+        }
+    }
+
+    static func searchShortcuts(_ l: Language) -> String {
+        switch l {
+        case .en: "Search shortcuts"
+        case .fa: "جست‌وجوی میان‌برها"
+        case .tr: "Kısayollarda ara"
+        }
+    }
+
+    static func shortcutsEmptyTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "No saved replies yet"
+        case .fa: "هنوز پاسخ آماده‌ای نیست"
+        case .tr: "Henüz hazır yanıt yok"
+        }
+    }
+
+    static func shortcutsEmptyBody(_ l: Language) -> String {
+        switch l {
+        case .en: "Add them in the console under Settings → Shortcuts. Everyone in the workspace can use them."
+        case .fa: "در کنسول، از تنظیمات ← میان‌برها اضافه‌شان کنید. همهٔ اعضای فضای کاری می‌توانند از آن‌ها استفاده کنند."
+        case .tr: "Konsolda Ayarlar → Kısayollar altından ekleyin. Çalışma alanındaki herkes kullanabilir."
+        }
+    }
+
     static func emoji(_ l: Language) -> String {
         switch l {
         case .en: "Emoji"

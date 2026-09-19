@@ -44,6 +44,29 @@ struct ChatView: View {
         )
     }
 
+    /// The saved replies, and what their placeholders resolve against.
+    ///
+    /// Withheld while the AI owns the thread, for the same reason the
+    /// attachment and voice controls are: the operator is steering the AI
+    /// there, not writing to the visitor, so a reply addressed to the visitor
+    /// would go to the wrong reader.
+    private var shortcuts: ShortcutSource? {
+        guard !capabilities.isAIManaged else { return nil }
+        return ShortcutSource(
+            workspaceID: appState.selectedWorkspace?.id,
+            context: CannedText.Context(
+                contactName: conversation.contact?.name,
+                contactEmail: conversation.contact?.email,
+                workspaceName: appState.selectedWorkspace?.name,
+                agentName: appState.session.user?.displayName,
+                agentEmail: appState.session.user?.email
+            ),
+            onUsed: { id in
+                model.recordShortcutUse(id, workspaceID: appState.selectedWorkspace?.id)
+            }
+        )
+    }
+
     var body: some View {
         @Bindable var model = model
 
@@ -143,7 +166,8 @@ struct ChatView: View {
                                 appState: appState
                             )
                         }
-                    }
+                    },
+                    shortcuts: shortcuts
                 )
             }
             .task {
@@ -410,6 +434,7 @@ struct MessageRow: View {
             .environment(\.layoutDirection, .leftToRight)
             .padding(.vertical, Theme.Space.xxs)
             .accessibilityElement(children: .combine)
+            .accessibilityIdentifier(A11y.messageRow(message.id))
         }
     }
 

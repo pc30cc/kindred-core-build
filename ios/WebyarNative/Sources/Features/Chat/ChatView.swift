@@ -385,7 +385,7 @@ struct MessageRow: View {
                 // alignment then lined the avatar up with the bottom of the
                 // *timestamp*, pushing the picture below the bubble. It is
                 // outside now, so "bottom" means the bubble's bottom.
-                HStack(alignment: .bottom, spacing: Theme.Space.sm) {
+                HStack(alignment: .bottom, spacing: Theme.Space.xs) {
                     if isOutgoing {
                         Spacer(minLength: Theme.Space.xl)
                         bubbleColumn
@@ -452,37 +452,63 @@ struct MessageRow: View {
     /// for the contents, so Persian text is still laid out right-to-left
     /// inside a bubble that happens to sit on the left.
     private var bubbleColumn: some View {
+        // The column's own alignment stays physical — it inherits the row's
+        // pinned left-to-right. Setting the language's direction *here* was
+        // the bug behind a voice note captioned "یسبسیب": the caption is the
+        // narrower of the two bubbles, `.trailing` resolved to left under
+        // Persian, and the operator's own words ended up hugging the middle of
+        // the screen instead of the face beside them. Each bubble puts the
+        // reader's direction back for its own contents.
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: Theme.Space.xxs) {
             // Files first, then whatever was typed with them. A message can
             // be only files — a photo, a voice note, a document — and its
             // body is then empty, which is why the text bubble is skipped
             // rather than drawn empty. An empty rounded rectangle beside a
             // photo was exactly how this looked before.
-            ForEach(message.attachments ?? []) { attachment in
+            ForEach(Array(attachments.enumerated()), id: \.element.id) { index, attachment in
                 AttachmentView(
                     attachment: attachment,
                     isOutgoing: isOutgoing,
-                    language: language
+                    language: language,
+                    hasBeak: index == beakedAttachment
                 )
+                .environment(\.layoutDirection, language.layoutDirection)
             }
 
             if !message.isAttachmentOnly {
-                Text(message.body)
-                    .font(Theme.Typo.message)
-                    .foregroundStyle(isOutgoing ? Theme.Palette.bubbleOutgoingText : Theme.Palette.bubbleIncomingText)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, Theme.Space.md)
-                    .padding(.vertical, Theme.Space.sm + 2)
-                    .background(
-                        RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
-                            .fill(isOutgoing ? Theme.Palette.bubbleOutgoing : Theme.Palette.bubbleIncoming)
-                    )
-                    .textSelection(.enabled)
+                textBubble
             }
-
         }
-        .environment(\.layoutDirection, language.layoutDirection)
+    }
+
+    private var attachments: [MessageAttachment] { message.attachments ?? [] }
+
+    /// Which attachment, if any, carries the beak.
+    ///
+    /// Only the last thing drawn in the last message of a run gets one, and
+    /// when the message also has text that last thing is the text.
+    private var beakedAttachment: Int {
+        guard showsAvatar, message.isAttachmentOnly else { return -1 }
+        return attachments.count - 1
+    }
+
+    private var textBubble: some View {
+        Text(message.body)
+            .font(Theme.Typo.message)
+            .foregroundStyle(isOutgoing ? Theme.Palette.bubbleOutgoingText : Theme.Palette.bubbleIncomingText)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, Theme.Space.md)
+            .padding(.vertical, Theme.Space.sm + 2)
+            // Inside the bubble the words read in their own direction; the
+            // bubble's shape and its place in the column do not.
+            .environment(\.layoutDirection, language.layoutDirection)
+            .chatBubble(
+                isOutgoing ? Theme.Palette.bubbleOutgoing : Theme.Palette.bubbleIncoming,
+                hasBeak: showsAvatar,
+                pointsRight: isOutgoing
+            )
+            .textSelection(.enabled)
     }
 
     /// Who answered and when.
@@ -510,7 +536,7 @@ struct MessageRow: View {
 
     /// The width the avatar column takes, including the gap after it.
     private var avatarGutter: CGFloat {
-        (Theme.Size.avatarSmall - 4) + Theme.Space.sm
+        (Theme.Size.avatarSmall - 4) + Theme.Space.xs
     }
 
     private var systemNote: some View {

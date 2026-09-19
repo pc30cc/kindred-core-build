@@ -73,17 +73,32 @@ struct AttachmentView: View {
     let attachment: MessageAttachment
     let isOutgoing: Bool
     let language: Language
+    /// True on the last thing drawn in the last message of a run, which is
+    /// the one the avatar sits beside.
+    var hasBeak: Bool = false
 
     var body: some View {
         switch attachment.resolvedKind {
         case .image:
-            ImageAttachmentView(attachment: attachment, language: language)
+            ImageAttachmentView(
+                attachment: attachment, isOutgoing: isOutgoing,
+                language: language, hasBeak: hasBeak
+            )
         case .audio:
-            VoiceNoteView(attachment: attachment, isOutgoing: isOutgoing, language: language)
+            VoiceNoteView(
+                attachment: attachment, isOutgoing: isOutgoing,
+                language: language, hasBeak: hasBeak
+            )
         case .video:
-            VideoAttachmentView(attachment: attachment, language: language)
+            VideoAttachmentView(
+                attachment: attachment, isOutgoing: isOutgoing,
+                language: language, hasBeak: hasBeak
+            )
         case .file:
-            FileAttachmentView(attachment: attachment, isOutgoing: isOutgoing, language: language)
+            FileAttachmentView(
+                attachment: attachment, isOutgoing: isOutgoing,
+                language: language, hasBeak: hasBeak
+            )
         }
     }
 }
@@ -93,7 +108,9 @@ struct AttachmentView: View {
 /// A photo, at its own proportions inside a fixed box, opening full screen.
 private struct ImageAttachmentView: View {
     let attachment: MessageAttachment
+    let isOutgoing: Bool
     let language: Language
+    let hasBeak: Bool
 
     @State private var state: MediaState = .loading
     @State private var isOpen = false
@@ -110,15 +127,17 @@ private struct ImageAttachmentView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(maxWidth: 220, maxHeight: 260)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
-                    .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
+                    // A photo is its own bubble, so the beak is cut out of it
+                    // rather than drawn behind it.
+                    .chatBubbleClip(hasBeak: hasBeak, pointsRight: isOutgoing)
                     .onTapGesture { isOpen = true }
             } else if case .failed = state {
                 FileCard(
                     icon: "photo",
                     title: attachment.displayName ?? Str.photo(language),
                     subtitle: Str.attachmentFailed(language),
-                    isOutgoing: false
+                    isOutgoing: isOutgoing,
+                    hasBeak: hasBeak
                 )
             } else {
                 placeholder
@@ -135,7 +154,7 @@ private struct ImageAttachmentView: View {
     /// A box the size the photo will be, so the bubble does not jump when the
     /// bytes land.
     private var placeholder: some View {
-        RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+        ChatBubble(radius: Theme.Radius.lg, hasBeak: hasBeak, pointsRight: isOutgoing)
             .fill(Theme.Palette.surfaceElevated)
             .frame(width: 180, height: 132)
             .overlay {
@@ -210,6 +229,7 @@ private struct VoiceNoteView: View {
     let attachment: MessageAttachment
     let isOutgoing: Bool
     let language: Language
+    let hasBeak: Bool
 
     @State private var player: AudioNotePlayer?
     @State private var state: MediaState = .loading
@@ -228,9 +248,10 @@ private struct VoiceNoteView: View {
         .padding(.horizontal, Theme.Space.md)
         .padding(.vertical, Theme.Space.sm + 2)
         .frame(width: 236)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
-                .fill(isOutgoing ? Theme.Palette.bubbleOutgoing : Theme.Palette.bubbleIncoming)
+        .chatBubble(
+            isOutgoing ? Theme.Palette.bubbleOutgoing : Theme.Palette.bubbleIncoming,
+            hasBeak: hasBeak,
+            pointsRight: isOutgoing
         )
         .task { await load() }
         .onDisappear { player?.stop() }
@@ -429,7 +450,9 @@ final class AudioNotePlayer {
 
 private struct VideoAttachmentView: View {
     let attachment: MessageAttachment
+    let isOutgoing: Bool
     let language: Language
+    let hasBeak: Bool
 
     @State private var url: URL?
     @State private var failed = false
@@ -439,16 +462,17 @@ private struct VideoAttachmentView: View {
             if let url {
                 VideoPlayer(player: AVPlayer(url: url))
                     .frame(width: 240, height: 160)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
+                    .chatBubbleClip(hasBeak: hasBeak, pointsRight: isOutgoing)
             } else if failed {
                 FileCard(
                     icon: "video",
                     title: attachment.displayName ?? Str.videoFile(language),
                     subtitle: Str.attachmentFailed(language),
-                    isOutgoing: false
+                    isOutgoing: isOutgoing,
+                    hasBeak: hasBeak
                 )
             } else {
-                RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                ChatBubble(radius: Theme.Radius.lg, hasBeak: hasBeak, pointsRight: isOutgoing)
                     .fill(Theme.Palette.surfaceElevated)
                     .frame(width: 240, height: 160)
                     .overlay {
@@ -484,6 +508,7 @@ private struct FileAttachmentView: View {
     let attachment: MessageAttachment
     let isOutgoing: Bool
     let language: Language
+    let hasBeak: Bool
 
     @State private var url: URL?
     @State private var isOpening = false
@@ -497,7 +522,8 @@ private struct FileAttachmentView: View {
                 icon: failed ? "doc.badge.ellipsis" : "doc.fill",
                 title: attachment.displayName ?? Str.file(language),
                 subtitle: subtitle,
-                isOutgoing: isOutgoing
+                isOutgoing: isOutgoing,
+                hasBeak: hasBeak
             )
         }
         .buttonStyle(.plain)
@@ -533,6 +559,7 @@ private struct FileCard: View {
     let title: String
     var subtitle: String?
     let isOutgoing: Bool
+    var hasBeak: Bool = false
 
     private var tint: Color {
         isOutgoing ? Theme.Palette.bubbleOutgoingText : Theme.Palette.bubbleIncomingText
@@ -563,9 +590,10 @@ private struct FileCard: View {
         .padding(.horizontal, Theme.Space.md)
         .padding(.vertical, Theme.Space.sm)
         .frame(maxWidth: 236, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
-                .fill(isOutgoing ? Theme.Palette.bubbleOutgoing : Theme.Palette.bubbleIncoming)
+        .chatBubble(
+            isOutgoing ? Theme.Palette.bubbleOutgoing : Theme.Palette.bubbleIncoming,
+            hasBeak: hasBeak,
+            pointsRight: isOutgoing
         )
     }
 }

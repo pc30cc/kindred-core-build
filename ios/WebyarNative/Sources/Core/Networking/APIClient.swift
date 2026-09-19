@@ -561,6 +561,79 @@ actor APIClient {
         return try await perform(request, as: InboxCounts.self)
     }
 
+    // MARK: - Email inbox
+    //
+    // `/api/email-inbox` is not `/api/email`: the second is the outbound
+    // transactional sender the platform has always had, and the first is this
+    // — an actual mailbox, inbound and outbound, behind the workspace's
+    // Gmail connection. The server keeps them apart deliberately; so does
+    // this client.
+
+    func emailThreads(workspaceID: String, search: String? = nil) async throws -> [EmailThreadSummary] {
+        var query: [URLQueryItem] = [URLQueryItem(name: "limit", value: "50")]
+        if let search, !search.isEmpty { query.append(URLQueryItem(name: "q", value: search)) }
+        let request = try makeRequest("GET", "/api/email-inbox/\(workspaceID)/threads", query: query)
+        return try await perform(request, as: EmailThreadsResponse.self).threads
+    }
+
+    func emailThread(workspaceID: String, threadID: String) async throws -> EmailThreadResponse {
+        let request = try makeRequest("GET", "/api/email-inbox/\(workspaceID)/threads/\(threadID)")
+        return try await perform(request, as: EmailThreadResponse.self)
+    }
+
+    private struct EmailReadBody: Encodable, Sendable { let is_read: Bool }
+
+    func setEmailThreadRead(workspaceID: String, threadID: String, isRead: Bool) async throws {
+        let request = try makeRequest(
+            "POST", "/api/email-inbox/\(workspaceID)/threads/\(threadID)/read",
+            body: EmailReadBody(is_read: isRead)
+        )
+        try await performIgnoringBody(request)
+    }
+
+    private struct EmailStarBody: Encodable, Sendable { let starred: Bool }
+
+    func setEmailThreadStarred(workspaceID: String, threadID: String, starred: Bool) async throws {
+        let request = try makeRequest(
+            "POST", "/api/email-inbox/\(workspaceID)/threads/\(threadID)/star",
+            body: EmailStarBody(starred: starred)
+        )
+        try await performIgnoringBody(request)
+    }
+
+    private struct EmailSendBody: Encodable, Sendable {
+        let thread_id: String?
+        let to: [String]
+        let subject: String
+        let text_body: String
+    }
+
+    func sendEmail(
+        workspaceID: String,
+        threadID: String?,
+        to: [String],
+        subject: String,
+        body: String
+    ) async throws {
+        let request = try makeRequest(
+            "POST", "/api/email-inbox/\(workspaceID)/send",
+            body: EmailSendBody(thread_id: threadID, to: to, subject: subject, text_body: body)
+        )
+        try await performIgnoringBody(request)
+    }
+
+    /// Whose mailbox this is, or nil when none is connected.
+    ///
+    /// A failure here is not an error state: the thread list is the screen,
+    /// and the address is a caption on it.
+    func gmailConnection(workspaceID: String) async throws -> GmailConnection? {
+        let request = try makeRequest(
+            "GET", "/api/plugins/gmail/connection",
+            query: [URLQueryItem(name: "workspace_id", value: workspaceID)]
+        )
+        return try await perform(request, as: GmailConnectionResponse.self).connection
+    }
+
     private struct ClaimBody: Encodable, Sendable {
         let workspace_id: String
     }
@@ -723,6 +796,7 @@ enum InboxFilter: String, CaseIterable, Identifiable, Sendable {
     case needsHuman
     case ai
     case resolved
+    case spam
 
     var id: String { rawValue }
 
@@ -730,6 +804,7 @@ enum InboxFilter: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .open, .needsHuman, .resolved: "main"
         case .ai: "automated"
+        case .spam: "spam"
         }
     }
 
@@ -737,7 +812,25 @@ enum InboxFilter: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .open, .needsHuman: "open"
         case .resolved: "resolved"
-        case .ai: nil
+        case .ai, .spam: nil
+        }
+    }
+
+    /// What this queue is called where it names the screen rather than a chip.
+    ///
+    /// The main queue is simply "the inbox" in that position — nobody calls
+    /// the screen they land on "Open".
+    func headerTitle(_ language: Language) -> String {
+        self == .open ? Str.tabInbox(language) : title(language)
+    }
+
+    var icon: String {
+        switch self {
+        case .open: "tray"
+        case .needsHuman: "person.wave.2"
+        case .ai: "sparkles"
+        case .resolved: "checkmark.circle"
+        case .spam: "exclamationmark.octagon"
         }
     }
 
@@ -750,6 +843,7 @@ enum InboxFilter: String, CaseIterable, Identifiable, Sendable {
         case .needsHuman: Str.filterNeedsHuman(language)
         case .ai: Str.filterAI(language)
         case .resolved: Str.filterResolved(language)
+        case .spam: Str.filterSpam(language)
         }
     }
 
@@ -764,6 +858,21 @@ enum InboxFilter: String, CaseIterable, Identifiable, Sendable {
         if entitlements?.featureEnabled("inbox_needs_human") == true { filters.append(.needsHuman) }
         if entitlements?.featureEnabled("inbox_ai_queue") == true { filters.append(.ai) }
         filters.append(.resolved)
+        filters.append(.spam)
+        return filters
+    }
+
+    /// The two queues that stay on the strip above the list.
+    ///
+    /// The rest moved into the menu behind the screen's own title, which is
+    /// where the console keeps them too: its top strip carries Open and AI
+    /// and its sidebar carries the whole list. Four chips across a phone left
+    /// no room for the counts, and two of them — Resolved and the AI handover
+    /// queue — are places you go now and then rather than switch between all
+    /// day.
+    static func chips(for entitlements: Entitlements?) -> [InboxFilter] {
+        var filters: [InboxFilter] = [.open]
+        if entitlements?.featureEnabled("inbox_ai_queue") == true { filters.append(.ai) }
         return filters
     }
 }

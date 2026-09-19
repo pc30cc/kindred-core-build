@@ -275,4 +275,19 @@ final class AppState {
     var inboxFilters: [InboxFilter] {
         InboxFilter.available(for: entitlements.value)
     }
+
+    /// The subset of those that stay on the strip above the list.
+    var inboxChips: [InboxFilter] {
+        InboxFilter.chips(for: entitlements.value)
+    }
+
+    /// Whether the mailbox belongs in this plan.
+    ///
+    /// `moduleEnabled` rather than `moduleInPlan`: the Email Inbox is off by
+    /// default in the capability registry, so an absent key means "not
+    /// granted" here rather than "a module this build has not heard of". An
+    /// entry that opens onto a 403 is worse than no entry.
+    var emailInboxVisible: Bool {
+        entitlements.value?.moduleEnabled("email_inbox") == true
+    }
 }

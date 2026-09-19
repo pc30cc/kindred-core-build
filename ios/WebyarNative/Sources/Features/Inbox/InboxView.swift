@@ -1,6 +1,12 @@
 import SwiftUI
 
+/// Where the inbox's own navigation stack can go besides a conversation.
+enum InboxRoute: Hashable { case email }
+
 struct InboxView: View {
+    /// The tab's navigation stack, so the title menu can push the mailbox.
+    @Binding var path: NavigationPath
+
     @Environment(AppState.self) private var appState
     @Environment(\.locale) private var locale
     @State private var model = InboxViewModel()
@@ -14,12 +20,17 @@ struct InboxView: View {
         @Bindable var model = model
 
         content
-            // A small inline title, not a large one: it names the screen in
-            // the 44 points the navigation bar costs anyway, and it gives the
-            // search and filter buttons somewhere to live.
-            .navigationTitle(Str.tabInbox(language))
+            // The screen's name sits on the leading edge rather than centred —
+            // right in Persian, left in English, which is where the console
+            // puts it — and it is also the button that opens the list of every
+            // inbox this plan grants. An empty centred title keeps the bar
+            // from drawing a second one over it.
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { toolbarButtons }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { inboxMenu }
+                toolbarButtons
+            }
             .floatingTabBarInset()
             .sheet(isPresented: $isFiltering) {
                 InboxFilterSheet(filter: $model.fieldFilter, language: language)
@@ -64,7 +75,7 @@ struct InboxView: View {
         ) {
             FilterPicker(
                 selection: $model.filter,
-                filters: appState.inboxFilters,
+                filters: appState.inboxChips,
                 counts: model.counts,
                 language: language
             )
@@ -142,6 +153,48 @@ struct InboxView: View {
         .navigationDestination(for: Conversation.self) { conversation in
             ChatView(conversation: conversation)
         }
+        .navigationDestination(for: InboxRoute.self) { route in
+            switch route {
+            case .email: EmailInboxView()
+            }
+        }
+    }
+
+    /// The screen's title, and the menu of every inbox behind it.
+    ///
+    /// The strip above the list keeps the two queues an operator moves between
+    /// all day; everything else — the AI handover queue, Resolved, Spam, and
+    /// the mailbox — lives here, which is how the console arranges it too.
+    private var inboxMenu: some View {
+        @Bindable var model = model
+        return Menu {
+            Picker(Str.allInboxes(language), selection: $model.filter) {
+                ForEach(appState.inboxFilters) { filter in
+                    Label(filter.title(language), systemImage: filter.icon).tag(filter)
+                }
+            }
+            .pickerStyle(.inline)
+
+            if appState.emailInboxVisible {
+                Divider()
+                Button {
+                    path.append(InboxRoute.email)
+                } label: {
+                    Label(Str.emailInbox(language), systemImage: "envelope")
+                }
+            }
+        } label: {
+            HStack(spacing: Theme.Space.xs) {
+                Text(model.filter.headerTitle(language))
+                    .font(.headline)
+                    .foregroundStyle(Theme.Palette.label)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Theme.Palette.labelSecondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel(Str.allInboxes(language))
     }
 
     @ToolbarContentBuilder

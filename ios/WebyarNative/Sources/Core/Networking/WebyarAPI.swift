@@ -35,6 +35,13 @@ protocol WebyarAPI: Sendable {
     func setStatus(_ status: ConversationStatus, conversationID: String, workspaceID: String) async throws
     func claim(conversationID: String, workspaceID: String) async throws
     func inboxCounts(workspaceID: String, scope: String) async throws -> InboxCounts
+    // Email Inbox — a real mailbox, on its own `/api/email-inbox` surface.
+    func emailThreads(workspaceID: String, search: String?) async throws -> [EmailThreadSummary]
+    func emailThread(workspaceID: String, threadID: String) async throws -> EmailThreadResponse
+    func setEmailThreadRead(workspaceID: String, threadID: String, isRead: Bool) async throws
+    func setEmailThreadStarred(workspaceID: String, threadID: String, starred: Bool) async throws
+    func sendEmail(workspaceID: String, threadID: String?, to: [String], subject: String, body: String) async throws
+    func gmailConnection(workspaceID: String) async throws -> GmailConnection?
     func contacts(workspaceID: String) async throws -> [Contact]
     func visitorIntel(workspaceID: String, conversationIDs: [String]) async throws -> [String: VisitorProfile]
     func visitorIntel(workspaceID: String, contactIDs: [String]) async throws -> [String: VisitorProfile]
@@ -135,7 +142,7 @@ enum LanguageOverride {
 /// and to an auto-signed-in run against the real server alike — the point is
 /// to reach a screen, not to choose where its content comes from.
 enum SampleRoute: String {
-    case inbox, chat, aiChat, call, videoCall, contacts, contact, settings, profile, security
+    case inbox, chat, aiChat, call, videoCall, contacts, contact, settings, profile, security, email
 
     static let current: SampleRoute? = {
         let arguments = ProcessInfo.processInfo.arguments

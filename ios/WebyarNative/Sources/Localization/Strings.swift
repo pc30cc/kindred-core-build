@@ -187,6 +187,121 @@ enum Str {
         }
     }
 
+    static func filterSpam(_ l: Language) -> String {
+        switch l {
+        case .en: "Spam"
+        case .fa: "هرزنامه"
+        case .tr: "Spam"
+        }
+    }
+
+    /// The menu behind the inbox title: every inbox this plan grants.
+    static func allInboxes(_ l: Language) -> String {
+        switch l {
+        case .en: "Inboxes"
+        case .fa: "صندوق‌ها"
+        case .tr: "Gelen kutuları"
+        }
+    }
+
+    // MARK: - Email inbox
+
+    static func emailInbox(_ l: Language) -> String {
+        switch l {
+        case .en: "Email"
+        case .fa: "ایمیل"
+        case .tr: "E-posta"
+        }
+    }
+
+    static func emailEmptyTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "No email"
+        case .fa: "ایمیلی نیست"
+        case .tr: "E-posta yok"
+        }
+    }
+
+    static func emailEmptyBody(_ l: Language) -> String {
+        switch l {
+        case .en: "New mail in this mailbox will appear here."
+        case .fa: "ایمیل‌های تازهٔ این صندوق اینجا نشان داده می‌شوند."
+        case .tr: "Bu posta kutusuna gelen yeni e-postalar burada görünür."
+        }
+    }
+
+    static func emailNotConnectedTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Mailbox not connected"
+        case .fa: "صندوق ایمیل وصل نیست"
+        case .tr: "Posta kutusu bağlı değil"
+        }
+    }
+
+    static func emailNotConnectedBody(_ l: Language) -> String {
+        switch l {
+        case .en: "Connect a mailbox in the web console under Email, then it will open here too."
+        case .fa: "در کنسول وب، بخش ایمیل، یک صندوق وصل کنید؛ بعد از آن اینجا هم باز می‌شود."
+        case .tr: "Web konsolunda E-posta bölümünden bir posta kutusu bağlayın; sonra burada da açılır."
+        }
+    }
+
+    static func emailNoSubject(_ l: Language) -> String {
+        switch l {
+        case .en: "(no subject)"
+        case .fa: "(بدون موضوع)"
+        case .tr: "(konu yok)"
+        }
+    }
+
+    static func emailReply(_ l: Language) -> String {
+        switch l {
+        case .en: "Reply"
+        case .fa: "پاسخ"
+        case .tr: "Yanıtla"
+        }
+    }
+
+    static func emailReplyPlaceholder(_ l: Language) -> String {
+        switch l {
+        case .en: "Write a reply"
+        case .fa: "پاسخ بنویسید"
+        case .tr: "Bir yanıt yazın"
+        }
+    }
+
+    static func emailSend(_ l: Language) -> String {
+        switch l {
+        case .en: "Send"
+        case .fa: "ارسال"
+        case .tr: "Gönder"
+        }
+    }
+
+    static func emailStar(_ l: Language) -> String {
+        switch l {
+        case .en: "Star"
+        case .fa: "ستاره"
+        case .tr: "Yıldız"
+        }
+    }
+
+    static func emailMarkUnread(_ l: Language) -> String {
+        switch l {
+        case .en: "Mark as unread"
+        case .fa: "علامت خوانده‌نشده"
+        case .tr: "Okunmadı olarak işaretle"
+        }
+    }
+
+    static func emailSendFailed(_ l: Language) -> String {
+        switch l {
+        case .en: "The reply was not sent. Try again."
+        case .fa: "پاسخ فرستاده نشد. دوباره تلاش کنید."
+        case .tr: "Yanıt gönderilemedi. Tekrar deneyin."
+        }
+    }
+
     static func inboxEmptyTitle(_ l: Language) -> String {
         switch l {
         case .en: "No conversations"

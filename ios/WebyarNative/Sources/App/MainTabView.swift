@@ -91,7 +91,7 @@ struct MainTabView: View {
     var body: some View {
         TabView(selection: $selection) {
             NavigationStack(path: $inboxPath) {
-                InboxView()
+                InboxView(path: $inboxPath)
             }
             .toolbar(.hidden, for: .tabBar)
             .tag(Tab.inbox)
@@ -199,6 +199,10 @@ struct MainTabView: View {
             select(.settings)
             guard settingsPath.isEmpty else { return }
             settingsPath.append(SampleRoute.current == .profile ? SettingsRoute.profile : .security)
+
+        case .email:
+            guard inboxPath.isEmpty, appState.emailInboxVisible else { return }
+            inboxPath.append(InboxRoute.email)
 
         case .inbox, .none:
             break

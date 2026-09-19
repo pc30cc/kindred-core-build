@@ -21,6 +21,9 @@ struct InboxCounts: Codable, Sendable {
         case .ai: automated
         case .needsHuman: needsHuman
         case .resolved: resolved
+        // `inbox-tab-counts` does not count the spam queue, and a queue you
+        // visit to empty it does not need a badge anyway.
+        case .spam: nil
         }
     }
 }

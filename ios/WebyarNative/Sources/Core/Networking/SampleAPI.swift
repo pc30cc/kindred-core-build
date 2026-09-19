@@ -54,6 +54,9 @@ actor SampleAPI: WebyarAPI {
         case .needsHuman: all.filter { ($0.status == .open || $0.status == .pending) && $0.assignedTo == nil }
         case .resolved: all.filter { $0.status == .resolved || $0.status == .closed }
         case .ai: all.filter { $0.lastMessage?.senderType == "ai" }
+        // Nothing in the sample set is spam, and an empty queue is the
+        // honest picture of a healthy workspace.
+        case .spam: []
         }
     }
 
@@ -237,6 +240,64 @@ actor SampleAPI: WebyarAPI {
         InboxCounts(open: 4, pending: 0, resolved: 1, all: 6, needsHuman: 2, automated: 1)
     }
 
+    // MARK: - Email inbox
+
+    func emailThreads(workspaceID: String, search: String?) async throws -> [EmailThreadSummary] {
+        let threads = [
+            EmailThreadSummary(
+                id: "e-1", provider: "gmail", subject: "Invoice for August",
+                participants: [EmailAddress(email: "billing@northwind.example")],
+                lastMessageAt: Date().addingTimeInterval(-3_600), isRead: false, isStarred: true,
+                labels: ["INBOX"], lastMessageSnippet: "Attached is the invoice for August."
+            ),
+            EmailThreadSummary(
+                id: "e-2", provider: "gmail", subject: "Re: Widget not loading on Safari",
+                participants: [EmailAddress(email: "lena@acme.example")],
+                lastMessageAt: Date().addingTimeInterval(-86_400), isRead: true, isStarred: false,
+                labels: ["INBOX"], lastMessageSnippet: "That fixed it, thank you."
+            ),
+        ]
+        guard let search, !search.isEmpty else { return threads }
+        return threads.filter { ($0.subject ?? "").localizedCaseInsensitiveContains(search) }
+    }
+
+    func emailThread(workspaceID: String, threadID: String) async throws -> EmailThreadResponse {
+        let thread = try await emailThreads(workspaceID: workspaceID, search: nil)
+            .first { $0.id == threadID }
+        let summary = thread ?? EmailThreadSummary(
+            id: threadID, provider: "gmail", subject: nil, participants: nil,
+            lastMessageAt: Date(), isRead: true, isStarred: false, labels: nil, lastMessageSnippet: nil
+        )
+        return EmailThreadResponse(thread: summary, messages: [
+            EmailMessageView(
+                id: "em-1", externalMessageId: "x-1", direction: "inbound",
+                fromAddress: summary.participants?.first?.email ?? "someone@example.com",
+                toAddresses: [EmailAddress(email: "support@webyar.example")], ccAddresses: [],
+                textBody: "Hello — could you take a look at this when you get a moment?",
+                htmlBody: nil, snippet: nil, isRead: true, deliveryStatus: "sent",
+                deliveryError: nil, sentAt: Date().addingTimeInterval(-7_200), attachments: []
+            ),
+            EmailMessageView(
+                id: "em-2", externalMessageId: "x-2", direction: "outbound",
+                fromAddress: "support@webyar.example",
+                toAddresses: summary.participants ?? [], ccAddresses: [],
+                textBody: "Of course — looking now.", htmlBody: nil, snippet: nil,
+                isRead: true, deliveryStatus: "sent", deliveryError: nil,
+                sentAt: Date().addingTimeInterval(-3_600), attachments: []
+            ),
+        ])
+    }
+
+    func setEmailThreadRead(workspaceID: String, threadID: String, isRead: Bool) async throws {}
+    func setEmailThreadStarred(workspaceID: String, threadID: String, starred: Bool) async throws {}
+    func sendEmail(
+        workspaceID: String, threadID: String?, to: [String], subject: String, body: String
+    ) async throws {}
+
+    func gmailConnection(workspaceID: String) async throws -> GmailConnection? {
+        GmailConnection(connected: true, emailAddress: "support@webyar.example", status: "connected")
+    }
+
     // MARK: - Plan
     //
     // The sample plan turns everything on, because the point of sample mode is
@@ -263,6 +324,7 @@ actor SampleAPI: WebyarAPI {
                 "contacts": on,
                 "call_center": on,
                 "visitor_tracking": on,
+                "email_inbox": on,
             ],
             channels: ["chat_widget": on],
             limits: [:],

@@ -761,7 +761,31 @@ adminManagementRouter.get('/email-settings', async (req, res) => {
   return res.json({ settings: data });
 });
 
+/**
+ * DEAD FIELDS, kept only because removing them would lie to the admin.
+ *
+ * `sender_email` here and `sender_name` on the localized schema below are a
+ * second place to answer "who is this mail from", and NOTHING READS EITHER.
+ * The From header is built entirely from the platform email provider's
+ * `from_email` / `from_name` (Super Admin → Providers → Email) — see
+ * `resolveFromAddress` in server/services/email/index.ts, which is the only
+ * code that decides a sender. An admin who fills these in gets a saved form
+ * and no change in behaviour.
+ *
+ * They are still accepted because Super Admin → Branding → Email Settings
+ * still renders the inputs, and a field that silently discards what you type
+ * is worse than one that stores a value nobody reads. Removing the inputs is
+ * blocked by an unrelated problem: src/pages/admin/BrandingPage.tsx carries
+ * 154 pre-existing `no-explicit-any` errors, and `lint:changed` requires every
+ * touched file to be completely clean, so any edit to that page drags in a
+ * large unrelated refactor. The two go together or not at all.
+ *
+ * `reply_to_email` below is NOT dead: server/routes/widget.ts uses it as the
+ * recipient for offline notifications when no operator has an address, which
+ * is a different question from who the mail is from.
+ */
 const emailSettingsSchema = z.object({
+  /** Dead — see the note above. Accepted, stored, never read. */
   sender_email: z.string().max(255).default(''),
   reply_to_email: z.string().max(255).default(''),
   email_logo_url: z.string().max(2000).default(''),
@@ -799,7 +823,11 @@ adminManagementRouter.get('/email-settings-localized', async (req, res) => {
 
 const emailSettingsLocalizedSchema = z.object({
   locale: z.string().min(2).max(10),
+  /** Dead — see the note on emailSettingsSchema. The From name comes from the
+   *  provider config; the brand a template prints comes from
+   *  platform_branding_localized. */
   sender_name: z.string().max(255).nullable().optional(),
+
   footer_text: z.string().max(4000).nullable().optional(),
   support_contact_label: z.string().max(255).nullable().optional(),
 });

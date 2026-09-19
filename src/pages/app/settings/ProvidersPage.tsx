@@ -19,7 +19,7 @@ import { toast } from '@/lib/toast';
 import {
   useWorkspaceProviders, useUpsertWsProvider, useDeleteWsProvider,
   maskSecret, getProviderStatus,
-  type WsProviderType,
+  type WsProviderType, type WsProviderSetting,
 } from '@/hooks/useWorkspaceProviders';
 import { WorkspacePrivacyStorageCard } from '@/features/providers/WorkspacePrivacyStorageCard';
 import { WorkspaceCallSettingsCard } from '@/features/providers/WorkspaceCallSettingsCard';
@@ -37,208 +37,23 @@ function StatusBadge({ status }: { status: 'workspace' | 'platform' | 'none' }) 
   return <Badge variant="outline" className="text-xs text-muted-foreground">Not configured</Badge>;
 }
 
-// ─── Email Provider Card ─────────────────────────────────────────
-
-function EmailProviderCard({ workspaceId, settings }: { workspaceId: string; settings: any }) {
-  const existing = settings?.find((s: any) => s.provider_type === 'email');
-  const status = getProviderStatus(settings, 'email');
-  const upsert = useUpsertWsProvider(workspaceId);
-  const del = useDeleteWsProvider(workspaceId);
-
-  const [providerName, setProviderName] = useState(existing?.provider_name || 'disabled');
-  const [enabled, setEnabled] = useState(existing?.enabled ?? false);
-  const [config, setConfig] = useState<Record<string, string>>({
-    sender_name: (existing?.config as any)?.sender_name || '',
-    sender_email: (existing?.config as any)?.sender_email || '',
-    smtp_host: (existing?.config as any)?.smtp_host || '',
-    smtp_port: (existing?.config as any)?.smtp_port || '587',
-    smtp_username: (existing?.config as any)?.smtp_username || '',
-    encryption: (existing?.config as any)?.encryption || 'tls',
-  });
-  const [secrets, setSecrets] = useState<Record<string, string>>({
-    smtp_password: '',
-    api_key: '',
-  });
-  const [showPassword, setShowPassword] = useState(false);
-  const hasExistingPassword = !!(existing?.secrets as any)?.smtp_password;
-  const hasExistingApiKey = !!(existing?.secrets as any)?.api_key;
-
-  const handleSave = () => {
-    const secretsToSave: Record<string, string> = {};
-    if (providerName === 'smtp' && secrets.smtp_password) {
-      secretsToSave.smtp_password = secrets.smtp_password;
-    } else if (providerName === 'resend' && secrets.api_key) {
-      secretsToSave.api_key = secrets.api_key;
-    }
-    // Keep existing secrets if not replacing
-    const mergedSecrets = { ...((existing?.secrets as any) || {}), ...secretsToSave };
-
-    upsert.mutate({
-      provider_type: 'email',
-      provider_name: providerName,
-      enabled: providerName !== 'disabled' && enabled,
-      config,
-      secrets: mergedSecrets,
-    }, {
-      onSuccess: () => toast.success('Email provider settings saved'),
-      onError: (e) => toast.error('Failed to save: ' + e.message),
-    });
-  };
-
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/10"><Mail className="h-5 w-5 text-primary" /></div>
-            <div>
-              <CardTitle className="text-base">Email Provider</CardTitle>
-              <CardDescription className="text-xs mt-0.5">SMTP or API-based email sending</CardDescription>
-            </div>
-          </div>
-          <StatusBadge status={status} />
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid gap-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs">Provider Type</Label>
-            <Select value={providerName} onValueChange={setProviderName}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="disabled">Disabled (use platform default)</SelectItem>
-                <SelectItem value="smtp">SMTP</SelectItem>
-                <SelectItem value="resend">Resend</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {providerName !== 'disabled' && (
-            <>
-              <div className="flex items-center gap-2">
-                <Switch checked={enabled} onCheckedChange={setEnabled} />
-                <Label className="text-xs">Enable workspace email</Label>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Sender Name</Label>
-                  <Input value={config.sender_name} onChange={e => setConfig(c => ({ ...c, sender_name: e.target.value }))} placeholder="My Company" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Sender Email</Label>
-                  <Input value={config.sender_email} onChange={e => setConfig(c => ({ ...c, sender_email: e.target.value }))} placeholder="noreply@example.com" />
-                </div>
-              </div>
-
-              {providerName === 'smtp' && (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">SMTP Host</Label>
-                      <Input value={config.smtp_host} onChange={e => setConfig(c => ({ ...c, smtp_host: e.target.value }))} placeholder="smtp.example.com" />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">SMTP Port</Label>
-                      <Input value={config.smtp_port} onChange={e => setConfig(c => ({ ...c, smtp_port: e.target.value }))} placeholder="587" />
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">SMTP Username</Label>
-                    <Input value={config.smtp_username} onChange={e => setConfig(c => ({ ...c, smtp_username: e.target.value }))} placeholder="user@example.com" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">
-                      SMTP Password {hasExistingPassword && <span className="text-muted-foreground">(saved: {maskSecret((existing?.secrets as any)?.smtp_password)})</span>}
-                    </Label>
-                    <div className="relative">
-                      <Input
-                        type={showPassword ? 'text' : 'password'}
-                        value={secrets.smtp_password}
-                        onChange={e => setSecrets(s => ({ ...s, smtp_password: e.target.value }))}
-                        placeholder={hasExistingPassword ? 'Leave empty to keep current' : 'Enter password'}
-                      />
-                      <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute end-2 top-2.5 text-muted-foreground hover:text-foreground">
-                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Encryption</Label>
-                    <Select value={config.encryption} onValueChange={v => setConfig(c => ({ ...c, encryption: v }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="tls">TLS</SelectItem>
-                        <SelectItem value="ssl">SSL</SelectItem>
-                        <SelectItem value="none">None</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </>
-              )}
-
-              {providerName === 'resend' && (
-                <div className="space-y-1.5">
-                  <Label className="text-xs">
-                    API Key {hasExistingApiKey && <span className="text-muted-foreground">(saved: {maskSecret((existing?.secrets as any)?.api_key)})</span>}
-                  </Label>
-                  <div className="relative">
-                    <Input
-                      type={showPassword ? 'text' : 'password'}
-                      value={secrets.api_key}
-                      onChange={e => setSecrets(s => ({ ...s, api_key: e.target.value }))}
-                      placeholder={hasExistingApiKey ? 'Leave empty to keep current' : 're_xxxx...'}
-                    />
-                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute end-2 top-2.5 text-muted-foreground hover:text-foreground">
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        <Separator />
-        <div className="flex items-center justify-between">
-          <div className="flex gap-2">
-            <Button onClick={handleSave} disabled={upsert.isPending} size="sm">
-              {upsert.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" />}
-              Save
-            </Button>
-          </div>
-          {existing && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive">
-                  <Trash2 className="h-3.5 w-3.5 me-1" />Remove
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Remove email provider config?</AlertDialogTitle>
-                  <AlertDialogDescription>This workspace will revert to using the platform default email configuration.</AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => del.mutate('email', {
-                    onSuccess: () => toast.success('Email config removed'),
-                    onError: (e) => toast.error(e.message),
-                  })}>Remove</AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+// ─── Email Provider ─────────────────────────────────────────────
+//
+// There is no Email card here, and its absence is the rule rather than an
+// omission. Email transport is platform infrastructure: one provider for the
+// whole platform, configured by a platform admin in
+// Super Admin → Providers → Communication → Email.
+//
+// A workspace-level card let a workspace admin put their own Resend key,
+// SMTP credentials and From address in front of mail the platform sends on
+// its own behalf — password resets, verification codes, invitations. The
+// backend refuses `provider_type: "email"` on this route now too
+// (server/routes/workspaceIntegrations.ts), so this is not a UI-only rule.
 
 // ─── AI Provider Card ────────────────────────────────────────────
 
-function AIProviderCard({ workspaceId, settings }: { workspaceId: string; settings: any }) {
-  const existing = settings?.find((s: any) => s.provider_type === 'ai');
+function AIProviderCard({ workspaceId, settings }: { workspaceId: string; settings: WsProviderSetting[] | undefined }) {
+  const existing = settings?.find((s) => s.provider_type === 'ai');
   const status = getProviderStatus(settings, 'ai');
   const upsert = useUpsertWsProvider(workspaceId);
   const del = useDeleteWsProvider(workspaceId);
@@ -246,17 +61,17 @@ function AIProviderCard({ workspaceId, settings }: { workspaceId: string; settin
   const [providerName, setProviderName] = useState(existing?.provider_name || 'disabled');
   const [enabled, setEnabled] = useState(existing?.enabled ?? false);
   const [config, setConfig] = useState<Record<string, string>>({
-    model: (existing?.config as any)?.model || '',
-    base_url: (existing?.config as any)?.base_url || '',
+    model: String(existing?.config?.model ?? ''),
+    base_url: String(existing?.config?.base_url ?? ''),
   });
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
-  const hasExistingKey = !!(existing?.secrets as any)?.api_key;
+  const hasExistingKey = !!existing?.secrets?.api_key;
 
   const handleSave = () => {
     const secretsToSave: Record<string, string> = {};
     if (apiKey) secretsToSave.api_key = apiKey;
-    const mergedSecrets = { ...((existing?.secrets as any) || {}), ...secretsToSave };
+    const mergedSecrets = { ...(existing?.secrets ?? {}), ...secretsToSave };
 
     upsert.mutate({
       provider_type: 'ai',
@@ -307,7 +122,7 @@ function AIProviderCard({ workspaceId, settings }: { workspaceId: string; settin
 
               <div className="space-y-1.5">
                 <Label className="text-xs">
-                  API Key {hasExistingKey && <span className="text-muted-foreground">(saved: {maskSecret((existing?.secrets as any)?.api_key)})</span>}
+                  API Key {hasExistingKey && <span className="text-muted-foreground">(saved: {maskSecret(existing?.secrets?.api_key)})</span>}
                 </Label>
                 <div className="relative">
                   <Input
@@ -385,26 +200,26 @@ function AIProviderCard({ workspaceId, settings }: { workspaceId: string; settin
 
 // ─── Webhook Card ────────────────────────────────────────────────
 
-function WebhookCard({ workspaceId, settings }: { workspaceId: string; settings: any }) {
-  const existing = settings?.find((s: any) => s.provider_type === 'webhook');
+function WebhookCard({ workspaceId, settings }: { workspaceId: string; settings: WsProviderSetting[] | undefined }) {
+  const existing = settings?.find((s) => s.provider_type === 'webhook');
   const status = getProviderStatus(settings, 'webhook');
   const upsert = useUpsertWsProvider(workspaceId);
   const del = useDeleteWsProvider(workspaceId);
 
   const [enabled, setEnabled] = useState(existing?.enabled ?? false);
   const [config, setConfig] = useState<Record<string, unknown>>({
-    webhook_url: (existing?.config as any)?.webhook_url || '',
-    notify_messages: (existing?.config as any)?.notify_messages ?? true,
-    notify_offline_leads: (existing?.config as any)?.notify_offline_leads ?? true,
+    webhook_url: String(existing?.config?.webhook_url ?? ''),
+    notify_messages: existing?.config?.notify_messages !== false,
+    notify_offline_leads: existing?.config?.notify_offline_leads !== false,
   });
   const [signingKey, setSigningKey] = useState('');
   const [showKey, setShowKey] = useState(false);
-  const hasExistingKey = !!(existing?.secrets as any)?.signing_key;
+  const hasExistingKey = !!existing?.secrets?.signing_key;
 
   const handleSave = () => {
     const secretsToSave: Record<string, string> = {};
     if (signingKey) secretsToSave.signing_key = signingKey;
-    const mergedSecrets = { ...((existing?.secrets as any) || {}), ...secretsToSave };
+    const mergedSecrets = { ...(existing?.secrets ?? {}), ...secretsToSave };
 
     upsert.mutate({
       provider_type: 'webhook',
@@ -448,7 +263,7 @@ function WebhookCard({ workspaceId, settings }: { workspaceId: string; settings:
 
               <div className="space-y-1.5">
                 <Label className="text-xs">
-                  Signing Key {hasExistingKey && <span className="text-muted-foreground">(saved: {maskSecret((existing?.secrets as any)?.signing_key)})</span>}
+                  Signing Key {hasExistingKey && <span className="text-muted-foreground">(saved: {maskSecret(existing?.secrets?.signing_key)})</span>}
                 </Label>
                 <div className="relative">
                   <Input
@@ -538,7 +353,6 @@ export default function SettingsProvidersPage() {
         </div>
       ) : (
         <div className="space-y-5">
-          <EmailProviderCard workspaceId={workspace.id} settings={settings} />
           <AIProviderCard workspaceId={workspace.id} settings={settings} />
           <WebhookCard workspaceId={workspace.id} settings={settings} />
           <WorkspacePrivacyStorageCard workspaceId={workspace.id} />

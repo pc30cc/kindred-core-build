@@ -1,0 +1,317 @@
+/**
+ * Email transport belongs to the platform, and to nothing else.
+ *
+ * One provider, configured by a platform admin in
+ * Super Admin → Providers → Communication → Email, stored as
+ * `app_runtime_config.default_email_provider`. Every send — auth mail, OTP,
+ * verification, password reset, invitations, offline notifications, billing
+ * notices, the email channel, the test send — goes through `sendEmail()` /
+ * `sendPlatformEmail()` and therefore through that one config.
+ *
+ * It used to resolve workspace-first:
+ *
+ *   workspace_provider_settings → provider_configs (workspace) → platform
+ *
+ * which meant a workspace owner saving a provider in Settings → Providers
+ * could put their own Resend key and From address in front of mail the
+ * platform sends on its own behalf. These tests pin the new rule.
+ *
+ * A workspace id is still passed around for entitlements, templates,
+ * recipients and `email_logs`. It just no longer selects infrastructure.
+ */
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+
+const read = (p: string) => readFileSync(p, 'utf8');
+const stripTs = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+
+const SERVICE = 'server/services/email/index.ts';
+
+// ───────────────────────────────────────────────────────────────────────────
+// 2 + 3. The provider is resolved from the platform config and nowhere else.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('the email provider resolves from platform config only', () => {
+  const code = stripTs(read(SERVICE));
+
+  it('reads app_runtime_config.default_email_provider', () => {
+    expect(code).toContain('default_email_provider');
+    expect(code).toContain("from('app_runtime_config')");
+  });
+
+  it('never consults a workspace-scoped provider table', () => {
+    expect(code).not.toContain('workspace_provider_settings');
+    expect(code).not.toContain('provider_configs');
+  });
+
+  it('the resolver does not even take a workspace id', () => {
+    // The strongest form of "no workspace override": the function cannot
+    // express one. If this signature grows a workspace argument back, the
+    // override is one line away again.
+    expect(code).toMatch(/async function resolveProviderConfig\(\s*supabase: \w+,?\s*\)/);
+  });
+
+  it('no other email module reaches for a workspace provider', () => {
+    for (const file of readdirSync('server/services/email')) {
+      if (!file.endsWith('.ts') || file.endsWith('.test.ts')) continue;
+      const body = stripTs(read(join('server/services/email', file)));
+      expect(body, file).not.toContain('workspace_provider_settings');
+    }
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 1 (route half) + 8. Workspaces keep AI and webhook; email is refused.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('workspace provider settings still cover everything except email', () => {
+  const route = stripTs(read('server/routes/workspaceIntegrations.ts'));
+
+  it('the upsert schema accepts ai and webhook, not email', () => {
+    const m = route.match(/provider_type:\s*z\.enum\(\[([^\]]*)\]\)/);
+    expect(m, 'provider_type enum not found').toBeTruthy();
+    const values = m![1].split(',').map((s) => s.trim().replace(/['"]/g, '')).filter(Boolean);
+    expect(values.sort()).toEqual(['ai', 'webhook']);
+  });
+
+  it('the workspace Providers screen no longer offers an email card', () => {
+    const page = read('src/pages/app/settings/ProvidersPage.tsx');
+    expect(page).not.toContain('EmailProviderCard');
+    expect(stripTs(page)).not.toMatch(/provider_type:\s*'email'/);
+    // and still offers the ones a workspace does own
+    expect(page).toContain('AIProviderCard');
+    expect(page).toContain('WebhookCard');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 7. The localized email-settings table is not in the send path.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('email_settings_localized is not a transport setting', () => {
+  it('the send path never reads it', () => {
+    expect(stripTs(read(SERVICE))).not.toContain('email_settings_localized');
+  });
+
+  it('the duplicate From fields are inert and labelled as such', () => {
+    // `email_settings.sender_email` and `email_settings_localized.sender_name`
+    // are a second place to answer "who is this from" and nothing reads
+    // either. They are still ACCEPTED — Super Admin → Branding still renders
+    // the inputs, and a field that silently discards what you type is worse
+    // than one that stores a value nobody reads. What matters is that the
+    // send path cannot reach them, which the test above proves, and that the
+    // schema says so out loud.
+    const admin = read('server/routes/adminManagement.ts');
+    const note = admin.slice(admin.indexOf('DEAD FIELDS'), admin.indexOf('const emailSettingsSchema'));
+    expect(note).toContain('NOTHING READS EITHER');
+    expect(note).toContain('resolveFromAddress');
+
+    // reply_to_email is NOT dead: widget.ts uses it as an offline-notification
+    // recipient, which is a different question from who the mail is from.
+    expect(read('server/routes/widget.ts')).toContain('reply_to_email');
+  });
+
+  it('nothing on the send side reads either dead field', () => {
+    for (const file of readdirSync('server/services/email')) {
+      if (!file.endsWith('.ts')) continue;
+      const body = stripTs(read(join('server/services/email', file)));
+      expect(body, file).not.toMatch(/\bsender_email\b/);
+      expect(body, file).not.toMatch(/\bsender_name\b/);
+    }
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 5. The API key never leaves the server.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('provider credentials stay server-side', () => {
+  it('no browser code reads the platform email provider config', () => {
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || full.includes('/test')) continue;
+          walk(full);
+        } else if (/\.(ts|tsx)$/.test(entry.name)) {
+          const body = stripTs(read(full));
+          if (body.includes('default_email_provider')) offenders.push(full);
+        }
+      }
+    };
+    walk('src');
+    // The admin screen writes it through an admin-gated API by key name built
+    // at runtime (`default_${type}_provider`); it must never read the stored
+    // value back into the browser by that literal.
+    expect(offenders).toEqual([]);
+  });
+
+  it('the admin write route is platform-admin gated', () => {
+    const admin = read('server/routes/adminManagement.ts');
+    const put = admin.slice(admin.indexOf("adminManagementRouter.put('/runtime-config/:key'"));
+    expect(put.slice(0, 300)).toContain('requirePlatformAdmin');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 4 + 6. Behaviour: the real From header, and fail-closed.
+// ───────────────────────────────────────────────────────────────────────────
+
+type Row = Record<string, unknown>;
+
+let runtimeConfigValue: Row | null;
+let fetchMock: ReturnType<typeof vi.fn>;
+
+vi.mock('@supabase/supabase-js', () => ({
+  createClient: () => ({
+    from(table: string) {
+      const builder: Record<string, unknown> = {
+        select: () => builder,
+        eq: () => builder,
+        order: () => builder,
+        limit: () => builder,
+        insert: () => Promise.resolve({ data: null, error: null }),
+        maybeSingle: async () => {
+          if (table === 'app_runtime_config') return { data: { value: runtimeConfigValue }, error: null };
+          if (table === 'platform_branding_localized') {
+            return { data: { platform_name: 'Brand From Branding' }, error: null };
+          }
+          return { data: null, error: null };
+        },
+      };
+      return builder;
+    },
+  }),
+}));
+
+const CONFIG = { supabaseUrl: 'http://x', supabaseServiceRoleKey: 'k' } as never;
+
+describe('the Resend request carries the platform From identity', () => {
+  beforeEach(() => {
+    fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'msg_1' }),
+      text: async () => '',
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    delete process.env.RESEND_API_KEY;
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it('sends exactly the global from_name and from_email', async () => {
+    runtimeConfigValue = {
+      provider_name: 'resend',
+      config: { api_key: 'key_from_platform', from_email: 'hello@platform.example', from_name: 'Platform Mail' },
+    };
+    const { sendEmail } = await import('../../../server/services/email/index');
+    const result = await sendEmail(CONFIG, {
+      workspaceId: 'ws-1', to: 'someone@example.com', subject: 'Hi', html: '<p>Hi</p>',
+    });
+
+    expect(result.success).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe('https://api.resend.com/emails');
+    expect(JSON.parse(init.body).from).toBe('Platform Mail <hello@platform.example>');
+    // The key travels in the Authorization header and nowhere near the body.
+    expect(init.headers.Authorization).toBe('Bearer key_from_platform');
+    expect(init.body).not.toContain('key_from_platform');
+  });
+
+  it('falls back to the platform brand when from_name is blank, never to a literal', async () => {
+    runtimeConfigValue = {
+      provider_name: 'resend',
+      config: { api_key: 'k', from_email: 'hello@platform.example' },
+    };
+    const { sendEmail } = await import('../../../server/services/email/index');
+    await sendEmail(CONFIG, { workspaceId: 'ws-1', to: 'x@example.com', subject: 'S', html: '<p>b</p>' });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.from).toBe('Brand From Branding <hello@platform.example>');
+  });
+
+  it('fails closed with a configuration error when from_email is missing', async () => {
+    runtimeConfigValue = { provider_name: 'resend', config: { api_key: 'k' } };
+    const { sendEmail } = await import('../../../server/services/email/index');
+    const result = await sendEmail(CONFIG, {
+      workspaceId: 'ws-1', to: 'x@example.com', subject: 'S', html: '<p>b</p>',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/from_email/);
+    expect(result.error).toMatch(/Super Admin/);
+    // Nothing was sent. The old code invented `noreply@example.com` here and
+    // handed it to Resend, which every receiver then rejected — a config
+    // mistake that looked like a delivery problem.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('never invents a sender address', () => {
+    expect(read(SERVICE)).not.toMatch(/from:\s*['"]noreply@/);
+    expect(stripTs(read(SERVICE))).not.toContain('noreply@example.com');
+  });
+
+  it('fails closed when the provider is configured without an API key', async () => {
+    runtimeConfigValue = {
+      provider_name: 'resend',
+      config: { from_email: 'hello@platform.example', from_name: 'Platform Mail' },
+    };
+    const { sendEmail } = await import('../../../server/services/email/index');
+    const result = await sendEmail(CONFIG, {
+      workspaceId: 'ws-1', to: 'x@example.com', subject: 'S', html: '<p>b</p>',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/API key/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('a workspace id does not change which provider is used', async () => {
+    runtimeConfigValue = {
+      provider_name: 'resend',
+      config: { api_key: 'k', from_email: 'hello@platform.example', from_name: 'Platform Mail' },
+    };
+    const { sendEmail } = await import('../../../server/services/email/index');
+    for (const workspaceId of ['ws-1', 'ws-2', 'ws-3']) {
+      await sendEmail(CONFIG, { workspaceId, to: 'x@example.com', subject: 'S', html: '<p>b</p>' });
+    }
+    const froms = fetchMock.mock.calls.map((c) => JSON.parse(c[1].body).from);
+    expect(new Set(froms).size).toBe(1);
+    expect(froms[0]).toBe('Platform Mail <hello@platform.example>');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Every sender goes through the one choke point.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe('every send path uses the shared sender', () => {
+  const SENDERS = [
+    'server/services/auth-email.ts',
+    'server/services/verification/service.ts',
+    'server/services/invitations/worker.ts',
+    'server/services/billing/notifications/dispatcher.ts',
+    'server/services/email/sendChannelEmail.ts',
+    'server/routes/widget.ts',
+    'server/routes/email.ts',
+  ];
+
+  it('none of them resolves its own provider', () => {
+    for (const file of SENDERS) {
+      expect(existsSync(file), file).toBe(true);
+      const body = stripTs(read(file));
+      expect(body, `${file} resolves its own email provider`).not.toContain('default_email_provider');
+      expect(body, `${file} reads a workspace provider`).not.toContain('workspace_provider_settings');
+    }
+  });
+
+  it('they all call sendEmail or sendPlatformEmail', () => {
+    for (const file of SENDERS) {
+      const body = stripTs(read(file));
+      expect(/sendEmail\(|sendPlatformEmail\(/.test(body), file).toBe(true);
+    }
+  });
+});

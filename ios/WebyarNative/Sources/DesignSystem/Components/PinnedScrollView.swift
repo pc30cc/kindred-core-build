@@ -92,8 +92,14 @@ struct PinnedScrollView<Content: View>: View {
                     viewport = outer.size.height
                     open(proxy)
                 }
-                .onChange(of: outer.size.height) { _, height in
+                .onChange(of: outer.size.height) { previous, height in
                     viewport = height
+                    // The keyboard opening takes half the screen away. The
+                    // content does not move, so whatever was at the bottom is
+                    // now behind the keys — which is the newest message, and
+                    // the one the operator is about to reply to.
+                    guard height < previous, isNearBottom else { return }
+                    proxy.scrollTo(Self.anchorID, anchor: .bottom)
                 }
             }
         }

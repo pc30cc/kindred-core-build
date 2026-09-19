@@ -212,50 +212,41 @@ struct ChatView: View {
                 )
                 .frame(maxHeight: .infinity)
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: Theme.Space.xxs) {
-                            ForEach(days) { day in
-                                Section {
-                                    ForEach(Array(day.messages.enumerated()), id: \.element.id) { index, message in
-                                        MessageRow(
-                                            message: message,
-                                            // An avatar is drawn only on the
-                                            // last message of a run, the way
-                                            // every chat app does it: repeating
-                                            // it beside each line of a
-                                            // three-line reply is visual noise.
-                                            showsAvatar: Self.endsRun(day.messages, at: index),
-                                            contactAvatarURL: conversation.contact?.avatarURL,
-                                            contactName: title,
-                                            visitor: model.visitor,
-                                            language: language,
-                                            locale: locale
-                                        )
-                                        .id(message.id)
-                                    }
-                                } header: {
-                                    DayHeader(text: Format.dayHeader(day.id, locale: locale))
+                PinnedScrollView(
+                    conversationKey: conversation.id,
+                    // Not the message count: a thread whose newest message is
+                    // replaced — an edit, a delivery receipt — has to re-pin
+                    // too, and two conversations can have the same count.
+                    revision: revisionOf(days)
+                ) {
+                    LazyVStack(spacing: Theme.Space.xxs) {
+                        ForEach(days) { day in
+                            Section {
+                                ForEach(Array(day.messages.enumerated()), id: \.element.id) { index, message in
+                                    MessageRow(
+                                        message: message,
+                                        // An avatar is drawn only on the last
+                                        // message of a run, the way every chat
+                                        // app does it: repeating it beside each
+                                        // line of a three-line reply is noise.
+                                        showsAvatar: Self.endsRun(day.messages, at: index),
+                                        contactAvatarURL: conversation.contact?.avatarURL,
+                                        contactName: title,
+                                        visitor: model.visitor,
+                                        language: language,
+                                        locale: locale
+                                    )
+                                    .id(message.id)
                                 }
+                            } header: {
+                                DayHeader(text: Format.dayHeader(day.id, locale: locale))
                             }
-
-                            Color.clear
-                                .frame(height: 1)
-                                .id(Self.bottomAnchor)
-                        }
-                        .padding(.horizontal, Theme.screenInset)
-                        .padding(.vertical, Theme.Space.md)
-                    }
-                    .scrollDismissesKeyboard(.interactively)
-                    .onAppear {
-                        proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
-                    }
-                    .onChange(of: days.last?.messages.last?.id) {
-                        withAnimation(Theme.Motion.bubble) {
-                            proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                         }
                     }
+                    .padding(.horizontal, Theme.screenInset)
+                    .padding(.vertical, Theme.Space.md)
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
         }
     }
@@ -267,7 +258,15 @@ struct ChatView: View {
         return messages[index + 1].senderType != messages[index].senderType
     }
 
-    private static let bottomAnchor = "chat.bottom"
+    /// Changes whenever the transcript does — a message arriving, or the
+    /// newest one being replaced. A plain count is not enough: an edit or a
+    /// delivery receipt leaves the count alone and still moves the bottom.
+    private func revisionOf(_ days: [MessageDay]) -> Int {
+        var hasher = Hasher()
+        hasher.combine(days.reduce(0) { $0 + $1.messages.count })
+        hasher.combine(days.last?.messages.last?.id)
+        return hasher.finalize()
+    }
 }
 
 // MARK: - Header

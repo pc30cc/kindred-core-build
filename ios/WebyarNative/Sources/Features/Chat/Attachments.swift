@@ -258,26 +258,38 @@ private struct VoiceNoteView: View {
         }
     }
 
+    /// The bar and the line under it.
+    ///
+    /// The bar itself is forced left-to-right by the view around it, because
+    /// a timeline runs left-to-right in every language — play on the left,
+    /// progress filling rightwards. The line *under* it is ordinary prose and
+    /// does not: in Persian it belongs on the right, like every other piece
+    /// of text in the app. Letting the bar's direction leak into it was what
+    /// stranded the duration on the wrong side.
     @ViewBuilder
     private var timeline: some View {
         VStack(alignment: .leading, spacing: 5) {
             if let player {
                 track(progress: player.progress)
-                Text(Format.voiceTime(player.displayedSeconds, locale: language.locale))
-                    .font(.caption2)
+                caption(Format.voiceTime(player.displayedSeconds, locale: language.locale))
                     .monospacedDigit()
-                    .foregroundStyle(tint.opacity(0.7))
             } else {
                 track(progress: 0)
-                Text(caption)
-                    .font(.caption2)
-                    .foregroundStyle(tint.opacity(0.7))
-                    .lineLimit(1)
+                caption(loadingText)
             }
         }
     }
 
-    private var caption: String {
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2)
+            .foregroundStyle(tint.opacity(0.7))
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: language == .fa ? .trailing : .leading)
+            .environment(\.layoutDirection, language.layoutDirection)
+    }
+
+    private var loadingText: String {
         if unsupported { return Str.playbackUnsupported(language) }
         if case .failed = state { return Str.attachmentFailed(language) }
         return Str.receivingFile(language)

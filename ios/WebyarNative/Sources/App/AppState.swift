@@ -38,25 +38,25 @@ final class AppState {
         didSet {
             guard language != oldValue else { return }
             UserDefaults.standard.set(language.rawValue, forKey: Self.languageKey)
-            Self.syncSystemLanguage(language)
         }
     }
 
-    /// Tells the *system* which language this app is being used in.
-    ///
-    /// Everything the app draws comes from `Str`, but not everything on
-    /// screen is drawn by the app: the text-selection menu, the photo picker,
-    /// the buttons on a system alert and the accessibility labels UIKit
-    /// supplies all come from the frameworks, in whatever language the bundle
-    /// says it prefers. Without this an operator working in Persian still
-    /// gets "Paste" and "Cancel" in English.
-    ///
-    /// The frameworks read this once, at launch, so a language changed in
-    /// Settings reaches them on the next start; everything the app draws
-    /// itself changes as soon as it is picked.
-    private static func syncSystemLanguage(_ language: Language) {
-        UserDefaults.standard.set([language.rawValue], forKey: "AppleLanguages")
-    }
+    // There used to be a `syncSystemLanguage` here that wrote `AppleLanguages`
+    // so UIKit's own strings — Paste, Cancel — would follow the operator's
+    // choice. It cost far more than it bought.
+    //
+    // `AppleLanguages` is what UIKit reads *at launch* to decide whether the
+    // window is right-to-left, and that decision is then fixed for the life of
+    // the process. Switching to English in Settings changed our own
+    // `\.layoutDirection` to left-to-right immediately while the window stayed
+    // right-to-left, and SwiftUI mirrors a right-to-left host by flipping it
+    // and counter-flipping the leaves — so with the two disagreeing, every
+    // label on the screen rendered backwards. Reading "Language" as
+    // "egaugnaL" is a worse outcome than a Paste menu in the device's
+    // language, and it lasted until the app was relaunched.
+    //
+    // Everything this app draws comes from `Str` and follows `language`
+    // directly, so nothing else depended on it.
 
     /// Set when the operator's session turns out to be void, so the login
     /// screen can say why they are looking at it.
@@ -84,10 +84,6 @@ final class AppState {
 
         let storedAppearance = UserDefaults.standard.string(forKey: Self.appearanceKey)
         self.appearance = storedAppearance.flatMap(AppearancePreference.init(rawValue:)) ?? .system
-
-        // Runs before the first view is built, which is the only moment early
-        // enough for the frameworks to pick it up on this launch.
-        Self.syncSystemLanguage(self.language)
     }
 
     // MARK: - Session

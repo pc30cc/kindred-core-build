@@ -377,20 +377,27 @@ struct MessageRow: View {
         if message.senderType == .system {
             systemNote
         } else {
-            // Tops aligned, so the bubble starts exactly beside the face
-            // rather than above it. Bottom alignment lined the avatar up with
-            // the timestamp *under* the bubble, which pushed the picture down
-            // and left the bubble floating above it.
-            HStack(alignment: .top, spacing: Theme.Space.sm) {
-                if isOutgoing {
-                    Spacer(minLength: Theme.Space.xl)
-                    bubbleColumn
-                    avatarSlot
-                } else {
-                    avatarSlot
-                    bubbleColumn
-                    Spacer(minLength: Theme.Space.xl)
+            VStack(alignment: isOutgoing ? .trailing : .leading, spacing: Theme.Space.xxs) {
+                // The face sits at the foot of the last bubble in a run,
+                // whatever that bubble is — a line of text, a photo, a voice
+                // note, a document. What made this hard to get right is that
+                // the timestamp used to live inside this stack: bottom
+                // alignment then lined the avatar up with the bottom of the
+                // *timestamp*, pushing the picture below the bubble. It is
+                // outside now, so "bottom" means the bubble's bottom.
+                HStack(alignment: .bottom, spacing: Theme.Space.sm) {
+                    if isOutgoing {
+                        Spacer(minLength: Theme.Space.xl)
+                        bubbleColumn
+                        avatarSlot
+                    } else {
+                        avatarSlot
+                        bubbleColumn
+                        Spacer(minLength: Theme.Space.xl)
+                    }
                 }
+
+                if showsAvatar { metaLine }
             }
             // Which side a bubble sits on is not a reading-order question, so
             // it does not mirror with the interface. An operator console puts
@@ -474,24 +481,36 @@ struct MessageRow: View {
                     .textSelection(.enabled)
             }
 
-            if showsAvatar {
-                // The operator's own name is not here: on a two-party screen
-                // it is the same name over and over, and the face already
-                // says it. An automated reply is the one thing worth marking,
-                // and it reads better as a footnote than as a heading.
-                HStack(spacing: Theme.Space.xxs) {
-                    if isAI {
-                        Text(Str.aiReply(language))
-                        Text(verbatim: "·")
-                    }
-                    Text(Format.bubbleTime(message.createdAt, locale: locale))
-                }
-                .font(.caption2)
-                .foregroundStyle(Theme.Palette.labelTertiary)
-                .padding(.horizontal, Theme.Space.xs)
-            }
         }
         .environment(\.layoutDirection, language.layoutDirection)
+    }
+
+    /// Who answered and when.
+    ///
+    /// The operator's own name is not here: on a two-party screen it is the
+    /// same name over and over, and the face already says it. An automated
+    /// reply is the one thing worth marking, and it reads better as a
+    /// footnote than as a heading.
+    private var metaLine: some View {
+        HStack(spacing: Theme.Space.xxs) {
+            if isAI {
+                Text(Str.aiReply(language))
+                Text(verbatim: "·")
+            }
+            Text(Format.bubbleTime(message.createdAt, locale: locale))
+        }
+        .font(.caption2)
+        .foregroundStyle(Theme.Palette.labelTertiary)
+        .padding(.horizontal, Theme.Space.xs)
+        // Clears the avatar's gutter so the time sits under the bubble rather
+        // than under the picture.
+        .padding(isOutgoing ? .trailing : .leading, avatarGutter)
+        .environment(\.layoutDirection, language.layoutDirection)
+    }
+
+    /// The width the avatar column takes, including the gap after it.
+    private var avatarGutter: CGFloat {
+        (Theme.Size.avatarSmall - 4) + Theme.Space.sm
     }
 
     private var systemNote: some View {

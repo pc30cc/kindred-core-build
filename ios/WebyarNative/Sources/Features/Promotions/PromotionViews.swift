@@ -87,13 +87,13 @@ struct PromoFullScreen: View {
                 Spacer(minLength: 0)
 
                 if let imageURL = creative.imageURL, let url = URL(string: imageURL) {
-                    AsyncImage(url: url) { image in
-                        image.resizable().scaledToFit()
-                    } placeholder: {
-                        Color.clear
-                    }
-                    .frame(maxWidth: 260, maxHeight: 220)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous))
+                    // `.scaledToFill` inside a clipped frame, unlike the
+                    // avatars: a promotion's artwork is composed and cropping
+                    // it to a circle's rules would cut the composition.
+                    RemoteImage(url: url, maxPixel: 1024) { BrandMark(size: 72) }
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: 260, maxHeight: 220)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous))
                 } else {
                     BrandMark(size: 72)
                 }

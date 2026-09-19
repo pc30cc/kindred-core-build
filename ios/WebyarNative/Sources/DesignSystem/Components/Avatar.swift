@@ -114,19 +114,22 @@ struct Avatar: View {
         .accessibilityHidden(true)
     }
 
+    /// The picture, or a skeleton, or the fallback — one of the three, never
+    /// two at once.
+    ///
+    /// This used to draw the initials while the picture loaded, which meant
+    /// every face in a scrolling list showed a letter and then swapped it for
+    /// a photograph. Initials are not a loading state: they look like the
+    /// answer, so the swap reads as the row changing its mind. A skeleton says
+    /// "something is coming" and is replaced by the thing that came.
+    ///
+    /// `RemoteImage` also means a face is fetched once rather than once per
+    /// appearance, so a row scrolled back to is already finished — no
+    /// skeleton, no flash.
     @ViewBuilder
     private var face: some View {
         if let imageURL, let url = URL(string: imageURL) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().scaledToFill()
-                default:
-                    // Initials while loading and if loading fails, so the row
-                    // never collapses to an empty circle.
-                    fallback
-                }
-            }
+            RemoteImage(url: url) { fallback }
         } else {
             fallback
         }

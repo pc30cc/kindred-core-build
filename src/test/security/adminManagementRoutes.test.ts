@@ -150,6 +150,46 @@ vi.mock('../../../server/supabase.js', () => ({
         db.workspaces = (db.workspaces || []).filter((w) => w.id !== args._workspace_id);
         return { data: true, error: null };
       }
+      // Deletion is an async enqueue now, not the synchronous purge above:
+      // the route calls this and the worker does the work. Modelled on
+      // database/migrations/181_workspace_deletion_multi_provider.sql —
+      // same four outcomes, same jsonb envelope — because the route branches
+      // on `ok`, `error` and `started`, and a stub that returned a bare
+      // truthy value would make every one of those branches untested.
+      if (name === 'enqueue_workspace_deletion') {
+        const ws = (db.workspaces || []).find((w) => w.id === args._workspace_id);
+        if (!ws) return { data: { ok: false, error: 'workspace_not_found' }, error: null };
+
+        const ACTIVE_JOB = ['pending', 'storage_cleanup', 'db_cleanup'];
+        if (ws.status === 'deleting') {
+          const existing = (db.workspace_deletion_jobs || [])
+            .filter((j) => j.workspace_id === args._workspace_id && ACTIVE_JOB.includes(j.status))
+            .sort((a, b) => String(b.requested_at).localeCompare(String(a.requested_at)))[0];
+          if (existing) return { data: { ok: true, started: false, job: existing }, error: null };
+          // Deleting with every prior attempt terminal: the caller must go
+          // through retry, never a silently-fresh job.
+          return {
+            data: { ok: false, error: 'workspace_stuck_no_active_job', hint: 'retry_workspace_deletion_job' },
+            error: null,
+          };
+        }
+        if (ws.status !== 'active') {
+          return { data: { ok: false, error: 'workspace_not_active', status: ws.status }, error: null };
+        }
+
+        ws.status = 'deleting';
+        const job: Row = {
+          id: crypto.randomUUID(),
+          workspace_id: ws.id,
+          workspace_slug: ws.slug,
+          workspace_name: ws.name,
+          requested_by: args._actor_user_id,
+          requested_at: new Date().toISOString(),
+          status: 'pending',
+        };
+        (db.workspace_deletion_jobs ||= []).push(job);
+        return { data: { ok: true, started: true, job }, error: null };
+      }
       return { data: null, error: null };
     },
   }),

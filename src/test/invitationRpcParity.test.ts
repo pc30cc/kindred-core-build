@@ -112,7 +112,15 @@ function findDefinition(chain: { file: string; sql: string }[], fn: string): Def
         file,
         paramNames: params,
         securityDefiner: /SECURITY\s+DEFINER/i.test(header),
-        searchPathPinned: /SET\s+search_path\s*=\s*public\s*,\s*pg_temp/i.test(header),
+        // Postgres accepts `SET search_path = public, pg_temp` and
+        // `SET search_path TO 'public', 'pg_temp'` as the same thing, and the
+        // two chains are written in different dialects of it — the hosted
+        // files come out of Supabase's dump, which always emits TO with
+        // quoted identifiers. Matching only the first spelling reported the
+        // hosted RPCs as unpinned when they are pinned. Both forms, but still
+        // exactly public then pg_temp: a path pinned to something else, or
+        // one missing pg_temp, is not what this guard is for.
+        searchPathPinned: /SET\s+search_path\s*(?:=|TO)\s*'?public'?\s*,\s*'?pg_temp'?/i.test(header),
       };
     }
   }

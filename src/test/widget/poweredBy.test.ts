@@ -11,7 +11,7 @@ const PRES_JS = readFileSync(
 
 describe('powered-by capability keys', () => {
   const canonical = CAPABILITY_REGISTRY.find((c) => c.key === 'widget_powered_by');
-  const legacy = CAPABILITY_REGISTRY.find((c) => c.key === 'remove_powered_by') as any;
+  const legacy = CAPABILITY_REGISTRY.find((c) => (c.key as string) === 'remove_powered_by');
 
   it('widget_powered_by is the single plan-configurable toggle', () => {
     expect(canonical).toBeDefined();
@@ -33,15 +33,15 @@ describe('buildPoweredByConfig', () => {
   const platform = {
     powered_by_enabled: true,
     powered_by_text: 'Powered by',
-    powered_by_brand_text: 'Destekly',
-    powered_by_url: 'https://destekly.com',
+    powered_by_brand_text: 'Acme Support',
+    powered_by_url: 'https://acme.example',
   };
 
   it('renders platform-owned wording, brand and url', () => {
     expect(buildPoweredByConfig(platform, 'Fallback', true)).toEqual({
       text: 'Powered by',
-      brand: 'Destekly',
-      url: 'https://destekly.com',
+      brand: 'Acme Support',
+      url: 'https://acme.example',
     });
   });
 
@@ -82,10 +82,20 @@ describe('presentation footer markup', () => {
 import vm from 'node:vm';
 
 function renderFooter(poweredBy: unknown, showPoweredBy?: boolean): string {
-  const sandbox: any = { window: {}, document: undefined, setTimeout, Promise };
+  const sandbox: {
+    window: Record<string, unknown>;
+    document: undefined;
+    setTimeout: typeof setTimeout;
+    Promise: PromiseConstructor;
+  } = { window: {}, document: undefined, setTimeout, Promise };
   vm.createContext(sandbox);
   vm.runInContext(PRES_JS, sandbox);
-  const renderer = sandbox.window.__gs_presentation_default.create({
+  const factory = sandbox.window.__gs_presentation_default as {
+    create: (deps: Record<string, unknown>) => {
+      homeHtml: (input: { conversations: unknown[] }) => string;
+    };
+  };
+  const renderer = factory.create({
     escapeHtml: (v: unknown) =>
       String(v == null ? '' : v).replace(/[&<>"']/g, (c) =>
         ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string,
@@ -150,6 +160,12 @@ describe('powered-by link behaviour (rendered markup)', () => {
 });
 
 // ── Plan entitlement resolution ──────────────────────────────────
+interface QueryChain {
+  select: () => QueryChain;
+  eq: () => QueryChain;
+  maybeSingle: () => Promise<{ data: unknown }>;
+}
+
 function fakeSb(entitlements: Record<string, unknown> | null) {
   return {
     from(table: string) {
@@ -157,14 +173,14 @@ function fakeSb(entitlements: Record<string, unknown> | null) {
         table === 'workspace_subscriptions'
           ? { data: { plan_id: 'plan_1', status: 'active' } }
           : { data: entitlements === null ? null : { entitlements } };
-      const chain: any = {
+      const chain: QueryChain = {
         select: () => chain,
         eq: () => chain,
         maybeSingle: async () => result,
       };
       return chain;
     },
-  } as any;
+  } as unknown as Parameters<typeof isPoweredByAllowedForPlan>[0];
 }
 
 describe('isPoweredByAllowedForPlan', () => {

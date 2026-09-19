@@ -1,7 +1,7 @@
 {
-  "_comment": "Bootstrap values for the NATIVE (Capacitor/iOS) build. NOT the source of truth for the API origin: that is platform_domains.api_base_url (Super Admin \u2192 Branding). scripts/ios/write-native-config.mjs asks the platform and writes the answer back here, and the app itself replaces this with the platform's answer on its first launch (see PlatformOrigin.swift). What stays here is the origin a brand-new install uses for its very first request. Override for a staging build with MOBILE_API_BASE_URL=... npm run ios:prepare",
+  "_comment": "Bootstrap values for the NATIVE (Capacitor/iOS) build. NOT the source of truth for the API origin: that is platform_domains.api_base_url (Super Admin → Branding). scripts/ios/write-native-config.mjs asks the platform and writes the answer back here, and the app itself replaces this with the platform's answer on its first launch (see PlatformOrigin.swift). What stays here is the origin a brand-new install uses for its very first request. Override for a staging build with MOBILE_API_BASE_URL=... npm run ios:prepare",
   "apiBaseUrl": "https://api.webyar.ai",
   "defaultLocale": "en",
   "appStoreUrl": "",
-  "supportUrl": "https://destekly.tr/contact"
+  "supportUrl": ""
 }

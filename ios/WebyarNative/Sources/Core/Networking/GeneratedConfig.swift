@@ -12,7 +12,7 @@ enum GeneratedConfig {
     static let apiBaseURL = URL(string: "https://api.webyar.ai")!
 
     /// Opened from Settings → About.
-    static let supportURL = URL(string: "https://destekly.tr/contact")
+    static let supportURL = URL?.none
 
     /// Language a first launch starts in, before the operator picks one.
     static let defaultLanguage = Language.en

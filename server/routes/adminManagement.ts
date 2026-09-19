@@ -649,8 +649,13 @@ const platformDomainsSchema = z.object({
   canonical_base_url: z.string().max(2000).nullable().optional(),
   app_base_url: z.string().max(2000).nullable().optional(),
   api_base_url: z.string().max(2000).nullable().optional(),
-  widget_base_url: z.string().max(2000).nullable().optional(),
-  asset_base_url: z.string().max(2000).nullable().optional(),
+  // `widget_base_url` and `asset_base_url` are NOT here, and their absence is
+  // the point. Widget deployment URLs live in `widget_platform_settings`
+  // (Super Admin → Widget → Deployment URLs) and nothing reads these two —
+  // migration 20260419082857 moved them and marked the columns DEPRECATED,
+  // kept only so a rollback has somewhere to land. A zod object strips keys it
+  // does not declare, so a client that still sends them is simply ignored
+  // rather than writing a second, competing answer for the same URL.
   public_base_url: z.string().max(2000).nullable().optional(),
   help_center_base_url: z.string().max(2000).nullable().optional(),
   email_base_url: z.string().max(2000).nullable().optional(),

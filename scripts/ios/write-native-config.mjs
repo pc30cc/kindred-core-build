@@ -38,6 +38,20 @@ const override = (process.env.MOBILE_API_BASE_URL || process.env.IOS_API_BASE_UR
 let apiBaseUrl = (override || cfg.apiBaseUrl || '').trim();
 let supportUrl = (cfg.supportUrl || '').trim();
 
+/**
+ * A link, not a base: a support URL legitimately carries a path. `asOrigin`
+ * would flatten `https://app.example.com/help` to the bare site root.
+ */
+function asLink(raw) {
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  try {
+    const url = new URL(raw.trim());
+    return url.protocol === 'https:' ? url.href.replace(/\/$/, '') : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Origin only, https only — a base URL with a path breaks every request. */
 function asOrigin(raw) {
   if (typeof raw !== 'string' || !raw.trim()) return null;
@@ -78,8 +92,25 @@ if (!override && asOrigin(apiBaseUrl)) {
   } else if (!answer) {
     console.log(`[ios-native] could not reach ${apiBaseUrl} — using config/mobile-runtime.json as it stands`);
   }
-  const help = asOrigin(answer?.helpCenterUrl) || asOrigin(answer?.publicBaseUrl);
-  if (help && !supportUrl) supportUrl = `${help}/contact`;
+  // The platform's answer wins, exactly as it does for the API origin above.
+  //
+  // This used to read `if (help && !supportUrl)`, which inverted the rule: a
+  // value already sitting in config/mobile-runtime.json blocked the platform
+  // from ever correcting it, so a support link written once outlived the
+  // domain it pointed at. It also appended `/contact` — a route this app has
+  // never served. The server resolves the whole URL now (help centre if one is
+  // set, otherwise `<public>/help`, which is a real route), so there is one
+  // answer and no client invents its own path.
+  const resolvedSupport = asLink(answer?.supportUrl);
+  if (resolvedSupport && resolvedSupport !== supportUrl) {
+    console.log(
+      `[ios-native] platform says support is ${resolvedSupport}` +
+        `${supportUrl ? ` (was ${supportUrl})` : ''} — following it`,
+    );
+    supportUrl = resolvedSupport;
+    cfg.supportUrl = resolvedSupport;
+    writeFileSync(cfgPath, `${JSON.stringify(cfg, null, 2)}\n`, 'utf8');
+  }
 }
 
 // A native bundle is signed and shipped; a wrong or empty base URL would only

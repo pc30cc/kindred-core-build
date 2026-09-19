@@ -56,101 +56,19 @@ async function requireUser(req, res, next) {
   next();
 }
 
-const acceptSchema = z.object({
-  token: z.string().trim().min(1).max(512),
-});
-
 const legacyInvitationGone = (_req, res) => res.status(410).json({
   error: 'LEGACY_INVITATION_API_RETIRED',
   replacement: '/api/workspace-invitations',
 });
 
-// ── Pre-flight invitation context resolver ─────────────────────────
-// Looks up the invitation by token via service_role, mirrors the
-// original RPC's well-formed error semantics, and attaches:
-//   - req.body.workspaceId         (so requireLimit can extract it)
-//   - req.alreadyWorkspaceMember   (so the limit gate is skipped for
-//     idempotent re-accept; existing membership consumes no new seat)
-// On any RPC-equivalent precondition failure, the route responds 400
-// with the same human-readable message the RPC would have raised, so
-// the existing UI text path is unchanged.
-async function resolveInvitationContext(req, res, next) {
-  const config: ServerConfig = req.serverConfig;
-  const parsed = acceptSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: 'invalid_body' });
-  }
-  req.body.token = parsed.data.token;
-
-  const sb = getServiceClient(config);
-
-  const { data: inv, error: invErr } = await sb
-    .from('workspace_invitations')
-    .select('id, workspace_id, role, invited_email, expires_at, revoked_at')
-    .eq('token', parsed.data.token)
-    .maybeSingle();
-  if (invErr) return res.status(500).json({ error: invErr.message });
-  if (!inv) return res.status(400).json({ error: 'Invalid invitation token' });
-  if (inv.revoked_at) {
-    return res.status(400).json({ error: 'Invitation has been revoked' });
-  }
-  if (inv.expires_at && new Date(inv.expires_at).getTime() < Date.now()) {
-    return res.status(400).json({ error: 'Invitation has expired' });
-  }
-
-  if (inv.invited_email) {
-    const { data: profile } = await sb
-      .from('profiles')
-      .select('email')
-      .eq('id', req.authUser.id)
-      .maybeSingle();
-    const userEmail = (profile?.email || '').trim().toLowerCase();
-    const inviteEmail = String(inv.invited_email).trim().toLowerCase();
-    if (!userEmail || userEmail !== inviteEmail) {
-      return res
-        .status(400)
-        .json({ error: 'This invitation is for a different email address' });
-    }
-  }
-
-  // Already a member? Skip the seat-limit check — re-accepting an
-  // existing membership cannot consume a new seat, and gating it
-  // would lock legitimate users out when their workspace is full.
-  const { data: existingMember } = await sb
-    .from('workspace_members')
-    .select('user_id')
-    .eq('workspace_id', inv.workspace_id)
-    .eq('user_id', req.authUser.id)
-    .maybeSingle();
-  req.alreadyWorkspaceMember = !!existingMember;
-
-  // NEW-signup policy (same boundary as POST /api/workspaces and
-  // /provision-account): the invited_email match above proves the
-  // invitation was addressed to this profile's email column, not that
-  // the caller has actually verified ownership of that address. An
-  // unverified account accepting an invite would create a new
-  // workspace membership on the strength of a self-reported, unproven
-  // email. Idempotent re-accept of an EXISTING membership is exempt —
-  // it grants no new access and must keep working (e.g. for legacy
-  // members who predate the verification requirement).
-  if (!req.alreadyWorkspaceMember && !(await isEmailVerified(config, req.authUser.id))) {
-    return res.status(403).json({ error: 'email_verification_required' });
-  }
-
-  // Expose workspaceId where requireLimit's extractor looks for it.
-  req.body.workspaceId = inv.workspace_id;
-  req.invitationContext = { id: inv.id, workspace_id: inv.workspace_id };
-  next();
-}
-
-// Wrap requireLimit so already-member acceptance bypasses the gate.
-const maxAgentsLimitMw = (() => {
-  const inner = requireLimit('max_agents', usageFnForLimit('max_agents'));
-  return (req, res, next) => {
-    if (req.alreadyWorkspaceMember) return next();
-    return inner(req, res, next);
-  };
-})();
+// Everything that used to stand between a token and a new seat — the
+// pre-flight invitation lookup, the invited-email match, the
+// email-verification gate, the `max_agents` limit gate — was removed with
+// the route rather than left behind it. Middleware that no longer runs is
+// worse than no middleware: it reads like a live guard, so the next person
+// to re-point this path at a handler inherits gates that were never
+// actually wired. `workspaceInvitations.ts` owns all of it now, and owns
+// the tests for it.
 
 // ──────────────────────────────────────────────────────────────────
 // POST /api/workspace-members/accept-invitation

@@ -166,6 +166,9 @@ enum LanguageOverride {
 enum SampleRoute: String {
     case inbox, chat, aiChat, call, videoCall, contacts, contact, settings, profile, security, email
     case colleagues, colleagueThread
+    /// A thread with a visitor who never gave a name — the case where a
+    /// `{{contact.name}}` in a saved reply has nothing to resolve to.
+    case anonymousChat
 
     static let current: SampleRoute? = {
         let arguments = ProcessInfo.processInfo.arguments

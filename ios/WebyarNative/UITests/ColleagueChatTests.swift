@@ -20,9 +20,25 @@ final class ColleagueChatTests: UITestCase {
             app.buttons[A11yID.attachButton].exists,
             "no way to send a colleague a file"
         )
+    }
+
+    /// The one thing it deliberately does not share.
+    ///
+    /// Saved replies are written to answer a visitor — "thanks for getting in
+    /// touch", "let me look into that" — and the reader here is a colleague.
+    /// A drawer of the wrong register is worse than no drawer, and the reply
+    /// anyone would reach for first is the greeting, which is the one with
+    /// `{{contact.name}}` in it and nothing to resolve it against.
+    func testTheColleagueThreadHasNoSavedReplies() {
+        app.launchArguments += ["-WebyarScreen", "colleagueThread"]
+        app.launch()
+
         XCTAssertTrue(
+            app.textFields[A11yID.composerField].firstMatch.waitForExistence(timeout: 25)
+        )
+        XCTAssertFalse(
             app.buttons[A11yID.shortcutsButton].exists,
-            "no saved replies in the internal thread"
+            "the internal thread is offering visitor replies"
         )
     }
 

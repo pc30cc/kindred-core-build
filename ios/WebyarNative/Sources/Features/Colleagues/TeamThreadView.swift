@@ -147,11 +147,6 @@ final class TeamThreadViewModel {
     }
 
     func dismissSendError() { sendFailed = false }
-
-    func recordShortcutUse(_ id: String, workspaceID: String?) {
-        guard let workspaceID else { return }
-        Task { [api] in try? await api.trackCannedResponseUse(id: id, workspaceID: workspaceID) }
-    }
 }
 
 /// One colleague's thread. The same transcript rules as the visitor chat —
@@ -323,7 +318,13 @@ struct TeamThreadView: View {
                     )
                 }
             },
-            shortcuts: shortcuts
+            // No saved replies here. They are written to answer a visitor —
+            // "thanks for getting in touch", "let me look into that" — and
+            // the reader in this thread is a colleague. Offering them meant
+            // offering a drawer of the wrong register, and the one they
+            // would reach for most, the greeting, is the one with
+            // `{{contact.name}}` in it, which has nothing to resolve to.
+            shortcuts: nil
         )
     }
 
@@ -343,21 +344,6 @@ struct TeamThreadView: View {
         )
     }
 
-    /// Saved replies work here too, with the visitor placeholders left unfilled
-    /// — `{{contact.name}}` has no answer in a thread with no visitor in it,
-    /// and `CannedText` leaves a name it cannot fill exactly as written so the
-    /// operator sees it before they send.
-    private var shortcuts: ShortcutSource {
-        ShortcutSource(
-            workspaceID: workspaceID,
-            context: CannedText.Context(
-                workspaceName: appState.selectedWorkspace?.name,
-                agentName: appState.session.user?.displayName,
-                agentEmail: appState.session.user?.email
-            ),
-            onUsed: { id in model.recordShortcutUse(id, workspaceID: workspaceID) }
-        )
-    }
 
     private var calendar: Calendar { Format.workingCalendar(locale) }
 

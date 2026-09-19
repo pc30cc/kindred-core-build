@@ -39,13 +39,14 @@ final class ShortcutTests: UITestCase {
     /// while one that still reads "Hello {{contact.name}}" cannot be sent by
     /// accident without being seen.
     func testAPlaceholderWithNoValueIsLeftAsWritten() {
-        // The internal thread has no visitor, so `{{contact.name}}` has nothing
-        // to resolve to.
-        app.launchArguments += ["-WebyarScreen", "colleagueThread"]
+        // A visitor who never gave a name, so `{{contact.name}}` has nothing
+        // to resolve to. This is the ordinary case, not a contrived one: most
+        // threads start from somebody anonymous.
+        app.launchArguments += ["-WebyarScreen", "anonymousChat"]
         app.launch()
 
         let composer = composerField()
-        XCTAssertTrue(composer.waitForExistence(timeout: 25), "the colleague thread never opened")
+        XCTAssertTrue(composer.waitForExistence(timeout: 25), "the anonymous chat never opened")
 
         app.buttons[A11yID.shortcutsButton].tap()
         let greeting = app.buttons[A11yID.shortcutRow("cr-1")]

@@ -205,16 +205,20 @@ struct MainTabView: View {
         }
 
         switch SampleRoute.current {
-        case .chat, .aiChat, .call, .videoCall:
+        case .chat, .aiChat, .call, .videoCall, .anonymousChat:
             guard inboxPath.isEmpty,
                   let all = try? await Backend.current
                       .conversations(workspaceID: workspace.id, filter: .open)
             else { return }
             // `aiChat` picks a thread the AI still owns, so the composer's
-            // AI state can be screenshotted too.
-            let wanted = SampleRoute.current == .aiChat
-                ? all.first { AIState.resolve($0) == .aiManaged }
-                : all.first
+            // AI state can be screenshotted too; `anonymousChat` picks one
+            // whose visitor never gave a name.
+            let wanted: Conversation?
+            switch SampleRoute.current {
+            case .aiChat: wanted = all.first { AIState.resolve($0) == .aiManaged }
+            case .anonymousChat: wanted = all.first { ($0.contact?.name ?? "").isEmpty }
+            default: wanted = all.first
+            }
             guard let conversation = wanted else { return }
             inboxPath.append(conversation)
 

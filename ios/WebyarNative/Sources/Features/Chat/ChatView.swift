@@ -373,19 +373,15 @@ struct MessageRow: View {
         message.senderType == .ai || message.senderType == .bot
     }
 
-    private var senderLabel: String {
-        switch message.senderType {
-        case .ai, .bot: Str.aiReply(language)
-        case .agent: message.senderName ?? ""
-        case .contact, .system: contactName
-        }
-    }
-
     var body: some View {
         if message.senderType == .system {
             systemNote
         } else {
-            HStack(alignment: .bottom, spacing: Theme.Space.sm) {
+            // Tops aligned, so the bubble starts exactly beside the face
+            // rather than above it. Bottom alignment lined the avatar up with
+            // the timestamp *under* the bubble, which pushed the picture down
+            // and left the bubble floating above it.
+            HStack(alignment: .top, spacing: Theme.Space.sm) {
                 if isOutgoing {
                     Spacer(minLength: Theme.Space.xl)
                     bubbleColumn
@@ -450,13 +446,6 @@ struct MessageRow: View {
     /// inside a bubble that happens to sit on the left.
     private var bubbleColumn: some View {
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: Theme.Space.xxs) {
-            if showsAvatar, !senderLabel.isEmpty, message.senderType != .contact {
-                Text(senderLabel)
-                    .font(Theme.Typo.meta)
-                    .foregroundStyle(Theme.Palette.labelSecondary)
-                    .padding(.horizontal, Theme.Space.xs)
-            }
-
             // Files first, then whatever was typed with them. A message can
             // be only files — a photo, a voice note, a document — and its
             // body is then empty, which is why the text bubble is skipped
@@ -486,10 +475,20 @@ struct MessageRow: View {
             }
 
             if showsAvatar {
-                Text(Format.bubbleTime(message.createdAt, locale: locale))
-                    .font(.caption2)
-                    .foregroundStyle(Theme.Palette.labelTertiary)
-                    .padding(.horizontal, Theme.Space.xs)
+                // The operator's own name is not here: on a two-party screen
+                // it is the same name over and over, and the face already
+                // says it. An automated reply is the one thing worth marking,
+                // and it reads better as a footnote than as a heading.
+                HStack(spacing: Theme.Space.xxs) {
+                    if isAI {
+                        Text(Str.aiReply(language))
+                        Text(verbatim: "·")
+                    }
+                    Text(Format.bubbleTime(message.createdAt, locale: locale))
+                }
+                .font(.caption2)
+                .foregroundStyle(Theme.Palette.labelTertiary)
+                .padding(.horizontal, Theme.Space.xs)
             }
         }
         .environment(\.layoutDirection, language.layoutDirection)

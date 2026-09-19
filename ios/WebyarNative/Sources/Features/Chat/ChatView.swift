@@ -387,6 +387,15 @@ struct MessageRow: View {
                     Spacer(minLength: Theme.Space.xl)
                 }
             }
+            // Which side a bubble sits on is not a reading-order question, so
+            // it does not mirror with the interface. An operator console puts
+            // you on the right and the visitor on the left, and it does that
+            // in every language — the operator is answering from one side of
+            // the conversation all day, and having that side swap because the
+            // interface is Persian makes the transcript harder to scan, not
+            // easier. The text inside each bubble still reads in its own
+            // direction; only the arrangement is fixed.
+            .environment(\.layoutDirection, .leftToRight)
             .padding(.vertical, Theme.Space.xxs)
             .accessibilityElement(children: .combine)
         }
@@ -425,6 +434,11 @@ struct MessageRow: View {
         .frame(width: Theme.Size.avatarSmall - 4, height: Theme.Size.avatarSmall - 4)
     }
 
+    /// The bubble and everything stacked under it.
+    ///
+    /// The row above pins the side; this puts the reader's own direction back
+    /// for the contents, so Persian text is still laid out right-to-left
+    /// inside a bubble that happens to sit on the left.
     private var bubbleColumn: some View {
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: Theme.Space.xxs) {
             if showsAvatar, !senderLabel.isEmpty, message.senderType != .contact {
@@ -469,6 +483,7 @@ struct MessageRow: View {
                     .padding(.horizontal, Theme.Space.xs)
             }
         }
+        .environment(\.layoutDirection, language.layoutDirection)
     }
 
     private var systemNote: some View {

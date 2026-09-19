@@ -30,6 +30,9 @@ struct Composer: View {
     @State private var pulse = false
     @State private var recorder = VoiceRecorder()
     @State private var problem: String?
+    /// So a tap anywhere on the rounded field opens the keyboard, not only a
+    /// tap that happens to land on the text itself.
+    @FocusState private var isWriting: Bool
 
     /// The types the server will accept. Offering more than this only moves
     /// the rejection from the picker to the upload.
@@ -45,14 +48,12 @@ struct Composer: View {
             if recorder.isRecording {
                 recordingBar
             } else {
-                HStack(alignment: .bottom, spacing: Theme.Space.sm) {
-                    if capabilities.hasAnyControl {
+                HStack(alignment: .bottom, spacing: Theme.Space.xs) {
+                    if capabilities.canAttach || capabilities.canUseEmoji {
                         controls
                     }
 
                     field
-
-                    sendButton
                 }
             }
 
@@ -64,7 +65,8 @@ struct Composer: View {
             }
         }
         .padding(.horizontal, Theme.screenInset)
-        .padding(.vertical, Theme.Space.sm)
+        .padding(.top, Theme.Space.xs)
+        .padding(.bottom, bottomGap)
         .background(.bar)
         .animation(Theme.Motion.standard, value: isShowingEmoji)
         .animation(Theme.Motion.standard, value: capabilities)
@@ -216,6 +218,21 @@ struct Composer: View {
         return nil
     }
 
+    /// How far the bar sits above the bottom edge.
+    ///
+    /// A bottom safe-area inset parks its content above the home indicator,
+    /// which leaves the field floating a centimetre up the screen with
+    /// nothing under it. The tab bar had the same problem and was solved the
+    /// same way: pull most of that inset back so the bar sits as low as the
+    /// indicator allows.
+    ///
+    /// With the keyboard up there is no indicator to clear — the keyboard is
+    /// the bottom of the screen — so the gap goes to nothing and the bar
+    /// rests directly on the keys.
+    private var bottomGap: CGFloat {
+        isWriting ? 0 : Theme.Space.xs - ScreenInsets.bottom
+    }
+
     /// Says why the composer is plain right now.
     private var aiBanner: some View {
         HStack(spacing: Theme.Space.sm) {
@@ -260,12 +277,6 @@ struct Composer: View {
                 .accessibilityLabel(Str.attachFile(language))
                 .disabled(isSending)
             }
-            if capabilities.canRecordVoice {
-                ComposerButton(icon: "mic", label: Str.voiceNote(language)) {
-                    Task { await recorder.start() }
-                }
-                .disabled(isSending)
-            }
             if capabilities.canUseEmoji {
                 ComposerButton(
                     icon: isShowingEmoji ? "keyboard" : "face.smiling",
@@ -277,22 +288,38 @@ struct Composer: View {
         }
     }
 
+    /// The field, with the two controls that act on what is in it sitting
+    /// inside its own rounded edge — which is where every messenger puts
+    /// them, and what keeps the bar one object instead of three.
     private var field: some View {
-        ZStack(alignment: .leading) {
-            if text.isEmpty {
-                Text(placeholder)
+        HStack(alignment: .bottom, spacing: Theme.Space.xxs) {
+            ZStack(alignment: .leading) {
+                if text.isEmpty {
+                    Text(placeholder)
+                        .font(.body)
+                        .foregroundStyle(Theme.Palette.labelTertiary)
+                        .allowsHitTesting(false)
+                }
+
+                TextField("", text: $text, axis: .vertical)
                     .font(.body)
-                    .foregroundStyle(Theme.Palette.labelTertiary)
-                    .padding(.horizontal, Theme.Space.md)
-                    .allowsHitTesting(false)
+                    .lineLimit(1...6)
+                    .focused($isWriting)
+            }
+            .padding(.leading, Theme.Space.md)
+            .padding(.vertical, Theme.Space.sm + 1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if capabilities.canRecordVoice {
+                inFieldButton(icon: "mic.fill", label: Str.voiceNote(language)) {
+                    Task { await recorder.start() }
+                }
+                .disabled(isSending)
             }
 
-            TextField("", text: $text, axis: .vertical)
-                .font(.body)
-                .lineLimit(1...6)
-                .padding(.horizontal, Theme.Space.md)
-                .padding(.vertical, Theme.Space.sm + 2)
+            sendButton
         }
+        .padding(Theme.Space.xxs)
         .background(
             RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
                 .fill(Theme.Palette.surface)
@@ -301,6 +328,30 @@ struct Composer: View {
             RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
                 .strokeBorder(Theme.Palette.separator.opacity(0.6), lineWidth: 0.5)
         )
+        // The whole pill is the tap target. Tapping the padding beside the
+        // text used to do nothing at all, which reads as a field that will
+        // not open.
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous))
+        .onTapGesture { isWriting = true }
+    }
+
+    /// A control that lives inside the field: smaller than the ones outside
+    /// it, and tinted rather than filled, so the send button stays the only
+    /// solid thing in the bar.
+    private func inFieldButton(
+        icon: String,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 15))
+                .foregroundStyle(Theme.Palette.labelSecondary)
+                .frame(width: 34, height: 34)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     private var sendButton: some View {
@@ -314,8 +365,8 @@ struct Composer: View {
                         .foregroundStyle(.white)
                 }
             }
-            .frame(width: Theme.Size.minTouchTarget, height: Theme.Size.minTouchTarget)
-            .background(Circle().fill(Theme.Palette.brand.opacity(canSend ? 1 : 0.4)))
+            .frame(width: 34, height: 34)
+            .background(Circle().fill(Theme.Palette.brand.opacity(canSend ? 1 : 0.35)))
         }
         .buttonStyle(.plain)
         .disabled(!canSend)

@@ -58,6 +58,12 @@ struct FloatingTabBar<Tab: Hashable>: View {
         // gesture keeps its own room. On a device with a home button there is
         // no strip and the padding is simply the gap.
         .padding(.bottom, Theme.Size.floatingBarBottomGap - ScreenInsets.bottom)
+        // `.contain` rather than nothing at all: an identifier on a plain
+        // `HStack` names a view that accessibility never publishes, so the bar
+        // is unreachable — to a UI test, and to anything else asking the
+        // system what is on screen. This makes the row itself an element that
+        // holds its buttons, without taking their own labels away.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11y.tabBar)
     }
 

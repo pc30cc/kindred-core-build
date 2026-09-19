@@ -84,13 +84,14 @@ final class KeyboardTests: UITestCase {
 
     /// The composer, whichever kind of element this iOS decided it is.
     ///
-    /// A `TextField(axis: .vertical)` is a `textView` to XCUITest on some
-    /// releases and a `textField` on others, and neither is worth pinning a
-    /// test to.
+    /// A `TextField(axis: .vertical)` is a `textField` to XCUITest on iOS 26
+    /// and a `textView` on some other releases, and neither is worth pinning a
+    /// test to. The field is asked for first, since that is what it is here;
+    /// the other is the fallback.
     private func composerField() -> XCUIElement {
-        let asView = app.textViews[A11yID.composerField].firstMatch
-        if asView.waitForExistence(timeout: 8) { return asView }
-        return app.textFields[A11yID.composerField].firstMatch
+        let asField = app.textFields[A11yID.composerField].firstMatch
+        if asField.waitForExistence(timeout: 25) { return asField }
+        return app.textViews[A11yID.composerField].firstMatch
     }
 
     /// The bottom-most piece of text inside the transcript.

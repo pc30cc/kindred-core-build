@@ -19,6 +19,11 @@ struct Composer: View {
     let language: Language
     /// Shown in place of the controls while the AI is answering.
     let aiNotice: String
+    /// Whether the field has the keyboard.
+    ///
+    /// Owned by the screen rather than by this view: tapping the transcript
+    /// has to put it down, and the transcript is not in here.
+    @FocusState.Binding var isWriting: Bool
     let onSend: () -> Void
     /// Hands back a file the operator picked or recorded, ready to upload.
     let onAttach: (Data, String, String) -> Void
@@ -30,9 +35,6 @@ struct Composer: View {
     @State private var pulse = false
     @State private var recorder = VoiceRecorder()
     @State private var problem: String?
-    /// So a tap anywhere on the rounded field opens the keyboard, not only a
-    /// tap that happens to land on the text itself.
-    @FocusState private var isWriting: Bool
 
     /// The types the server will accept. Offering more than this only moves
     /// the rejection from the picker to the upload.
@@ -230,7 +232,7 @@ struct Composer: View {
     /// the bottom of the screen — so the gap goes to nothing and the bar
     /// rests directly on the keys.
     private var bottomGap: CGFloat {
-        isWriting ? 0 : Theme.Space.xs - ScreenInsets.bottom
+        isWriting ? 0 : Theme.Size.floatingBarBottomGap - ScreenInsets.bottom
     }
 
     /// Says why the composer is plain right now.
@@ -307,7 +309,10 @@ struct Composer: View {
                     .focused($isWriting)
             }
             .padding(.leading, Theme.Space.md)
-            .padding(.vertical, Theme.Space.sm + 1)
+            // Sized to match the buttons beside it. A taller text side pushes
+            // them down against the pill's edge, which reads as two controls
+            // falling out of it rather than one field containing them.
+            .padding(.vertical, Theme.Space.sm - 1)
             .frame(maxWidth: .infinity, alignment: .leading)
 
             if capabilities.canRecordVoice {
@@ -319,7 +324,7 @@ struct Composer: View {
 
             sendButton
         }
-        .padding(Theme.Space.xxs)
+        .padding(Theme.Space.xs)
         .background(
             RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
                 .fill(Theme.Palette.surface)

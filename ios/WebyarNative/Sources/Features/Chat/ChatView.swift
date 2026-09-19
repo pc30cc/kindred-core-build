@@ -7,6 +7,9 @@ struct ChatView: View {
     @Environment(\.locale) private var locale
     @State private var model: ChatViewModel
     @State private var actions: ConversationActionsModel
+    /// Whether the composer has the keyboard. Here rather than in the
+    /// composer because tapping the transcript has to be able to clear it.
+    @FocusState private var isWriting: Bool
     @State private var sheet: ConversationSheet?
 
     init(conversation: Conversation) {
@@ -45,6 +48,11 @@ struct ChatView: View {
         @Bindable var model = model
 
         transcript
+            // Tapping the transcript puts the keyboard away. `simultaneous`
+            // rather than `onTapGesture` so it rides alongside the taps the
+            // rows have of their own — opening a photo, opening a document —
+            // instead of swallowing them.
+            .simultaneousGesture(TapGesture().onEnded { isWriting = false })
             // The call takes the whole screen from the moment the invitation
             // goes out: waiting for the visitor, connecting, talking and the
             // outcome are one continuous thing to the operator, and a banner
@@ -124,6 +132,7 @@ struct ChatView: View {
                     capabilities: capabilities,
                     language: language,
                     aiNotice: Str.aiOwnsThread(language),
+                    isWriting: $isWriting,
                     onSend: { Task { await model.send(appState: appState) } },
                     onAttach: { data, name, mime in
                         Task {

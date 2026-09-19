@@ -90,6 +90,9 @@ final class CallSession {
     let channel: CallChannel
     let contactName: String
     let contactAvatarURL: String?
+    /// The visitor's device and country, so the face on the call screen obeys
+    /// the same rule as every other picture of them in the app.
+    let visitor: VisitorProfile?
 
     /// The room, once there is one. `nil` outside a connected call, which is
     /// also what releases the microphone.
@@ -118,6 +121,7 @@ final class CallSession {
         invitation: CallInvitation,
         contactName: String,
         contactAvatarURL: String?,
+        visitor: VisitorProfile? = nil,
         api: any WebyarAPI = Backend.current
     ) {
         self.invitationID = invitation.id
@@ -125,6 +129,7 @@ final class CallSession {
         self.isCameraOn = invitation.kind == .video
         self.contactName = contactName
         self.contactAvatarURL = contactAvatarURL
+        self.visitor = visitor
         self.api = api
     }
 

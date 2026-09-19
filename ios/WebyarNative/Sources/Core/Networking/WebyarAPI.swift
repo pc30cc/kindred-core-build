@@ -17,13 +17,27 @@ protocol WebyarAPI: Sendable {
     func workspaces() async throws -> [Workspace]
     func conversations(workspaceID: String, filter: InboxFilter) async throws -> [Conversation]
     func messages(conversationID: String) async throws -> [Message]
-    func send(body: String, conversationID: String, workspaceID: String, clientMessageID: String) async throws
+    func send(
+        body: String,
+        conversationID: String,
+        workspaceID: String,
+        clientMessageID: String,
+        attachmentID: String?
+    ) async throws
+    func uploadAttachment(
+        conversationID: String,
+        workspaceID: String,
+        fileName: String,
+        mimeType: String,
+        data: Data
+    ) async throws -> String
     func markSeen(conversationID: String) async throws
     func setStatus(_ status: ConversationStatus, conversationID: String, workspaceID: String) async throws
     func claim(conversationID: String, workspaceID: String) async throws
     func inboxCounts(workspaceID: String, scope: String) async throws -> InboxCounts
     func contacts(workspaceID: String) async throws -> [Contact]
     func visitorIntel(workspaceID: String, conversationIDs: [String]) async throws -> [String: VisitorProfile]
+    func visitorIntel(workspaceID: String, contactIDs: [String]) async throws -> [String: VisitorProfile]
 
     func updateConversation(
         conversationID: String,

@@ -61,7 +61,13 @@ actor SampleAPI: WebyarAPI {
         (Self.messages[conversationID] ?? []) + (extraMessages[conversationID] ?? [])
     }
 
-    func send(body: String, conversationID: String, workspaceID: String, clientMessageID: String) async throws {
+    func send(
+        body: String,
+        conversationID: String,
+        workspaceID: String,
+        clientMessageID: String,
+        attachmentID: String?
+    ) async throws {
         extraMessages[conversationID, default: []].append(
             Message(
                 id: clientMessageID,
@@ -183,6 +189,35 @@ actor SampleAPI: WebyarAPI {
 
     /// Gives each sample thread a different device and country so the avatar's
     /// OS-mark and flag paths are actually exercised.
+    /// The sample backend stores nothing, so a file "sends" and is forgotten.
+    func uploadAttachment(
+        conversationID: String,
+        workspaceID: String,
+        fileName: String,
+        mimeType: String,
+        data: Data
+    ) async throws -> String {
+        UUID().uuidString
+    }
+
+    /// Sample contacts get the same treatment as sample conversations, so the
+    /// Contacts list exercises the OS-mark and flag paths too.
+    func visitorIntel(workspaceID: String, contactIDs: [String]) async throws -> [String: VisitorProfile] {
+        let profiles: [VisitorProfile] = [
+            .init(geo: .init(countryCode: "IR", country: "Iran", city: "Tehran"),
+                  device: .init(browser: "Safari", os: "iOS", device: "mobile")),
+            .init(geo: .init(countryCode: "DE", country: "Germany", city: "Berlin"),
+                  device: .init(browser: "Chrome", os: "Windows", device: "desktop")),
+            .init(geo: .init(countryCode: "TR", country: "Türkiye", city: "Istanbul"),
+                  device: .init(browser: "Chrome", os: "Android", device: "mobile")),
+            .init(geo: .init(countryCode: "NL", country: "Netherlands", city: "Utrecht"),
+                  device: .init(browser: "Firefox", os: "Ubuntu", device: "desktop")),
+        ]
+        return Dictionary(uniqueKeysWithValues: contactIDs.enumerated().map { index, id in
+            (id, profiles[index % profiles.count])
+        })
+    }
+
     func visitorIntel(workspaceID: String, conversationIDs: [String]) async throws -> [String: VisitorProfile] {
         [
             "c-1": VisitorProfile(geo: .init(countryCode: "IR", country: "Iran", city: "Tehran"),

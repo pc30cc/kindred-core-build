@@ -58,6 +58,7 @@ struct ChatView: View {
                     invitation: invitation,
                     contactName: title,
                     contactAvatarURL: conversation.contact?.avatarURL,
+                    visitor: model.visitor,
                     language: language,
                     onClose: { actions.pendingInvitation = nil }
                 )
@@ -123,7 +124,17 @@ struct ChatView: View {
                     capabilities: capabilities,
                     language: language,
                     aiNotice: Str.aiOwnsThread(language),
-                    onSend: { Task { await model.send(appState: appState) } }
+                    onSend: { Task { await model.send(appState: appState) } },
+                    onAttach: { data, name, mime in
+                        Task {
+                            await model.sendAttachment(
+                                data: data,
+                                fileName: name,
+                                mimeType: mime,
+                                appState: appState
+                            )
+                        }
+                    }
                 )
             }
             .task {
@@ -404,7 +415,8 @@ struct MessageRow: View {
                         imageURL: contactAvatarURL,
                         size: Theme.Size.avatarSmall - 4,
                         os: visitor?.device?.os,
-                        device: visitor?.device?.device
+                        device: visitor?.device?.device,
+                        countryCode: visitor?.geo?.countryCode
                     )
                 }
             } else {

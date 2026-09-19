@@ -88,7 +88,8 @@ final class ChatViewModel {
                 workspaceID: conversation.workspaceId,
                 // The server collapses a replay of the same key, so this is
                 // what makes a retry safe rather than duplicating.
-                clientMessageID: UUID().uuidString
+                clientMessageID: UUID().uuidString,
+                attachmentID: nil
             )
             await reload(appState: appState)
         } catch APIError.unauthorized {
@@ -96,6 +97,52 @@ final class ChatViewModel {
         } catch {
             // Hand the text back so nothing the operator typed is lost.
             draft = body
+            sendFailed = true
+        }
+
+        isSending = false
+    }
+
+    /// Sends a file, with whatever is in the composer as its caption.
+    ///
+    /// Three server round-trips — reserve, upload, send — so the progress
+    /// flag stays up for the whole thing rather than only the last step. The
+    /// caption is cleared optimistically like a text send, and handed back on
+    /// failure for the same reason.
+    func sendAttachment(
+        data: Data,
+        fileName: String,
+        mimeType: String,
+        appState: AppState
+    ) async {
+        guard !isSending else { return }
+        let caption = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        isSending = true
+        sendFailed = false
+        draft = ""
+
+        do {
+            let attachmentID = try await api.uploadAttachment(
+                conversationID: conversation.id,
+                workspaceID: conversation.workspaceId,
+                fileName: fileName,
+                mimeType: mimeType,
+                data: data
+            )
+            try await api.send(
+                body: caption,
+                conversationID: conversation.id,
+                workspaceID: conversation.workspaceId,
+                clientMessageID: UUID().uuidString,
+                attachmentID: attachmentID
+            )
+            await reload(appState: appState)
+            Haptics.success()
+        } catch APIError.unauthorized {
+            await appState.handleUnauthorized()
+        } catch {
+            draft = caption
             sendFailed = true
         }
 

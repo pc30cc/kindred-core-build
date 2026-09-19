@@ -1462,4 +1462,82 @@ extension Str {
         case .fa: "مگابایت"
         }
     }
+
+    // MARK: - Sending a file
+
+    static func sendPhoto(_ l: Language) -> String {
+        switch l {
+        case .en: "Photo or video"
+        case .fa: "تصویر یا ویدیو"
+        case .tr: "Fotoğraf veya video"
+        }
+    }
+
+    static func sendDocument(_ l: Language) -> String {
+        switch l {
+        case .en: "Document"
+        case .fa: "سند"
+        case .tr: "Belge"
+        }
+    }
+
+    static func sendingFile(_ l: Language) -> String {
+        switch l {
+        case .en: "Sending…"
+        case .fa: "در حال ارسال…"
+        case .tr: "Gönderiliyor…"
+        }
+    }
+
+    static func fileTooLarge(_ l: Language) -> String {
+        switch l {
+        case .en: "That file is over 25 MB."
+        case .fa: "این فایل از ۲۵ مگابایت بزرگ‌تر است."
+        case .tr: "Bu dosya 25 MB'tan büyük."
+        }
+    }
+
+    static func fileTypeNotAllowed(_ l: Language) -> String {
+        switch l {
+        case .en: "That kind of file can't be sent."
+        case .fa: "این نوع فایل قابل ارسال نیست."
+        case .tr: "Bu tür bir dosya gönderilemez."
+        }
+    }
+
+    // MARK: - Recording
+
+    static func recording(_ l: Language) -> String {
+        switch l {
+        case .en: "Recording"
+        case .fa: "در حال ضبط"
+        case .tr: "Kaydediliyor"
+        }
+    }
+
+    /// Shown when the microphone was refused. It points at Settings because
+    /// that is the only place the answer can be changed once it is given.
+    static func microphoneDenied(_ l: Language) -> String {
+        switch l {
+        case .en: "Allow microphone access in Settings to record a voice note."
+        case .fa: "برای ضبط پیام صوتی، دسترسی به میکروفون را در تنظیمات اجازه دهید."
+        case .tr: "Sesli mesaj kaydetmek için Ayarlar'dan mikrofon erişimine izin verin."
+        }
+    }
+
+    static func recordingFailed(_ l: Language) -> String {
+        switch l {
+        case .en: "Recording could not start."
+        case .fa: "ضبط شروع نشد."
+        case .tr: "Kayıt başlatılamadı."
+        }
+    }
+
+    static func discard(_ l: Language) -> String {
+        switch l {
+        case .en: "Discard"
+        case .fa: "دور انداختن"
+        case .tr: "At"
+        }
+    }
 }

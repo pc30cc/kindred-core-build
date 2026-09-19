@@ -270,9 +270,18 @@ actor APIClient {
         /// The server collapses a replay of the same key instead of sending
         /// twice, which is what makes a retry safe. Must be 8–64 characters.
         let client_message_id: String
+        /// Set when the message carries a file. The server requires a body or
+        /// an attachment, so a file with no caption sends an empty body.
+        let attachment_id: String?
     }
 
-    func send(body: String, conversationID: String, workspaceID: String, clientMessageID: String) async throws {
+    func send(
+        body: String,
+        conversationID: String,
+        workspaceID: String,
+        clientMessageID: String,
+        attachmentID: String?
+    ) async throws {
         let request = try makeRequest(
             "POST",
             "/api/conversations/send-message",
@@ -280,10 +289,73 @@ actor APIClient {
                 conversation_id: conversationID,
                 workspace_id: workspaceID,
                 body: body,
-                client_message_id: clientMessageID
+                client_message_id: clientMessageID,
+                attachment_id: attachmentID
             )
         )
         try await performIgnoringBody(request)
+    }
+
+    // MARK: - Sending a file
+
+    private struct AttachmentInitBody: Encodable, Sendable {
+        let workspace_id: String
+        let conversation_id: String
+        let file_name: String
+        let mime_type: String
+        let size_bytes: Int
+    }
+
+    private struct AttachmentInitResponse: Decodable, Sendable {
+        let attachmentID: String
+
+        enum CodingKeys: String, CodingKey {
+            case attachmentID = "attachment_id"
+        }
+    }
+
+    private struct AttachmentUploadBody: Encodable, Sendable {
+        let workspace_id: String
+        let data: String
+    }
+
+    /// Puts a file where a message can point at it.
+    ///
+    /// Three steps, and all three are the server's design rather than ours:
+    /// the row is reserved first so the storage key and the size cap are
+    /// decided server-side, the bytes follow, and only then may a message
+    /// reference it. Uploading straight to the provider is deliberately not
+    /// possible — a client never learns a storage URL.
+    func uploadAttachment(
+        conversationID: String,
+        workspaceID: String,
+        fileName: String,
+        mimeType: String,
+        data: Data
+    ) async throws -> String {
+        let reserve = try makeRequest(
+            "POST",
+            "/api/conversation-attachments/init",
+            body: AttachmentInitBody(
+                workspace_id: workspaceID,
+                conversation_id: conversationID,
+                file_name: fileName,
+                mime_type: mimeType,
+                size_bytes: data.count
+            )
+        )
+        let attachmentID = try await perform(reserve, as: AttachmentInitResponse.self).attachmentID
+
+        let upload = try makeRequest(
+            "POST",
+            "/api/conversation-attachments/\(attachmentID)/upload",
+            body: AttachmentUploadBody(
+                workspace_id: workspaceID,
+                data: data.base64EncodedString()
+            )
+        )
+        try await performIgnoringBody(upload)
+        return attachmentID
     }
 
     /// Takes no body: the route authorises against the conversation's own
@@ -506,7 +578,8 @@ actor APIClient {
 
     private struct VisitorIntelBody: Encodable, Sendable {
         let workspace_id: String
-        let conversation_ids: [String]
+        var conversation_ids: [String]?
+        var contact_ids: [String]?
     }
 
     /// Fetches the visitor device and location behind a page of conversations.
@@ -524,6 +597,24 @@ actor APIClient {
             body: VisitorIntelBody(workspace_id: workspaceID, conversation_ids: Array(ids))
         )
         return try await perform(request, as: VisitorIntelResponse.self).byConversation ?? [:]
+    }
+
+    /// The same read, keyed by contact instead.
+    ///
+    /// Contacts have no conversation to key on, and the rule that a visitor's
+    /// avatar shows their operating system and their flag cannot hold on one
+    /// screen and not another. Same endpoint, same server-side privacy policy
+    /// — the console's Contacts page reads it exactly this way.
+    func visitorIntel(workspaceID: String, contactIDs: [String]) async throws -> [String: VisitorProfile] {
+        let ids = Array(Set(contactIDs.filter { !$0.isEmpty })).prefix(500)
+        guard !ids.isEmpty else { return [:] }
+
+        let request = try makeRequest(
+            "POST",
+            "/api/visitor-intel/network/batch",
+            body: VisitorIntelBody(workspace_id: workspaceID, contact_ids: Array(ids))
+        )
+        return try await perform(request, as: VisitorIntelResponse.self).byContact ?? [:]
     }
 
     // MARK: - Account

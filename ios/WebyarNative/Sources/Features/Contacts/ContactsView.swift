@@ -5,6 +5,8 @@ import Observation
 @Observable
 final class ContactsViewModel {
     private(set) var state: LoadState<[Contact]> = .loading
+    /// Device and location per contact id, for the avatar's OS mark and flag.
+    private(set) var visitors: [String: VisitorProfile] = [:]
     var searchText = ""
 
     private let api: any WebyarAPI
@@ -42,12 +44,27 @@ final class ContactsViewModel {
     func refresh(workspaceID: String?, appState: AppState) async {
         guard let workspaceID else { return }
         do {
-            state = .loaded(try await api.contacts(workspaceID: workspaceID))
+            let contacts = try await api.contacts(workspaceID: workspaceID)
+            state = .loaded(contacts)
+            await loadVisitors(contacts, workspaceID: workspaceID)
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()
         } catch {
             // Keep the list we have.
         }
+    }
+
+    /// The device and country behind each contact.
+    ///
+    /// One request for the whole page, never one per row — the same rule the
+    /// inbox follows, and the same endpoint, so a visitor cannot appear as an
+    /// Android phone from Türkiye on one screen and as bare initials on the
+    /// next. Decorative: a failure leaves the list rendering exactly as it is.
+    private func loadVisitors(_ contacts: [Contact], workspaceID: String) async {
+        visitors = (try? await api.visitorIntel(
+            workspaceID: workspaceID,
+            contactIDs: contacts.map(\.id)
+        )) ?? [:]
     }
 }
 
@@ -133,7 +150,11 @@ struct ContactsView: View {
                 } else {
                     ForEach(Array(model.visible.enumerated()), id: \.element.id) { index, contact in
                         NavigationLink(value: contact) {
-                            ContactRow(contact: contact, language: language)
+                            ContactRow(
+                                contact: contact,
+                                language: language,
+                                visitor: model.visitors[contact.id]
+                            )
                         }
                         // The first row is what the list rests on.
                         .id(index == 0 ? Self.restAnchor : contact.id)
@@ -157,6 +178,8 @@ struct ContactsView: View {
 struct ContactRow: View {
     let contact: Contact
     let language: Language
+    /// Device and country behind this contact, when the server knew them.
+    var visitor: VisitorProfile?
 
     private var displayName: String {
         Format.contactName(
@@ -175,7 +198,16 @@ struct ContactRow: View {
 
     var body: some View {
         HStack(spacing: Theme.Space.md) {
-            Avatar(name: displayName, imageURL: contact.avatarURL, size: Theme.Size.avatarSmall + 6)
+            // Same size and same rule as an inbox row, deliberately: a
+            // visitor is the same person on both screens and has to look it.
+            Avatar(
+                name: displayName,
+                imageURL: contact.avatarURL,
+                size: Theme.Size.avatarMedium,
+                os: visitor?.device?.os,
+                device: visitor?.device?.device,
+                countryCode: visitor?.geo?.countryCode
+            )
 
             VStack(alignment: .leading, spacing: Theme.Space.xxs) {
                 Text(displayName)
@@ -204,7 +236,7 @@ struct ContactRowSkeleton: View {
         HStack(spacing: Theme.Space.md) {
             Circle()
                 .fill(Theme.Palette.surfaceElevated)
-                .frame(width: Theme.Size.avatarSmall + 6, height: Theme.Size.avatarSmall + 6)
+                .frame(width: Theme.Size.avatarMedium, height: Theme.Size.avatarMedium)
 
             VStack(alignment: .leading, spacing: Theme.Space.sm) {
                 RoundedRectangle(cornerRadius: Theme.Radius.sm)

@@ -11,6 +11,12 @@ struct ContactDetailView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.locale) private var locale
 
+    /// Device and location behind this contact. Loaded here rather than
+    /// passed in, because this screen is reachable from a deep link as well
+    /// as from the list, and the avatar rule cannot depend on how you got
+    /// here.
+    @State private var visitor: VisitorProfile?
+
     private var language: Language { appState.language }
 
     private var displayName: String {
@@ -26,7 +32,14 @@ struct ContactDetailView: View {
         List {
             Section {
                 VStack(spacing: Theme.Space.md) {
-                    Avatar(name: displayName, imageURL: contact.avatarURL, size: Theme.Size.avatarLarge)
+                    Avatar(
+                        name: displayName,
+                        imageURL: contact.avatarURL,
+                        size: Theme.Size.avatarLarge,
+                        os: visitor?.device?.os,
+                        device: visitor?.device?.device,
+                        countryCode: visitor?.geo?.countryCode
+                    )
 
                     Text(displayName)
                         .font(.title2.weight(.semibold))
@@ -62,6 +75,13 @@ struct ContactDetailView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle(displayName)
+        .task {
+            guard let workspaceID = appState.selectedWorkspace?.id else { return }
+            visitor = try? await Backend.current.visitorIntel(
+                workspaceID: workspaceID,
+                contactIDs: [contact.id]
+            )[contact.id]
+        }
         .navigationBarTitleDisplayMode(.inline)
     }
 

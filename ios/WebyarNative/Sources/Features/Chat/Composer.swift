@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import UniformTypeIdentifiers
 
 /// The message field, its send button, and whichever extra controls the plan
 /// and the conversation's state allow.
@@ -18,8 +20,21 @@ struct Composer: View {
     /// Shown in place of the controls while the AI is answering.
     let aiNotice: String
     let onSend: () -> Void
+    /// Hands back a file the operator picked or recorded, ready to upload.
+    let onAttach: (Data, String, String) -> Void
 
     @State private var isShowingEmoji = false
+    @State private var photoItem: PhotosPickerItem?
+    @State private var isShowingPhotos = false
+    @State private var isShowingDocuments = false
+    @State private var pulse = false
+    @State private var recorder = VoiceRecorder()
+    @State private var problem: String?
+
+    /// The types the server will accept. Offering more than this only moves
+    /// the rejection from the picker to the upload.
+    private static let allowedDocuments: [UTType] = [.pdf, .plainText, .png, .jpeg, .webP, .gif]
+    private static let maximumBytes = 25 * 1024 * 1024
 
     var body: some View {
         VStack(spacing: Theme.Space.sm) {
@@ -27,14 +42,18 @@ struct Composer: View {
                 aiBanner
             }
 
-            HStack(alignment: .bottom, spacing: Theme.Space.sm) {
-                if capabilities.hasAnyControl {
-                    controls
+            if recorder.isRecording {
+                recordingBar
+            } else {
+                HStack(alignment: .bottom, spacing: Theme.Space.sm) {
+                    if capabilities.hasAnyControl {
+                        controls
+                    }
+
+                    field
+
+                    sendButton
                 }
-
-                field
-
-                sendButton
             }
 
             if isShowingEmoji, capabilities.canUseEmoji {
@@ -49,6 +68,152 @@ struct Composer: View {
         .background(.bar)
         .animation(Theme.Motion.standard, value: isShowingEmoji)
         .animation(Theme.Motion.standard, value: capabilities)
+        .animation(Theme.Motion.standard, value: recorder.isRecording)
+        .photosPicker(
+            isPresented: $isShowingPhotos,
+            selection: $photoItem,
+            matching: .any(of: [.images, .videos])
+        )
+        .fileImporter(
+            isPresented: $isShowingDocuments,
+            allowedContentTypes: Self.allowedDocuments
+        ) { result in
+            handlePickedDocument(result)
+        }
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            Task { await handlePickedPhoto(item) }
+        }
+        .onChange(of: recorder.failure) { _, failure in
+            switch failure {
+            case .permissionDenied: problem = Str.microphoneDenied(language)
+            case .unavailable: problem = Str.recordingFailed(language)
+            case nil: break
+            }
+        }
+        .alert(problem ?? "", isPresented: Binding(
+            get: { problem != nil },
+            set: { if !$0 { problem = nil } }
+        )) {
+            Button(Str.ok(language), role: .cancel) {}
+        }
+    }
+
+    // MARK: - Recording
+
+    /// Replaces the whole composer while recording, the way every messenger
+    /// does: there is nothing else to do until the note is sent or thrown
+    /// away, and a field you cannot type into is worse than no field.
+    private var recordingBar: some View {
+        HStack(spacing: Theme.Space.md) {
+            Button {
+                recorder.cancel()
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 16))
+                    .foregroundStyle(Theme.Palette.danger)
+                    .frame(width: 38, height: 38)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Str.discard(language))
+
+            HStack(spacing: Theme.Space.sm) {
+                Circle()
+                    .fill(Theme.Palette.danger)
+                    .frame(width: 8, height: 8)
+                    .opacity(pulse ? 0.3 : 1)
+                    .animation(.easeInOut(duration: 0.7).repeatForever(), value: pulse)
+
+                Text(Format.voiceTime(recorder.seconds, locale: language.locale))
+                    .font(Theme.Typo.rowTitle)
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.Palette.label)
+
+                Text(Str.recording(language))
+                    .font(Theme.Typo.meta)
+                    .foregroundStyle(Theme.Palette.labelSecondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                if let data = recorder.finish() {
+                    onAttach(data, recorder.fileName, recorder.mimeType)
+                } else {
+                    recorder.cancel()
+                }
+            } label: {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 38, height: 38)
+                    .background(Circle().fill(Theme.Palette.brand))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(sendLabel)
+        }
+        .onAppear { pulse = true }
+        .onDisappear { pulse = false }
+    }
+
+    // MARK: - Picking
+
+    private func handlePickedPhoto(_ item: PhotosPickerItem) async {
+        defer { photoItem = nil }
+        guard let data = try? await item.loadTransferable(type: Data.self) else {
+            problem = Str.attachmentFailed(language)
+            return
+        }
+        guard data.count <= Self.maximumBytes else {
+            problem = Str.fileTooLarge(language)
+            return
+        }
+        // `PhotosPickerItem` reports the type it will hand over, which is not
+        // always the type in the library — a HEIC photo transcodes on the way
+        // out. Whatever it actually is has to be one the server takes.
+        let type = item.supportedContentTypes.first { Self.mime(for: $0) != nil }
+        guard let type, let mime = Self.mime(for: type) else {
+            problem = Str.fileTypeNotAllowed(language)
+            return
+        }
+        onAttach(data, "photo.\(type.preferredFilenameExtension ?? "jpg")", mime)
+    }
+
+    private func handlePickedDocument(_ result: Result<URL, Error>) {
+        guard case .success(let url) = result else { return }
+        // A file from another app arrives outside our sandbox; the read has to
+        // happen inside a security scope or it comes back empty.
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+
+        guard let data = try? Data(contentsOf: url) else {
+            problem = Str.attachmentFailed(language)
+            return
+        }
+        guard data.count <= Self.maximumBytes else {
+            problem = Str.fileTooLarge(language)
+            return
+        }
+        guard let type = UTType(filenameExtension: url.pathExtension),
+              let mime = Self.mime(for: type) else {
+            problem = Str.fileTypeNotAllowed(language)
+            return
+        }
+        onAttach(data, url.lastPathComponent, mime)
+    }
+
+    /// The server's allowed list, spelled the way it spells it. Anything not
+    /// here is refused before a byte is uploaded.
+    private static func mime(for type: UTType) -> String? {
+        if type.conforms(to: .png) { return "image/png" }
+        if type.conforms(to: .jpeg) { return "image/jpeg" }
+        if type.conforms(to: .webP) { return "image/webp" }
+        if type.conforms(to: .gif) { return "image/gif" }
+        if type.conforms(to: .pdf) { return "application/pdf" }
+        if type.conforms(to: .plainText) { return "text/plain" }
+        if type.conforms(to: .mpeg4Audio) { return "audio/mp4" }
+        if type.conforms(to: .mp3) { return "audio/mpeg" }
+        if type.conforms(to: .wav) { return "audio/wav" }
+        return nil
     }
 
     /// Says why the composer is plain right now.
@@ -75,14 +240,31 @@ struct Composer: View {
     private var controls: some View {
         HStack(spacing: Theme.Space.xxs) {
             if capabilities.canAttach {
-                ComposerButton(icon: "paperclip", label: Str.attachFile(language)) {
-                    // Attachment upload is a larger piece of work than this
-                    // screen; the control appears only where the plan allows
-                    // it so the placement and gating can be reviewed first.
+                // A menu rather than a single picker: a photo and a document
+                // come from two different system pickers, and guessing which
+                // one somebody meant gets it wrong half the time.
+                Menu {
+                    Button {
+                        isShowingPhotos = true
+                    } label: {
+                        Label(Str.sendPhoto(language), systemImage: "photo")
+                    }
+                    Button {
+                        isShowingDocuments = true
+                    } label: {
+                        Label(Str.sendDocument(language), systemImage: "doc")
+                    }
+                } label: {
+                    ComposerButtonLabel(icon: "paperclip")
                 }
+                .accessibilityLabel(Str.attachFile(language))
+                .disabled(isSending)
             }
             if capabilities.canRecordVoice {
-                ComposerButton(icon: "mic", label: Str.voiceNote(language)) {}
+                ComposerButton(icon: "mic", label: Str.voiceNote(language)) {
+                    Task { await recorder.start() }
+                }
+                .disabled(isSending)
             }
             if capabilities.canUseEmoji {
                 ComposerButton(
@@ -150,14 +332,24 @@ struct ComposerButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 19))
-                .foregroundStyle(Theme.Palette.labelSecondary)
-                .frame(width: Theme.Size.minTouchTarget - 6, height: Theme.Size.minTouchTarget)
-                .contentShape(Rectangle())
+            ComposerButtonLabel(icon: icon)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+    }
+}
+
+/// The same target and the same glyph, without a button around it — for the
+/// paperclip, which opens a menu rather than doing one thing.
+struct ComposerButtonLabel: View {
+    let icon: String
+
+    var body: some View {
+        Image(systemName: icon)
+            .font(.system(size: 19))
+            .foregroundStyle(Theme.Palette.labelSecondary)
+            .frame(width: Theme.Size.minTouchTarget - 6, height: Theme.Size.minTouchTarget)
+            .contentShape(Rectangle())
     }
 }
 

@@ -29,7 +29,8 @@ struct CallScreen: View {
                     remote: session.remoteVideoTrack,
                     local: session.localVideoTrack,
                     contactName: session.contactName,
-                    contactAvatarURL: session.contactAvatarURL
+                    contactAvatarURL: session.contactAvatarURL,
+                    visitor: session.visitor
                 )
                 .ignoresSafeArea()
                 .onTapGesture { revealChrome() }
@@ -208,7 +209,10 @@ struct CallScreen: View {
         Avatar(
             name: session.contactName,
             imageURL: session.contactAvatarURL,
-            size: 140
+            size: 140,
+            os: session.visitor?.device?.os,
+            device: session.visitor?.device?.device,
+            countryCode: session.visitor?.geo?.countryCode
         )
         .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
         .overlay(alignment: .bottom) {
@@ -276,6 +280,7 @@ private struct VideoStage: View {
     let local: VideoTrack?
     let contactName: String
     let contactAvatarURL: String?
+    var visitor: VisitorProfile?
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -292,7 +297,14 @@ private struct VideoStage: View {
                     // switched off, or never there. Their face says the call
                     // is fine and the picture is not; a spinner that never
                     // resolves would say the opposite.
-                    Avatar(name: contactName, imageURL: contactAvatarURL, size: 140)
+                    Avatar(
+                        name: contactName,
+                        imageURL: contactAvatarURL,
+                        size: 140,
+                        os: visitor?.device?.os,
+                        device: visitor?.device?.device,
+                        countryCode: visitor?.geo?.countryCode
+                    )
                         .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
                 }
             }
@@ -400,6 +412,7 @@ struct CallHost: View {
         invitation: CallInvitation,
         contactName: String,
         contactAvatarURL: String?,
+        visitor: VisitorProfile?,
         language: Language,
         onClose: @escaping () -> Void
     ) {
@@ -409,7 +422,8 @@ struct CallHost: View {
             initialValue: CallSession(
                 invitation: invitation,
                 contactName: contactName,
-                contactAvatarURL: contactAvatarURL
+                contactAvatarURL: contactAvatarURL,
+                visitor: visitor
             )
         )
     }

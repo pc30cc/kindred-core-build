@@ -55,8 +55,12 @@ struct VisitorProfile: Decodable, Sendable {
 
 struct VisitorIntelResponse: Decodable, Sendable {
     let byConversation: [String: VisitorProfile]?
+    /// The same profiles keyed by contact, for surfaces that have a contact
+    /// and no conversation — the Contacts list and a contact's own page.
+    let byContact: [String: VisitorProfile]?
 
     enum CodingKeys: String, CodingKey {
         case byConversation = "by_conversation"
+        case byContact = "by_contact"
     }
 }

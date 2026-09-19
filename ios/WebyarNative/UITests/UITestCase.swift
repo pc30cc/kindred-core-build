@@ -160,17 +160,25 @@ class UITestCase: XCTestCase {
     /// Messages behaves: you tap beside a message to dismiss, not on it. That
     /// is easy to miss while the sample conversation is short enough to leave
     /// the middle of the screen empty, and it stops being true the moment the
-    /// transcript fills up. So this walks the gutters down both edges, where
-    /// the space beside a bubble always is, and stops as soon as the keyboard
+    /// transcript fills up. So this walks the gutters up both edges, where the
+    /// space beside a bubble always is, and stops as soon as the keyboard
     /// goes.
+    ///
+    /// It starts below the navigation bar and works upwards from the keyboard.
+    /// A scroll view's frame reaches under the status bar, and a tap on the
+    /// status bar means "scroll to the top" to iOS — so a candidate up there
+    /// dismisses nothing and throws the transcript back to the beginning of
+    /// the conversation, which then fails the next assertion for a reason that
+    /// has nothing to do with keyboards.
     @discardableResult
     func dismissKeyboardByTapping(_ transcript: XCUIElement, above keyboard: XCUIElement) -> Bool {
         let frame = transcript.frame
-        let top = max(frame.minY, 0) + 30
+        let chrome = app.navigationBars.firstMatch
+        let top = max(frame.minY, chrome.exists ? chrome.frame.maxY : 0) + 20
         let bottom = keyboard.frame.minY - 30
         guard bottom > top else { return false }
 
-        for y in stride(from: top, to: bottom, by: 60) {
+        for y in stride(from: bottom, to: top, by: -60) {
             for x in [frame.maxX - 12, frame.minX + 12] {
                 app.coordinate(withNormalizedOffset: .zero)
                     .withOffset(CGVector(dx: x, dy: y))

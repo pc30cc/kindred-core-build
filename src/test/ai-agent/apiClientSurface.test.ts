@@ -8,7 +8,8 @@
  * is the exact inventory of the pre-split src/lib/ai-agent-api.ts (138
  * methods), captured before the split, plus the 4 Support Intelligence
  * vNext human-guidance methods, plus the 2 "AI Reply Now" methods, plus the
- * 1 AI Proactive Nudge platform-stats method (145 total).
+ * 1 AI Proactive Nudge platform-stats method, plus the 1 "AI Say Now"
+ * operator-dictation method (146 total).
  */
 import { describe, it, expect } from 'vitest';
 import { aiAgentApi } from '@/lib/ai-agent-api';
@@ -22,7 +23,8 @@ import { internalQaApi } from '@/lib/ai-agent/internalQa';
 import { humanGuidanceApi } from '@/lib/ai-agent/humanGuidance';
 
 const EXPECTED_METHOD_KEYS = [
-  "acceptSuggestedTestCase", "approveLearningCandidateAsLearned", "approveLearningCandidateAsQna",
+  "acceptSuggestedTestCase", "aiSayNow", "approveLearningCandidateAsLearned",
+  "approveLearningCandidateAsQna",
   "bulkCreateQna", "cancelRegressionBatch", "cancelSourceJob", "convertLearningCandidateToKb",
   "convertLearningCandidateToKbV2", "convertLearningCandidateToQna", "createGuidance",
   "createMessageTrigger", "createQna", "createRouting", "createTestCase", "createTool",
@@ -64,7 +66,7 @@ const EXPECTED_METHOD_KEYS = [
 ].sort();
 
 describe('Phase 4 — aiAgentApi compatibility aggregate surface parity', () => {
-  it('has exactly the expected 145 method keys', () => {
+  it('has exactly the expected 146 method keys', () => {
     expect(Object.keys(aiAgentApi).sort()).toEqual(EXPECTED_METHOD_KEYS);
   });
 

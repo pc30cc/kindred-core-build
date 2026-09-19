@@ -194,6 +194,21 @@ struct MainTabView: View {
     /// out of Release entirely.
     private func openRequestedScreen() async {
         #if DEBUG
+        guard SampleRoute.current != nil else { return }
+
+        // Wait for the workspace rather than giving up without one.
+        //
+        // This used to `guard let … else { return }` and that was the flake.
+        // The route runs from `.task(id: appState.selectedWorkspace?.id)`,
+        // which fires once with nil and again when the workspace arrives —
+        // except that a task is cancelled when its id changes, so an
+        // `await` in flight at that moment throws, the `try?` swallows it,
+        // and the whole navigation is quietly abandoned. Nothing retried it.
+        // A UI test then waited its full timeout for a screen that was never
+        // going to be pushed and reported "the chat never opened".
+        for _ in 0..<60 where appState.selectedWorkspace == nil {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
         guard let workspace = appState.selectedWorkspace else { return }
 
         // The plan decides whether Contacts exists at all, and it resolves a
@@ -206,10 +221,18 @@ struct MainTabView: View {
 
         switch SampleRoute.current {
         case .chat, .aiChat, .call, .videoCall, .anonymousChat:
-            guard inboxPath.isEmpty,
-                  let all = try? await Backend.current
-                      .conversations(workspaceID: workspace.id, filter: .open)
-            else { return }
+            // Asked for again if the first attempt came back empty-handed:
+            // a cancelled fetch and a workspace with no conversations look
+            // identical from here, and only one of them is worth waiting on.
+            guard inboxPath.isEmpty else { return }
+            var fetched: [Conversation]?
+            for _ in 0..<10 {
+                fetched = try? await Backend.current
+                    .conversations(workspaceID: workspace.id, filter: .open)
+                if !(fetched ?? []).isEmpty { break }
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+            guard let all = fetched, !all.isEmpty else { return }
             // `aiChat` picks a thread the AI still owns, so the composer's
             // AI state can be screenshotted too; `anonymousChat` picks one
             // whose visitor never gave a name.

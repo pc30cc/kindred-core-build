@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  PRIVACY MANIFEST — what this binary actually does.
+
+  Unlike ios/App/App/PrivacyInfo.xcprivacy, which `npm run ios:sync` generates
+  from Super Admin, this file is written by hand and kept honest by a test.
+  That is deliberate: every value here is a fact about the Swift sources, not
+  a setting an operator should be able to turn on. Nobody in Super Admin can
+  make this app stop calling UserDefaults, and an operator who could edit this
+  file could only ever make it disagree with the code — which is itself one of
+  the things App Review rejects for.
+
+  `src/test/ios/nativePrivacyManifest.test.ts` reads the Swift sources and
+  fails if they start touching a required-reason API that is not declared
+  below, or stop touching one that is. When that test fails, the fix is to
+  change this file, never to loosen the test.
+
+  Placed in Resources/ so XcodeGen's resources build phase copies it to the
+  root of the app bundle, which is the only place Apple's tooling looks.
+-->
+<plist version="1.0">
+<dict>
+	<!--
+	  No tracking, and this is structural rather than a promise. The app links
+	  exactly two frameworks it did not write (LiveKit, for the WebRTC stack a
+	  call needs), carries no analytics or attribution SDK, never reads the
+	  IDFA, and sends no impression or identifier anywhere. There is therefore
+	  no ATT prompt and no NSUserTrackingUsageDescription: asking permission to
+	  track when nothing tracks would be its own review problem.
+
+	  If an advertising SDK is ever added, all three of these change together
+	  and so does the App Store product page. There is no version of that
+	  change which leaves this section alone.
+	-->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+
+	<!--
+	  Everything the operator hands to the platform. All of it is linked to
+	  their account — this is a signed-in tool for people doing their job, so
+	  pretending otherwise would be false — and none of it is used to track
+	  them across other companies' apps or sites.
+	-->
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array>
+		<!-- Sign-in, and shown back on the profile screen. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeEmailAddress</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<!-- The display name the operator sets, which visitors and colleagues see. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeName</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<!-- The account id every request is made as. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeUserID</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<!-- Profile photo, and images sent into a conversation. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePhotosorVideos</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<!-- Recorded voice notes, and the operator's microphone during a call. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeAudioData</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<!-- The conversations themselves: the reason the app exists. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeCustomerSupport</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+		<!-- Internal notes, files of other kinds, email replies, team messages. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherUserContent</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+	</array>
+
+	<!--
+	  Required-reason APIs. One entry, because the app touches exactly one of
+	  the five categories. The Capacitor app declares four; a WKWebView and its
+	  plugins reach for file timestamps, free disk space and boot time on their
+	  own, and this app has none of that.
+
+	  CA92.1 covers defaults that only this app reads and writes. That is all
+	  of them: the chosen language and appearance, the platform origin the app
+	  was last told to use, and the promotion pacing counters. No app group, so
+	  nothing here is readable by another process.
+	-->
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

@@ -3,5 +3,5 @@
    drawn by the system, not by the app, so `Str` cannot reach them — they are
    localized here or they are English for everybody. */
 "CFBundleDisplayName" = "Webyar";
-"NSMicrophoneUsageDescription" = "Webyar uses the microphone when you call a visitor from a conversation.";
+"NSMicrophoneUsageDescription" = "Webyar uses the microphone when you call a visitor, and when you record a voice note to send into a conversation.";
 "NSCameraUsageDescription" = "Webyar uses the camera when you start a video call with a visitor.";

@@ -56,8 +56,8 @@ targets:
         UIBackgroundModes:
           - audio
         NSMicrophoneUsageDescription: >-
-          Webyar uses the microphone when you call a visitor from a
-          conversation.
+          Webyar uses the microphone when you call a visitor, and when you
+          record a voice note to send into a conversation.
         NSCameraUsageDescription: >-
           Webyar uses the camera when you start a video call with a visitor.
         # Persian and Turkish ship in-bundle so the language picker works

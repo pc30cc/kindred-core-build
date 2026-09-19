@@ -38,6 +38,9 @@ final class AppState {
         didSet {
             guard language != oldValue else { return }
             UserDefaults.standard.set(language.rawValue, forKey: Self.languageKey)
+            // Before SwiftUI has even been told, so the window and the
+            // interface turn together rather than one frame apart.
+            WindowDirection.apply(language)
         }
     }
 

@@ -74,6 +74,11 @@ struct RootView: View {
         }
         .animation(Theme.Motion.standard, value: appState.session)
         .task {
+            // First thing, while the launch view — a centred mark on a plain
+            // background — is the only thing on screen and has no side to be
+            // on. Every screen after this is built with the window already
+            // facing the right way.
+            WindowDirection.apply(appState.language)
             await appState.restore()
         }
     }

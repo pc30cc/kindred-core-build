@@ -256,6 +256,7 @@ struct InboxView: View {
                       : "line.3.horizontal.decrease.circle.fill")
             }
             .accessibilityLabel(Str.filters(language))
+            .accessibilityIdentifier(A11y.inboxFilter)
 
             Button {
                 // Toggles: the magnifier is the only way in and the only way out,
@@ -265,6 +266,7 @@ struct InboxView: View {
                 Image(systemName: "magnifyingglass")
             }
             .accessibilityLabel(Str.search(language))
+            .accessibilityIdentifier(A11y.inboxSearch)
         }
     }
 

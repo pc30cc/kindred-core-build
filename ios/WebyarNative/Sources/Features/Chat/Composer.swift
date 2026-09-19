@@ -304,6 +304,7 @@ struct Composer: View {
                 }
 
                 TextField("", text: $text, axis: .vertical)
+                    .accessibilityIdentifier(A11y.composerField)
                     .font(.body)
                     .lineLimit(1...6)
                     .focused($isWriting)

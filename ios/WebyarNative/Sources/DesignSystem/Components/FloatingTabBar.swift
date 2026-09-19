@@ -58,6 +58,7 @@ struct FloatingTabBar<Tab: Hashable>: View {
         // gesture keeps its own room. On a device with a home button there is
         // no strip and the padding is simply the gap.
         .padding(.bottom, Theme.Size.floatingBarBottomGap - ScreenInsets.bottom)
+        .accessibilityIdentifier(A11y.tabBar)
     }
 
     private func button(for item: Item) -> some View {

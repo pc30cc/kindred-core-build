@@ -34,6 +34,7 @@ struct SearchRow: View {
                 .submitLabel(.search)
                 .focused(focus)
                 .frame(maxWidth: .infinity)
+                .accessibilityIdentifier(A11y.searchField)
 
             if !text.isEmpty {
                 Button {

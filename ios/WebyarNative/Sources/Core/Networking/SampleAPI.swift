@@ -36,8 +36,17 @@ actor SampleAPI: WebyarAPI {
 
     // MARK: - Workspaces
 
+    /// Two of them, on purpose.
+    ///
+    /// Settings shows the operator every workspace they belong to, and with a
+    /// single one the list, the checkmark and the "switch to this one" tap all
+    /// go untested — the one-workspace row is a different branch. Most real
+    /// accounts have one; the interesting one is the account that has two.
     func workspaces() async throws -> [Workspace] {
-        [Workspace(id: "ws-1", name: "Sample Workspace", slug: "sample", logoURL: nil)]
+        [
+            Workspace(id: "ws-1", name: "Sample Workspace", slug: "sample", logoURL: nil),
+            Workspace(id: "ws-2", name: "Second Workspace", slug: "second", logoURL: nil)
+        ]
     }
 
     // MARK: - Conversations

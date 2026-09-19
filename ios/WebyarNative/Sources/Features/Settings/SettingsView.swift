@@ -240,11 +240,12 @@ private struct WorkspaceRow: View {
 
     var body: some View {
         if isOnly {
-            content
+            content.accessibilityIdentifier(A11y.workspaceRow(workspace.id))
         } else {
             Button(action: onSelect) { content }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
+                .accessibilityIdentifier(A11y.workspaceRow(workspace.id))
         }
     }
 

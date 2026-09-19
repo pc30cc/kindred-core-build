@@ -105,6 +105,14 @@ vi.mock('../../../server/supabase.js', () => ({
           return b;
         },
         maybeSingle: async () => ({ data: b._ws && memberOf[b._ws] ? { role: memberOf[b._ws] } : null }),
+        // getRolloutState self-heals a missing billing_v2_rollout row before
+        // any legacy-path check runs, so the very first authorized request
+        // reaches this. Without it the call rejected outside the request's
+        // own promise chain: an unhandled rejection and a 5s timeout rather
+        // than the authorization result the case is actually about.
+        upsert: () => b,
+        then: (onOk: any, onErr: any) =>
+          Promise.resolve({ data: null, error: null }).then(onOk, onErr),
       };
       return b;
     },

@@ -233,7 +233,10 @@ describe('ingest wiring', () => {
     const insert = widget.indexOf("sender_type: 'contact'");
     const resume = widget.indexOf('await applyInboundConversationLifecycle');
     expect(resume).toBeGreaterThan(insert);
-    expect(widget).toContain('if (convId && insertedMsg?.id) {');
+    // The guard gained a `!duplicate` clause — a replay must not resume the
+    // conversation either — so it is matched on the two conditions that make
+    // it correct rather than on the whole line.
+    expect(widget).toMatch(/if \([^)]*\bconvId\b[^)]*insertedMsg\?\.id[^)]*\) \{/);
   });
 
   it('widget continuity performs no silent status change at all', () => {

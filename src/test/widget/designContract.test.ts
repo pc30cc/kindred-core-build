@@ -104,9 +104,20 @@ describe('typography ownership', () => {
     expect(loader).not.toContain('/widget/fonts.css');
     expect(loader).toContain('presentationFontsUrl');
     // Call widget consumes a server-provided asset URL, not the chat path.
+    // The consumption sits in the presentation module now, not the runtime —
+    // which is what the rule above asks for, so the runtime is checked for
+    // the absence of font knowledge and the presentation module for the
+    // presence of the server-provided URL.
     const callRuntime = readFileSync('public/call-widget/runtime.js', 'utf8');
     expect(callRuntime).not.toContain('/widget/fonts.css');
-    expect(callRuntime).toContain('font_style_url');
+    expect(callRuntime).not.toContain('IRANSans');
+
+    const callPresentation = readFileSync('public/call-widget/presentation-default.js', 'utf8');
+    expect(callPresentation).toContain('font_style_url');
+    expect(callPresentation).not.toContain('/widget/fonts.css');
+    expect(callPresentation).not.toContain('IRANSans');
+    // And the server is the one that names it.
+    expect(readFileSync('server/routes/callWidget.ts', 'utf8')).toContain('font_style_url:');
     const callCss = readFileSync('public/call-widget/runtime.css', 'utf8');
     expect(callCss).not.toMatch(/@font-face/);
   });

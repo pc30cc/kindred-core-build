@@ -122,16 +122,9 @@ final class VoiceRecorder {
         }
     }
 
-    /// The permission API moved in iOS 17; both spellings are here because a
-    /// deployment target of 17.0 still builds against later SDKs.
+    /// The app's floor is iOS 17, which is exactly where this spelling
+    /// arrived — so there is no older branch to keep.
     private static func requestPermission() async -> Bool {
-        if #available(iOS 17.0, *) {
-            return await AVAudioApplication.requestRecordPermission()
-        }
-        return await withCheckedContinuation { continuation in
-            AVAudioSession.sharedInstance().requestRecordPermission { granted in
-                continuation.resume(returning: granted)
-            }
-        }
+        await AVAudioApplication.requestRecordPermission()
     }
 }

@@ -84,11 +84,17 @@ describe('AiKbBuilderTab — access states', () => {
     expect(listJobs).not.toHaveBeenCalled();
   });
 
-  it('Builder FEATURE missing → upgrade state naming it a feature, jobs never requested', async () => {
+  it('Builder missing → upgrade state names the builder, not the assistant', async () => {
+    // The copy used to read "AI Knowledge Builder feature is not included"
+    // and now reads "AI Knowledge Builder is not included in this plan."
+    // What the case is actually for survives that rewording: the panel has
+    // to name which of the two things the plan is missing, because the
+    // customer buys them separately and the case above covers the other one.
     getSource.mockResolvedValue(makeSource({ ai_kb_builder: false }));
     render(<AiKbBuilderTab />);
     const panel = await screen.findByTestId('aikb-upgrade-required');
-    expect(panel.textContent).toMatch(/AI Knowledge Builder feature is not included/i);
+    expect(panel.textContent).toMatch(/AI Knowledge Builder is not included/i);
+    expect(panel.textContent).not.toMatch(/AI Assistant/i);
     expect(panel.textContent).not.toMatch(/module/i);
     expect(listJobs).not.toHaveBeenCalled();
   });

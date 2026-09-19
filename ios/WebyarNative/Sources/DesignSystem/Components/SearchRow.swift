@@ -90,6 +90,14 @@ struct SearchableList<Rows: View>: View {
     @ViewBuilder let rows: Rows
 
     @FocusState private var focused: Bool
+    /// Whether the caret has actually landed in the field yet.
+    ///
+    /// Without this the search opened and shut again in one frame. `focused`
+    /// is false for the moment between the row being inserted and the system
+    /// installing the responder, and the blur handler below read that first
+    /// false as "the operator dismissed the keyboard" — so it closed the
+    /// thing it had just opened. A blur only means anything after a focus.
+    @State private var didFocus = false
 
     /// Text outlives the toggle: a field with something in it stays on screen
     /// even after the keyboard goes away, because its terms are still
@@ -113,6 +121,7 @@ struct SearchableList<Rows: View>: View {
             guard wanted else {
                 focused = false
                 text = ""
+                didFocus = false
                 return
             }
             // One turn of the run loop: the row has to be in the hierarchy
@@ -123,9 +132,14 @@ struct SearchableList<Rows: View>: View {
             }
         }
         .onChange(of: focused) { _, isFocused in
+            if isFocused {
+                didFocus = true
+                return
+            }
             // Dismissing the keyboard over an empty field is the operator
-            // saying they are done looking. A field with text in it stays.
-            guard !isFocused, text.isEmpty else { return }
+            // saying they are done looking. A field with text in it stays,
+            // and so does one the caret never reached.
+            guard didFocus, text.isEmpty else { return }
             isSearching = false
         }
         .onChange(of: resetToken) { _, _ in

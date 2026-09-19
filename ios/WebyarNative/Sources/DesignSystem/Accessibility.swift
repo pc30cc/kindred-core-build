@@ -24,4 +24,12 @@ enum A11y {
     static let composerField = "composer.field"
     /// A workspace row in Settings. One per workspace the operator belongs to.
     static func workspaceRow(_ id: String) -> String { "settings.workspace.\(id)" }
+    /// The composer's lightning bolt, which opens the saved replies.
+    static let shortcutsButton = "composer.shortcuts"
+    /// One saved reply in the picker.
+    static func shortcutRow(_ id: String) -> String { "shortcut.\(id)" }
+    /// The composer's paperclip, present only where the plan allows files.
+    static let attachButton = "composer.attach"
+    /// One message in a transcript, visitor or internal.
+    static func messageRow(_ id: String) -> String { "message.\(id)" }
 }

@@ -57,6 +57,85 @@ class UITestCase: XCTestCase {
         return keyboard
     }
 
+    /// The newest message on screen, by its identifier.
+    ///
+    /// Not by text, and not by holding onto an element. An `XCUIElement` from
+    /// `allElementsBoundByIndex` is bound to a position in a snapshot, and the
+    /// snapshot is stale the moment the view re-renders — which is exactly
+    /// what opening the keyboard causes, so reading `.frame` off one then
+    /// throws "No matches found". Text is no better: a timestamp repeats down
+    /// the column. Every message row carries `A11y.messageRow(id)`, which is
+    /// stable across both.
+    func newestMessageID() -> String? {
+        messageRows()
+            .filter { $0.exists && $0.frame.height > 0 }
+            .max { $0.frame.maxY < $1.frame.maxY }?
+            .identifier
+    }
+
+    /// Where that message is now, asked fresh.
+    func frameOfMessage(_ identifier: String) -> CGRect? {
+        let text = app.staticTexts[identifier]
+        if text.exists { return text.frame }
+        let other = app.otherElements[identifier]
+        return other.exists ? other.frame : nil
+    }
+
+    /// The message rows, without walking the whole hierarchy.
+    ///
+    /// `app.descendants(matching: .any)` was the obvious way to write this and
+    /// it is ruinous: it enumerates every element on the screen, the query
+    /// runs again on every call, and `waitUntilStill` calls it in a loop. On a
+    /// transcript of a dozen messages that was enough to make the test runner
+    /// stop responding and be killed mid-test — reported, confusingly, as the
+    /// suite executing fewer tests than it contains rather than as a failure.
+    ///
+    /// A combined row of text surfaces as a `StaticText`; one whose content is
+    /// a photo or a voice note surfaces as an `Other`. Two narrow queries cost
+    /// a fraction of one wide one.
+    private func messageRows() -> [XCUIElement] {
+        let predicate = NSPredicate(format: "identifier BEGINSWITH 'message.'")
+        return app.staticTexts.matching(predicate).allElementsBoundByIndex
+            + app.otherElements.matching(predicate).allElementsBoundByIndex
+    }
+
+    /// Waits until a measurement stops changing.
+    ///
+    /// A transcript that opens scrolled to its newest message is still moving
+    /// for a moment afterwards, and a tap that lands during that moment gets
+    /// eaten by the scroll rather than focusing the field — which is a test
+    /// that fails for a reason the operator would never see. Two identical
+    /// readings in a row is enough to call it settled.
+    func waitUntilStill(
+        timeout: TimeInterval = 5,
+        _ measure: () -> CGRect?
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        var previous: CGRect?
+        while Date() < deadline {
+            let now = measure()
+            if let now, now == previous { return }
+            previous = now
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+    }
+
+    /// Puts the caret in a field and waits for the keyboard, trying twice.
+    ///
+    /// One tap is usually enough. It is not always: the first can arrive while
+    /// the screen is still animating, and then nothing happens at all — no
+    /// focus, no keyboard, no error. Rather than lengthening a sleep until it
+    /// stops failing, this checks whether the tap did what taps do.
+    @discardableResult
+    func focus(_ field: XCUIElement) -> XCUIElement {
+        field.tap()
+        if app.keyboards.element.waitForExistence(timeout: 4) {
+            return waitForKeyboard()
+        }
+        field.tap()
+        return waitForKeyboard()
+    }
+
     /// Waits for an element to go away, which `waitForExistence` cannot do.
     func waitForDisappearance(_ element: XCUIElement, timeout: TimeInterval = 5) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
@@ -84,4 +163,8 @@ enum A11yID {
     static let tabBar = "tab.bar"
     static let composerField = "composer.field"
     static func workspaceRow(_ id: String) -> String { "settings.workspace.\(id)" }
+    static let shortcutsButton = "composer.shortcuts"
+    static func shortcutRow(_ id: String) -> String { "shortcut.\(id)" }
+    static let attachButton = "composer.attach"
+    static func messageRow(_ id: String) -> String { "message.\(id)" }
 }

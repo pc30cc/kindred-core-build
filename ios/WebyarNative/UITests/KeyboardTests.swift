@@ -54,15 +54,22 @@ final class KeyboardTests: UITestCase {
         let transcript = app.scrollViews.firstMatch
         XCTAssertTrue(transcript.waitForExistence(timeout: 10), "no transcript on the chat screen")
 
-        guard let newest = lastMessage(in: transcript) else {
+        guard let newest = newestMessageID() else {
             return XCTFail("no message in the transcript to follow")
         }
-        let atRest = newest.frame
+        // The transcript opens scrolled to its end and is still moving for a
+        // moment after that. Measuring or tapping during it tests the scroll,
+        // not the keyboard.
+        waitUntilStill { frameOfMessage(newest) }
+        guard let atRest = frameOfMessage(newest) else {
+            return XCTFail("the newest message went away before the test began")
+        }
 
         // Up.
-        field.tap()
-        let keyboard = waitForKeyboard()
-        let raised = newest.frame
+        let keyboard = focus(field)
+        guard let raised = frameOfMessage(newest) else {
+            return XCTFail("the newest message vanished when the keyboard opened")
+        }
 
         XCTAssertLessThan(
             raised.minY, atRest.minY,
@@ -74,20 +81,41 @@ final class KeyboardTests: UITestCase {
         )
 
         // And down. Tapping the transcript dismisses the keyboard.
-        transcript.tap()
+        //
+        // The point is computed rather than guessed. `.tap()` aims at the
+        // middle of an element's frame, and the transcript's frame still spans
+        // the whole screen while the keyboard is up, so its middle is behind
+        // the keys — the tap lands on a letter. A fraction of the way down is
+        // no better: too little and it is under the navigation bar, too much
+        // and it is on the composer, and both were tried. Halfway between the
+        // top of the transcript and the top of the keyboard is inside the
+        // visible transcript by construction.
+        tapVisibleTranscript(transcript, above: keyboard)
         XCTAssertTrue(
             waitForDisappearance(app.keyboards.element, timeout: 6),
             "tapping the transcript did not dismiss the keyboard"
         )
         Thread.sleep(forTimeInterval: 0.8)
 
+        guard let settled = frameOfMessage(newest) else {
+            return XCTFail("the newest message vanished when the keyboard closed")
+        }
         XCTAssertEqual(
-            newest.frame.minY, atRest.minY, accuracy: 4.0,
-            "the transcript did not come back down: \(atRest.minY) -> \(newest.frame.minY)"
+            settled.minY, atRest.minY, accuracy: 4.0,
+            "the transcript did not come back down: \(atRest.minY) -> \(settled.minY)"
         )
     }
 
     // MARK: - Finding things
+
+    /// Taps a point that is inside the transcript and above the keyboard.
+    private func tapVisibleTranscript(_ transcript: XCUIElement, above keyboard: XCUIElement) {
+        let top = max(transcript.frame.minY, 0)
+        let bottom = keyboard.frame.minY
+        let point = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: transcript.frame.midX, dy: (top + bottom) / 2))
+        point.tap()
+    }
 
     /// The composer, whichever kind of element this iOS decided it is.
     ///
@@ -101,10 +129,4 @@ final class KeyboardTests: UITestCase {
         return app.textViews[A11yID.composerField].firstMatch
     }
 
-    /// The bottom-most piece of text inside the transcript.
-    private func lastMessage(in transcript: XCUIElement) -> XCUIElement? {
-        transcript.staticTexts.allElementsBoundByIndex
-            .filter { $0.exists && $0.frame.height > 0 }
-            .max { $0.frame.maxY < $1.frame.maxY }
-    }
 }

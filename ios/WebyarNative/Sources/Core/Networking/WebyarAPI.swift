@@ -24,8 +24,11 @@ protocol WebyarAPI: Sendable {
         clientMessageID: String,
         attachmentID: String?
     ) async throws
+    /// `conversationID` is nil for an internal message: team chat reuses
+    /// `conversation_attachments` with the conversation left unset, which is
+    /// how the server tells an operator-to-operator file from a visitor's.
     func uploadAttachment(
-        conversationID: String,
+        conversationID: String?,
         workspaceID: String,
         fileName: String,
         mimeType: String,
@@ -49,6 +52,11 @@ protocol WebyarAPI: Sendable {
     func teamThread(workspaceID: String, peerID: String) async throws -> TeamThreadResponse
     func sendTeamMessage(workspaceID: String, recipientID: String, body: String, attachmentID: String?) async throws
     func markTeamThreadRead(workspaceID: String, peerID: String) async throws
+    // Saved replies, shared across the workspace.
+    func cannedResponses(workspaceID: String, locale: String, query: String) async throws -> [CannedResponse]
+    /// Advisory: it orders the list by how often each one is actually used.
+    /// Failing to record a use must never stop a message going out.
+    func trackCannedResponseUse(id: String, workspaceID: String) async throws
     // Whether visitors can see this operator.
     func availability() async throws -> AvailabilityResponse
     func updateAvailability(_ update: AvailabilityUpdate) async throws -> AvailabilityResponse
@@ -157,6 +165,10 @@ enum LanguageOverride {
 /// to reach a screen, not to choose where its content comes from.
 enum SampleRoute: String {
     case inbox, chat, aiChat, call, videoCall, contacts, contact, settings, profile, security, email
+    case colleagues, colleagueThread
+    /// A thread with a visitor who never gave a name — the case where a
+    /// `{{contact.name}}` in a saved reply has nothing to resolve to.
+    case anonymousChat
 
     static let current: SampleRoute? = {
         let arguments = ProcessInfo.processInfo.arguments

@@ -35,6 +35,10 @@ final class ProfileViewModel {
             let loaded = try await api.account()
             account = loaded
             name = loaded.profile?.fullName ?? ""
+            // Everywhere else reads the operator's photograph from here —
+            // Settings' header, and their own face in the internal chat — so
+            // uploading or removing one has to update the shared copy too.
+            appState.adoptProfile(loaded.profile)
         } catch APIError.unauthorized {
             await appState.handleUnauthorized()
         } catch {

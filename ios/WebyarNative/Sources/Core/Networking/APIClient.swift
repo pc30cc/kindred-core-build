@@ -346,7 +346,11 @@ actor APIClient {
 
     private struct AttachmentInitBody: Encodable, Sendable {
         let workspace_id: String
-        let conversation_id: String
+        /// Nil for an internal message. The server's schema declares it
+        /// nullable and optional for exactly this: a file an operator sends a
+        /// colleague is reserved against the workspace and never bound to a
+        /// visitor's thread.
+        let conversation_id: String?
         let file_name: String
         let mime_type: String
         let size_bytes: Int
@@ -373,7 +377,7 @@ actor APIClient {
     /// reference it. Uploading straight to the provider is deliberately not
     /// possible — a client never learns a storage URL.
     func uploadAttachment(
-        conversationID: String,
+        conversationID: String?,
         workspaceID: String,
         fileName: String,
         mimeType: String,
@@ -750,6 +754,35 @@ actor APIClient {
     private struct TeamReadBody: Encodable, Sendable {
         let workspace_id: String
         let peer_id: String
+    }
+
+    // MARK: - Canned responses
+
+    func cannedResponses(
+        workspaceID: String, locale: String, query: String
+    ) async throws -> [CannedResponse] {
+        var items = [
+            URLQueryItem(name: "workspace_id", value: workspaceID),
+            URLQueryItem(name: "locale", value: locale),
+            URLQueryItem(name: "limit", value: "50"),
+        ]
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { items.append(URLQueryItem(name: "q", value: trimmed)) }
+
+        let request = try makeRequest("GET", "/api/canned-responses", query: items)
+        return try await perform(request, as: CannedResponsesResponse.self).items
+    }
+
+    private struct TrackUseBody: Encodable, Sendable {
+        let workspace_id: String
+    }
+
+    func trackCannedResponseUse(id: String, workspaceID: String) async throws {
+        let request = try makeRequest(
+            "POST", "/api/canned-responses/\(id)/track-use",
+            body: TrackUseBody(workspace_id: workspaceID)
+        )
+        try await performIgnoringBody(request)
     }
 
     func markTeamThreadRead(workspaceID: String, peerID: String) async throws {

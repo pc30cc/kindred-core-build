@@ -127,6 +127,15 @@ struct MainTabView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        // The keyboard must not take the tab bar with it.
+        //
+        // SwiftUI treats the keyboard as a bottom safe area, so anything
+        // aligned to the bottom rides up on top of it — which put the whole
+        // bar in the middle of the screen the moment a search field or a
+        // composer opened. The bar belongs to the device, not to the text
+        // being typed: it stays where it is and the keyboard covers it, the
+        // way it does in Mail and Messages.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .animation(Theme.Motion.standard, value: showsTabBar)
         .animation(Theme.Motion.standard, value: tabs)
         // A plan change can remove the tab that is currently open — switching
@@ -196,16 +205,20 @@ struct MainTabView: View {
         }
 
         switch SampleRoute.current {
-        case .chat, .aiChat, .call, .videoCall:
+        case .chat, .aiChat, .call, .videoCall, .anonymousChat:
             guard inboxPath.isEmpty,
                   let all = try? await Backend.current
                       .conversations(workspaceID: workspace.id, filter: .open)
             else { return }
             // `aiChat` picks a thread the AI still owns, so the composer's
-            // AI state can be screenshotted too.
-            let wanted = SampleRoute.current == .aiChat
-                ? all.first { AIState.resolve($0) == .aiManaged }
-                : all.first
+            // AI state can be screenshotted too; `anonymousChat` picks one
+            // whose visitor never gave a name.
+            let wanted: Conversation?
+            switch SampleRoute.current {
+            case .aiChat: wanted = all.first { AIState.resolve($0) == .aiManaged }
+            case .anonymousChat: wanted = all.first { ($0.contact?.name ?? "").isEmpty }
+            default: wanted = all.first
+            }
             guard let conversation = wanted else { return }
             inboxPath.append(conversation)
 
@@ -232,6 +245,15 @@ struct MainTabView: View {
         case .email:
             guard inboxPath.isEmpty, appState.emailInboxVisible else { return }
             inboxPath.append(InboxRoute.email)
+
+        case .colleagues, .colleagueThread:
+            guard inboxPath.isEmpty, appState.colleaguesVisible else { return }
+            inboxPath.append(InboxRoute.colleagues)
+            guard SampleRoute.current == .colleagueThread,
+                  let first = try? await Backend.current
+                      .colleagues(workspaceID: workspace.id).colleagues.first
+            else { return }
+            inboxPath.append(first)
 
         case .inbox, .none:
             break

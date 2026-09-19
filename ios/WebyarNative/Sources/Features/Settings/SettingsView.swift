@@ -88,14 +88,21 @@ struct SettingsView: View {
             // Workspace, plan and language are all "what am I working in"
             // questions, so they share one section without a repeated header.
             Section {
-                if appState.workspaces.count > 1 {
-                    Picker(Str.workspace(language), selection: workspaceBinding) {
-                        ForEach(appState.workspaces) { workspace in
-                            Text(workspace.name).tag(workspace.id)
-                        }
+                // Every workspace the operator belongs to, each with its own
+                // logo. A Picker put them behind a tap and showed only names,
+                // which made a second workspace easy to miss entirely and gave
+                // no hint of which company a name belonged to — the logo is
+                // how people actually recognise their own workspace.
+                ForEach(appState.workspaces) { workspace in
+                    WorkspaceRow(
+                        workspace: workspace,
+                        isCurrent: workspace.id == appState.selectedWorkspace?.id,
+                        isOnly: appState.workspaces.count == 1,
+                        label: Str.workspace(language)
+                    ) {
+                        guard workspace.id != appState.selectedWorkspace?.id else { return }
+                        appState.select(workspace)
                     }
-                } else if let workspace = appState.selectedWorkspace {
-                    DetailRow(label: Str.workspace(language), value: workspace.name)
                 }
 
                 // Only shown once the plan has actually resolved — a blank or
@@ -202,20 +209,14 @@ struct SettingsView: View {
         }
     }
 
-    private var workspaceBinding: Binding<String> {
-        Binding(
-            get: { appState.selectedWorkspace?.id ?? "" },
-            set: { id in
-                if let match = appState.workspaces.first(where: { $0.id == id }) {
-                    appState.select(match)
-                }
-            }
-        )
-    }
-
     /// The header needs the photo, which the session user does not carry.
+    ///
+    /// Re-read here rather than only at sign-in, because the profile editor is
+    /// one tap away and a photograph changed there has to be the one this
+    /// header shows on the way back.
     private func loadProfile() async {
-        profile = try? await Backend.current.account().profile
+        await appState.loadProfile()
+        profile = appState.profile
     }
 
     private func signOut() {
@@ -227,5 +228,56 @@ struct SettingsView: View {
             // the login view, so there is nothing left to say.
             if !succeeded { signOutFailed = true }
         }
+    }
+}
+
+/// One workspace in Settings: its logo, its name, and a tick when it is the
+/// one being worked in.
+///
+/// A single workspace is not a choice, so it reads as a plain labelled row
+/// rather than something that looks tappable and does nothing.
+private struct WorkspaceRow: View {
+    let workspace: Workspace
+    let isCurrent: Bool
+    let isOnly: Bool
+    let label: String
+    let onSelect: () -> Void
+
+    var body: some View {
+        if isOnly {
+            content.accessibilityIdentifier(A11y.workspaceRow(workspace.id))
+        } else {
+            Button(action: onSelect) { content }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
+                .accessibilityIdentifier(A11y.workspaceRow(workspace.id))
+        }
+    }
+
+    private var content: some View {
+        HStack(spacing: Theme.Space.sm) {
+            Avatar(name: workspace.name, imageURL: workspace.logoURL, size: Theme.Size.avatarSmall)
+
+            VStack(alignment: .leading, spacing: 1) {
+                if isOnly {
+                    Text(label)
+                        .font(Theme.Typo.meta)
+                        .foregroundStyle(Theme.Palette.labelSecondary)
+                }
+                Text(workspace.name)
+                    .font(.body)
+                    .foregroundStyle(Theme.Palette.label)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+
+            if isCurrent && !isOnly {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.brand)
+            }
+        }
+        .contentShape(Rectangle())
     }
 }

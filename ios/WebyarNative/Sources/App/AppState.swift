@@ -30,6 +30,20 @@ final class AppState {
     /// queue reads this rather than assuming.
     private(set) var entitlements: EntitlementsState = .loading
 
+    /// The operator's own profile row, for the one thing every screen wants
+    /// from it: their photograph.
+    ///
+    /// `User` carries a name and an email and no avatar — the picture lives on
+    /// `profiles` and is derived server-side from a storage key. Settings and
+    /// the profile editor each fetched it for themselves; the internal chat
+    /// wants it too, to put the operator's face beside their own messages the
+    /// way the visitor chat does. Fetched once here instead of three times
+    /// there.
+    private(set) var profile: AccountProfile?
+
+    /// The operator's own picture, wherever one is wanted.
+    var myAvatarURL: String? { profile?.avatarURL }
+
     /// The operator's chosen language. Device language is deliberately never
     /// consulted, matching the web app: a language someone picked is a
     /// decision, and travelling with a differently-configured phone should not
@@ -203,8 +217,30 @@ final class AppState {
 
     // MARK: - Workspaces
 
+    /// Re-reads the operator's own profile.
+    ///
+    /// Called on sign-in and after the profile editor saves, so a newly
+    /// uploaded photograph appears everywhere rather than only on the screen
+    /// that uploaded it. A failure is not surfaced: an avatar that has not
+    /// arrived yet falls back to initials, which is the same thing the app
+    /// shows before the fetch finishes anyway.
+    func loadProfile() async {
+        profile = try? await api.account().profile
+    }
+
+    /// Takes a profile somebody else has just fetched or changed.
+    ///
+    /// The profile editor already has the fresh row in its hand after an
+    /// upload; asking the server for it a second time would only be a slower
+    /// way to learn the same thing.
+    func adoptProfile(_ updated: AccountProfile?) {
+        guard let updated else { return }
+        profile = updated
+    }
+
     func loadWorkspaces() async {
         do {
+            await loadProfile()
             let list = try await api.workspaces()
             workspaces = list
             // Keep the current selection if it is still valid; otherwise fall

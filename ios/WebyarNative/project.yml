@@ -90,3 +90,41 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+
+  # Where the keyboard and the search field get tested.
+  #
+  # These behaviours have no unit test that could catch them: whether the
+  # keyboard lifts the tab bar, whether a blur closes the field that is being
+  # opened, whether the transcript follows the keys — all of it is UIKit
+  # answering SwiftUI on a real screen, and all of it was got wrong at least
+  # once by reasoning about it instead of running it. The tests drive the
+  # sample backend, so they need no account, no network and no credentials.
+  WebyarNativeUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: WebyarNative
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.native.uitests
+        TEST_TARGET_NAME: WebyarNative
+        TARGETED_DEVICE_FAMILY: "1"
+        # The app writes its own Info.plist above, from `info:`. A test bundle
+        # has nothing to say in one, and without either the key or this it
+        # cannot be signed at all.
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  WebyarNative:
+    build:
+      targets:
+        WebyarNative: all
+        WebyarNativeUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - WebyarNativeUITests

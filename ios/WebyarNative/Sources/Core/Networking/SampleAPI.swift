@@ -36,8 +36,17 @@ actor SampleAPI: WebyarAPI {
 
     // MARK: - Workspaces
 
+    /// Two of them, on purpose.
+    ///
+    /// Settings shows the operator every workspace they belong to, and with a
+    /// single one the list, the checkmark and the "switch to this one" tap all
+    /// go untested — the one-workspace row is a different branch. Most real
+    /// accounts have one; the interesting one is the account that has two.
     func workspaces() async throws -> [Workspace] {
-        [Workspace(id: "ws-1", name: "Sample Workspace", slug: "sample")]
+        [
+            Workspace(id: "ws-1", name: "Sample Workspace", slug: "sample", logoURL: nil),
+            Workspace(id: "ws-2", name: "Second Workspace", slug: "second", logoURL: nil)
+        ]
     }
 
     // MARK: - Conversations
@@ -194,7 +203,7 @@ actor SampleAPI: WebyarAPI {
     /// OS-mark and flag paths are actually exercised.
     /// The sample backend stores nothing, so a file "sends" and is forgotten.
     func uploadAttachment(
-        conversationID: String,
+        conversationID: String?,
         workspaceID: String,
         fileName: String,
         mimeType: String,
@@ -329,22 +338,41 @@ actor SampleAPI: WebyarAPI {
         )
     }
 
+    /// Long enough to fill the screen.
+    ///
+    /// Two messages was not: a transcript shorter than its viewport has
+    /// nowhere to scroll, so every question about how it behaves when the
+    /// keyboard opens had the same answer — it did not move, because it never
+    /// had to. A thread that overflows is the ordinary case and the only one
+    /// worth laying out against.
     func teamThread(workspaceID: String, peerID: String) async throws -> TeamThreadResponse {
-        TeamThreadResponse(
-            messages: [
-                TeamMessage(
-                    id: "tm-1", senderId: peerID, recipientId: Self.user.id,
-                    body: "این گفتگو را برایت فرستادم", attachment: nil,
-                    readAt: nil, createdAt: Date().addingTimeInterval(-900)
-                ),
-                TeamMessage(
-                    id: "tm-2", senderId: Self.user.id, recipientId: peerID,
-                    body: "دیدم، دستت درد نکند.", attachment: nil,
-                    readAt: Date(), createdAt: Date().addingTimeInterval(-600)
-                ),
-            ],
-            me: Self.user.id
-        )
+        let script: [(String, Bool)] = [
+            ("سلام، وقتت آزاد است؟", false),
+            ("سلام. آره، بگو.", true),
+            ("این گفتگو را برایت فرستادم — مشتری دوبار پیگیری کرده.", false),
+            ("دیدم، دستت درد نکند.", true),
+            ("فکر می‌کنی امروز جواب بدهیم؟", false),
+            ("بله، تا ظهر می‌بندمش.", true),
+            ("عالی. اگر خواستی من هم نگاه کنم بگو.", false),
+            ("ممنون، فعلاً لازم نیست.", true),
+            ("راستی فاکتورش را هم بررسی کن.", false),
+            ("چشم، همان را هم نگاه می‌کنم.", true),
+            ("مرسی.", false),
+            ("خواهش می‌کنم.", true),
+        ]
+        let messages = script.enumerated().map { index, line -> TeamMessage in
+            let (body, outgoing) = line
+            return TeamMessage(
+                id: "tm-\(index + 1)",
+                senderId: outgoing ? Self.user.id : peerID,
+                recipientId: outgoing ? peerID : Self.user.id,
+                body: body,
+                attachment: nil,
+                readAt: outgoing ? Date() : nil,
+                createdAt: Date().addingTimeInterval(Double(index - script.count) * 300)
+            )
+        }
+        return TeamThreadResponse(messages: messages, me: Self.user.id)
     }
 
     func sendTeamMessage(
@@ -352,6 +380,39 @@ actor SampleAPI: WebyarAPI {
     ) async throws {}
 
     func markTeamThreadRead(workspaceID: String, peerID: String) async throws {}
+
+    /// Three of them, with a placeholder in one, so the picker, the search and
+    /// the interpolation all have something to be.
+    func cannedResponses(
+        workspaceID: String, locale: String, query: String
+    ) async throws -> [CannedResponse] {
+        let all = [
+            CannedResponse(
+                id: "cr-1", shortcut: "hi", title: "Greeting",
+                body: "Hello {{contact.name}}, thanks for getting in touch with {{workspace.name}}.",
+                locale: locale, usageCount: 42
+            ),
+            CannedResponse(
+                id: "cr-2", shortcut: "wait", title: "Asking for a moment",
+                body: "Let me look into that for you — one moment.",
+                locale: locale, usageCount: 17
+            ),
+            CannedResponse(
+                id: "cr-3", shortcut: "bye", title: "Closing",
+                body: "Glad that helped. {{agent.first_name}} here if you need anything else.",
+                locale: locale, usageCount: 5
+            ),
+        ]
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return all }
+        return all.filter {
+            $0.shortcut.lowercased().hasPrefix(needle)
+                || $0.title.lowercased().contains(needle)
+                || $0.body.lowercased().contains(needle)
+        }
+    }
+
+    func trackCannedResponseUse(id: String, workspaceID: String) async throws {}
 
     func availability() async throws -> AvailabilityResponse {
         AvailabilityResponse(
@@ -657,10 +718,28 @@ actor SampleAPI: WebyarAPI {
                     body: "سلام مریم جان، الان بررسی می‌کنم و چند لحظهٔ دیگر خبر می‌دهم.",
                     createdAt: SampleAPI.ago(58), senderName: "Sara Karimi", senderAvatar: nil),
             Message(id: "m-6", conversationId: "c-1", senderType: .contact, senderId: nil,
-                    body: "ممنون می‌شم", createdAt: SampleAPI.ago(10), senderName: nil, senderAvatar: nil),
-            Message(id: "m-7", conversationId: "c-1", senderType: .contact, senderId: nil,
+                    body: "ممنون، منتظر می‌مانم.", createdAt: SampleAPI.ago(10),
+                    senderName: nil, senderAvatar: nil),
+            Message(id: "m-7", conversationId: "c-1", senderType: .agent, senderId: "u-1",
+                    body: "بررسی کردم. سفارش در انبار آماده شده ولی هنوز تحویل پست نشده.",
+                    createdAt: SampleAPI.ago(9), senderName: "Sara Karimi", senderAvatar: nil),
+            Message(id: "m-8", conversationId: "c-1", senderType: .contact, senderId: nil,
+                    body: "یعنی چند روز دیگر طول می‌کشد؟", createdAt: SampleAPI.ago(8),
+                    senderName: nil, senderAvatar: nil),
+            Message(id: "m-9", conversationId: "c-1", senderType: .agent, senderId: "u-1",
+                    body: "امروز تحویل پست می‌شود و معمولاً دو تا سه روز کاری طول می‌کشد.",
+                    createdAt: SampleAPI.ago(7), senderName: "Sara Karimi", senderAvatar: nil),
+            Message(id: "m-10", conversationId: "c-1", senderType: .contact, senderId: nil,
+                    body: "کد رهگیری‌اش را هم می‌فرستید؟", createdAt: SampleAPI.ago(6),
+                    senderName: nil, senderAvatar: nil),
+            Message(id: "m-11", conversationId: "c-1", senderType: .agent, senderId: "u-1",
+                    body: "بله، به محض ثبت در سامانهٔ پست برایتان می‌فرستم.",
+                    createdAt: SampleAPI.ago(5), senderName: "Sara Karimi", senderAvatar: nil),
+            Message(id: "m-12", conversationId: "c-1", senderType: .contact, senderId: nil,
+                    body: "ممنون می‌شم", createdAt: SampleAPI.ago(4), senderName: nil, senderAvatar: nil),
+            Message(id: "m-13", conversationId: "c-1", senderType: .contact, senderId: nil,
                     body: "سلام، سفارش من هنوز ارسال نشده. می‌تونید وضعیتش رو بررسی کنید؟",
-                    createdAt: SampleAPI.ago(4), senderName: nil, senderAvatar: nil),
+                    createdAt: SampleAPI.ago(3), senderName: nil, senderAvatar: nil),
         ],
         "c-2": [
             Message(id: "n-1", conversationId: "c-2", senderType: .contact, senderId: nil,

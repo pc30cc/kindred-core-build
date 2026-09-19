@@ -27,8 +27,17 @@ struct Composer: View {
     let onSend: () -> Void
     /// Hands back a file the operator picked or recorded, ready to upload.
     let onAttach: (Data, String, String) -> Void
+    /// The saved replies this composer can reach, and what to fill their
+    /// placeholders from. Nil where there is nothing sensible to fill them
+    /// with — the internal thread has no visitor, so `{{contact.name}}` there
+    /// would only ever resolve to itself.
+    var shortcuts: ShortcutSource?
 
     @State private var isShowingEmoji = false
+    @State private var isShowingShortcuts = false
+    /// Replies spliced into this draft, with the text each one contributed,
+    /// to be recorded once the draft is actually sent.
+    @State private var usedShortcuts: [(id: String, snippet: String)] = []
     @State private var photoItem: PhotosPickerItem?
     @State private var isShowingPhotos = false
     @State private var isShowingDocuments = false
@@ -51,7 +60,7 @@ struct Composer: View {
                 recordingBar
             } else {
                 HStack(alignment: .bottom, spacing: Theme.Space.xs) {
-                    if capabilities.canAttach || capabilities.canUseEmoji {
+                    if capabilities.canAttach || capabilities.canUseEmoji || shortcuts != nil {
                         controls
                     }
 
@@ -101,6 +110,52 @@ struct Composer: View {
         )) {
             Button(Str.ok(language), role: .cancel) {}
         }
+        .sheet(isPresented: $isShowingShortcuts) {
+            if let shortcuts {
+                CannedResponsePicker(
+                    language: language,
+                    workspaceID: shortcuts.workspaceID,
+                    context: shortcuts.context,
+                    onPick: insertShortcut
+                )
+            }
+        }
+    }
+
+    // MARK: - Saved replies
+
+    /// Splices a reply in at the end of the draft.
+    ///
+    /// The console inserts at the caret; a `TextField` does not lend its caret
+    /// out, so this appends — which is what the operator meant in every case
+    /// but one, since the reason to open the picker is that the draft is empty
+    /// or nearly so. The spacing rule is the web's: a newline when the draft
+    /// already has text that does not end in whitespace.
+    private func insertShortcut(_ expanded: String, _ id: String) {
+        if text.isEmpty {
+            text = expanded
+        } else if text.last?.isWhitespace == true {
+            text += expanded
+        } else {
+            text += "\n" + expanded
+        }
+        usedShortcuts.append((id: id, snippet: expanded))
+        isWriting = true
+    }
+
+    /// Records a use only for a reply whose text actually survived into the
+    /// message that went out — the same rule the console applies. Something
+    /// pasted in and then deleted was never used.
+    private func flushShortcutUses() {
+        guard let shortcuts, !usedShortcuts.isEmpty else { return }
+        let sent = text
+        var recorded: Set<String> = []
+        for used in usedShortcuts where sent.contains(used.snippet) {
+            // Once per reply, however many times it was spliced in.
+            guard recorded.insert(used.id).inserted else { continue }
+            shortcuts.onUsed(used.id)
+        }
+        usedShortcuts = []
     }
 
     // MARK: - Recording
@@ -277,6 +332,7 @@ struct Composer: View {
                     ComposerButtonLabel(icon: "paperclip")
                 }
                 .accessibilityLabel(Str.attachFile(language))
+                .accessibilityIdentifier(A11y.attachButton)
                 .disabled(isSending)
             }
             if capabilities.canUseEmoji {
@@ -286,6 +342,15 @@ struct Composer: View {
                 ) {
                     isShowingEmoji.toggle()
                 }
+            }
+            if shortcuts != nil {
+                // The console's lightning bolt, and for the same reason: a
+                // saved reply is the fastest thing in the composer.
+                ComposerButton(icon: "bolt", label: Str.shortcuts(language)) {
+                    isShowingEmoji = false
+                    isShowingShortcuts = true
+                }
+                .accessibilityIdentifier(A11y.shortcutsButton)
             }
         }
     }
@@ -304,6 +369,7 @@ struct Composer: View {
                 }
 
                 TextField("", text: $text, axis: .vertical)
+                    .accessibilityIdentifier(A11y.composerField)
                     .font(.body)
                     .lineLimit(1...6)
                     .focused($isWriting)
@@ -360,7 +426,13 @@ struct Composer: View {
     }
 
     private var sendButton: some View {
-        Button(action: onSend) {
+        Button {
+            // Before `onSend`, which clears the draft: the rule is "did this
+            // reply's text survive into what went out", and after the clear
+            // there is nothing left to ask that of.
+            flushShortcutUses()
+            onSend()
+        } label: {
             Group {
                 if isSending {
                     ProgressView().tint(.white)

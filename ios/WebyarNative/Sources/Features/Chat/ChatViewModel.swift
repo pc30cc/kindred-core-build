@@ -70,6 +70,14 @@ final class ChatViewModel {
         }
     }
 
+    /// Advisory, and deliberately fire-and-forget: the count only orders the
+    /// picker, so a failure to record one must never surface to the operator
+    /// or hold up the message that was just sent.
+    func recordShortcutUse(_ id: String, workspaceID: String?) {
+        guard let workspaceID else { return }
+        Task { [api] in try? await api.trackCannedResponseUse(id: id, workspaceID: workspaceID) }
+    }
+
     func send(appState: AppState) async {
         let body = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else { return }

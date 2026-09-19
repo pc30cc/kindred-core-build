@@ -64,8 +64,15 @@ struct Workspace: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let slug: String
+    /// Resolved server-side from `workspace_branding` — either a URL someone
+    /// pasted or a signed link into our own storage. Absent for a workspace
+    /// that never set one, which is most of them on the first day.
+    let logoURL: String?
 
-    enum CodingKeys: String, CodingKey { case id, name, slug }
+    enum CodingKeys: String, CodingKey {
+        case id, name, slug
+        case logoURL = "logo_url"
+    }
 }
 
 // MARK: - Contact

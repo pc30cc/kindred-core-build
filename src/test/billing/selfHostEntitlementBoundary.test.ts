@@ -25,15 +25,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const rpcMock = vi.fn();
 const counterRowMock = vi.fn();
 
-// `server/` carries its OWN nested node_modules/@supabase/supabase-js
-// (a different physical package than the root one) — featureGating.ts's
-// `import { createClient } from '@supabase/supabase-js'` resolves against
-// THAT nested copy. Mocking the bare root-relative specifier silently does
-// not intercept it (confirmed: without this, checkEntitlementFromDB makes a
-// REAL fetch to the stub URL and fails with ENOTFOUND) — mock the actual
-// resolved path instead, exactly as
-// workspaceInvitationAcceptance.pg.test.ts already does for the same reason.
-vi.mock("../../../server/node_modules/@supabase/supabase-js", () => ({
+// featureGating.ts does `import { createClient } from '@supabase/supabase-js'`,
+// and that has to be intercepted or checkEntitlementFromDB makes a real fetch
+// to the stub URL, fails with ENOTFOUND, and every case below lands in the
+// error path — which is also the path some of them are asserting, so the
+// failures are silent in exactly the wrong way.
+//
+// This used to mock `server/node_modules/@supabase/supabase-js`, because
+// `server/` once carried its own nested copy of the package that the bare
+// specifier resolved to. There is no `server/node_modules` any more, so that
+// specifier resolved to nothing and intercepted nothing. The bare specifier
+// is now the one that resolves.
+vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     rpc: (...args: unknown[]) => rpcMock(...args),
     from: (_table: string) => ({

@@ -53,7 +53,18 @@ vi.mock('@supabase/supabase-js', () => ({
         in: () => b,
         contains: () => b,
         order: () => b,
-        limit: async () => ({ data: [], error: null }),
+        // PostgREST's builder is chainable *and* awaitable at every step:
+        // `.limit(1)` can be awaited for a row list or followed by
+        // `.maybeSingle()`. A `limit` that only resolves breaks the second
+        // form, and the route uses it — `.limit(1).maybeSingle()` on
+        // widget_platform_settings and platform_branding — so bootstrap
+        // threw and every test downstream of a token got `undefined`.
+        limit: () => {
+          const l: any = Object.create(b);
+          l.then = (onOk: any, onErr: any) =>
+            Promise.resolve({ data: [], error: null }).then(onOk, onErr);
+          return l;
+        },
         insert: async () => ({ data: null, error: null }),
         maybeSingle: async () => {
           if (table === 'workspaces') return { data: { id: filterId, name: 'Lineage Co' }, error: null };

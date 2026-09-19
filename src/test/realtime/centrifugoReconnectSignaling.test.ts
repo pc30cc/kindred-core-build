@@ -210,25 +210,46 @@ describe('CentrifugoClientProvider — reconnect signaling contract', () => {
     expect(fullReconnectNegotiations()).toHaveLength(0);
   });
 
-  it('a genuine first reconnect with a still-valid token sends the lightweight signal and reuses the token (no re-mint)', async () => {
+  it('a genuine first reconnect re-negotiates and reports itself as intent:reconnect', async () => {
+    // This used to assert the lightweight `/operator-reconnect-signal` path:
+    // reuse the still-valid token, report the reconnect without minting a new
+    // one. Multi-node topology took that option away — after a transport
+    // failure the client has to ask the backend for a fresh ASSIGNMENT, not
+    // just a fresh token, because that is how a drained or lost Centrifugo
+    // node hands its clients over. So `mustRefreshDueToFailure` is true from
+    // the first genuine reconnect onward and every one of them re-negotiates.
+    //
+    // The report survives the change — it rides the negotiation's `intent`
+    // instead of a separate call. What must not come back is a reconnect that
+    // reports nothing at all.
     const { socket: firstSocket } = await connectAndOpen();
-    const callsBeforeClose = fetchCalls.length;
 
     firstSocket.triggerUnexpectedClose();
     // scheduleReconnect's timer fires after the (jittered) backoff delay.
     await vi.advanceTimersByTimeAsync(2_000);
     await flushMicrotasks(6);
 
-    expect(reconnectSignalCalls()).toHaveLength(1);
-    expect(fullReconnectNegotiations()).toHaveLength(0);
-    // No new /operator-connect call at all — the token was reused, not re-minted.
-    const newNegotiations = fetchCalls
-      .slice(callsBeforeClose)
-      .filter((c) => c.url.includes('/api/realtime/operator-connect'));
-    expect(newNegotiations).toHaveLength(0);
+    expect(fullReconnectNegotiations()).toHaveLength(1);
+    expect(refreshNegotiations()).toHaveLength(0);
+    expect(initialNegotiations()).toHaveLength(0);
 
     const secondSocket = MockSocket.instances[MockSocket.instances.length - 1];
     expect(secondSocket).not.toBe(firstSocket);
+  });
+
+  it('the lightweight reconnect-signal path is unreachable — every genuine reconnect re-negotiates', async () => {
+    // Pinned deliberately. `sendReconnectSignal` and its endpoint still exist,
+    // and the branch that calls them is now dead: it needs
+    // `!mustRefreshDueToFailure`, which only holds on a self-inflicted refresh
+    // rotation, and that same condition skips the call. If someone revives the
+    // token-reuse path this fails, and the multi-node reason it was dropped is
+    // one line up rather than lost in history.
+    const { socket } = await connectAndOpen();
+    socket.triggerUnexpectedClose();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flushMicrotasks(6);
+
+    expect(reconnectSignalCalls()).toHaveLength(0);
   });
 
   it('a reconnect with an expired/near-expiry token performs a full re-negotiation tagged intent:reconnect (never the lightweight signal)', async () => {
@@ -259,23 +280,24 @@ describe('CentrifugoClientProvider — reconnect signaling contract', () => {
   it('repeated failed reconnects each get their own distinct report, not a duplicate of the first', async () => {
     const { socket: firstSocket } = await connectAndOpen();
 
-    // Attempt 1: valid token → lightweight signal, then the new socket also fails to open.
+    // Attempt 1: the connection is genuinely lost → one intent:reconnect
+    // negotiation, then the replacement socket also fails to open.
     firstSocket.triggerUnexpectedClose();
     await vi.advanceTimersByTimeAsync(2_000);
     await flushMicrotasks(6);
-    expect(reconnectSignalCalls()).toHaveLength(1);
+    expect(fullReconnectNegotiations()).toHaveLength(1);
 
     const secondSocket = MockSocket.instances[MockSocket.instances.length - 1];
     // Simulate the second socket also failing before ever completing its handshake.
     secondSocket.triggerUnexpectedClose();
-    // Attempt 2: reconnectAttempt is now > 1 → forces full re-negotiation.
     await vi.advanceTimersByTimeAsync(5_000);
     await flushMicrotasks(6);
 
-    expect(fullReconnectNegotiations()).toHaveLength(1);
-    // Still exactly one lightweight signal — attempt 2 took the full-negotiation
-    // path instead, it did not also send a duplicate lightweight signal.
-    expect(reconnectSignalCalls()).toHaveLength(1);
+    // Attempt 2 reports itself too — a second outage minute is not the first
+    // one continuing, and a client that reported only the first would make a
+    // long outage look like a single blip.
+    expect(fullReconnectNegotiations()).toHaveLength(2);
+    expect(reconnectSignalCalls()).toHaveLength(0);
   });
 
   it('proactive token refresh reports intent:refresh, never a reconnect signal', async () => {
@@ -436,12 +458,14 @@ describe('CentrifugoClientProvider — reconnect signaling contract', () => {
     expect(reconnectSignalCalls()).toHaveLength(0);
     expect(fullReconnectNegotiations()).toHaveLength(0);
 
-    // NOW losing the established connection is a genuine reconnect.
+    // NOW losing the established connection is a genuine reconnect, and it
+    // reports itself as one — the point of the case is that the retries
+    // before the first successful ack did not.
     secondSocket.triggerUnexpectedClose();
     await vi.advanceTimersByTimeAsync(2_000);
     await flushMicrotasks(6);
 
-    expect(reconnectSignalCalls()).toHaveLength(1);
-    expect(fullReconnectNegotiations()).toHaveLength(0);
+    expect(fullReconnectNegotiations()).toHaveLength(1);
+    expect(reconnectSignalCalls()).toHaveLength(0);
   });
 });

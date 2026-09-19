@@ -210,8 +210,13 @@ struct SettingsView: View {
     }
 
     /// The header needs the photo, which the session user does not carry.
+    ///
+    /// Re-read here rather than only at sign-in, because the profile editor is
+    /// one tap away and a photograph changed there has to be the one this
+    /// header shows on the way back.
     private func loadProfile() async {
-        profile = try? await Backend.current.account().profile
+        await appState.loadProfile()
+        profile = appState.profile
     }
 
     private func signOut() {

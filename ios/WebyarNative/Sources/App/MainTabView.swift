@@ -242,6 +242,15 @@ struct MainTabView: View {
             guard inboxPath.isEmpty, appState.emailInboxVisible else { return }
             inboxPath.append(InboxRoute.email)
 
+        case .colleagues, .colleagueThread:
+            guard inboxPath.isEmpty, appState.colleaguesVisible else { return }
+            inboxPath.append(InboxRoute.colleagues)
+            guard SampleRoute.current == .colleagueThread,
+                  let first = try? await Backend.current
+                      .colleagues(workspaceID: workspace.id).colleagues.first
+            else { return }
+            inboxPath.append(first)
+
         case .inbox, .none:
             break
         }

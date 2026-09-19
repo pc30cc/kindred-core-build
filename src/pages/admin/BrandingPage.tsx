@@ -32,6 +32,41 @@ import {
 import { useTranslation } from '@/i18n';
 import { UI_ACCENT_SWATCH, UI_FONT_SIZE_PX, type UiAccent, type UiFontSize } from '@/lib/ui-preferences';
 
+/**
+ * What the three admin endpoints on this page answer with. These were `any`
+ * at every call site, which is also why `(settings as any).region_mode` had to
+ * be written four times. Declaring the rows once turns each of those into an
+ * ordinary property read.
+ *
+ * Only the fields this page actually uses are listed — the endpoints return
+ * whole rows, and an index signature keeps that honest without pretending to
+ * enumerate columns this screen never touches.
+ */
+interface PlatformSettingsRow {
+  region_mode?: string | null;
+  maintenance_mode?: boolean | null;
+  maintenance_message?: string | null;
+  locale_billing_providers?: Record<string, string> | null;
+  [key: string]: unknown;
+}
+
+interface EmailSettingsRow {
+  sender_email?: string | null;
+  reply_to_email?: string | null;
+  email_logo_url?: string | null;
+  email_footer_text?: string | null;
+  [key: string]: unknown;
+}
+
+/** One row of `email_settings_localized`, keyed by locale. */
+interface EmailSettingsLocalizedRow {
+  locale: string;
+  sender_name?: string | null;
+  footer_text?: string | null;
+  support_contact_label?: string | null;
+  [key: string]: unknown;
+}
+
 // ── Reusable field row ──
 function FieldRow({
   label, desc, value, onChange, type = 'text', placeholder,
@@ -69,10 +104,10 @@ function VisualIdentitySection() {
   const set = (key: keyof PlatformBranding, val: string | boolean) => { setForm((p) => ({ ...p, [key]: val })); setDirty(true); };
 
   const handleSave = () => {
-    const { id, created_at, updated_at, ...rest } = form as any;
+    const { id, created_at, updated_at, ...rest } = form;
     update.mutate(rest, {
-      onSuccess: () => { toast({ title: t('admin.brandingPage.identity.saved' as any) }); setDirty(false); },
-      onError: (e) => toast({ title: t('admin.brandingPage.common.error' as any), description: e.message, variant: 'destructive' }),
+      onSuccess: () => { toast({ title: t('admin.brandingPage.identity.saved') }); setDirty(false); },
+      onError: (e) => toast({ title: t('admin.brandingPage.common.error'), description: e.message, variant: 'destructive' }),
     });
   };
 
@@ -82,36 +117,36 @@ function VisualIdentitySection() {
     <Card className="bg-card border-border">
       <CardHeader className="pb-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2"><Palette className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">{t('admin.brandingPage.identity.title' as any)}</CardTitle></div>
+          <div className="flex items-center gap-2"><Palette className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">{t('admin.brandingPage.identity.title')}</CardTitle></div>
           <Button size="sm" onClick={handleSave} disabled={!dirty || update.isPending}>
-            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}{t('admin.brandingPage.common.save' as any)}
+            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}{t('admin.brandingPage.common.save')}
           </Button>
         </div>
-        <CardDescription>{t('admin.brandingPage.identity.description' as any)}</CardDescription>
+        <CardDescription>{t('admin.brandingPage.identity.description')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="grid gap-5 md:grid-cols-2">
-          <FieldRow label={t('admin.brandingPage.identity.logoUrl' as any)} desc={t('admin.brandingPage.identity.logoHint' as any)} value={form.logo_url ?? ''} onChange={(v) => set('logo_url', v)} placeholder="https://cdn.example.com/logo.svg" />
-          <FieldRow label={t('admin.brandingPage.identity.faviconUrl' as any)} desc={t('admin.brandingPage.identity.faviconHint' as any)} value={form.favicon_url ?? ''} onChange={(v) => set('favicon_url', v)} placeholder="https://cdn.example.com/favicon.ico" />
-          <FieldRow label={t('admin.brandingPage.identity.primaryColor' as any)} type="color" value={form.primary_color ?? '#3B82F6'} onChange={(v) => set('primary_color', v)} />
-          <FieldRow label={t('admin.brandingPage.identity.secondaryColor' as any)} type="color" value={form.secondary_color ?? '#6366F1'} onChange={(v) => set('secondary_color', v)} />
-          <FieldRow label={t('admin.brandingPage.identity.pwaIconUrl' as any)} desc={t('admin.brandingPage.identity.pwaIconHint' as any)} value={form.pwa_icon_url ?? ''} onChange={(v) => set('pwa_icon_url', v)} placeholder="https://cdn.example.com/pwa-icon.png" />
+          <FieldRow label={t('admin.brandingPage.identity.logoUrl')} desc={t('admin.brandingPage.identity.logoHint')} value={form.logo_url ?? ''} onChange={(v) => set('logo_url', v)} placeholder="https://cdn.example.com/logo.svg" />
+          <FieldRow label={t('admin.brandingPage.identity.faviconUrl')} desc={t('admin.brandingPage.identity.faviconHint')} value={form.favicon_url ?? ''} onChange={(v) => set('favicon_url', v)} placeholder="https://cdn.example.com/favicon.ico" />
+          <FieldRow label={t('admin.brandingPage.identity.primaryColor')} type="color" value={form.primary_color ?? '#3B82F6'} onChange={(v) => set('primary_color', v)} />
+          <FieldRow label={t('admin.brandingPage.identity.secondaryColor')} type="color" value={form.secondary_color ?? '#6366F1'} onChange={(v) => set('secondary_color', v)} />
+          <FieldRow label={t('admin.brandingPage.identity.pwaIconUrl')} desc={t('admin.brandingPage.identity.pwaIconHint')} value={form.pwa_icon_url ?? ''} onChange={(v) => set('pwa_icon_url', v)} placeholder="https://cdn.example.com/pwa-icon.png" />
         </div>
 
         <Separator />
         <div className="space-y-4">
-          <div className="flex items-center gap-2"><Smartphone className="h-4 w-4 text-primary" /><p className="text-sm font-semibold text-foreground">{t('admin.brandingPage.identity.pwaSectionTitle' as any)}</p></div>
-          <p className="text-xs text-muted-foreground -mt-2">{t('admin.brandingPage.identity.pwaSectionDesc' as any)}</p>
+          <div className="flex items-center gap-2"><Smartphone className="h-4 w-4 text-primary" /><p className="text-sm font-semibold text-foreground">{t('admin.brandingPage.identity.pwaSectionTitle')}</p></div>
+          <p className="text-xs text-muted-foreground -mt-2">{t('admin.brandingPage.identity.pwaSectionDesc')}</p>
           <div className="flex items-center justify-between rounded-lg border border-border p-3">
             <div>
-              <p className="text-sm font-medium text-foreground">{t('admin.brandingPage.identity.pwaEnabled' as any)}</p>
-              <p className="text-xs text-muted-foreground">{t('admin.brandingPage.identity.pwaEnabledDesc' as any)}</p>
+              <p className="text-sm font-medium text-foreground">{t('admin.brandingPage.identity.pwaEnabled')}</p>
+              <p className="text-xs text-muted-foreground">{t('admin.brandingPage.identity.pwaEnabledDesc')}</p>
             </div>
             <Switch checked={form.pwa_enabled !== false} onCheckedChange={(v) => set('pwa_enabled', v)} />
           </div>
           <div className="grid gap-5 md:grid-cols-2">
-            <FieldRow label={t('admin.brandingPage.identity.pwaShortName' as any)} desc={t('admin.brandingPage.identity.pwaShortNameHint' as any)} value={form.pwa_short_name ?? ''} onChange={(v) => set('pwa_short_name', v)} placeholder="Webyar" />
-            <FieldRow label={t('admin.brandingPage.identity.pwaBackgroundColor' as any)} type="color" value={form.pwa_background_color ?? '#ffffff'} onChange={(v) => set('pwa_background_color', v)} />
+            <FieldRow label={t('admin.brandingPage.identity.pwaShortName')} desc={t('admin.brandingPage.identity.pwaShortNameHint')} value={form.pwa_short_name ?? ''} onChange={(v) => set('pwa_short_name', v)} placeholder={t('admin.brandingPage.identity.pwaShortNamePlaceholder')} />
+            <FieldRow label={t('admin.brandingPage.identity.pwaBackgroundColor')} type="color" value={form.pwa_background_color ?? '#ffffff'} onChange={(v) => set('pwa_background_color', v)} />
           </div>
         </div>
 
@@ -119,12 +154,12 @@ function VisualIdentitySection() {
           <>
             <Separator />
             <div className="rounded-lg border border-border p-4">
-              <p className="text-xs text-muted-foreground mb-3 flex items-center gap-1"><Eye className="h-3 w-3" /> {t('admin.brandingPage.identity.preview' as any)}</p>
+              <p className="text-xs text-muted-foreground mb-3 flex items-center gap-1"><Eye className="h-3 w-3" /> {t('admin.brandingPage.identity.preview')}</p>
               <div className="flex items-center gap-3">
-                {form.logo_url && <img src={form.logo_url} alt={t('admin.brandingPage.identity.logoPreview' as any)} className="h-10 max-w-[160px] object-contain rounded" onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />}
+                {form.logo_url && <img src={form.logo_url} alt={t('admin.brandingPage.identity.logoPreview')} className="h-10 max-w-[160px] object-contain rounded" onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />}
                 <div className="flex gap-2">
-                  <div className="w-8 h-8 rounded-md border border-border" style={{ backgroundColor: form.primary_color ?? '#3B82F6' }} title={t('admin.brandingPage.identity.primaryColor' as any)} />
-                  <div className="w-8 h-8 rounded-md border border-border" style={{ backgroundColor: form.secondary_color ?? '#6366F1' }} title={t('admin.brandingPage.identity.secondaryColor' as any)} />
+                  <div className="w-8 h-8 rounded-md border border-border" style={{ backgroundColor: form.primary_color ?? '#3B82F6' }} title={t('admin.brandingPage.identity.primaryColor')} />
+                  <div className="w-8 h-8 rounded-md border border-border" style={{ backgroundColor: form.secondary_color ?? '#6366F1' }} title={t('admin.brandingPage.identity.secondaryColor')} />
                 </div>
               </div>
             </div>
@@ -159,13 +194,13 @@ function UiDefaultsSection() {
   const set = (key: string, val: string) => { setForm((p) => ({ ...p, [key]: val })); setDirty(true); };
 
   const handleSave = () => {
-    update.mutate(form as any, {
+    update.mutate(form, {
       onSuccess: () => {
-        toast({ title: t('admin.brandingPage.uiDefaults.saved' as any) });
+        toast({ title: t('admin.brandingPage.uiDefaults.saved') });
         setDirty(false);
         qc.invalidateQueries({ queryKey: ['platform_ui_defaults'] });
       },
-      onError: (e: any) => toast({ title: t('admin.brandingPage.common.error' as any), description: e.message, variant: 'destructive' }),
+      onError: (e: Error) => toast({ title: t('admin.brandingPage.common.error'), description: e.message, variant: 'destructive' }),
     });
   };
 
@@ -177,17 +212,17 @@ function UiDefaultsSection() {
     <Card className="bg-card border-border">
       <CardHeader className="pb-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2"><Type className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">{t('admin.brandingPage.uiDefaults.title' as any)}</CardTitle></div>
+          <div className="flex items-center gap-2"><Type className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">{t('admin.brandingPage.uiDefaults.title')}</CardTitle></div>
           <Button size="sm" onClick={handleSave} disabled={!dirty || update.isPending}>
-            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}{t('admin.brandingPage.common.save' as any)}
+            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}{t('admin.brandingPage.common.save')}
           </Button>
         </div>
-        <CardDescription>{t('admin.brandingPage.uiDefaults.description' as any)}</CardDescription>
+        <CardDescription>{t('admin.brandingPage.uiDefaults.description')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Font size */}
         <div className="space-y-2">
-          <Label className="text-sm font-medium text-foreground">{t('interface.fontSize' as any)}</Label>
+          <Label className="text-sm font-medium text-foreground">{t('interface.fontSize')}</Label>
           <div className="flex flex-wrap gap-2">
             {fontSizes.map((size) => (
               <button
@@ -201,7 +236,7 @@ function UiDefaultsSection() {
                 }`}
                 style={{ fontSize: `${UI_FONT_SIZE_PX[size]}px` }}
               >
-                {t(`interface.fontSize_${size}` as any)}
+                {t(`interface.fontSize_${size}`)}
               </button>
             ))}
           </div>
@@ -209,13 +244,13 @@ function UiDefaultsSection() {
 
         {/* Accent */}
         <div className="space-y-2">
-          <Label className="text-sm font-medium text-foreground">{t('interface.accent' as any)}</Label>
+          <Label className="text-sm font-medium text-foreground">{t('interface.accent')}</Label>
           <div className="flex flex-wrap gap-2">
             {(Object.keys(UI_ACCENT_SWATCH) as UiAccent[]).map((accent) => (
               <button
                 key={accent}
                 type="button"
-                aria-label={t(`interface.accent_${accent}` as any)}
+                aria-label={t(`interface.accent_${accent}`)}
                 onClick={() => set('default_ui_accent', accent)}
                 className={`h-9 w-9 rounded-full border-2 transition-transform ${
                   form.default_ui_accent === accent ? 'border-foreground scale-110' : 'border-transparent hover:scale-105'
@@ -228,29 +263,29 @@ function UiDefaultsSection() {
 
         <div className="grid gap-5 md:grid-cols-2">
           <div className="grid gap-1.5">
-            <Label className="text-sm font-medium text-foreground">{t('interface.chroma' as any)}</Label>
+            <Label className="text-sm font-medium text-foreground">{t('interface.chroma')}</Label>
             <Select value={form.default_ui_chroma ?? 'color'} onValueChange={(v) => set('default_ui_chroma', v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="color">{t('interface.chroma_color' as any)}</SelectItem>
-                <SelectItem value="mono">{t('interface.chroma_mono' as any)}</SelectItem>
+                <SelectItem value="color">{t('interface.chroma_color')}</SelectItem>
+                <SelectItem value="mono">{t('interface.chroma_mono')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div className="grid gap-1.5">
-            <Label className="text-sm font-medium text-foreground">{t('interface.skin' as any)}</Label>
+            <Label className="text-sm font-medium text-foreground">{t('interface.skin')}</Label>
             <Select value={form.default_ui_skin ?? 'cloud'} onValueChange={(v) => set('default_ui_skin', v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="cloud">{t('interface.skin_cloud' as any)}</SelectItem>
-                <SelectItem value="linen">{t('interface.skin_linen' as any)}</SelectItem>
-                <SelectItem value="graphite">{t('interface.skin_graphite' as any)}</SelectItem>
+                <SelectItem value="cloud">{t('interface.skin_cloud')}</SelectItem>
+                <SelectItem value="linen">{t('interface.skin_linen')}</SelectItem>
+                <SelectItem value="graphite">{t('interface.skin_graphite')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </div>
 
-        <p className="text-xs text-muted-foreground">{t('admin.brandingPage.uiDefaults.note' as any)}</p>
+        <p className="text-xs text-muted-foreground">{t('admin.brandingPage.uiDefaults.note')}</p>
       </CardContent>
     </Card>
   );
@@ -342,7 +377,7 @@ function SettingsSection() {
   const { data: settings, isLoading: settingsLoading } = useQuery({
     queryKey: ['platform_settings'],
     queryFn: async () => {
-      const body = await adminFetch<{ settings: any }>('/api/admin/management/platform-settings');
+      const body = await adminFetch<{ settings: PlatformSettingsRow }>('/api/admin/management/platform-settings');
       return body.settings;
     },
   });
@@ -375,10 +410,10 @@ function SettingsSection() {
       setActiveLocales(settings.active_locales || ['en']);
       setTimezone(settings.timezone || 'UTC');
       setSiteMode(settings.site_mode || 'multi_language');
-      setRegionMode(isRegionMode((settings as any).region_mode) ? (settings as any).region_mode : 'multi');
-      setMaintenanceMode((settings as any).maintenance_mode ?? false);
-      setMaintenanceMessage((settings as any).maintenance_message ?? '');
-      setLocaleBillingProviders((settings as any).locale_billing_providers ?? {});
+      setRegionMode(isRegionMode(settings.region_mode) ? (settings.region_mode as RegionMode) : 'multi');
+      setMaintenanceMode(settings.maintenance_mode ?? false);
+      setMaintenanceMessage(settings.maintenance_message ?? '');
+      setLocaleBillingProviders(settings.locale_billing_providers ?? {});
       setSettingsDirty(false);
 
     }
@@ -401,10 +436,10 @@ function SettingsSection() {
   const handleSaveBranding = (locale: string) => {
     const row = forms[locale];
     if (!row) return;
-    const { id, created_at, updated_at, ...rest } = row as any;
+    const { id, created_at, updated_at, ...rest } = row;
     upsert.mutate({ ...rest, locale }, {
-      onSuccess: () => { toast({ title: t('admin.brandingPage.settings.localized.saved' as any, { locale: locale.toUpperCase() }) }); setDirtyLocales((p) => { const n = new Set(p); n.delete(locale); return n; }); },
-      onError: (e) => toast({ title: t('admin.brandingPage.common.error' as any), description: e.message, variant: 'destructive' }),
+      onSuccess: () => { toast({ title: t('admin.brandingPage.settings.localized.saved', { locale: locale.toUpperCase() }) }); setDirtyLocales((p) => { const n = new Set(p); n.delete(locale); return n; }); },
+      onError: (e) => toast({ title: t('admin.brandingPage.common.error'), description: e.message, variant: 'destructive' }),
     });
   };
 
@@ -427,13 +462,13 @@ function SettingsSection() {
         body: JSON.stringify(payload),
       });
     } catch (e) {
-      toast({ title: t('admin.brandingPage.common.error' as any), description: e instanceof Error ? e.message : t('admin.brandingPage.common.saveFailed' as any), variant: 'destructive' });
+      toast({ title: t('admin.brandingPage.common.error'), description: e instanceof Error ? e.message : t('admin.brandingPage.common.saveFailed'), variant: 'destructive' });
       return;
     }
     qc.invalidateQueries({ queryKey: ['platform_settings'] });
     qc.invalidateQueries({ queryKey: ['platform_region_settings'] });
     setCachedRegionMode(regionMode);
-    toast({ title: t('admin.brandingPage.settings.saved' as any) });
+    toast({ title: t('admin.brandingPage.settings.saved') });
     setSettingsDirty(false);
   };
 
@@ -462,20 +497,20 @@ function SettingsSection() {
   if (brandingLoading || settingsLoading) return <LoadingCard />;
 
   const current = forms[activeLocale] ?? {};
-  const localeLabel = (code: string) => t(`admin.brandingPage.languages.${code}` as any);
-  const regionTitle = (mode: RegionMode) => t(`admin.brandingPage.settings.region.modes.${mode}.title` as any);
-  const regionDescription = (mode: RegionMode) => t(`admin.brandingPage.settings.region.modes.${mode}.description` as any);
-  const regionCurrency = (mode: RegionMode) => t(`admin.brandingPage.settings.region.modes.${mode}.currency` as any);
+  const localeLabel = (code: string) => t(`admin.brandingPage.languages.${code}`);
+  const regionTitle = (mode: RegionMode) => t(`admin.brandingPage.settings.region.modes.${mode}.title`);
+  const regionDescription = (mode: RegionMode) => t(`admin.brandingPage.settings.region.modes.${mode}.description`);
+  const regionCurrency = (mode: RegionMode) => t(`admin.brandingPage.settings.region.modes.${mode}.currency`);
 
   return (
     <div className="space-y-6">
       <Tabs value={settingsTab} onValueChange={setSettingsTab}>
         <TabsList className="h-auto w-full justify-start overflow-x-auto">
-          <TabsTrigger value="general" className="gap-1.5"><Wrench className="h-4 w-4" /> {t('admin.brandingPage.settings.tabs.general' as any)}</TabsTrigger>
-          <TabsTrigger value="region" className="gap-1.5"><Flag className="h-4 w-4" /> {t('admin.brandingPage.settings.tabs.region' as any)}</TabsTrigger>
-          <TabsTrigger value="languages" className="gap-1.5"><Languages className="h-4 w-4" /> {t('admin.brandingPage.settings.tabs.languages' as any)}</TabsTrigger>
-          <TabsTrigger value="billing" className="gap-1.5"><CreditCard className="h-4 w-4" /> {t('admin.brandingPage.settings.tabs.billing' as any)}</TabsTrigger>
-          <TabsTrigger value="localized" className="gap-1.5"><Globe className="h-4 w-4" /> {t('admin.brandingPage.settings.tabs.localized' as any)}</TabsTrigger>
+          <TabsTrigger value="general" className="gap-1.5"><Wrench className="h-4 w-4" /> {t('admin.brandingPage.settings.tabs.general')}</TabsTrigger>
+          <TabsTrigger value="region" className="gap-1.5"><Flag className="h-4 w-4" /> {t('admin.brandingPage.settings.tabs.region')}</TabsTrigger>
+          <TabsTrigger value="languages" className="gap-1.5"><Languages className="h-4 w-4" /> {t('admin.brandingPage.settings.tabs.languages')}</TabsTrigger>
+          <TabsTrigger value="billing" className="gap-1.5"><CreditCard className="h-4 w-4" /> {t('admin.brandingPage.settings.tabs.billing')}</TabsTrigger>
+          <TabsTrigger value="localized" className="gap-1.5"><Globe className="h-4 w-4" /> {t('admin.brandingPage.settings.tabs.localized')}</TabsTrigger>
         </TabsList>
 
         {/* ── General Settings ── */}
@@ -483,18 +518,18 @@ function SettingsSection() {
           <Card className="bg-card border-border">
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2"><Wrench className="h-5 w-5 text-primary" /><CardTitle>{t('admin.brandingPage.settings.general.title' as any)}</CardTitle></div>
+                <div className="flex items-center gap-2"><Wrench className="h-5 w-5 text-primary" /><CardTitle>{t('admin.brandingPage.settings.general.title')}</CardTitle></div>
                 <Button size="sm" onClick={handleSaveSettings} disabled={!settingsDirty}>
-                  <Save className="h-4 w-4 me-1" />{t('admin.brandingPage.common.save' as any)}
+                  <Save className="h-4 w-4 me-1" />{t('admin.brandingPage.common.save')}
                 </Button>
               </div>
-              <CardDescription>{t('admin.brandingPage.settings.general.description' as any)}</CardDescription>
+              <CardDescription>{t('admin.brandingPage.settings.general.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid gap-5 md:grid-cols-2">
                 <div className="grid gap-1.5">
-                  <Label>{t('admin.brandingPage.settings.general.defaultLanguage' as any)}</Label>
-                  <p className="text-xs text-muted-foreground">{t('admin.brandingPage.settings.general.defaultLanguageHint' as any)}</p>
+                  <Label>{t('admin.brandingPage.settings.general.defaultLanguage')}</Label>
+                  <p className="text-xs text-muted-foreground">{t('admin.brandingPage.settings.general.defaultLanguageHint')}</p>
                   <Select value={defaultLocale} onValueChange={(v) => { setDefaultLocale(v); setSettingsDirty(true); }}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -506,16 +541,16 @@ function SettingsSection() {
                   </Select>
                 </div>
                 <div className="grid gap-1.5">
-                  <Label>{t('admin.brandingPage.settings.general.timezone' as any)}</Label>
+                  <Label>{t('admin.brandingPage.settings.general.timezone')}</Label>
                   <Input value={timezone} onChange={e => { setTimezone(e.target.value); setSettingsDirty(true); }} placeholder="UTC" />
                 </div>
                 <div className="grid gap-1.5">
-                  <Label>{t('admin.brandingPage.settings.general.siteMode' as any)}</Label>
+                  <Label>{t('admin.brandingPage.settings.general.siteMode')}</Label>
                   <Select value={siteMode} onValueChange={(v) => { setSiteMode(v); setSettingsDirty(true); }}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="multi_language">{t('admin.brandingPage.settings.general.multiLanguage' as any)}</SelectItem>
-                      <SelectItem value="single_language">{t('admin.brandingPage.settings.general.singleLanguage' as any)}</SelectItem>
+                      <SelectItem value="multi_language">{t('admin.brandingPage.settings.general.multiLanguage')}</SelectItem>
+                      <SelectItem value="single_language">{t('admin.brandingPage.settings.general.singleLanguage')}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -528,15 +563,15 @@ function SettingsSection() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <Label className="text-sm font-medium">{t('admin.brandingPage.settings.general.maintenanceMode' as any)}</Label>
-                    <p className="text-xs text-muted-foreground">{t('admin.brandingPage.settings.general.maintenanceModeHint' as any)}</p>
+                    <Label className="text-sm font-medium">{t('admin.brandingPage.settings.general.maintenanceMode')}</Label>
+                    <p className="text-xs text-muted-foreground">{t('admin.brandingPage.settings.general.maintenanceModeHint')}</p>
                   </div>
                   <Switch checked={maintenanceMode} onCheckedChange={(v) => { setMaintenanceMode(v); setSettingsDirty(true); }} />
                 </div>
                 {maintenanceMode && (
                   <div className="grid gap-1.5">
-                    <Label>{t('admin.brandingPage.settings.general.maintenanceMessage' as any)}</Label>
-                    <Textarea value={maintenanceMessage} onChange={e => { setMaintenanceMessage(e.target.value); setSettingsDirty(true); }} placeholder={t('admin.brandingPage.settings.general.maintenancePlaceholder' as any)} className="min-h-[80px]" />
+                    <Label>{t('admin.brandingPage.settings.general.maintenanceMessage')}</Label>
+                    <Textarea value={maintenanceMessage} onChange={e => { setMaintenanceMessage(e.target.value); setSettingsDirty(true); }} placeholder={t('admin.brandingPage.settings.general.maintenancePlaceholder')} className="min-h-[80px]" />
                   </div>
                 )}
               </div>
@@ -549,12 +584,12 @@ function SettingsSection() {
           <Card className="bg-card border-border">
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2"><Flag className="h-5 w-5 text-primary" /><CardTitle>{t('admin.brandingPage.settings.region.title' as any)}</CardTitle></div>
+                <div className="flex items-center gap-2"><Flag className="h-5 w-5 text-primary" /><CardTitle>{t('admin.brandingPage.settings.region.title')}</CardTitle></div>
                 <Button size="sm" onClick={handleSaveSettings} disabled={!settingsDirty}>
-                  <Save className="h-4 w-4 me-1" />{t('admin.brandingPage.common.save' as any)}
+                  <Save className="h-4 w-4 me-1" />{t('admin.brandingPage.common.save')}
                 </Button>
               </div>
-              <CardDescription>{t('admin.brandingPage.settings.region.description' as any)}</CardDescription>
+              <CardDescription>{t('admin.brandingPage.settings.region.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
@@ -572,7 +607,7 @@ function SettingsSection() {
                       <div className="flex items-center gap-2">
                         <span className="text-xl">{meta.flag}</span>
                         <span className="text-sm font-semibold text-foreground">{regionTitle(mode)}</span>
-                        {selected && <Badge className="ms-auto text-[10px]">{t('admin.brandingPage.common.active' as any)}</Badge>}
+                        {selected && <Badge className="ms-auto text-[10px]">{t('admin.brandingPage.common.active')}</Badge>}
                       </div>
                       <p className="text-xs text-muted-foreground mt-2">{regionDescription(mode)}</p>
                       <div className="flex flex-wrap gap-2 mt-3">
@@ -585,10 +620,10 @@ function SettingsSection() {
               </div>
               <Separator />
               <p className="text-xs text-muted-foreground">
-                {t('admin.brandingPage.settings.region.currentMode' as any)} <strong className="text-foreground">{regionTitle(regionMode)}</strong>
-                {' · '}{t('admin.brandingPage.settings.region.languages' as any)}{' '}
+                {t('admin.brandingPage.settings.region.currentMode')} <strong className="text-foreground">{regionTitle(regionMode)}</strong>
+                {' · '}{t('admin.brandingPage.settings.region.languages')}{' '}
                 <strong className="text-foreground">{REGION_META[regionMode].languages}</strong>{' · '}
-                {t('admin.brandingPage.settings.region.currency' as any)}{' '}
+                {t('admin.brandingPage.settings.region.currency')}{' '}
                 <strong className="text-foreground">{regionCurrency(regionMode)}</strong>
               </p>
             </CardContent>
@@ -600,19 +635,19 @@ function SettingsSection() {
           {regionMode !== 'multi' && (
             <Card className="bg-muted/30 border-border mb-4">
               <CardContent className="p-4 text-sm text-muted-foreground">
-                {REGION_META[regionMode].flag} {t('admin.brandingPage.settings.languages.locked' as any, { languages: REGION_META[regionMode].languages })}
+                {REGION_META[regionMode].flag} {t('admin.brandingPage.settings.languages.locked', { languages: REGION_META[regionMode].languages })}
               </CardContent>
             </Card>
           )}
           <Card className="bg-card border-border">
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2"><Languages className="h-5 w-5 text-primary" /><CardTitle>{t('admin.brandingPage.settings.languages.title' as any)}</CardTitle></div>
+                <div className="flex items-center gap-2"><Languages className="h-5 w-5 text-primary" /><CardTitle>{t('admin.brandingPage.settings.languages.title')}</CardTitle></div>
                 <Button size="sm" onClick={handleSaveSettings} disabled={!settingsDirty}>
-                  <Save className="h-4 w-4 me-1" />{t('admin.brandingPage.common.save' as any)}
+                  <Save className="h-4 w-4 me-1" />{t('admin.brandingPage.common.save')}
                 </Button>
               </div>
-              <CardDescription>{t('admin.brandingPage.settings.languages.description' as any)}</CardDescription>
+              <CardDescription>{t('admin.brandingPage.settings.languages.description')}</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
@@ -632,8 +667,8 @@ function SettingsSection() {
                         <div className="text-sm font-medium truncate">{localeLabel(l.code)}</div>
                         <div className="text-xs text-muted-foreground">{l.code}</div>
                       </div>
-                      {isDefault && <Badge variant="default" className="text-[10px] shrink-0">{t('admin.brandingPage.common.default' as any)}</Badge>}
-                      {isActive && !isDefault && <Badge variant="outline" className="text-[10px] shrink-0">{t('admin.brandingPage.common.active' as any)}</Badge>}
+                      {isDefault && <Badge variant="default" className="text-[10px] shrink-0">{t('admin.brandingPage.common.default')}</Badge>}
+                      {isActive && !isDefault && <Badge variant="outline" className="text-[10px] shrink-0">{t('admin.brandingPage.common.active')}</Badge>}
                     </button>
                   );
                 })}
@@ -647,19 +682,19 @@ function SettingsSection() {
           <Card className="bg-card border-border">
             <CardHeader className="pb-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-primary" /><CardTitle>{t('admin.brandingPage.settings.billing.title' as any)}</CardTitle></div>
+                <div className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-primary" /><CardTitle>{t('admin.brandingPage.settings.billing.title')}</CardTitle></div>
                 <Button size="sm" onClick={handleSaveSettings} disabled={!settingsDirty}>
-                  <Save className="h-4 w-4 me-1" />{t('admin.brandingPage.common.save' as any)}
+                  <Save className="h-4 w-4 me-1" />{t('admin.brandingPage.common.save')}
                 </Button>
               </div>
-              <CardDescription>{t('admin.brandingPage.settings.billing.description' as any)}</CardDescription>
+              <CardDescription>{t('admin.brandingPage.settings.billing.description')}</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{t('admin.brandingPage.settings.billing.language' as any)}</TableHead>
-                    <TableHead>{t('admin.brandingPage.settings.billing.gateway' as any)}</TableHead>
+                    <TableHead>{t('admin.brandingPage.settings.billing.language')}</TableHead>
+                    <TableHead>{t('admin.brandingPage.settings.billing.gateway')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -669,7 +704,7 @@ function SettingsSection() {
                       <TableRow key={code}>
                         <TableCell className="font-medium">
                           <span className="me-2">{l?.flag}</span>{l ? localeLabel(l.code) : code}
-                          {code === defaultLocale && <Badge variant="outline" className="ms-2 text-[10px]">{t('admin.brandingPage.common.default' as any)}</Badge>}
+                          {code === defaultLocale && <Badge variant="outline" className="ms-2 text-[10px]">{t('admin.brandingPage.common.default')}</Badge>}
                         </TableCell>
                         <TableCell>
                           <Select
@@ -682,7 +717,7 @@ function SettingsSection() {
                             <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               {BILLING_PROVIDERS.map(p => (
-                                <SelectItem key={p.value} value={p.value}>{p.value === 'none' ? t('admin.brandingPage.settings.billing.none' as any) : p.label}</SelectItem>
+                                <SelectItem key={p.value} value={p.value}>{p.value === 'none' ? t('admin.brandingPage.settings.billing.none') : p.label}</SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
@@ -700,8 +735,8 @@ function SettingsSection() {
         <TabsContent value="localized" className="mt-4">
           <Card className="bg-card border-border">
             <CardHeader className="pb-4">
-              <div className="flex items-center gap-2"><Globe className="h-5 w-5 text-primary" /><CardTitle>{t('admin.brandingPage.settings.localized.title' as any)}</CardTitle></div>
-              <CardDescription>{t('admin.brandingPage.settings.localized.description' as any)}</CardDescription>
+              <div className="flex items-center gap-2"><Globe className="h-5 w-5 text-primary" /><CardTitle>{t('admin.brandingPage.settings.localized.title')}</CardTitle></div>
+              <CardDescription>{t('admin.brandingPage.settings.localized.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <Tabs value={activeLocale} onValueChange={setActiveLocale}>
@@ -712,23 +747,23 @@ function SettingsSection() {
                       return (
                         <TabsTrigger key={code} value={code} className="gap-1.5">
                           {l?.flag} {l ? localeLabel(l.code) : code}
-                          {code === defaultLocale && <Badge variant="outline" className="text-[10px] px-1 py-0">{t('admin.brandingPage.common.default' as any)}</Badge>}
-                          {dirtyLocales.has(code) && <Badge variant="secondary" className="text-[10px] px-1 py-0">{t('admin.brandingPage.common.unsaved' as any)}</Badge>}
+                          {code === defaultLocale && <Badge variant="outline" className="text-[10px] px-1 py-0">{t('admin.brandingPage.common.default')}</Badge>}
+                          {dirtyLocales.has(code) && <Badge variant="secondary" className="text-[10px] px-1 py-0">{t('admin.brandingPage.common.unsaved')}</Badge>}
                         </TabsTrigger>
                       );
                     })}
                   </TabsList>
                   <Button size="sm" onClick={() => handleSaveBranding(activeLocale)} disabled={!dirtyLocales.has(activeLocale) || upsert.isPending}>
                     {upsert.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}
-                    {t('admin.brandingPage.settings.localized.saveLocale' as any, { locale: activeLocale.toUpperCase() })}
+                    {t('admin.brandingPage.settings.localized.saveLocale', { locale: activeLocale.toUpperCase() })}
                   </Button>
                 </div>
                 {activeLocales.map((code) => (
                   <TabsContent key={code} value={code} className="mt-4">
                     <div className="grid gap-5 md:grid-cols-2">
                       {LOCALIZED_FIELDS.map((f) => {
-                        const label = t(`admin.brandingPage.settings.localized.fields.${f.key}.label` as any);
-                        return <FieldRow key={f.key} label={label} desc={f.hasDescription ? t(`admin.brandingPage.settings.localized.fields.${f.key}.hint` as any) : undefined} value={(current as any)?.[f.key] ?? ''} onChange={(v) => setField(code, f.key, v)} placeholder={t('admin.brandingPage.settings.localized.placeholder' as any, { field: label })} />;
+                        const label = t(`admin.brandingPage.settings.localized.fields.${f.key}.label`);
+                        return <FieldRow key={f.key} label={label} desc={f.hasDescription ? t(`admin.brandingPage.settings.localized.fields.${f.key}.hint`) : undefined} value={(current as Record<string, unknown> | undefined)?.[f.key] as string ?? ''} onChange={(v) => setField(code, f.key, v)} placeholder={t('admin.brandingPage.settings.localized.placeholder', { field: label })} />;
                       })}
                     </div>
                   </TabsContent>
@@ -768,10 +803,10 @@ function DomainUrlsSection() {
   const set = (key: keyof PlatformDomains, val: string) => { setForm((p) => ({ ...p, [key]: val })); setDirty(true); };
 
   const handleSave = () => {
-    const { id, created_at, updated_at, ...rest } = form as any;
+    const { id, created_at, updated_at, ...rest } = form;
     update.mutate(rest, {
-      onSuccess: () => { toast({ title: t('admin.brandingPage.domains.saved' as any) }); setDirty(false); },
-      onError: (e) => toast({ title: t('admin.brandingPage.common.error' as any), description: e.message, variant: 'destructive' }),
+      onSuccess: () => { toast({ title: t('admin.brandingPage.domains.saved') }); setDirty(false); },
+      onError: (e) => toast({ title: t('admin.brandingPage.common.error'), description: e.message, variant: 'destructive' }),
     });
   };
 
@@ -781,17 +816,17 @@ function DomainUrlsSection() {
     <Card className="bg-card border-border">
       <CardHeader className="pb-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2"><Link2 className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">{t('admin.brandingPage.domains.title' as any)}</CardTitle></div>
+          <div className="flex items-center gap-2"><Link2 className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">{t('admin.brandingPage.domains.title')}</CardTitle></div>
           <Button size="sm" onClick={handleSave} disabled={!dirty || update.isPending}>
-            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}{t('admin.brandingPage.common.save' as any)}
+            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}{t('admin.brandingPage.common.save')}
           </Button>
         </div>
-        <CardDescription>{t('admin.brandingPage.domains.description' as any)}</CardDescription>
+        <CardDescription>{t('admin.brandingPage.domains.description')}</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="grid gap-5 md:grid-cols-2">
           {DOMAIN_FIELDS.map((f) => (
-            <FieldRow key={f.key} label={t(`admin.brandingPage.domains.fields.${f.key}.label` as any)} desc={t(`admin.brandingPage.domains.fields.${f.key}.hint` as any)} value={(form as any)?.[f.key] ?? ''} onChange={(v) => set(f.key, v)} placeholder={f.placeholder} />
+            <FieldRow key={f.key} label={t(`admin.brandingPage.domains.fields.${f.key}.label`)} desc={t(`admin.brandingPage.domains.fields.${f.key}.hint`)} value={(form as Record<string, unknown>)?.[f.key] as string ?? ''} onChange={(v) => set(f.key, v)} placeholder={f.placeholder} />
           ))}
         </div>
       </CardContent>
@@ -800,28 +835,45 @@ function DomainUrlsSection() {
 }
 
 // ── Email Settings Section ──
+/**
+ * Super Admin → Branding → Email settings.
+ *
+ * ONE field, and that is the whole section. It used to carry seven, and six
+ * of them were read by nothing:
+ *
+ *   sender_email, sender_name  — a second place to answer "who is this from".
+ *     The From header is built entirely from the platform email provider's
+ *     `from_email` / `from_name` (Super Admin → Providers → Email); see
+ *     `resolveFromAddress` in server/services/email/index.ts, the only code
+ *     that decides a sender.
+ *   email_logo_url, email_footer_text, footer_text, support_contact_label —
+ *     email branding that no template can express. Of the 84 stored templates
+ *     (28 slugs) not one references a logo or footer placeholder, and not one
+ *     contains an <img> tag; `{brand}` is the only branding hook, and it comes
+ *     from platform_branding_localized. The code-side wrapper in
+ *     server/services/verification/templates.ts has no slot for either.
+ *
+ * A setting an admin can change that the runtime never reads is worse than no
+ * setting: it looks like it worked. The columns stay for rollback, but nothing
+ * writes them any more.
+ */
 function EmailSettingsSection() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const { data: emailSettings, isLoading: settingsLoading } = useQuery({
     queryKey: ['platform-email-settings'],
     queryFn: async () => {
-      const body = await adminFetch<{ settings: any }>('/api/admin/management/email-settings');
+      const body = await adminFetch<{ settings: EmailSettingsRow }>('/api/admin/management/email-settings');
       return body.settings;
     },
   });
 
-  const [settingsForm, setSettingsForm] = useState({ sender_email: '', reply_to_email: '', email_logo_url: '', email_footer_text: '' });
+  const [replyTo, setReplyTo] = useState('');
   const [settingsDirty, setSettingsDirty] = useState(false);
 
   useEffect(() => {
     if (emailSettings) {
-      setSettingsForm({
-        sender_email: emailSettings.sender_email ?? '',
-        reply_to_email: emailSettings.reply_to_email ?? '',
-        email_logo_url: emailSettings.email_logo_url ?? '',
-        email_footer_text: emailSettings.email_footer_text ?? '',
-      });
+      setReplyTo(emailSettings.reply_to_email ?? '');
       setSettingsDirty(false);
     }
   }, [emailSettings]);
@@ -830,46 +882,15 @@ function EmailSettingsSection() {
     mutationFn: async () => {
       await adminFetch('/api/admin/management/email-settings', {
         method: 'PUT',
-        body: JSON.stringify(settingsForm),
+        body: JSON.stringify({ reply_to_email: replyTo }),
       });
     },
-    onSuccess: () => { toast({ title: t('admin.brandingPage.emailSettings.saved' as any) }); setSettingsDirty(false); qc.invalidateQueries({ queryKey: ['platform-email-settings'] }); },
-    onError: (e) => toast({ title: t('admin.brandingPage.common.error' as any), description: e.message, variant: 'destructive' }),
-  });
-
-  // Email settings localized
-  const { data: emailLocalized } = useQuery({
-    queryKey: ['platform-email-settings-localized'],
-    queryFn: async () => {
-      const body = await adminFetch<{ rows: any[] }>('/api/admin/management/email-settings-localized');
-      return body.rows ?? [];
+    onSuccess: () => {
+      toast({ title: t('admin.brandingPage.emailSettings.saved') });
+      setSettingsDirty(false);
+      qc.invalidateQueries({ queryKey: ['platform-email-settings'] });
     },
-  });
-
-  const [emailLocaleForms, setEmailLocaleForms] = useState<Record<string, any>>({});
-  const [emailLocaleDirty, setEmailLocaleDirty] = useState<Set<string>>(new Set());
-  const [emailLocaleTab, setEmailLocaleTab] = useState('en');
-
-  useEffect(() => {
-    if (emailLocalized) {
-      const map: Record<string, any> = {};
-      emailLocalized.forEach(r => (map[r.locale] = r));
-      setEmailLocaleForms(map);
-      setEmailLocaleDirty(new Set());
-    }
-  }, [emailLocalized]);
-
-  const saveEmailLocale = useMutation({
-    mutationFn: async (locale: string) => {
-      const row = emailLocaleForms[locale];
-      const { id, created_at, updated_at, workspace_id, ...rest } = row || {};
-      await adminFetch('/api/admin/management/email-settings-localized', {
-        method: 'PUT',
-        body: JSON.stringify({ ...rest, locale }),
-      });
-    },
-    onSuccess: (_data, locale) => { toast({ title: t('admin.brandingPage.emailSettings.localizedSaved' as any, { locale: locale.toUpperCase() }) }); setEmailLocaleDirty((current) => { const next = new Set(current); next.delete(locale); return next; }); qc.invalidateQueries({ queryKey: ['platform-email-settings-localized'] }); },
-    onError: (e) => toast({ title: t('admin.brandingPage.common.error' as any), description: e.message, variant: 'destructive' }),
+    onError: (e: Error) => toast({ title: t('admin.brandingPage.common.error'), description: e.message, variant: 'destructive' }),
   });
 
   if (settingsLoading) return <LoadingCard />;
@@ -877,55 +898,24 @@ function EmailSettingsSection() {
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-4">
-        <div className="flex items-center gap-2"><Settings2 className="h-5 w-5 text-primary" /><CardTitle className="text-foreground">{t('admin.brandingPage.emailSettings.title' as any)}</CardTitle></div>
-        <CardDescription>{t('admin.brandingPage.emailSettings.description' as any)}</CardDescription>
+        <div className="flex items-center gap-2"><Settings2 className="h-5 w-5 text-primary" /><CardTitle className="text-foreground text-base">{t('admin.brandingPage.emailSettings.title')}</CardTitle></div>
+        <CardDescription>{t('admin.brandingPage.emailSettings.description')}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
-        {/* Global email settings */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-foreground">{t('admin.brandingPage.emailSettings.globalTitle' as any)}</h3>
-            <Button size="sm" onClick={() => saveSettings.mutate()} disabled={!settingsDirty || saveSettings.isPending}>
-              {saveSettings.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}{t('admin.brandingPage.common.save' as any)}
-            </Button>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <FieldRow label={t('admin.brandingPage.emailSettings.senderEmail' as any)} desc={t('admin.brandingPage.emailSettings.senderEmailHint' as any)} value={settingsForm.sender_email} onChange={(v) => { setSettingsForm(p => ({ ...p, sender_email: v })); setSettingsDirty(true); }} placeholder="noreply@example.com" />
-            <FieldRow label={t('admin.brandingPage.emailSettings.replyToEmail' as any)} value={settingsForm.reply_to_email} onChange={(v) => { setSettingsForm(p => ({ ...p, reply_to_email: v })); setSettingsDirty(true); }} placeholder="support@example.com" />
-            <FieldRow label={t('admin.brandingPage.emailSettings.logoUrl' as any)} desc={t('admin.brandingPage.emailSettings.logoUrlHint' as any)} value={settingsForm.email_logo_url} onChange={(v) => { setSettingsForm(p => ({ ...p, email_logo_url: v })); setSettingsDirty(true); }} placeholder="https://cdn.example.com/email-logo.png" />
-            <FieldRow label={t('admin.brandingPage.emailSettings.footerText' as any)} value={settingsForm.email_footer_text} onChange={(v) => { setSettingsForm(p => ({ ...p, email_footer_text: v })); setSettingsDirty(true); }} placeholder={t('admin.brandingPage.emailSettings.footerPlaceholder' as any)} />
-          </div>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-foreground">{t('admin.brandingPage.emailSettings.globalTitle')}</h3>
+          <Button size="sm" onClick={() => saveSettings.mutate()} disabled={!settingsDirty || saveSettings.isPending}>
+            {saveSettings.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}{t('admin.brandingPage.common.save')}
+          </Button>
         </div>
-
-        <Separator />
-
-        {/* Localized email settings */}
-        <div className="space-y-4">
-          <h3 className="text-sm font-semibold text-foreground">{t('admin.brandingPage.emailSettings.localizedTitle' as any)}</h3>
-          <Tabs value={emailLocaleTab} onValueChange={setEmailLocaleTab}>
-            <div className="flex items-center justify-between">
-              <TabsList>
-                {ALL_LOCALES.filter(l => true).slice(0, 3).map(l => (
-                  <TabsTrigger key={l.code} value={l.code} className="gap-1.5">
-                    {t(`admin.brandingPage.languages.${l.labelKey}` as any)}
-                    {emailLocaleDirty.has(l.code) && <Badge variant="secondary" className="text-[10px] px-1 py-0">{t('admin.brandingPage.common.unsaved' as any)}</Badge>}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-              <Button size="sm" onClick={() => saveEmailLocale.mutate(emailLocaleTab)} disabled={!emailLocaleDirty.has(emailLocaleTab) || saveEmailLocale.isPending}>
-                {saveEmailLocale.isPending ? <Loader2 className="h-4 w-4 animate-spin me-1" /> : <Save className="h-4 w-4 me-1" />}{t('admin.brandingPage.common.save' as any)}
-              </Button>
-            </div>
-            {ALL_LOCALES.filter(l => true).slice(0, 3).map(l => (
-              <TabsContent key={l.code} value={l.code} className="mt-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <FieldRow label={t('admin.brandingPage.emailSettings.senderName' as any)} desc={t('admin.brandingPage.emailSettings.senderNameHint' as any)} value={emailLocaleForms[l.code]?.sender_name ?? ''} onChange={(v) => { setEmailLocaleForms(p => ({ ...p, [l.code]: { ...p[l.code], sender_name: v, locale: l.code } })); setEmailLocaleDirty(p => new Set(p).add(l.code)); }} placeholder={t('admin.brandingPage.emailSettings.senderNamePlaceholder' as any)} />
-                  <FieldRow label={t('admin.brandingPage.emailSettings.localizedFooter' as any)} value={emailLocaleForms[l.code]?.footer_text ?? ''} onChange={(v) => { setEmailLocaleForms(p => ({ ...p, [l.code]: { ...p[l.code], footer_text: v, locale: l.code } })); setEmailLocaleDirty(p => new Set(p).add(l.code)); }} placeholder={t('admin.brandingPage.emailSettings.localizedFooterPlaceholder' as any)} />
-                  <FieldRow label={t('admin.brandingPage.emailSettings.supportLabel' as any)} value={emailLocaleForms[l.code]?.support_contact_label ?? ''} onChange={(v) => { setEmailLocaleForms(p => ({ ...p, [l.code]: { ...p[l.code], support_contact_label: v, locale: l.code } })); setEmailLocaleDirty(p => new Set(p).add(l.code)); }} placeholder={t('admin.brandingPage.emailSettings.supportPlaceholder' as any)} />
-                </div>
-              </TabsContent>
-            ))}
-          </Tabs>
+        <div className="grid gap-4 md:grid-cols-2">
+          <FieldRow
+            label={t('admin.brandingPage.emailSettings.replyToEmail')}
+            desc={t('admin.brandingPage.emailSettings.replyToEmailHint')}
+            value={replyTo}
+            onChange={(v) => { setReplyTo(v); setSettingsDirty(true); }}
+            placeholder="support@example.com"
+          />
         </div>
       </CardContent>
     </Card>
@@ -949,20 +939,20 @@ export default function AdminBrandingPage() {
   return (
     <div className="space-y-6 max-w-4xl animate-fade-in">
       <div>
-        <h1 className="text-2xl font-bold text-foreground">{t('admin.brandingPage.title' as any)}</h1>
+        <h1 className="text-2xl font-bold text-foreground">{t('admin.brandingPage.title')}</h1>
         <p className="text-muted-foreground text-sm mt-1">
-          {t('admin.brandingPage.subtitle' as any)}
+          {t('admin.brandingPage.subtitle')}
         </p>
       </div>
 
       <Tabs defaultValue="identity">
         <TabsList className="w-full justify-start flex-wrap">
-          <TabsTrigger value="identity" className="gap-1.5"><Palette className="h-4 w-4" /> {t('admin.brandingPage.tabs.identity' as any)}</TabsTrigger>
-          <TabsTrigger value="settings" className="gap-1.5"><Settings2 className="h-4 w-4" /> {t('admin.brandingPage.tabs.settings' as any)}</TabsTrigger>
-          <TabsTrigger value="email-settings" className="gap-1.5"><Mail className="h-4 w-4" /> {t('admin.brandingPage.tabs.emailSettings' as any)}</TabsTrigger>
-          <TabsTrigger value="email-templates" className="gap-1.5"><Mail className="h-4 w-4" /> {t('admin.brandingPage.tabs.emailTemplates' as any)}</TabsTrigger>
-          <TabsTrigger value="ui-defaults" className="gap-1.5"><Type className="h-4 w-4" /> {t('admin.brandingPage.tabs.uiDefaults' as any)}</TabsTrigger>
-          <TabsTrigger value="domains" className="gap-1.5"><Link2 className="h-4 w-4" /> {t('admin.brandingPage.tabs.domains' as any)}</TabsTrigger>
+          <TabsTrigger value="identity" className="gap-1.5"><Palette className="h-4 w-4" /> {t('admin.brandingPage.tabs.identity')}</TabsTrigger>
+          <TabsTrigger value="settings" className="gap-1.5"><Settings2 className="h-4 w-4" /> {t('admin.brandingPage.tabs.settings')}</TabsTrigger>
+          <TabsTrigger value="email-settings" className="gap-1.5"><Mail className="h-4 w-4" /> {t('admin.brandingPage.tabs.emailSettings')}</TabsTrigger>
+          <TabsTrigger value="email-templates" className="gap-1.5"><Mail className="h-4 w-4" /> {t('admin.brandingPage.tabs.emailTemplates')}</TabsTrigger>
+          <TabsTrigger value="ui-defaults" className="gap-1.5"><Type className="h-4 w-4" /> {t('admin.brandingPage.tabs.uiDefaults')}</TabsTrigger>
+          <TabsTrigger value="domains" className="gap-1.5"><Link2 className="h-4 w-4" /> {t('admin.brandingPage.tabs.domains')}</TabsTrigger>
         </TabsList>
         <TabsContent value="identity" className="mt-4"><VisualIdentitySection /></TabsContent>
         <TabsContent value="ui-defaults" className="mt-4"><UiDefaultsSection /></TabsContent>

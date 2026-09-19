@@ -219,8 +219,24 @@ workspaceIntegrationsRouter.get('/:workspaceId/providers', async (req, res) => {
   return res.json({ settings: data });
 });
 
+/**
+ * `email` is deliberately NOT in this enum.
+ *
+ * Email transport is platform infrastructure: one provider, configured by a
+ * platform admin in Super Admin → Providers → Communication → Email and stored
+ * in `app_runtime_config.default_email_provider`. A workspace admin holds
+ * `manage` on their own workspace, which is not the same authority, and a
+ * workspace-scoped email provider would have let them redirect the platform's
+ * own password resets, verification codes and invitations through their
+ * account.
+ *
+ * Removing the card from Settings → Providers was not enough on its own —
+ * this route is reachable directly. A zod enum rejects the value outright
+ * (400) rather than stripping it, so a client that still sends
+ * `provider_type: 'email'` is told no instead of silently writing nothing.
+ */
 const upsertProviderSchema = z.object({
-  provider_type: z.enum(['email', 'ai', 'webhook']),
+  provider_type: z.enum(['ai', 'webhook']),
   provider_name: z.string().min(1).max(100),
   enabled: z.boolean(),
   config: z.record(z.string(), z.unknown()),
@@ -245,6 +261,9 @@ workspaceIntegrationsRouter.put('/:workspaceId/providers', async (req, res) => {
   return res.json({ setting: data });
 });
 
+// DELETE stays open to every provider_type on purpose: it can only remove a
+// row, and removing a legacy workspace email provider left over from before
+// this rule is precisely what it should still be able to do.
 workspaceIntegrationsRouter.delete('/:workspaceId/providers/:providerType', async (req, res) => {
   const config = serverConfigOf(req);
   if (!(await authorizeWorkspaceAccess(req, res, req.params.workspaceId, { manage: true }))) return;

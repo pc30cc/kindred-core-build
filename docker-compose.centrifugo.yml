@@ -3,7 +3,7 @@
 # Production-ready, fully env-driven Centrifugo deployment for Coolify.
 # Designed to be deployed as a STANDALONE service (separately from the
 # backend/frontend), reachable via a public domain such as:
-#   rt.destekly.tr  →  wss://rt.destekly.tr
+#   rt.example.com  →  wss://rt.example.com
 #
 # Why env-driven (no config.json bind mount)?
 #   In Coolify's Docker Compose build pack the working directory at runtime
@@ -61,7 +61,7 @@
 #   CENTRIFUGO_ADMIN_PASSWORD         – Required if admin enabled.
 #   CENTRIFUGO_ADMIN_SECRET           – Required if admin enabled.
 #
-# After deploy, in Coolify add a domain (e.g. rt.destekly.tr) pointing to
+# After deploy, in Coolify add a domain (e.g. rt.example.com) pointing to
 # port 8000 of this container. Coolify will terminate TLS and proxy both
 # HTTP (/api) and WebSocket (/connection/websocket) traffic.
 

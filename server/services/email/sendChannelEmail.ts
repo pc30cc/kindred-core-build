@@ -21,8 +21,8 @@ export interface ChannelEmailRequest {
   subject?: string;
   html?: string;
   text?: string;
-  from?: string;
-  replyTo?: string;
+  // No `from` / `replyTo` — see EmailRequest in ./index.ts. Transport identity
+  // is the platform provider's, never a caller's.
   templateSlug?: string;
   templateData?: Record<string, string>;
   locale?: string;

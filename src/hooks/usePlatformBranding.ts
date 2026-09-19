@@ -86,7 +86,7 @@ export function useUpsertPlatformBrandingLocalized() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (row: Partial<PlatformBrandingLocalized> & { locale: string }) => {
-      const { id: _id, created_at: _c, updated_at: _u, ...rest } = row as any;
+      const { id: _id, created_at: _c, updated_at: _u, ...rest } = row;
       const { branding } = await adminFetch<{ branding: PlatformBrandingLocalized }>(
         '/api/admin/management/platform-branding-localized',
         { method: 'PUT', body: JSON.stringify(rest) },
@@ -105,8 +105,11 @@ export interface PlatformDomains {
   canonical_base_url: string | null;
   app_base_url: string | null;
   api_base_url: string | null;
-  widget_base_url: string | null;
-  asset_base_url: string | null;
+  // `widget_base_url` / `asset_base_url` are deliberately absent. The columns
+  // still exist for rollback, but widget deployment URLs are owned by
+  // `widget_platform_settings` (Super Admin → Widget → Deployment URLs).
+  // Leaving them on this type is what let a second, competing place to set the
+  // same URL keep looking legitimate.
   public_base_url: string | null;
   help_center_base_url: string | null;
   email_base_url: string | null;

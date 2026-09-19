@@ -67,6 +67,10 @@ struct PlatformOrigins: Decodable, Sendable {
     let appBaseUrl: String?
     let publicBaseUrl: String?
     let helpCenterUrl: String?
+    /// Already resolved server-side. Every client used to append its own path
+    /// here and they disagreed — the build script said `/contact`, a route
+    /// that does not exist, and the app opened the bare origin.
+    let supportUrl: String?
 
     private static func https(_ raw: String?) -> URL? {
         guard let raw, let url = URL(string: raw), url.scheme?.lowercased() == "https"
@@ -75,7 +79,9 @@ struct PlatformOrigins: Decodable, Sendable {
     }
 
     var api: URL? { Self.https(apiBaseUrl) }
-    /// Where "Contact support" should go: the help centre if there is one,
-    /// otherwise the public site.
-    var support: URL? { Self.https(helpCenterUrl) ?? Self.https(publicBaseUrl) }
+    /// Where "Contact support" goes. The server decides; the last two are only
+    /// for a platform that has not deployed the resolved field yet.
+    var support: URL? {
+        Self.https(supportUrl) ?? Self.https(helpCenterUrl) ?? Self.https(publicBaseUrl)
+    }
 }

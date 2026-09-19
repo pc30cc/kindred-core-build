@@ -34,6 +34,24 @@ const TTL_MS = 60_000;
 let cache: Record<string, string | null> | null = null;
 let cachedAt = 0;
 
+/**
+ * A link, not a base. `help_center_base_url` may legitimately carry a path
+ * (`https://app.example.com/help`), and stripping it to the bare origin — as
+ * `toOrigin` must do for anything requests are built on — would send everyone
+ * who taps "Contact support" to the site root instead of the help centre.
+ */
+function toLink(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const value = raw.trim();
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' ? url.href.replace(/\/$/, '') : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Origin only, https only. A base URL with a path would break every request. */
 function toOrigin(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
@@ -62,11 +80,30 @@ platformOriginsPublicRouter.get('/origins', async (req, res) => {
       .limit(1)
       .maybeSingle();
 
+    const publicBaseUrl =
+      toOrigin(data?.public_base_url) ?? toOrigin(data?.canonical_base_url);
+    const helpCenterUrl = toLink(data?.help_center_base_url);
+
     cache = {
       apiBaseUrl: toOrigin(data?.api_base_url),
       appBaseUrl: toOrigin(data?.app_base_url),
-      publicBaseUrl: toOrigin(data?.public_base_url) ?? toOrigin(data?.canonical_base_url),
-      helpCenterUrl: toOrigin(data?.help_center_base_url),
+      publicBaseUrl,
+      helpCenterUrl,
+      // The canonical origin for <link rel="canonical">. It belongs to the
+      // platform, not to a workspace: the dashboard used to build this tag
+      // from `workspace_branding.canonical_base_url`, a per-tenant copy that
+      // drifted and left every page pointing at a domain the platform had
+      // already left.
+      canonicalBaseUrl: toOrigin(data?.canonical_base_url) ?? publicBaseUrl,
+      // Resolved once, here, so every client agrees on where "Contact support"
+      // goes. Clients used to each append their own path and they disagreed:
+      // the iOS build script appended `/contact`, which is not a route this
+      // app has ever served, while the app itself opened the bare origin.
+      //
+      // `/help` is the real route (see src/App.tsx). It is only a fallback:
+      // set `help_center_base_url` in Super Admin → Branding → Domains and
+      // that wins, path and all, without a redeploy.
+      supportUrl: helpCenterUrl ?? (publicBaseUrl ? `${publicBaseUrl}/help` : null),
     };
     cachedAt = Date.now();
     return res.json(cache);
@@ -76,6 +113,7 @@ platformOriginsPublicRouter.get('/origins', async (req, res) => {
     // used to ask this question.
     return res.json({
       apiBaseUrl: null, appBaseUrl: null, publicBaseUrl: null, helpCenterUrl: null,
+      supportUrl: null, canonicalBaseUrl: null,
     });
   }
 });

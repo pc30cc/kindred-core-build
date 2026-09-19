@@ -86,7 +86,28 @@ workspacesRouter.get('/', async (req, res) => {
     .in('id', workspaceIds);
   if (wsErr) return res.status(500).json({ error: wsErr.message });
 
-  return res.json({ workspaces: workspaces || [] });
+  // The logo, so a client can show a workspace as a face rather than a line
+  // of text. It does not live on `workspaces` — `workspace_branding` owns it,
+  // as either a URL somebody pasted or a key into our own storage, and the
+  // widget resolves it the same way (see routes/widget.ts).
+  const { data: branding } = await sb
+    .from('workspace_branding')
+    .select('workspace_id, logo_url, logo_storage_key')
+    .in('workspace_id', workspaceIds);
+
+  const resolver = createStorageUrlResolver(config);
+  const logos = new Map<string, string | null>();
+  for (const row of branding ?? []) {
+    const id = String(row.workspace_id);
+    logos.set(id, row.logo_url || (await resolver.workspace(id, row.logo_storage_key)) || null);
+  }
+
+  return res.json({
+    workspaces: (workspaces || []).map((w) => ({
+      ...w,
+      logo_url: logos.get(String(w.id)) ?? null,
+    })),
+  });
 });
 
 // ── GET /api/workspaces/account — the caller's account ───────────────────

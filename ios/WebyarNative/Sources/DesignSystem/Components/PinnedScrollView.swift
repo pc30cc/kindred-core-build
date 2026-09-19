@@ -1,5 +1,6 @@
 import SwiftUI
 import Observation
+import UIKit
 
 /// A scrolling transcript that stays pinned to its newest row.
 ///
@@ -94,13 +95,61 @@ struct PinnedScrollView<Content: View>: View {
                 }
                 .onChange(of: outer.size.height) { previous, height in
                     viewport = height
-                    // The keyboard opening takes half the screen away. The
-                    // content does not move, so whatever was at the bottom is
-                    // now behind the keys — which is the newest message, and
-                    // the one the operator is about to reply to.
+                    // A real change of size — a rotation, or Split View. The
+                    // keyboard is NOT one of these; see below.
                     guard height < previous, isNearBottom else { return }
                     proxy.scrollTo(Self.anchorID, anchor: .bottom)
                 }
+                // The keyboard, which this used to try to infer from the
+                // height above and never could.
+                //
+                // Opening it does not shrink the `GeometryReader` — SwiftUI
+                // reports the keyboard as a bottom SAFE AREA, and a safe area
+                // sits inside the proposed size rather than reducing it. So
+                // `outer.size.height` never moved, the handler above never
+                // fired, and the newest message stayed put while the keys
+                // covered it.
+                //
+                // The system says so directly instead. Both directions
+                // matter: opening puts the bottom of the transcript behind
+                // the keys, and closing gives that space back, so the message
+                // the operator is replying to has to come with it either way.
+                .onReceive(keyboardWillChange) { note in
+                    followKeyboard(note, proxy)
+                }
+                .onReceive(keyboardWillHide) { note in
+                    followKeyboard(note, proxy)
+                }
+            }
+        }
+    }
+
+    private var keyboardWillChange: NotificationCenter.Publisher {
+        NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)
+    }
+
+    private var keyboardWillHide: NotificationCenter.Publisher {
+        NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)
+    }
+
+    /// Re-pin to the newest message as the keyboard moves.
+    ///
+    /// `isNearBottom` is read now, before the safe area changes, so the
+    /// question being answered is "was the operator at the bottom when they
+    /// tapped the field" — someone reading history is left where they are.
+    ///
+    /// The scroll waits one turn of the run loop: the notification arrives
+    /// *will*-change, and scrolling to the bottom before the inset lands
+    /// would aim at the old bottom. It borrows the keyboard's own duration so
+    /// the transcript and the keys move together rather than in sequence.
+    private func followKeyboard(_ note: Notification, _ proxy: ScrollViewProxy) {
+        guard isNearBottom else { return }
+        let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey]
+            as? Double ?? 0.25
+        Task { @MainActor in
+            await Task.yield()
+            withAnimation(.easeOut(duration: duration)) {
+                proxy.scrollTo(Self.anchorID, anchor: .bottom)
             }
         }
     }

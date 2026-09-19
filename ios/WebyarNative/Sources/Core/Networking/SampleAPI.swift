@@ -37,7 +37,7 @@ actor SampleAPI: WebyarAPI {
     // MARK: - Workspaces
 
     func workspaces() async throws -> [Workspace] {
-        [Workspace(id: "ws-1", name: "Sample Workspace", slug: "sample")]
+        [Workspace(id: "ws-1", name: "Sample Workspace", slug: "sample", logoURL: nil)]
     }
 
     // MARK: - Conversations

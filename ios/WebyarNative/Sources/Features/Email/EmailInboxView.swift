@@ -125,7 +125,9 @@ struct EmailInboxView: View {
 
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        isSearching = true
+                        // Toggles: the magnifier is the only way in and the only way out,
+                        // so a second tap has to close what the first opened.
+                        isSearching.toggle()
                     } label: {
                         Image(systemName: "magnifyingglass")
                     }
@@ -144,19 +146,16 @@ struct EmailInboxView: View {
     private var content: some View {
         @Bindable var model = model
 
-        SearchRestingList(
+        SearchableList(
             text: $model.searchText,
             prompt: Str.search(language),
-            anchorID: Self.restAnchor,
             resetToken: workspaceID ?? "-",
-            isReady: model.state.isLoaded,
             isSearching: $isSearching
         ) {
             switch model.state {
             case .loading:
                 ForEach(0..<8, id: \.self) { _ in
                     ContactRowSkeleton()
-                        .measuredListRow()
                 }
 
             case .failed:
@@ -168,7 +167,6 @@ struct EmailInboxView: View {
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .measuredListRow()
 
             case .loaded:
                 if model.visible.isEmpty {
@@ -181,10 +179,8 @@ struct EmailInboxView: View {
                             ? Str.emailNotConnectedBody(language)
                             : (model.searchText.isEmpty ? Str.emailEmptyBody(language) : "")
                     )
-                    .id(Self.restAnchor)
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
-                    .measuredListRow()
                 } else {
                     ForEach(Array(model.visible.enumerated()), id: \.element.id) { index, thread in
                         NavigationLink(value: thread) {
@@ -195,8 +191,7 @@ struct EmailInboxView: View {
                                 locale: locale
                             )
                         }
-                        .id(index == 0 ? Self.restAnchor : thread.id)
-                        .measuredListRow()
+                        .id(thread.id)
                     }
                 }
             }
@@ -207,7 +202,6 @@ struct EmailInboxView: View {
         }
     }
 
-    private static let restAnchor = "email.top"
 }
 
 /// One thread in the list: who it is with, what it is about, and the last line

@@ -75,12 +75,10 @@ struct InboxView: View {
         // silently swallowed the "Inbox" title. Keeping it here also means it
         // stays reachable when the list is empty — otherwise an operator who
         // filtered into an empty queue would have no way back out.
-        SearchRestingList(
+        SearchableList(
             text: $model.searchText,
             prompt: Str.search(language),
-            anchorID: Self.restAnchor,
             resetToken: reloadKey,
-            isReady: model.state.isLoaded,
             isSearching: $isSearching
         ) {
             if let creative = promotions.banner(for: appState) {
@@ -91,7 +89,6 @@ struct InboxView: View {
                 )
                 .listRowInsets(filterInsets)
                 .listRowSeparator(.hidden)
-                .measuredListRow(insets: filterInsets.top + filterInsets.bottom)
             }
 
             FilterPicker(
@@ -100,10 +97,8 @@ struct InboxView: View {
                 counts: model.counts,
                 language: language
             )
-                .id(Self.restAnchor)
                 .listRowInsets(filterInsets)
                 .listRowSeparator(.hidden)
-                .measuredListRow(insets: filterInsets.top + filterInsets.bottom)
 
             switch model.state {
             case .loading:
@@ -113,7 +108,6 @@ struct InboxView: View {
                 ForEach(0..<8, id: \.self) { _ in
                     ConversationRowSkeleton()
                         .listRowInsets(rowInsets)
-                        .measuredListRow(insets: rowInsets.top + rowInsets.bottom)
                 }
 
             case .failed(let error):
@@ -125,7 +119,6 @@ struct InboxView: View {
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .measuredListRow()
 
             case .loaded:
                 if model.visible.isEmpty {
@@ -140,7 +133,6 @@ struct InboxView: View {
                     )
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
-                    .measuredListRow()
                 } else {
                     ForEach(model.visible) { conversation in
                         ZStack {
@@ -160,7 +152,6 @@ struct InboxView: View {
                             )
                         }
                         .listRowInsets(rowInsets)
-                        .measuredListRow(insets: rowInsets.top + rowInsets.bottom)
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             swipeAction(for: conversation)
                         }
@@ -267,7 +258,9 @@ struct InboxView: View {
             .accessibilityLabel(Str.filters(language))
 
             Button {
-                isSearching = true
+                // Toggles: the magnifier is the only way in and the only way out,
+                // so a second tap has to close what the first opened.
+                isSearching.toggle()
             } label: {
                 Image(systemName: "magnifyingglass")
             }
@@ -281,7 +274,6 @@ struct InboxView: View {
     }
 
     /// The row the list rests on, leaving the search field just above the fold.
-    private static let restAnchor = "inbox.filter"
 
     private var filterInsets: EdgeInsets {
         EdgeInsets(

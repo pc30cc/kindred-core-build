@@ -23,6 +23,21 @@ struct ChatBubble: Shape {
     var hasBeak: Bool = false
     var pointsRight: Bool = true
 
+    /// Never mirrored by the reading direction.
+    ///
+    /// This is the whole fix for a beak that pointed away from the avatar in
+    /// Persian. SwiftUI mirrors a `Shape` under a right-to-left layout
+    /// direction by default, which is right for an arrow or a chevron and
+    /// wrong for this: `pointsRight` is already a physical answer, so letting
+    /// the system flip it on top undoes the decision.
+    ///
+    /// The text bubble escaped the bug by accident — `chatBubble` pins the
+    /// direction to LTR for the sake of its padding, and the shape rode along.
+    /// A photo goes through `chatBubbleClip`, which has no padding to pin, so
+    /// its beak flipped and the text beside it did not. Declaring the
+    /// behaviour here fixes every use at once: clip, fill and background.
+    var layoutDirectionBehavior: LayoutDirectionBehavior { .fixed }
+
     func path(in rect: CGRect) -> Path {
         guard hasBeak else {
             let r = min(radius, min(rect.width, rect.height) / 2)

@@ -127,6 +127,15 @@ struct MainTabView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        // The keyboard must not take the tab bar with it.
+        //
+        // SwiftUI treats the keyboard as a bottom safe area, so anything
+        // aligned to the bottom rides up on top of it — which put the whole
+        // bar in the middle of the screen the moment a search field or a
+        // composer opened. The bar belongs to the device, not to the text
+        // being typed: it stays where it is and the keyboard covers it, the
+        // way it does in Mail and Messages.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .animation(Theme.Motion.standard, value: showsTabBar)
         .animation(Theme.Motion.standard, value: tabs)
         // A plan change can remove the tab that is currently open — switching

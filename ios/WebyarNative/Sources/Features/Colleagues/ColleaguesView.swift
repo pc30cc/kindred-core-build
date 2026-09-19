@@ -85,7 +85,9 @@ struct ColleaguesView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        isSearching = true
+                        // Toggles: the magnifier is the only way in and the only way out,
+                        // so a second tap has to close what the first opened.
+                        isSearching.toggle()
                     } label: {
                         Image(systemName: "magnifyingglass")
                     }
@@ -102,18 +104,16 @@ struct ColleaguesView: View {
     private var content: some View {
         @Bindable var model = model
 
-        SearchRestingList(
+        SearchableList(
             text: $model.searchText,
             prompt: Str.search(language),
-            anchorID: Self.restAnchor,
             resetToken: workspaceID ?? "-",
-            isReady: model.state.isLoaded,
             isSearching: $isSearching
         ) {
             switch model.state {
             case .loading:
                 ForEach(0..<8, id: \.self) { _ in
-                    ContactRowSkeleton().measuredListRow()
+                    ContactRowSkeleton()
                 }
 
             case .failed:
@@ -125,7 +125,6 @@ struct ColleaguesView: View {
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .measuredListRow()
 
             case .loaded:
                 if model.visible.isEmpty {
@@ -136,17 +135,14 @@ struct ColleaguesView: View {
                             : Str.noResults(language),
                         message: model.searchText.isEmpty ? Str.colleaguesEmptyBody(language) : ""
                     )
-                    .id(Self.restAnchor)
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
-                    .measuredListRow()
                 } else {
                     ForEach(Array(model.visible.enumerated()), id: \.element.id) { index, colleague in
                         NavigationLink(value: colleague) {
                             ColleagueRow(colleague: colleague, language: language, locale: locale)
                         }
-                        .id(index == 0 ? Self.restAnchor : colleague.id)
-                        .measuredListRow()
+                        .id(colleague.id)
                     }
                 }
             }
@@ -157,7 +153,6 @@ struct ColleaguesView: View {
         }
     }
 
-    private static let restAnchor = "colleagues.top"
 }
 
 struct ColleagueRow: View {

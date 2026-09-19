@@ -90,7 +90,9 @@ struct ContactsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        isSearching = true
+                        // Toggles: the magnifier is the only way in and the only way out,
+                        // so a second tap has to close what the first opened.
+                        isSearching.toggle()
                     } label: {
                         Image(systemName: "magnifyingglass")
                     }
@@ -110,19 +112,16 @@ struct ContactsView: View {
     private var content: some View {
         // Same arrangement as the inbox: one list for every state, with search
         // inside it and the list resting just below it.
-        SearchRestingList(
+        SearchableList(
             text: $model.searchText,
             prompt: Str.search(language),
-            anchorID: Self.restAnchor,
             resetToken: workspaceID ?? "-",
-            isReady: model.state.isLoaded,
             isSearching: $isSearching
         ) {
             switch model.state {
             case .loading:
                 ForEach(0..<10, id: \.self) { _ in
                     ContactRowSkeleton()
-                        .measuredListRow()
                 }
 
             case .failed:
@@ -134,7 +133,6 @@ struct ContactsView: View {
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .measuredListRow()
 
             case .loaded:
                 if model.visible.isEmpty {
@@ -145,10 +143,8 @@ struct ContactsView: View {
                             : Str.noResults(language),
                         message: model.searchText.isEmpty ? Str.contactsEmptyBody(language) : ""
                     )
-                    .id(Self.restAnchor)
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
-                    .measuredListRow()
                 } else {
                     ForEach(Array(model.visible.enumerated()), id: \.element.id) { index, contact in
                         NavigationLink(value: contact) {
@@ -159,8 +155,7 @@ struct ContactsView: View {
                             )
                         }
                         // The first row is what the list rests on.
-                        .id(index == 0 ? Self.restAnchor : contact.id)
-                        .measuredListRow()
+                        .id(contact.id)
                     }
                 }
             }
@@ -171,7 +166,6 @@ struct ContactsView: View {
     }
 
     /// The row the list rests on, leaving the search field just above the fold.
-    private static let restAnchor = "contacts.top"
 }
 
 /// A contact in the list: avatar, name, and the best secondary identifier we

@@ -37,6 +37,13 @@ final class KeyboardTests: UITestCase {
     /// the message the operator is about to reply to. Closing it gives the
     /// space back, and the transcript has to come down with it or it is left
     /// scrolled past its own end, with a gap where the keyboard was.
+    ///
+    /// This asserts the outcome, not the mechanism, and the difference matters
+    /// here: on iOS 26.4 it passes with `PinnedScrollView`'s keyboard
+    /// observers, without them, and with that file reverted to the version
+    /// that provably could not work. So a green run says the operator sees the
+    /// right thing on this release; it does not say which line of the app is
+    /// responsible, and it would not catch this being broken by deleting one.
     func testChatTranscriptFollowsTheKeyboardBothWays() {
         app.launchArguments += ["-WebyarScreen", "chat"]
         app.launch()

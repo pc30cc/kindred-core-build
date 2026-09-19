@@ -93,11 +93,19 @@ struct SearchableList<Rows: View>: View {
     @FocusState private var focused: Bool
     /// Whether the caret has actually landed in the field yet.
     ///
-    /// Without this the search opened and shut again in one frame. `focused`
+    /// This was written to fix a search field that opened and shut again in
+    /// one frame. It does not deserve that credit: the field was never opening
+    /// at all in the run that was being watched — the taps were landing in a
+    /// dead strip of the screen, because the tool driving them had the
+    /// simulator's window geometry wrong. `SearchFieldTests` cannot reproduce
+    /// the self-closing on iOS 26 with this guard or without it.
+    ///
+    /// It stays because the rule it states is right on its own terms: `focused`
     /// is false for the moment between the row being inserted and the system
-    /// installing the responder, and the blur handler below read that first
-    /// false as "the operator dismissed the keyboard" — so it closed the
-    /// thing it had just opened. A blur only means anything after a focus.
+    /// installing the responder, and reading that first false as "the operator
+    /// dismissed the keyboard" would close the thing it had just opened. A
+    /// blur only means anything after a focus. It is a guard against a
+    /// mistake, not a fix for a sighting.
     @State private var didFocus = false
 
     /// Text outlives the toggle: a field with something in it stays on screen

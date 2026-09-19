@@ -23,11 +23,12 @@ final class SearchFieldTests: UITestCase {
 
     /// The magnifier opens it — and it stays open.
     ///
-    /// This is the regression that only the device showed: the field appeared
-    /// and vanished within a frame. `@FocusState` is false for the moment
-    /// between the row being inserted and the system installing the responder,
-    /// and the blur handler read that first false as "the operator is done
-    /// looking" — so it closed the thing it had just opened.
+    /// The field was once reported to appear and vanish within a frame. That
+    /// report was wrong: the taps behind it were never reaching the magnifier,
+    /// and this test passes with `SearchableList`'s `didFocus` guard and
+    /// without it. What it does pin down is the thing the operator cares
+    /// about, which nothing else was checking: a second and a half after the
+    /// tap, the field and the caret are both still there.
     func testMagnifierOpensTheFieldAndItStaysOpen() {
         let magnifier = launchToInbox()
         magnifier.tap()

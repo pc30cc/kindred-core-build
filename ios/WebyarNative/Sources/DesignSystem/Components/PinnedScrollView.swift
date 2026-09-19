@@ -106,14 +106,23 @@ struct PinnedScrollView<Content: View>: View {
                 // Opening it does not shrink the `GeometryReader` — SwiftUI
                 // reports the keyboard as a bottom SAFE AREA, and a safe area
                 // sits inside the proposed size rather than reducing it. So
-                // `outer.size.height` never moved, the handler above never
-                // fired, and the newest message stayed put while the keys
-                // covered it.
+                // `outer.size.height` never moved and the handler above never
+                // fired. That much is certain: the old code was not a weak
+                // mechanism, it was no mechanism.
                 //
-                // The system says so directly instead. Both directions
-                // matter: opening puts the bottom of the transcript behind
-                // the keys, and closing gives that space back, so the message
-                // the operator is replying to has to come with it either way.
+                // What is NOT established is that this one is doing the work.
+                // On iOS 26.4 the transcript follows the keyboard with these
+                // observers, without them, and with the whole file reverted to
+                // the version that could not work — the system pins a scroll
+                // view that was already at its end all by itself. Only 26.4 is
+                // installed here, and the app deploys to 17.0, so that is one
+                // data point about one release, not a licence to delete this.
+                //
+                // It stays as the explicit answer to an explicit question:
+                // both directions matter — opening puts the bottom of the
+                // transcript behind the keys, and closing gives that space
+                // back — and it borrows the keyboard's own duration, which the
+                // automatic behaviour does not promise to.
                 .onReceive(keyboardWillChange) { note in
                     followKeyboard(note, proxy)
                 }

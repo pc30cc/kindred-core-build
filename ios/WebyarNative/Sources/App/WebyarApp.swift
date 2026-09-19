@@ -22,6 +22,24 @@ struct WebyarApp: App {
                 // easy to miss — but every row was built the wrong way round.
                 .environment(\.locale, appState.language.locale)
                 .environment(\.layoutDirection, appState.language.layoutDirection)
+                // Changing the language rebuilds the interface instead of
+                // re-draping the one on screen.
+                //
+                // SwiftUI turns a right-to-left interface around partly by
+                // mirroring the container and counter-mirroring the text
+                // inside it. Built that way from the start it is flawless —
+                // a Persian launch is perfect. Changed while the views are
+                // alive, the two halves come apart: switching back to
+                // English left the layout correctly left-to-right but the
+                // whole screen drawn in a mirror, so "Language" read
+                // "egaugnaL" and the operator's own name was inside out.
+                //
+                // Keying the root on the language gives the new direction a
+                // new hierarchy, which is the same fresh start a relaunch
+                // would give it. The cost is that navigation returns to the
+                // inbox — a fair price, and the behaviour most apps have
+                // when their language changes.
+                .id(appState.language)
                 // nil means "follow the device", which is what `.system` is.
                 .preferredColorScheme(appState.appearance.colorScheme)
         }
@@ -45,7 +63,7 @@ struct RootView: View {
                     .transition(.opacity)
 
             case .signedIn:
-                MainTabView()
+                MainTabView(initial: appState.selectedTab)
                     // Moving in from the leading edge reads as "forward",
                     // and SwiftUI mirrors it automatically under RTL.
                     .transition(.asymmetric(

@@ -1,5 +1,13 @@
 import SwiftUI
 
+/// The shell's three tabs.
+///
+/// It lives outside the shell because `AppState` remembers which one is open,
+/// and it remembers because a language change rebuilds the shell from
+/// scratch — without somewhere outside to keep it, changing the language
+/// would drop the operator back on the inbox from wherever they were.
+enum AppTab: Hashable { case inbox, contacts, settings }
+
 /// The signed-in shell.
 ///
 /// Which tabs exist is decided by the plan, not by this file. `TabView` still
@@ -8,7 +16,7 @@ import SwiftUI
 struct MainTabView: View {
     @Environment(AppState.self) private var appState
     /// What `TabView` is showing.
-    @State private var selection: Tab = .inbox
+    @State private var selection: Tab
     /// What the operator actually asked for.
     ///
     /// The two come apart because `TabView` re-seats its own selection when
@@ -16,12 +24,19 @@ struct MainTabView: View {
     /// resolves — several seconds after launch on a cold network. Without
     /// this the app quietly lands on Contacts or Settings while the operator is
     /// looking at the inbox.
-    @State private var intent: Tab = .inbox
+    @State private var intent: Tab
+
+    /// Both start from the tab `AppState` remembers, so a rebuilt shell opens
+    /// where the old one was rather than on the inbox.
+    init(initial: Tab) {
+        _selection = State(initialValue: initial)
+        _intent = State(initialValue: initial)
+    }
     @State private var inboxPath = NavigationPath()
     @State private var contactsPath = NavigationPath()
     @State private var settingsPath = NavigationPath()
 
-    enum Tab: Hashable { case inbox, contacts, settings }
+    typealias Tab = AppTab
 
     private var language: Language { appState.language }
 
@@ -68,8 +83,7 @@ struct MainTabView: View {
         Binding(
             get: { selection },
             set: { tab in
-                intent = tab
-                selection = tab
+                select(tab)
             }
         )
     }
@@ -116,7 +130,7 @@ struct MainTabView: View {
         // workspace is the ordinary way that happens. Without this the shell
         // would be left showing a tab that no longer exists.
         .onChange(of: tabs) { _, newTabs in
-            if !newTabs.contains(intent) { intent = .inbox }
+            if !newTabs.contains(intent) { intent = .inbox; appState.selectedTab = .inbox }
             if selection != intent { selection = intent }
         }
         // And this is the other half: adding a tab moves `TabView`'s own
@@ -134,6 +148,7 @@ struct MainTabView: View {
     private func select(_ tab: Tab) {
         intent = tab
         selection = tab
+        appState.selectedTab = tab
     }
 
     /// Opens a detail screen on launch when a Debug run asked for one, so a

@@ -43,20 +43,24 @@ final class AppState {
 
     // There used to be a `syncSystemLanguage` here that wrote `AppleLanguages`
     // so UIKit's own strings — Paste, Cancel — would follow the operator's
-    // choice. It cost far more than it bought.
+    // choice. It cost far more than it bought and it is not coming back.
     //
-    // `AppleLanguages` is what UIKit reads *at launch* to decide whether the
-    // window is right-to-left, and that decision is then fixed for the life of
-    // the process. Switching to English in Settings changed our own
-    // `\.layoutDirection` to left-to-right immediately while the window stayed
-    // right-to-left, and SwiftUI mirrors a right-to-left host by flipping it
-    // and counter-flipping the leaves — so with the two disagreeing, every
-    // label on the screen rendered backwards. Reading "Language" as
-    // "egaugnaL" is a worse outcome than a Paste menu in the device's
-    // language, and it lasted until the app was relaunched.
-    //
-    // Everything this app draws comes from `Str` and follows `language`
-    // directly, so nothing else depended on it.
+    // `AppleLanguages` is read *at launch*, so the menus only caught up one
+    // relaunch late — and it is a system-wide key the operator never asked us
+    // to set, which then decides the window's direction behind our back. The
+    // mirrored interface that came with it turned out to have a separate
+    // cause, fixed in `WebyarApp`, but nothing here wanted the key either
+    // way: everything this app draws comes from `Str` and follows `language`
+    // directly.
+
+    /// Which tab the shell is showing.
+    ///
+    /// The shell would happily own this itself were it not for the language
+    /// switch, which rebuilds the shell from nothing — see `WebyarApp`. Kept
+    /// here it survives that, so changing the language leaves the operator
+    /// looking at the screen they changed it on. It is not persisted: where
+    /// you were last time you had the app open is not a preference.
+    var selectedTab: AppTab = .inbox
 
     /// Set when the operator's session turns out to be void, so the login
     /// screen can say why they are looking at it.
@@ -97,6 +101,12 @@ final class AppState {
     /// operator signed in with whatever is cached — only the server saying the
     /// session is void signs them out.
     func restore() async {
+        // Changing the language rebuilds the whole hierarchy, so the root's
+        // `task` runs again. Working out the launch state is a launch
+        // concern: once it is known, redoing it would cost a round trip and
+        // could only ever arrive at the same answer.
+        guard case .restoring = session else { return }
+
         #if DEBUG
         // Screenshot automation cannot type into a text field, so a Debug run
         // may carry credentials on the command line. Compiled out of Release.

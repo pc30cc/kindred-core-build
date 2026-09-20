@@ -8194,6 +8194,7 @@ export type Database = {
       }
       contacts: {
         Row: {
+          avatar_storage_key: string | null
           avatar_url: string | null
           created_at: string | null
           email: string | null
@@ -8211,6 +8212,7 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          avatar_storage_key?: string | null
           avatar_url?: string | null
           created_at?: string | null
           email?: string | null
@@ -8228,6 +8230,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          avatar_storage_key?: string | null
           avatar_url?: string | null
           created_at?: string | null
           email?: string | null
@@ -9762,6 +9765,261 @@ export type Database = {
         }
         Relationships: []
       }
+      mobile_app_settings: {
+        Row: {
+          account_deletion_supported: boolean
+          account_deletion_url: string | null
+          ads_banner: Json
+          ads_enabled: boolean
+          ads_external_link_acknowledged: boolean
+          ads_fullscreen: Json
+          ads_max_per_day: number
+          ads_min_interval_minutes: number
+          ads_start_after_launches: number
+          age_rating: string
+          app_group_id: string | null
+          app_name: string
+          app_sku: string | null
+          apple_app_id: string | null
+          apple_team_id: string | null
+          apple_team_name: string | null
+          associated_domains: string[]
+          att_enabled: boolean
+          automatic_signing: boolean
+          build_configuration: string
+          build_number: number
+          bundle_id: string
+          cap_app_groups: boolean
+          cap_associated_domains: boolean
+          cap_background_fetch: boolean
+          cap_background_remote_notifications: boolean
+          cap_camera: boolean
+          cap_face_id: boolean
+          cap_keychain_sharing: boolean
+          cap_location: boolean
+          cap_microphone: boolean
+          cap_photo_library: boolean
+          cap_push_notifications: boolean
+          cap_sign_in_with_apple: boolean
+          checklist: Json
+          collects_data: boolean
+          contains_third_party_content: boolean
+          copyright: string | null
+          created_at: string
+          data_collection: Json
+          demo_account_notes: string | null
+          demo_account_required: boolean
+          demo_account_username: string | null
+          device_family: string
+          display_name: string
+          encryption_exempt: boolean
+          encryption_notes: string | null
+          id: string
+          marketing_url: string | null
+          marketing_version: string
+          minimum_os_version: string
+          orientations: string[]
+          phased_release: boolean
+          primary_category: string
+          primary_language: string
+          privacy_manifest: Json
+          privacy_policy_url: string | null
+          provisioning_profile: string | null
+          release_notes: string | null
+          release_type: string
+          requires_full_screen: boolean
+          review_contact_email: string | null
+          review_contact_name: string | null
+          review_contact_phone: string | null
+          review_notes: string | null
+          secondary_category: string | null
+          support_url: string | null
+          supports_dark_mode: boolean
+          terms_url: string | null
+          testflight_group: string | null
+          third_party_sdks: Json
+          updated_at: string
+          url_scheme: string | null
+          usage_camera: string
+          usage_face_id: string | null
+          usage_location: string | null
+          usage_microphone: string
+          usage_photo_library: string
+          usage_photo_library_add: string | null
+          usage_tracking: string | null
+          uses_encryption: boolean
+          uses_idfa: boolean
+        }
+        Insert: {
+          account_deletion_supported?: boolean
+          account_deletion_url?: string | null
+          ads_banner?: Json
+          ads_enabled?: boolean
+          ads_external_link_acknowledged?: boolean
+          ads_fullscreen?: Json
+          ads_max_per_day?: number
+          ads_min_interval_minutes?: number
+          ads_start_after_launches?: number
+          age_rating?: string
+          app_group_id?: string | null
+          app_name?: string
+          app_sku?: string | null
+          apple_app_id?: string | null
+          apple_team_id?: string | null
+          apple_team_name?: string | null
+          associated_domains?: string[]
+          att_enabled?: boolean
+          automatic_signing?: boolean
+          build_configuration?: string
+          build_number?: number
+          bundle_id?: string
+          cap_app_groups?: boolean
+          cap_associated_domains?: boolean
+          cap_background_fetch?: boolean
+          cap_background_remote_notifications?: boolean
+          cap_camera?: boolean
+          cap_face_id?: boolean
+          cap_keychain_sharing?: boolean
+          cap_location?: boolean
+          cap_microphone?: boolean
+          cap_photo_library?: boolean
+          cap_push_notifications?: boolean
+          cap_sign_in_with_apple?: boolean
+          checklist?: Json
+          collects_data?: boolean
+          contains_third_party_content?: boolean
+          copyright?: string | null
+          created_at?: string
+          data_collection?: Json
+          demo_account_notes?: string | null
+          demo_account_required?: boolean
+          demo_account_username?: string | null
+          device_family?: string
+          display_name?: string
+          encryption_exempt?: boolean
+          encryption_notes?: string | null
+          id?: string
+          marketing_url?: string | null
+          marketing_version?: string
+          minimum_os_version?: string
+          orientations?: string[]
+          phased_release?: boolean
+          primary_category?: string
+          primary_language?: string
+          privacy_manifest?: Json
+          privacy_policy_url?: string | null
+          provisioning_profile?: string | null
+          release_notes?: string | null
+          release_type?: string
+          requires_full_screen?: boolean
+          review_contact_email?: string | null
+          review_contact_name?: string | null
+          review_contact_phone?: string | null
+          review_notes?: string | null
+          secondary_category?: string | null
+          support_url?: string | null
+          supports_dark_mode?: boolean
+          terms_url?: string | null
+          testflight_group?: string | null
+          third_party_sdks?: Json
+          updated_at?: string
+          url_scheme?: string | null
+          usage_camera?: string
+          usage_face_id?: string | null
+          usage_location?: string | null
+          usage_microphone?: string
+          usage_photo_library?: string
+          usage_photo_library_add?: string | null
+          usage_tracking?: string | null
+          uses_encryption?: boolean
+          uses_idfa?: boolean
+        }
+        Update: {
+          account_deletion_supported?: boolean
+          account_deletion_url?: string | null
+          ads_banner?: Json
+          ads_enabled?: boolean
+          ads_external_link_acknowledged?: boolean
+          ads_fullscreen?: Json
+          ads_max_per_day?: number
+          ads_min_interval_minutes?: number
+          ads_start_after_launches?: number
+          age_rating?: string
+          app_group_id?: string | null
+          app_name?: string
+          app_sku?: string | null
+          apple_app_id?: string | null
+          apple_team_id?: string | null
+          apple_team_name?: string | null
+          associated_domains?: string[]
+          att_enabled?: boolean
+          automatic_signing?: boolean
+          build_configuration?: string
+          build_number?: number
+          bundle_id?: string
+          cap_app_groups?: boolean
+          cap_associated_domains?: boolean
+          cap_background_fetch?: boolean
+          cap_background_remote_notifications?: boolean
+          cap_camera?: boolean
+          cap_face_id?: boolean
+          cap_keychain_sharing?: boolean
+          cap_location?: boolean
+          cap_microphone?: boolean
+          cap_photo_library?: boolean
+          cap_push_notifications?: boolean
+          cap_sign_in_with_apple?: boolean
+          checklist?: Json
+          collects_data?: boolean
+          contains_third_party_content?: boolean
+          copyright?: string | null
+          created_at?: string
+          data_collection?: Json
+          demo_account_notes?: string | null
+          demo_account_required?: boolean
+          demo_account_username?: string | null
+          device_family?: string
+          display_name?: string
+          encryption_exempt?: boolean
+          encryption_notes?: string | null
+          id?: string
+          marketing_url?: string | null
+          marketing_version?: string
+          minimum_os_version?: string
+          orientations?: string[]
+          phased_release?: boolean
+          primary_category?: string
+          primary_language?: string
+          privacy_manifest?: Json
+          privacy_policy_url?: string | null
+          provisioning_profile?: string | null
+          release_notes?: string | null
+          release_type?: string
+          requires_full_screen?: boolean
+          review_contact_email?: string | null
+          review_contact_name?: string | null
+          review_contact_phone?: string | null
+          review_notes?: string | null
+          secondary_category?: string | null
+          support_url?: string | null
+          supports_dark_mode?: boolean
+          terms_url?: string | null
+          testflight_group?: string | null
+          third_party_sdks?: Json
+          updated_at?: string
+          url_scheme?: string | null
+          usage_camera?: string
+          usage_face_id?: string | null
+          usage_location?: string | null
+          usage_microphone?: string
+          usage_photo_library?: string
+          usage_photo_library_add?: string | null
+          usage_tracking?: string | null
+          uses_encryption?: boolean
+          uses_idfa?: boolean
+        }
+        Relationships: []
+      }
       mobile_push_devices: {
         Row: {
           app_version: string | null
@@ -9818,6 +10076,7 @@ export type Database = {
           acquired_at: string | null
           expires_at: string | null
           last_finished_at: string | null
+          min_interval_seconds: number
           name: string
           owner: string | null
           passes: number
@@ -9826,6 +10085,7 @@ export type Database = {
           acquired_at?: string | null
           expires_at?: string | null
           last_finished_at?: string | null
+          min_interval_seconds?: number
           name: string
           owner?: string | null
           passes?: number
@@ -9834,171 +10094,10 @@ export type Database = {
           acquired_at?: string | null
           expires_at?: string | null
           last_finished_at?: string | null
+          min_interval_seconds?: number
           name?: string
           owner?: string | null
           passes?: number
-        }
-        Relationships: []
-      }
-      operator_activity_samples: {
-        Row: {
-          available: boolean
-          bucket: string
-          created_at: string
-          id: string
-          user_id: string
-          workspace_id: string
-        }
-        Insert: {
-          available?: boolean
-          bucket: string
-          created_at?: string
-          id?: string
-          user_id: string
-          workspace_id: string
-        }
-        Update: {
-          available?: boolean
-          bucket?: string
-          created_at?: string
-          id?: string
-          user_id?: string
-          workspace_id?: string
-        }
-        Relationships: []
-      }
-      operator_activity_samples_2026_09: {
-        Row: {
-          available: boolean
-          bucket: string
-          created_at: string
-          id: string
-          user_id: string
-          workspace_id: string
-        }
-        Insert: {
-          available?: boolean
-          bucket: string
-          created_at?: string
-          id?: string
-          user_id: string
-          workspace_id: string
-        }
-        Update: {
-          available?: boolean
-          bucket?: string
-          created_at?: string
-          id?: string
-          user_id?: string
-          workspace_id?: string
-        }
-        Relationships: []
-      }
-      operator_activity_samples_2026_10: {
-        Row: {
-          available: boolean
-          bucket: string
-          created_at: string
-          id: string
-          user_id: string
-          workspace_id: string
-        }
-        Insert: {
-          available?: boolean
-          bucket: string
-          created_at?: string
-          id?: string
-          user_id: string
-          workspace_id: string
-        }
-        Update: {
-          available?: boolean
-          bucket?: string
-          created_at?: string
-          id?: string
-          user_id?: string
-          workspace_id?: string
-        }
-        Relationships: []
-      }
-      operator_activity_samples_2026_11: {
-        Row: {
-          available: boolean
-          bucket: string
-          created_at: string
-          id: string
-          user_id: string
-          workspace_id: string
-        }
-        Insert: {
-          available?: boolean
-          bucket: string
-          created_at?: string
-          id?: string
-          user_id: string
-          workspace_id: string
-        }
-        Update: {
-          available?: boolean
-          bucket?: string
-          created_at?: string
-          id?: string
-          user_id?: string
-          workspace_id?: string
-        }
-        Relationships: []
-      }
-      operator_activity_samples_default: {
-        Row: {
-          available: boolean
-          bucket: string
-          created_at: string
-          id: string
-          user_id: string
-          workspace_id: string
-        }
-        Insert: {
-          available?: boolean
-          bucket: string
-          created_at?: string
-          id?: string
-          user_id: string
-          workspace_id: string
-        }
-        Update: {
-          available?: boolean
-          bucket?: string
-          created_at?: string
-          id?: string
-          user_id?: string
-          workspace_id?: string
-        }
-        Relationships: []
-      }
-      operator_activity_samples_legacy: {
-        Row: {
-          available: boolean
-          bucket: string
-          created_at: string
-          id: string
-          user_id: string
-          workspace_id: string
-        }
-        Insert: {
-          available?: boolean
-          bucket: string
-          created_at?: string
-          id?: string
-          user_id: string
-          workspace_id: string
-        }
-        Update: {
-          available?: boolean
-          bucket?: string
-          created_at?: string
-          id?: string
-          user_id?: string
-          workspace_id?: string
         }
         Relationships: []
       }
@@ -11168,7 +11267,9 @@ export type Database = {
           id: string
           message_id: string | null
           notification_type: string
+          platform: string | null
           status: string
+          suppressed_reason: string | null
           user_id: string
           workspace_id: string
         }
@@ -11183,7 +11284,9 @@ export type Database = {
           id?: string
           message_id?: string | null
           notification_type: string
+          platform?: string | null
           status?: string
+          suppressed_reason?: string | null
           user_id: string
           workspace_id: string
         }
@@ -11198,9 +11301,110 @@ export type Database = {
           id?: string
           message_id?: string | null
           notification_type?: string
+          platform?: string | null
           status?: string
+          suppressed_reason?: string | null
           user_id?: string
           workspace_id?: string
+        }
+        Relationships: []
+      }
+      push_platform_settings: {
+        Row: {
+          android_channel_id: string
+          apns_priority: number
+          apns_ttl_seconds: number
+          badge_enabled: boolean
+          categories: Json
+          collapse_enabled: boolean
+          created_at: string
+          critical_alert_volume: number
+          critical_alerts_enabled: boolean
+          default_internal_notes: boolean
+          default_preview: boolean
+          default_quiet_hours_enabled: boolean
+          default_quiet_hours_end: string
+          default_quiet_hours_start: string
+          default_quiet_hours_timezone: string | null
+          default_scope: string
+          default_sound: boolean
+          dispatch_log_retention_days: number
+          id: string
+          interruption_level: string
+          mention_bypasses_quiet_hours: boolean
+          mutable_content: boolean
+          provisional_authorization: boolean
+          push_enabled: boolean
+          relevance_score: number
+          sound_name: string
+          templates: Json
+          thread_id_strategy: string
+          throttle_per_user_per_minute: number
+          updated_at: string
+        }
+        Insert: {
+          android_channel_id?: string
+          apns_priority?: number
+          apns_ttl_seconds?: number
+          badge_enabled?: boolean
+          categories?: Json
+          collapse_enabled?: boolean
+          created_at?: string
+          critical_alert_volume?: number
+          critical_alerts_enabled?: boolean
+          default_internal_notes?: boolean
+          default_preview?: boolean
+          default_quiet_hours_enabled?: boolean
+          default_quiet_hours_end?: string
+          default_quiet_hours_start?: string
+          default_quiet_hours_timezone?: string | null
+          default_scope?: string
+          default_sound?: boolean
+          dispatch_log_retention_days?: number
+          id?: string
+          interruption_level?: string
+          mention_bypasses_quiet_hours?: boolean
+          mutable_content?: boolean
+          provisional_authorization?: boolean
+          push_enabled?: boolean
+          relevance_score?: number
+          sound_name?: string
+          templates?: Json
+          thread_id_strategy?: string
+          throttle_per_user_per_minute?: number
+          updated_at?: string
+        }
+        Update: {
+          android_channel_id?: string
+          apns_priority?: number
+          apns_ttl_seconds?: number
+          badge_enabled?: boolean
+          categories?: Json
+          collapse_enabled?: boolean
+          created_at?: string
+          critical_alert_volume?: number
+          critical_alerts_enabled?: boolean
+          default_internal_notes?: boolean
+          default_preview?: boolean
+          default_quiet_hours_enabled?: boolean
+          default_quiet_hours_end?: string
+          default_quiet_hours_start?: string
+          default_quiet_hours_timezone?: string | null
+          default_scope?: string
+          default_sound?: boolean
+          dispatch_log_retention_days?: number
+          id?: string
+          interruption_level?: string
+          mention_bypasses_quiet_hours?: boolean
+          mutable_content?: boolean
+          provisional_authorization?: boolean
+          push_enabled?: boolean
+          relevance_score?: number
+          sound_name?: string
+          templates?: Json
+          thread_id_strategy?: string
+          throttle_per_user_per_minute?: number
+          updated_at?: string
         }
         Relationships: []
       }
@@ -14184,6 +14388,7 @@ export type Database = {
           error_message: string | null
           id: string
           lease_expires_at: string | null
+          lease_token: string | null
           locked_by: string | null
           next_retry_at: string | null
           purge_result: Json | null
@@ -14205,6 +14410,7 @@ export type Database = {
           error_message?: string | null
           id?: string
           lease_expires_at?: string | null
+          lease_token?: string | null
           locked_by?: string | null
           next_retry_at?: string | null
           purge_result?: Json | null
@@ -14226,6 +14432,7 @@ export type Database = {
           error_message?: string | null
           id?: string
           lease_expires_at?: string | null
+          lease_token?: string | null
           locked_by?: string | null
           next_retry_at?: string | null
           purge_result?: Json | null
@@ -15661,6 +15868,7 @@ export type Database = {
           fab_help_label: string | null
           fab_icon: string | null
           fab_icon_color: string | null
+          fab_image_storage_key: string | null
           fab_image_url: string | null
           fab_label: string | null
           fab_scale: number | null
@@ -15721,6 +15929,7 @@ export type Database = {
           fab_help_label?: string | null
           fab_icon?: string | null
           fab_icon_color?: string | null
+          fab_image_storage_key?: string | null
           fab_image_url?: string | null
           fab_label?: string | null
           fab_scale?: number | null
@@ -15781,6 +15990,7 @@ export type Database = {
           fab_help_label?: string | null
           fab_icon?: string | null
           fab_icon_color?: string | null
+          fab_image_storage_key?: string | null
           fab_image_url?: string | null
           fab_label?: string | null
           fab_scale?: number | null
@@ -16493,52 +16703,76 @@ export type Database = {
       }
       workspace_deletion_jobs: {
         Row: {
+          attempt_count: number
           completed_at: string | null
           db_cleanup_completed_at: string | null
           error_message: string | null
           id: string
+          lease_expires_at: string | null
+          lease_token: string | null
+          locked_by: string | null
+          next_retry_at: string | null
           requested_at: string
           requested_by: string
+          retried_at: string | null
+          retried_by: string | null
           started_at: string | null
           status: string
           storage_cleanup_error: string | null
           storage_cursor: string | null
           storage_objects_deleted: number
           storage_objects_found: number | null
+          storage_scopes: Json
           workspace_id: string
           workspace_name: string
           workspace_slug: string
         }
         Insert: {
+          attempt_count?: number
           completed_at?: string | null
           db_cleanup_completed_at?: string | null
           error_message?: string | null
           id?: string
+          lease_expires_at?: string | null
+          lease_token?: string | null
+          locked_by?: string | null
+          next_retry_at?: string | null
           requested_at?: string
           requested_by: string
+          retried_at?: string | null
+          retried_by?: string | null
           started_at?: string | null
           status?: string
           storage_cleanup_error?: string | null
           storage_cursor?: string | null
           storage_objects_deleted?: number
           storage_objects_found?: number | null
+          storage_scopes?: Json
           workspace_id: string
           workspace_name: string
           workspace_slug: string
         }
         Update: {
+          attempt_count?: number
           completed_at?: string | null
           db_cleanup_completed_at?: string | null
           error_message?: string | null
           id?: string
+          lease_expires_at?: string | null
+          lease_token?: string | null
+          locked_by?: string | null
+          next_retry_at?: string | null
           requested_at?: string
           requested_by?: string
+          retried_at?: string | null
+          retried_by?: string | null
           started_at?: string | null
           status?: string
           storage_cleanup_error?: string | null
           storage_cursor?: string | null
           storage_objects_deleted?: number
           storage_objects_found?: number | null
+          storage_scopes?: Json
           workspace_id?: string
           workspace_name?: string
           workspace_slug?: string
@@ -16767,186 +17001,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      workspace_health_snapshots: {
-        Row: {
-          captured_at: string
-          components: Json
-          health_score: number
-          id: string
-          inputs: Json
-          state: string
-          workspace_id: string
-        }
-        Insert: {
-          captured_at?: string
-          components?: Json
-          health_score: number
-          id?: string
-          inputs?: Json
-          state: string
-          workspace_id: string
-        }
-        Update: {
-          captured_at?: string
-          components?: Json
-          health_score?: number
-          id?: string
-          inputs?: Json
-          state?: string
-          workspace_id?: string
-        }
-        Relationships: []
-      }
-      workspace_health_snapshots_2026_09: {
-        Row: {
-          captured_at: string
-          components: Json
-          health_score: number
-          id: string
-          inputs: Json
-          state: string
-          workspace_id: string
-        }
-        Insert: {
-          captured_at?: string
-          components?: Json
-          health_score: number
-          id?: string
-          inputs?: Json
-          state: string
-          workspace_id: string
-        }
-        Update: {
-          captured_at?: string
-          components?: Json
-          health_score?: number
-          id?: string
-          inputs?: Json
-          state?: string
-          workspace_id?: string
-        }
-        Relationships: []
-      }
-      workspace_health_snapshots_2026_10: {
-        Row: {
-          captured_at: string
-          components: Json
-          health_score: number
-          id: string
-          inputs: Json
-          state: string
-          workspace_id: string
-        }
-        Insert: {
-          captured_at?: string
-          components?: Json
-          health_score: number
-          id?: string
-          inputs?: Json
-          state: string
-          workspace_id: string
-        }
-        Update: {
-          captured_at?: string
-          components?: Json
-          health_score?: number
-          id?: string
-          inputs?: Json
-          state?: string
-          workspace_id?: string
-        }
-        Relationships: []
-      }
-      workspace_health_snapshots_2026_11: {
-        Row: {
-          captured_at: string
-          components: Json
-          health_score: number
-          id: string
-          inputs: Json
-          state: string
-          workspace_id: string
-        }
-        Insert: {
-          captured_at?: string
-          components?: Json
-          health_score: number
-          id?: string
-          inputs?: Json
-          state: string
-          workspace_id: string
-        }
-        Update: {
-          captured_at?: string
-          components?: Json
-          health_score?: number
-          id?: string
-          inputs?: Json
-          state?: string
-          workspace_id?: string
-        }
-        Relationships: []
-      }
-      workspace_health_snapshots_default: {
-        Row: {
-          captured_at: string
-          components: Json
-          health_score: number
-          id: string
-          inputs: Json
-          state: string
-          workspace_id: string
-        }
-        Insert: {
-          captured_at?: string
-          components?: Json
-          health_score: number
-          id?: string
-          inputs?: Json
-          state: string
-          workspace_id: string
-        }
-        Update: {
-          captured_at?: string
-          components?: Json
-          health_score?: number
-          id?: string
-          inputs?: Json
-          state?: string
-          workspace_id?: string
-        }
-        Relationships: []
-      }
-      workspace_health_snapshots_legacy: {
-        Row: {
-          captured_at: string
-          components: Json
-          health_score: number
-          id: string
-          inputs: Json
-          state: string
-          workspace_id: string
-        }
-        Insert: {
-          captured_at?: string
-          components?: Json
-          health_score: number
-          id?: string
-          inputs?: Json
-          state: string
-          workspace_id: string
-        }
-        Update: {
-          captured_at?: string
-          components?: Json
-          health_score?: number
-          id?: string
-          inputs?: Json
-          state?: string
-          workspace_id?: string
-        }
-        Relationships: []
       }
       workspace_invitation_consents: {
         Row: {
@@ -19541,6 +19595,14 @@ export type Database = {
           workspace_id: string
         }[]
       }
+      claim_user_deletion_job: {
+        Args: { _lease_seconds?: number; _worker_id: string }
+        Returns: Json
+      }
+      claim_workspace_deletion_job: {
+        Args: { _lease_seconds?: number; _worker_id: string }
+        Returns: Json
+      }
       cleanup_expired_auth_tokens: { Args: never; Returns: undefined }
       cleanup_expired_widget_identity: { Args: never; Returns: undefined }
       commerce_claim_sync_job: {
@@ -19676,6 +19738,7 @@ export type Database = {
           _workspace_id: string
         }
         Returns: {
+          avatar_storage_key: string | null
           avatar_url: string | null
           created_at: string | null
           email: string | null
@@ -19784,6 +19847,14 @@ export type Database = {
         Returns: string
       }
       enqueue_kb_catchup: { Args: { _workspace_id: string }; Returns: number }
+      enqueue_user_deletion: {
+        Args: { _actor_user_id: string; _user_id: string }
+        Returns: Json
+      }
+      enqueue_workspace_deletion: {
+        Args: { _actor_user_id: string; _workspace_id: string }
+        Returns: Json
+      }
       ensure_active_conversation: {
         Args: {
           p_contact_id?: string
@@ -19999,6 +20070,14 @@ export type Database = {
       mark_conversation_seen: {
         Args: { _conversation_id: string }
         Returns: number
+      }
+      mark_storage_replica_dirty: {
+        Args: { _provider: string; _reason: string }
+        Returns: Json
+      }
+      mark_storage_replication_uncertain: {
+        Args: { _reason: string }
+        Returns: Json
       }
       mask_phone_e164: { Args: { _phone: string }; Returns: string }
       merge_visitor_into_contact: {
@@ -20261,6 +20340,14 @@ export type Database = {
         }
         Returns: Json
       }
+      renew_user_deletion_lease: {
+        Args: { _job_id: string; _lease_seconds?: number; _lease_token: string }
+        Returns: Json
+      }
+      renew_workspace_deletion_lease: {
+        Args: { _job_id: string; _lease_seconds?: number; _lease_token: string }
+        Returns: Json
+      }
       resend_invitation_email_v2: {
         Args: {
           _actor_id: string
@@ -20291,6 +20378,14 @@ export type Database = {
           range_end: string
           range_start: string
         }[]
+      }
+      retry_user_deletion_job: {
+        Args: { _actor_user_id: string; _job_id: string }
+        Returns: Json
+      }
+      retry_workspace_deletion_job: {
+        Args: { _actor_user_id: string; _job_id: string }
+        Returns: Json
       }
       revoke_invitation_v2: {
         Args: { _actor_id: string; _invitation_id: string; _reason: string }
@@ -20323,6 +20418,21 @@ export type Database = {
         }[]
       }
       seo_storage_metrics: { Args: never; Returns: Json }
+      set_storage_provider_pool: {
+        Args: { _default: Json; _expected_revision?: number; _pool: Json }
+        Returns: Json
+      }
+      set_storage_replica_sync: {
+        Args: {
+          _expected_config: Json
+          _expected_primary: string
+          _mark_synced: boolean
+          _provider: string
+          _sync: Json
+          _walk_started_at: string
+        }
+        Returns: Json
+      }
       set_workspace_seat_entitlement_mode: {
         Args: {
           _mode: string
@@ -20555,7 +20665,6 @@ export type Database = {
         }
         Returns: Json
       }
-      workspace_health_snapshot_compute: { Args: never; Returns: Json }
       workspace_owner_phone_verified: {
         Args: { _workspace_id: string }
         Returns: boolean

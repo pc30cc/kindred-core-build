@@ -10,6 +10,10 @@ import { getServiceClient } from '../../supabase.js';
 import { publishCallEvent, publishQueueEvent } from './realtime.js';
 import { ringOperators } from '../push/callRing.js';
 import {
+  CALL_CENTER_ENTRY_SOURCES,
+  WIDGET_ONLY_ENTRY_SOURCE,
+} from '../../../shared/callCenter/entrySources.js';
+import {
   assertDepartmentInWorkspace,
   assertAssignableAgent,
   DepartmentException,

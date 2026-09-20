@@ -57,6 +57,10 @@ import { validateSessionToken, SESSION_COOKIE_NAME } from '../services/auth/sess
 import { readSessionToken } from '../lib/sessionTransport.js';
 import { cancelRing } from '../services/push/callRing.js';
 import {
+  CALL_CENTER_ENTRY_SOURCES,
+  WIDGET_ONLY_ENTRY_SOURCE,
+} from '../../shared/callCenter/entrySources.js';
+import {
   callWidgetFormSchema,
   callWidgetOfflineBehaviorSchema,
   callWidgetThemeSchema,

@@ -48,10 +48,30 @@ final class PromotionCenter {
     }
 
     func load(workspaceID: String?, language: Language) async {
-        guard let workspaceID else { return }
+        guard let workspaceID, !Self.isSuppressed else { return }
         promotions = (try? await api.promotions(
             workspaceID: workspaceID, locale: language.rawValue
         )) ?? .none
+    }
+
+    /// Whether this run was asked to serve no promotions at all.
+    ///
+    /// For the UI tests, and it earns its place. A promotion is paced — the
+    /// third launch onwards, at most three a day, six hours apart — so
+    /// whether the full-screen card appears depends on how many times the app
+    /// has been launched today. A test suite launches it fourteen times in a
+    /// row, which means some runs get a card over the screen they just
+    /// navigated to and some do not, and the failure reads as "the chat never
+    /// opened". A thing that is nondeterministic by design cannot be left in
+    /// front of tests that are not.
+    ///
+    /// Compiled out of Release, like every other launch argument here.
+    static var isSuppressed: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-WebyarNoPromotions")
+        #else
+        false
+        #endif
     }
 
     /// The banner, when the plan grants it and it has not been dismissed.

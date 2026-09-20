@@ -17,6 +17,21 @@ enum Str {
         }
     }
 
+    /// The name as the wordmark draws it, which is not always how it is
+    /// written in a sentence.
+    ///
+    /// Latin is capitalised because the mark is letter-spaced and lowercase
+    /// letters track badly. Persian carries kashida — the elongation stroke —
+    /// rather than tracking, because the script is connected and tracking
+    /// would break its joins; the ZWNJ that `appName` uses is replaced by a
+    /// space, since at display size the two halves want air between them.
+    static func brandWordmark(_ l: Language) -> String {
+        switch l {
+        case .en, .tr: "WEBYAR"
+        case .fa: "وبــــ یــار"
+        }
+    }
+
     static func cancel(_ l: Language) -> String {
         switch l {
         case .en: "Cancel"
@@ -176,6 +191,19 @@ enum Str {
         case .en: "AI"
         case .fa: "هوش"
         case .tr: "YZ"
+        }
+    }
+
+    /// The main queue narrowed to threads waiting on the customer, not on us.
+    ///
+    /// Named for who is being waited on rather than for the status word:
+    /// "Pending" alone leaves an operator guessing whose move it is, and the
+    /// whole point of the queue is that it is not theirs.
+    static func filterPending(_ l: Language) -> String {
+        switch l {
+        case .en: "Awaiting customer"
+        case .fa: "در انتظار مشتری"
+        case .tr: "Müşteri bekleniyor"
         }
     }
 
@@ -903,20 +931,27 @@ enum Str {
         }
     }
 
+    static func shortcutsUnavailableTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Shortcuts are not set up on this server"
+        case .fa: "میان‌برها روی این سرور راه‌اندازی نشده‌اند"
+        case .tr: "Kısayollar bu sunucuda kurulu değil"
+        }
+    }
+
+    static func shortcutsUnavailableBody(_ l: Language) -> String {
+        switch l {
+        case .en: "Your administrator can enable them by bringing the database up to date."
+        case .fa: "مدیر سامانه می‌تواند با به‌روزرسانی پایگاه داده فعالشان کند."
+        case .tr: "Yöneticiniz veritabanını güncelleyerek etkinleştirebilir."
+        }
+    }
+
     static func emoji(_ l: Language) -> String {
         switch l {
         case .en: "Emoji"
         case .fa: "شکلک"
         case .tr: "Emoji"
-        }
-    }
-
-    /// Explains why the composer offers nothing but text right now.
-    static func aiOwnsThread(_ l: Language) -> String {
-        switch l {
-        case .en: "The AI is answering this conversation. You can reply in text; files, voice notes and emoji resume once you take over."
-        case .fa: "هوش مصنوعی در حال پاسخ‌دادن به این گفت‌وگوست. می‌توانید متنی پاسخ دهید؛ فایل و پیام صوتی و شکلک پس از تحویل‌گرفتن گفت‌وگو فعال می‌شوند."
-        case .tr: "Bu görüşmeyi yapay zekâ yanıtlıyor. Metin yazabilirsiniz; dosya, sesli not ve emoji siz devraldığınızda etkinleşir."
         }
     }
 
@@ -1829,4 +1864,99 @@ extension Str {
         case .tr: "At"
         }
     }
+
+    // MARK: - The AI speaking for the operator
+
+    /// The whole of what the field says it is for.
+    ///
+    /// A question rather than an instruction, and nothing after it: the
+    /// operator does not need the mechanism explained every time they open a
+    /// thread, and a placeholder that runs to three lines pushes the field
+    /// itself off the bottom of a phone.
+    static func sayNowPlaceholder(_ l: Language) -> String {
+        switch l {
+        case .en: "What should the visitor be told?"
+        case .fa: "چه چیزی به بازدیدکننده گفته شود؟"
+        case .tr: "Ziyaretçiye ne söylensin?"
+        }
+    }
+
+    /// The send button, spoken. The glyph is an arrow like any other send, so
+    /// this is the only place that says the AI is the one writing it.
+    static func sayNowAction(_ l: Language) -> String {
+        switch l {
+        case .en: "Send with AI"
+        case .fa: "ارسال با هوش مصنوعی"
+        case .tr: "Yapay zekâ ile gönder"
+        }
+    }
+
+    static func sayNowSent(_ l: Language) -> String {
+        switch l {
+        case .en: "The AI sent your message to the visitor"
+        case .fa: "پیام با هوش مصنوعی برای بازدیدکننده ارسال شد"
+        case .tr: "Mesajınız yapay zekâ ile ziyaretçiye gönderildi"
+        }
+    }
+
+    static func sayNowFailed(_ l: Language) -> String {
+        switch l {
+        case .en: "Could not send the message"
+        case .fa: "ارسال پیام ممکن نشد"
+        case .tr: "Mesaj gönderilemedi"
+        }
+    }
+
+    /// What the voice button picks, for VoiceOver. Its value is read out
+    /// separately, so this names the choice and not the current answer.
+    static func sayNowVoice(_ l: Language) -> String {
+        switch l {
+        case .en: "Voice"
+        case .fa: "زبان پیام"
+        case .tr: "Mesajın dili"
+        }
+    }
+
+    static func sayNowVoiceSpecialist(_ l: Language) -> String {
+        switch l {
+        case .en: "In a specialist's voice"
+        case .fa: "از زبان کارشناس"
+        case .tr: "Uzman dilinden"
+        }
+    }
+
+    static func sayNowVoiceAssistant(_ l: Language) -> String {
+        switch l {
+        case .en: "In the AI's voice"
+        case .fa: "از زبان هوش مصنوعی"
+        case .tr: "Yapay zekâ dilinden"
+        }
+    }
+
+    // MARK: - Take over
+
+    static func takeOver(_ l: Language) -> String {
+        switch l {
+        case .en: "Take over"
+        case .fa: "در دست گرفتن"
+        case .tr: "Devral"
+        }
+    }
+
+    static func takenOver(_ l: Language) -> String {
+        switch l {
+        case .en: "The conversation is yours — the AI has stopped replying."
+        case .fa: "مکالمه در اختیار شما قرار گرفت — هوش مصنوعی دیگر پاسخ خودکار نمی‌دهد."
+        case .tr: "Görüşme sizde — yapay zekâ artık otomatik yanıt vermiyor."
+        }
+    }
+
+    static func takeOverFailed(_ l: Language) -> String {
+        switch l {
+        case .en: "Take-over failed"
+        case .fa: "در دست گرفتن ناموفق بود"
+        case .tr: "Devralma başarısız oldu"
+        }
+    }
+
 }

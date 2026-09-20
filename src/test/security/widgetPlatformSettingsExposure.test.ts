@@ -185,6 +185,9 @@ describe('widget_platform_settings — anon exposure', () => {
 
 type Row = Record<string, any>;
 let rows: Row[] = [];
+/** The route validates this as a uuid, so the fixture has to be one. */
+const SINGLETON_ID = '11111111-2222-4333-8444-555555555555';
+
 let admin = true;
 let authed = true;
 
@@ -205,7 +208,7 @@ vi.mock('../../../server/supabase.js', () => ({
               }),
             };
           }
-          rows.push({ id: 'singleton-id', alert_webhook_secret: 'shh', ...row });
+          rows.push({ id: SINGLETON_ID, alert_webhook_secret: 'shh', ...row });
           return { select: () => ({ single: async () => ({ data: rows[0], error: null }) }) };
         },
         update(patch: Row) {
@@ -280,7 +283,7 @@ describe('platform widget settings endpoint', () => {
     await request(a).get('/api/widget-settings/platform/config');
     const res = await request(a)
       .patch('/api/widget-settings/platform/config')
-      .send({ id: 'singleton-id', max_message_length: 1234 });
+      .send({ id: SINGLETON_ID, max_message_length: 1234 });
     expect(res.status).toBe(200);
     expect(rows[0].max_message_length).toBe(1234);
   });

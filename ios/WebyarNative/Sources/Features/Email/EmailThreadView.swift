@@ -196,37 +196,17 @@ struct EmailThreadView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            HStack(alignment: .bottom, spacing: Theme.Space.xs) {
-                TextField(Str.emailReplyPlaceholder(language), text: $model.draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...5)
-                    .focused($isWriting)
-                    .padding(.horizontal, Theme.Space.sm)
-                    .padding(.vertical, Theme.Space.sm - 1)
-
-                Button {
-                    isWriting = false
-                    Task { await model.send(workspaceID: workspaceID, mailbox: mailbox, appState: appState) }
-                } label: {
-                    Group {
-                        if model.isSending {
-                            ProgressView().tint(.white)
-                        } else {
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(.white)
-                        }
-                    }
-                    .frame(width: 34, height: 34)
-                    .background(Circle().fill(canSend ? Theme.Palette.brand : Theme.Palette.brand.opacity(0.35)))
-                }
-                .disabled(!canSend)
-                .accessibilityLabel(Str.emailSend(language))
+            PlainComposer(
+                text: $model.draft,
+                placeholder: Str.emailReplyPlaceholder(language),
+                sendLabel: Str.emailSend(language),
+                isEnabled: canSend,
+                isSending: model.isSending,
+                isWriting: $isWriting
+            ) {
+                isWriting = false
+                Task { await model.send(workspaceID: workspaceID, mailbox: mailbox, appState: appState) }
             }
-            .padding(Theme.Space.xs)
-            .background(
-                Capsule().fill(Theme.Palette.surface)
-            )
         }
         .padding(.horizontal, Theme.screenInset)
         .padding(.top, Theme.Space.sm)

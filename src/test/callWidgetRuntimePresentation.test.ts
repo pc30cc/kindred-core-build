@@ -57,21 +57,49 @@ describe('Call Widget runtime/presentation integration', () => {
     expect(root.dataset.density).toBe('compact');
   });
 
+  /**
+   * The widget mounts collapsed now: a launcher, and a panel that only fills
+   * in once the visitor opens it. The cases below used to read the panel
+   * straight off a fresh mount, so they found nothing — and the `hide` case
+   * passed for the wrong reason, since `.ccw-launcher` matches no element
+   * either way (the launcher is `.ccw-launcher-wrap` / `.ccw-launcher-btn`,
+   * and class selectors match whole tokens).
+   */
+  function openPanel(root: HTMLElement) {
+    (root.querySelector('.ccw-launcher-btn') as HTMLButtonElement | null)?.click();
+  }
+  function launcherShown(root: HTMLElement) {
+    // `hide` leaves the wrap in the DOM and hides it, so presence alone is
+    // not the question — visibility is.
+    const wrap = root.querySelector('.ccw-launcher-wrap') as HTMLElement | null;
+    return !!wrap && !wrap.hidden;
+  }
+
   it.each([
     ['hide', false, false],
     ['show_message', true, false],
     ['show_callback', true, true],
   ])('enforces offline behavior %s', (behavior, launcher, callback) => {
     const { root } = mount({ offline_behavior: behavior }, false);
-    expect(!!root.querySelector('.ccw-launcher')).toBe(launcher);
+    expect(launcherShown(root)).toBe(launcher);
+    openPanel(root);
     expect(!!root.querySelector('.ccw-btn.primary')).toBe(callback);
+  });
+
+  it('the launcher is what reveals the panel — a fresh mount shows no call controls', () => {
+    const { root } = mount({});
+    expect(root.querySelector('.ccw-btn.primary')).toBeNull();
+    openPanel(root);
+    expect(root.querySelector('.ccw-btn.primary')).not.toBeNull();
   });
 
   it('uses the authoritative pre-call schema', () => {
     const { root } = mount({
       pre_call_form_schema: [{ id: 'account_id', type: 'text', label: 'Account ID', required: true }],
     });
+    openPanel(root);
     const voice = root.querySelector('.ccw-btn.primary') as HTMLButtonElement;
+    expect(voice).not.toBeNull();
     voice.click();
     expect(root.textContent).toContain('Account ID');
     expect(root.textContent).not.toContain('Full name');

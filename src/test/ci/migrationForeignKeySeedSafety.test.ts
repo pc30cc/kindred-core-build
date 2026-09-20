@@ -41,6 +41,28 @@ const CLASSIFIED_UUIDS: Record<string, { reason: string; safety: string }> = {
     reason: 'parent-aware conditional seed',
     safety: 'UPDATE ... WHERE id = ANY(...); zero rows when absent',
   },
+  // Self-host baseline terms/privacy rows. These are PRIMARY KEYS of
+  // public.legal_policy_versions, which has no foreign keys of its own
+  // (077_workspace_invitations_v51_expand.sql) — it is the parent that
+  // workspace_invitation_consents points at, not a child of anything. Fixed
+  // rather than generated so both chains land on the same row, and written
+  // ON CONFLICT (policy_type, version, locale) DO NOTHING so re-running is a
+  // no-op. Nothing here can violate a foreign key on a pristine database.
+  '51000000-0000-4000-8000-000000000001': {
+    reason: 'deterministic parent-row seed',
+    safety: 'PRIMARY KEY of legal_policy_versions (no FKs); ON CONFLICT DO NOTHING',
+  },
+  '51000000-0000-4000-8000-000000000002': {
+    reason: 'deterministic parent-row seed',
+    safety: 'PRIMARY KEY of legal_policy_versions (no FKs); ON CONFLICT DO NOTHING',
+  },
+  // Cleanup of one workspace's auto-created trial subscription. DELETE-only
+  // and matched on a column, so a database without that workspace deletes
+  // zero rows — same family as the UPDATE entries above.
+  '83b70735-aec7-41cc-a69c-b476016c5975': {
+    reason: 'parent-aware conditional cleanup',
+    safety: 'DELETE ... WHERE workspace_id = <uuid>; zero rows when absent',
+  },
 };
 
 function read(file: string): string {

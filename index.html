@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <link rel="icon" href="/favicon.png" type="image/png" />
+    <!-- iOS Safari ignores the manifest when adding to the home screen and
+         reads this instead. Square and opaque on purpose: iOS applies its own
+         corner mask, so a rounded one comes out rounded twice. -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <!-- Default PWA head tags, present before hydration; PlatformBrandingGate
          (src/features/branding/PlatformBrandingGate.tsx) overwrites these
          live once platform_branding loads (locale-correct manifest URL,

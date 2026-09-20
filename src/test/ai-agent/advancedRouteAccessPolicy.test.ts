@@ -23,7 +23,11 @@ const fullAppSrc = readFileSync(resolve(__dirname, '../../App.tsx'), 'utf8');
 // sub-path names (e.g. "billing") collide with unrelated top-level routes
 // elsewhere in App.tsx (the workspace subscription/billing page), so
 // searching the whole file for `path="billing"` would find the wrong route.
-const AI_AGENT_BLOCK_START = '<Route path="ai-agent" element={<AiAgentLayout />}>';
+// Anchored on the path alone: the parent's element gained a
+// <RequireWorkspaceAdmin> wrapper, and matching the whole element expression
+// meant a route-level hardening broke every case in this file at collection
+// time. The wrapper itself is asserted below, where it belongs.
+const AI_AGENT_BLOCK_START = '<Route path="ai-agent"';
 const startIdx = fullAppSrc.indexOf(AI_AGENT_BLOCK_START);
 if (startIdx === -1) throw new Error('ai-agent parent route not found in App.tsx');
 const endIdx = fullAppSrc.indexOf('</Route>', startIdx);
@@ -112,5 +116,15 @@ describe('canAccessAiAgentAdvancedTools', () => {
   });
   it('ordinary customer with devOverride omitted -> false', () => {
     expect(canAccessAiAgentAdvancedTools({ isGlobalAdmin: false })).toBe(false);
+  });
+});
+
+describe('the ai-agent section is admin-only at the route level', () => {
+  it('wraps the parent route in RequireWorkspaceAdmin', () => {
+    // Every child below inherits this. A plain agent reaching the AI Agent
+    // section at all is the thing it prevents, before any per-page check.
+    const parentLine = fullAppSrc.slice(startIdx, fullAppSrc.indexOf('\n', startIdx));
+    expect(parentLine).toContain('RequireWorkspaceAdmin');
+    expect(parentLine).toContain('AiAgentLayout');
   });
 });

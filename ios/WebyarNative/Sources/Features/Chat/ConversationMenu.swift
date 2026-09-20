@@ -23,9 +23,27 @@ struct ConversationMenu: View {
     let onStatus: (ConversationStatus) -> Void
     let onPriority: (ConversationPriority) -> Void
     let onInvite: (CallChannel) -> Void
+    /// Whether the AI still owns this thread. Take-over is the first row when
+    /// it does and absent when it does not — offering to take over a
+    /// conversation already in human hands is an action with nothing to do.
+    var isAIManaged: Bool = false
+    var onTakeOver: () -> Void = {}
 
     var body: some View {
         Menu {
+            if isAIManaged {
+                // Its own section, above everything: an operator opening this
+                // menu on an AI thread is usually here to get into it, and
+                // that should not be the fifth row down.
+                Section {
+                    Button {
+                        onTakeOver()
+                    } label: {
+                        Label(Str.takeOver(language), systemImage: "hand.raised.fill")
+                    }
+                }
+            }
+
             Section {
                 Button {
                     sheet = .transfer
@@ -113,6 +131,7 @@ struct ConversationMenu: View {
                 .font(.system(size: 17, weight: .medium))
         }
         .accessibilityLabel(Str.conversationActions(language))
+        .accessibilityIdentifier(A11y.conversationMenu)
     }
 
     /// Menus read better when the current value is part of the row, so the

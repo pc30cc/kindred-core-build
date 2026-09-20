@@ -270,33 +270,17 @@ struct NotesSheet: View {
     }
 
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: Theme.Space.sm) {
-            TextField(Str.writeNote(language), text: $draft, axis: .vertical)
-                .lineLimit(1...5)
-                .padding(.horizontal, Theme.Space.md)
-                .padding(.vertical, Theme.Space.sm)
-                .background(Capsule().fill(Theme.Palette.surfaceElevated))
-                .focused($focused)
-
-            Button {
-                let text = draft
-                draft = ""
-                Task { await model.addNote(text, appState: appState) }
-            } label: {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 34, height: 34)
-                    .background(
-                        Circle().fill(
-                            draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                ? Theme.Palette.brand.opacity(0.35)
-                                : Theme.Palette.brand
-                        )
-                    )
-            }
-            .buttonStyle(.plain)
-            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isSaving)
+        PlainComposer(
+            text: $draft,
+            placeholder: Str.writeNote(language),
+            sendLabel: Str.send(language),
+            isEnabled: !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            isSending: model.isSaving,
+            isWriting: $focused
+        ) {
+            let text = draft
+            draft = ""
+            Task { await model.addNote(text, appState: appState) }
         }
         .padding(.horizontal, Theme.screenInset)
         .padding(.vertical, Theme.Space.sm)

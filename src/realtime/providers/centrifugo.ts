@@ -562,21 +562,28 @@ function scheduleReconnect(conn: SharedConnection): void {
     // a "locally fresh" but server-rejected token, which would loop
     // forever. Force a re-negotiation when:
     //   1) the token is at/near expiry by our clock, OR
-    //   2) we've already failed to (re)open the socket at least once
-    //      (reconnectAttempt > 1) — the previous failure was almost
-    //      certainly a token issue at the server, even if we think the
-    //      token is still valid.
+    //   2) we've already failed to (re)open the socket at least once —
+    //      the previous failure was almost certainly a token issue at the
+    //      server, even if we think the token is still valid.
     const localExpired = Date.now() >= conn.tokenExpiresAt - TOKEN_REFRESH_LEAD_MS;
-    // Multi-node topology: after ANY transport failure the client must ask
+    // Consume the self-inflicted-close flag exactly once, before anything
+    // below reads it — it must never leak into a later, genuine close.
+    const wasIntentionalRefreshRotation = conn.expectingCloseForRefresh;
+    conn.expectingCloseForRefresh = false;
+    // Multi-node topology: after any transport FAILURE the client must ask
     // the backend for a FRESH assignment instead of retrying the same
     // endpoint — that is how a drained or lost Centrifugo node hands its
     // clients over without a forced disconnect. In single-node mode this
     // simply returns the same ws_url, so the behaviour is unchanged there.
-    const mustRefreshDueToFailure = conn.reconnectAttempt >= 1;
-    // Consume the self-inflicted-close flag exactly once, before either
-    // branch below runs — it must never leak into a later, genuine close.
-    const wasIntentionalRefreshRotation = conn.expectingCloseForRefresh;
-    conn.expectingCloseForRefresh = false;
+    //
+    // A rotation we caused ourselves is not a failure. scheduleTokenRefresh
+    // has just negotiated a fresh token and ws_url and closed the socket on
+    // purpose to pick them up; nothing was lost and no node drained. Without
+    // the second clause that rotation re-negotiates a second time and tags
+    // itself intent:'reconnect', which inflates the reconnect metric with
+    // events the client manufactured — the exact mislabeling the intent
+    // field exists to prevent.
+    const mustRefreshDueToFailure = conn.reconnectAttempt >= 1 && !wasIntentionalRefreshRotation;
 
     if (!conn.everConnected) {
       // No successful CONNECT ack has EVER landed on this shared

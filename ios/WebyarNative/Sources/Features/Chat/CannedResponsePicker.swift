@@ -101,6 +101,18 @@ struct CannedResponsePicker: View {
             }
             .listStyle(.plain)
 
+        case .failed(let error) where error.isFeatureMissing:
+            // Not a failure to retry. This deployment's database was built
+            // from the self-host chain before it carried the saved-replies
+            // table, so there is nothing here and asking again will not
+            // change that. An offline banner with a Try again button would
+            // send the operator round a loop that has no exit.
+            EmptyStateView(
+                systemImage: "bolt.slash",
+                title: Str.shortcutsUnavailableTitle(language),
+                message: Str.shortcutsUnavailableBody(language)
+            )
+
         case .failed:
             ErrorStateView(
                 title: Str.offlineTitle(language),

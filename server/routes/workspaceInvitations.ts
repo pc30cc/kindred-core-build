@@ -47,6 +47,7 @@ import {
   PROOF_COOKIE_NAME,
   CONTEXT_COOKIE_NAME,
 } from '../services/invitations/tokens.js';
+import { isEmailVerified } from '../services/auth/identity.js';
 import {
   peekCommitted,
   runIdempotent,
@@ -294,6 +295,22 @@ function invalidFields(parsed: { error?: z.ZodError }): string[] {
 }
 
 workspaceInvitationsRouter.post('/', requireOrigin, rejectTokenInUrl, requireUser, async (req: any, res) => {
+  // NEW-signup policy: an unverified account cannot pull other people into a
+  // workspace it controls. This gate used to live on
+  // POST /api/workspace-members/invitations and did not come across when that
+  // route was retired in favour of this one, which left creating an invitation
+  // as the one reach-expanding operation an unverified account could still
+  // perform. Same rule and same shape as POST /api/workspaces; see
+  // identity.ts's isEmailVerified for why it is enforced here rather than at
+  // login.
+  //
+  // Ahead of the body parse on purpose: whether the caller may invite at all
+  // does not depend on the shape of what they sent, and an account that may
+  // not invite has no business learning which of its fields were malformed.
+  if (!(await isEmailVerified(cfg(req), req.authUser.id))) {
+    return res.status(403).json({ error: 'email_verification_required' });
+  }
+
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({

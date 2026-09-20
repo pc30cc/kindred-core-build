@@ -150,11 +150,29 @@ vi.mock('../../../server/supabase.js', () => ({
             select: () => ({
               maybeSingle: async () => {
                 if (duplicate) return { data: null, error: { code: '23505', message: 'duplicate key value' } };
-                payments.push(row);
+                // The id goes on the row, not just in the reply — the replay
+                // lookup below has to hand back the SAME id the first insert
+                // returned, or a retry would look like a different payment.
+                payments.push({ ...row, id: `pay_${payments.length + 1}` });
                 return { data: { id: `pay_${payments.length}` }, error: null };
               },
             }),
           };
+        },
+        // On 23505, recordCustomerPayment stops treating the duplicate as an
+        // error and looks the existing row up instead, so the retry resolves
+        // to the original payment. That lookup had nothing to call here and
+        // threw, which is why both cases failed before reaching an assertion.
+        select(_cols: string) {
+          const filters: Array<(r: Record<string, unknown>) => boolean> = [];
+          const q = {
+            eq(col: string, val: unknown) { filters.push((r) => r[col] === val); return q; },
+            maybeSingle: async () => {
+              const hit = payments.find((r) => filters.every((f) => f(r)));
+              return { data: hit ? { id: hit.id } : null, error: null };
+            },
+          };
+          return q;
         },
       };
     },

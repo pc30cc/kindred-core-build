@@ -26,6 +26,14 @@ enum A11y {
     static func workspaceRow(_ id: String) -> String { "settings.workspace.\(id)" }
     /// The composer's lightning bolt, which opens the saved replies.
     static let shortcutsButton = "composer.shortcuts"
+    /// The menu behind the inbox title, listing every queue and inbox.
+    static let inboxTitleMenu = "inbox.title.menu"
+    /// The three-line menu in the chat header.
+    static let conversationMenu = "chat.menu"
+    /// The composer's send button.
+    static let composerSend = "composer.send"
+    /// The voice picker inside the field, on a thread the AI answers.
+    static let sayNowVoice = "sayNow.voice"
     /// One saved reply in the picker.
     static func shortcutRow(_ id: String) -> String { "shortcut.\(id)" }
     /// The composer's paperclip, present only where the plan allows files.

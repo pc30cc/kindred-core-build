@@ -1,217 +1,220 @@
 /**
- * Follow-up 2B (to the Follow-up 2 plan-limit key separation) — customer-facing
- * Billing page integration for the 3 new AI Agent Web Pages (Data Hub)
- * capability keys: ai_agent_web_source_max_pages / _max_depth /
- * _jobs_per_month.
+ * What a plan card is allowed to promise, and in whose language.
  *
- * The capability registry (server/services/billing/capabilityRegistry.ts)
- * already defines these 3 keys (group: 'ai', type: 'limit', userVisible:
- * true), so BillingPage's registry-driven `visible` list already includes
- * them. Two BillingPage-local, per-key hardcoded maps do NOT auto-populate
- * for new keys, though, and were the actual defect:
+ * This file used to test a BillingPage that built its capability list from
+ * the server capability registry and then filtered it through two
+ * page-local maps: CAP_LABELS_FA / CAP_LABELS_TR for Persian and Turkish
+ * labels, and MODULE_GATE to hide a limit whose module the plan does not
+ * include. Both maps are gone — the billing screen was rebuilt as six tabs,
+ * and the plan card in `PlansTab` now builds its list from two curated key
+ * lists and labels them through the i18n catalogue.
  *
- *  - CAP_LABELS_FA / CAP_LABELS_TR: missing entries fall through to the
- *    English registry label even when locale is fa/tr.
- *  - MODULE_GATE: `isGatedOut(key)` treats a key ABSENT from the map as
- *    "never gated" (`if (!gates || gates.length === 0) return false`), so a
- *    plan with the AI Assistant module disabled would still display these 3
- *    limits merely because they have a non-zero value.
+ * The mechanism changed; the two ways it can go wrong did not.
  *
- * These tests render the real BillingPage (Plans tab, which contains the
- * module-private PlanCapabilityList) rather than duplicating its filter/gate
- * logic, per the existing PlanUsagePanel testing convention in this repo.
+ *  1. A key gets added to the list with no Persian or Turkish entry. `t()`
+ *     falls back to English silently, so a Persian customer reads an English
+ *     line in the middle of a Persian card — and if English is missing too,
+ *     `getNestedValue` returns the key, so the card advertises
+ *     "billing.plans.cap.some_key". That is the CAP_LABELS_FA defect wearing
+ *     new clothes, and nothing in the type system catches it: the key lists
+ *     are `as const` string tuples, and `t()` accepts them.
+ *
+ *  2. The card promises something the plan does not grant. The old guard was
+ *     MODULE_GATE; the new rule is narrower and lives in two lines of
+ *     `PlanFeatureList` — a limit is shown only when it is a finite non-zero
+ *     number, a feature only when its entitlement is exactly `true`. Those
+ *     two lines are the whole of what stops a free plan's card from listing
+ *     paid features, so they are worth pinning.
+ *
+ * The key lists are module-private, so the coverage test reads them out of
+ * the source. That is deliberate: importing a copy would let the copy drift
+ * from the list the page actually renders, which is exactly the bug.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { MemoryRouter } from 'react-router-dom';
+
+const PLANS_TAB = 'src/pages/app/billing/PlansTab.tsx';
+
+/** Pull an `as const` string tuple out of the page source by name. */
+function keyList(name: string): string[] {
+  const source = readFileSync(PLANS_TAB, 'utf8');
+  const block = new RegExp(`const ${name} = \\[([\\s\\S]*?)\\] as const;`).exec(source);
+  if (!block) throw new Error(`${name} not found in ${PLANS_TAB} — did the plan card stop using it?`);
+  return [...block[1].matchAll(/'([a-z0-9_]+)'/g)].map((m) => m[1]);
+}
+
+describe('every key the plan card can advertise is translated in all three languages', () => {
+  const CAP_KEYS = keyList('CAP_KEYS');
+  const FEATURE_KEYS = keyList('FEATURE_KEYS');
+
+  // A catalogue is a plain nested object; walk it the way `t()` does.
+  async function catalogue(locale: 'en' | 'fa' | 'tr') {
+    const mod = await import(`@/i18n/locales/${locale}`);
+    return (mod.default ?? mod[locale] ?? Object.values(mod)[0]) as Record<string, any>;
+  }
+  const at = (obj: any, path: string) =>
+    path.split('.').reduce((acc, part) => (acc == null ? undefined : acc[part]), obj);
+
+  it('the lists are non-empty — a silent regex miss would pass every test below', () => {
+    expect(CAP_KEYS.length).toBeGreaterThan(0);
+    expect(FEATURE_KEYS.length).toBeGreaterThan(0);
+    expect(CAP_KEYS).toContain('max_agents');
+    expect(FEATURE_KEYS).toContain('ai_assistant');
+  });
+
+  for (const locale of ['en', 'fa', 'tr'] as const) {
+    it(`${locale}: has a limit label for every CAP_KEYS entry`, async () => {
+      const cat = await catalogue(locale);
+      const missing = CAP_KEYS.filter((k) => typeof at(cat, `billing.plans.cap.${k}`) !== 'string');
+      expect(missing, `untranslated in ${locale}`).toEqual([]);
+    });
+
+    it(`${locale}: has a feature label for every FEATURE_KEYS entry`, async () => {
+      const cat = await catalogue(locale);
+      const missing = FEATURE_KEYS.filter((k) => typeof at(cat, `billing.plans.feat.${k}`) !== 'string');
+      expect(missing, `untranslated in ${locale}`).toEqual([]);
+    });
+  }
+
+  it('every limit label interpolates the number — a label without {{value}} hides the limit it names', async () => {
+    const en = await catalogue('en');
+    for (const k of CAP_KEYS) {
+      expect(at(en, `billing.plans.cap.${k}`), k).toContain('{{value}}');
+    }
+  });
+
+  it('Persian and Turkish labels are actually translated, not English copied across', async () => {
+    // The fallback makes an untranslated key *look* fine in the UI, so
+    // "present" is not the bar — "different from English" is.
+    const [en, fa, tr] = await Promise.all([catalogue('en'), catalogue('fa'), catalogue('tr')]);
+    const english = (k: string) => at(en, `billing.plans.feat.${k}`);
+    for (const k of FEATURE_KEYS) {
+      // Proper nouns legitimately match (Telegram, WhatsApp, SSO, API).
+      const faLabel = at(fa, `billing.plans.feat.${k}`);
+      if (/^[A-Za-z0-9 ./+-]+$/.test(String(english(k)))) continue;
+      expect(faLabel, `fa label for ${k} is still the English string`).not.toBe(english(k));
+      expect(at(tr, `billing.plans.feat.${k}`), `tr label for ${k} is still the English string`)
+        .not.toBe(english(k));
+    }
+  });
+});
+
+// ── The render half: what the card does with a plan's limits and entitlements.
 
 let currentLocale: 'en' | 'fa' | 'tr' = 'en';
 
 vi.mock('@/i18n', () => ({
-  useTranslation: () => ({ locale: currentLocale, dir: currentLocale === 'fa' ? 'rtl' : 'ltr', t: (k: string) => k }),
+  useTranslation: () => ({
+    locale: currentLocale,
+    dir: currentLocale === 'fa' ? 'rtl' : 'ltr',
+    // Echo the key plus the interpolated value: enough to tell *which* key
+    // rendered and *what* number it carried, without pinning copy.
+    t: (k: string, p?: Record<string, unknown>) => (p?.value === undefined ? k : `${k}=${p.value}`),
+  }),
 }));
 
-vi.mock('@/hooks/usePlatformRegion', () => ({
-  usePlatformRegion: () => ({ mode: 'global' }),
+const billingPlans = vi.fn();
+vi.mock('@/lib/billingApi', () => ({
+  billingPlans: (...a: unknown[]) => billingPlans(...a),
+  billingPreviewPlanChange: vi.fn(),
+  billingApplyPlanChange: vi.fn(),
 }));
 
-vi.mock('@/components/billing/PlanUsagePanel', () => ({
-  PlanUsagePanel: () => null,
-}));
+vi.mock('@/lib/toast', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
-const workspace = { id: 'ws-1', default_locale: 'en' };
-vi.mock('@/hooks/useWorkspace', () => ({
-  useWorkspaces: () => ({ data: [workspace] }),
-}));
+const PlansTab = (await import('@/pages/app/billing/PlansTab')).default;
 
-const CAPABILITIES = [
-  { key: 'ai_assistant', type: 'module', label: 'AI Assistant', group: 'modules', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 5 },
-  { key: 'ai_kb_max_pages', type: 'limit', label: 'AI KB Builder — Max pages per crawl', group: 'ai', defaultValue: 25, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 101 },
-  { key: 'ai_kb_max_depth', type: 'limit', label: 'AI KB Builder — Crawl depth', group: 'ai', defaultValue: 2, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 102 },
-  { key: 'ai_kb_jobs_per_month', type: 'limit', label: 'AI KB Builder — Jobs / month', group: 'ai', defaultValue: 5, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'per_month', sortOrder: 103 },
-  { key: 'ai_agent_web_source_max_pages', type: 'limit', label: 'AI Agent — Web Pages: Max pages per source', group: 'ai', defaultValue: 50, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 111 },
-  { key: 'ai_agent_web_source_max_depth', type: 'limit', label: 'AI Agent — Web Pages: Crawl depth', group: 'ai', defaultValue: 2, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'count', sortOrder: 121 },
-  { key: 'ai_agent_web_source_jobs_per_month', type: 'limit', label: 'AI Agent — Web Pages: Sync jobs / month', group: 'ai', defaultValue: 5, planConfigurable: true, workspaceOverridable: true, userVisible: true, unit: 'per_month', sortOrder: 131 },
-] as any[];
-
-vi.mock('@/hooks/useEntitlements', () => ({
-  useCapabilityCatalog: () => ({ capabilities: CAPABILITIES }),
-}));
-
-function makePlan(overrides: Record<string, any> = {}) {
+function plan(overrides: Record<string, unknown> = {}) {
   return {
     id: 'plan-1',
-    slug: 'pro',
     name: 'Pro',
-    is_free: false,
-    prices: { USD: { monthly: 1000, yearly: 10000 } },
-    provider_price_ids: {},
-    localized: {},
-    entitlements: { ai_assistant: false },
-    limits: {
-      ai_kb_max_pages: 25,
-      ai_kb_max_depth: 2,
-      ai_kb_jobs_per_month: 5,
-      ai_agent_web_source_max_pages: 50,
-      ai_agent_web_source_max_depth: 2,
-      ai_agent_web_source_jobs_per_month: 5,
-    },
+    description: null,
+    monthlyPriceIrr: 1_000_000,
+    yearlyPriceIrr: 10_000_000,
+    aiMonthlyAllowanceIrr: 0,
+    limits: {},
+    entitlements: {},
+    features: null,
+    isFree: false,
     ...overrides,
   };
 }
 
-let plansResponse: any[] = [];
-vi.mock('@/lib/api', () => ({
-  API_BASE: 'http://x',
-  billingGetPlans: async () => ({ plans: plansResponse }),
-  billingGetStatus: async () => ({ subscription: null, payments: [] }),
-  billingCheckout: vi.fn(),
-  billingCancel: vi.fn(),
-  billingResume: vi.fn(),
-  billingGetPortal: vi.fn(),
-}));
-
-const BillingPage = (await import('@/pages/app/BillingPage')).default;
-
-// Tab labels are localized (bt(L, 'tabPlans')), so select the "Plans" tab by
-// its fixed position (usage, plans, payments) rather than by matching text.
-async function renderPlansTab() {
-  render(<BillingPage />);
-  await waitFor(() => expect(screen.getAllByRole('tab')).toHaveLength(3));
-  const plansTab = screen.getAllByRole('tab')[1];
-  fireEvent.mouseDown(plansTab);
-  fireEvent.click(plansTab);
-  await waitFor(() => expect(screen.getByRole('tabpanel')).toBeInTheDocument());
-  return within(screen.getByRole('tabpanel'));
+async function renderCard(p: ReturnType<typeof plan>) {
+  billingPlans.mockResolvedValue({
+    currentPlanId: null,
+    currentInterval: null,
+    pendingPlanId: null,
+    plans: [p],
+  });
+  render(
+    <MemoryRouter initialEntries={['/acme/billing']}>
+      <PlansTab workspaceId="ws-1" canManage reloadKey={0} onChanged={() => {}} />
+    </MemoryRouter>,
+  );
+  await waitFor(() => expect(screen.getByText('Pro')).toBeInTheDocument());
 }
 
-beforeEach(() => {
-  currentLocale = 'en';
-  plansResponse = [makePlan()];
-});
-
-describe('B1 — disabled AI Assistant hides the new AI Agent web-source limits', () => {
-  it('none of the 3 new rows are visible when entitlements.ai_assistant is false', async () => {
-    plansResponse = [makePlan({ entitlements: { ai_assistant: false } })];
-    const panel = await renderPlansTab();
-
-    expect(panel.queryByText(/Max pages per source/i)).toBeNull();
-    expect(panel.queryByText(/Crawl depth/i)).toBeNull();
-    expect(panel.queryByText(/Sync jobs \/ month/i)).toBeNull();
-  });
-});
-
-describe('B2 — enabled AI Assistant shows the new limits with correct formatting', () => {
-  it('all 3 rows are visible with registry-consistent formatted values', async () => {
-    plansResponse = [makePlan({ entitlements: { ai_assistant: true } })];
-    const panel = await renderPlansTab();
-
-    const pagesRow = panel.getByText('AI Agent — Web Pages: Max pages per source').closest('li')!;
-    expect(pagesRow.textContent).toContain('50');
-
-    const depthRow = panel.getByText('AI Agent — Web Pages: Crawl depth').closest('li')!;
-    expect(depthRow.textContent).toContain('2');
-
-    const jobsRow = panel.getByText('AI Agent — Web Pages: Sync jobs / month').closest('li')!;
-    expect(jobsRow.textContent).toMatch(/5\s*\/mo/);
-  });
-});
-
-describe('B3 — Persian labels for the new keys', () => {
-  it('uses the Persian map, not the English registry label', async () => {
-    currentLocale = 'fa';
-    plansResponse = [makePlan({ entitlements: { ai_assistant: true } })];
-    const panel = await renderPlansTab();
-
-    expect(panel.queryByText(/Max pages per source/i)).toBeNull();
-    expect(panel.queryByText(/Crawl depth/i)).toBeNull();
-    expect(panel.queryByText(/Sync jobs \/ month/i)).toBeNull();
-
-    expect(panel.getByText(/حداکثر صفحات هر منبع وب/)).toBeInTheDocument();
-    expect(panel.getByText(/عمق پیمایش صفحات وب/)).toBeInTheDocument();
-    expect(panel.getByText(/همگام‌سازی صفحات وب در ماه/)).toBeInTheDocument();
-  });
-});
-
-describe('B4 — Turkish labels for the new keys', () => {
-  it('uses the Turkish map, not the English registry label', async () => {
-    currentLocale = 'tr';
-    plansResponse = [makePlan({ entitlements: { ai_assistant: true } })];
-    const panel = await renderPlansTab();
-
-    expect(panel.queryByText(/Max pages per source/i)).toBeNull();
-    expect(panel.queryByText(/Crawl depth/i)).toBeNull();
-    expect(panel.queryByText(/Sync jobs \/ month/i)).toBeNull();
-
-    expect(panel.getByText(/Web Kaynağı Başına Maks\. Sayfa/)).toBeInTheDocument();
-    expect(panel.getByText(/Web Tarama Derinliği/)).toBeInTheDocument();
-    expect(panel.getByText(/Aylık Web Senkronizasyon İşi/)).toBeInTheDocument();
-  });
-});
-
-describe('B5 — English falls back to the registry label (no third hardcoded map)', () => {
-  it('renders the exact English registry labels for the new keys', async () => {
+describe('the plan card only promises what the plan grants', () => {
+  beforeEach(() => {
     currentLocale = 'en';
-    plansResponse = [makePlan({ entitlements: { ai_assistant: true } })];
-    const panel = await renderPlansTab();
-
-    expect(panel.getByText('AI Agent — Web Pages: Max pages per source')).toBeInTheDocument();
-    expect(panel.getByText('AI Agent — Web Pages: Crawl depth')).toBeInTheDocument();
-    expect(panel.getByText('AI Agent — Web Pages: Sync jobs / month')).toBeInTheDocument();
-  });
-});
-
-describe('B6 — a zero limit stays hidden (existing "0 = not available" rule unchanged)', () => {
-  it('ai_agent_web_source_max_pages = 0 is not rendered even with AI Assistant enabled', async () => {
-    plansResponse = [makePlan({
-      entitlements: { ai_assistant: true },
-      limits: {
-        ai_kb_max_pages: 25, ai_kb_max_depth: 2, ai_kb_jobs_per_month: 5,
-        ai_agent_web_source_max_pages: 0,
-        ai_agent_web_source_max_depth: 2,
-        ai_agent_web_source_jobs_per_month: 5,
-      },
-    })];
-    const panel = await renderPlansTab();
-
-    expect(panel.queryByText(/Max pages per source/i)).toBeNull();
-    expect(panel.getByText('AI Agent — Web Pages: Crawl depth')).toBeInTheDocument();
-  });
-});
-
-describe('B7 — historical AI KB Builder limits are unaffected by this follow-up', () => {
-  it('ai_kb_max_pages / ai_kb_max_depth / ai_kb_jobs_per_month still render when AI Assistant is enabled', async () => {
-    plansResponse = [makePlan({ entitlements: { ai_assistant: true } })];
-    const panel = await renderPlansTab();
-
-    expect(panel.getByText(/AI KB Builder — Max pages per crawl/)).toBeInTheDocument();
-    expect(panel.getByText(/AI KB Builder — Crawl depth/)).toBeInTheDocument();
-    expect(panel.getByText(/AI KB Builder — Jobs \/ month/)).toBeInTheDocument();
+    billingPlans.mockReset();
+    vi.clearAllMocks();
   });
 
-  it('ai_kb_* limits stay hidden when AI Assistant is disabled, same as before this follow-up', async () => {
-    plansResponse = [makePlan({ entitlements: { ai_assistant: false } })];
-    const panel = await renderPlansTab();
+  it('lists a limit the plan actually sets', async () => {
+    await renderCard(plan({ limits: { max_agents: 5 } }));
+    expect(screen.getByText('billing.plans.cap.max_agents=5')).toBeInTheDocument();
+  });
 
-    expect(panel.queryByText(/AI KB Builder —/)).toBeNull();
+  it('a zero limit is not advertised — 0 means "not available", not "zero of them"', async () => {
+    await renderCard(plan({ limits: { max_agents: 5, max_contacts: 0 } }));
+    expect(screen.getByText('billing.plans.cap.max_agents=5')).toBeInTheDocument();
+    expect(screen.queryByText(/cap\.max_contacts/)).not.toBeInTheDocument();
+  });
+
+  it('a limit the plan never mentions is not advertised', async () => {
+    await renderCard(plan({ limits: { max_agents: 5 } }));
+    expect(screen.queryByText(/cap\.storage_gb/)).not.toBeInTheDocument();
+  });
+
+  it('a non-numeric limit is not advertised as NaN', async () => {
+    await renderCard(plan({ limits: { max_agents: 5, storage_gb: 'lots' } }));
+    expect(screen.queryByText(/cap\.storage_gb/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+  });
+
+  it('-1 reads as unlimited, never as "-1"', async () => {
+    await renderCard(plan({ limits: { max_conversations: -1 } }));
+    expect(
+      screen.getByText('billing.plans.cap.max_conversations=billing.plans.unlimited'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/=-1$/)).not.toBeInTheDocument();
+  });
+
+  it('a feature is listed only when its entitlement is exactly true', async () => {
+    await renderCard(
+      plan({ entitlements: { chat_widget: true, telegram: 'true', whatsapp: 1, sms: false } }),
+    );
+    expect(screen.getByText('billing.plans.feat.chat_widget')).toBeInTheDocument();
+    // A truthy-but-not-true entitlement is a data error, and a card that
+    // reads it loosely sells a channel the enforcement layer will refuse.
+    expect(screen.queryByText(/feat\.telegram/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/feat\.whatsapp/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/feat\.sms/)).not.toBeInTheDocument();
+  });
+
+  it('a plan that grants nothing shows no "included" block at all', async () => {
+    await renderCard(plan({ isFree: true, limits: {}, entitlements: {} }));
+    expect(screen.queryByText('billing.plans.includedTitle')).not.toBeInTheDocument();
+  });
+
+  it('Persian formats the number in Persian digits', async () => {
+    currentLocale = 'fa';
+    await renderCard(plan({ limits: { max_agents: 1500 } }));
+    // fa-IR grouping, not "1,500".
+    expect(screen.getByText(/۱٬۵۰۰/)).toBeInTheDocument();
   });
 });

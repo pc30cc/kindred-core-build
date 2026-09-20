@@ -15,6 +15,42 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
+/**
+ * The page was localized after this file was written: every label and
+ * placeholder now comes from `t('aiAgent.instructions.…')`. Outside an
+ * `I18nProvider` the context falls back to `t: (key) => key`, so the fields
+ * rendered their key paths and every query below missed.
+ *
+ * Resolving against the real English catalogue — rather than hardcoding the
+ * copy again, or asserting on key paths — keeps these queries pointed at
+ * what a user actually reads, and keeps them honest: delete a key from
+ * en.ts and the page renders the raw path, exactly as it would in the
+ * browser, and these tests fail.
+ */
+vi.mock('@/i18n', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/i18n')>();
+  const en = (await import('@/i18n/locales/en')).default as Record<string, unknown>;
+  const at = (path: string) =>
+    path.split('.').reduce<any>((acc, part) => (acc == null ? undefined : acc[part]), en);
+  return {
+    ...actual,
+    useTranslation: () => ({
+      locale: 'en' as const,
+      dir: 'ltr' as const,
+      setLocale: () => {},
+      isLoading: false,
+      t: (key: string, params?: Record<string, string | number>) => {
+        const raw = at(key);
+        let value = typeof raw === 'string' ? raw : key;
+        if (params) {
+          for (const [k, v] of Object.entries(params)) value = value.replace(`{{${k}}}`, String(v));
+        }
+        return value;
+      },
+    }),
+  };
+});
+
 vi.mock('@/hooks/useWorkspace', () => ({
   useCurrentWorkspace: () => ({ id: 'ws-1' }),
 }));
@@ -107,21 +143,46 @@ describe('InstructionsPage I1 — editing one field does not rewrite unrelated n
   });
 });
 
-describe('InstructionsPage I2 — an explicit tone edit writes the intended value', () => {
-  it('editing tone writes the new value and preserves every other nested key', async () => {
+describe('InstructionsPage I2 — tone is not this page to write', () => {
+  /**
+   * This block used to edit a tone field on this page and assert the new
+   * value was written. That field is gone on purpose: `instructions.tone`
+   * is owned by BehaviorPage, and two pages with a control over the same
+   * key is precisely the stale-write bug the rest of this file guards
+   * against — whichever page saved last would win, regardless of which one
+   * the operator actually changed.
+   *
+   * So the thing worth asserting is the removal itself, and that the page
+   * has not quietly grown the control back under another label.
+   */
+  it('offers no control over tone at all', () => {
+    dataHolder.data = { settings: baseSettings({ tone: 'formal' }) };
+    const { container } = render(<InstructionsPage />);
+
+    // Every editable control on the page, by the copy that labels it.
+    const fields = [...container.querySelectorAll('input, textarea, select')];
+    expect(fields.length).toBeGreaterThan(0);
+    for (const field of fields) {
+      const placeholder = field.getAttribute('placeholder') ?? '';
+      expect(placeholder.toLowerCase()).not.toMatch(/\btone\b/);
+    }
+    expect(screen.queryByText(/^tone$/i)).not.toBeInTheDocument();
+  });
+
+  it('a save from this page carries tone through untouched, never a value of its own', async () => {
     dataHolder.data = { settings: baseSettings({ tone: 'formal' }) };
     render(<InstructionsPage />);
 
     fireEvent.change(
-      screen.getByPlaceholderText(/friendly, professional, concise/i),
-      { target: { value: 'deadpan and dry' } },
+      screen.getByPlaceholderText(/free-form additional system instruction/i),
+      { target: { value: 'Sign off warmly.' } },
     );
     const instructions = await clickSave();
 
-    expect(instructions.tone).toBe('deadpan and dry');
+    expect(instructions.tone).toBe('formal');
     expect(instructions.max_answer_length).toBe('short');
     expect(instructions.business_description).toBe('A quirky widget shop.');
-    expect(instructions.custom_system_instruction).toBe('Always sign off with "cheers".');
+    expect(instructions.custom_system_instruction).toBe('Sign off warmly.');
   });
 });
 

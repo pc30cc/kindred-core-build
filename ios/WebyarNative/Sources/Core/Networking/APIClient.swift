@@ -18,6 +18,19 @@ enum APIError: Error, Equatable, Sendable {
     case decoding
 
     var isAuthFailure: Bool { self == .unauthorized }
+
+    /// The server understood the request perfectly and has nothing to answer
+    /// it with, because this deployment does not carry the feature.
+    ///
+    /// 501 rather than 500, and worth telling apart, because the two need
+    /// opposite things from whoever sees them: a failure invites "try again",
+    /// and a retry here can never succeed. The one case in practice is a
+    /// database built from the self-host migration chain before
+    /// `198_canned_responses_selfhost.sql` added the saved-replies table.
+    var isFeatureMissing: Bool {
+        if case .server(let status, _) = self { return status == 501 }
+        return false
+    }
 }
 
 /// Talks to the same REST API the web client uses.
@@ -959,6 +972,63 @@ actor APIClient {
         try await performIgnoringBody(request)
     }
 
+    // MARK: - Human guidance (operator → AI, private)
+
+    /// Take the conversation off the AI and onto this operator.
+    ///
+    /// Two paths because the server grew a canonical one and kept the old:
+    /// `/api/conversations/:id/take-over` is current, and the AI-agent route
+    /// is what older deployments answer. The web client falls back the same
+    /// way, and a 404 is the only error that earns the second attempt —
+    /// anything else is a real failure and must not be retried into a
+    /// second, differently-shaped refusal.
+    func takeOverConversation(conversationID: String, workspaceID: String) async throws {
+        let body = TakeOverBody(workspaceId: workspaceID, assign_to_me: true)
+        do {
+            try await performIgnoringBody(
+                try makeRequest("POST", "/api/conversations/\(conversationID)/take-over", body: body)
+            )
+        } catch APIError.server(status: 404, message: _) {
+            try await performIgnoringBody(
+                try makeRequest("POST", "/api/ai-agent/conversations/\(conversationID)/take-over", body: body)
+            )
+        }
+    }
+
+    /// Operator dictation the AI rewrites and sends to the visitor now.
+    ///
+    /// This is the whole of what the phone does with the AI on a thread it
+    /// owns. The console's private-guidance calls are deliberately not here:
+    /// nothing on iOS reaches them, and an API method with no caller reads
+    /// like a live path to whoever finds it next.
+    func aiSayNow(
+        conversationID: String,
+        body: String,
+        voice: SayNowVoice
+    ) async throws {
+        let request = try makeRequest(
+            "POST",
+            "/api/ai-agent/conversations/\(conversationID)/ai-say-now",
+            // The server's field is still `attribution`; only the app's name
+            // for it changed, and renaming the wire format to match would be
+            // a server change for a label.
+            body: SayNowBody(body: body, attribution: voice.rawValue)
+        )
+        try await performIgnoringBody(request)
+    }
+
+    private struct TakeOverBody: Encodable, Sendable {
+        let workspaceId: String
+        let assign_to_me: Bool
+    }
+
+
+    private struct SayNowBody: Encodable, Sendable {
+        let body: String
+        let attribution: String
+    }
+
+
     // MARK: - Contacts
 
     func contacts(workspaceID: String) async throws -> [Contact] {
@@ -978,6 +1048,7 @@ actor APIClient {
 enum InboxFilter: String, CaseIterable, Identifiable, Sendable {
     case open
     case needsHuman
+    case pending
     case ai
     case resolved
     case spam
@@ -986,7 +1057,7 @@ enum InboxFilter: String, CaseIterable, Identifiable, Sendable {
 
     var queue: String {
         switch self {
-        case .open, .needsHuman, .resolved: "main"
+        case .open, .needsHuman, .pending, .resolved: "main"
         case .ai: "automated"
         case .spam: "spam"
         }
@@ -995,6 +1066,9 @@ enum InboxFilter: String, CaseIterable, Identifiable, Sendable {
     var status: String? {
         switch self {
         case .open, .needsHuman: "open"
+        // The main queue narrowed to threads the customer owes us a reply
+        // on — the same `status=pending` the console's tab sends.
+        case .pending: "pending"
         case .resolved: "resolved"
         case .ai, .spam: nil
         }
@@ -1012,6 +1086,7 @@ enum InboxFilter: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .open: "tray"
         case .needsHuman: "person.wave.2"
+        case .pending: "hourglass"
         case .ai: "sparkles"
         case .resolved: "checkmark.circle"
         case .spam: "exclamationmark.octagon"
@@ -1025,6 +1100,7 @@ enum InboxFilter: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .open: Str.filterOpen(language)
         case .needsHuman: Str.filterNeedsHuman(language)
+        case .pending: Str.filterPending(language)
         case .ai: Str.filterAI(language)
         case .resolved: Str.filterResolved(language)
         case .spam: Str.filterSpam(language)
@@ -1040,6 +1116,9 @@ enum InboxFilter: String, CaseIterable, Identifiable, Sendable {
     static func available(for entitlements: Entitlements?) -> [InboxFilter] {
         var filters: [InboxFilter] = [.open]
         if entitlements?.featureEnabled("inbox_needs_human") == true { filters.append(.needsHuman) }
+        // Every plan can put a thread on hold for the customer, so this one
+        // is core like Open and Resolved rather than an entitlement.
+        filters.append(.pending)
         if entitlements?.featureEnabled("inbox_ai_queue") == true { filters.append(.ai) }
         filters.append(.resolved)
         filters.append(.spam)

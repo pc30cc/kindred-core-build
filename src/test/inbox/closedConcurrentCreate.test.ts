@@ -175,7 +175,10 @@ describe('runtime wiring', () => {
 
   it('widget create branch uses the atomic RPC and only the winner emits created', () => {
     expect(widget).toMatch(/rpc\('ensure_active_conversation'/);
-    expect(widget).toMatch(/const lockKey = body\.session_id \|\| body\.visitor_id/);
+    // The key now prefers clientMessageId, which makes a retried send land on
+    // the same lock — still keyed on the visitor's identity underneath, which
+    // is what stops two concurrent first messages becoming two conversations.
+    expect(widget).toMatch(/const lockKey = [^;]*\bbody\.session_id\b[^;]*\bbody\.visitor_id\b/);
     expect(widget).toMatch(/if \(createdNewConversation\) \{/);
     expect(widget).not.toMatch(/from\('conversations'\)\.insert\(/);
   });

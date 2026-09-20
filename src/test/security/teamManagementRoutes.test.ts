@@ -16,13 +16,14 @@
  * billing, and viewer — all real, UI-exposed roles).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import crypto from 'node:crypto';
 
 type Row = Record<string, any>;
-const db: Record<string, Row[]> = {};
+const db: Record<string, any> = {};
 
 function fakeClient() {
   return {
@@ -91,11 +92,23 @@ function fakeClient() {
       return builder;
     },
     rpc: async (name: string, args: any) => {
+      db.__rpcCalls.push({ name, args });
       if (name === 'is_workspace_member') {
         const member = (db.workspace_members || []).find(
           (m) => m.workspace_id === args._workspace_id && m.user_id === args._user_id,
         );
         return { data: !!member, error: null };
+      }
+      // Removing a member is no longer a DELETE against `workspace_members`.
+      // It is an offboarding: the row goes, but so do the member's sessions,
+      // their assignments and their pending work, and all of that happens
+      // inside one database function so it cannot half-happen. The stub does
+      // the part this test can observe.
+      if (name === 'offboard_workspace_member') {
+        db.workspace_members = (db.workspace_members || []).filter(
+          (m) => !(m.workspace_id === args._workspace_id && m.user_id === args._user_id),
+        );
+        return { data: { removed: true }, error: null };
       }
       return { data: null, error: null };
     },
@@ -222,6 +235,7 @@ beforeEach(() => {
   ];
   db.workspace_department_members = [];
   db.workspace_invitations = [];
+  db.__rpcCalls = [];
 });
 
 describe('GET /api/workspace-members — member listing with department names', () => {
@@ -265,10 +279,20 @@ describe('PATCH /api/workspace-members/:memberId — role change accepts the FUL
 });
 
 describe('DELETE /api/workspace-members/:memberId', () => {
-  it('owner can remove a member', async () => {
+  it('owner can remove a member, through the offboarding function', async () => {
     const res = await call('DELETE', `/api/workspace-members/${agentMemberRowId}?workspaceId=${WS}`, { token: 'owner-token' });
     expect(res.status).toBe(200);
-    expect(db.workspace_members.find((m) => m.id === agentMemberRowId)).toBeUndefined();
+    expect(db.workspace_members.find((m: any) => m.id === agentMemberRowId)).toBeUndefined();
+
+    // Not a DELETE against `workspace_members`. Removing somebody from a
+    // workspace also has to take their sessions, their assignments and
+    // their pending work with it, and a route that deleted the row itself
+    // would leave every one of those behind — so it calls one database
+    // function that does all of it or none of it.
+    const offboard = db.__rpcCalls.find((c: any) => c.name === 'offboard_workspace_member');
+    expect(offboard, 'the route removed the row without offboarding').toBeDefined();
+    expect(offboard.args._workspace_id).toBe(WS);
+    expect(offboard.args._actor_id).toBe(OWNER);
   });
 
   it('a non-manager cannot remove a member', async () => {
@@ -278,23 +302,63 @@ describe('DELETE /api/workspace-members/:memberId', () => {
   });
 });
 
-describe('POST /api/workspace-members/invitations — role accepts the full enum', () => {
-  it('creates an invitation with a staff role (marketing_manager) and stamps created_by from the session, not the client', async () => {
-    const res = await call('POST', '/api/workspace-members/invitations', {
-      token: 'owner-token',
-      body: { workspaceId: WS, role: 'marketing_manager', invitedEmail: null },
-    });
-    expect(res.status).toBe(201);
-    expect(res.json.invitation.role).toBe('marketing_manager');
-    expect(res.json.invitation.created_by).toBe(OWNER);
+describe('POST /api/workspace-members/invitations — retired', () => {
+  // Invitations left this router entirely: `/api/workspace-invitations` owns
+  // creating, resending, rotating, revoking and accepting them now. These
+  // cases used to assert that the old path created an invitation with the
+  // right role and refused a non-manager. It does neither any more — it
+  // refuses everybody, which is the only correct answer for a path whose
+  // logic has moved. The rules themselves are checked where they now live:
+  // `wi_can_manage_invitation` in the migrations, guarded below.
+  it('answers 410 and points at the replacement, whoever asks', async () => {
+    for (const token of ['owner-token', 'agent-token']) {
+      const res = await call('POST', '/api/workspace-members/invitations', {
+        token,
+        body: { workspaceId: WS, role: 'marketing_manager', invitedEmail: null },
+      });
+      expect(res.status).toBe(410);
+      expect(res.json.replacement).toBe('/api/workspace-invitations');
+    }
+  });
+});
+
+describe('nobody can be invited as owner — the rule that outlived the route', () => {
+  // The old route answered `owner_role_not_assignable` at the Express layer.
+  // The rule did not disappear with it; it moved into the database and got
+  // stricter on the way. `wi_can_manage_invitation` is consulted by every
+  // invitation RPC, and its very first branch refuses `owner` as a target
+  // regardless of who is asking — so not even a workspace owner can hand the
+  // role out by invitation, and no HTTP caller can route around it.
+  const CHAINS = [
+    'supabase/migrations/20260902104335_b93ad1a8-42f4-4f7e-93a7-b09e64403289.sql',
+    'database/migrations/078_workspace_invitations_v51_rpcs.sql',
+  ];
+
+  it.each(CHAINS)('%s refuses owner as an invitation target', (file) => {
+    const sql = readFileSync(file, 'utf8');
+    const fn = sql.slice(sql.indexOf('FUNCTION public.wi_can_manage_invitation'));
+    const body = fn.slice(0, fn.indexOf('$$;'));
+    expect(body).toMatch(
+      /WHEN _target_role = 'owner'::public\.workspace_role\s+THEN false/,
+    );
+    // Before any actor check: the refusal cannot be reached past.
+    expect(body.indexOf("_target_role = 'owner'")).toBeLessThan(
+      body.indexOf("_actor_role = 'owner'"),
+    );
   });
 
-  it('a non-manager cannot create invitations', async () => {
-    const res = await call('POST', '/api/workspace-members/invitations', {
-      token: 'agent-token',
-      body: { workspaceId: WS, role: 'agent', invitedEmail: null },
-    });
-    expect(res.status).toBe(403);
+  it.each(CHAINS)('%s makes every invitation RPC ask it', (file) => {
+    const sql = readFileSync(file, 'utf8');
+    expect(sql).toMatch(/create_workspace_invitation_v2[\s\S]*?wi_can_manage_invitation/);
+  });
+
+  it('the role is an enum at the boundary, not a free string', () => {
+    // `_role public.workspace_role` means an invented role fails on the type
+    // before any policy runs — the route above takes `role` as a string, so
+    // this is what stops one being smuggled through.
+    const sql = readFileSync(CHAINS[0], 'utf8');
+    const fn = sql.slice(sql.indexOf('FUNCTION public.create_workspace_invitation_v2'));
+    expect(fn.slice(0, 900)).toMatch(/_role\s+public\.workspace_role/);
   });
 });
 
@@ -339,22 +403,29 @@ describe('Owner/admin privilege boundary — ADMIN cannot touch ownership', () =
   });
 
   it('admin cannot invite a new member with role=owner', async () => {
+    // Retired here; the rule lives in `wi_can_manage_invitation` now and is
+    // checked in its own describe below. What this path owes an old client
+    // is a clear refusal, not a quiet one.
     const res = await call('POST', '/api/workspace-members/invitations', {
       token: 'admin-token',
       body: { workspaceId: WS, role: 'owner', invitedEmail: null },
     });
-    expect(res.status).toBe(400);
-    expect(res.json.error).toBe('owner_role_not_assignable');
+    expect(res.status).toBe(410);
     expect(db.workspace_invitations).toHaveLength(0);
   });
 
-  it('owner also cannot invite role=owner — no transfer flow exists', async () => {
+  it('owner also cannot invite role=owner here — no transfer flow exists', async () => {
+    // Same retirement as the admin case above, and the same reason it still
+    // matters: being the owner does not re-open a route that is gone. The
+    // rule itself — that nobody, owner included, is an assignable invitation
+    // target — is asserted against `wi_can_manage_invitation` below.
     const res = await call('POST', '/api/workspace-members/invitations', {
       token: 'owner-token',
       body: { workspaceId: WS, role: 'owner', invitedEmail: null },
     });
-    expect(res.status).toBe(400);
-    expect(res.json.error).toBe('owner_role_not_assignable');
+    expect(res.status).toBe(410);
+    expect(res.json.error).toBe('LEGACY_INVITATION_API_RETIRED');
+    expect(db.workspace_invitations).toHaveLength(0);
   });
 
   it('admin cannot remove the owner', async () => {
@@ -401,17 +472,21 @@ describe('Owner/admin privilege boundary — ADMIN cannot touch ownership', () =
     expect(owners[0].user_id).toBe(OWNER);
   });
 
-  it('owner still retains all normal management operations (admin/agent role changes, invitations)', async () => {
+  it('owner still retains the management operations this router still has', async () => {
+    // Role changes stayed; invitations did not. The point of this case is
+    // that refusing the owner *their own* role is a narrow rule and not a
+    // general lockout — so what is left here has to keep working for them.
     const patch = await call('PATCH', `/api/workspace-members/${agentMemberRowId}?workspaceId=${WS}`, {
       token: 'owner-token',
       body: { role: 'admin' },
     });
     expect(patch.status).toBe(200);
-    const invite = await call('POST', '/api/workspace-members/invitations', {
-      token: 'owner-token',
-      body: { workspaceId: WS, role: 'agent', invitedEmail: null },
-    });
-    expect(invite.status).toBe(201);
+
+    const remove = await call(
+      'DELETE', `/api/workspace-members/${adminMemberRowId}?workspaceId=${WS}`,
+      { token: 'owner-token' },
+    );
+    expect(remove.status).toBe(200);
   });
 });
 

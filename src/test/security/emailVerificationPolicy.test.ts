@@ -4,7 +4,7 @@
  * Decision: login itself stays non-blocking (see server/routes/auth.ts's
  * policy comment), but an unverified account cannot become a workspace
  * owner (POST /api/workspaces) or pull other people into a workspace it
- * controls (POST /api/workspace-members/invitations) — enforced
+ * controls (POST /api/workspace-invitations) — enforced
  * server-side via isEmailVerified() (server/services/auth/identity.ts),
  * not just a UI banner.
  */
@@ -22,18 +22,39 @@ vi.mock('../../../server/supabase.js', () => ({
     from(table: string) {
       const rows: Row[] = db[table] || (db[table] = []);
       const filters: Array<(r: Row) => boolean> = [];
+      // `order` and `limit` are part of the chain the routes under test
+      // actually build — provision-account ends in
+      // `.order(...).limit(1).maybeSingle()`. A builder missing them throws
+      // inside an async express handler, which never answers the request, so
+      // the case times out instead of failing with something readable.
+      let sortBy: { col: string; asc: boolean } | null = null;
+      let cap: number | null = null;
+      const matching = (): Row[] => {
+        let matched = rows.filter((r) => filters.every((f) => f(r)));
+        if (sortBy) {
+          const { col, asc } = sortBy;
+          matched = [...matched].sort((a, b) =>
+            a[col] === b[col] ? 0 : (a[col] > b[col] ? 1 : -1) * (asc ? 1 : -1));
+        }
+        return cap === null ? matched : matched.slice(0, cap);
+      };
       const builder: any = {
         select: () => builder,
         eq(col: string, val: any) { filters.push((r: Row) => r[col] === val); return builder; },
+        order(col: string, opts?: { ascending?: boolean }) {
+          sortBy = { col, asc: opts?.ascending !== false };
+          return builder;
+        },
+        limit(n: number) { cap = n; return builder; },
         insert(payload: Row) {
           const inserted = { id: payload.id ?? crypto.randomUUID(), created_at: new Date().toISOString(), ...payload };
           rows.push(inserted);
           return { select: () => ({ single: async () => ({ data: inserted, error: null }) }) };
         },
-        maybeSingle: async () => {
-          const matched = rows.filter((r) => filters.every((f) => f(r)));
-          return { data: matched[0] ?? null, error: null };
-        },
+        maybeSingle: async () => ({ data: matching()[0] ?? null, error: null }),
+        // Awaitable at any point, like the real builder.
+        then: (onOk: any, onErr: any) =>
+          Promise.resolve({ data: matching(), error: null }).then(onOk, onErr),
       };
       return builder;
     },
@@ -72,6 +93,7 @@ vi.mock('../../../server/services/auth/sessions.js', () => ({
 
 const { workspacesRouter } = await import('../../../server/routes/workspaces.js');
 const { workspaceMembersRouter } = await import('../../../server/routes/workspaceMembers.js');
+const { workspaceInvitationsRouter } = await import('../../../server/routes/workspaceInvitations.js');
 
 const app = express();
 app.use((req, _res, next) => {
@@ -82,6 +104,7 @@ app.use(cookieParser());
 app.use(express.json());
 app.use('/api/workspaces', workspacesRouter);
 app.use('/api/workspace-members', workspaceMembersRouter);
+app.use('/api/workspace-invitations', workspaceInvitationsRouter);
 
 const server = http.createServer(app).listen(0);
 const port = () => (server.address() as any).port;
@@ -185,23 +208,42 @@ describe('email verification policy — provision-account (first-run auto-provis
 });
 
 describe('email verification policy — invitations', () => {
-  it('an unverified admin cannot invite someone into a workspace they manage', async () => {
-    const res = await call('POST', '/api/workspace-members/invitations', 'unverified-token', {
+  // These used to hit POST /api/workspace-members/invitations. That route is
+  // retired (410), and the gate it carried did not come across to the route
+  // that replaced it — so for as long as these two failed, an unverified
+  // account really could invite people into a workspace it controlled. The
+  // gate is back on the live route; these now check it there.
+  const invite = (token: string, email: string) =>
+    call('POST', '/api/workspace-invitations', token, {
+      requestId: crypto.randomUUID(),
       workspaceId: WS,
+      email,
+      memberType: 'agent',
       role: 'agent',
-      invitedEmail: 'victim@example.com',
+      firstName: 'Test',
+      lastName: 'Invitee',
     });
+
+  it('an unverified admin cannot invite someone into a workspace they manage', async () => {
+    const res = await invite('unverified-token', 'victim@example.com');
     expect(res.status).toBe(403);
     expect(res.json.error).toBe('email_verification_required');
     expect(db.workspace_invitations ?? []).toHaveLength(0);
   });
 
-  it('a verified owner can invite normally', async () => {
-    const res = await call('POST', '/api/workspace-members/invitations', 'verified-token', {
-      workspaceId: WS,
-      role: 'agent',
-      invitedEmail: 'teammate@example.com',
-    });
-    expect(res.status).toBe(201);
+  it('the gate runs before anything is written — a rejected invite leaves no trace', async () => {
+    const before = (db.workspace_invitations ?? []).length;
+    await invite('unverified-token', 'victim2@example.com');
+    expect((db.workspace_invitations ?? []).length).toBe(before);
+    expect(db.workspace_invitation_requests ?? []).toHaveLength(0);
+  });
+
+  it('a verified owner gets past the gate', async () => {
+    // Past the verification gate is all this file is about; how far the
+    // request then gets depends on the invitation stack's own stubs, which
+    // are exercised in workspaceInvitations' own suites.
+    const res = await invite('verified-token', 'teammate@example.com');
+    expect(res.status).not.toBe(403);
+    expect(res.json?.error).not.toBe('email_verification_required');
   });
 });

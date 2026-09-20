@@ -20,7 +20,31 @@ const CODE = '123456';
 let book: RequestIdBook;
 
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }));
-vi.mock('@/i18n', () => ({ useTranslation: () => ({ t: (k: string) => k, locale: 'en' }) }));
+// Resolve through the real English catalogue rather than echoing key paths.
+// The page was localized after this file was written, so `t: (k) => k` left
+// the buttons labelled "invite.sendCode" and the queries below — which look
+// for the words a user reads — found nothing.
+vi.mock('@/i18n', async () => {
+  const en = (await import('@/i18n/locales/en')).default as Record<string, unknown>;
+  const at = (path: string) =>
+    path.split('.').reduce<any>((acc, part) => (acc == null ? undefined : acc[part]), en);
+  return {
+    useTranslation: () => ({
+      locale: 'en' as const,
+      dir: 'ltr' as const,
+      setLocale: () => {},
+      isLoading: false,
+      t: (key: string, params?: Record<string, string | number>) => {
+        const raw = at(key);
+        let value = typeof raw === 'string' ? raw : key;
+        if (params) {
+          for (const [k, v] of Object.entries(params)) value = value.replace(`{{${k}}}`, String(v));
+        }
+        return value;
+      },
+    }),
+  };
+});
 vi.mock('@/features/auth/AuthContext', () => ({ useAuth: () => ({ user: null, isLoading: false }) }));
 vi.mock('@/lib/toast', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 vi.mock('@/features/invitations/requestIds', async (orig) => {

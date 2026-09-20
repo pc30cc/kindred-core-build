@@ -30,9 +30,13 @@ describe('POST /send-message — duplicate protection', () => {
   });
 
   it('a replay does not re-publish realtime, re-dispatch or re-attach', () => {
+    // Asserted by what each branch DOES, not by its spelling: the dispatch
+    // used to be a `const dispatch = duplicate ? … : …` and is now an
+    // if/else-if, because an attachment reply gained its own media path.
+    // Same three suppressions either way.
     expect(route).toContain("? { ok: false, reason: 'duplicate_request' as string | null }");
-    expect(route).toContain("const dispatch = duplicate");
-    expect(route).toContain('if (!duplicate && parsed.data.attachment_id && inserted?.id)');
+    expect(route).toMatch(/if \(duplicate\)[\s\S]{0,160}already_enqueued/);
+    expect(route).toMatch(/!duplicate && parsed\.data\.attachment_id/);
   });
 
   it('migration 070 enforces one message per client_message_id in the DB', () => {

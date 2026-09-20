@@ -26,6 +26,16 @@ final class ConversationActionsModel {
     /// cleared when the operator closes the screen.
     var pendingInvitation: CallInvitation?
     var inviteFailed = false
+    /// Set once the server has actually handed the thread over, so the menu
+    /// stops offering a row with nothing left to do.
+    ///
+    /// Separate from the confirmation below on purpose: an alert's
+    /// `isPresented` binding is written back to `false` when it is dismissed,
+    /// so using one flag for both would put the row back the moment the
+    /// operator tapped OK.
+    private(set) var didTakeOver = false
+    var takeOverConfirmed = false
+    var takeOverFailed = false
 
     private let conversationID: String
     private let workspaceID: String
@@ -186,6 +196,36 @@ final class ConversationActionsModel {
             await appState.handleUnauthorized()
         } catch {
             inviteFailed = true
+        }
+    }
+
+    /// Take the thread off the AI and onto this operator.
+    ///
+    /// The console's "Take over": the AI stops answering and the conversation
+    /// is assigned to whoever pressed it. Worth a menu row on the phone too —
+    /// an operator reading a thread the AI is mishandling wants to be in it
+    /// now, not after finding the right status to set.
+    ///
+    /// Unlike the status and priority rows this is not optimistic. Those
+    /// change a value the operator can see and put back; this changes who is
+    /// answering a live visitor, and showing it as done before the server
+    /// agreed would have the operator typing into a conversation the AI is
+    /// still holding.
+    func takeOver(appState: AppState) async {
+        guard !isSaving else { return }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            try await api.takeOverConversation(
+                conversationID: conversationID,
+                workspaceID: workspaceID
+            )
+            didTakeOver = true
+            takeOverConfirmed = true
+        } catch APIError.unauthorized {
+            await appState.handleUnauthorized()
+        } catch {
+            takeOverFailed = true
         }
     }
 

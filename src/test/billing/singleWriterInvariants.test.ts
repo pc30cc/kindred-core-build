@@ -70,13 +70,33 @@ describe("workspace_usage_counters — single-writer invariant", () => {
 });
 
 describe("conversation/visitor limit helpers — wiring invariants", () => {
+  /**
+   * Both helpers pass the key through a `const LIMIT_KEY = '…'` rather than
+   * repeating the literal at each call — a refactor that makes the invariant
+   * stronger, one place naming the key, and that a literal-only regex cannot
+   * see through. So the constant is resolved first, and the call still has to
+   * pass THAT name: a helper gating on some other key, or wiring only one
+   * half of the pair, fails exactly as before.
+   */
+  function gatesOn(src: string, key: string) {
+    const named = new RegExp(`const\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*['"]${key}['"]`).exec(src);
+    const arg = named ? `(?:['"]${key}['"]|${named[1]})` : `['"]${key}['"]`;
+    return {
+      requiresLimit: new RegExp(`requireLimit\\(\\s*${arg}`).test(src),
+      resolvesUsage: new RegExp(`usageFnForLimit\\(\\s*${arg}`).test(src),
+    };
+  }
+
   it("conversationLimit helper uses the shared requireLimit + usageFnForLimit pair", () => {
     const src = readFileSync(
       resolve(ROOT, "server/services/billing/conversationLimit.ts"),
       "utf8",
     );
-    expect(src).toMatch(/requireLimit\(\s*['"]max_conversations['"]/);
-    expect(src).toMatch(/usageFnForLimit\(\s*['"]max_conversations['"]/);
+    const wiring = gatesOn(src, "max_conversations");
+    expect(wiring.requiresLimit).toBe(true);
+    expect(wiring.resolvesUsage).toBe(true);
+    // …and not on somebody else's key.
+    expect(gatesOn(src, "max_visitors").requiresLimit).toBe(false);
   });
 
   it("visitorLimit helper uses the shared requireLimit + usageFnForLimit pair", () => {
@@ -84,8 +104,10 @@ describe("conversation/visitor limit helpers — wiring invariants", () => {
       resolve(ROOT, "server/services/billing/visitorLimit.ts"),
       "utf8",
     );
-    expect(src).toMatch(/requireLimit\(\s*['"]max_visitors['"]/);
-    expect(src).toMatch(/usageFnForLimit\(\s*['"]max_visitors['"]/);
+    const wiring = gatesOn(src, "max_visitors");
+    expect(wiring.requiresLimit).toBe(true);
+    expect(wiring.resolvesUsage).toBe(true);
+    expect(gatesOn(src, "max_conversations").requiresLimit).toBe(false);
     // Must NOT increment counters itself — single-writer is the DB trigger.
     expect(src).not.toMatch(/\.upsert\(|\.update\(|\.insert\(/);
   });

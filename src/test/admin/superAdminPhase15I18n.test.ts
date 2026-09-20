@@ -29,6 +29,10 @@ const technicalCopy = new Set([
   'iranpardakht_sandbox', 'IranPardakht-Sandbox', 'idpay', 'IDPay', 'idpay_test',
   'IDPay-Test (Sandbox)', 'nextpay', 'NextPay', 'payping', 'PayPing', 'zibal', 'Zibal',
   'sep_shaparak', 'SEP Shaparak', 'iyzico', 'paytr', 'PayTR', 'sipay', 'Sipay',
+  // Same category as the '(Sandbox)' entries above: a payment-gateway
+  // identifier and the label the provider list shows for it. The simulator
+  // gateway was added after this list was written.
+  'internal_test', 'Internal Test Gateway (Simulator)',
   'paratika', 'Paratika', 'craftgate', 'Craftgate',
 ]);
 

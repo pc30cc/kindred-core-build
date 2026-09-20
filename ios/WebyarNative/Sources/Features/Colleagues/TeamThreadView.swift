@@ -301,7 +301,6 @@ struct TeamThreadView: View {
             capabilities: capabilities,
             language: language,
             // No AI ever owns an internal thread, so this is never shown.
-            aiNotice: "",
             isWriting: $isWriting,
             onSend: {
                 Task {

@@ -162,11 +162,26 @@ function importedModules(src: string): string[] {
   return out;
 }
 
+/**
+ * Comments are not code. A provider host inside one names nothing Core can
+ * call — `logParser.ts` mentions openai.com in a sample GPTBot user-agent,
+ * because parsing that string out of an access log is the feature. Scanning
+ * raw text reported it as an outbound endpoint, which is how a guard starts
+ * getting switched off. String literals are left alone on purpose: a host
+ * assembled from pieces at runtime is exactly what this is here to catch.
+ *
+ * Same treatment as the sibling guard in channels/providerIsolationGuard.
+ * `[^:]` before `//` keeps `https://` from reading as a line comment.
+ */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
 describe('AI provider network isolation — Core cannot execute provider I/O', () => {
   it('no Core file names an AI provider host', () => {
     const offenders: string[] = [];
     for (const file of coreFiles) {
-      const src = readFileSync(file, 'utf8');
+      const src = stripComments(readFileSync(file, 'utf8'));
       for (const host of PROVIDER_HOSTS) {
         if (src.includes(host)) offenders.push(`${rel(file)} → ${host}`);
       }
@@ -177,7 +192,7 @@ describe('AI provider network isolation — Core cannot execute provider I/O', (
   it('no Core file embeds a provider domain fragment (blocks dynamically built endpoints)', () => {
     const offenders: string[] = [];
     for (const file of coreFiles) {
-      const src = readFileSync(file, 'utf8');
+      const src = stripComments(readFileSync(file, 'utf8'));
       for (const fragment of PROVIDER_DOMAIN_FRAGMENTS) {
         if (src.includes(fragment)) offenders.push(`${rel(file)} → ${fragment}`);
       }

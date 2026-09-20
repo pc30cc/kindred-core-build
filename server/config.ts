@@ -252,6 +252,16 @@ export interface ServerConfig {
    */
   pluginSecretsMasterKey?: string;
 
+  // ── WEBYAR Telephony (provider-neutral SIP layer) ───────────────────
+  /**
+   * Dedicated server-to-server secret for the Core ⇄ Telephony Control
+   * Service boundary. Deliberately NOT the channels or AI secret. Unset ⇒
+   * telephony fails closed: no provisioning, no inbound events accepted.
+   */
+  telephonyInternalSecret?: string;
+  /** Internal address Core uses to reach the Telephony Control Service. */
+  telephonyInternalBaseUrl?: string;
+
   // ── AI Runtime (Provider Network Isolation) ─────────────────────────
   /**
    * Base URL of the AI Runtime service (ai-runtime/server.ts), deployed on a
@@ -357,6 +367,8 @@ export function loadConfig(): ServerConfig {
     publicChannelsBaseUrl: normalizeBaseUrl(optional('PUBLIC_CHANNELS_BASE_URL')),
     channelsInternalBaseUrl: normalizeBaseUrl(optional('CHANNELS_INTERNAL_BASE_URL')),
     pluginSecretsMasterKey,
+    telephonyInternalSecret,
+    telephonyInternalBaseUrl: normalizeBaseUrl(optional('TELEPHONY_INTERNAL_BASE_URL')),
     aiRuntimeBaseUrl: normalizeBaseUrl(optional('AI_RUNTIME_URL')),
     aiRuntimeInternalSecret,
   };

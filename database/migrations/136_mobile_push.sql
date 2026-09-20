@@ -71,13 +71,30 @@ CREATE INDEX IF NOT EXISTS idx_push_dispatch_log_created
 -- Server-enforced push policy, alongside the existing notification prefs.
 --   push_scope: 'all' | 'assigned' | 'mentions' | 'none'
 --   push_preview: false → privacy mode ("New message in Webyar")
-ALTER TABLE public.user_notification_prefs
-  ADD COLUMN IF NOT EXISTS push_scope text NOT NULL DEFAULT 'all',
-  ADD COLUMN IF NOT EXISTS push_preview boolean NOT NULL DEFAULT true,
-  ADD COLUMN IF NOT EXISTS push_internal_notes boolean NOT NULL DEFAULT true;
-
+--
+-- Guarded on the TABLE, not just the columns. `ADD COLUMN IF NOT EXISTS`
+-- says nothing about whether the relation is there, and in this chain it is
+-- not: `user_notification_prefs` is hosted-only, exactly as
+-- 026_identity_root_profiles_not_auth_users.sql lists it. Unguarded, this
+-- statement raised `relation "public.user_notification_prefs" does not
+-- exist` and, under ON_ERROR_STOP, took every migration after this one down
+-- with it — the whole self-host chain from 136 onwards.
+--
+-- 199_user_notification_prefs_selfhost.sql is what gives this chain the
+-- table, with these three columns already on it. So here the work is done
+-- where the table exists (hosted), and skipped where 199 will do it.
 DO $$
 BEGIN
+  IF to_regclass('public.user_notification_prefs') IS NULL THEN
+    RAISE NOTICE '136: user_notification_prefs absent — push policy columns come from 199';
+    RETURN;
+  END IF;
+
+  ALTER TABLE public.user_notification_prefs
+    ADD COLUMN IF NOT EXISTS push_scope text NOT NULL DEFAULT 'all',
+    ADD COLUMN IF NOT EXISTS push_preview boolean NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS push_internal_notes boolean NOT NULL DEFAULT true;
+
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_notification_prefs_push_scope_check') THEN
     ALTER TABLE public.user_notification_prefs
       ADD CONSTRAINT user_notification_prefs_push_scope_check

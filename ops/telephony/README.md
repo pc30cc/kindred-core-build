@@ -11,8 +11,8 @@ registration adapter + ARI-driven call control).
 
 ## Before deploying
 
-1. Migration 199 applied (hosted: done; self-host:
-   `database/migrations/199_telephony_foundation.sql`).
+1. Migration 200 applied (hosted: done; self-host:
+   `database/migrations/200_telephony_foundation.sql`).
 2. A least-privilege database login in role `webyar_asterisk`, scoped to the
    `asterisk` schema only.
 3. `livekit` and `livekit-sip` running on the same internal network —

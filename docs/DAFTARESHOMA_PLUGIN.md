@@ -73,8 +73,8 @@ Never expose ARI or the control service API publicly. NAT deployments must set
 (Asterisk + PJSIP + the control service) and expects an existing `livekit` and
 `livekit-sip` service on the same internal network.
 
-1. Apply migration 199 (already applied on hosted; self-host parity file is
-   `database/migrations/199_telephony_foundation.sql`).
+1. Apply migration 200 (already applied on hosted; self-host parity file is
+   `database/migrations/200_telephony_foundation.sql`).
 2. Create the Asterisk database login and grant it the `asterisk` schema only:
 
    ```sql

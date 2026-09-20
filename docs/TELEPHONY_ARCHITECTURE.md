@@ -53,7 +53,7 @@ affected endpoint — no whole-service restart when one workspace saves settings
 Those tables live in a restricted schema owned by the least-privilege role
 `webyar_asterisk` and are never exposed through PostgREST or the browser.
 
-## Data model (migration 199, forward-only)
+## Data model (migration 200, forward-only)
 
 - `public.telephony_calls` — technical mapping only, **not** user-facing history.
   `UNIQUE (installation_id, provider, sip_call_id)` plus a partial unique index

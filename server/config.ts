@@ -312,6 +312,7 @@ export function loadConfig(): ServerConfig {
   const channelsWebhookSigningKey = optional('CHANNELS_WEBHOOK_SIGNING_KEY');
   const pluginSecretsMasterKey = optional('PLUGIN_SECRETS_MASTER_KEY');
   const aiRuntimeInternalSecret = optional('AI_RUNTIME_INTERNAL_SECRET');
+  const telephonyInternalSecret = optional('TELEPHONY_INTERNAL_SECRET');
 
   // Startup guard: these three must be distinct from each other and from the
   // service-role key. A shared value collapses three security boundaries.

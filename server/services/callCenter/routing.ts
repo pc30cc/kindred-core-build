@@ -10,6 +10,10 @@ import { getServiceClient } from '../../supabase.js';
 import { publishCallEvent, publishQueueEvent } from './realtime.js';
 import { ringOperators } from '../push/callRing.js';
 import {
+  CALL_CENTER_ENTRY_SOURCES,
+  WIDGET_ONLY_ENTRY_SOURCE,
+} from '../../../shared/callCenter/entrySources.js';
+import {
   assertDepartmentInWorkspace,
   assertAssignableAgent,
   DepartmentException,
@@ -113,7 +117,7 @@ async function getStandaloneCallCenterSession(
     .select('*')
     .eq('id', callId)
     .eq('workspace_id', workspaceId)
-    .eq('entry_source', 'call_widget')
+    .in('entry_source', CALL_CENTER_ENTRY_SOURCES)
     .maybeSingle();
   return data;
 }

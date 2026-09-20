@@ -19,6 +19,7 @@ import {
   recordBackupReport,
   recordRestoreDrill,
 } from '../services/backup/backupService.js';
+import type { BackupReport } from '../services/backup/backupService.js';
 
 export const backupAgentRouter = Router();
 
@@ -61,7 +62,9 @@ backupAgentRouter.post('/report', async (req: Request, res: Response) => {
   const parsed = reportSchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: 'invalid_report' });
   try {
-    const run = await recordBackupReport(serverConfigOf(req), parsed.data);
+    // zod's inferred optionality differs from BackupReport's required keys;
+    // the schema above already enforces them at runtime.
+    const run = await recordBackupReport(serverConfigOf(req), parsed.data as BackupReport);
     res.json({ ok: true, id: run.id });
   } catch (err) {
     res.status(500).json({ error: (err as Error)?.message || 'report_failed' });

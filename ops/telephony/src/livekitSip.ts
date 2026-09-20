@@ -11,6 +11,7 @@
  * into the room whose name equals the callee.
  */
 
+import { timeoutSignal } from './timeout.js';
 import { createHmac } from 'node:crypto';
 
 export interface LiveKitSipConfig {
@@ -64,7 +65,7 @@ export function createLiveKitSipClient(
         authorization: `Bearer ${signLiveKitToken(cfg.apiKey, cfg.apiSecret)}`,
       },
       body: JSON.stringify(body ?? {}),
-      signal: AbortSignal.timeout(10_000),
+      signal: timeoutSignal(10_000),
     });
     const text = await res.text();
     if (!res.ok) throw new Error(`livekit_sip_${res.status}:${text.slice(0, 200)}`);

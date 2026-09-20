@@ -10,6 +10,7 @@
  * Nothing here ever writes configuration through ARI.
  */
 
+import { timeoutSignal } from './timeout.js';
 import { execFile } from 'node:child_process';
 
 export type RegistrationOutcome =
@@ -71,7 +72,7 @@ async function ariFetch(
     method,
     headers: { authorization: authHeader(opts), 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(10_000),
+    signal: timeoutSignal(10_000),
   });
   const text = await res.text();
   if (!res.ok) throw new Error(`ari_${res.status}:${text.slice(0, 200)}`);

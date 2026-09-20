@@ -6,6 +6,7 @@
  * workspace id it read from a SIP header.
  */
 
+import { timeoutSignal } from './timeout.js';
 import { coreAuthHeaders } from './auth.js';
 
 export interface IncomingCallPayload {
@@ -50,7 +51,7 @@ export function createCoreClient(
       method: 'POST',
       headers: coreAuthHeaders(secret),
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: timeoutSignal(timeoutMs),
     });
     const text = await res.text();
     let json: any = null;
@@ -63,7 +64,7 @@ export function createCoreClient(
       try {
         const res = await fetchImpl(`${base}/internal/telephony/health`, {
           headers: coreAuthHeaders(secret),
-          signal: AbortSignal.timeout(6_000),
+          signal: timeoutSignal(6_000),
         });
         return res.ok;
       } catch {

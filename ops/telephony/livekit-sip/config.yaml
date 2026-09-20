@@ -1,0 +1,27 @@
+# Self-hosted LiveKit SIP — REQUIRED media bridge for WEBYAR Telephony.
+#
+# There is no fallback media path: if this service is not running, the control
+# service reports livekit_sip_ready=false and the plugin refuses to claim a
+# working setup.
+#
+# Values come from the environment through envsubst-free YAML anchors that
+# livekit-sip itself resolves: it reads $LIVEKIT_* style variables when the
+# value is written as ${VAR}. Keep every secret in the environment.
+
+api_key: ${LIVEKIT_API_KEY}
+api_secret: ${LIVEKIT_API_SECRET}
+ws_url: ${LIVEKIT_URL}
+
+# Redis is the same instance the LiveKit server already uses.
+redis:
+  address: ${LIVEKIT_REDIS_ADDRESS}
+  db: 0
+
+# SIP signalling from Asterisk only (internal network).
+sip_port: 5080
+rtp_port: 20000-20100
+
+health_port: 8080
+logging:
+  level: info
+  json: true

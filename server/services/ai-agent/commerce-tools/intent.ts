@@ -43,6 +43,28 @@ const COLOR_MAP: Record<string, string> = {
   green: 'green', yellow: 'yellow', gray: 'gray', brown: 'brown',
 };
 
+/**
+ * Persian (۰-۹) and Arabic-Indic (٠-٩) digits → ASCII, so the numeric
+ * extractors below see something `\d` can match.
+ *
+ * A Persian keyboard produces ۴۳, not 43, so without this "سایز ۴۳" yielded
+ * no size attribute, "زیر ۵ میلیون" no price ceiling, and "سفارش ۱۲۳۴۵" fell
+ * back to a generic order-status answer instead of looking that order up.
+ * Only the STRUCTURED extraction reads the normalized string — the free-text
+ * query keeps the shopper's original characters, because the product index's
+ * full-text column holds whatever digits the store itself typed.
+ *
+ * Group separators (',' and '٬') are deliberately left alone: neither form
+ * was ever stripped, so "۱٬۵۰۰٬۰۰۰ تومان" still reads as no plain number,
+ * exactly as "1,500,000" always has.
+ */
+function normalizeDigits(text: string): string {
+  return text
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/٫/g, '.');
+}
+
 function extractMaxPriceTomanMinor(text: string): string | null {
   // WooCommerce stores whatever minor unit the store uses; for Iranian
   // stores this is typically Toman/Rial as a plain integer — we pass the
@@ -73,18 +95,21 @@ function extractAttributes(text: string): Record<string, string> {
 export function detectCommerceIntent(question: string): CommerceIntent {
   const text = (question || '').trim();
   if (!text) return { kind: 'none' };
+  // Matching reads the digit-normalized copy; `text` stays verbatim for
+  // anything handed downstream as a search query.
+  const scan = normalizeDigits(text);
 
-  const orderNumberMatch = text.match(ORDER_NUMBER_RE);
+  const orderNumberMatch = scan.match(ORDER_NUMBER_RE);
   if (orderNumberMatch) return { kind: 'order_lookup', orderNumber: orderNumberMatch[1] };
-  if (ORDER_KEYWORDS.test(text)) return { kind: 'order_status' };
+  if (ORDER_KEYWORDS.test(scan)) return { kind: 'order_status' };
 
-  if (STORE_INFO_KEYWORDS.test(text)) return { kind: 'store_info' };
+  if (STORE_INFO_KEYWORDS.test(scan)) return { kind: 'store_info' };
 
-  const attrs = extractAttributes(text);
-  const hasAvailabilityWord = AVAILABILITY_KEYWORDS.test(text);
-  const maxPrice = extractMaxPriceTomanMinor(text);
+  const attrs = extractAttributes(scan);
+  const hasAvailabilityWord = AVAILABILITY_KEYWORDS.test(scan);
+  const maxPrice = extractMaxPriceTomanMinor(scan);
 
-  if (hasAvailabilityWord && (Object.keys(attrs).length > 0 || PRODUCT_INTENT_KEYWORDS.test(text))) {
+  if (hasAvailabilityWord && (Object.keys(attrs).length > 0 || PRODUCT_INTENT_KEYWORDS.test(scan))) {
     // "این کفش سایز ۴۳ مشکی موجوده؟" — attribute-qualified availability
     // question. Resolved as a search (to find the matching variant) whose
     // top candidate then gets a live availability revalidation — see
@@ -93,7 +118,7 @@ export function detectCommerceIntent(question: string): CommerceIntent {
   }
   if (hasAvailabilityWord) return { kind: 'get_availability', text };
 
-  if (PRODUCT_INTENT_KEYWORDS.test(text) || Object.keys(attrs).length > 0 || maxPrice) {
+  if (PRODUCT_INTENT_KEYWORDS.test(scan) || Object.keys(attrs).length > 0 || maxPrice) {
     return {
       kind: 'search_products',
       filters: {

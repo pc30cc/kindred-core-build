@@ -20,7 +20,9 @@ describe('commerce intent detection', () => {
   });
 
   it('Scenario C — product discovery with a price ceiling in Toman', () => {
-    const intent = detectCommerceIntent('یک محصول مشکی تا ۵ میلیون معرفی کن'.replace('۵', '5'));
+    // The `.replace('۵', '5')` that used to sit here was papering over the
+    // bug below: a Persian keyboard types ۵, and the extractor could not read it.
+    const intent = detectCommerceIntent('یک محصول مشکی تا ۵ میلیون معرفی کن');
     expect(intent.kind).toBe('search_products');
     if (intent.kind === 'search_products') {
       expect(intent.filters.attributes?.color).toBe('black');
@@ -68,5 +70,49 @@ describe('commerce intent detection', () => {
     expect(detectCommerceIntent('سلام، خوبی؟').kind).toBe('none');
     expect(detectCommerceIntent('what are your business hours').kind).toBe('none');
     expect(detectCommerceIntent('').kind).toBe('none');
+  });
+});
+
+describe('Persian-keyboard digits', () => {
+  // The plugin's whole admin UI is Persian and the shoppers it serves type on
+  // Persian keyboards, so ۴۳ — not 43 — is the ordinary input. Every numeric
+  // extractor here is built on `\d`, which matches ASCII only, so without
+  // normalization the structured filters silently came back empty: the
+  // assistant would answer a "under 5 million" question with products over
+  // budget, and a "size 43" question with every size in the catalogue.
+
+  it('reads a price ceiling written with Persian digits', () => {
+    const intent = detectCommerceIntent('گوشی زیر ۵ میلیون تومان میخوام');
+    expect(intent.kind).toBe('search_products');
+    if (intent.kind === 'search_products') expect(intent.filters.maxPrice?.amountMinor).toBe('5000000');
+  });
+
+  it('reads a size written with Persian digits', () => {
+    const intent = detectCommerceIntent('این کفش سایز ۴۳ مشکی موجوده؟');
+    expect(intent.kind).toBe('search_products');
+    if (intent.kind === 'search_products') {
+      expect(intent.filters.attributes?.size).toBe('43');
+      expect(intent.filters.attributes?.color).toBe('black');
+    }
+  });
+
+  it('looks up an order number written with Persian digits', () => {
+    const intent = detectCommerceIntent('وضعیت سفارش ۱۲۳۴۵ چی شد؟');
+    expect(intent.kind).toBe('order_lookup');
+    if (intent.kind === 'order_lookup') expect(intent.orderNumber).toBe('12345');
+  });
+
+  it('reads Arabic-Indic digits too', () => {
+    const intent = detectCommerceIntent('قیمت زیر ٣٠٠ هزار تومان');
+    expect(intent.kind).toBe('search_products');
+    if (intent.kind === 'search_products') expect(intent.filters.maxPrice?.amountMinor).toBe('300000');
+  });
+
+  it('hands the shopper’s original text to full-text search, digits untouched', () => {
+    // The index's search_text column holds whatever the STORE typed, so
+    // rewriting the shopper's digits here could only cost us matches.
+    const intent = detectCommerceIntent('قیمت گوشی ۱۳ پرو');
+    expect(intent.kind).toBe('search_products');
+    if (intent.kind === 'search_products') expect(intent.filters.text).toContain('۱۳');
   });
 });

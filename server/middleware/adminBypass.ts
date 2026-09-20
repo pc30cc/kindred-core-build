@@ -45,14 +45,21 @@ export async function logGateBypass(
   },
 ): Promise<void> {
   try {
-    const sb = getServiceClient(config);
-    await sb.from('admin_gate_bypass_log').insert({
-      user_id: params.userId,
-      workspace_id: params.workspaceId || null,
-      module_key: params.moduleKey,
-      route: params.route,
-      reason: params.reason || null,
-    });
+    // COMPLIANCE_AUDIT_LOGGING suppresses the DATABASE row only. The
+    // structured ops line below still fires: this is the highest-privilege
+    // escape hatch in the product, and an operator who turns off audit
+    // logging should still be left with SOME trace of it in stdout rather
+    // than none at all. Narrower is safer here than symmetric.
+    if (config.complianceAuditLoggingEnabled !== false) {
+      const sb = getServiceClient(config);
+      await sb.from('admin_gate_bypass_log').insert({
+        user_id: params.userId,
+        workspace_id: params.workspaceId || null,
+        module_key: params.moduleKey,
+        route: params.route,
+        reason: params.reason || null,
+      });
+    }
     // Structured log for ops:
     // eslint-disable-next-line no-console
     console.info(

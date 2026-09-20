@@ -205,12 +205,9 @@ async function resolveBrandName(supabase: SupabaseClient, locale: string): Promi
       const fallback = await read('en');
       if (fallback) return fallback;
     }
-    const { data } = await supabase
-      .from('platform_branding')
-      .select('platform_name')
-      .limit(1)
-      .maybeSingle();
-    if (data?.platform_name) return String(data.platform_name).trim();
+    // No third tier: platform_name only exists on platform_branding_localized
+    // now, so the old platform_branding fallback that used to sit here was
+    // dead code that returned 400 on every miss.
   } catch {
     /* branding is optional — never block delivery */
   }
@@ -346,17 +343,24 @@ export async function sendEmail(
   }
 
   // --- Log delivery attempt ---
-  await supabase.from('email_logs').insert({
-    workspace_id: workspaceId,
-    template_slug: templateSlug || null,
-    recipient_email: to,
-    subject,
-    status: result.success ? 'sent' : 'failed',
-    provider_name: providerName,
-    error_message: result.error || null,
-    metadata: { templateData, messageId: result.id },
-    sent_at: result.success ? new Date().toISOString() : null,
-  });
+  // DELIVERY_DIAGNOSTICS_LOGGING — the single writer of email_logs (platform
+  // -level email at line ~213 deliberately never writes here). This row is
+  // the only evidence that a transactional email was actually handed to a
+  // provider; the send itself, and the SendResult every caller branches on,
+  // are already decided above and are unaffected either way.
+  if (config.deliveryDiagnosticsLoggingEnabled !== false) {
+    await supabase.from('email_logs').insert({
+      workspace_id: workspaceId,
+      template_slug: templateSlug || null,
+      recipient_email: to,
+      subject,
+      status: result.success ? 'sent' : 'failed',
+      provider_name: providerName,
+      error_message: result.error || null,
+      metadata: { templateData, messageId: result.id },
+      sent_at: result.success ? new Date().toISOString() : null,
+    });
+  }
 
   return result;
 }

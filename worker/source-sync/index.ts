@@ -17,7 +17,7 @@
  */
 
 import os from 'node:os';
-import type { ServerConfig } from '../../server/config.js';
+import { envFlagEnabled, type ServerConfig } from '../../server/config.js';
 import { processOne, getWorkerInfo } from '../../server/services/ai-agent/sourceWorker.js';
 
 function clampInt(v: string | undefined, def: number, min: number, max: number): number {
@@ -45,6 +45,15 @@ function buildConfig(): ServerConfig {
     rateLimitWindowMs: 60_000,
     rateLimitMax: 100,
     selfHostBillingUnlimited: false,
+    // Logging switches. These workers build their ServerConfig by hand
+    // instead of calling loadConfig(), so without these three lines the
+    // request-path logging flags would silently NOT reach the writers this
+    // container runs. envFlagEnabled() is the same parsing rule loadConfig()
+    // uses: only the literal `off` disables, so omitting the env var here
+    // leaves every write exactly as it is today.
+    productAnalyticsLoggingEnabled: envFlagEnabled('PRODUCT_ANALYTICS_LOGGING'),
+    deliveryDiagnosticsLoggingEnabled: envFlagEnabled('DELIVERY_DIAGNOSTICS_LOGGING'),
+    complianceAuditLoggingEnabled: envFlagEnabled('COMPLIANCE_AUDIT_LOGGING'),
   };
 }
 

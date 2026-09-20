@@ -13,6 +13,7 @@
 import type { ServerConfig } from '../../config.js';
 import { randomUUID } from 'node:crypto';
 import { getServiceClient } from '../../supabase.js';
+import { insertAuditLogRows } from '../auditLog.js';
 import { sendSmsVerification, type SmsRuntimeOptions } from '../sms/index.js';
 import {
   digestCode,
@@ -211,7 +212,7 @@ async function audit(
     workspace_id: entry.workspaceId ?? null,
     new_value: entry.details,
   };
-  const { error } = await sb(config).from('audit_logs').insert(row);
+  const { error } = await insertAuditLogRows(config, sb(config), row);
   if (error) {
     // Sanitized server-side log only: no phone, no code, no provider payload.
     console.error('[phoneVerification] audit insert failed', {

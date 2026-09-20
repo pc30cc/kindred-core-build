@@ -34,7 +34,13 @@ import {
 import { AiBillingError } from '../ai-billing/errors.js';
 import { logRun } from './logs.js';
 
-const VISITOR_SENDER_TYPES = ['contact', 'visitor', 'customer', 'user'];
+// Matched against already-fetched rows in JS, so this never reaches SQL.
+// Transcript labelling was already correct because 'contact' is a real label;
+// 'visitor', 'customer' and 'user' were dead values that can never match
+// public.sender_type { agent, contact, system, bot, ai }. Dropped so nobody
+// moves this list into a SQL .in() — which is how replyNow.ts and
+// anonymizer.ts ended up returning 400 on every call.
+const VISITOR_SENDER_TYPES = ['contact'];
 
 export type SayNowAttribution = 'specialist' | 'assistant';
 
@@ -45,6 +51,7 @@ export type SayNowBlockedReason =
   | 'ai_provider_not_configured'
   | 'empty_completion'
   | 'message_insert_failed'
+  | 'context_read_failed'
   | 'llm_failed';
 
 export interface SayNowInput {
@@ -91,24 +98,35 @@ export async function operatorSayNow(
   if (!dictation) return { ok: false, reason: 'empty_body', httpStatus: 400 };
 
   const sb = getServiceClient(config);
-  const { data: conv } = await sb
+  const { data: conv, error: convError } = await sb
     .from('conversations')
     .select('id,status,metadata')
     .eq('id', input.conversationId)
     .eq('workspace_id', input.workspaceId)
     .maybeSingle();
+  // Without this, a read failure is indistinguishable from "no such
+  // conversation" and the operator gets a misleading 404.
+  if (convError) {
+    return { ok: false, reason: 'context_read_failed', detail: convError.message, httpStatus: 500 };
+  }
   if (!conv) return { ok: false, reason: 'conversation_not_found', httpStatus: 404 };
   if (String((conv as any).status || '') === 'closed') {
     return { ok: false, reason: 'conversation_closed', httpStatus: 409 };
   }
 
   // ── Context: recent turns, so the rewrite reads as part of the thread ──
-  const { data: msgs } = await sb
+  const { data: msgs, error: msgsError } = await sb
     .from('conversation_messages')
     .select('id,sender_type,body,created_at')
     .eq('conversation_id', input.conversationId)
     .order('created_at', { ascending: false })
     .limit(12);
+  // This transcript drives tone AND language detection. Silently rewriting the
+  // dictation with no context risks sending the visitor a reply in the wrong
+  // language, so stop instead of guessing.
+  if (msgsError) {
+    return { ok: false, reason: 'context_read_failed', detail: msgsError.message, httpStatus: 500 };
+  }
   const ordered = (msgs || []).slice().reverse();
   const transcript = ordered
     .map((m: any) => {

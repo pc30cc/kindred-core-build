@@ -9,10 +9,10 @@
  * written by this file.
  */
 
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import crypto from 'crypto';
 import type { ServerConfig } from '../config.js';
-import { getServiceClient } from '../supabase.js';
+import { getServiceClient, type ServiceClient } from '../supabase.js';
 import {
   authRateLimiter,
   checkBruteForce,
@@ -40,6 +40,33 @@ import { readSessionToken } from '../lib/sessionTransport.js';
 import { allowsMobileTokenIssuance } from '../services/platformOrigins.js';
 import { getSignupVerificationPolicy } from '../services/auth/signupPolicy.js';
 import { getClientIp } from '../utils/clientIp.js';
+
+/**
+ * The single writer of `login_attempts` — the durable record of who tried to
+ * sign in, from where, and whether it worked. Both call sites (the generic
+ * invalid-credentials path and the successful login) go through here so
+ * COMPLIANCE_AUDIT_LOGGING has one place to stop.
+ *
+ * This table does NOT drive lockout: the in-memory brute-force tracker in
+ * middleware/security.ts (recordLoginAttempt — a different function, note)
+ * is what throttles, and count_recent_login_failures has no caller in server
+ * code. So suppressing these rows costs forensics and the user-visible
+ * "recent login history" in Account settings, never enforcement.
+ */
+async function insertLoginAttempt(
+  config: ServerConfig,
+  sb: ServiceClient,
+  req: Request,
+  email: string,
+  success: boolean,
+): Promise<void> {
+  if (config.complianceAuditLoggingEnabled === false) return;
+  await sb.from('login_attempts').insert({
+    ip_address: getClientIp(req) || 'unknown',
+    email,
+    success,
+  });
+}
 
 
 
@@ -154,7 +181,7 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
     const genericInvalid = async () => {
       recordLoginAttempt(req, normalizedEmail, false);
       await logSecurityEvent(req, 'login_failed', 'warn', { email: normalizedEmail });
-      await sb.from('login_attempts').insert({ ip_address: getClientIp(req) || 'unknown', email: normalizedEmail, success: false });
+      await insertLoginAttempt(config, sb, req, normalizedEmail, false);
       return res.status(401).json({ error: 'Invalid email or password' });
     };
 
@@ -209,7 +236,7 @@ authSecurityRouter.post('/login', authRateLimiter, async (req, res) => {
     // (`emailVerified` in the response) so the UI can still nudge toward
     // verification.
     recordLoginAttempt(req, normalizedEmail, true);
-    await sb.from('login_attempts').insert({ ip_address: getClientIp(req) || 'unknown', email: normalizedEmail, success: true });
+    await insertLoginAttempt(config, sb, req, normalizedEmail, true);
 
     // Silent rehash-on-login when stored params are weaker than current policy.
     if (needsRehash(identity.passwordHash)) {

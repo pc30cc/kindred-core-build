@@ -13,7 +13,7 @@
  *   COMMERCE_WORKER_RECONCILE_MS              optional, default 900000 (15m)
  */
 import os from 'node:os';
-import type { ServerConfig } from '../../server/config.js';
+import { envFlagEnabled, type ServerConfig } from '../../server/config.js';
 import { claimNextSyncJob, runSyncJobOnce, enqueueSyncJob } from '../../server/services/commerce/sync.js';
 import { runCapabilityHandshake } from '../../server/services/commerce/pairing.js';
 import { getServiceClient } from '../../server/supabase.js';
@@ -40,6 +40,15 @@ function buildConfig(): ServerConfig {
     rateLimitMax: 100,
     selfHostBillingUnlimited: false,
     pluginSecretsMasterKey: process.env.PLUGIN_SECRETS_MASTER_KEY,
+    // Logging switches. These workers build their ServerConfig by hand
+    // instead of calling loadConfig(), so without these three lines the
+    // request-path logging flags would silently NOT reach the writers this
+    // container runs. envFlagEnabled() is the same parsing rule loadConfig()
+    // uses: only the literal `off` disables, so omitting the env var here
+    // leaves every write exactly as it is today.
+    productAnalyticsLoggingEnabled: envFlagEnabled('PRODUCT_ANALYTICS_LOGGING'),
+    deliveryDiagnosticsLoggingEnabled: envFlagEnabled('DELIVERY_DIAGNOSTICS_LOGGING'),
+    complianceAuditLoggingEnabled: envFlagEnabled('COMPLIANCE_AUDIT_LOGGING'),
   };
 }
 

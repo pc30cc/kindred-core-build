@@ -11,6 +11,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { recordAiAgentDebugEvent } from './debugEvents.js';
 import {
   runDryRunTest,
   evaluateExpectations,
@@ -791,9 +792,9 @@ export async function runRegressionBatch(
     // E11.1 — only emit for SCHEDULED batches with at least one failure/error.
     // Manual batches must never trigger this alert.
     if (batch.trigger_type === 'scheduled' && (failed + errored) > 0) {
-      await sb.from('ai_agent_debug_events').insert({
-        workspace_id: batch.workspace_id,
-        event_type: 'regression_batch_failed',
+      await recordAiAgentDebugEvent(config, sb, {
+        workspaceId: batch.workspace_id,
+        eventType: 'regression_batch_failed',
         metadata: {
           batch_id: batchId,
           schedule_id: batch.schedule_id || null,

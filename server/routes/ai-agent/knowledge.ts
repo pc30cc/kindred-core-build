@@ -9,6 +9,7 @@ import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { recordSourceSyncLog } from '../../services/ai-agent/sourceSyncLog.js';
 import { routeParam } from '../../lib/routeParams.js';
 import { requireModule } from '../../middleware/featureGating.js';
 import { getSourceHealth, type HealthSourceType } from '../../services/ai-agent/sourceHealth.js';
@@ -1099,13 +1100,13 @@ knowledgeRouter.post('/data-sources/:id/sync', async (req: Request, res: Respons
     });
     job = created;
   }
-  await sb.from('ai_source_sync_logs').insert({
-    workspace_id: existing.workspace_id,
-    source_id: existing.id,
+  await recordSourceSyncLog(config, {
+    workspaceId: existing.workspace_id,
+    sourceId: existing.id,
     status: 'queued',
     message: auth.isAdmin ? 'Sync job queued (admin bypass)' : 'Sync job queued',
     metadata: { job_id: job.id },
-  });
+  }, sb);
   // In-process opportunistic kick.
   if (process.env.AI_KB_WORKER_INPROC === '1') {
     setImmediate(() => { processOneSourceJob(config).catch(() => {}); });
@@ -1143,13 +1144,13 @@ knowledgeRouter.post('/data-sources/:id/retry-failed-job', async (req: Request, 
     createdBy: auth.userId || null,
     metadata: { retry: true, ...(auth.isAdmin ? { admin_override: true } : {}) },
   });
-  await sb.from('ai_source_sync_logs').insert({
-    workspace_id: existing.workspace_id,
-    source_id: existing.id,
+  await recordSourceSyncLog(config, {
+    workspaceId: existing.workspace_id,
+    sourceId: existing.id,
     status: 'queued',
     message: auth.isAdmin ? 'Retry sync job queued (admin bypass)' : 'Retry sync job queued',
     metadata: { job_id: created.id, retry: true },
-  });
+  }, sb);
   if (process.env.AI_KB_WORKER_INPROC === '1') {
     setImmediate(() => { processOneSourceJob(config).catch(() => {}); });
   }

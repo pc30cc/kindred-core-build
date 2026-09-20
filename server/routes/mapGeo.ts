@@ -20,6 +20,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import type { ServerConfig } from '../config.js';
+import { insertAuditLogRows } from '../services/auditLog.js';
 import { getServiceClient } from '../supabase.js';
 import { getMapGeoSettings, patchMapGeoSettings } from '../services/geo/settings.js';
 import { checkMaxmindLocalHealth, lookupMaxmindLocal } from '../services/geo/maxmindLocal.js';
@@ -124,14 +125,14 @@ mapGeoRouter.put('/settings', async (req, res) => {
     const merged = await patchMapGeoSettings(config, patch as any);
     // Audit
     const sb = getServiceClient(config);
-    await sb.from('audit_logs').insert({
+    await insertAuditLogRows(config, sb, {
       action: 'map_geo.settings.update',
       entity_type: 'app_runtime_config',
       entity_id: null,
       user_id: (req as any).adminUser.id,
       workspace_id: '00000000-0000-0000-0000-000000000000',
-      new_value: { keys: Object.keys(patch) } as any,
-    } as any).then(() => {}, () => {});
+      new_value: { keys: Object.keys(patch) },
+    }).then(() => {}, () => {});
     const safe = {
       ...merged,
       maxmind_update: { ...merged.maxmind_update, license_key: merged.maxmind_update.license_key ? '••••••••' : '' },
@@ -228,13 +229,13 @@ mapGeoRouter.post('/maxmind/run-update', async (req, res) => {
   const config: ServerConfig = (req as any).serverConfig;
   const settings = await getMapGeoSettings(config);
   const sb = getServiceClient(config);
-  await sb.from('audit_logs').insert({
+  await insertAuditLogRows(config, sb, {
     action: 'map_geo.maxmind.update_requested',
     entity_type: 'app_runtime_config',
     user_id: (req as any).adminUser.id,
     workspace_id: '00000000-0000-0000-0000-000000000000',
-    new_value: { edition_id: settings.maxmind_update.edition_id } as any,
-  } as any).then(() => {}, () => {});
+    new_value: { edition_id: settings.maxmind_update.edition_id },
+  }).then(() => {}, () => {});
 
   // Runs the same code path as the ticker: leased, atomic, validated.
   // Credentials never appear in the response or the audit payload.

@@ -14,6 +14,7 @@
 import os from 'node:os';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { recordSourceSyncLog } from './sourceSyncLog.js';
 import {
   claimNextSourceSyncJob, completeSourceSyncJob, failSourceSyncJob,
   cancelSourceSyncJob, type SourceSyncJob,
@@ -146,13 +147,13 @@ async function runJob(config: ServerConfig, job: SourceSyncJob): Promise<void> {
   const maxDepth = Math.max(1, Math.min(source.crawl_depth || 2, limits.ai_kb_max_depth));
 
   await sb.from('ai_data_sources').update({ status: 'syncing', last_error: null }).eq('id', source.id);
-  await sb.from('ai_source_sync_logs').insert({
-    workspace_id: job.workspace_id,
-    source_id: source.id,
+  await recordSourceSyncLog(config, {
+    workspaceId: job.workspace_id,
+    sourceId: source.id,
     status: 'started',
     message: 'Worker started',
     metadata: { worker_id: WORKER_ID, job_id: job.id, max_pages: maxPages, max_depth: maxDepth },
-  });
+  }, sb);
 
   const include = (source.include_rules?.length ? source.include_rules : DEFAULT_INCLUDE) as string[];
   const exclude = ([...(source.exclude_rules || []), ...DEFAULT_EXCLUDE].filter(Boolean)) as string[];
@@ -182,14 +183,14 @@ async function runJob(config: ServerConfig, job: SourceSyncJob): Promise<void> {
     last_error: fatal ? (summary.errors[0] || 'crawl_failed') : null,
   }).eq('id', source.id);
 
-  await sb.from('ai_source_sync_logs').insert({
-    workspace_id: job.workspace_id,
-    source_id: source.id,
+  await recordSourceSyncLog(config, {
+    workspaceId: job.workspace_id,
+    sourceId: source.id,
     status: fatal ? 'failed' : 'completed',
     message: fatal ? `Crawl failed: ${summary.errors[0] || 'unknown'}` : 'Sync completed',
-    pages_found: summary.pages_seen,
-    chunks_created: summary.chunks_created,
-    embedded_chunks: summary.embedded_chunks,
+    pagesFound: summary.pages_seen,
+    chunksCreated: summary.chunks_created,
+    embeddedChunks: summary.embedded_chunks,
     errors: summary.pages_failed,
     metadata: {
       worker_id: WORKER_ID, job_id: job.id,
@@ -199,7 +200,7 @@ async function runJob(config: ServerConfig, job: SourceSyncJob): Promise<void> {
       pages_skipped: summary.pages_skipped,
       pages_failed: summary.pages_failed,
     },
-  });
+  }, sb);
 
   const compRes = await completeSourceSyncJob(config, {
     jobId: job.id,

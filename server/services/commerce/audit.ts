@@ -4,6 +4,7 @@
  */
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { insertAuditLogRows } from '../auditLog.js';
 
 export async function writeCommerceAudit(
   config: ServerConfig,
@@ -19,7 +20,7 @@ export async function writeCommerceAudit(
 ): Promise<void> {
   try {
     const sb = getServiceClient(config);
-    await sb.from('audit_logs').insert({
+    await insertAuditLogRows(config, sb, {
       workspace_id: input.workspaceId,
       user_id: input.userId ?? null,
       entity_type: input.entityType,
@@ -49,6 +50,9 @@ export async function recordCommerceToolAudit(
     resultCount?: number | null;
   },
 ): Promise<void> {
+  // COMPLIANCE_AUDIT_LOGGING — the single writer of commerce_tool_audit,
+  // the record of what an AI agent did against a merchant's store.
+  if (config.complianceAuditLoggingEnabled === false) return;
   try {
     const sb = getServiceClient(config);
     await sb.from('commerce_tool_audit').insert({

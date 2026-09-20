@@ -22,6 +22,7 @@ import { Router } from 'express';
 import type { Request } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
+import { insertAuditLogRows } from '../services/auditLog.js';
 import { getServiceClient } from '../supabase.js';
 import { requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { parseWorkspaceDomainInput, type DomainInputResult } from '../utils/workspaceDomainInput.js';
@@ -178,7 +179,7 @@ adminManagementRouter.delete('/users/:userId', async (req, res) => {
   }
 
   if (data.started) {
-    await sb.from('audit_logs').insert({
+    await insertAuditLogRows(config, sb, {
       workspace_id: null,
       user_id: actorId,
       action: 'admin.user.deletion_requested',

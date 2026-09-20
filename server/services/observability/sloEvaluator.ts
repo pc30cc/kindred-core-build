@@ -42,6 +42,33 @@ interface ObservedSample {
 
 const MIN_CONSECUTIVE_BREACHES_TO_OPEN = 3;
 
+/**
+ * How old the newest rollup bucket may be before this evaluator treats the
+ * rollup as ABSENT rather than as a current reading.
+ *
+ * Both source tables are written only by startReliabilityRollup. Whenever
+ * that producer is not running — OBSERVABILITY_REPORTING_TICKERS=off, a
+ * crashed rollup, a half-deployed cluster — the queries below would keep
+ * returning the last bucket ever written, with no recency filter, forever.
+ * This evaluator runs every 60s from the enforcement ticker, which is NOT
+ * gated by that flag, so a frozen final bucket that happens to sit below
+ * target would re-open and hold a breach indefinitely against a reading
+ * that stopped being true days ago.
+ *
+ * Ageing the bucket out yields ZERO samples instead, which is the same
+ * degradation health_score already uses below: with no samples an SLO is
+ * neither breached nor resolved, so it simply stops being evaluated rather
+ * than silently reporting a stale verdict. Three hours leaves generous room
+ * for an hourly bucket plus ordinary rollup lag (the rollup ticks every
+ * 10 min) without ever letting a dead producer masquerade as a live one.
+ */
+const MAX_BUCKET_AGE_MS = 3 * 60 * 60 * 1000;
+
+/** Oldest bucket_hour this pass will accept as a current reading. */
+function freshestAcceptableBucket(): string {
+  return new Date(Date.now() - MAX_BUCKET_AGE_MS).toISOString();
+}
+
 export interface SloEvaluatorResult {
   evaluated: number;
   opened: number;
@@ -187,6 +214,7 @@ async function loadSamplesForSlo(
       .from('sla_reliability_hourly')
       .select(`scope_type, scope_key, ${def.metric_key}, bucket_hour`)
       .eq('scope_type', def.scope_type)
+      .gte('bucket_hour', freshestAcceptableBucket())
       .order('bucket_hour', { ascending: false })
       .limit(20);
 
@@ -234,6 +262,7 @@ async function loadSamplesForSlo(
     const { data } = await sb
       .from('business_metrics_hourly')
       .select(`workspace_id, ${def.metric_key}, bucket_hour`)
+      .gte('bucket_hour', freshestAcceptableBucket())
       .order('bucket_hour', { ascending: false })
       .limit(500);
 

@@ -29,6 +29,7 @@
  */
 
 import type { ServerConfig } from '../config.js';
+import { insertAuditLogRows } from './auditLog.js';
 import { getServiceClient } from '../supabase.js';
 import { publishOperatorEvent } from './realtime/publish.js';
 
@@ -128,20 +129,18 @@ export async function recordAuditAndEvent(
   const sb = getServiceClient(config);
   // Audit log (compliance). Never blocks the event write.
   if (input.actorId) {
-    sb.from('audit_logs')
-      .insert({
-        workspace_id: input.workspaceId,
-        user_id: input.actorId,
-        entity_type: input.auditEntityType ?? 'conversation',
-        entity_id: input.conversationId,
-        action: input.auditAction,
-        old_value: input.oldValue ?? null,
-        new_value: input.newValue ?? null,
-        ip_address: input.ipAddress ?? null,
-      })
-      .then(({ error }) => {
-        if (error) console.warn('[audit_logs] insert failed:', error.message);
-      });
+    void insertAuditLogRows(config, sb, {
+      workspace_id: input.workspaceId,
+      user_id: input.actorId,
+      entity_type: input.auditEntityType ?? 'conversation',
+      entity_id: input.conversationId,
+      action: input.auditAction,
+      old_value: input.oldValue ?? null,
+      new_value: input.newValue ?? null,
+      ip_address: input.ipAddress ?? null,
+    }).then(({ error }) => {
+      if (error) console.warn('[audit_logs] insert failed:', error.message);
+    });
   }
   await recordConversationEvent(config, input);
 }

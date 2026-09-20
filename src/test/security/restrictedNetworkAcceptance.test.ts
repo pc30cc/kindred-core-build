@@ -45,17 +45,23 @@ import { AI_RUNTIME_ROUTES, AI_RUNTIME_SECRET_HEADER } from '../../../shared/ai/
 // ── Supabase stub (Core keeps the DB; the runtime never sees it) ────────────
 function makeSupabaseStub() {
   const builder = (table: string) => {
+    // "no row" is a normal answer for the optional workspace override, so the
+    // resolvers read provider_configs with .maybeSingle() while the
+    // app_runtime_config singleton still uses .single(). The stub answers both
+    // the same way.
+    const readRow = async () => {
+      if (table === 'provider_configs') return { data: supabaseState.workspaceProvider, error: null };
+      if (table === 'app_runtime_config') return { data: supabaseState.globalProvider, error: null };
+      return { data: null, error: null };
+    };
     const chain: any = {
       _table: table,
       select: () => chain,
       eq: () => chain,
       order: () => chain,
       limit: () => chain,
-      single: async () => {
-        if (table === 'provider_configs') return { data: supabaseState.workspaceProvider, error: null };
-        if (table === 'app_runtime_config') return { data: supabaseState.globalProvider, error: null };
-        return { data: null, error: null };
-      },
+      single: readRow,
+      maybeSingle: readRow,
       insert: async (row: any) => {
         if (table === 'ai_usage_logs') usageLogs.push(row);
         return { data: null, error: null };

@@ -51,6 +51,8 @@ import { brandRadarRouter } from './routes/brandRadar.js';
 import { plansRouter } from './routes/plans.js';
 import { pluginsRouter, adminPluginsRouter } from './routes/plugins.js';
 import { internalChannelsRouter } from './routes/internalChannels.js';
+import { telephonyRouter } from './routes/telephony.js';
+import { createInternalTelephonyRouter } from './routes/internalTelephony.js';
 import { emailInboxRouter } from './routes/emailInbox.js';
 import { gmailPushRouter } from './routes/gmailPush.js';
 

@@ -20,3 +20,11 @@
 - [ ] Complete FA/TR/EN admin diagnostics and monitoring.
 - [ ] Execute isolated full restore and timestamp PITR with production backup evidence.
 - [ ] Run focused and baseline regression tests; do not claim zero new failures without results.
+
+## DaftareShoma telephony plugin
+- [x] Phase A–B: audit, plugin registry entry, encrypted SIP credential storage.
+- [x] Phase C–D: telephony service layer, gateway client (fail-closed), internal ingress routes, idempotent incoming-call mapping.
+- [x] Phase E–F: unique LiveKit room per call, atomic operator claim RPC, reject/hangup convergence, uninstall cleanup.
+- [x] Phase G: settings validation, caller-ID normalization, gateway fail-closed and entry-source guard tests.
+- [x] Phase H: architecture + setup docs, Docker Compose / Coolify deployment assets.
+- [ ] Deploy webyar-telephony (Asterisk/PJSIP) and livekit-sip, set TELEPHONY_INTERNAL_SECRET / TELEPHONY_INTERNAL_BASE_URL, then run the real end-to-end acceptance call (blocked: production host access and DaftareShoma SIP account).

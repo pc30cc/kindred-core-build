@@ -7892,6 +7892,7 @@ export type Database = {
           image_url: string | null
           is_downloadable: boolean
           is_virtual: boolean
+          last_seen_at: string | null
           product_type: string
           regular_price_minor: number | null
           sale_price_minor: number | null
@@ -7920,6 +7921,7 @@ export type Database = {
           image_url?: string | null
           is_downloadable?: boolean
           is_virtual?: boolean
+          last_seen_at?: string | null
           product_type?: string
           regular_price_minor?: number | null
           sale_price_minor?: number | null
@@ -7948,6 +7950,7 @@ export type Database = {
           image_url?: string | null
           is_downloadable?: boolean
           is_virtual?: boolean
+          last_seen_at?: string | null
           product_type?: string
           regular_price_minor?: number | null
           sale_price_minor?: number | null
@@ -7985,6 +7988,7 @@ export type Database = {
           cursor_type: string
           modified_after: string | null
           page: number
+          sweep_epoch: string | null
           updated_at: string
         }
         Insert: {
@@ -7993,6 +7997,7 @@ export type Database = {
           cursor_type: string
           modified_after?: string | null
           page?: number
+          sweep_epoch?: string | null
           updated_at?: string
         }
         Update: {
@@ -8001,6 +8006,7 @@ export type Database = {
           cursor_type?: string
           modified_after?: string | null
           page?: number
+          sweep_epoch?: string | null
           updated_at?: string
         }
         Relationships: [

@@ -23,6 +23,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { inflateSync } from 'node:zlib';
+import plist from 'plist';
 
 /** An app-icon catalog: masked by the system, so square and opaque. */
 const CATALOGS = [
@@ -282,6 +283,51 @@ describe('the brand icons', () => {
         `${path} is a different picture from ${reference} — every surface is ` +
           `meant to show one mark`,
       ).toBeLessThan(SAME);
+    }
+  });
+});
+
+/**
+ * Every bundle that carries an icon has to name its icon set.
+ *
+ * `CFBundleIconName` is not the `CFBundleIcons` dictionary the asset compiler
+ * writes during a build; that one is present and correct without any help.
+ * This is the separate top-level key. Xcode's own app template ships it, a
+ * plist generated from a project file does not, and neither does one
+ * hand-maintained since a Capacitor scaffold.
+ *
+ * Nothing on a device misbehaves without it — App Store Connect is what
+ * rejects the upload, as ITMS-90713, which is a bad moment to find out.
+ */
+describe('the bundles that carry an icon', () => {
+  const CATALOG_NAME = 'AppIcon';
+
+  it('the native app names its icon set in the generated Info.plist', () => {
+    const project = readFileSync('ios/WebyarNative/project.yml', 'utf8');
+    expect(
+      project,
+      'project.yml builds the Info.plist and declares no CFBundleIconName, ' +
+        'so App Store Connect will reject the upload as ITMS-90713',
+    ).toMatch(new RegExp(`^\\s*CFBundleIconName:\\s*${CATALOG_NAME}\\s*$`, 'm'));
+  });
+
+  it('the Capacitor app names its icon set in its Info.plist', () => {
+    const info = plist.parse(
+      readFileSync('ios/App/App/Info.plist', 'utf8'),
+    ) as Record<string, unknown>;
+    expect(
+      info.CFBundleIconName,
+      'ios/App/App/Info.plist declares no CFBundleIconName',
+    ).toBe(CATALOG_NAME);
+  });
+
+  it('both names match a catalog that exists', () => {
+    for (const catalog of CATALOGS) {
+      expect(
+        catalog.endsWith(`${CATALOG_NAME}.appiconset`),
+        `${catalog} is not the ${CATALOG_NAME} set the plists name`,
+      ).toBe(true);
+      expect(existsSync(join(catalog, 'Contents.json'))).toBe(true);
     }
   });
 });

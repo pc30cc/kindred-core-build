@@ -41,6 +41,16 @@ targets:
       path: Generated/Info.plist
       properties:
         CFBundleDisplayName: Webyar
+        # Names the icon set in the asset catalog. Not the `CFBundleIcons`
+        # dictionary — the asset compiler writes that one itself during a
+        # build, and it was already there and correct. This is the separate
+        # top-level key, which Xcode's own app template ships and a plist
+        # built from a project file does not get.
+        #
+        # Nothing visibly misbehaves without it on a device or a clean
+        # simulator; it is App Store Connect that rejects the upload, as
+        # ITMS-90713. That is the whole reason it is here.
+        CFBundleIconName: AppIcon
         CFBundleShortVersionString: "1.0.0"
         CFBundleVersion: "1"
         UILaunchScreen:

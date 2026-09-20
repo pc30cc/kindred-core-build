@@ -23,7 +23,11 @@ delete_option( 'webyar_wc_pairing_state' );
 delete_option( 'webyar_wc_dead_letters' );
 
 if ( function_exists( 'as_unschedule_all_actions' ) ) {
-	as_unschedule_all_actions( 'webyar_wc_deliver_event', array(), 'webyar-wc' );
+	// Hook only — see Events/EventQueue::cancel_all(). The
+	// ( hook, array(), group ) form matches only actions with empty args and
+	// would leave every queued delivery scheduled after the plugin's code is
+	// gone.
+	as_unschedule_all_actions( 'webyar_wc_deliver_event' );
 }
 
 // Replay-guard nonce transients — pattern-matched delete, this plugin's

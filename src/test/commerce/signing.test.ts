@@ -15,6 +15,7 @@ import {
   CLOCK_SKEW_SECONDS,
 } from '../../../server/services/commerce/signing.js';
 import { COMMERCE_PROTOCOL_VERSION } from '../../../shared/commerce/types.js';
+import { catalogExportPaths } from '../../../server/services/commerce/catalogPaths.js';
 
 describe('commerce request signing', () => {
   it('produces headers that verify against a hand-computed signature', () => {
@@ -86,5 +87,45 @@ describe('commerce request signing', () => {
   it('the configured clock skew window is bounded (not unlimited)', () => {
     expect(CLOCK_SKEW_SECONDS).toBeGreaterThan(0);
     expect(CLOCK_SKEW_SECONDS).toBeLessThanOrEqual(600);
+  });
+});
+
+describe('canonical path for catalog export', () => {
+  // The plugin signs `'/wp-json' . WP_REST_Request::get_route()`, which
+  // never includes the query string. Signing the full URL instead made
+  // every catalog-sync page fail with 401 bad_signature, and nothing here
+  // caught it because every other case in this file is query-less.
+  it('signs the route while requesting the query string', () => {
+    const { signedPath, requestPath } = catalogExportPaths(3, null);
+
+    expect(signedPath).toBe('/wp-json/webyar/v1/catalog/export');
+    expect(signedPath).not.toContain('?');
+    expect(requestPath).toContain('?page=3');
+    expect(requestPath.startsWith(signedPath + '?')).toBe(true);
+  });
+
+  it('keeps the signed path stable across pages and incremental cursors', () => {
+    const first = catalogExportPaths(1, null);
+    const later = catalogExportPaths(42, '2026-09-20T08:45:00.000Z');
+
+    expect(later.signedPath).toBe(first.signedPath);
+    expect(later.requestPath).toContain('modified_after=');
+    expect(later.requestPath).not.toBe(first.requestPath);
+  });
+
+  it('a query-bearing canonical path would not verify against the route', () => {
+    const secret = 'installation-secret';
+    const { signedPath, requestPath } = catalogExportPaths(2, null);
+    const base = {
+      protocolVersion: COMMERCE_PROTOCOL_VERSION,
+      method: 'GET',
+      installationId: 'inst-1',
+      timestamp: '1700000000',
+      nonce: 'n',
+      bodySha256Hex: sha256Hex(''),
+    };
+
+    expect(computeSignature(secret, { ...base, canonicalPath: requestPath }))
+      .not.toBe(computeSignature(secret, { ...base, canonicalPath: signedPath }));
   });
 });

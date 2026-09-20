@@ -13,8 +13,8 @@ import { WooCommerceConnector, normalizeWooCommerceProduct } from './connectors/
 import { upsertProductInIndex } from './productIndex.js';
 import { commerceHttpRequest } from './httpClient.js';
 import { buildSignedHeaders } from './signing.js';
+import { catalogExportPaths } from './catalogPaths.js';
 
-const PAGE_SIZE = 50;
 const MAX_PAGES_PER_RUN = 20; // bounds one worker tick to <= 1000 products
 const MAX_ATTEMPTS = 5;
 
@@ -64,12 +64,9 @@ async function fetchProductPage(
   page: number,
   modifiedAfter: string | null,
 ): Promise<{ products: any[]; hasMore: boolean }> {
-  const path = '/wp-json/webyar/v1/catalog/export';
-  const query = new URLSearchParams({ page: String(page), per_page: String(PAGE_SIZE) });
-  if (modifiedAfter) query.set('modified_after', modifiedAfter);
-  const fullPath = `${path}?${query.toString()}`;
-  const headers = buildSignedHeaders(secret, installationId, 'GET', fullPath, '');
-  const res = await commerceHttpRequest({ url: `${origin}${fullPath}`, method: 'GET', headers, retryable: true });
+  const { signedPath, requestPath } = catalogExportPaths(page, modifiedAfter);
+  const headers = buildSignedHeaders(secret, installationId, 'GET', signedPath, '');
+  const res = await commerceHttpRequest({ url: `${origin}${requestPath}`, method: 'GET', headers, retryable: true });
   if (res.status >= 400) throw new CommerceError('commerce_live_unavailable', `catalog export failed: ${res.status}`);
   const body = res.json as any;
   return { products: Array.isArray(body?.products) ? body.products : [], hasMore: body?.has_more === true };

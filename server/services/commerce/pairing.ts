@@ -295,7 +295,20 @@ export async function runCapabilityHandshake(config: ServerConfig, connectionId:
         hpos_enabled: handshake.hposEnabled,
         capabilities: handshake.capabilities,
         protocol_version: handshake.protocolVersion,
-        catalog_ready: handshake.catalogReady,
+        // NEVER raised here. `commerce_connections.catalog_ready` means "Web
+        // Yar's own product index is usable", which only a completed sync can
+        // establish (sync.ts). The handshake field of the same name is the
+        // STORE answering a different question — "can I serve my catalogue?" —
+        // and the connector plugin answers it with a constant true. Copying it
+        // across raised the flag at pairing time, before a single product had
+        // been indexed, so the `catalog_syncing` guard in gateway.ts and the
+        // AI runner never fired and the assistant answered from an empty index
+        // as though the catalogue were complete.
+        //
+        // The reverse still applies: a store that reports it CANNOT serve its
+        // catalogue invalidates whatever we indexed from it, so that lowers
+        // the flag immediately.
+        ...(handshake.catalogReady === false ? { catalog_ready: false } : {}),
         health,
         last_seen_at: new Date().toISOString(),
         last_success_at: new Date().toISOString(),

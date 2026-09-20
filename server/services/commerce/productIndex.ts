@@ -138,9 +138,75 @@ export interface IndexedProductRow {
 }
 
 /**
+ * Words that make a sentence a question rather than a product.
+ *
+ * `search_text` is built with the `simple` text-search config, which has no
+ * stopword list of its own, so every token handed to the tsquery has to be
+ * present in the row. Left in, one filler word is enough to match nothing:
+ * "هدفون" finds two products, "هدفون & خوب" finds none.
+ */
+const QUESTION_WORDS = new Set([
+  // Persian fillers, pronouns, particles and question words.
+  'یه', 'یک', 'این', 'اون', 'آن', 'رو', 'را', 'از', 'با', 'به', 'در', 'که', 'تا', 'و', 'یا',
+  'برای', 'هم', 'چه', 'چی', 'چیه', 'چند', 'چنده', 'چقدر', 'کدوم', 'کدام', 'کجا', 'کجاست',
+  'دارید', 'دارین', 'داری', 'دارد', 'هست', 'هستش', 'باشه', 'بود', 'میشه', 'می‌شه', 'شود',
+  'خوب', 'بهترین', 'عالی', 'مناسب', 'ارزان', 'ارزون', 'ارزانترین', 'ارزونترین', 'گران', 'گرون',
+  'معرفی', 'پیشنهاد', 'بده', 'بدید', 'کن', 'کنید', 'کنین', 'میخوام', 'می‌خوام', 'میخواستم',
+  'لطفا', 'لطفاً', 'سلام', 'ممنون', 'موجوده', 'موجود', 'میفروشید', 'می‌فروشید',
+  'زیر', 'بالای', 'کمتر', 'بیشتر', 'حدود', 'تومان', 'تومن', 'ریال', 'میلیون', 'هزار',
+  // English equivalents.
+  'a', 'an', 'the', 'is', 'are', 'do', 'you', 'have', 'got', 'any', 'some', 'me', 'my', 'i',
+  'show', 'find', 'want', 'need', 'looking', 'for', 'under', 'over', 'best', 'good', 'cheap',
+  'please', 'hi', 'hello', 'what', 'which', 'how', 'much', 'price', 'in', 'stock', 'available',
+]);
+
+/**
+ * The shopper's free text reduced to the words worth searching for.
+ * Exported so the tokenisation is testable without a database.
+ */
+export function buildSearchTerms(text: string | null | undefined): string[] {
+  if (!text || !text.trim()) return [];
+  // U+200C ZERO WIDTH NON-JOINER is a letter-level part of Persian spelling
+  // («تی‌شرت», «ارزان‌ترین»), not punctuation, and `to_tsvector` keeps it
+  // inside the token. Stripping it here — as the old `[^\p{L}\p{N}]` did,
+  // since it is a format character rather than a letter — turned «تی‌شرت»
+  // into «تیشرت», which matches nothing in an index that stored «تی‌شرت».
+  const ZWNJ = '\u200c';
+  const all = text
+    .trim()
+    .split(/\s+/)
+    .slice(0, 12)
+    .map((t) => t.replace(/[^\p{L}\p{N}\u200c]/gu, ''))
+    .filter(Boolean);
+  // Keep the content words. If the question was nothing BUT question words we
+  // fall back to all of them rather than matching the whole catalogue.
+  const content = all.filter((t) => !QUESTION_WORDS.has(t.replace(new RegExp(ZWNJ, 'g'), '').toLowerCase()));
+  const kept = (content.length ? content : all).slice(0, 8);
+
+  // Shoppers type both spellings, and so do store owners, so search for
+  // both: whichever side used the joiner, the other still matches.
+  const out: string[] = [];
+  for (const t of kept) {
+    if (!out.includes(t)) out.push(t);
+    const flat = t.replace(new RegExp(ZWNJ, 'g'), '');
+    if (flat && flat !== t && !out.includes(flat)) out.push(flat);
+  }
+  return out;
+}
+
+/**
  * Structured filters (price/stock/category) are plain column predicates —
  * NEVER inferred semantically. Free text uses the tsvector column. See
  * docs/commerce/ARCHITECTURE.md §23.
+ *
+ * Free text is matched with OR and then re-ranked here by how many of the
+ * shopper's terms a row actually contains. It used to AND every token of the
+ * question together, which meant a real shopper sentence — "یه هدفون خوب
+ * معرفی کن" — matched nothing at all even against a fully populated index,
+ * because no product contains the words "یه" or "معرفی". Ranking in this
+ * process rather than with ts_rank keeps the query a plain PostgREST filter;
+ * the candidate window is bounded so the extra rows never grow with the
+ * catalogue.
  */
 export async function searchIndexedProducts(
   config: ServerConfig,
@@ -159,25 +225,46 @@ export async function searchIndexedProducts(
     .eq('connection_id', connectionId)
     .is('deleted_at', null);
 
-  if (filters.text && filters.text.trim()) {
-    const terms = filters.text
-      .trim()
-      .split(/\s+/)
-      .slice(0, 8)
-      .map((t) => t.replace(/[^\p{L}\p{N}]/gu, ''))
-      .filter(Boolean);
-    if (terms.length) query = query.textSearch('search_text', terms.join(' & '), { type: 'plain', config: 'simple' });
+  const terms = buildSearchTerms(filters.text);
+  if (terms.length) {
+    // `to_tsquery` syntax (no `type`), so `|` is the OR operator; the terms
+    // are already stripped to letters and digits, so nothing here can inject
+    // query syntax.
+    query = query.textSearch('search_text', terms.join(' | '), { config: 'simple' });
   }
   if (filters.minPrice) query = query.gte('effective_price_minor', Number(filters.minPrice.amountMinor));
   if (filters.maxPrice) query = query.lte('effective_price_minor', Number(filters.maxPrice.amountMinor));
   if (filters.inStockOnly) query = query.eq('stock_state', 'in_stock');
   if (filters.categorySlug) query = query.contains('categories', [{ slug: filters.categorySlug }]);
 
-  query = query.order('updated_at', { ascending: false }).limit(limit);
+  // Over-fetch only when there is something to re-rank; a bounded window so
+  // a large catalogue cannot turn this into a full scan.
+  const candidateLimit = terms.length ? Math.min(limit * 4, 60) : limit;
+  query = query.order('updated_at', { ascending: false }).limit(candidateLimit);
 
   const { data, error, count } = await query;
   if (error) throw new Error(`product search failed: ${error.message}`);
-  return { rows: (data ?? []) as IndexedProductRow[], totalMatched: count ?? (data?.length ?? 0) };
+  const rows = (data ?? []) as IndexedProductRow[];
+
+  if (!terms.length) return { rows, totalMatched: count ?? rows.length };
+
+  // Compare with the joiner folded away on both sides, so the two spellings
+  // of one word do not score as two separate hits.
+  const fold = (v: string) => v.replace(/\u200c/g, '').toLowerCase();
+  const lowered = [...new Set(terms.map(fold))].filter(Boolean);
+  const score = (r: IndexedProductRow) => {
+    const hay = fold(`${r.title ?? ''} ${r.short_description ?? ''} ${r.sku ?? ''}`);
+    return lowered.reduce((acc, t) => acc + (hay.includes(t) ? 1 : 0), 0);
+  };
+  const ranked = rows
+    .map((r, i) => ({ r, s: score(r), i }))
+    // Most of the shopper's words first; the query's own updated_at ordering
+    // breaks ties, so the comparison stays stable.
+    .sort((a, b) => b.s - a.s || a.i - b.i)
+    .slice(0, limit)
+    .map((x) => x.r);
+
+  return { rows: ranked, totalMatched: count ?? ranked.length };
 }
 
 export async function getIndexedProductsByIds(

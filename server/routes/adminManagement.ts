@@ -650,8 +650,13 @@ const platformDomainsSchema = z.object({
   canonical_base_url: z.string().max(2000).nullable().optional(),
   app_base_url: z.string().max(2000).nullable().optional(),
   api_base_url: z.string().max(2000).nullable().optional(),
-  widget_base_url: z.string().max(2000).nullable().optional(),
-  asset_base_url: z.string().max(2000).nullable().optional(),
+  // `widget_base_url` and `asset_base_url` are NOT here, and their absence is
+  // the point. Widget deployment URLs live in `widget_platform_settings`
+  // (Super Admin → Widget → Deployment URLs) and nothing reads these two —
+  // migration 20260419082857 moved them and marked the columns DEPRECATED,
+  // kept only so a rollback has somewhere to land. A zod object strips keys it
+  // does not declare, so a client that still sends them is simply ignored
+  // rather than writing a second, competing answer for the same URL.
   public_base_url: z.string().max(2000).nullable().optional(),
   help_center_base_url: z.string().max(2000).nullable().optional(),
   email_base_url: z.string().max(2000).nullable().optional(),
@@ -757,11 +762,37 @@ adminManagementRouter.get('/email-settings', async (req, res) => {
   return res.json({ settings: data });
 });
 
+/**
+ * Platform email settings — ONE field.
+ *
+ * `reply_to_email` is the only thing here the runtime reads:
+ * server/routes/widget.ts uses it as the recipient for an offline visitor
+ * message when no operator has an address.
+ *
+ * Everything else that used to live on this route is gone, because nothing
+ * ever read any of it:
+ *
+ *   sender_email  — a second place to answer "who is this mail from". The
+ *     From header is built entirely from the platform email provider's
+ *     `from_email` / `from_name` (Super Admin → Providers → Email); see
+ *     `resolveFromAddress` in server/services/email/index.ts.
+ *   email_logo_url, email_footer_text — email branding no template can
+ *     express: of the 84 stored templates not one references a logo or footer
+ *     placeholder and not one contains an <img> tag. `{brand}` is the only
+ *     branding hook and it resolves from platform_branding_localized.
+ *
+ * The whole `/email-settings-localized` pair went with them. That table has no
+ * runtime consumer at all — its three columns (sender_name, footer_text,
+ * support_contact_label) were read by nothing — so the routes were a way to
+ * write a row nobody would ever look at.
+ *
+ * A zod object strips undeclared keys, so an older client still posting
+ * `sender_email` is ignored rather than rejected. The COLUMNS stay: dropping
+ * them is a separate decision with rollback consequences, and leaving them is
+ * harmless once nothing writes them.
+ */
 const emailSettingsSchema = z.object({
-  sender_email: z.string().max(255).default(''),
   reply_to_email: z.string().max(255).default(''),
-  email_logo_url: z.string().max(2000).default(''),
-  email_footer_text: z.string().max(4000).default(''),
 });
 
 adminManagementRouter.put('/email-settings', async (req, res) => {
@@ -780,46 +811,7 @@ adminManagementRouter.put('/email-settings', async (req, res) => {
   return res.json({ success: true });
 });
 
-// ── Global localized email settings (workspace_id IS NULL) ─────────────
-adminManagementRouter.get('/email-settings-localized', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  const sb = getServiceClient(serverConfigOf(req));
-  const { data, error } = await sb
-    .from('email_settings_localized')
-    .select('*')
-    .is('workspace_id', null)
-    .order('locale');
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json({ rows: data ?? [] });
-});
 
-const emailSettingsLocalizedSchema = z.object({
-  locale: z.string().min(2).max(10),
-  sender_name: z.string().max(255).nullable().optional(),
-  footer_text: z.string().max(4000).nullable().optional(),
-  support_contact_label: z.string().max(255).nullable().optional(),
-});
-
-adminManagementRouter.put('/email-settings-localized', async (req, res) => {
-  if (!(await requirePlatformAdmin(req, res))) return;
-  const parsed = emailSettingsLocalizedSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid input' });
-  const sb = getServiceClient(serverConfigOf(req));
-  const payload = { ...parsed.data, workspace_id: null, updated_at: new Date().toISOString() };
-  const { data: existing } = await sb
-    .from('email_settings_localized')
-    .select('id')
-    .is('workspace_id', null)
-    .eq('locale', parsed.data.locale)
-    .maybeSingle();
-  const { error } = existing
-    ? await sb.from('email_settings_localized').update(payload).eq('id', (existing as { id: string }).id)
-    : await sb.from('email_settings_localized').insert(payload);
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json({ success: true });
-});
-
-// ── Feature flag toggle (platform-wide rows only) ──────────────────────
 const featureFlagUpdateSchema = z.object({ enabled: z.boolean() });
 
 adminManagementRouter.patch('/feature-flags/:id', async (req, res) => {

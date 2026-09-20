@@ -1,1 +1,10 @@
+// Debug-only overrides, layered ON TOP of the generated configuration so a
+// debug run uses the same bundle id, versions and team as a release build.
+#include "generated.xcconfig"
+
 CAPACITOR_DEBUG = true
+
+// A debug build is signed with a DEVELOPMENT profile, whose aps-environment
+// is `development`. App.entitlements reads this through $(APS_ENVIRONMENT);
+// leaving it at `production` here makes codesign reject the mismatch.
+APS_ENVIRONMENT = development

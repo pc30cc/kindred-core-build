@@ -55,16 +55,16 @@ describe('ios runtime-config generation', () => {
 
   it('honours the MOBILE_API_BASE_URL override and strips trailing slashes', () => {
     const dir = sandbox();
-    run(dir, { MOBILE_API_BASE_URL: 'https://api.destekly.tr//' });
+    run(dir, { MOBILE_API_BASE_URL: 'https://api.example.com//' });
     const out = readFileSync(join(dir, 'dist/runtime-config.js'), 'utf8');
-    expect(out).toContain('mobileApiBaseUrl: "https://api.destekly.tr"');
-    expect(out).not.toContain('destekly.tr/"');
+    expect(out).toContain('mobileApiBaseUrl: "https://api.example.com"');
+    expect(out).not.toContain('example.com/"');
   });
 
   it('fails the build rather than shipping an empty or non-https base', () => {
     const dir = sandbox();
     expect(() => run(dir, { MOBILE_API_BASE_URL: ' ' })).toThrow();
-    expect(() => run(dir, { MOBILE_API_BASE_URL: 'http://api.destekly.tr' })).toThrow();
+    expect(() => run(dir, { MOBILE_API_BASE_URL: 'http://api.example.com' })).toThrow();
   });
 
   it('is idempotent — re-running after a sync yields the same file', () => {

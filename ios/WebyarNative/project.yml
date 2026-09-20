@@ -1,0 +1,130 @@
+name: WebyarNative
+options:
+  bundleIdPrefix: com.webyar
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: KB548B4TUJ
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_STRICT_CONCURRENCY: complete
+
+packages:
+  # The one external dependency in this app, and it earns its place: a call
+  # needs a real WebRTC stack, and the platform's own calls already run on
+  # LiveKit — the operator console uses `livekit-client`, so the phone joining
+  # the same rooms with the same tokens is the only arrangement that cannot
+  # drift from what the web does.
+  LiveKit:
+    url: https://github.com/livekit/client-sdk-swift
+    from: 2.0.0
+
+targets:
+  WebyarNative:
+    type: application
+    platform: iOS
+    dependencies:
+      - package: LiveKit
+    sources:
+      - path: Sources
+      - path: Resources
+        buildPhase: resources
+    # Generated, and deliberately NOT inside `Resources` — a plist sitting in
+    # a resources build phase is also copied verbatim, which makes two
+    # commands produce the same output file and fails the build.
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleDisplayName: Webyar
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        # Export compliance, NOT App Transport Security. The two get confused
+        # because both sound like "is the connection secure", and they are not
+        # the same question: this key answers the US export declaration that
+        # App Store Connect otherwise asks on every single upload.
+        #
+        # The answer mirrors the platform's own declared position rather than
+        # being an independent opinion. Super Admin holds `uses_encryption` and
+        # `encryption_exempt`, and generatedConfig.ts resolves the Capacitor
+        # app's value as `uses_encryption && !encryption_exempt`. This app is
+        # the same product making the same claim: it does use encryption, and
+        # it is the exempt kind — TLS and Keychain are iOS's own, and a call's
+        # DTLS-SRTP is standard WebRTC with nothing proprietary anywhere.
+        # `nativePrivacyManifest.test.ts` fails if the two ever disagree, so
+        # changing the position in Super Admin cannot silently leave this
+        # binary behind.
+        ITSAppUsesNonExemptEncryption: false
+        # No NSAppTransportSecurity key on purpose — that is the other
+        # question. ATS's defaults already require HTTPS, and `PlatformOrigin`
+        # refuses to adopt an origin that is not https no matter what the
+        # platform answers, so there is no exception to ask for.
+        # A call has to survive the operator locking the screen or switching
+        # apps mid-sentence, which is exactly what this background mode is
+        # for. No `voip` here: nothing rings, the operator always starts the
+        # call from inside the app.
+        UIBackgroundModes:
+          - audio
+        NSMicrophoneUsageDescription: >-
+          Webyar uses the microphone when you call a visitor, and when you
+          record a voice note to send into a conversation.
+        NSCameraUsageDescription: >-
+          Webyar uses the camera when you start a video call with a visitor.
+        # Persian and Turkish ship in-bundle so the language picker works
+        # offline and iOS reports the app as localized for them.
+        CFBundleLocalizations:
+          - en
+          - fa
+          - tr
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.native
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+
+  # Where the keyboard and the search field get tested.
+  #
+  # These behaviours have no unit test that could catch them: whether the
+  # keyboard lifts the tab bar, whether a blur closes the field that is being
+  # opened, whether the transcript follows the keys — all of it is UIKit
+  # answering SwiftUI on a real screen, and all of it was got wrong at least
+  # once by reasoning about it instead of running it. The tests drive the
+  # sample backend, so they need no account, no network and no credentials.
+  WebyarNativeUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: WebyarNative
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.webyar.native.uitests
+        TEST_TARGET_NAME: WebyarNative
+        TARGETED_DEVICE_FAMILY: "1"
+        # The app writes its own Info.plist above, from `info:`. A test bundle
+        # has nothing to say in one, and without either the key or this it
+        # cannot be signed at all.
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  WebyarNative:
+    build:
+      targets:
+        WebyarNative: all
+        WebyarNativeUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - WebyarNativeUITests

@@ -5,19 +5,38 @@
 // ============================================
 
 import type { ServerConfig } from '../../config.js';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { sendViaResend } from './providers/resend.js';
 import { sendViaSendGrid } from './providers/sendgrid.js';
 import { sendViaSMTP } from './providers/smtp.js';
 
+/**
+ * What a caller may ask this service to send.
+ *
+ * There is no `from` and no `replyTo`, and their absence is the rule rather
+ * than an oversight. Transport identity — who the mail is from — belongs to
+ * the platform email provider and to nothing else, so a caller cannot supply
+ * it and therefore cannot pass one through from a request body. That is
+ * exactly what happened: `POST /api/email/send-channel` read `from` off the
+ * JSON it was handed and passed it straight down, so any workspace with the
+ * email channel could send as any address it liked through the platform's own
+ * Resend account.
+ *
+ * Closing the route alone would not have been enough. The rule has to live
+ * here, in the service, or the next caller re-opens it.
+ *
+ * `replyTo` went for a different reason: it was accepted, typed and threaded
+ * all the way down — then dropped, because not one of the three providers ever
+ * put it in a payload. It is also not the same thing as
+ * `email_settings.reply_to_email`, which is a notification RECIPIENT, not a
+ * `Reply-To` header.
+ */
 export interface EmailRequest {
   workspaceId: string;
   to: string;
   subject?: string;
   html?: string;
   text?: string;
-  from?: string;
-  replyTo?: string;
   templateSlug?: string;
   templateData?: Record<string, string>;
   locale?: string;
@@ -53,49 +72,67 @@ export interface SendResult {
 
 /**
  * Resolve which email provider to use.
- * Priority: workspace override → global default → stub.
+ *
+ * PLATFORM ONLY, and that is the whole point. There is exactly one email
+ * transport and the platform admin owns it:
+ * `app_runtime_config.default_email_provider`, written by
+ * Super Admin → Providers → Communication → Email.
+ *
+ * This used to resolve workspace-first —
+ * `workspace_provider_settings` → `provider_configs` → platform — which meant
+ * a workspace admin could point the platform's own password resets,
+ * verification codes and invitations at their own Resend account by saving a
+ * provider in Settings → Providers. Email transport is platform
+ * infrastructure, not a per-tenant setting, so there is no workspace lookup
+ * here at all any more.
+ *
+ * A workspace id is still passed around this module for entitlement checks,
+ * templates, recipients and `email_logs` — it just no longer selects the
+ * infrastructure.
  */
-async function resolveProviderConfig(
-  supabase: any,
-  workspaceId: string
-): Promise<ProviderConfig | null> {
-  // 1. Canonical workspace settings written by Settings → Providers.
-  const { data: wsSetting, error: wsSettingError } = await supabase
-    .from('workspace_provider_settings')
-    .select('provider_name, config, secrets, enabled')
-    .eq('workspace_id', workspaceId)
-    .eq('provider_type', 'email')
-    .eq('enabled', true)
-    .maybeSingle();
-  if (wsSettingError) {
-    console.warn('[email] workspace provider lookup failed:', wsSettingError.message);
-  }
-  const activeWorkspaceProvider = normalizeProviderConfig(wsSetting);
-  if (activeWorkspaceProvider) return activeWorkspaceProvider;
-
-  // 2. Legacy provider registry compatibility.
-  const { data: wsConfig, error: wsConfigError } = await supabase
-    .from('provider_configs')
-    .select('provider_name, config')
-    .eq('workspace_id', workspaceId)
-    .eq('provider_type', 'email')
-    .eq('is_active', true)
-    .maybeSingle();
-  if (wsConfigError) console.warn('[email] legacy provider lookup failed:', wsConfigError.message);
-  const legacyWorkspaceProvider = normalizeProviderConfig(wsConfig);
-  if (legacyWorkspaceProvider) return legacyWorkspaceProvider;
-
-  // 3. Platform default from app_runtime_config.
-  const { data: globalConfig, error: globalConfigError } = await (supabase as any)
+async function resolveProviderConfig(supabase: SupabaseClient): Promise<ProviderConfig | null> {
+  const { data, error } = await supabase
     .from('app_runtime_config')
     .select('value')
     .eq('key', 'default_email_provider')
     .maybeSingle();
-  if (globalConfigError) console.warn('[email] platform provider lookup failed:', globalConfigError.message);
-  const platformProvider = normalizeProviderConfig((globalConfig as any)?.value);
-  if (platformProvider) return platformProvider;
+  if (error) console.warn('[email] platform provider lookup failed:', error.message);
+  return normalizeProviderConfig((data as { value?: unknown } | null)?.value);
+}
 
-  return null;
+/**
+ * The From header, fail-closed.
+ *
+ * Transport identity (who the mail is *from*) comes from the provider config
+ * and nowhere else. Brand identity (the `{brand}` a template prints) comes
+ * from platform branding. They are different things and this is the seam.
+ *
+ * There is no invented address. `noreply@example.com` used to stand in for a
+ * missing `from_email`, which meant a half-configured provider silently sent
+ * mail that every receiver rejected — a failure that looked like a delivery
+ * problem for as long as nobody read the logs. A missing `from_email` is a
+ * configuration error and says so.
+ *
+ * `from_name` is the one part that may fall back: the provider config still
+ * owns it, but a blank one becomes the platform's own brand name, which is
+ * the same name the template body already prints.
+ */
+async function resolveFromAddress(
+  supabase: SupabaseClient,
+  provider: ProviderConfig,
+  locale: string,
+): Promise<{ from: string; error?: undefined } | { from?: undefined; error: string }> {
+  const cfg = provider.config as Record<string, unknown>;
+  const email = String(cfg.from_email ?? '').trim();
+  if (!email) {
+    return {
+      error:
+        `Email provider "${provider.provider_name}" has no from_email configured. ` +
+        'Set it in Super Admin → Providers → Email.',
+    };
+  }
+  const name = String(cfg.from_name ?? '').trim() || (await resolveBrandName(supabase, locale));
+  return { from: `${name} <${email}>` };
 }
 
 /**
@@ -104,7 +141,7 @@ async function resolveProviderConfig(
  * Fallback: requested locale → 'en'.
  */
 async function resolveTemplate(
-  supabase: any,
+  supabase: SupabaseClient,
   _workspaceId: string,
   slug: string,
   locale: string
@@ -152,7 +189,7 @@ function interpolate(text: string, data: Record<string, string>): string {
  * Platform brand name for a locale, used to brand every template that
  * references {brand}. Falls back: locale → en → 'Platform'.
  */
-async function resolveBrandName(supabase: any, locale: string): Promise<string> {
+async function resolveBrandName(supabase: SupabaseClient, locale: string): Promise<string> {
   const read = async (lc: string) => {
     const { data } = await supabase
       .from('platform_branding_localized')
@@ -177,28 +214,12 @@ async function resolveBrandName(supabase: any, locale: string): Promise<string> 
   return 'Platform';
 }
 
-/**
- * Platform-level (workspace-less) provider resolution — only the global
- * `app_runtime_config.default_email_provider` fallback, none of
- * resolveProviderConfig's workspace-scoped lookups (those require a
- * workspace_id to filter on and cannot run without one).
- */
-async function resolvePlatformProviderConfig(supabase: any): Promise<ProviderConfig | null> {
-  const { data: globalConfig, error } = await (supabase as any)
-    .from('app_runtime_config')
-    .select('value')
-    .eq('key', 'default_email_provider')
-    .maybeSingle();
-  if (error) console.warn('[email] platform provider lookup failed:', error.message);
-  return normalizeProviderConfig((globalConfig as any)?.value);
-}
-
+/** Same rule as EmailRequest: the platform provider owns the From header. */
 export interface PlatformEmailRequest {
   to: string;
   subject: string;
   html?: string;
   text?: string;
-  from?: string;
 }
 
 /**
@@ -216,15 +237,14 @@ export async function sendPlatformEmail(
 ): Promise<SendResult> {
   const supabase = createClient(config.supabaseUrl, config.supabaseServiceRoleKey);
 
-  const providerConfig = await resolvePlatformProviderConfig(supabase);
+  const providerConfig = await resolveProviderConfig(supabase);
   const providerName = providerConfig?.provider_name || 'stub';
 
-  let fromAddr = request.from || '';
-  if (!fromAddr && providerConfig?.config) {
-    const cfg = providerConfig.config as Record<string, string>;
-    const name = cfg.from_name || cfg.sender_name || 'Platform';
-    const email = cfg.from_email || cfg.sender_email || 'noreply@example.com';
-    fromAddr = `${name} <${email}>`;
+  let fromAddr = '';
+  if (providerConfig) {
+    const resolved = await resolveFromAddress(supabase, providerConfig, 'en');
+    if (resolved.error) return { success: false, provider: providerName, error: resolved.error };
+    fromAddr = resolved.from;
   }
 
   switch (providerName) {
@@ -259,14 +279,14 @@ export async function sendEmail(
   }
 
   // --- Resolve provider config ---
-  const providerConfig = await resolveProviderConfig(supabase, workspaceId);
+  const providerConfig = await resolveProviderConfig(supabase);
   const providerName = providerConfig?.provider_name || 'stub';
 
   // --- Resolve template if slug provided ---
   let subject = request.subject || '';
   let html = request.html || '';
   let text = request.text || '';
-  let fromAddr = request.from || '';
+  let fromAddr = '';
 
   if (templateSlug) {
     const tplLocale = locale || 'en';
@@ -293,11 +313,10 @@ export async function sendEmail(
   }
 
   // --- Resolve from address ---
-  if (!fromAddr && providerConfig?.config) {
-    const cfg = providerConfig.config as Record<string, string>;
-    const name = cfg.from_name || cfg.sender_name || 'Platform';
-    const email = cfg.from_email || cfg.sender_email || 'noreply@example.com';
-    fromAddr = `${name} <${email}>`;
+  if (providerConfig) {
+    const resolved = await resolveFromAddress(supabase, providerConfig, locale || 'en');
+    if (resolved.error) return { success: false, provider: providerName, error: resolved.error };
+    fromAddr = resolved.from;
   }
 
   // --- Send via resolved provider ---

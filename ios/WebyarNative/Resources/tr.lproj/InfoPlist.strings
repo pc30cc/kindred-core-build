@@ -1,0 +1,7 @@
+/* Simgenin altındaki ad ve iOS'un kamera ile mikrofon izni isterken kendi
+   gösterdiği iki cümle. Bunları uygulama değil sistem çizer, dolayısıyla
+   `Str` onlara erişemez — ya burada çevrilirler ya da herkes için İngilizce
+   kalırlar. */
+"CFBundleDisplayName" = "Webyar";
+"NSMicrophoneUsageDescription" = "Webyar, bir ziyaretçiyi aradığınızda ve bir görüşmeye göndermek üzere sesli not kaydettiğinizde mikrofonu kullanır.";
+"NSCameraUsageDescription" = "Webyar, bir ziyaretçiyle görüntülü görüşme başlattığınızda kamerayı kullanır.";

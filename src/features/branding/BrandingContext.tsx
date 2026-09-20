@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect } from 'react';
 import type { WorkspaceBranding } from '@/types/models';
+import { usePlatformOrigins } from '@/hooks/usePlatformOrigins';
 
 interface BrandingContextValue {
   branding: WorkspaceBranding | null;
@@ -23,6 +24,7 @@ export function BrandingProvider({
   isLoading?: boolean;
 }) {
   const platformName = (branding?.platform_name || '').trim();
+  const { data: origins } = usePlatformOrigins();
 
   // NOTE: the browser title is owned exclusively by PlatformBrandingGate
   // (platform_branding_localized). Workspace branding must not overwrite it.
@@ -68,18 +70,29 @@ export function BrandingProvider({
     }
   }, [branding?.social_image_url]);
 
-  // Drive canonical URL
+  // Drive canonical URL.
+  //
+  // Owned exclusively by the platform (`platform_domains.canonical_base_url`,
+  // surfaced by GET /api/platform/origins), for the same reason the browser
+  // title above is: workspace branding carries its own copy of this URL, and
+  // that copy drifts. It did — every page in the dashboard was advertising a
+  // canonical on a domain the platform had already moved off, because
+  // `workspace_branding.canonical_base_url` still held the old one and nobody
+  // edits a column no screen shows.
+  //
+  // No platform answer means no tag. An absent canonical costs nothing; one
+  // pointing at a dead domain tells every crawler the real page is elsewhere.
   useEffect(() => {
-    if (branding?.canonical_base_url) {
-      let link = document.querySelector("link[rel='canonical']") as HTMLLinkElement | null;
-      if (!link) {
-        link = document.createElement('link');
-        link.rel = 'canonical';
-        document.head.appendChild(link);
-      }
-      link.href = branding.canonical_base_url + window.location.pathname;
+    const base = origins?.canonicalBaseUrl;
+    if (!base) return;
+    let link = document.querySelector("link[rel='canonical']") as HTMLLinkElement | null;
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'canonical';
+      document.head.appendChild(link);
     }
-  }, [branding?.canonical_base_url]);
+    link.href = base + window.location.pathname;
+  }, [origins?.canonicalBaseUrl]);
 
   return (
     <BrandingContext.Provider value={{ branding, platformName, isLoading }}>

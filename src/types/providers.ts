@@ -85,13 +85,19 @@ export interface RealtimeProvider {
 }
 
 // --- Email Provider ---
+/**
+ * A message the dashboard asks the backend to send.
+ *
+ * No `from` and no `replyTo`: the sender identity comes from the platform
+ * email provider (Super Admin → Providers → Email) and the backend now
+ * rejects a request that tries to supply one. Leaving them on this type
+ * would only let a future caller write code the server answers with a 400.
+ */
 export interface EmailMessage {
   to: string;
   subject: string;
   html?: string;
   text?: string;
-  from?: string;
-  replyTo?: string;
   templateId?: string;
   templateData?: Record<string, unknown>;
 }

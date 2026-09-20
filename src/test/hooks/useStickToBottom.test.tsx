@@ -18,9 +18,15 @@ import { useStickToBottom } from '@/hooks/useStickToBottom';
 let resizeCallbacks: Array<() => void> = [];
 
 class FakeResizeObserver {
-  constructor(private cb: () => void) { resizeCallbacks.push(() => this.cb()); }
+  private fire: () => void;
+  constructor(private cb: () => void) {
+    this.fire = () => this.cb();
+    resizeCallbacks.push(this.fire);
+  }
   observe() { /* single element per test */ }
-  disconnect() { /* no-op */ }
+  // A real disconnect stops delivering. The fake has to as well, or a hook
+  // that re-attaches looks like one that fires twice.
+  disconnect() { resizeCallbacks = resizeCallbacks.filter((f) => f !== this.fire); }
 }
 
 interface Harness { conversationKey: string | null; revision: unknown }
@@ -142,6 +148,39 @@ describe('content that lands late', () => {
     calls = [];
     act(() => { resizeCallbacks.forEach((fire) => fire()); });
     expect(calls).toEqual([]);
+  });
+});
+
+describe('a thread pane that mounts later', () => {
+  /** What the inbox actually does: no pane at all until something is picked. */
+  function LateHost({ conversationKey, revision }: Harness) {
+    const container = useRef<HTMLDivElement>(null);
+    const content = useRef<HTMLDivElement>(null);
+    useStickToBottom(container, content, { conversationKey, revision });
+    if (!conversationKey) return <div>pick a conversation</div>;
+    return (
+      <div ref={container} data-testid="container">
+        <div ref={content}>rows</div>
+      </div>
+    );
+  }
+
+  it('still re-pins when a late image grows a thread opened after mount', () => {
+    // The observer effect first ran with both refs null. Refs never change
+    // identity, so without `conversationKey` in its deps it never retried and
+    // the newest message stayed below the fold for every conversation opened
+    // from the empty state — which is every conversation.
+    const view = render(<LateHost conversationKey={null} revision={0} />);
+    expect(resizeCallbacks).toHaveLength(0);
+
+    act(() => { view.rerender(<LateHost conversationKey="c1" revision={1} />); });
+    const el = view.getByTestId('container') as HTMLDivElement;
+    el.scrollTop = 600;
+    act(() => { el.dispatchEvent(new Event('scroll')); });
+    calls = [];
+
+    act(() => { resizeCallbacks.forEach((fire) => fire()); });
+    expect(calls).toEqual([{ top: CONTENT_HEIGHT, behavior: 'auto' }]);
   });
 });
 

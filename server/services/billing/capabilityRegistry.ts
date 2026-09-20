@@ -163,6 +163,23 @@ export const CAPABILITY_REGISTRY: CapabilityDefinition[] = [
   { key: 'inbox_team_chat',     type: 'feature', label: 'Inbox Colleagues Chat',   group: 'inbox', description: 'Internal operator-to-operator chat tab inside the Inbox.',            defaultValue: true, planConfigurable: true, workspaceOverridable: true, userVisible: true, sortOrder: 30 },
 
 
+  // ─── Native app promotions (iOS) ───
+  //
+  // These read the opposite way round from every other key here, and that is
+  // deliberate rather than an accident of naming: granting them shows the
+  // operator a promotion instead of granting them a capability. A Free plan
+  // turns them on; a paid plan leaves them off. Both default to off, so no
+  // existing plan starts showing anything.
+  //
+  // The creative itself — the words, the picture, the button — lives on the
+  // `mobile_app_settings` row (Super Admin → Mobile App → Promotions), and the
+  // platform master switch there can turn the whole thing off whatever the
+  // plans say. First-party content only: no ad network, no SDK, no device
+  // identifier, which is what keeps this clear of App Tracking Transparency.
+  { key: 'mobile_promo_banner',     type: 'feature', label: 'Mobile Promo Banner',      group: 'mobile', description: 'Show a first-party promotional banner at the top of the iOS inbox for workspaces on this plan.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: false, sortOrder: 10 },
+  { key: 'mobile_promo_fullscreen', type: 'feature', label: 'Mobile Full-screen Promo', group: 'mobile', description: 'Show an occasional full-screen promotion in the iOS app for workspaces on this plan. Paced by the limits below and always dismissible.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: false, sortOrder: 20 },
+  { key: 'mobile_promo_interval_minutes', type: 'limit', label: 'Minutes Between Full-screen Promos', group: 'mobile', description: 'Floor on how often the iOS app may show a full-screen promotion. The platform setting applies when it is stricter.', defaultValue: 360, planConfigurable: true, workspaceOverridable: true, userVisible: false, sortOrder: 30 },
+
   // ─── Call surface features (plan-level toggles bounded by call control plane) ───
   { key: 'call_recording',        type: 'feature', label: 'Call Recording',         group: 'calls',    description: 'Allow operators to record voice/video calls. Bounded by global call_recording_enabled_global runtime gate.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 10 },
   { key: 'call_queue',            type: 'feature', label: 'Call Queue',             group: 'calls',    description: 'Plan-level access to the call queue / routing surface. Bounded by global call_queue_enabled_global runtime gate.', defaultValue: false, planConfigurable: true, workspaceOverridable: true, userVisible: true,  sortOrder: 20 },

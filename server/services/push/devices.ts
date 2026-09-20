@@ -24,11 +24,14 @@ export interface RegisterDeviceInput {
   userId: string;
   workspaceId?: string | null;
   platform: PushPlatform;
-  pushToken: string;
+  /** The FCM token. Null on an install that only registered for calls. */
+  pushToken: string | null;
   deviceId: string;
   deviceName?: string | null;
   appVersion?: string | null;
   permissionStatus?: string | null;
+  /** PushKit's own token, iOS only. Null clears it. */
+  voipToken?: string | null;
 }
 
 export interface PushDeviceRow {
@@ -48,11 +51,23 @@ export async function registerDevice(
   const now = new Date().toISOString();
 
   // Re-own the token: it can only ever address ONE user.
-  await sb
-    .from('mobile_push_devices')
-    .delete()
-    .eq('push_token', input.pushToken)
-    .neq('user_id', input.userId);
+  if (input.pushToken) {
+    await sb
+      .from('mobile_push_devices')
+      .delete()
+      .eq('push_token', input.pushToken)
+      .neq('user_id', input.userId);
+  }
+
+  // Same rule for the VoIP address, for a sharper reason: a stale row holding
+  // it would make one operator's phone ring for another operator's calls.
+  if (input.voipToken) {
+    await sb
+      .from('mobile_push_devices')
+      .update({ voip_token: null, voip_token_updated_at: now })
+      .eq('voip_token', input.voipToken)
+      .neq('user_id', input.userId);
+  }
 
   const { data, error } = await sb
     .from('mobile_push_devices')
@@ -61,11 +76,13 @@ export async function registerDevice(
         user_id: input.userId,
         workspace_id: input.workspaceId ?? null,
         platform: input.platform,
-        push_token: input.pushToken,
+        push_token: input.pushToken ?? null,
         device_id: input.deviceId,
         device_name: input.deviceName ?? null,
         app_version: input.appVersion ?? null,
         permission_status: input.permissionStatus ?? null,
+        voip_token: input.voipToken ?? null,
+        voip_token_updated_at: input.voipToken ? now : null,
         enabled: true,
         disabled_reason: null,
         last_seen_at: now,
@@ -121,7 +138,10 @@ export async function listActiveDevices(
     .from('mobile_push_devices')
     .select('id, user_id, platform, push_token, device_id, enabled')
     .in('user_id', userIds)
-    .eq('enabled', true);
+    .eq('enabled', true)
+    // A call-only device has no notification address, and handing a null to
+    // FCM would fail every send for every other device in the same batch.
+    .not('push_token', 'is', null);
   if (error) {
     console.error('[push] device lookup failed', { code: error.code, message: error.message });
     return [];

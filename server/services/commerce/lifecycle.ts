@@ -20,7 +20,10 @@ export async function disconnectConnection(
   config: ServerConfig,
   workspaceId: string,
   connectionId: string,
-  userId: string,
+  // null when the STORE initiated it (plugin uninstall / disconnect button)
+  // rather than a workspace member from the dashboard — the audit row
+  // already allows a null actor.
+  userId: string | null,
 ): Promise<void> {
   const connection = await getConnectionForWorkspace(config, workspaceId, connectionId);
   if (!connection) return; // idempotent — nothing to disconnect

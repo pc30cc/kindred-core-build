@@ -60,7 +60,14 @@ final class EventQueue {
 
 	public static function cancel_all(): void {
 		if ( function_exists( 'as_unschedule_all_actions' ) ) {
-			as_unschedule_all_actions( self::HOOK, array(), self::GROUP );
+			// Hook only — NOT ( hook, array(), group ). Given both a hook and
+			// a group with empty $args, Action Scheduler falls through to a
+			// loop that matches only actions whose args are exactly array().
+			// Every job this queue schedules carries `event` + `attempt`, so
+			// that form cancels nothing and the queue stays armed after a
+			// disconnect. Passing the hook alone cancels by hook regardless
+			// of args, which is what this method promises.
+			as_unschedule_all_actions( self::HOOK );
 		}
 	}
 }

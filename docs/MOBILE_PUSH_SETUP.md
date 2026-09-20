@@ -68,6 +68,23 @@ Push does **not** work in the iOS Simulator; use a real device.
 | POST   | `/api/push/devices/heartbeat`   | liveness for stale-device cleanup     |
 | GET    | `/api/push/badge`               | server-authoritative unread badge     |
 
+## Where an operator changes this
+
+Everything below that is POLICY rather than a credential is editable in
+**Super Admin → Notifications**: the defaults for new operators, quiet hours,
+the APNs delivery semantics (priority, expiry, interruption level, grouping,
+badge, sound), the notification categories and their action buttons, and the
+per-event copy in each language. There is also a device-fleet summary, a real
+test send to your own devices, and the delivery log.
+
+The Apple-facing side of the app — bundle id, team, capabilities, privacy
+strings and every App Store requirement — lives in **Super Admin → Mobile app**.
+See `docs/IOS_APP_AND_NOTIFICATIONS.md` for how those settings reach the Xcode
+project.
+
+Credentials are deliberately NOT editable there: the FCM service account is
+read from the server environment only.
+
 ## Behaviour
 
 - Permission is requested on the first authenticated app launch; a denial is

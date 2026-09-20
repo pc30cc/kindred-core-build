@@ -45,6 +45,7 @@ export default function MobileVisitorsPage() {
 
   return (
     <MobileScreen
+      largeTitle
       title={t('nav.visitors')}
       subtitle={`${onlineCount} ${t('visitors.online')}`}
       toolbar={
@@ -68,7 +69,7 @@ export default function MobileVisitorsPage() {
           </button>
         </div>
       }
-      bodyClassName="pb-[104px]"
+      bodyClassName="pb-6"
     >
       {live.isLoading ? (
         <div className="space-y-2 px-4 pt-3">

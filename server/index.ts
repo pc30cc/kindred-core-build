@@ -29,11 +29,14 @@ import { notificationsRouter } from './routes/notifications.js';
 import { pushRouter } from './routes/push.js';
 import { workspaceAlertsRouter } from './routes/workspaceAlerts.js';
 import { availabilityRouter } from './routes/availability.js';
+import { mobilePromotionsRouter } from './routes/mobilePromotions.js';
+import { platformOriginsPublicRouter } from './routes/platformOriginsPublic.js';
 import { operatorActivityRouter } from './routes/operatorActivity.js';
 import { billingRouter, billingWebhookRouter } from './routes/billing.js';
 import { commercePairingRouter } from './routes/commerce/pairing.js';
 import { commerceConnectionsRouter } from './routes/commerce/connections.js';
 import { commerceEventsRouter } from './routes/commerce/events.js';
+import { commercePluginActionsRouter } from './routes/commerce/pluginActions.js';
 import { commerceGuestVerificationRouter } from './routes/commerce/guestVerification.js';
 import { commerceIdentityRouter } from './routes/commerce/identity.js';
 import { internalTestGatewayRouter } from './routes/internalTestGateway.js';
@@ -305,12 +308,18 @@ app.use('/api/billing/webhook', billingWebhookRouter);
 // express.raw() parser. See docs/commerce/SECURITY.md §Request signing.
 app.use('/api/commerce/events', commerceEventsRouter);
 
+// Connection actions the plugin triggers itself (test / sync / disconnect).
+// Same signed-request trust model as event ingestion, and likewise mounted
+// before express.json() so the raw bytes survive for verification.
+app.use('/api/commerce/connection', commercePluginActionsRouter);
+
 // JSON / cookies for everything else. Skip the webhook path explicitly so
 // a future re-order can't accidentally consume the raw body.
 app.use((req, res, next) => {
   if (req.path === '/api/calls/livekit/webhook') return next();
   if (req.path.startsWith('/api/billing/webhook')) return next();
   if (req.path.startsWith('/api/commerce/events')) return next();
+  if (req.path.startsWith('/api/commerce/connection')) return next();
   return express.json({ limit: '50mb' })(req, res, next);
 });
 app.use(cookieParser()); // Parse signed visitor cookies (HttpOnly dvsid)
@@ -424,6 +433,13 @@ app.use('/api/push', pushRouter);
 
 // Workspace operational alerts (derived, read-only)
 app.use('/api/workspace-alerts', workspaceAlertsRouter);
+
+// Where the platform actually lives, for clients that must ask before they
+// can authenticate. Public, cached, read-only.
+app.use('/api/platform', platformOriginsPublicRouter);
+
+// What the native app may show as a promotion. Read-only, workspace-scoped.
+app.use('/api/mobile-app', mobilePromotionsRouter);
 
 // Self-service per-user availability schedule
 app.use('/api/availability', availabilityRouter);

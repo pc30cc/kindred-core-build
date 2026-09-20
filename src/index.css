@@ -846,3 +846,93 @@ html.native-app #root {
   height: 100%;
   overflow: hidden;
 }
+
+/* ── Native (iOS) app behaviour ──────────────────────────────────────────
+   Everything below applies ONLY inside the Capacitor shell (`html.native-app`)
+   so the web build is byte-for-byte unaffected. These are the details that
+   separate an app from a web page rendered in a web view: the system
+   typeface, no tap highlight or callout, no text selection on chrome, and
+   navigation transitions that match UIKit's timing curve. */
+html.native-app {
+  /* SF first for Latin; IRANSans still resolves every Persian glyph, which
+     -apple-system does not cover, so Persian text is unchanged. */
+  --font-family-base: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'IRANSans', 'InterWY', system-ui, sans-serif;
+  --font-heading: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'IRANSans', 'InterWY', system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Chrome is not selectable; message bodies and inputs still are, because a
+   customer's phone number has to be copyable. */
+html.native-app body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+html.native-app input,
+html.native-app textarea,
+html.native-app [contenteditable='true'],
+html.native-app [data-selectable='true'] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* UIKit's push/pop. The curve is the system's ease-out; 320ms is the stock
+   navigation-controller duration. The parent moves a third of the way and
+   dims, which is what gives the stack its depth. */
+@keyframes nav-enter-push {
+  from { transform: translate3d(100%, 0, 0); }
+  to   { transform: translate3d(0, 0, 0); }
+}
+@keyframes nav-leave-push {
+  from { transform: translate3d(0, 0, 0); filter: brightness(1); }
+  to   { transform: translate3d(-30%, 0, 0); filter: brightness(0.82); }
+}
+@keyframes nav-enter-pop {
+  from { transform: translate3d(-30%, 0, 0); filter: brightness(0.82); }
+  to   { transform: translate3d(0, 0, 0); filter: brightness(1); }
+}
+@keyframes nav-leave-pop {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(100%, 0, 0); }
+}
+
+.nav-enter-push { animation: nav-enter-push 320ms cubic-bezier(0.32, 0.72, 0, 1) both; box-shadow: -8px 0 24px -6px rgb(0 0 0 / 0.22); }
+.nav-leave-push { animation: nav-leave-push 320ms cubic-bezier(0.32, 0.72, 0, 1) both; }
+.nav-enter-pop  { animation: nav-enter-pop  320ms cubic-bezier(0.32, 0.72, 0, 1) both; }
+.nav-leave-pop  { animation: nav-leave-pop  320ms cubic-bezier(0.32, 0.72, 0, 1) both; box-shadow: -8px 0 24px -6px rgb(0 0 0 / 0.22); }
+
+/* Mirrored for RTL: a push still arrives from the trailing edge. */
+[dir='rtl'] .nav-enter-push { animation-name: nav-enter-push-rtl; }
+[dir='rtl'] .nav-leave-push { animation-name: nav-leave-push-rtl; }
+[dir='rtl'] .nav-enter-pop  { animation-name: nav-enter-pop-rtl; }
+[dir='rtl'] .nav-leave-pop  { animation-name: nav-leave-pop-rtl; }
+
+@keyframes nav-enter-push-rtl {
+  from { transform: translate3d(-100%, 0, 0); }
+  to   { transform: translate3d(0, 0, 0); }
+}
+@keyframes nav-leave-push-rtl {
+  from { transform: translate3d(0, 0, 0); filter: brightness(1); }
+  to   { transform: translate3d(30%, 0, 0); filter: brightness(0.82); }
+}
+@keyframes nav-enter-pop-rtl {
+  from { transform: translate3d(30%, 0, 0); filter: brightness(0.82); }
+  to   { transform: translate3d(0, 0, 0); filter: brightness(1); }
+}
+@keyframes nav-leave-pop-rtl {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-100%, 0, 0); }
+}
+
+/* Reduce Motion is a system accessibility setting, not a preference to
+   second-guess: the screens still change, they just cross-fade. */
+@media (prefers-reduced-motion: reduce) {
+  .nav-enter-push, .nav-enter-pop { animation: nav-fade 160ms ease-out both; }
+  .nav-leave-push, .nav-leave-pop { animation: none; opacity: 0; }
+}
+@keyframes nav-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}

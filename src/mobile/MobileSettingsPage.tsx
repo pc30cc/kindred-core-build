@@ -60,7 +60,7 @@ export default function MobileSettingsPage() {
   const name = (profile?.full_name || '').trim() || user?.email || '';
 
   return (
-    <MobileScreen centered title={t('nav.settings')} bodyClassName="pb-[124px]">
+    <MobileScreen largeTitle title={t('nav.settings')} bodyClassName="pb-8">
       {/* Identity hero */}
       <div className="flex flex-col items-center gap-2 px-4 pb-1 pt-6">
         <ContactAvatar

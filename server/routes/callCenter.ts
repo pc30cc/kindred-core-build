@@ -55,6 +55,7 @@ import {
 import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
 import { validateSessionToken, SESSION_COOKIE_NAME } from '../services/auth/sessions.js';
 import { readSessionToken } from '../lib/sessionTransport.js';
+import { cancelRing } from '../services/push/callRing.js';
 import {
   callWidgetFormSchema,
   callWidgetOfflineBehaviorSchema,
@@ -659,6 +660,25 @@ async function transitionCall(
   });
   await publishQueueEvent(config, wid, eventType, { call_id: callId });
   await publishCallEvent(config, wid, callId, eventType, { call_id: callId });
+
+  // Stop the phones that are ringing for this call. Which phones depends on
+  // what just happened, and getting that wrong is the difference between a
+  // call centre and a room full of noise:
+  //   accepted — everyone else stops; the operator who took it keeps their
+  //              own call alive.
+  //   rejected — only the operator who declined stops. In broadcast routing
+  //              the call is still on offer to everybody else.
+  //   ended    — nobody should still be ringing.
+  void cancelRing(config, {
+    workspaceId: wid,
+    callSessionId: callId,
+    reason:
+      eventType === 'call_accepted' ? 'answered'
+      : eventType === 'call_rejected' ? 'declined'
+      : 'ended',
+    exceptUserId: eventType === 'call_accepted' ? actorId : null,
+    onlyUserId: eventType === 'call_rejected' ? actorId : null,
+  });
   return updated;
 }
 

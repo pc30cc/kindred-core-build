@@ -1,5 +1,6 @@
 import UIKit
 import Capacitor
+import FirebaseCore
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -7,8 +8,50 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // Both of these have to run before the Capacitor bridge is built, which
+        // happens when the scene connects — see SceneDelegate.
+        configureFirebase()
+
+        // The action buttons on a push banner come from a category registered
+        // by the app, not from the payload — so this has to run before the
+        // first notification can arrive.
+        NotificationCategories.register()
         return true
+    }
+
+    /// Configures Firebase, tolerating a missing `GoogleService-Info.plist`.
+    ///
+    /// The Capacitor Firebase Messaging plugin calls `FirebaseApp.configure()`
+    /// from its `load()`, and that call raises when the plist is absent. The
+    /// plugin loads while the bridge builds its view, so the raise happens
+    /// before the first frame and kills the process — a fresh clone, a CI
+    /// machine or a simulator run could not start the app at all.
+    ///
+    /// The plugin skips its own call when an app is already configured, so we
+    /// configure first. With the plist present this is the ordinary path. With
+    /// it absent we configure an inert placeholder instead: the app launches
+    /// and everything except push works, which is the honest outcome — there
+    /// is no Firebase project to obtain a token from. Super Admin surfaces the
+    /// same gap as the `pushFirebasePlist` readiness check.
+    private func configureFirebase() {
+        guard FirebaseApp.app() == nil else { return }
+
+        if Bundle.main.url(forResource: "GoogleService-Info", withExtension: "plist") != nil {
+            FirebaseApp.configure()
+            return
+        }
+
+        NSLog("[Webyar] GoogleService-Info.plist is missing — push notifications are disabled for this build. Add the file from your Firebase project to enable them.")
+        // FirebaseInstallations is an eager component and validates these, so
+        // they have to be well-formed and non-empty even though no Firebase
+        // project answers to them. Token registration fails and logs; nothing
+        // raises.
+        let options = FirebaseOptions(googleAppID: "1:000000000000:ios:0000000000000000",
+                                      gcmSenderID: "000000000000")
+        options.apiKey = "AIzaSyDISABLED0000000000000000000000000"
+        options.projectID = "webyar-push-disabled"
+        options.bundleID = Bundle.main.bundleIdentifier ?? "com.webyar.app"
+        FirebaseApp.configure(options: options)
     }
 
     func applicationWillResignActive(_ application: UIApplication) {

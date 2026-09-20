@@ -11,8 +11,11 @@ const API_BASE = RESOLVED_API_BASE;
 
 /**
  * Creates an EmailProvider that routes through the self-hosted backend API.
- * The backend handles provider resolution (Resend/SendGrid/SMTP)
- * based on DB config (workspace override → global default → stub).
+ * The backend picks the provider (Resend/SendGrid/SMTP) from the ONE platform
+ * config in `app_runtime_config.default_email_provider`, set in
+ * Super Admin → Providers → Email. There is no workspace override any more,
+ * and the From header is not ours to send: the route rejects a body carrying
+ * `from` or `replyTo` with a 400 rather than ignoring it.
  */
 export function createApiEmailProvider(workspaceId: string): EmailProvider {
   return {
@@ -28,8 +31,6 @@ export function createApiEmailProvider(workspaceId: string): EmailProvider {
             subject: message.subject,
             html: message.html,
             text: message.text,
-            from: message.from,
-            replyTo: message.replyTo,
             templateSlug: message.templateId,
             templateData: message.templateData,
           }),

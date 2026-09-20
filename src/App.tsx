@@ -137,6 +137,8 @@ import AdminAiAgentControlPage from "@/pages/admin/AiAgentControlPage";
 import AdminCallCenterPage from "@/pages/admin/CallCenterPage";
 import AdminSeoIntegrationsPage from "@/pages/admin/SeoIntegrationsPage";
 import AdminFinancePage from "@/pages/admin/FinancePage";
+import AdminMobileAppPage from "@/pages/admin/MobileAppPage";
+import AdminNotificationsPage from "@/pages/admin/NotificationsPage";
 
 import { CallCenterLayout } from "@/components/layout/CallCenterLayout";
 import CallCenterOverviewPage from "@/pages/app/call-center/OverviewPage";
@@ -256,6 +258,8 @@ const App = ({ initialLocale, initialTranslations }: AppProps) => (
                   path="/admin/advanced-routing"
                   element={<Navigate to="/admin/widget-settings" replace />}
                 />
+                <Route path="/admin/mobile-app" element={<AdminMobileAppPage />} />
+                <Route path="/admin/notifications" element={<AdminNotificationsPage />} />
                 <Route path="/admin/system" element={<AdminSystemPage />} />
                 <Route path="/admin/observability" element={<AdminObservabilityPage />} />
                 <Route path="/admin/retention" element={<AdminRetentionPage />} />

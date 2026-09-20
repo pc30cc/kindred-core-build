@@ -56,6 +56,13 @@ export function useStickToBottom(
   // Re-pin whenever the content grows under us — a late image, a file card,
   // a font swap. Only while pinned, so it never fights a reader who has
   // deliberately scrolled up.
+  //
+  // `conversationKey` is in the deps for a reason that has nothing to do with
+  // the conversation: the inbox renders its thread pane only once something
+  // is selected, so on the first run there is no element to observe and refs
+  // never change identity to trigger a retry. Without this the observer was
+  // attached exactly once, before the pane existed, and never again — which
+  // is precisely the case it was written for.
   useEffect(() => {
     const content = contentRef.current;
     if (!content || typeof ResizeObserver !== 'function') return;
@@ -65,7 +72,7 @@ export function useStickToBottom(
     observer.observe(content);
     return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contentRef, containerRef]);
+  }, [contentRef, containerRef, conversationKey]);
 
   useEffect(() => {
     const el = containerRef.current;

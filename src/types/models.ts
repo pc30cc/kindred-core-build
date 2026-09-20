@@ -79,6 +79,14 @@ export interface WorkspaceBranding {
   social_image_url: string | null;
   footer_text: string | null;
   legal_name: string | null;
+  /**
+   * DEPRECATED platform-identity copies. These are per-workspace columns that
+   * shadow values the platform already owns, and every one of them has drifted
+   * at least once. Read the platform's answer from `GET /api/platform/origins`
+   * instead: canonical/app/public/api from `platform_domains`, widget URLs from
+   * `widget_platform_settings`. Kept on the type only because the columns still
+   * exist and admin tooling still lists them.
+   */
   canonical_base_url: string | null;
   panel_base_url: string | null;
   widget_base_url: string | null;
@@ -121,6 +129,8 @@ export interface Conversation {
   assigned_to: string | null;
   priority: 'low' | 'normal' | 'high' | 'urgent';
   tags: string[];
+  /** Channel routing + AI state, written concurrently server-side. */
+  metadata?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }

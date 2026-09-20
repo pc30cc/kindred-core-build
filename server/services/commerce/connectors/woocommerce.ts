@@ -46,8 +46,30 @@ export interface WooCommerceTransport {
 const MAX_PRODUCTS_PER_CALL = 20;
 const MAX_VARIANTS_PER_PRODUCT = 50;
 
+/**
+ * Accepts BOTH shapes the plugin actually sends.
+ *
+ * Product payloads carry canonical Money objects — `CommerceProduct.regularPrice`
+ * is typed `Money | null` and the plugin's ProductReader emits
+ * `{ amountMinor, currency }`. Order payloads carry bare scalars: OrderReader
+ * emits `'total' => '8700000'`.
+ *
+ * Reading only the scalar form meant `String({...})` produced '[object Object]',
+ * the numeric test rejected it, and every product price landed in the index as
+ * NULL — so the assistant knew a product existed but could never quote its
+ * price. The unit fixture used scalars for products too, which is why nothing
+ * caught it.
+ */
 function toMoney(raw: any, currency: string): Money | null {
   if (raw === null || raw === undefined || raw === '') return null;
+
+  if (typeof raw === 'object') {
+    const amount = String((raw as any).amountMinor ?? '').trim();
+    if (!/^-?\d+(\.\d+)?$/.test(amount)) return null;
+    const c = (raw as any).currency;
+    return { amountMinor: amount, currency: typeof c === 'string' && c ? c : currency };
+  }
+
   const amount = String(raw).trim();
   if (!/^-?\d+(\.\d+)?$/.test(amount)) return null;
   return { amountMinor: amount, currency };

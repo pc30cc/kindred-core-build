@@ -7,6 +7,7 @@
  * widget semantics never change silently.
  */
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   CALL_CENTER_ENTRY_SOURCES,
@@ -17,8 +18,7 @@ import {
   isTelephonyEntrySource,
 } from '../../../shared/callCenter/entrySources.js';
 
-const root = new URL('../../../', import.meta.url);
-const read = (p: string) => readFileSync(new URL(p, root), 'utf8');
+const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 
 describe('call center entry sources', () => {
   it('exposes both widget and telephony as Call Center surfaces', () => {

@@ -52,16 +52,11 @@ final class WidgetLoader {
 		// Carried as a data attribute so it travels with the script tag the
 		// loader already resolves, rather than in a global of our own.
 		//
-		// NOT YET CONSUMED. `POST /api/widget/commerce/identity` exists and
-		// binds this assertion to the visitor, and its own doc comment says the
-		// widget runtime calls it "after it reads the plugin-injected assertion
-		// out of the page bootstrap config" — but no build of loader.js or
-		// runtime.js references the assertion, this attribute, or that endpoint.
-		// Both ends of the identity bridge are built; the middle is missing.
-		// Until the runtime reads it, a signed-in WooCommerce customer is an
-		// anonymous visitor to the widget, so every order question can only
-		// answer `identity_required`. Emitted here so the plugin side is ready
-		// and the gap is one change away, not three.
+		// loader.js POSTs this to `/api/widget/commerce/identity`, which
+		// verifies the signature against this installation's secret on its own
+		// side and binds the customer to the widget visitor. Without it a
+		// signed-in WooCommerce customer is an anonymous visitor to the widget
+		// and every order question can only answer `identity_required`.
 		$assertion = CustomerContext::issue_assertion();
 		?>
 		<script>
@@ -81,8 +76,13 @@ final class WidgetLoader {
 			s.setAttribute('data-workspace-id', <?php echo wp_json_encode( $credential['workspace_id'] ); ?>);
 			s.setAttribute('data-api-base', <?php echo wp_json_encode( $api_base ); ?>);
 			s.setAttribute('data-asset-base', <?php echo wp_json_encode( $asset_base ); ?>);
-			<?php if ( $assertion && ! empty( $credential['connection_id'] ) ) : ?>
+			<?php if ( $assertion ) : ?>
 			s.setAttribute('data-commerce-assertion', <?php echo wp_json_encode( $assertion ); ?>);
+			<?php endif; ?>
+			<?php // Optional cross-check. A store paired before the plugin stored its ?>
+			<?php // own connection id has none, and the server resolves the workspace's ?>
+			<?php // connection itself in that case — so this must never gate the line above. ?>
+			<?php if ( $assertion && ! empty( $credential['connection_id'] ) ) : ?>
 			s.setAttribute('data-commerce-connection', <?php echo wp_json_encode( $credential['connection_id'] ); ?>);
 			<?php endif; ?>
 			s.async = true;

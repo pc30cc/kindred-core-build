@@ -10,6 +10,7 @@ import type { ServerConfig } from '../../config.js';
 import { CommerceError } from '../../../shared/commerce/types.js';
 import { startGuestOrderVerification, confirmGuestOrderVerification } from '../../services/commerce/guestVerification.js';
 import { getClientIp } from '../../utils/clientIp.js';
+import { withoutWidgetShimKeys } from './widgetBody.js';
 
 export const commerceGuestVerificationRouter = Router();
 
@@ -28,7 +29,7 @@ const startSchema = z.object({
 }).strict();
 
 commerceGuestVerificationRouter.post('/start', strictLimiter, async (req, res) => {
-  const parsed = startSchema.safeParse(req.body);
+  const parsed = startSchema.safeParse(withoutWidgetShimKeys(req.body));
   if (!parsed.success) return res.status(400).json({ error: 'invalid_request' });
   try {
     const result = await startGuestOrderVerification(serverConfigOf(req), {
@@ -61,7 +62,7 @@ const confirmSchema = z.object({
 }).strict();
 
 commerceGuestVerificationRouter.post('/confirm', strictLimiter, async (req, res) => {
-  const parsed = confirmSchema.safeParse(req.body);
+  const parsed = confirmSchema.safeParse(withoutWidgetShimKeys(req.body));
   if (!parsed.success) return res.status(400).json({ error: 'invalid_request' });
   try {
     const result = await confirmGuestOrderVerification(serverConfigOf(req), {

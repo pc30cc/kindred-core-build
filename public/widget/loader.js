@@ -325,6 +325,55 @@
     var src = _loaderScript && _loaderScript.src ? _loaderScript.src : "";
     return src ? src.replace(/\/widget\/loader\.js.*$/, "") : "";
   }
+  // ─── Commerce customer identity bridge ───
+  // A store plugin (e.g. WooCommerce) puts a SIGNED, short-lived assertion on
+  // this script tag when the page is being viewed by a signed-in customer.
+  // It is never a raw customer id, and the server re-verifies it against the
+  // store's installation secret before binding anything.
+  //
+  // Both ends of this bridge shipped a long time ago and the middle was
+  // missing: POST /api/widget/commerce/identity existed and its own comment
+  // said "called by the widget runtime after it reads the plugin-injected
+  // assertion", but nothing in loader.js or runtime.js had ever referenced
+  // it. The visible symptom was that a signed-in shopper was an anonymous
+  // visitor to the widget, so every order question could only answer
+  // `identity_required`.
+  var _commerceBound = false;
+  function bindCommerceIdentity(apiBase, workspaceId, token) {
+    if (_commerceBound) return;   // defence in depth; bootstrap() is not re-entered today
+    var assertion = attr("data-commerce-assertion");
+    if (!assertion || !apiBase || !workspaceId || !token) return;
+    _commerceBound = true;
+    // The connection id is an optional cross-check, not a requirement: a store
+    // paired before the plugin began storing its own connection id cannot send
+    // one, and the server resolves the workspace's connection itself when it
+    // is absent. Requiring it here would have left the bridge inert on exactly
+    // the stores that have been connected the longest.
+    var connectionId = attr("data-commerce-connection");
+    var body = { workspaceId: workspaceId, assertion: assertion };
+    if (connectionId) body.connectionId = connectionId;
+    // Fire-and-forget on purpose. The binding is an enhancement: if it fails
+    // the shopper is simply anonymous, which is exactly today's behaviour, and
+    // the chat must not be held up or broken by it.
+    // Same credentials as every other widget call: the `dvsid` cookie carries
+    // the visitor this link is written against, and the session token is what
+    // gets the request past `enforceWidgetToken`. The token is NOT optional —
+    // /api/widget/* enters widgetRouter first, which 401s a header-less
+    // request before Express ever reaches this endpoint's own mount. A
+    // cookie-only call was answered with {"code":"MISSING_TOKEN"} against the
+    // live API, which is how this was found.
+    try {
+      fetch(apiBase + "/api/widget/commerce/identity", {
+        method: "POST",
+        credentials: "include",           // the visitor cookie bootstrap just set
+        headers: { "Content-Type": "application/json", "X-Widget-Token": token },
+        body: JSON.stringify(body),
+      }).then(function (r) {
+        log("commerce identity:", r.ok ? "linked" : "not linked (" + r.status + ")");
+      }).catch(function () { /* offline or blocked — stay anonymous */ });
+    } catch (_) { /* no fetch — stay anonymous */ }
+  }
+
   function getApiBase() {
     if (window.__gs_api_base && typeof window.__gs_api_base === "string" && window.__gs_api_base.indexOf("%VITE_") !== 0) {
       return window.__gs_api_base.replace(/\/$/, "");
@@ -970,6 +1019,12 @@
             window.__gs_token.set(sessionToken);
           }
         } catch (_) {}
+
+        // Bind the store customer now: bootstrap has just established both
+        // credentials this endpoint needs — the visitor cookie it reads the
+        // identity from and the session token it is gated on — so this is the
+        // earliest point the link can be made.
+        bindCommerceIdentity(apiBase, WORKSPACE_ID, sessionToken);
 
         // Phase 6C — stash the effective realtime policy snapshot from
         // bootstrap so the runtime can honor degraded/force_polling/typing

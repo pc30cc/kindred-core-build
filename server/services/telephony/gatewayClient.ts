@@ -24,8 +24,8 @@ export const TELEPHONY_SECRET_HEADER = 'x-telephony-internal-secret';
 const DEFAULT_TIMEOUT_MS = 12_000;
 
 export type GatewayResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; errorCode: TelephonyErrorCode; detail?: string };
+  | { ok: true; data: T; errorCode?: undefined; detail?: undefined }
+  | { ok: false; data?: undefined; errorCode: TelephonyErrorCode; detail?: string };
 
 function configured(config: ServerConfig): boolean {
   return Boolean(config.telephonyInternalBaseUrl && config.telephonyInternalSecret);

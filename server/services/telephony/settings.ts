@@ -31,8 +31,8 @@ export type SettingsFieldError =
   | 'transport_invalid';
 
 export type ParsedSettings =
-  | { ok: true; settings: TelephonySipSettings; complete: boolean }
-  | { ok: false; errors: SettingsFieldError[] };
+  | { ok: true; settings: TelephonySipSettings; complete: boolean; errors?: undefined }
+  | { ok: false; settings?: undefined; complete?: undefined; errors: SettingsFieldError[] };
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';

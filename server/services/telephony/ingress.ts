@@ -40,6 +40,7 @@ export interface IncomingCallInput {
 
 export interface IncomingCallResult {
   ok: true;
+  reason?: undefined;
   callSessionId: string;
   roomName: string;
   workspaceId: string;

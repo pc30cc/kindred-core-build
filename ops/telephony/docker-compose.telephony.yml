@@ -1,0 +1,60 @@
+# WEBYAR Telephony — Asterisk/PJSIP registration adapter + control service.
+#
+# Deploy alongside the existing WEBYAR stack. `livekit` and `livekit-sip` must
+# already exist on the same internal network: LiveKit SIP is REQUIRED, there is
+# no fallback media path (docs/TELEPHONY_ARCHITECTURE.md).
+#
+# Nothing here hardcodes a production domain — every host comes from env.
+
+services:
+  webyar-telephony:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: webyar-telephony
+    restart: unless-stopped
+    environment:
+      # Core ↔ control service (same secret on both sides, distinct from every
+      # other WEBYAR secret — Core validates this at boot).
+      TELEPHONY_INTERNAL_SECRET: ${TELEPHONY_INTERNAL_SECRET:?required}
+      TELEPHONY_CORE_BASE_URL: ${TELEPHONY_CORE_BASE_URL:?required}
+      # Public SIP identity (NAT: must be the externally reachable address).
+      TELEPHONY_PUBLIC_SIP_HOST: ${TELEPHONY_PUBLIC_SIP_HOST:?required}
+      TELEPHONY_RTP_PORT_MIN: ${TELEPHONY_RTP_PORT_MIN:-16384}
+      TELEPHONY_RTP_PORT_MAX: ${TELEPHONY_RTP_PORT_MAX:-16584}
+      # Asterisk runtime control (ARI) — internal only.
+      ASTERISK_ARI_URL: ${ASTERISK_ARI_URL:-http://127.0.0.1:8088/ari}
+      ASTERISK_ARI_USER: ${ASTERISK_ARI_USER:?required}
+      ASTERISK_ARI_PASSWORD: ${ASTERISK_ARI_PASSWORD:?required}
+      # PJSIP Realtime provisioning: least-privilege login scoped to the
+      # `asterisk` schema only (never the application role).
+      ASTERISK_DB_URL: ${ASTERISK_DB_URL:?required}
+      # Media bridge.
+      LIVEKIT_SIP_URI: ${LIVEKIT_SIP_URI:?required}
+      LIVEKIT_URL: ${LIVEKIT_URL:?required}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?required}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?required}
+    ports:
+      # SIP signalling — restrict the source range to the provider where possible.
+      - "${TELEPHONY_SIP_PORT:-5060}:5060/udp"
+      - "${TELEPHONY_SIP_PORT:-5060}:5060/tcp"
+      - "${TELEPHONY_SIP_TLS_PORT:-5061}:5061/tcp"
+      # RTP media.
+      - "${TELEPHONY_RTP_PORT_MIN:-16384}-${TELEPHONY_RTP_PORT_MAX:-16584}:16384-16584/udp"
+      # ARI (8088) and the control API (8089) are deliberately NOT published.
+    expose:
+      - "8088"
+      - "8089"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8089/internal/telephony/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    networks:
+      - webyar
+
+networks:
+  webyar:
+    external: true
+    name: ${WEBYAR_NETWORK:-webyar}

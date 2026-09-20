@@ -545,13 +545,13 @@ callCenterRouter.get('/overview', async (req, res) => {
   const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
   const [todayCalls, waitingQ, activeCalls, missedToday, callbacks, providerInfo] = await Promise.all([
     sb.from('call_sessions').select('id', { count: 'exact', head: true })
-      .eq('workspace_id', wid).eq('entry_source', 'call_widget').gte('created_at', startOfDay.toISOString()),
+      .eq('workspace_id', wid).in('entry_source', CALL_CENTER_ENTRY_SOURCES).gte('created_at', startOfDay.toISOString()),
     sb.from('call_queue_entries').select('id', { count: 'exact', head: true })
-      .eq('workspace_id', wid).eq('entry_source', 'call_widget').in('state', ['queued', 'offered']),
+      .eq('workspace_id', wid).in('entry_source', CALL_CENTER_ENTRY_SOURCES).in('state', ['queued', 'offered']),
     sb.from('call_sessions').select('id', { count: 'exact', head: true })
-      .eq('workspace_id', wid).eq('entry_source', 'call_widget').in('state', ['active', 'ringing', 'connecting']),
+      .eq('workspace_id', wid).in('entry_source', CALL_CENTER_ENTRY_SOURCES).in('state', ['active', 'ringing', 'connecting']),
     sb.from('call_sessions').select('id', { count: 'exact', head: true })
-      .eq('workspace_id', wid).eq('entry_source', 'call_widget').eq('state', 'missed').gte('created_at', startOfDay.toISOString()),
+      .eq('workspace_id', wid).in('entry_source', CALL_CENTER_ENTRY_SOURCES).eq('state', 'missed').gte('created_at', startOfDay.toISOString()),
     sb.from('callback_requests').select('id', { count: 'exact', head: true })
       .eq('workspace_id', wid).in('status', ['requested', 'scheduled']),
     resolveEffectiveCallProvider(ctx.config, wid).then(p => ({ provider: p.id, ready: true })).catch(e => ({ provider: 'none', ready: false, error: String(e?.message || e) })),
@@ -580,7 +580,7 @@ callCenterRouter.get('/calls', async (req, res) => {
   const limit = Math.min(parseInt(String(req.query.limit || '50'), 10) || 50, 200);
   const offset = parseInt(String(req.query.offset || '0'), 10) || 0;
   let q = sb.from('call_sessions').select('*').eq('workspace_id', wid)
-    .eq('entry_source', 'call_widget')
+    .in('entry_source', CALL_CENTER_ENTRY_SOURCES)
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
   if (status) q = q.eq('state', status);
@@ -636,7 +636,7 @@ callCenterRouter.get('/queue', async (req, res) => {
   const sb = getServiceClient(ctx.config);
   const { data: queue } = await sb.from('call_queue_entries')
     .select('*, call_session:call_session_id(*)')
-    .eq('workspace_id', wid).eq('entry_source', 'call_widget')
+    .eq('workspace_id', wid).in('entry_source', CALL_CENTER_ENTRY_SOURCES)
     .in('state', ['queued', 'offered'])
     .order('priority', { ascending: false }).order('created_at', { ascending: true });
   res.json({ queue: queue || [] });
@@ -753,7 +753,7 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
     const sb = getServiceClient(ctx.config);
     const { data: callRaw } = await sb.from('call_sessions').select('*')
       .eq('id', req.params.id).eq('workspace_id', wid)
-      .eq('entry_source', 'call_widget').maybeSingle();
+      .in('entry_source', CALL_CENTER_ENTRY_SOURCES).maybeSingle();
     if (!callRaw) return res.status(404).json({ error: 'not_found' });
     const call = callRaw as CallSessionRow;
     const prevState = String(call.state || '');
@@ -885,7 +885,7 @@ callCenterRouter.post('/calls/:id/reject', async (req, res) => {
     const { data: existingRaw } = await sb.from('call_sessions')
       .select('id, entry_source, assigned_agent_id, state')
       .eq('id', req.params.id).eq('workspace_id', wid)
-      .eq('entry_source', 'call_widget').maybeSingle();
+      .in('entry_source', CALL_CENTER_ENTRY_SOURCES).maybeSingle();
     if (!existingRaw) return res.status(404).json({ error: 'not_found' });
     const existing = existingRaw as CallSessionRow;
     const prevState = String(existing.state || '');
@@ -943,7 +943,7 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
     const sb = getServiceClient(ctx.config);
     const { data: callRaw } = await sb.from('call_sessions').select('*')
       .eq('id', req.params.id).eq('workspace_id', wid)
-      .eq('entry_source', 'call_widget').maybeSingle();
+      .in('entry_source', CALL_CENTER_ENTRY_SOURCES).maybeSingle();
     if (!callRaw) return res.status(404).json({ error: 'not_found' });
     const call = callRaw as CallSessionRow;
     const prevState = String(call.state || '');
@@ -1755,8 +1755,8 @@ callCenterRouter.get('/admin/platform', async (req, res) => {
   const sb = getServiceClient(ctx.config);
   const [{ count: enabledWorkspaces }, { count: activeCalls }, { count: waitingCalls }] = await Promise.all([
     sb.from('call_center_settings').select('id', { count: 'exact', head: true }).eq('enabled', true),
-    sb.from('call_sessions').select('id', { count: 'exact', head: true }).eq('entry_source', 'call_widget').in('state', ['active', 'ringing', 'connecting']),
-    sb.from('call_queue_entries').select('id', { count: 'exact', head: true }).eq('entry_source', 'call_widget').in('state', ['queued', 'offered']),
+    sb.from('call_sessions').select('id', { count: 'exact', head: true }).in('entry_source', CALL_CENTER_ENTRY_SOURCES).in('state', ['active', 'ringing', 'connecting']),
+    sb.from('call_queue_entries').select('id', { count: 'exact', head: true }).in('entry_source', CALL_CENTER_ENTRY_SOURCES).in('state', ['queued', 'offered']),
   ]);
   res.json({
     settings,
@@ -2179,7 +2179,7 @@ callCenterRouter.get('/calls/:id/notes', async (req, res) => {
     .eq('workspace_id', wid)
     .maybeSingle();
   if (!call) return res.status(404).json({ error: 'not_found' });
-  if (call.entry_source !== 'call_widget') return res.status(403).json({ error: 'wrong_entry_source' });
+  if (call.entry_source !== WIDGET_ONLY_ENTRY_SOURCE) return res.status(403).json({ error: 'wrong_entry_source' });
   res.json({ notes: readOperatorNotes(call.metadata) });
 });
 
@@ -2222,7 +2222,7 @@ callCenterRouter.post('/calls/:id/notes', async (req, res) => {
       .eq('workspace_id', wid)
       .maybeSingle();
     if (!call) return res.status(404).json({ error: 'not_found' });
-    if (call.entry_source !== 'call_widget') return res.status(403).json({ error: 'wrong_entry_source' });
+    if (call.entry_source !== WIDGET_ONLY_ENTRY_SOURCE) return res.status(403).json({ error: 'wrong_entry_source' });
 
     const existing = readOperatorNotes(call.metadata);
     if (existing.length >= OPERATOR_NOTES_MAX_PER_CALL) {

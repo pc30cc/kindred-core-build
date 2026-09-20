@@ -113,7 +113,7 @@ async function getStandaloneCallCenterSession(
     .select('*')
     .eq('id', callId)
     .eq('workspace_id', workspaceId)
-    .eq('entry_source', 'call_widget')
+    .in('entry_source', CALL_CENTER_ENTRY_SOURCES)
     .maybeSingle();
   return data;
 }

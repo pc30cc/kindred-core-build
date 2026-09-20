@@ -1,60 +1,95 @@
 <?php
 namespace WebYar\WooCommerce\Admin;
 
+use WebYar\WooCommerce\Auth\PairingService;
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-/** Renders the diagnostics section of the settings screen — safe metadata only. */
+/**
+ * Technical detail for the day something breaks — safe metadata only, never
+ * the installation secret.
+ *
+ * Collapsed by default: a shop owner opening this screen wants to know the
+ * store is connected, not which protocol revision it negotiated. It opens
+ * itself only when there are failed deliveries, i.e. exactly when the
+ * detail is the reason the admin came here.
+ */
 final class DiagnosticsPage {
 
-	public static function render( array $credential ): void {
+	public static function render( array $credential, array $settings = array() ): void {
 		$dead_letters = get_option( 'webyar_wc_dead_letters', array() );
+		if ( ! is_array( $dead_letters ) ) {
+			$dead_letters = array();
+		}
+		$has_failures = ! empty( $dead_letters );
 		?>
-		<h2><?php esc_html_e( 'عیب‌یابی', 'webyar-woocommerce' ); ?></h2>
-		<table class="widefat striped" style="max-width:640px">
-			<tbody>
-				<tr>
-					<td><?php esc_html_e( 'نسخه‌ی پروتکل', 'webyar-woocommerce' ); ?></td>
-					<td dir="ltr" style="text-align:left"><code><?php echo esc_html( $credential['protocol_version'] ?? '—' ); ?></code></td>
-				</tr>
-				<tr>
-					<td><?php esc_html_e( 'شناسه‌ی فروشگاه', 'webyar-woocommerce' ); ?></td>
-					<td dir="ltr" style="text-align:left"><code><?php echo esc_html( $credential['store_id'] ?? '—' ); ?></code></td>
-				</tr>
-				<tr>
-					<td><?php esc_html_e( 'زمان اتصال', 'webyar-woocommerce' ); ?></td>
-					<td dir="ltr" style="text-align:left"><?php echo esc_html( ! empty( $credential['created_at'] ) ? gmdate( 'Y-m-d H:i', (int) $credential['created_at'] ) . ' UTC' : '—' ); ?></td>
-				</tr>
-				<tr>
-					<td><?php esc_html_e( 'رویدادهای ناموفق (۵۰ مورد اخیر)', 'webyar-woocommerce' ); ?></td>
-					<td><?php echo esc_html( (string) count( $dead_letters ) ); ?></td>
-				</tr>
-			</tbody>
-		</table>
-		<?php if ( ! empty( $dead_letters ) ) : ?>
-			<details style="margin-top:8px">
-				<summary><?php esc_html_e( 'نمایش رویدادهای ناموفق', 'webyar-woocommerce' ); ?></summary>
-				<table class="widefat striped" style="max-width:640px">
-					<thead>
-						<tr>
-							<th><?php esc_html_e( 'نوع', 'webyar-woocommerce' ); ?></th>
-							<th><?php esc_html_e( 'دلیل', 'webyar-woocommerce' ); ?></th>
-							<th><?php esc_html_e( 'زمان', 'webyar-woocommerce' ); ?></th>
-						</tr>
-					</thead>
-					<tbody>
-						<?php foreach ( array_reverse( $dead_letters ) as $entry ) : ?>
+		<details class="webyar-more"<?php echo $has_failures ? ' open' : ''; ?>>
+			<summary>
+				<?php
+				if ( $has_failures ) {
+					printf(
+						/* translators: %d: number of failed event deliveries */
+						esc_html__( 'جزئیات فنی — %d رویداد ناموفق', 'webyar-woocommerce' ),
+						count( $dead_letters )
+					);
+				} else {
+					esc_html_e( 'جزئیات فنی', 'webyar-woocommerce' );
+				}
+				?>
+			</summary>
+			<div class="webyar-more-body">
+				<dl class="webyar-rows">
+					<div>
+						<dt class="webyar-k"><?php esc_html_e( 'آدرس API', 'webyar-woocommerce' ); ?></dt>
+						<dd class="webyar-v">
+							<code><?php echo esc_html( PairingService::api_base_url() ); ?></code>
+							<?php if ( empty( $settings['api_url'] ) ) : ?>
+								<span class="webyar-hint">(<?php esc_html_e( 'همان داشبورد', 'webyar-woocommerce' ); ?>)</span>
+							<?php endif; ?>
+						</dd>
+					</div>
+					<div>
+						<dt class="webyar-k"><?php esc_html_e( 'نسخه‌ی افزونه', 'webyar-woocommerce' ); ?></dt>
+						<dd class="webyar-v"><code><?php echo esc_html( WEBYAR_WC_VERSION ); ?></code></dd>
+					</div>
+					<div>
+						<dt class="webyar-k"><?php esc_html_e( 'نسخه‌ی پروتکل', 'webyar-woocommerce' ); ?></dt>
+						<dd class="webyar-v"><code><?php echo esc_html( $credential['protocol_version'] ?? '—' ); ?></code></dd>
+					</div>
+					<div>
+						<dt class="webyar-k"><?php esc_html_e( 'زمان اتصال', 'webyar-woocommerce' ); ?></dt>
+						<dd class="webyar-v"><?php echo esc_html( ! empty( $credential['created_at'] ) ? gmdate( 'Y-m-d H:i', (int) $credential['created_at'] ) . ' UTC' : '—' ); ?></dd>
+					</div>
+					<div>
+						<dt class="webyar-k"><?php esc_html_e( 'رویدادهای ناموفق (۵۰ مورد اخیر)', 'webyar-woocommerce' ); ?></dt>
+						<dd class="webyar-v"><?php echo esc_html( (string) count( $dead_letters ) ); ?></dd>
+					</div>
+				</dl>
+
+				<?php if ( $has_failures ) : ?>
+					<table class="webyar-table">
+						<thead>
 							<tr>
-								<td dir="ltr" style="text-align:left"><?php echo esc_html( $entry['type'] ?? '—' ); ?></td>
-								<td dir="ltr" style="text-align:left"><?php echo esc_html( $entry['reason'] ?? '—' ); ?></td>
-								<td dir="ltr" style="text-align:left"><?php echo esc_html( $entry['at'] ?? '—' ); ?></td>
+								<th><?php esc_html_e( 'نوع', 'webyar-woocommerce' ); ?></th>
+								<th><?php esc_html_e( 'دلیل', 'webyar-woocommerce' ); ?></th>
+								<th><?php esc_html_e( 'زمان', 'webyar-woocommerce' ); ?></th>
 							</tr>
-						<?php endforeach; ?>
-					</tbody>
-				</table>
-			</details>
-		<?php endif; ?>
+						</thead>
+						<tbody>
+							<?php foreach ( array_reverse( $dead_letters ) as $entry ) : ?>
+								<tr>
+									<td><?php echo esc_html( $entry['type'] ?? '—' ); ?></td>
+									<td><?php echo esc_html( $entry['reason'] ?? '—' ); ?></td>
+									<td><?php echo esc_html( $entry['at'] ?? '—' ); ?></td>
+								</tr>
+							<?php endforeach; ?>
+						</tbody>
+					</table>
+				<?php endif; ?>
+			</div>
+		</details>
 		<?php
 	}
 }

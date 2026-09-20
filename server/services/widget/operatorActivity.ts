@@ -222,6 +222,8 @@ export function __evictActivityCoalesceState(): void {
 /** Test/ops hook. */
 export function resetOperatorActivity(): void {
   zaddGtSupported = null;
+  analyticsTableMissing = false;
+  analyticsSchemaCacheMisses = 0;
   local.clear();
   lastRedisWriteAt.clear();
   lastPruneAt.clear();
@@ -255,6 +257,63 @@ async function readExactActivity(
     return null;
   }
 }
+
+/**
+ * `operator_activity_samples` has been dropped on installs that ran the
+ * Live Monitoring cleanup — its writer is already gone (see
+ * server/routes/operatorActivity.ts). The coarse read below stays for
+ * installs that still have the table, but where it is absent every call was
+ * a guaranteed PostgREST 404 that could only ever return zero rows, several
+ * hundred times a day. Latch the first "this relation does not exist"
+ * answer and stop asking; the fallback behaviour is identical either way
+ * (local map only). Cleared by resetOperatorActivity(), so a restart — or a
+ * restored table — re-probes exactly once.
+ */
+let analyticsTableMissing = false;
+
+/**
+ * Consecutive PGRST205 answers. PGRST205 is strong but not conclusive on its
+ * own (see classifyAnalyticsRelationError), so the latch arms on the second
+ * one in a row; any other outcome resets the count.
+ */
+let analyticsSchemaCacheMisses = 0;
+
+type AnalyticsRelationVerdict = 'usable' | 'dropped' | 'not_in_schema_cache';
+
+/**
+ * Classifies an error as evidence that `operator_activity_samples` ITSELF is
+ * absent. A missing column, a missing function, a permission error or a code
+ * naming some other relation is a different bug and must keep using the
+ * ordinary fallback instead of latching this read off.
+ *
+ * This previously required 42P01 and explicitly refused PostgREST's PGRST205,
+ * reasoning that a dropped table would eventually report 42P01 once the schema
+ * cache settled. That premise is wrong: PostgREST resolves an unknown relation
+ * from its schema cache and never issues the statement, so Postgres is never
+ * asked and 42P01 can never arrive. The latch could therefore never arm, and
+ * this install — where the table really was dropped by the Live Monitoring
+ * cleanup — issued a guaranteed-404 request roughly a hundred times a day,
+ * indefinitely.
+ *
+ * PGRST205 is now accepted, matching isPlatformSettingsTableMissing in
+ * server/services/ai-agent/platformSettings.ts, which the original comment
+ * already claimed this was shaped after. The author's concern — a transient
+ * cache miss right after a migration on an install where the table DOES exist
+ * — is handled by requiring two consecutive PGRST205s rather than by ignoring
+ * the code, so a single blip can no longer disable the read.
+ */
+const classifyAnalyticsRelationError = (
+  error: { code?: string; message?: string; details?: string } | null | undefined,
+): AnalyticsRelationVerdict => {
+  const code = String(error?.code || '');
+  // 42P01 = undefined_table (Postgres). PGRST205 = relation not in PostgREST's
+  // schema cache — the only answer a dropped table can actually produce here.
+  if (code !== '42P01' && code !== 'PGRST205') return 'usable';
+  const haystack = `${error?.message || ''} ${error?.details || ''}`.toLowerCase();
+  if (!haystack.includes('operator_activity_samples')) return 'usable';
+  if (/\bcolumn\b|\bfunction\b|permission denied/.test(haystack)) return 'usable';
+  return code === '42P01' ? 'dropped' : 'not_in_schema_cache';
+};
 
 /**
  * Last-activity timestamp (ms) per operator. Missing ⇒ no activity known.
@@ -297,15 +356,29 @@ export async function getOperatorLastActivity(
   missing = staleOrMissing();
   if (!missing.length) return out;
 
+  if (analyticsTableMissing) return out;
+
   try {
     const sb = getServiceClient(config);
     const since = new Date(ts - OPERATOR_ACTIVITY_ACTIVE_MS - ANALYTICS_BUCKET_MS).toISOString();
-    const { data } = await sb
+    const { data, error } = await sb
       .from('operator_activity_samples')
       .select('user_id, bucket')
       .eq('workspace_id', workspaceId)
       .in('user_id', missing)
       .gte('bucket', since);
+    const verdict = classifyAnalyticsRelationError(error);
+    if (verdict === 'dropped') {
+      // Definitive — arm immediately.
+      analyticsTableMissing = true;
+      return out;
+    }
+    if (verdict === 'not_in_schema_cache') {
+      analyticsSchemaCacheMisses += 1;
+      if (analyticsSchemaCacheMisses >= 2) analyticsTableMissing = true;
+      return out;
+    }
+    analyticsSchemaCacheMisses = 0;
     for (const row of (data || []) as Array<{ user_id: string; bucket: string }>) {
       // A bucket labelled T covers [T, T+5m); credit its end so a beat inside
       // the bucket is not aged by up to five extra minutes.

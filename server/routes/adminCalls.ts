@@ -5,6 +5,7 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../config.js';
+import { insertAuditLogRows } from '../services/auditLog.js';
 import {
   loadCallControlPlane,
   saveCallControlPlane,
@@ -618,7 +619,7 @@ adminCallsRouter.post('/recordings/legal-hold/bulk', async (req, res) => {
         };
       });
       if (rows.length > 0) {
-        await sb.from('audit_logs').insert(rows).then(() => {}, () => {});
+        await insertAuditLogRows(config, sb, rows).then(() => {}, () => {});
       }
     }
   }
@@ -659,7 +660,7 @@ adminCallsRouter.post('/recordings/:id/legal-hold', async (req, res) => {
   if (updErr) return res.status(500).json({ error: updErr.message });
 
   const wsId = priorRow.call_sessions?.workspace_id ?? '00000000-0000-0000-0000-000000000000';
-  await sb.from('audit_logs').insert({
+  await insertAuditLogRows(config, sb, {
     action: parsed.data.enabled ? 'call_recording.legal_hold.enable' : 'call_recording.legal_hold.disable',
     entity_type: 'call_recording',
     entity_id: id,

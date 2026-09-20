@@ -88,6 +88,17 @@ export async function runAutoActionCycle(
  * concrete rule_slug bindings.
  */
 async function activateAnyCriticalDegraded(config: ServerConfig): Promise<number> {
+  // alert_events is maintained ONLY by the alerting ticker: it is what moves
+  // a row from 'open' to 'resolved' (alertEvaluator). The auto-actions ticker
+  // is now gated by the same OBSERVABILITY_REPORTING_TICKERS flag, so this
+  // check is no longer what stops the scheduled path — it remains as the
+  // guard for the MANUAL POST /api/admin/auto-actions cycle, which still runs
+  // with the flag off. Without it, an alert that merely happened to be open
+  // when the flag flipped would stay open for good and a manual cycle would
+  // pin the whole system into "degraded" — a live request path reading a
+  // verdict nobody is keeping current. Skip rather than act on frozen state.
+  if (config.observabilityReportingTickersEnabled === false) return 0;
+
   const sb = getServiceClient(config);
 
   const { data: defs } = await sb

@@ -30,8 +30,27 @@ final class CatalogController {
 			'paginate' => true,
 			'return'   => 'ids',
 		);
-		if ( $modified_after ) {
-			$args['date_modified'] = '>' . strtotime( (string) $modified_after );
+		// Trim first: strtotime() reads a whitespace-only string as "now",
+		// which would filter the export down to nothing on every run.
+		$modified_after = null === $modified_after ? '' : trim( (string) $modified_after );
+		if ( '' !== $modified_after ) {
+			// strtotime() returns false for anything it cannot parse, and
+			// '>' . false is just '>', which WooCommerce reads as an empty
+			// comparison and quietly matches NOTHING. A corrupted sync
+			// cursor would then report "no changes" forever while the
+			// workspace's catalog silently went stale, so an unparseable
+			// cursor fails loudly instead.
+			$timestamp = strtotime( $modified_after );
+			if ( false === $timestamp ) {
+				return new \WP_REST_Response(
+					array(
+						'code'    => 'invalid_modified_after',
+						'message' => 'modified_after must be a parseable date (ISO-8601 recommended)',
+					),
+					400
+				);
+			}
+			$args['date_modified'] = '>' . $timestamp;
 		}
 
 		$result   = wc_get_products( $args );

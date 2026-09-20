@@ -98,3 +98,72 @@ describe('WooCommerce product normalization', () => {
     expect(product!.stockState).toBe('unknown');
   });
 });
+
+describe('price shapes the plugin actually sends', () => {
+  // Captured verbatim from a live WooCommerce store running the connector
+  // plugin (GET /wp-json/webyar/v1/catalog/export). The fixtures above use
+  // bare scalars for price, which the plugin never emits for products — that
+  // mismatch let every product price reach the index as NULL while the tests
+  // stayed green.
+  const liveProductPayload = {
+    externalId: '15',
+    type: 'simple',
+    sku: 'WY-PULSE3',
+    title: 'ساعت هوشمند پالس ۳',
+    shortDescription: 'پایش ضربان قلب و اکسیژن خون، GPS داخلی و مقاومت ۵ ATM.',
+    canonicalUrl: 'https://p.webyar.ai/product/x/',
+    imageUrl: 'https://p.webyar.ai/wp-content/uploads/2026/09/WY-PULSE3-300x300.png',
+    currency: 'IRT',
+    regularPrice: { amountMinor: '7200000', currency: 'IRT' },
+    salePrice: { amountMinor: '6480000', currency: 'IRT' },
+    effectivePrice: { amountMinor: '6480000', currency: 'IRT' },
+    stockState: 'in_stock',
+    stockQuantity: 4,
+    categories: [{ id: '18', name: 'لوازم جانبی', slug: 'accessories' }],
+    tags: [],
+    attributes: [],
+    variants: [],
+    isVirtual: false,
+    isDownloadable: false,
+    updatedAt: '2026-09-20T18:04:42+00:00',
+  };
+
+  it('reads canonical Money objects, not just scalars', () => {
+    const product = normalizeWooCommerceProduct(liveProductPayload);
+
+    expect(product).not.toBeNull();
+    expect(product!.regularPrice).toEqual({ amountMinor: '7200000', currency: 'IRT' });
+    expect(product!.salePrice).toEqual({ amountMinor: '6480000', currency: 'IRT' });
+    expect(product!.effectivePrice).toEqual({ amountMinor: '6480000', currency: 'IRT' });
+  });
+
+  it('still reads the bare-scalar form used by order payloads', () => {
+    const product = normalizeWooCommerceProduct({ ...liveProductPayload, effectivePrice: '6480000' });
+    expect(product!.effectivePrice).toEqual({ amountMinor: '6480000', currency: 'IRT' });
+  });
+
+  it('keeps a variant price object intact', () => {
+    const product = normalizeWooCommerceProduct({
+      ...liveProductPayload,
+      type: 'variable',
+      variants: [{
+        externalId: '24',
+        sku: 'WY-TSHIRT-S',
+        attributes: { Size: 'small' },
+        regularPrice: { amountMinor: '450000', currency: 'IRT' },
+        salePrice: null,
+        effectivePrice: { amountMinor: '450000', currency: 'IRT' },
+        stockState: 'in_stock',
+        stockQuantity: 12,
+        imageUrl: null,
+        updatedAt: '2026-09-20T18:04:42+00:00',
+      }],
+    });
+    expect(product!.variants[0].effectivePrice).toEqual({ amountMinor: '450000', currency: 'IRT' });
+  });
+
+  it('rejects a malformed money object rather than inventing a price', () => {
+    const product = normalizeWooCommerceProduct({ ...liveProductPayload, effectivePrice: { amountMinor: 'free', currency: 'IRT' } });
+    expect(product!.effectivePrice).toBeNull();
+  });
+});

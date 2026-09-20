@@ -25,7 +25,7 @@ import { executeAICompletion, resolveAIConfig } from '../../server/services/ai/i
 import { logGateBypass } from '../../server/middleware/adminBypass.js';
 import { consumeAiCredits } from '../../server/services/ai-kb/credits.js';
 import { DbJobQueueProvider } from '../../server/services/ai-kb/queue.js';
-import type { ServerConfig } from '../../server/config.js';
+import { envFlagEnabled, type ServerConfig } from '../../server/config.js';
 import { normalizeArticleHtml } from '../../server/services/ai-kb/htmlNormalize.js';
 import { workerLog } from './index.js';
 
@@ -389,6 +389,15 @@ export async function processJob(sb: SupabaseClient, env: WorkerEnv, job: any): 
     // `runtime_not_configured`.
     aiRuntimeBaseUrl: env.aiRuntimeBaseUrl,
     aiRuntimeInternalSecret: env.aiRuntimeInternalSecret,
+    // Logging switches. These workers build their ServerConfig by hand
+    // instead of calling loadConfig(), so without these three lines the
+    // request-path logging flags would silently NOT reach the writers this
+    // container runs. envFlagEnabled() is the same parsing rule loadConfig()
+    // uses: only the literal `off` disables, so omitting the env var here
+    // leaves every write exactly as it is today.
+    productAnalyticsLoggingEnabled: envFlagEnabled('PRODUCT_ANALYTICS_LOGGING'),
+    deliveryDiagnosticsLoggingEnabled: envFlagEnabled('DELIVERY_DIAGNOSTICS_LOGGING'),
+    complianceAuditLoggingEnabled: envFlagEnabled('COMPLIANCE_AUDIT_LOGGING'),
   };
   const jobQueue = new DbJobQueueProvider(sb);
   const snap = job.plan_snapshot || {};

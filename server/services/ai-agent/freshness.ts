@@ -44,7 +44,13 @@ export interface FreshnessVerdict {
   checkFailed: boolean;
 }
 
-const VISITOR_SENDER_TYPES = ['contact', 'visitor', 'user'];
+// Matched against already-fetched rows in JS, so this never reaches SQL and
+// never 400s. Behaviour was already correct because 'contact' is a real label;
+// 'visitor' and 'user' were simply dead values that can never match
+// public.sender_type { agent, contact, system, bot, ai }. They are dropped so
+// nobody moves this list into a SQL .in() — which is exactly how replyNow.ts
+// and anonymizer.ts ended up returning 400 on every call.
+const VISITOR_SENDER_TYPES = ['contact'];
 
 function ok(checkpoint: FreshnessCheckpoint, latest: string | null): FreshnessVerdict {
   return {
@@ -81,11 +87,16 @@ export async function checkGenerationFreshness(
     // The trigger message anchors the timeline. Anything created strictly
     // after it that is a visitor message or a public human reply invalidates
     // this generation.
-    const { data: trigger } = await sb
+    const { data: trigger, error: triggerError } = await sb
       .from('conversation_messages')
       .select('id,created_at')
       .eq('id', visitorMessageId)
       .maybeSingle();
+    // Fail OPEN per this module's contract, but report it: a failed read must
+    // not be silently indistinguishable from "this message has no timestamp".
+    if (triggerError) {
+      return { ...ok(checkpoint, visitorMessageId), checkFailed: true };
+    }
     const anchor = (trigger as any)?.created_at || args.startedAt || null;
     if (!anchor) return ok(checkpoint, visitorMessageId);
 

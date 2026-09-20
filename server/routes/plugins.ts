@@ -559,7 +559,16 @@ pluginsRouter.get(botPaths('status'), async (req: any, res) => {
  */
 async function channelsWorkerOffline(req: any): Promise<boolean> {
   try {
-    const sb = getServiceClient(serverConfigOf(req));
+    const config = serverConfigOf(req);
+    // CHANNELS_WORKER_HEARTBEAT=off — FAIL OPEN. With the beacon switched off
+    // this table is empty by design, so the staleness check below would mean
+    // "worker offline" forever and the two routes that call this would answer
+    // 503 permanently on a signal the operator deliberately silenced. The
+    // trade is a worse error message when the worker really IS dead (the
+    // operator waits out the 12-15s awaitOperation timeout instead of getting
+    // an immediate, explanatory 503) — never refused work.
+    if (config.channelsWorkerHeartbeatEnabled === false) return false;
+    const sb = getServiceClient(config);
     const staleBefore = new Date(Date.now() - 120_000).toISOString();
     const { data } = await sb
       .from('channel_worker_heartbeats')

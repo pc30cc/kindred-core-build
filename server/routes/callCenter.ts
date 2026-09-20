@@ -8,6 +8,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import type { ServerConfig } from '../config.js';
+import { insertAuditLogRows } from '../services/auditLog.js';
 import { getServiceClient } from '../supabase.js';
 import {
   getOrCreateWorkspaceSettings,
@@ -1818,7 +1819,7 @@ callCenterRouter.put('/admin/platform', async (req, res) => {
   // Audit-on-save (best-effort, no new audit system)
   try {
     const sb = getServiceClient(ctx.config);
-    await sb.from('audit_logs').insert({
+    await insertAuditLogRows(ctx.config, sb, {
       user_id: ctx.userId,
       action: 'platform_call_center.update',
       entity_type: 'platform_call_center_settings',

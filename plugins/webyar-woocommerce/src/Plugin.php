@@ -5,6 +5,7 @@ use WebYar\WooCommerce\Admin\SettingsPage;
 use WebYar\WooCommerce\Admin\ConnectionController;
 use WebYar\WooCommerce\Events\WooEventSubscriber;
 use WebYar\WooCommerce\Events\EventDelivery;
+use WebYar\WooCommerce\Rest\ProductController;
 use WebYar\WooCommerce\Rest\Router;
 use WebYar\WooCommerce\Support\WidgetLoader;
 
@@ -34,6 +35,7 @@ final class Plugin {
 		( new SettingsPage() )->register();
 		( new ConnectionController() )->register();
 		( new Router() )->register();
+		ProductController::register_query_filters();
 		( new WooEventSubscriber() )->register();
 		( new EventDelivery() )->register();
 		( new WidgetLoader() )->register();

@@ -23,18 +23,22 @@ const usageLogs: any[] = [];
 vi.mock('../../../server/supabase.js', () => ({
   getServiceClient: () => ({
     from: (table: string) => {
+      const readRow = async () =>
+        table === 'provider_configs'
+          ? {
+              data: { provider_name: 'openai', config: { api_key: 'sk-key', model: 'gpt-4o-mini' } },
+              error: null,
+            }
+          : { data: null, error: null };
       const chain: any = {
         select: () => chain,
         eq: () => chain,
         order: () => chain,
         limit: () => chain,
-        single: async () =>
-          table === 'provider_configs'
-            ? {
-                data: { provider_name: 'openai', config: { api_key: 'sk-key', model: 'gpt-4o-mini' } },
-                error: null,
-              }
-            : { data: null, error: null },
+        // provider_configs is read with .maybeSingle() ("no workspace override"
+        // is a normal answer); other tables still use .single(). Same result.
+        single: readRow,
+        maybeSingle: readRow,
         insert: async (row: any) => {
           if (table === 'ai_usage_logs') usageLogs.push(row);
           return { data: null, error: null };

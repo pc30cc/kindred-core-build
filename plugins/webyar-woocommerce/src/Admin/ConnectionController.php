@@ -5,6 +5,7 @@ use WebYar\WooCommerce\Auth\CredentialStore;
 use WebYar\WooCommerce\Auth\PairingService;
 use WebYar\WooCommerce\Auth\RequestSigner;
 use WebYar\WooCommerce\Support\Capabilities;
+use WebYar\WooCommerce\Events\EventDelivery;
 use WebYar\WooCommerce\Support\Logger;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -46,11 +47,20 @@ final class ConnectionController {
 			$this->redirect_with_notice( 'error', __( 'پیش از اتصال، یک آدرس معتبر وب‌یار وارد کنید (مثلاً https://app.webyar.ai).', 'webyar-woocommerce' ) );
 			return;
 		}
+		// Optional: a separate origin for the machine API. Empty means "same
+		// as the dashboard URL", which is the documented same-origin layout.
+		$raw_api_url = isset( $_POST['api_url'] ) ? trim( (string) esc_url_raw( wp_unslash( $_POST['api_url'] ) ) ) : ''; // phpcs:ignore
+		if ( '' !== $raw_api_url && false === filter_var( $raw_api_url, FILTER_VALIDATE_URL ) ) {
+			$this->redirect_with_notice( 'error', __( 'آدرس API معتبر نیست. یا یک آدرس درست وارد کنید یا خالی بگذارید.', 'webyar-woocommerce' ) );
+			return;
+		}
+
 		$settings = get_option( 'webyar_wc_settings', array() );
 		if ( ! is_array( $settings ) ) {
 			$settings = array();
 		}
 		$settings['app_url'] = untrailingslashit( $raw_app_url );
+		$settings['api_url'] = '' === $raw_api_url ? '' : untrailingslashit( $raw_api_url );
 		update_option( 'webyar_wc_settings', $settings, false );
 
 		try {
@@ -84,6 +94,7 @@ final class ConnectionController {
 				array(
 					'installation_id'     => $result['installationId'],
 					'workspace_id'        => $result['workspaceId'],
+					'connection_id'       => $result['connectionId'],
 					'store_id'            => $result['storeId'],
 					'protocol_version'    => $result['protocolVersion'],
 					'installation_secret' => $result['installationSecret'],
@@ -93,6 +104,7 @@ final class ConnectionController {
 					'rotated_at'          => null,
 				)
 			);
+			EventDelivery::clear_auth_error(); // fresh credential — any earlier rejection is stale
 			$this->redirect_with_notice( 'success', __( 'به وب‌یار متصل شدید.', 'webyar-woocommerce' ) );
 		} catch ( \Throwable $e ) {
 			Logger::error( 'pairing exchange failed', array( 'message' => $e->getMessage() ) );
@@ -111,18 +123,24 @@ final class ConnectionController {
 		// Local state is cleared regardless of whether Web Yar could be
 		// reached (spec §54/§55 — local cleanup must not depend on network).
 		CredentialStore::clear();
+		EventDelivery::clear_auth_error();
 		\WebYar\WooCommerce\Events\EventQueue::cancel_all();
 
 		$this->redirect_with_notice( 'success', __( 'اتصال به وب‌یار قطع شد.', 'webyar-woocommerce' ) );
 	}
 
 	private function notify_disconnect( array $credential ): void {
-		$path = '/api/workspaces/' . rawurlencode( $credential['workspace_id'] ) . '/commerce/connections/' . rawurlencode( $credential['installation_id'] ) . '/disconnect';
+		$path = '/api/commerce/connection/disconnect';
 		// Best-effort — local secret deletion proceeds unconditionally right
-		// after this call regardless of the outcome.
+		// after this call regardless of the outcome. Signed like every other
+		// machine call, because an unsigned one is simply refused.
 		wp_remote_post(
-			trailingslashit( PairingService::app_base_url() ) . ltrim( $path, '/' ),
-			array( 'timeout' => 5, 'blocking' => false )
+			trailingslashit( PairingService::api_base_url() ) . ltrim( $path, '/' ),
+			array(
+				'timeout'  => 5,
+				'blocking' => false,
+				'headers'  => RequestSigner::build_headers( $credential['installation_secret'], $credential['installation_id'], 'POST', $path, '' ),
+			)
 		);
 	}
 
@@ -132,27 +150,89 @@ final class ConnectionController {
 		// The actual health probe runs server-side on Web Yar (it calls
 		// THIS plugin's /health route) — this button just asks Web Yar to
 		// run it now.
-		$credential = CredentialStore::get();
-		if ( $credential ) {
-			wp_remote_post(
-				trailingslashit( PairingService::app_base_url() ) . 'api/workspaces/' . rawurlencode( $credential['workspace_id'] ) . '/commerce/connections/' . rawurlencode( $credential['installation_id'] ) . '/test',
-				array( 'timeout' => 10 )
-			);
-		}
-		$this->redirect_with_notice( 'success', __( 'درخواست تست اتصال ارسال شد.', 'webyar-woocommerce' ) );
+		$this->relay_connection_action( 'test', __( 'درخواست تست اتصال ارسال شد.', 'webyar-woocommerce' ) );
 	}
 
 	public function sync_now(): void {
 		$this->require_manage_capability();
 		check_admin_referer( 'webyar_wc_sync_now' );
+		$this->relay_connection_action( 'sync', __( 'درخواست همگام‌سازی ارسال شد.', 'webyar-woocommerce' ) );
+	}
+
+	/**
+	 * Asks Web Yar to run a connection-management action, and reports what
+	 * ACTUALLY happened.
+	 *
+	 * These endpoints are guarded by a logged-in workspace member's session,
+	 * while this call is server-to-server from WordPress with no session to
+	 * offer — so it currently comes back 401. Announcing "sent" regardless,
+	 * as this used to, left the admin believing a sync had started when
+	 * nothing had; a button that cannot work must at least say so.
+	 */
+	private function relay_connection_action( string $action, string $success_message ): void {
 		$credential = CredentialStore::get();
-		if ( $credential ) {
-			wp_remote_post(
-				trailingslashit( PairingService::app_base_url() ) . 'api/workspaces/' . rawurlencode( $credential['workspace_id'] ) . '/commerce/connections/' . rawurlencode( $credential['installation_id'] ) . '/sync',
-				array( 'timeout' => 10 )
-			);
+		if ( null === $credential ) {
+			$this->redirect_with_notice( 'error', __( 'فروشگاه به وب‌یار متصل نیست.', 'webyar-woocommerce' ) );
+			return;
 		}
-		$this->redirect_with_notice( 'success', __( 'درخواست همگام‌سازی ارسال شد.', 'webyar-woocommerce' ) );
+
+		// Signed, store-authenticated route. The dashboard equivalents under
+		// /api/workspaces/... require a logged-in member's session, which a
+		// server-to-server call from WordPress cannot present — they answered
+		// 401 every time. Here the installation secret IS the credential, and
+		// Web Yar resolves the connection from it.
+		$path    = '/api/commerce/connection/' . $action;
+		$headers = RequestSigner::build_headers( $credential['installation_secret'], $credential['installation_id'], 'POST', $path, '' );
+		$response = wp_remote_post(
+			trailingslashit( PairingService::api_base_url() ) . ltrim( $path, '/' ),
+			array( 'timeout' => 15, 'headers' => $headers )
+		);
+
+		if ( is_wp_error( $response ) ) {
+			Logger::error( 'connection action failed', array( 'action' => $action, 'error' => $response->get_error_message() ) );
+			$this->redirect_with_notice(
+				'error',
+				sprintf(
+					/* translators: %s: underlying network error message */
+					__( 'ارتباط با وب‌یار برقرار نشد — %s', 'webyar-woocommerce' ),
+					$response->get_error_message()
+				)
+			);
+			return;
+		}
+
+		$status = wp_remote_retrieve_response_code( $response );
+		if ( $status >= 200 && $status < 300 ) {
+			$this->redirect_with_notice( 'success', $success_message );
+			return;
+		}
+
+		Logger::error( 'connection action rejected', array( 'action' => $action, 'status' => $status ) );
+		if ( 401 === $status || 403 === $status ) {
+			// The signature was rejected or the connection was revoked — the
+			// same condition the event queue surfaces, so mark it the same way.
+			update_option( \WebYar\WooCommerce\Events\EventDelivery::AUTH_ERROR_OPTION, array( 'status' => $status, 'at' => gmdate( 'c' ) ), false );
+			$this->redirect_with_notice(
+				'error',
+				__( 'وب‌یار اعتبارنامه‌ی این فروشگاه را نپذیرفت. یک بار «قطع اتصال» و دوباره «اتصال به وب‌یار» را بزنید.', 'webyar-woocommerce' )
+			);
+			return;
+		}
+		if ( 404 === $status ) {
+			$this->redirect_with_notice(
+				'error',
+				__( 'نسخه‌ی وب‌یار شما این درخواست را پشتیبانی نمی‌کند. سرور وب‌یار را به‌روز کنید.', 'webyar-woocommerce' )
+			);
+			return;
+		}
+		$this->redirect_with_notice(
+			'error',
+			sprintf(
+				/* translators: %d: HTTP status code Web Yar replied with */
+				__( 'وب‌یار این درخواست را رد کرد (کد %d).', 'webyar-woocommerce' ),
+				$status
+			)
+		);
 	}
 
 	public function save_settings(): void {

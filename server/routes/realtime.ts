@@ -75,6 +75,7 @@ import { emitMetric } from '../services/observability/metrics.js';
 import { getMonitoringCollector } from '../services/observability/collector/index.js';
 import { realtimeControlRouter } from './realtimeControl.js';
 import { resolveEffectivePolicy } from '../services/realtime/effectivePolicy.js';
+import { recordRealtimeProviderAudit } from '../services/realtime/providerAudit.js';
 import { authorizeWorkspaceAccess, requirePlatformAdmin } from '../lib/workspaceAuth.js';
 
 export const realtimeRouter = Router();
@@ -1117,7 +1118,7 @@ realtimeRouter.put('/admin/config', requireAdmin, async (req, res) => {
       if (nextMode !== prevMode || nextMode !== 'single_memory') {
         const check = await preflightTopology(next);
         if (!check.ok && !force) {
-          await getServiceClient(config).from('realtime_provider_audit').insert({
+          await recordRealtimeProviderAudit(config, {
             changed_by: adminUser.id,
             action: 'preflight_failed',
             vendor: next.vendor,
@@ -1134,7 +1135,7 @@ realtimeRouter.put('/admin/config', requireAdmin, async (req, res) => {
 
 
     // Audit (masked diff only)
-    await getServiceClient(config).from('realtime_provider_audit').insert({
+    await recordRealtimeProviderAudit(config, {
       changed_by: adminUser.id,
       action: 'configure',
       vendor: next.vendor,
@@ -1178,7 +1179,7 @@ realtimeRouter.post('/admin/test', requireAdmin, async (req, res) => {
         tags: { endpoint: 'admin-test', status: h.status, reason: (h.message || 'unknown').slice(0, 64) },
       });
     }
-    await getServiceClient(config).from('realtime_provider_audit').insert({
+    await recordRealtimeProviderAudit(config, {
       changed_by: adminUser.id,
       action: 'test',
       vendor: cfg.vendor,
@@ -1245,7 +1246,7 @@ async function auditNodeAction(
 ) {
   const config: ServerConfig = req.serverConfig;
   try {
-    await getServiceClient(config).from('realtime_provider_audit').insert({
+    await recordRealtimeProviderAudit(config, {
       changed_by: req.adminUser?.id ?? null,
       action,
       vendor: 'centrifugo',

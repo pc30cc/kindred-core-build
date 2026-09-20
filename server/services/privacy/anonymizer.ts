@@ -19,6 +19,13 @@ import { deleteFile, deleteForOwner } from '../storage/index.js';
 import { scrubPii } from './scrub.js';
 import type { PrivacyJobRow, ResolvedSubject } from './types.js';
 
+// public.sender_type enum = { agent, contact, system, bot, ai }. 'visitor' is
+// NOT a member; including it made both message queries below fail with 22P02,
+// and because their errors were dropped, anonymize redacted nothing while the
+// worker still marked the job 'completed'.
+const CONTACT_SENDER_TYPES = ['contact'];
+const CONTACT_SENDER_TYPES_SQL = `(${CONTACT_SENDER_TYPES.join(',')})`;
+
 const REDACTED_BODY = '[deleted by user request]';
 const ANON_VISITOR_PREFIX = 'anon_';
 
@@ -135,12 +142,18 @@ export async function runAnonymize(
 
   // ─── 1. Redact contact-authored messages (idempotent) ──────────
   if (conversationIds.length > 0) {
-    const { data: contactMsgs } = await sb
+    const { data: contactMsgs, error: contactMsgsErr } = await sb
       .from('conversation_messages')
       .select('id,body')
       .in('conversation_id', conversationIds)
-      .in('sender_type', ['contact', 'visitor'])
+      .in('sender_type', CONTACT_SENDER_TYPES)
       .neq('body', REDACTED_BODY);
+    // Throw, never continue: a swallowed error here produced a zeroed summary
+    // and let worker.ts mark the deletion job 'completed' having redacted
+    // nothing. Failing the job loudly is the only safe outcome.
+    if (contactMsgsErr) {
+      throw new Error(`anonymize: reading contact messages failed: ${contactMsgsErr.message}`);
+    }
     for (const m of contactMsgs || []) {
       await sb
         .from('conversation_messages')
@@ -152,11 +165,14 @@ export async function runAnonymize(
     // ─── 2. Scrub operator-written message bodies (regex PII) ────
     // Only operator messages that contain the subject's email/phone get
     // touched; placeholders make this idempotent.
-    const { data: opMsgs } = await sb
+    const { data: opMsgs, error: opMsgsErr } = await sb
       .from('conversation_messages')
       .select('id,body,metadata')
       .in('conversation_id', conversationIds)
-      .not('sender_type', 'in', '(contact,visitor)');
+      .not('sender_type', 'in', CONTACT_SENDER_TYPES_SQL);
+    if (opMsgsErr) {
+      throw new Error(`anonymize: reading operator messages failed: ${opMsgsErr.message}`);
+    }
     for (const m of opMsgs || []) {
       const r = scrubPii(m.body || '');
       if (r.changed) {

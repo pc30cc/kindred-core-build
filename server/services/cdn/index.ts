@@ -567,7 +567,12 @@ export async function resolveCDNConfig(serverConfig: ServerConfig, workspaceId: 
   const sb = getServiceClient(serverConfig);
 
   // 1. Workspace override
-  const { data: wsConfig } = await sb
+  // .maybeSingle(), not .single(): "this workspace has no override" is the
+  // NORMAL case (provider_configs is empty on a fresh install), and .single()
+  // answers 0 rows with PostgREST 406 — one rejected transaction per call.
+  // The error was also dropped, so a genuine read failure was indistinguishable
+  // from "no override" and fell through to the global default unnoticed.
+  const { data: wsConfig, error: wsConfigError } = await sb
     .from('provider_configs')
     .select('*')
     .eq('workspace_id', workspaceId)
@@ -575,7 +580,11 @@ export async function resolveCDNConfig(serverConfig: ServerConfig, workspaceId: 
     .eq('is_active', true)
     .order('created_at', { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
+  if (wsConfigError) {
+    // Fall through to the global default (intended behaviour) but say so.
+    console.error('[cdn] provider_configs lookup failed:', wsConfigError.message);
+  }
 
   if (wsConfig?.config) {
     return mapDBConfigToCDN(wsConfig.provider_name, wsConfig.config as any);

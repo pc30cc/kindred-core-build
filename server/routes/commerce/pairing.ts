@@ -133,6 +133,11 @@ commercePairingRouter.post('/exchange', pairingLimiter, async (req, res) => {
       installationId: result.installationId,
       installationSecret: result.installationSecret, // returned exactly once
       workspaceId: result.workspaceId,
+      // The connection row id, distinct from the installation id. The plugin
+      // needs it to name its own connection in dashboard-shaped URLs; without
+      // it, it could only send the installation id, which those routes do not
+      // match.
+      connectionId: result.connectionId,
       storeId: result.storeId,
       protocolVersion: result.protocolVersion,
     });

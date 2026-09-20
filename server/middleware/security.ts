@@ -561,6 +561,11 @@ export async function logSecurityEvent(
   try {
     const config: ServerConfig = (req as any).serverConfig;
     if (!config) return;
+    // COMPLIANCE_AUDIT_LOGGING — the single helper behind all 24 callers and
+    // therefore the only writer of security_events. With it off there is no
+    // forensic trail for a probe, a brute-force run or a captcha failure on a
+    // publicly reachable install, and the admin security panel goes blank.
+    if (config.complianceAuditLoggingEnabled === false) return;
 
     const sb = getServiceClient(config);
     await sb.from('security_events').insert({

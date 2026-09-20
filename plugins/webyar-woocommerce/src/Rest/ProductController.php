@@ -16,6 +16,43 @@ final class ProductController {
 
 	private const MAX_LIMIT = 20;
 
+	/** Private wc_get_products() query var consumed by apply_price_range(). */
+	private const PRICE_RANGE_QUERY_VAR = 'webyar_price_range';
+
+	/**
+	 * Registered once from Plugin::boot() — teaches wc_get_products() the
+	 * price-range query var used by search().
+	 */
+	public static function register_query_filters(): void {
+		add_filter( 'woocommerce_product_data_store_cpt_get_products_query', array( __CLASS__, 'apply_price_range' ), 10, 2 );
+	}
+
+	/**
+	 * Translates PRICE_RANGE_QUERY_VAR into the `_price` meta comparison
+	 * WP_Query actually runs. Appends to any meta_query WooCommerce (or
+	 * another plugin) already built rather than replacing it.
+	 *
+	 * @param array<string,mixed> $wp_query_args
+	 * @param array<string,mixed> $query_vars
+	 * @return array<string,mixed>
+	 */
+	public static function apply_price_range( array $wp_query_args, array $query_vars ): array {
+		$range = $query_vars[ self::PRICE_RANGE_QUERY_VAR ] ?? null;
+		if ( ! is_array( $range ) || ! $range ) {
+			return $wp_query_args;
+		}
+		if ( ! isset( $wp_query_args['meta_query'] ) || ! is_array( $wp_query_args['meta_query'] ) ) {
+			$wp_query_args['meta_query'] = array(); // phpcs:ignore
+		}
+		if ( isset( $range['min'] ) ) {
+			$wp_query_args['meta_query'][] = array( 'key' => '_price', 'value' => (float) $range['min'], 'compare' => '>=', 'type' => 'NUMERIC' );
+		}
+		if ( isset( $range['max'] ) ) {
+			$wp_query_args['meta_query'][] = array( 'key' => '_price', 'value' => (float) $range['max'], 'compare' => '<=', 'type' => 'NUMERIC' );
+		}
+		return $wp_query_args;
+	}
+
 	public static function search_schema(): array {
 		return array(
 			'text'          => array( 'type' => 'string', 'required' => false ),
@@ -51,16 +88,22 @@ final class ProductController {
 		if ( $text = $request->get_param( 'text' ) ) {
 			$args['s'] = sanitize_text_field( $text );
 		}
+		// WC_Product_Query has no `meta_query` query var, so handing one to
+		// wc_get_products() is silently dropped and the price filter never
+		// narrows anything. Pass a private query var instead and translate
+		// it in apply_price_range() below, which is WooCommerce's canonical
+		// extension point for exactly this.
 		$min_price = $request->get_param( 'min_price' );
 		$max_price = $request->get_param( 'max_price' );
-		if ( null !== $min_price || null !== $max_price ) {
-			$args['meta_query'] = array(); // phpcs:ignore
-			if ( null !== $min_price ) {
-				$args['meta_query'][] = array( 'key' => '_price', 'value' => (float) $min_price, 'compare' => '>=', 'type' => 'NUMERIC' );
-			}
-			if ( null !== $max_price ) {
-				$args['meta_query'][] = array( 'key' => '_price', 'value' => (float) $max_price, 'compare' => '<=', 'type' => 'NUMERIC' );
-			}
+		$range     = array();
+		if ( null !== $min_price && '' !== $min_price ) {
+			$range['min'] = (float) $min_price;
+		}
+		if ( null !== $max_price && '' !== $max_price ) {
+			$range['max'] = (float) $max_price;
+		}
+		if ( $range ) {
+			$args[ self::PRICE_RANGE_QUERY_VAR ] = $range;
 		}
 		if ( $category = $request->get_param( 'category_slug' ) ) {
 			$args['category'] = array( sanitize_title( $category ) );

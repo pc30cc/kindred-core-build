@@ -10,6 +10,7 @@
 
 import crypto from 'node:crypto';
 import type { ServerConfig } from '../../../config.js';
+import { recordSourceSyncLog } from '../sourceSyncLog.js';
 import { getServiceClient } from '../../../supabase.js';
 import {
   uploadFile, downloadFile, deleteFile, resolveStorageConfig,
@@ -122,16 +123,20 @@ export async function logFileEvent(
     pages_found?: number; chunks_created?: number; embedded_chunks?: number; errors?: number;
   },
 ) {
+  // This caller — and only this one — swallowed its insert error before the
+  // shared helper existed. recordSourceSyncLog deliberately does not catch,
+  // so the guard stays here rather than moving into it, which would have
+  // silently made the four bare call sites non-throwing too.
   try {
-    await getServiceClient(config).from('ai_source_sync_logs').insert({
-      workspace_id: args.workspaceId,
-      source_id: args.sourceId,
+    await recordSourceSyncLog(config, {
+      workspaceId: args.workspaceId,
+      sourceId: args.sourceId,
       status: args.status,
       message: args.message ?? null,
-      pages_found: args.pages_found ?? 0,
-      chunks_created: args.chunks_created ?? 0,
-      embedded_chunks: args.embedded_chunks ?? 0,
-      errors: args.errors ?? 0,
+      pagesFound: args.pages_found,
+      chunksCreated: args.chunks_created,
+      embeddedChunks: args.embedded_chunks,
+      errors: args.errors,
       metadata: { source_type: 'file', ...(args.metadata || {}) },
     });
   } catch {/* best-effort */}

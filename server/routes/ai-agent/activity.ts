@@ -9,6 +9,7 @@ import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
+import { recordAiAgentDebugEvent } from '../../services/ai-agent/debugEvents.js';
 import { routeParam } from '../../lib/routeParams.js';
 import { listRuns, listRunsPaged, summarize } from '../../services/ai-agent/logs.js';
 import { markHumanTakeover } from '../../services/ai-agent/handoffState.js';
@@ -99,16 +100,13 @@ activityRouter.get('/runs/:id/inspect', async (req: Request, res: Response) => {
     if (exc.unapproved_learned_qna_excluded) safetyNotes.push(`unapproved_learned_qna_excluded=${exc.unapproved_learned_qna_excluded}`);
   }
 
-  // Best-effort observability event.
-  try {
-    await sb.from('ai_agent_debug_events').insert({
-      workspace_id: run.workspace_id,
-      run_id: run.id,
-      event_type: 'answer_inspected',
-      actor_user_id: auth.userId,
-      metadata: { },
-    });
-  } catch { /* noop */ }
+  // Best-effort observability event (PRODUCT_ANALYTICS_LOGGING).
+  await recordAiAgentDebugEvent(config, sb, {
+    workspaceId: run.workspace_id,
+    runId: run.id,
+    eventType: 'answer_inspected',
+    actorUserId: auth.userId,
+  });
 
   return res.json(redactDeep({
     run: {

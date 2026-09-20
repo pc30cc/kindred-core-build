@@ -28,6 +28,7 @@ import { getClientIp, hashIp, getClientCountry } from '../utils/clientIp.js';
 import { resolveVisitorGeo, getActiveGeoProvider } from '../services/geo/index.js';
 import { enrichVisitorSessionGeo } from '../services/geo/index.js';
 import { enforceMaxVisitorsLimitIfNewThisMonth } from '../services/billing/visitorLimit.js';
+import { recordVisitorPageView } from '../services/webAnalytics/pageViews.js';
 
 export const visitorRouter = Router();
 
@@ -210,15 +211,12 @@ visitorRouter.post('/track', async (req: Request, res: Response) => {
 
     // Append a page-view row (best-effort; failures must not block tracking).
     if (data.current_page) {
-      try {
-        await supabase.from('visitor_page_views').insert({
-          workspace_id: data.workspace_id,
-          visitor_session_id: sessionId,
-          url: data.current_page.slice(0, 2048),
-        });
-      } catch (e) {
-        console.warn('[visitors.track] page-view insert failed:', (e as any)?.message);
-      }
+      await recordVisitorPageView(config, supabase, {
+        workspaceId: data.workspace_id,
+        sessionId,
+        url: data.current_page,
+        context: 'visitors.track',
+      });
     }
 
     // Upsert presence
@@ -359,15 +357,12 @@ visitorRouter.post('/heartbeat', async (req: Request, res: Response) => {
       current_page &&
       current_page !== prevSession.current_page
     ) {
-      try {
-        await supabase.from('visitor_page_views').insert({
-          workspace_id: prevSession.workspace_id,
-          visitor_session_id: session_id,
-          url: current_page.slice(0, 2048),
-        });
-      } catch (e) {
-        console.warn('[visitors.heartbeat] page-view insert failed:', (e as any)?.message);
-      }
+      await recordVisitorPageView(config, supabase, {
+        workspaceId: prevSession.workspace_id,
+        sessionId: session_id,
+        url: current_page,
+        context: 'visitors.heartbeat',
+      });
     }
 
     // Realtime push — best-effort.

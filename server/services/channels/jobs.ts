@@ -11,6 +11,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { envFlagEnabled } from '../../config.js';
 
 export const CHANNEL_JOB_TYPES = [
   'telegram_inbound_event',
@@ -150,6 +151,21 @@ export function backoffSeconds(attempt: number): number {
   return Math.round(base * (0.75 + Math.random() * 0.5));
 }
 
+/**
+ * The single writer of `channel_delivery_attempts` — the per-attempt error
+ * code, latency and attempt number behind its three callers in the channels
+ * worker.
+ *
+ * DELIVERY_DIAGNOSTICS_LOGGING is read straight from the environment here,
+ * not from a ServerConfig: every caller is the channels WORKER
+ * (worker/channels/index.ts), which never builds one — it reads its own env
+ * the same way for CHANNELS_HEARTBEAT_MS. envFlagEnabled() keeps the parsing
+ * rule identical to the config-backed flags: only the literal `off` disables.
+ *
+ * Nothing in the product reads this table back, and retry state lives on
+ * `channel_jobs`, so suppressing it changes delivery and retry not at all —
+ * only what an operator can see afterwards about a failed send.
+ */
 export async function recordAttempt(
   sb: SupabaseClient,
   jobId: string,
@@ -157,6 +173,7 @@ export async function recordAttempt(
   status: 'succeeded' | 'failed' | 'retrying',
   detail: { errorCode?: string | null; errorMessage?: string | null; latencyMs?: number | null } = {},
 ): Promise<void> {
+  if (!envFlagEnabled('DELIVERY_DIAGNOSTICS_LOGGING')) return;
   await sb.from('channel_delivery_attempts').insert({
     job_id: jobId,
     attempt,

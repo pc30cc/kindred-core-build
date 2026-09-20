@@ -36,6 +36,7 @@ import { billingRouter, billingWebhookRouter } from './routes/billing.js';
 import { commercePairingRouter } from './routes/commerce/pairing.js';
 import { commerceConnectionsRouter } from './routes/commerce/connections.js';
 import { commerceEventsRouter } from './routes/commerce/events.js';
+import { commercePluginActionsRouter } from './routes/commerce/pluginActions.js';
 import { commerceGuestVerificationRouter } from './routes/commerce/guestVerification.js';
 import { commerceIdentityRouter } from './routes/commerce/identity.js';
 import { internalTestGatewayRouter } from './routes/internalTestGateway.js';
@@ -307,12 +308,18 @@ app.use('/api/billing/webhook', billingWebhookRouter);
 // express.raw() parser. See docs/commerce/SECURITY.md §Request signing.
 app.use('/api/commerce/events', commerceEventsRouter);
 
+// Connection actions the plugin triggers itself (test / sync / disconnect).
+// Same signed-request trust model as event ingestion, and likewise mounted
+// before express.json() so the raw bytes survive for verification.
+app.use('/api/commerce/connection', commercePluginActionsRouter);
+
 // JSON / cookies for everything else. Skip the webhook path explicitly so
 // a future re-order can't accidentally consume the raw body.
 app.use((req, res, next) => {
   if (req.path === '/api/calls/livekit/webhook') return next();
   if (req.path.startsWith('/api/billing/webhook')) return next();
   if (req.path.startsWith('/api/commerce/events')) return next();
+  if (req.path.startsWith('/api/commerce/connection')) return next();
   return express.json({ limit: '50mb' })(req, res, next);
 });
 app.use(cookieParser()); // Parse signed visitor cookies (HttpOnly dvsid)
@@ -648,7 +655,91 @@ app.listen(config.port, () => {
   startBillingV2Schedulers(config);
 
   // Phase 4 — start in-process alerting ticker (every 60s). Best-effort.
-  startAlertingTicker(config);
+  // Reporting-only: nothing on a request path reads alert_events, so this
+  // ticker (and the five other observe-and-report tickers below) is skipped
+  // wholesale when OBSERVABILITY_REPORTING_TICKERS=off. See server/config.ts.
+  if (config.observabilityReportingTickersEnabled !== false) {
+    startAlertingTicker(config);
+  } else {
+    console.warn(
+      '[observability] reporting tickers NOT started (OBSERVABILITY_REPORTING_TICKERS=off): ' +
+        'alerting ticker, perf/process collectors, reliability+business rollup, ' +
+        'auto-actions ticker, auto-actions cache, SLO+enforcement ticker. ' +
+        'No new alert_events rows, no outbound alert webhooks, no new hourly rollup ' +
+        'buckets, an empty admin process-trend chart, no slo_breach_events and no ' +
+        'automatic workspace throttling — a real incident needs a manual admin ' +
+        'auto-action instead of self-throttling. Visitors keep FULL capability ' +
+        '(isActionActive() fails open), so nothing 503s and nothing a visitor can ' +
+        'see changes; a manually activated auto-action lapses after ~60s instead of ' +
+        'running its full TTL. Realtime failover, call queue, billing, deletions and ' +
+        'every other worker keep running. To restore: unset ' +
+        'OBSERVABILITY_REPORTING_TICKERS (or set any value other than "off") and restart.',
+    );
+  }
+
+  // ── Request-path logging switches ───────────────────────────────────────
+  // These four write nothing on a timer, so there is no ticker to skip — they
+  // suppress INSERTs at the single choke point for each table. Announce them
+  // once at boot so an operator reading the log knows why a panel is empty,
+  // instead of discovering it months later from a blank chart. Every one of
+  // them defaults to ON; only the literal value `off` reaches these lines.
+  if (config.productAnalyticsLoggingEnabled === false) {
+    console.warn(
+      '[analytics] product-analytics logging DISABLED (PRODUCT_ANALYTICS_LOGGING=off): ' +
+        'no visitor_page_views, web_analytics_events, widget_smart_events (TypeScript ' +
+        'half), ai_agent_debug_events or ai_usage_logs rows. Visitor journey and ' +
+        'page-path reports, the per-visitor page history in the Inbox, the ' +
+        'custom-events report, smart-rule / AI-nudge conversion analytics, the AI ' +
+        'answer_inspected debug trail and the AI provider/model breakdown charts all ' +
+        'stay empty. AI BILLING IS UNAFFECTED — it reads ai_usage_events, which is ' +
+        'written inside Postgres. To restore: unset PRODUCT_ANALYTICS_LOGGING (or set ' +
+        'any value other than "off") and restart.',
+    );
+  }
+  if (config.deliveryDiagnosticsLoggingEnabled === false) {
+    console.warn(
+      '[diagnostics] delivery-diagnostics logging DISABLED ' +
+        '(DELIVERY_DIAGNOSTICS_LOGGING=off): no email_logs, ' +
+        'channel_delivery_attempts or ai_source_sync_logs rows. You lose the only ' +
+        'evidence that an invitation / password-reset / invoice email was actually ' +
+        'sent, the per-attempt error code and latency of a failed WhatsApp or ' +
+        'Telegram send, and the Data Hub sync history — the knowledge-source screen ' +
+        'can no longer say whether the last sync succeeded. Sending, RETRY and ' +
+        'ingestion themselves are unaffected (retry state lives on channel_jobs). ' +
+        'To restore: unset DELIVERY_DIAGNOSTICS_LOGGING (or set any value other than ' +
+        '"off") and restart.',
+    );
+  }
+  if (config.complianceAuditLoggingEnabled === false) {
+    console.warn(
+      '[audit] COMPLIANCE AUDIT LOGGING DISABLED (COMPLIANCE_AUDIT_LOGGING=off) — ' +
+        'NOT RECOMMENDED IN PRODUCTION. No audit_logs, security_events, ' +
+        'login_attempts, admin_gate_bypass_log, plan_change_log, commerce_tool_audit ' +
+        'or realtime_provider_audit rows are written. This saves nothing on an ' +
+        'install with no users (all of them are request-path-only) while removing the ' +
+        'legal record of administrative and privacy actions, the GDPR export\'s ' +
+        'audit_logs section, the only forensic trail if this install is probed or ' +
+        'compromised, account-takeover evidence, any trace of an admin gate bypass, ' +
+        'and billing-dispute evidence of plan changes. To restore: unset ' +
+        'COMPLIANCE_AUDIT_LOGGING (or set any value other than "off") and restart.',
+    );
+  }
+  if (config.channelsWorkerHeartbeatEnabled === false) {
+    console.warn(
+      '[channels] worker heartbeat DISABLED (CHANNELS_WORKER_HEARTBEAT=off): Core no ' +
+        'longer records channel_worker_heartbeats, and channelsWorkerOffline() now ' +
+        'FAILS OPEN so no request path starts refusing work on a signal you silenced. ' +
+        'The Super Admin channels-health panel reports the worker offline/unknown ' +
+        'forever even while it drains channel_jobs normally, and Telegram diagnostics ' +
+        '/ webhook repair no longer fail fast with a clean 503 when the worker really ' +
+        'IS dead — the operator waits out the 12-15s operation timeout instead. ' +
+        'Channel messaging is unaffected. CHEAPER LEVER FIRST: raising ' +
+        'CHANNELS_HEARTBEAT_MS (up to ~100s, below the 120s staleness window) drops ' +
+        '~85% of these writes and keeps the gate working. To restore: unset ' +
+        'CHANNELS_WORKER_HEARTBEAT (or set any value other than "off") and restart ' +
+        'BOTH Core and the channels worker.',
+    );
+  }
 
   // E2 — in-process Data Hub source-sync worker.
   // Production: run as a separate WORKER_KIND=source-sync container.
@@ -666,17 +757,60 @@ app.listen(config.port, () => {
   }
 
   // Phase 5A — start perf sample flusher + process sampler. Best-effort.
-  startPerfCollectors(config);
+  // Reporting-only, and purely in-memory: this starts the collector's 60s
+  // process-trend sampler, nothing else. Gating it costs ZERO Postgres
+  // traffic — perfHttpMiddleware and getMonitoringCollector() are lazy and
+  // keep feeding request/realtime metrics either way, so failover health
+  // and the live process snapshot are unaffected. Only the admin
+  // process-trend series stops filling.
+  if (config.observabilityReportingTickersEnabled !== false) {
+    startPerfCollectors(config);
+  }
 
   // Phase 5C — start in-process auto-actions ticker (every 60s). Best-effort.
-  startAutoActionsTicker(config);
+  // Covered by OBSERVABILITY_REPORTING_TICKERS. It writes auto_action_events,
+  // which the cache below serves to live request paths (typing suppression,
+  // transport selection, call media policy) — but that read only ever REMOVES
+  // capability and fails open, so stopping the producer leaves visitors with
+  // MORE capability, never less. Producer and consumer stay coherent because
+  // the cache below is gated by the same flag.
+  if (config.observabilityReportingTickersEnabled !== false) {
+    startAutoActionsTicker(config);
+  }
 
   // Phase 5C.1 — start fast in-memory cache for active auto-actions
-  // (refresh ~7s). Required by hot-path checks like typing suppression.
-  startAutoActionsCache(config);
+  // (refresh ~7s). Read by effectivePolicy.ts, routes/conversations.ts and
+  // routes/widget.ts. Covered by OBSERVABILITY_REPORTING_TICKERS: with the
+  // flag off this is ~12.3k indexed SELECT transactions/day kept alive for a
+  // table the gated producer above is no longer filling. isActionActive()
+  // already returns false when the cache has never refreshed, so skipping it
+  // is the same fail-open answer the hot path would get anyway. The one cost
+  // is that a manual POST /api/admin/auto-actions lapses after ~60s
+  // (STALE_FAIL_OPEN_MS) instead of running its full TTL.
+  if (config.observabilityReportingTickersEnabled !== false) {
+    startAutoActionsCache(config);
+  }
 
   // Phase 6B — start realtime failover engine ticker (every 30s). Best-effort.
-  startFailoverTicker(config);
+  // Its own switch, NOT the reporting flag: this ticker is not a reporter —
+  // it makes the live provider-routing decision — and it is the largest
+  // periodic writer left once the reporting flag is off (~5,760
+  // observability_ticker_lease writes/day for the `failover_health` lease).
+  if (config.realtimeFailoverTickerEnabled !== false) {
+    startFailoverTicker(config);
+  } else {
+    console.warn(
+      '[realtime] failover engine ticker NOT started (REALTIME_FAILOVER_TICKER=off): ' +
+        'no 30s provider health probe, no failover/failback decisions, no ' +
+        'realtime_provider_audit transition rows. Realtime KEEPS WORKING — ' +
+        'loadFailoverState() is read independently on every /connect and falls back ' +
+        'to effective_provider=centrifugo — but the effective provider is now PINNED ' +
+        'at its last persisted value: if that provider later dies nothing moves the ' +
+        'platform to polling_builtin and nothing ever fails back, so recovery means ' +
+        'setting realtime_provider_lock by hand in the admin panel. To restore: unset ' +
+        'REALTIME_FAILOVER_TICKER (or set any value other than "off") and restart.',
+    );
+  }
 
   // Multi-node topology — keep the Centrifugo node-health cache warm in the
   // background so the /connect assignment path never issues an HTTP probe.
@@ -684,10 +818,23 @@ app.listen(config.port, () => {
 
 
   // Phase 7 — start reliability/business/health rollup (every 10 min). Best-effort.
-  startReliabilityRollup(config);
+  // Reporting-only: the hourly aggregates it writes are read by the admin
+  // reliability charts and by the SLO evaluator, never by a request path.
+  if (config.observabilityReportingTickersEnabled !== false) {
+    startReliabilityRollup(config);
+  }
 
   // Phase 7.5 — SLA enforcement engine (SLO eval + rule-driven actions, every 60s).
-  startEnforcementTicker(config);
+  // Covered by OBSERVABILITY_REPORTING_TICKERS. The SLO half is already a
+  // near-no-op with the rollup gated off (sloEvaluator's 3h MAX_BUCKET_AGE_MS
+  // guard refuses stale buckets); the enforcement half's entire blast radius
+  // is writing auto_action_events, which fails open, so gating it removes
+  // automatic throttling and nothing else. Without this gate the cycle costs
+  // ~20k no-op slo_breach write transactions/day plus a constant read of two
+  // rollup tables that the same flag already stopped filling.
+  if (config.observabilityReportingTickersEnabled !== false) {
+    startEnforcementTicker(config);
+  }
 
   // Phase 8C — Call queue expiry sweeper (every 30s). Best-effort.
   startCallQueueTicker(config);

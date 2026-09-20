@@ -7,6 +7,7 @@
  */
 
 import type { ServerConfig } from '../../config.js';
+import { insertAuditLogRows } from '../auditLog.js';
 import { getServiceClient } from '../../supabase.js';
 
 export type PrivacyAuditAction =
@@ -39,7 +40,7 @@ export async function writePrivacyAudit(
     // user-subject jobs we fall back to a sentinel-friendly approach by
     // skipping the write rather than violating the constraint.
     if (!args.workspaceId) return;
-    await sb.from('audit_logs').insert({
+    await insertAuditLogRows(config, sb, {
       workspace_id: args.workspaceId,
       user_id: args.userId,
       entity_type: 'privacy_job',

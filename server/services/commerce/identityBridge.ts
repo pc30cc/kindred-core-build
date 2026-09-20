@@ -46,7 +46,7 @@ function constantTimeEquals(a: string, b: string): boolean {
 export async function verifyAndBindCustomerContext(
   config: ServerConfig,
   workspaceId: string,
-  connectionId: string,
+  connectionId: string | null,
   visitorId: string,
   rawAssertion: string,
 ): Promise<{ externalCustomerId: string }> {
@@ -62,7 +62,10 @@ export async function verifyAndBindCustomerContext(
   }
 
   if (payload.audience !== 'webyar-widget') throw new CommerceError('identity_expired', 'wrong audience');
-  if (payload.installation_id !== (await connectionInstallationId(config, connectionId))) {
+
+  const connection = await resolveConnection(config, workspaceId, connectionId);
+  if (!connection) throw new CommerceError('commerce_not_connected', 'no active connection for this workspace');
+  if (payload.installation_id !== connection.installation_id) {
     throw new CommerceError('identity_expired', 'assertion issued for a different installation');
   }
 
@@ -92,7 +95,7 @@ export async function verifyAndBindCustomerContext(
   const expiresAt = new Date(Date.now() + LINK_TTL_MS).toISOString();
   const { error } = await sb.from('commerce_customer_links').insert({
     workspace_id: workspaceId,
-    connection_id: connectionId,
+    connection_id: connection.id,
     external_customer_id: payload.external_customer_id,
     visitor_id: visitorId,
     expires_at: expiresAt,
@@ -102,8 +105,42 @@ export async function verifyAndBindCustomerContext(
   return { externalCustomerId: payload.external_customer_id };
 }
 
-async function connectionInstallationId(config: ServerConfig, connectionId: string): Promise<string | null> {
+/**
+ * The connection this assertion belongs to.
+ *
+ * The caller MAY name one, and the plugin does when it knows its own
+ * connection id — but it must not have to. A store paired before the plugin
+ * began storing that id has no way to learn it, and there is no endpoint that
+ * would tell it; requiring the id would leave the identity bridge silently
+ * inert on every such store forever.
+ *
+ * Nothing is lost by resolving it here. The id never carried any authority of
+ * its own: the assertion payload names its installation, only that
+ * installation's secret can sign it, and that signature is verified against
+ * the secret this server looks up for itself. The id was only ever a
+ * cross-check — so it stays one when supplied, and is derived when it is not.
+ *
+ * Two things this does that accepting the caller's id did not:
+ * the connection must belong to the workspace being bound into (an id from
+ * another workspace used to be written straight into the link row), and it
+ * must not be revoked. And when it is derived, it is derived exactly as
+ * `getActiveConnectionForWorkspace` derives it for the AI stage — newest
+ * un-revoked connection — so the link is guaranteed to be written where the
+ * reader will later look for it.
+ */
+async function resolveConnection(
+  config: ServerConfig,
+  workspaceId: string,
+  connectionId: string | null,
+): Promise<{ id: string; installation_id: string } | null> {
   const sb = getServiceClient(config);
-  const { data } = await sb.from('commerce_connections').select('installation_id').eq('id', connectionId).maybeSingle();
-  return data?.installation_id ?? null;
+  const base = sb
+    .from('commerce_connections')
+    .select('id, installation_id')
+    .eq('workspace_id', workspaceId)
+    .is('revoked_at', null);
+  const { data } = connectionId
+    ? await base.eq('id', connectionId).maybeSingle()
+    : await base.order('created_at', { ascending: false }).limit(1).maybeSingle();
+  return (data as { id: string; installation_id: string } | null) ?? null;
 }

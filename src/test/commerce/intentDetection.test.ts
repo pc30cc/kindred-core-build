@@ -140,6 +140,29 @@ describe('«… دارید؟» — how a shopper actually asks for stock', () =>
     expect(detectCommerceIntent('دوست داری کمکم کنی؟').kind).toBe('none');
   });
 
+  it('reads «چی دارید؟» as browse the catalogue, not search for a product named "what"', () => {
+    // From the live transcript. «محصولات الان چی دارید ؟» matched the product
+    // keyword «محصول» and became a name search for the whole sentence, which
+    // no product matches — so a full index answered nothing.
+    for (const q of ['محصولات الان چی دارید ؟', 'چیا دارین؟', 'لیست محصولات رو بده', 'what do you sell?']) {
+      expect(detectCommerceIntent(q).kind).toBe('browse_products');
+    }
+  });
+
+  it('reads a request for the categories as one', () => {
+    // Spelled with a space, with a نیم‌فاصله, and in English.
+    for (const q of ['دسته بندی هارو بیار', 'دسته‌بندی‌های فروشگاه چیه؟', 'what categories do you have?']) {
+      expect(detectCommerceIntent(q).kind).toBe('list_categories');
+    }
+  });
+
+  it('does not swallow an ordinary product question into browsing', () => {
+    // «دارید» appears in all of these; only the «چی دارید» shape is a browse.
+    expect(detectCommerceIntent('پاور بانک دارید ؟').kind).toBe('get_availability');
+    expect(detectCommerceIntent('قیمت ساعت هوشمند پالس چنده؟').kind).toBe('search_products');
+    expect(detectCommerceIntent('یه هدفون خوب معرفی کن').kind).toBe('search_products');
+  });
+
   it('answers shop questions about the shop, not about a product’s stock', () => {
     // These all end in «دارید؟» too, so they have to be claimed before the
     // availability branch or they come back as some product's stock level.

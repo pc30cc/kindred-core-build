@@ -22,6 +22,8 @@ export type CommerceIntent =
   | { kind: 'get_availability'; text: string }
   | { kind: 'order_status' }
   | { kind: 'order_lookup'; orderNumber: string }
+  | { kind: 'browse_products' }
+  | { kind: 'list_categories' }
   | { kind: 'store_info' };
 
 const ORDER_KEYWORDS = /سفارش|پیگیری مرسوله|tracking number|track my order|order status|where.{0,15}my order/i;
@@ -37,6 +39,17 @@ const AVAILABILITY_KEYWORDS = /موجود(ه|است|ی)?|in stock|available\??|�
 // that are about the shop rather than its catalogue — opening hours,
 // branches, an address — do not get answered with a product's stock level.
 const STORE_INFO_KEYWORDS = /ساعا?ت کاری|فروشگاه شما کجاست|آدرس فروشگاه|شعبه|نمایندگی|store hours|about your store/i;
+// A shopper asking what the shop sells, rather than for one named thing.
+// «محصولات الان چی دارید ؟» used to match PRODUCT_INTENT_KEYWORDS on the word
+// «محصول» and be run as a NAME search for the word "products" — which matches
+// no product in any catalogue, so the assistant answered that it had no list.
+// The question is a request to browse, and browsing needs no text filter at
+// all. Both of these are checked before the search branches below, because
+// «چی دارید» also contains the availability word «دارید».
+const BROWSE_KEYWORDS = /چی\s*(?:دارید|دارین|داری)|چیا\s*(?:دارید|دارین)|چه\s*محصولات|لیست\s*محصولات|همه[\s\u200c]*محصولات|محصولات\s*(?:شما|تون|خودتون)|what\s+(?:do\s+you\s+)?(?:have|sell)|product\s+list|show\s+me\s+(?:your\s+)?products/i;
+// «دسته بندی», «دسته‌بندی» and «دسته‌بندی‌ها» — the space and the ZWNJ are
+// both ordinary spellings of the same word.
+const CATEGORY_KEYWORDS = /دسته[\s\u200c]*بندی|دسته[\s\u200c]*ها\b|categor(?:y|ies)/i;
 const PRODUCT_INTENT_KEYWORDS = /محصول|کفش|لباس|قیمت|خرید|بخرم|می‌خوام|میخوام|می‌خواستم|میخواستم|معرفی کن|پیشنهاد|product|buy|price|recommend|looking for/i;
 
 const MILLION_TOMAN_RE = /(\d+(?:[.,]\d+)?)\s*میلیون/;
@@ -113,6 +126,9 @@ export function detectCommerceIntent(question: string): CommerceIntent {
   if (ORDER_KEYWORDS.test(scan)) return { kind: 'order_status' };
 
   if (STORE_INFO_KEYWORDS.test(scan)) return { kind: 'store_info' };
+
+  if (CATEGORY_KEYWORDS.test(scan)) return { kind: 'list_categories' };
+  if (BROWSE_KEYWORDS.test(scan)) return { kind: 'browse_products' };
 
   const attrs = extractAttributes(scan);
   const hasAvailabilityWord = AVAILABILITY_KEYWORDS.test(scan);

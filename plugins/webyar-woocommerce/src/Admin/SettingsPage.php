@@ -88,7 +88,29 @@ final class SettingsPage {
 						</tr>
 						<tr>
 							<td><?php esc_html_e( 'وضعیت', 'webyar-woocommerce' ); ?></td>
-							<td><strong style="color:#2271b1"><?php esc_html_e( 'متصل', 'webyar-woocommerce' ); ?></strong></td>
+							<td>
+								<?php
+								// A stored credential is not the same as a WORKING one: if
+								// Web Yar rotated or revoked the secret, every signed call
+								// fails while this row would still read "connected".
+								$auth_error = get_option( \WebYar\WooCommerce\Events\EventDelivery::AUTH_ERROR_OPTION, null );
+								if ( is_array( $auth_error ) ) :
+									?>
+									<strong style="color:#d63638"><?php esc_html_e( 'اعتبارنامه پذیرفته نمی‌شود', 'webyar-woocommerce' ); ?></strong>
+									<p class="description">
+										<?php
+										printf(
+											/* translators: 1: HTTP status Web Yar replied with, 2: UTC time of the rejection */
+											esc_html__( 'وب‌یار آخرین درخواست امضاشده را با کد %1$d رد کرد (%2$s). معمولاً یعنی کلید اتصال در وب‌یار چرخانده یا باطل شده — یک بار «قطع اتصال» و دوباره «اتصال به وب‌یار» را بزنید.', 'webyar-woocommerce' ),
+											(int) ( $auth_error['status'] ?? 0 ),
+											esc_html( (string) ( $auth_error['at'] ?? '' ) )
+										);
+										?>
+									</p>
+								<?php else : ?>
+									<strong style="color:#2271b1"><?php esc_html_e( 'متصل', 'webyar-woocommerce' ); ?></strong>
+								<?php endif; ?>
+							</td>
 						</tr>
 					</tbody>
 				</table>

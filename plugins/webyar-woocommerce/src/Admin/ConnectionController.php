@@ -5,6 +5,7 @@ use WebYar\WooCommerce\Auth\CredentialStore;
 use WebYar\WooCommerce\Auth\PairingService;
 use WebYar\WooCommerce\Auth\RequestSigner;
 use WebYar\WooCommerce\Support\Capabilities;
+use WebYar\WooCommerce\Events\EventDelivery;
 use WebYar\WooCommerce\Support\Logger;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -93,6 +94,7 @@ final class ConnectionController {
 					'rotated_at'          => null,
 				)
 			);
+			EventDelivery::clear_auth_error(); // fresh credential — any earlier rejection is stale
 			$this->redirect_with_notice( 'success', __( 'به وب‌یار متصل شدید.', 'webyar-woocommerce' ) );
 		} catch ( \Throwable $e ) {
 			Logger::error( 'pairing exchange failed', array( 'message' => $e->getMessage() ) );
@@ -111,6 +113,7 @@ final class ConnectionController {
 		// Local state is cleared regardless of whether Web Yar could be
 		// reached (spec §54/§55 — local cleanup must not depend on network).
 		CredentialStore::clear();
+		EventDelivery::clear_auth_error();
 		\WebYar\WooCommerce\Events\EventQueue::cancel_all();
 
 		$this->redirect_with_notice( 'success', __( 'اتصال به وب‌یار قطع شد.', 'webyar-woocommerce' ) );

@@ -20,6 +20,13 @@ final class EventDelivery {
 
 	private const MAX_ATTEMPTS = 6;
 
+	/** Set when Web Yar rejects a signed event as unauthenticated; read by the settings screen. */
+	public const AUTH_ERROR_OPTION = 'webyar_wc_auth_error';
+
+	public static function clear_auth_error(): void {
+		delete_option( self::AUTH_ERROR_OPTION );
+	}
+
 	public function register(): void {
 		add_action( EventQueue::HOOK, array( $this, 'handle' ), 10, 2 );
 	}
@@ -52,13 +59,28 @@ final class EventDelivery {
 		$status = wp_remote_retrieve_response_code( $response );
 
 		if ( $status >= 200 && $status < 300 ) {
+			self::clear_auth_error(); // a delivery that lands proves the credential is good again
 			return; // delivered — Web Yar's own idempotency ledger handles dedupe on its side
 		}
 
 		// Never retry a permanent rejection indefinitely (spec §17).
 		if ( in_array( $status, array( 400, 401, 403, 404, 422 ), true ) ) {
 			Logger::error( 'event delivery permanently rejected', array( 'event_id' => $event['event_id'] ?? null, 'status' => $status ) );
-			return; // dead — visible in diagnostics via the last-attempt option, not retried
+			// Record it. Dropping the event with no trace anywhere is how a
+			// rotated or revoked credential turns into a store that still
+			// reads "connected" in wp-admin while every event is silently
+			// discarded — the admin has nothing to go on.
+			$this->record_dead_letter( $event, 'http_' . $status );
+			if ( 401 === $status || 403 === $status ) {
+				// Auth-shaped rejection: the credential itself is no longer
+				// accepted, so the connection needs re-pairing, not a retry.
+				update_option(
+					self::AUTH_ERROR_OPTION,
+					array( 'status' => $status, 'at' => gmdate( 'c' ) ),
+					false
+				);
+			}
+			return; // dead — surfaced in diagnostics, not retried
 		}
 
 		$this->retry_or_dead_letter( $event, $attempt, 'http_' . $status );

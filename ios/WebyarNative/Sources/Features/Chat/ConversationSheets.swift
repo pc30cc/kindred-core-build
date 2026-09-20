@@ -270,23 +270,17 @@ struct NotesSheet: View {
     }
 
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: Theme.Space.sm) {
-            TextField(Str.writeNote(language), text: $draft, axis: .vertical)
-                .lineLimit(1...5)
-                .padding(.horizontal, Theme.Space.md)
-                .padding(.vertical, Theme.Space.sm)
-                .background(Capsule().fill(Theme.Palette.surfaceElevated))
-                .focused($focused)
-
-            SendButton(
-                isEnabled: !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                isSending: model.isSaving,
-                label: Str.send(language)
-            ) {
-                let text = draft
-                draft = ""
-                Task { await model.addNote(text, appState: appState) }
-            }
+        PlainComposer(
+            text: $draft,
+            placeholder: Str.writeNote(language),
+            sendLabel: Str.send(language),
+            isEnabled: !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            isSending: model.isSaving,
+            isWriting: $focused
+        ) {
+            let text = draft
+            draft = ""
+            Task { await model.addNote(text, appState: appState) }
         }
         .padding(.horizontal, Theme.screenInset)
         .padding(.vertical, Theme.Space.sm)

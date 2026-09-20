@@ -196,27 +196,17 @@ struct EmailThreadView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            HStack(alignment: .bottom, spacing: Theme.Space.xs) {
-                TextField(Str.emailReplyPlaceholder(language), text: $model.draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...5)
-                    .focused($isWriting)
-                    .padding(.horizontal, Theme.Space.sm)
-                    .padding(.vertical, Theme.Space.sm - 1)
-
-                SendButton(
-                    isEnabled: canSend,
-                    isSending: model.isSending,
-                    label: Str.emailSend(language)
-                ) {
-                    isWriting = false
-                    Task { await model.send(workspaceID: workspaceID, mailbox: mailbox, appState: appState) }
-                }
+            PlainComposer(
+                text: $model.draft,
+                placeholder: Str.emailReplyPlaceholder(language),
+                sendLabel: Str.emailSend(language),
+                isEnabled: canSend,
+                isSending: model.isSending,
+                isWriting: $isWriting
+            ) {
+                isWriting = false
+                Task { await model.send(workspaceID: workspaceID, mailbox: mailbox, appState: appState) }
             }
-            .padding(Theme.Space.xs)
-            .background(
-                Capsule().fill(Theme.Palette.surface)
-            )
         }
         .padding(.horizontal, Theme.screenInset)
         .padding(.top, Theme.Space.sm)

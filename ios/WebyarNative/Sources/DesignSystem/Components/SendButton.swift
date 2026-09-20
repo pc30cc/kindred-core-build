@@ -29,6 +29,10 @@ struct SendButton: View {
     /// row's height is set by the pill rather than by whichever control is
     /// tallest today.
     private static let diameter: CGFloat = 34
+    /// The box this button occupies in the row, and the box every other
+    /// composer control occupies. The two differ so the circle has a point
+    /// of air around it inside a box that still lines up with its neighbours.
+    private static let box: CGFloat = ComposerGlyph.box
 
     var body: some View {
         Button(action: action) {
@@ -47,11 +51,16 @@ struct SendButton: View {
                 }
             }
             .frame(width: Self.diameter, height: Self.diameter)
-            // The circle is 34pt so it sits inside the pill, but the tap
-            // target is Apple's 44: a send button that needs aiming is the
-            // one control in a composer that must not.
+            .frame(width: Self.box, height: Self.box)
+            // The tap target is Apple's 44, but it is given to the hit test
+            // only. Laying it out at 44 made this the tallest thing in the
+            // pill: the row bottom-aligns, so the arrow sat four points above
+            // the glyphs beside it and the pill grew to hold a box nobody
+            // could see. Pad out, take the hit test at the padded size, hand
+            // the padding back to the layout.
+            .padding((Theme.Size.minTouchTarget - Self.box) / 2)
             .contentShape(Rectangle())
-            .frame(width: Theme.Size.minTouchTarget, height: Theme.Size.minTouchTarget)
+            .padding(-(Theme.Size.minTouchTarget - Self.box) / 2)
         }
         .buttonStyle(SendButtonStyle())
         .disabled(!isEnabled || isSending)

@@ -65,18 +65,7 @@ struct Composer: View {
             if recorder.isRecording {
                 recordingBar
             } else {
-                HStack(alignment: .bottom, spacing: Theme.Space.xs) {
-                    // A file or a saved reply goes to the visitor as itself;
-                    // the AI is not going to rewrite a photo. On a thread it
-                    // answers, the row drops away rather than offering
-                    // controls whose result would bypass it.
-                    if activeSayNow == nil,
-                       capabilities.canAttach || capabilities.canUseEmoji || shortcuts != nil {
-                        controls
-                    }
-
-                    field
-                }
+                field
             }
 
             if isShowingEmoji, capabilities.canUseEmoji {
@@ -174,15 +163,17 @@ struct Composer: View {
     /// Replaces the whole composer while recording, the way every messenger
     /// does: there is nothing else to do until the note is sent or thrown
     /// away, and a field you cannot type into is worse than no field.
+    ///
+    /// It replaces what is *inside* the pill, not the pill. Recording used to
+    /// drop the pill altogether and lay a bare row out at a different height
+    /// with a 38pt button in it, so the composer changed shape under the
+    /// thumb that had just tapped the microphone.
     private var recordingBar: some View {
-        HStack(spacing: Theme.Space.md) {
+        HStack(spacing: 0) {
             Button {
                 recorder.cancel()
             } label: {
-                Image(systemName: "trash")
-                    .font(.system(size: 16))
-                    .foregroundStyle(Theme.Palette.danger)
-                    .frame(width: 38, height: 38)
+                ComposerGlyph(icon: "trash", tint: Theme.Palette.danger)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Str.discard(language))
@@ -203,6 +194,7 @@ struct Composer: View {
                     .font(Theme.Typo.meta)
                     .foregroundStyle(Theme.Palette.labelSecondary)
             }
+            .padding(.horizontal, Theme.Space.xs)
             .frame(maxWidth: .infinity, alignment: .leading)
 
             SendButton(isEnabled: true, label: sendLabel) {
@@ -213,6 +205,7 @@ struct Composer: View {
                 }
             }
         }
+        .composerPill()
         .onAppear { pulse = true }
         .onDisappear { pulse = false }
     }
@@ -293,53 +286,6 @@ struct Composer: View {
         isWriting ? 0 : Theme.Size.floatingBarBottomGap - ScreenInsets.bottom
     }
 
-    private var controls: some View {
-        HStack(spacing: Theme.Space.xxs) {
-            if capabilities.canAttach {
-                // A menu rather than a single picker: a photo and a document
-                // come from two different system pickers, and guessing which
-                // one somebody meant gets it wrong half the time.
-                Menu {
-                    Button {
-                        isShowingPhotos = true
-                    } label: {
-                        Label(Str.sendPhoto(language), systemImage: "photo")
-                    }
-                    Button {
-                        isShowingDocuments = true
-                    } label: {
-                        Label(Str.sendDocument(language), systemImage: "doc")
-                    }
-                } label: {
-                    ComposerButtonLabel(icon: "paperclip")
-                }
-                .accessibilityLabel(Str.attachFile(language))
-                .accessibilityIdentifier(A11y.attachButton)
-                .disabled(isSending)
-            }
-            if capabilities.canUseEmoji {
-                ComposerButton(
-                    icon: isShowingEmoji ? "keyboard" : "face.smiling",
-                    label: Str.emoji(language)
-                ) {
-                    isShowingEmoji.toggle()
-                }
-            }
-            if shortcuts != nil {
-                // The console's lightning bolt, and for the same reason: a
-                // saved reply is the fastest thing in the composer.
-                ComposerButton(icon: "bolt", label: Str.shortcuts(language)) {
-                    isShowingEmoji = false
-                    isShowingShortcuts = true
-                }
-                .accessibilityIdentifier(A11y.shortcutsButton)
-            }
-        }
-    }
-
-    /// The field, with the two controls that act on what is in it sitting
-    /// inside its own rounded edge — which is where every messenger puts
-    /// them, and what keeps the bar one object instead of three.
     // MARK: - What the one field is for right now
 
     /// The say-now model, but only while the AI is actually answering.
@@ -385,80 +331,115 @@ struct Composer: View {
         }
     }
 
+    /// Everything the composer is, in one pill.
+    ///
+    /// The auxiliary controls used to sit outside it, which made the composer
+    /// a row of loose glyphs next to a field rather than one object. They are
+    /// inside now, at the leading edge, in the order an operator reaches for
+    /// them — and the microphone last, so it is the one touching the text.
     private var field: some View {
-        HStack(alignment: .bottom, spacing: Theme.Space.xxs) {
-            // Whose voice the visitor will hear this in, at the head of the
-            // line: it qualifies the sentence the operator is about to write,
-            // so it is read before the sentence rather than after it. Sitting
-            // by the send button put it where a thumb looks only once the
-            // writing is already done.
-            if let active = activeSayNow {
-                SayNowVoiceButton(model: active, language: language)
-            }
+        HStack(alignment: .bottom, spacing: 0) {
+            leadingControls
+            textArea
+            sendButton
+        }
+        .composerPill()
+        .onTapGesture { isWriting = true }
+    }
 
-            ZStack(alignment: .leading) {
-                if text.isEmpty {
-                    Text(effectivePlaceholder)
-                        .font(.body)
-                        .foregroundStyle(Theme.Palette.labelTertiary)
-                        .allowsHitTesting(false)
+    /// The controls before the text.
+    ///
+    /// All of them are about putting something into a message to the visitor.
+    /// On a thread the AI answers there is no such message — the operator's
+    /// words are rewritten before they go — so the whole cluster gives way to
+    /// the one control that does belong there, which voice it lands in.
+    @ViewBuilder
+    private var leadingControls: some View {
+        if let active = activeSayNow {
+            SayNowVoiceButton(model: active, language: language)
+        } else {
+            if capabilities.canAttach {
+                // A menu rather than a single picker: a photo and a document
+                // come from two different system pickers, and guessing which
+                // one somebody meant gets it wrong half the time.
+                Menu {
+                    Button {
+                        isShowingPhotos = true
+                    } label: {
+                        Label(Str.sendPhoto(language), systemImage: "photo")
+                    }
+                    Button {
+                        isShowingDocuments = true
+                    } label: {
+                        Label(Str.sendDocument(language), systemImage: "doc")
+                    }
+                } label: {
+                    ComposerGlyph(icon: "paperclip")
                 }
-
-                TextField("", text: $text, axis: .vertical)
-                    .accessibilityIdentifier(A11y.composerField)
-                    .font(.body)
-                    .lineLimit(1...6)
-                    .focused($isWriting)
+                .accessibilityLabel(Str.attachFile(language))
+                .accessibilityIdentifier(A11y.attachButton)
+                .disabled(isSending)
             }
-            .padding(.leading, activeSayNow == nil ? Theme.Space.md : Theme.Space.xs)
-            // Sized to match the buttons beside it. A taller text side pushes
-            // them down against the pill's edge, which reads as two controls
-            // falling out of it rather than one field containing them.
-            .padding(.vertical, Theme.Space.sm - 1)
-            .frame(maxWidth: .infinity, alignment: .leading)
 
-            if activeSayNow == nil, capabilities.canRecordVoice {
-                inFieldButton(icon: "mic.fill", label: Str.voiceNote(language)) {
+            if shortcuts != nil {
+                // The console's lightning bolt, and for the same reason: a
+                // saved reply is the fastest thing in the composer.
+                ComposerGlyphButton(icon: "bolt", label: Str.shortcuts(language)) {
+                    isShowingEmoji = false
+                    isShowingShortcuts = true
+                }
+                .accessibilityIdentifier(A11y.shortcutsButton)
+            }
+
+            if capabilities.canUseEmoji {
+                ComposerGlyphButton(
+                    icon: isShowingEmoji ? "keyboard" : "face.smiling",
+                    label: Str.emoji(language),
+                    isActive: isShowingEmoji
+                ) {
+                    isShowingEmoji.toggle()
+                }
+            }
+
+            if capabilities.canRecordVoice {
+                // Last, so it is the control touching the text: a voice note
+                // is an alternative to typing rather than something added to
+                // what was typed.
+                // `mic`, not `mic.fill`: the paperclip, the bolt and the
+                // face beside it are all outlines, and a single solid glyph
+                // among them reads as the one that is already switched on.
+                ComposerGlyphButton(icon: "mic", label: Str.voiceNote(language)) {
                     Task { await recorder.start() }
                 }
                 .disabled(isSending)
             }
-
-            sendButton
         }
-        .padding(Theme.Space.xs)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
-                .fill(Theme.Palette.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous)
-                .strokeBorder(Theme.Palette.separator.opacity(0.6), lineWidth: 0.5)
-        )
-        // The whole pill is the tap target. Tapping the padding beside the
-        // text used to do nothing at all, which reads as a field that will
-        // not open.
-        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous))
-        .onTapGesture { isWriting = true }
     }
 
-    /// A control that lives inside the field: smaller than the ones outside
-    /// it, and tinted rather than filled, so the send button stays the only
-    /// solid thing in the bar.
-    private func inFieldButton(
-        icon: String,
-        label: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 15))
-                .foregroundStyle(Theme.Palette.labelSecondary)
-                .frame(width: 34, height: 34)
-                .contentShape(Circle())
+    private var textArea: some View {
+        ZStack(alignment: .leading) {
+            if text.isEmpty {
+                Text(effectivePlaceholder)
+                    .font(.body)
+                    .foregroundStyle(Theme.Palette.labelTertiary)
+                    .allowsHitTesting(false)
+            }
+
+            TextField("", text: $text, axis: .vertical)
+                .accessibilityIdentifier(A11y.composerField)
+                .font(.body)
+                .lineLimit(1...6)
+                .focused($isWriting)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
+        // Enough to clear the glyph beside it without opening a gap; the
+        // pill's own inset supplies the rest when there is no glyph.
+        .padding(.leading, Theme.Space.xs)
+        .padding(.trailing, Theme.Space.xs)
+        // Sized to match the buttons beside it. A taller text side pushes
+        // them down against the pill's edge, which reads as two controls
+        // falling out of it rather than one field containing them.
+        .padding(.vertical, Theme.Space.sm - 1)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var sendButton: some View {
@@ -468,35 +449,6 @@ struct Composer: View {
             label: effectiveSendLabel,
             action: performSend
         )
-    }
-}
-
-/// One of the small round controls beside the field.
-struct ComposerButton: View {
-    let icon: String
-    let label: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            ComposerButtonLabel(icon: icon)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-    }
-}
-
-/// The same target and the same glyph, without a button around it — for the
-/// paperclip, which opens a menu rather than doing one thing.
-struct ComposerButtonLabel: View {
-    let icon: String
-
-    var body: some View {
-        Image(systemName: icon)
-            .font(.system(size: 19))
-            .foregroundStyle(Theme.Palette.labelSecondary)
-            .frame(width: Theme.Size.minTouchTarget - 6, height: Theme.Size.minTouchTarget)
-            .contentShape(Rectangle())
     }
 }
 

@@ -78,18 +78,11 @@ struct SayNowVoiceButton: View {
                 }
             }
         } label: {
-            // A filled tint rather than a bare glyph. At the head of the
-            // field a loose symbol reads as decoration on the pill; a chip
-            // reads as a control with a value, which is what it is. Sized
-            // against the send button at the other end so the pill looks
-            // balanced rather than weighted to one side.
-            Image(systemName: model.voice.icon)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Theme.Palette.brand)
-                .frame(width: 30, height: 30)
-                .background(Circle().fill(Theme.Palette.brand.opacity(0.12)))
-                .frame(width: Theme.Size.minTouchTarget, height: Theme.Size.minTouchTarget)
-                .contentShape(Rectangle())
+            // Tinted rather than bare: unlike its neighbours this control
+            // carries a value rather than performing an action, and a filled
+            // backing is how the rest of the app says so. Same frame as the
+            // others, so it sits on the same line.
+            ComposerGlyph(icon: model.voice.icon, isTinted: true)
         }
         .disabled(model.isSending)
         // Spoken as one thing: what this picks, and what it is currently set

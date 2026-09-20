@@ -17,7 +17,8 @@ import {
   isTelephonyEntrySource,
 } from '../../../shared/callCenter/entrySources.js';
 
-const read = (p: string) => readFileSync(new URL(`../../../${p}`, import.meta.url), 'utf8');
+const root = new URL('../../../', import.meta.url);
+const read = (p: string) => readFileSync(new URL(p, root), 'utf8');
 
 describe('call center entry sources', () => {
   it('exposes both widget and telephony as Call Center surfaces', () => {

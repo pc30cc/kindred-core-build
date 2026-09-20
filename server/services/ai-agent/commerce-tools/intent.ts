@@ -26,9 +26,18 @@ export type CommerceIntent =
 
 const ORDER_KEYWORDS = /سفارش|پیگیری مرسوله|tracking number|track my order|order status|where.{0,15}my order/i;
 const ORDER_NUMBER_RE = /(?:سفارش|order)\D{0,15}#?\s*(\d{3,12})/i;
-const AVAILABILITY_KEYWORDS = /موجود(ه|است|ی)?|in stock|available\??|هست؟?$/i;
-const STORE_INFO_KEYWORDS = /ساعت کاری فروشگاه|فروشگاه شما کجاست|store hours|about your store/i;
-const PRODUCT_INTENT_KEYWORDS = /محصول|کفش|لباس|قیمت|خرید|معرفی کن|پیشنهاد|product|buy|price|recommend/i;
+// "«X» دارید؟" is how a Persian shopper asks whether a store stocks
+// something at all — far more common than the word موجود — and it used to
+// produce no commerce intent whatsoever, so the store stayed invisible for
+// the most ordinary question it receives. Bare «داری» is deliberately
+// excluded: it is the second person singular that shows up in phrases like
+// «دوست داری», which are not about stock.
+const AVAILABILITY_KEYWORDS = /موجود(ه|است|ی)?|in stock|available\??|هست؟?$|دارید|دارین|می‌فروشید|میفروشید/i;
+// Checked BEFORE availability, so that the handful of «… دارید؟» questions
+// that are about the shop rather than its catalogue — opening hours,
+// branches, an address — do not get answered with a product's stock level.
+const STORE_INFO_KEYWORDS = /ساعا?ت کاری|فروشگاه شما کجاست|آدرس فروشگاه|شعبه|نمایندگی|store hours|about your store/i;
+const PRODUCT_INTENT_KEYWORDS = /محصول|کفش|لباس|قیمت|خرید|بخرم|می‌خوام|میخوام|می‌خواستم|میخواستم|معرفی کن|پیشنهاد|product|buy|price|recommend|looking for/i;
 
 const MILLION_TOMAN_RE = /(\d+(?:[.,]\d+)?)\s*میلیون/;
 const THOUSAND_TOMAN_RE = /(\d+(?:[.,]\d+)?)\s*هزار/;
@@ -109,11 +118,16 @@ export function detectCommerceIntent(question: string): CommerceIntent {
   const hasAvailabilityWord = AVAILABILITY_KEYWORDS.test(scan);
   const maxPrice = extractMaxPriceTomanMinor(scan);
 
-  if (hasAvailabilityWord && (Object.keys(attrs).length > 0 || PRODUCT_INTENT_KEYWORDS.test(scan))) {
+  if (hasAvailabilityWord && (Object.keys(attrs).length > 0 || maxPrice || PRODUCT_INTENT_KEYWORDS.test(scan))) {
     // "این کفش سایز ۴۳ مشکی موجوده؟" — attribute-qualified availability
     // question. Resolved as a search (to find the matching variant) whose
     // top candidate then gets a live availability revalidation — see
     // commerce-tools/runner.ts.
+    //
+    // A price ceiling counts as qualification too: "گوشی زیر ۳۰ میلیون
+    // دارید؟" is a search with a budget, and routing it to the single-product
+    // availability path would silently discard the budget the shopper just
+    // stated.
     return { kind: 'search_products', filters: { text, attributes: attrs, maxPrice: maxPrice ? { amountMinor: maxPrice, currency: 'IRR' } : undefined, limit: 3 } };
   }
   if (hasAvailabilityWord) return { kind: 'get_availability', text };

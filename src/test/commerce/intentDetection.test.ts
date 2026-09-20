@@ -116,3 +116,36 @@ describe('Persian-keyboard digits', () => {
     if (intent.kind === 'search_products') expect(intent.filters.text).toContain('۱۳');
   });
 });
+
+describe('«… دارید؟» — how a shopper actually asks for stock', () => {
+  // Before this, «پاوربانک دارید؟» produced NO commerce intent at all: the
+  // keyword list knew موجود but not دارید, and a store that sells power banks
+  // was invisible for the single most ordinary question it receives.
+
+  it('treats a bare “do you have X?” as an availability question', () => {
+    expect(detectCommerceIntent('پاوربانک دارید؟').kind).toBe('get_availability');
+    expect(detectCommerceIntent('این مدل رو می‌فروشید؟').kind).toBe('get_availability');
+  });
+
+  it('keeps a stated budget as a search, not a stock check', () => {
+    // Routing this to the single-product availability path would silently
+    // throw away the ceiling the shopper just named.
+    const intent = detectCommerceIntent('گوشی زیر ۳۰ میلیون دارید؟');
+    expect(intent.kind).toBe('search_products');
+    if (intent.kind === 'search_products') expect(intent.filters.maxPrice?.amountMinor).toBe('30000000');
+  });
+
+  it('does not read the singular «داری» as a stock question', () => {
+    // «دوست داری» is not about the catalogue.
+    expect(detectCommerceIntent('دوست داری کمکم کنی؟').kind).toBe('none');
+  });
+
+  it('answers shop questions about the shop, not about a product’s stock', () => {
+    // These all end in «دارید؟» too, so they have to be claimed before the
+    // availability branch or they come back as some product's stock level.
+    for (const q of ['ساعت کاری دارید؟', 'ساعات کاری فروشگاه چیه؟', 'شعبه‌ی حضوری دارید؟', 'نمایندگی در شیراز دارید؟']) {
+      expect(detectCommerceIntent(q).kind).toBe('store_info');
+    }
+  });
+});
+

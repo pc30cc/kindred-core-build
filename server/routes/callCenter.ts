@@ -59,7 +59,13 @@ import { cancelRing } from '../services/push/callRing.js';
 import {
   CALL_CENTER_ENTRY_SOURCES,
   WIDGET_ONLY_ENTRY_SOURCE,
+  isTelephonyEntrySource,
 } from '../../shared/callCenter/entrySources.js';
+import {
+  claimTelephonyCall,
+  hangupTelephonyCall,
+  rejectTelephonyCall,
+} from '../services/telephony/lifecycle.js';
 import {
   callWidgetFormSchema,
   callWidgetOfflineBehaviorSchema,
@@ -764,6 +770,46 @@ callCenterRouter.post('/calls/:id/accept', async (req, res) => {
     if (['ended', 'cancelled', 'failed', 'missed'].includes(prevState)) {
       return res.status(409).json({ error: 'call_not_active' });
     }
+    // ── Telephony (PSTN) calls ────────────────────────────────────────
+    // Ring-all: no operator is pre-offered, so ownership is decided by ONE
+    // transactional claim in the database. Losers get a stable 409
+    // already_answered and their UI stops ringing on the broadcast.
+    if (isTelephonyEntrySource(call.entry_source)) {
+      const claim = await claimTelephonyCall(ctx.config, {
+        workspaceId: wid,
+        callSessionId: req.params.id,
+        agentId: ctx.userId,
+      });
+      if (!claim.ok) {
+        const status = claim.reason === 'already_answered' ? 409
+          : claim.reason === 'gateway_unavailable' ? 502 : 409;
+        return res.status(status).json({ error: claim.reason });
+      }
+      const { id: telProviderId, provider: telProvider } = await resolveEffectiveCallProvider(ctx.config, wid);
+      const telToken = await telProvider.createParticipantToken(ctx.config, {
+        callSessionId: req.params.id,
+        providerRoomId: claim.roomName,
+        participantId: ctx.userId,
+        participantType: 'operator',
+        canPublish: true, canSubscribe: true, canPublishData: true,
+        ttlSeconds: 60 * 60,
+      });
+      const telConnect = await buildClientConnectInfo(
+        ctx.config, telProviderId, claim.roomName, `operator:${ctx.userId}`,
+      );
+      try { await incrementAgentActiveCallCount(ctx.config, wid, ctx.userId); }
+      catch {/* best-effort */}
+      return res.json({
+        ok: true,
+        provider: telProviderId,
+        provider_room_id: claim.roomName,
+        token: telToken.token,
+        expires_at: telToken.expiresAt,
+        connect: telConnect,
+        source: 'telephony',
+      });
+    }
+
     const { data: queueRowRaw } = await sb.from('call_queue_entries')
       .select('id, offered_to_user_id, accepted_at')
       .eq('call_session_id', req.params.id).eq('workspace_id', wid).maybeSingle();
@@ -896,6 +942,16 @@ callCenterRouter.post('/calls/:id/reject', async (req, res) => {
     if (['ended', 'cancelled', 'failed'].includes(prevState)) {
       return res.status(409).json({ error: 'call_not_active' });
     }
+    // Telephony reject also tears down the SIP leg at the gateway.
+    if (isTelephonyEntrySource(existing.entry_source)) {
+      await rejectTelephonyCall(ctx.config, {
+        workspaceId: wid,
+        callSessionId: req.params.id,
+        actorId: ctx.userId,
+      });
+      return res.json({ ok: true, source: 'telephony' });
+    }
+
     const { data: qRowRaw } = await sb.from('call_queue_entries')
       .select('id, offered_to_user_id')
       .eq('call_session_id', req.params.id).eq('workspace_id', wid).maybeSingle();
@@ -964,6 +1020,20 @@ callCenterRouter.post('/calls/:id/end', async (req, res) => {
       if (sendOwnershipError(res, e)) return;
       throw e;
     }
+    // Telephony hangup: one idempotent path for operator, PSTN and LiveKit
+    // terminations alike.
+    if (isTelephonyEntrySource(call.entry_source)) {
+      await hangupTelephonyCall(ctx.config, {
+        workspaceId: wid,
+        callSessionId: req.params.id,
+        actorId: ctx.userId,
+        by: 'operator',
+      });
+      try { await decrementAgentActiveCallCount(ctx.config, wid, ctx.userId); }
+      catch {/* best-effort */}
+      return res.json({ ok: true, source: 'telephony' });
+    }
+
     const startedAt = call.connected_at || call.started_at || call.created_at;
     const duration = startedAt ? Math.max(0, Math.round((Date.now() - new Date(startedAt).getTime()) / 1000)) : 0;
     if (call.provider && call.provider_room_id) {

@@ -12,7 +12,7 @@ import { getServiceClient } from '../../../supabase.js';
 import type { ReadOnlyToolResult } from '../actions/readOnly.js';
 import { CommerceError, type CommerceErrorCode } from '../../../../shared/commerce/types.js';
 import { getActiveConnectionForWorkspace, withCommerceConnector, assertPermission, assertCommerceModuleEntitled } from '../../commerce/gateway.js';
-import { searchIndexedProducts, type IndexedProductRow } from '../../commerce/productIndex.js';
+import { searchIndexedProducts, listIndexedCategories, type IndexedProductRow } from '../../commerce/productIndex.js';
 import { detectCommerceIntent } from './intent.js';
 import { MAX_COMMERCE_CALLS_PER_TURN, MAX_RESULTS_PER_TOOL, COMMERCE_TOOL_DEADLINE_MS } from './limits.js';
 
@@ -116,6 +116,32 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
       case 'store_info': {
         const info = await callGateway<any>('commerce.get_store_info', undefined as any, 'store.read', (c: any, ctx: any) => c.getStoreInfo(ctx));
         if (info) results.push({ name: 'commerce.get_store_info', data: { name: info.name, currency: info.currency, catalog_ready: info.catalogReady } });
+        break;
+      }
+      case 'browse_products': {
+        // "چی دارید؟" is a request to browse, not to search for a product
+        // named "what". Deliberately NO text filter: the index returns the
+        // most recently updated rows, which is the closest thing to "what we
+        // sell" that the catalogue can answer without inventing a ranking.
+        assertPermission(connection, 'products');
+        const { rows, totalMatched } = await searchIndexedProducts(config, connection.id, { limit: MAX_RESULTS_PER_TOOL })
+          .catch(() => ({ rows: [] as IndexedProductRow[], totalMatched: 0 }));
+        for (const row of rows) results.push({ name: 'commerce.search_products', data: productRowToToolData(row) });
+        results.push({ name: 'commerce.catalog_size', data: { total_products: totalMatched } });
+        toolsUsed.push('commerce.browse_products');
+        break;
+      }
+      case 'list_categories': {
+        assertPermission(connection, 'products');
+        const categories = await listIndexedCategories(config, connection.id).catch(() => []);
+        if (!categories.length) {
+          results.push({ name: 'commerce.list_categories', data: { error_code: 'no_categories' } });
+        } else {
+          for (const c of categories) {
+            results.push({ name: 'commerce.list_categories', data: { category: c.name, product_count: c.productCount } });
+          }
+        }
+        toolsUsed.push('commerce.list_categories');
         break;
       }
       case 'search_products': {

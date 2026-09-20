@@ -76,6 +76,21 @@ describe('what the search asks Postgres for', () => {
     expect(buildSearchTerms('تی‌شرت دارید؟')).toEqual(['تی‌شرت', 'تیشرت']);
   });
 
+  it('joins adjacent words, because Persian compounds are written both ways', () => {
+    // «پاور بانک» is two tokens; the catalogue holds the single token
+    // «پاوربانک». Checked against the live index at the time this was
+    // written: to_tsquery('simple','پاور | بانک') matched 0 rows and
+    // 'پاوربانک' matched 1. The shopper asked «پاور بانک دارید ؟» and the
+    // assistant answered that it could not verify the stock.
+    expect(buildSearchTerms('پاور بانک دارید ؟')).toEqual(['پاور', 'بانک', 'پاوربانک']);
+  });
+
+  it('joins pairs only, so the query stays bounded', () => {
+    // Three content words give three singles and two adjacent joins — never
+    // every combination of them.
+    expect(buildSearchTerms('کیف چرم مردانه')).toEqual(['کیف', 'چرم', 'مردانه', 'کیفچرم', 'چرممردانه']);
+  });
+
   it('falls back to the raw words when the question is nothing but filler', () => {
     // Better to search for something and find nothing than to drop the filter
     // entirely and hand back the whole catalogue.
@@ -124,6 +139,16 @@ describe('which product comes back first', () => {
     const { rows } = await searchIndexedProducts(CONFIG, CONN, { text: 'تی‌شرت دارید؟', limit: 2 } as any);
 
     expect(rows[0].sku).toBe('WY-TSHIRT');
+  });
+
+  it('puts the compound above the words it was split from', async () => {
+    candidateRows = [
+      product('WY-POWER-ADAPTER', 'آداپتور پاور رومیزی'),
+      product('WY-VMAX-20K', 'پاوربانک ۲۰۰۰۰ میلی‌آمپر ولت‌مکس'),
+    ];
+    const { rows } = await searchIndexedProducts(CONFIG, CONN, { text: 'پاور بانک دارید ؟', limit: 2 } as any);
+
+    expect(rows[0].sku).toBe('WY-VMAX-20K'); // پاور + بانک + پاوربانک
   });
 
   it('over-fetches a bounded window so there is something to rank', async () => {

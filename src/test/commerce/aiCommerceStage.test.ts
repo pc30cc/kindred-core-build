@@ -22,24 +22,30 @@ const WS = 'ws-1';
 const CONN = 'conn-1';
 
 /** Verbatim from the live store, via normalizeWooCommerceProduct. */
+const MOBILE = [{ id: '16', name: 'موبایل و تبلت', slug: 'mobile' }];
+const AUDIO = [{ id: '17', name: 'صوتی و تصویری', slug: 'audio' }];
+const ACCESSORIES = [{ id: '18', name: 'لوازم جانبی', slug: 'accessories' }];
+const HOME = [{ id: '19', name: 'لوازم خانگی هوشمند', slug: 'home' }];
+const UNCATEGORIZED = [{ id: '15', name: 'Uncategorized', slug: 'uncategorized' }];
+
 const INDEX_ROWS = [
-  row('11', 'simple', 'WY-NOVA12-128', 'گوشی هوشمند نوا ۱۲', 'نمایشگر ۶.۷ اینچی AMOLED، تراشه‌ی هشت‌هسته‌ای و باتری ۵۰۰۰ میلی‌آمپرساعت.', 28500000, 26900000, 26900000, 'in_stock', 13),
-  row('13', 'simple', 'WY-ECHO-PRO', 'هدفون بی‌سیم اکو پرو', 'حذف نویز فعال، ۴۰ ساعت پخش و اتصال هم‌زمان به دو دستگاه.', 4350000, null, 4350000, 'in_stock', 41),
-  row('15', 'simple', 'WY-PULSE3', 'ساعت هوشمند پالس ۳', 'پایش ضربان قلب و اکسیژن خون، GPS داخلی و مقاومت ۵ ATM.', 7200000, 6480000, 6480000, 'in_stock', 4),
-  row('17', 'simple', 'WY-VMAX-20K', 'پاوربانک ۲۰۰۰۰ میلی‌آمپر ولت‌مکس', 'خروجی ۶۵ وات USB-C، مناسب شارژ لپ‌تاپ و گوشی.', 1250000, null, 1250000, 'out_of_stock', 0),
-  row('19', 'simple', 'WY-RESON-BT', 'اسپیکر بلوتوثی رزونانس', 'توان ۳۰ وات، ضدآب IPX7 و ۱۸ ساعت پخش مداوم.', 2890000, 2490000, 2490000, 'in_stock', 23),
-  row('21', 'simple', 'WY-HOME-RGB', 'لامپ هوشمند رنگی هوم‌لایت', '۱۶ میلیون رنگ، کنترل با اپلیکیشن و سازگار با دستیار صوتی.', 480464, null, 480464, 'in_stock', 148),
-  row('23', 'variable', 'WY-TSHIRT', 'تی‌شرت نخی وب‌یار', 'سه سایز، نخ پنبه، دوخت ایرانی.', null, null, 450000, 'in_stock', null),
+  row('11', 'simple', 'WY-NOVA12-128', 'گوشی هوشمند نوا ۱۲', 'نمایشگر ۶.۷ اینچی AMOLED، تراشه‌ی هشت‌هسته‌ای و باتری ۵۰۰۰ میلی‌آمپرساعت.', 28500000, 26900000, 26900000, 'in_stock', 13, MOBILE),
+  row('13', 'simple', 'WY-ECHO-PRO', 'هدفون بی‌سیم اکو پرو', 'حذف نویز فعال، ۴۰ ساعت پخش و اتصال هم‌زمان به دو دستگاه.', 4350000, null, 4350000, 'in_stock', 41, AUDIO),
+  row('15', 'simple', 'WY-PULSE3', 'ساعت هوشمند پالس ۳', 'پایش ضربان قلب و اکسیژن خون، GPS داخلی و مقاومت ۵ ATM.', 7200000, 6480000, 6480000, 'in_stock', 4, ACCESSORIES),
+  row('17', 'simple', 'WY-VMAX-20K', 'پاوربانک ۲۰۰۰۰ میلی‌آمپر ولت‌مکس', 'خروجی ۶۵ وات USB-C، مناسب شارژ لپ‌تاپ و گوشی.', 1250000, null, 1250000, 'out_of_stock', 0, ACCESSORIES),
+  row('19', 'simple', 'WY-RESON-BT', 'اسپیکر بلوتوثی رزونانس', 'توان ۳۰ وات، ضدآب IPX7 و ۱۸ ساعت پخش مداوم.', 2890000, 2490000, 2490000, 'in_stock', 23, AUDIO),
+  row('21', 'simple', 'WY-HOME-RGB', 'لامپ هوشمند رنگی هوم‌لایت', '۱۶ میلیون رنگ، کنترل با اپلیکیشن و سازگار با دستیار صوتی.', 480464, null, 480464, 'in_stock', 148, HOME),
+  row('23', 'variable', 'WY-TSHIRT', 'تی‌شرت نخی وب‌یار', 'سه سایز، نخ پنبه، دوخت ایرانی.', null, null, 450000, 'in_stock', null, UNCATEGORIZED),
 ];
 
 function row(external_id: string, product_type: string, sku: string, title: string, short_description: string,
   regular_price_minor: number | null, sale_price_minor: number | null, effective_price_minor: number | null,
-  stock_state: string, stock_quantity: number | null) {
+  stock_state: string, stock_quantity: number | null, categories: Array<{ id: string; name: string; slug: string }> = []) {
   return {
     id: external_id, external_id, product_type, sku, title, short_description,
     canonical_url: `https://p.webyar.ai/product/${sku}/`, image_url: null, currency: 'IRT',
     regular_price_minor, sale_price_minor, effective_price_minor, stock_state, stock_quantity,
-    categories: [], tags: [], attributes: [], is_virtual: false, is_downloadable: false,
+    categories, tags: [], attributes: [], is_virtual: false, is_downloadable: false,
     updated_at: '2026-09-20T17:31:57+00:00',
   };
 }
@@ -61,6 +67,7 @@ function fakeClient() {
     select: () => builder, eq: () => builder, is: () => builder, in: () => builder,
     gte: () => builder, lte: () => builder, contains: () => builder,
     textSearch: (_c: string, q: string) => { builder._q = q; return builder; },
+    _q: undefined as string | undefined,
     order: () => builder, limit: () => builder,
     maybeSingle: async () => ({ data: null, error: null }),
     then: (resolve: any) => {
@@ -166,6 +173,39 @@ describe('what the model receives for a store question', () => {
     // Every revalidated row carries a price — a null here is what the whole
     // toMoney defect looked like from the model's side.
     expect(live.every((r) => r.data.price !== null)).toBe(true);
+  });
+
+  it('answers «چی دارید؟» with the catalogue instead of searching for the word "products"', async () => {
+    // Live transcript: «محصولات الان چی دارید ؟» → "لیست دقیق و به‌روز
+    // محصولات وب‌یار در دسترس من نیست". The question matched the product
+    // keyword «محصول» and was run as a NAME search for the shopper's whole
+    // sentence, and no product is called «محصولات» — so a fully populated,
+    // correctly priced index returned nothing.
+    const { toolResults, toolsUsed } = await ask('محصولات الان چی دارید ؟');
+    const hits = toolResults.filter((r) => r.name === 'commerce.search_products');
+
+    expect(toolsUsed).toContain('commerce.browse_products');
+    expect(hits.length).toBeGreaterThan(1);
+    expect(hits.every((h) => h.data.title)).toBe(true);
+    expect(toolResults.find((r) => r.name === 'commerce.catalog_size')!.data.total_products).toBe(INDEX_ROWS.length);
+  });
+
+  it('answers «دسته‌بندی‌ها رو بیار» from the catalogue, not from the model’s imagination', async () => {
+    // Live transcript: asked for the categories, the assistant replied with
+    // "ابزارهای هوش مصنوعی برای ساخت و مدیریت وب‌سایت" and four more — a
+    // plausible-sounding list of things this store does not sell. There was
+    // no category tool at all, so commerce never ran and the model answered
+    // from what it assumed the business was.
+    const { toolResults, toolsUsed } = await ask('دسته بندی هارو بیار');
+    const cats = toolResults.filter((r) => r.name === 'commerce.list_categories');
+
+    expect(toolsUsed).toContain('commerce.list_categories');
+    expect(cats.map((c) => c.data.category)).toEqual(
+      expect.arrayContaining(['لوازم جانبی', 'صوتی و تصویری', 'موبایل و تبلت', 'لوازم خانگی هوشمند']),
+    );
+    // Counted from the rows, not guessed: three products are accessories.
+    expect(cats.find((c) => c.data.category === 'لوازم جانبی')!.data.product_count).toBe(2);
+    expect(renderToolResults(toolResults)).toContain('لوازم جانبی');
   });
 
   it('says the catalogue is still syncing rather than answering from an empty index', async () => {

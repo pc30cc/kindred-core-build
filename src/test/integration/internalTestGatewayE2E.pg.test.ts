@@ -289,11 +289,19 @@ suite('Internal Test Gateway — full financial pipeline (PostgreSQL)', () => {
     const replay = await settleAndApply(inv.id, inv.total_irr, paymentId, commandKey);
     expect(replay.applied.replayed).toBe(true);
 
+    // `available_balance_irr`, which is what migration 114 creates and what
+    // the read models select. This asked for `balance_irr` and had done since
+    // it was written: the column has never existed, so this assertion could
+    // only ever throw. Nothing caught it because the job that runs this file
+    // needs a database, and CI has not had a runner to give it one.
     const account = await one(
-      `SELECT balance_irr FROM public.billing_wallet_accounts WHERE workspace_id=$1`,
+      `SELECT available_balance_irr FROM public.billing_wallet_accounts WHERE workspace_id=$1`,
       [ws],
     );
-    expect(Number(account.balance_irr)).toBe(inv.total_irr);
+    // Both sides through Number(): node-postgres hands BIGINT back as a
+    // string, so the balance and the invoice total were being compared
+    // across types even once the column name resolved.
+    expect(Number(account.available_balance_irr)).toBe(Number(inv.total_irr));
     const entries = await q(
       `SELECT id FROM public.billing_wallet_ledger WHERE workspace_id=$1 AND command_key=$2`,
       [ws, `invoice_deposit:${inv.id}`],

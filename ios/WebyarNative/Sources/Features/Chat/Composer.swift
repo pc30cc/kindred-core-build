@@ -17,8 +17,18 @@ struct Composer: View {
     let isSending: Bool
     let capabilities: ComposerCapabilities
     let language: Language
-    /// Shown in place of the controls while the AI is answering.
-    let aiNotice: String
+    /// Present when the AI is answering this thread.
+    ///
+    /// The composer used to carry a sentence here explaining why its controls
+    /// were plain while the AI answered. True and useless: what the operator
+    /// wants in that moment is to say something to the visitor, and the AI is
+    /// the thing standing between them.
+    ///
+    /// So the same field does that. Nothing is added above it — no mode bar,
+    /// no second text area — only the placeholder changes and a voice picker
+    /// joins the controls already inside the field. A thread with no AI
+    /// passes nothing and the composer is exactly what it always was.
+    var sayNow: SayNowModel?
     /// Whether the field has the keyboard.
     ///
     /// Owned by the screen rather than by this view: tapping the transcript
@@ -52,15 +62,16 @@ struct Composer: View {
 
     var body: some View {
         VStack(spacing: Theme.Space.sm) {
-            if capabilities.isAIManaged {
-                aiBanner
-            }
-
             if recorder.isRecording {
                 recordingBar
             } else {
                 HStack(alignment: .bottom, spacing: Theme.Space.xs) {
-                    if capabilities.canAttach || capabilities.canUseEmoji || shortcuts != nil {
+                    // A file or a saved reply goes to the visitor as itself;
+                    // the AI is not going to rewrite a photo. On a thread it
+                    // answers, the row drops away rather than offering
+                    // controls whose result would bypass it.
+                    if activeSayNow == nil,
+                       capabilities.canAttach || capabilities.canUseEmoji || shortcuts != nil {
                         controls
                     }
 
@@ -290,27 +301,6 @@ struct Composer: View {
         isWriting ? 0 : Theme.Size.floatingBarBottomGap - ScreenInsets.bottom
     }
 
-    /// Says why the composer is plain right now.
-    private var aiBanner: some View {
-        HStack(spacing: Theme.Space.sm) {
-            Image(systemName: "sparkles")
-                .font(.caption)
-                .foregroundStyle(Theme.Palette.brand)
-
-            Text(aiNotice)
-                .font(.caption)
-                .foregroundStyle(Theme.Palette.labelSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .multilineTextAlignment(.leading)
-        }
-        .padding(.horizontal, Theme.Space.md)
-        .padding(.vertical, Theme.Space.sm)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                .fill(Theme.Palette.brand.opacity(0.10))
-        )
-    }
-
     private var controls: some View {
         HStack(spacing: Theme.Space.xxs) {
             if capabilities.canAttach {
@@ -358,11 +348,56 @@ struct Composer: View {
     /// The field, with the two controls that act on what is in it sitting
     /// inside its own rounded edge — which is where every messenger puts
     /// them, and what keeps the bar one object instead of three.
+    // MARK: - What the one field is for right now
+
+    /// The say-now model, but only while the AI is actually answering.
+    ///
+    /// Every read below goes through this rather than `sayNow` directly: a
+    /// thread the AI does not own must behave as it always did even if a
+    /// model was handed in.
+    private var activeSayNow: SayNowModel? {
+        guard let sayNow, capabilities.isAIManaged else { return nil }
+        return sayNow
+    }
+
+    private var effectivePlaceholder: String {
+        activeSayNow == nil ? placeholder : Str.sayNowPlaceholder(language)
+    }
+
+    private var effectiveSendLabel: String {
+        activeSayNow == nil ? sendLabel : Str.sayNowAction(language)
+    }
+
+    private var effectiveIsSending: Bool {
+        activeSayNow?.isSending ?? isSending
+    }
+
+    private var effectiveCanSend: Bool {
+        guard let active = activeSayNow else { return canSend }
+        return !active.isSending && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Sends whatever this thread means by sending.
+    private func performSend() {
+        guard let active = activeSayNow else {
+            // Before `onSend`, which clears the draft: the rule is "did this
+            // reply's text survive into what went out", and after the clear
+            // there is nothing left to ask that of.
+            flushShortcutUses()
+            onSend()
+            return
+        }
+        let body = text
+        Task {
+            if await active.send(body, language: language) { text = "" }
+        }
+    }
+
     private var field: some View {
         HStack(alignment: .bottom, spacing: Theme.Space.xxs) {
             ZStack(alignment: .leading) {
                 if text.isEmpty {
-                    Text(placeholder)
+                    Text(effectivePlaceholder)
                         .font(.body)
                         .foregroundStyle(Theme.Palette.labelTertiary)
                         .allowsHitTesting(false)
@@ -381,11 +416,18 @@ struct Composer: View {
             .padding(.vertical, Theme.Space.sm - 1)
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            if capabilities.canRecordVoice {
+            if activeSayNow == nil, capabilities.canRecordVoice {
                 inFieldButton(icon: "mic.fill", label: Str.voiceNote(language)) {
                     Task { await recorder.start() }
                 }
                 .disabled(isSending)
+            }
+
+            // Whose voice the visitor will hear this in. Inside the field,
+            // beside the send button, because it belongs to the sentence
+            // being written rather than to the screen.
+            if let active = activeSayNow {
+                SayNowVoiceButton(model: active, language: language)
             }
 
             sendButton
@@ -426,15 +468,9 @@ struct Composer: View {
     }
 
     private var sendButton: some View {
-        Button {
-            // Before `onSend`, which clears the draft: the rule is "did this
-            // reply's text survive into what went out", and after the clear
-            // there is nothing left to ask that of.
-            flushShortcutUses()
-            onSend()
-        } label: {
+        Button(action: performSend) {
             Group {
-                if isSending {
+                if effectiveIsSending {
                     ProgressView().tint(.white)
                 } else {
                     Image(systemName: "arrow.up")
@@ -443,12 +479,13 @@ struct Composer: View {
                 }
             }
             .frame(width: 34, height: 34)
-            .background(Circle().fill(Theme.Palette.brand.opacity(canSend ? 1 : 0.35)))
+            .background(Circle().fill(Theme.Palette.brand.opacity(effectiveCanSend ? 1 : 0.35)))
         }
         .buttonStyle(.plain)
-        .disabled(!canSend)
-        .accessibilityLabel(sendLabel)
-        .animation(Theme.Motion.standard, value: canSend)
+        .disabled(!effectiveCanSend)
+        .accessibilityLabel(effectiveSendLabel)
+        .accessibilityIdentifier(A11y.composerSend)
+        .animation(Theme.Motion.standard, value: effectiveCanSend)
     }
 }
 

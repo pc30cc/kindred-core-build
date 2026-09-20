@@ -36,6 +36,11 @@ protocol WebyarAPI: Sendable {
     ) async throws -> String
     func markSeen(conversationID: String) async throws
     func setStatus(_ status: ConversationStatus, conversationID: String, workspaceID: String) async throws
+
+    /// Take the thread off the AI and onto this operator.
+    func takeOverConversation(conversationID: String, workspaceID: String) async throws
+    /// The operator's words, in the AI's writing, to the visitor, now.
+    func aiSayNow(conversationID: String, body: String, voice: SayNowVoice) async throws
     func claim(conversationID: String, workspaceID: String) async throws
     func inboxCounts(workspaceID: String, scope: String) async throws -> InboxCounts
     // Email Inbox — a real mailbox, on its own `/api/email-inbox` surface.

@@ -228,4 +228,8 @@ enum A11yID {
     static func shortcutRow(_ id: String) -> String { "shortcut.\(id)" }
     static let attachButton = "composer.attach"
     static func messageRow(_ id: String) -> String { "message.\(id)" }
+    static let inboxTitleMenu = "inbox.title.menu"
+    static let conversationMenu = "chat.menu"
+    static let composerSend = "composer.send"
+    static let sayNowVoice = "sayNow.voice"
 }

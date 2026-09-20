@@ -61,6 +61,7 @@ actor SampleAPI: WebyarAPI {
         return switch filter {
         case .open: all.filter { $0.status == .open || $0.status == .pending }
         case .needsHuman: all.filter { ($0.status == .open || $0.status == .pending) && $0.assignedTo == nil }
+        case .pending: all.filter { $0.status == .pending }
         case .resolved: all.filter { $0.status == .resolved || $0.status == .closed }
         case .ai: all.filter { $0.lastMessage?.senderType == "ai" }
         // Nothing in the sample set is spam, and an empty queue is the
@@ -99,6 +100,16 @@ actor SampleAPI: WebyarAPI {
     func setStatus(_ status: ConversationStatus, conversationID: String, workspaceID: String) async throws {
         statuses[conversationID] = status
     }
+
+    // MARK: - The AI, on a thread it owns
+    //
+    // The sample backend exists so the app is screenshot-able and testable
+    // without a server. Both of these are writes with nothing to read back,
+    // so accepting them is the whole of what a stub owes here.
+
+    func takeOverConversation(conversationID: String, workspaceID: String) async throws {}
+
+    func aiSayNow(conversationID: String, body: String, voice: SayNowVoice) async throws {}
 
     func contacts(workspaceID: String) async throws -> [Contact] { Self.contacts }
 

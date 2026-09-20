@@ -7,6 +7,9 @@ struct ChatView: View {
     @Environment(\.locale) private var locale
     @State private var model: ChatViewModel
     @State private var actions: ConversationActionsModel
+    /// The AI's side of the composer on a thread it answers. Owned here so
+    /// the chosen voice survives the composer being rebuilt.
+    @State private var sayNow: SayNowModel
     /// Whether the composer has the keyboard. Here rather than in the
     /// composer because tapping the transcript has to be able to clear it.
     @FocusState private var isWriting: Bool
@@ -16,6 +19,7 @@ struct ChatView: View {
         self.conversation = conversation
         _model = State(initialValue: ChatViewModel(conversation: conversation))
         _actions = State(initialValue: ConversationActionsModel(conversation: conversation))
+        _sayNow = State(initialValue: SayNowModel(conversationID: conversation.id))
     }
 
     private var language: Language { appState.language }
@@ -125,6 +129,13 @@ struct ChatView: View {
                         },
                         onInvite: { channel in
                             Task { await actions.invite(channel, appState: appState) }
+                        },
+                        // Gone the moment the take-over lands, so the row
+                        // cannot be pressed twice on a thread that is already
+                        // in this operator's hands.
+                        isAIManaged: AIState.resolve(conversation) == .aiManaged && !actions.didTakeOver,
+                        onTakeOver: {
+                            Task { await actions.takeOver(appState: appState) }
                         }
                     )
                 }
@@ -154,7 +165,7 @@ struct ChatView: View {
                     isSending: model.isSending,
                     capabilities: capabilities,
                     language: language,
-                    aiNotice: Str.aiOwnsThread(language),
+                    sayNow: sayNow,
                     isWriting: $isWriting,
                     onSend: { Task { await model.send(appState: appState) } },
                     onAttach: { data, name, mime in
@@ -172,6 +183,17 @@ struct ChatView: View {
             }
             .task {
                 await model.load(appState: appState)
+            }
+            .alert(sayNow.notice ?? "", isPresented: Binding(
+                get: { sayNow.notice != nil },
+                set: { if !$0 { sayNow.notice = nil } }
+            )) {
+                Button(Str.ok(language), role: .cancel) {
+                    sayNow.notice = nil
+                    // What the AI just sent belongs in the transcript before
+                    // the operator decides what to do next.
+                    Task { await model.load(appState: appState) }
+                }
             }
             .task {
                 await actions.load(appState: appState)
@@ -192,6 +214,18 @@ struct ChatView: View {
                     }
                 }
                 #endif
+            }
+            .alert(
+                Str.takeOverFailed(language),
+                isPresented: $actions.takeOverFailed
+            ) {
+                Button(Str.ok(language), role: .cancel) {}
+            }
+            .alert(
+                Str.takenOver(language),
+                isPresented: $actions.takeOverConfirmed
+            ) {
+                Button(Str.ok(language), role: .cancel) {}
             }
             .alert(
                 Str.inviteFailed(language),

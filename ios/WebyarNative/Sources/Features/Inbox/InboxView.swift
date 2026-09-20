@@ -241,6 +241,7 @@ struct InboxView: View {
             .contentShape(Rectangle())
         }
         .accessibilityLabel(Str.allInboxes(language))
+        .accessibilityIdentifier(A11y.inboxTitleMenu)
     }
 
     @ToolbarContentBuilder

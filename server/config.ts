@@ -333,6 +333,21 @@ export function loadConfig(): ServerConfig {
   if (pluginSecretsMasterKey && pluginSecretsMasterKey === serviceRoleKey) {
     throw new Error('PLUGIN_SECRETS_MASTER_KEY must not reuse SUPABASE_SERVICE_ROLE_KEY');
   }
+  // The Telephony Control Service is a distinct trust boundary: its secret must
+  // never double as any other internal credential.
+  if (telephonyInternalSecret) {
+    for (const [name, other] of [
+      ['SUPABASE_SERVICE_ROLE_KEY', serviceRoleKey],
+      ['CORE_INTERNAL_SECRET', coreInternalSecret],
+      ['PLUGIN_SECRETS_MASTER_KEY', pluginSecretsMasterKey],
+      ['CHANNELS_WEBHOOK_SIGNING_KEY', channelsWebhookSigningKey],
+      ['AI_RUNTIME_INTERNAL_SECRET', aiRuntimeInternalSecret],
+    ] as const) {
+      if (other && telephonyInternalSecret === other) {
+        throw new Error(`TELEPHONY_INTERNAL_SECRET must not reuse ${name}`);
+      }
+    }
+  }
   // The AI runtime lives OUTSIDE the trusted network. Its secret must never be
   // a credential that also unlocks the database or another internal boundary.
   if (aiRuntimeInternalSecret) {

@@ -12,7 +12,8 @@ Dockerfile.
 | `intelligence` (default) | AI KB Builder pipeline | `public.ai_kb_jobs`        |
 | `source-sync` | Data Hub website source sync      | `public.ai_source_sync_jobs` |
 | `seo-crawler` | SEO / Website Audit crawler + backlink scans + keyword research + performance audits (all pluggable vendors) | `public.background_jobs` (`job_type IN ('seo_crawl','seo_backlink_scan','seo_keyword_research','seo_performance_audit')`) |
-| `all`         | Both loops in same process (dev only) | both                  |
+| `commerce-sync` | Commerce catalog sync + periodic reconciliation | `public.commerce_sync_jobs` |
+| `all`         | Every loop in same process (dev only) | all of the above        |
 
 `all` logs a warning. Use only for local/small deploys.
 
@@ -29,7 +30,8 @@ an unknown kind anywhere in the list fails startup with a clear error.
 
 ## Coolify setup
 
-Create two services from the same repo, same `Dockerfile.worker`:
+Create one service per worker below, all from the same repo and the same
+`Dockerfile.worker`:
 
 1. **Intelligence Worker**
    - `WORKER_KIND=intelligence`
@@ -37,7 +39,25 @@ Create two services from the same repo, same `Dockerfile.worker`:
 2. **Source Sync Worker**
    - `WORKER_KIND=source-sync`
    - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-3. **SEO Crawler Worker** (also handles backlink scans, keyword research and
+3. **Commerce Sync Worker** — REQUIRED for any workspace with a connected
+   store. Without it a newly paired store stays stuck: `commerce_sync_jobs`
+   holds an `initial_sync` row that nothing ever claims, so the product
+   index is never filled, `commerce_connections.catalog_ready` never turns
+   true, and the assistant correctly answers every product question with
+   `catalog_syncing` instead of quoting the catalogue. Webhook events keep
+   the handful of products a shopper happens to touch up to date, which
+   makes the gap easy to miss — the store looks connected, because it IS
+   connected.
+   - `WORKER_KIND=commerce-sync`
+   - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+   - `PLUGIN_SECRETS_MASTER_KEY` — the same value the Backend API uses.
+     Catalogue pages are fetched with the store's installation secret, which
+     is stored encrypted; without this key every job fails to authenticate.
+   - Optional: `COMMERCE_WORKER_POLL_MS` (default `5000`),
+     `COMMERCE_WORKER_RECONCILE_MS` (default `900000` — how often connected
+     stores get a bounded incremental reconciliation pass)
+   - Locally: `npm run worker:commerce-sync`
+4. **SEO Crawler Worker** (also handles backlink scans, keyword research and
    performance audits — one poller, one process, claiming all four
    `background_jobs` job types)
    - `WORKER_KIND=seo-crawler`

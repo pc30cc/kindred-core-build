@@ -30,7 +30,11 @@ import {
   type GuidanceKind, type GuidanceRecord, type GuidanceScope,
 } from './guidance.js';
 
-const VISITOR_SENDER_TYPES = ['contact', 'visitor', 'user'];
+// public.sender_type enum = { agent, contact, system, bot, ai }. 'visitor'
+// and 'user' are NOT members, and Postgres rejects an IN-list outright if any
+// literal is not a valid label (22P02), so PostgREST answered 400 on every
+// single lookup below — which this file then read as "no visitor message".
+const VISITOR_SENDER_TYPES = ['contact'];
 
 export type ReplyNowBlockedReason =
   | 'conversation_not_found'
@@ -39,6 +43,7 @@ export type ReplyNowBlockedReason =
   | 'handoff_in_progress'
   | 'not_ai_managed'
   | 'no_visitor_message'
+  | 'visitor_message_lookup_failed'
   | 'reply_now_in_progress'
   | 'guidance_create_failed';
 
@@ -89,13 +94,19 @@ export async function findLatestVisitorMessage(
   conversationId: string,
 ): Promise<LatestVisitorMessage | null> {
   const sb = getServiceClient(config);
-  const { data } = await sb
+  const { data, error } = await sb
     .from('conversation_messages')
     .select('id,body,sender_type,created_at')
     .eq('conversation_id', conversationId)
     .in('sender_type', VISITOR_SENDER_TYPES)
     .order('created_at', { ascending: false })
     .limit(1);
+  // A failed read is NOT "the visitor never wrote". Dropping this error is
+  // exactly what let an invalid enum literal masquerade as
+  // `no_visitor_message` on every call. The sole caller
+  // (checkReplyNowEligibility) turns this into its own blocked reason, so the
+  // rejection never reaches the Express 4 route, which would hang on it.
+  if (error) throw new Error(`findLatestVisitorMessage failed: ${error.message}`);
   const row = (data || [])[0] as any;
   if (!row?.id) return null;
   const body = String(row.body || '').trim();
@@ -176,7 +187,15 @@ export async function checkReplyNowEligibility(
   if (!ownership.owned) {
     return { eligible: false, reason: ownership.reason, visitorMessage: null };
   }
-  const visitorMessage = await findLatestVisitorMessage(config, args.conversationId);
+  let visitorMessage: LatestVisitorMessage | null;
+  try {
+    visitorMessage = await findLatestVisitorMessage(config, args.conversationId);
+  } catch (err: unknown) {
+    // Report the read failure as itself rather than as "no visitor message".
+    // eslint-disable-next-line no-console
+    console.error('[reply-now] visitor message lookup failed:', err);
+    return { eligible: false, reason: 'visitor_message_lookup_failed', visitorMessage: null };
+  }
   if (!visitorMessage) return { eligible: false, reason: 'no_visitor_message', visitorMessage: null };
   return { eligible: true, reason: null, visitorMessage };
 }

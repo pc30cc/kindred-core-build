@@ -168,12 +168,9 @@ async function resolveBrandName(supabase: any, locale: string): Promise<string> 
       const fallback = await read('en');
       if (fallback) return fallback;
     }
-    const { data } = await supabase
-      .from('platform_branding')
-      .select('platform_name')
-      .limit(1)
-      .maybeSingle();
-    if (data?.platform_name) return String(data.platform_name).trim();
+    // No third tier: platform_name only exists on platform_branding_localized
+    // now, so the old platform_branding fallback that used to sit here was
+    // dead code that returned 400 on every miss.
   } catch {
     /* branding is optional — never block delivery */
   }

@@ -418,11 +418,18 @@ widgetRouter.post('/bootstrap', widgetRateLimit('bootstrap'), perfHttpMiddleware
 
     // Platform display name — owned by platform branding (super admin only).
     // Workspace rows must never influence how the platform is credited.
-    const { data: branding } = await supabase
-      .from('platform_branding')
+    // platform_name lives on platform_branding_localized — it was moved off
+    // platform_branding, so selecting it here returned 400 on every request.
+    // The dropped error then made platform_display_name silently empty.
+    // 'en' is the terminal fallback used by manifest.ts and resolveBrandName().
+    const { data: branding, error: brandingError } = await supabase
+      .from('platform_branding_localized')
       .select('platform_name')
-      .limit(1)
+      .eq('locale', 'en')
       .maybeSingle();
+    if (brandingError) {
+      console.warn('[widget] platform brand name lookup failed:', brandingError.message);
+    }
 
 
     // Phase 8 — server-authoritative availability snapshot. Additive;
@@ -623,7 +630,7 @@ widgetRouter.get('/config', widgetRateLimit('bootstrap'), async (req: Request, r
         .select('widget_loader_base_url, widget_asset_base_url, widget_public_base_url, widget_api_base_url, default_welcome_message, powered_by_enabled, powered_by_text, powered_by_brand_text, powered_by_url')
         .limit(1).maybeSingle(),
       // Platform identity for the powered-by footer. NEVER the workspace row.
-      supabase.from('platform_branding').select('platform_name').limit(1).maybeSingle(),
+      supabase.from('platform_branding_localized').select('platform_name').eq('locale', 'en').maybeSingle(),
       isPoweredByAllowedForPlan(supabase, workspaceId),
       getWorkspaceOriginRules(config, workspaceId),
       loadPlatformPreChatPolicy(supabase),

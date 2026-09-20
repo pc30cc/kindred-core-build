@@ -192,7 +192,6 @@ export async function checkReplyNowEligibility(
     visitorMessage = await findLatestVisitorMessage(config, args.conversationId);
   } catch (err: unknown) {
     // Report the read failure as itself rather than as "no visitor message".
-    // eslint-disable-next-line no-console
     console.error('[reply-now] visitor message lookup failed:', err);
     return { eligible: false, reason: 'visitor_message_lookup_failed', visitorMessage: null };
   }

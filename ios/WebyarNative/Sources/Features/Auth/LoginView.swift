@@ -94,7 +94,7 @@ struct LoginView: View {
 
     private var header: some View {
         VStack(spacing: Theme.Space.lg) {
-            BrandMark(size: 68)
+            BrandWordmark(language: language, size: 34)
 
             VStack(spacing: Theme.Space.xs) {
                 Text(Str.loginTitle(language))

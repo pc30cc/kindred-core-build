@@ -204,24 +204,14 @@ struct EmailThreadView: View {
                     .padding(.horizontal, Theme.Space.sm)
                     .padding(.vertical, Theme.Space.sm - 1)
 
-                Button {
+                SendButton(
+                    isEnabled: canSend,
+                    isSending: model.isSending,
+                    label: Str.emailSend(language)
+                ) {
                     isWriting = false
                     Task { await model.send(workspaceID: workspaceID, mailbox: mailbox, appState: appState) }
-                } label: {
-                    Group {
-                        if model.isSending {
-                            ProgressView().tint(.white)
-                        } else {
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(.white)
-                        }
-                    }
-                    .frame(width: 34, height: 34)
-                    .background(Circle().fill(canSend ? Theme.Palette.brand : Theme.Palette.brand.opacity(0.35)))
                 }
-                .disabled(!canSend)
-                .accessibilityLabel(Str.emailSend(language))
             }
             .padding(Theme.Space.xs)
             .background(

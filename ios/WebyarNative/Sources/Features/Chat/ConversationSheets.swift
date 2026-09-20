@@ -278,25 +278,15 @@ struct NotesSheet: View {
                 .background(Capsule().fill(Theme.Palette.surfaceElevated))
                 .focused($focused)
 
-            Button {
+            SendButton(
+                isEnabled: !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                isSending: model.isSaving,
+                label: Str.send(language)
+            ) {
                 let text = draft
                 draft = ""
                 Task { await model.addNote(text, appState: appState) }
-            } label: {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 34, height: 34)
-                    .background(
-                        Circle().fill(
-                            draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                ? Theme.Palette.brand.opacity(0.35)
-                                : Theme.Palette.brand
-                        )
-                    )
             }
-            .buttonStyle(.plain)
-            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isSaving)
         }
         .padding(.horizontal, Theme.screenInset)
         .padding(.vertical, Theme.Space.sm)

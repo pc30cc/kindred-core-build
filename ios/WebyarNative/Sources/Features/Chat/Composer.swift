@@ -205,21 +205,13 @@ struct Composer: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button {
+            SendButton(isEnabled: true, label: sendLabel) {
                 if let data = recorder.finish() {
                     onAttach(data, recorder.fileName, recorder.mimeType)
                 } else {
                     recorder.cancel()
                 }
-            } label: {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 38, height: 38)
-                    .background(Circle().fill(Theme.Palette.brand))
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(sendLabel)
         }
         .onAppear { pulse = true }
         .onDisappear { pulse = false }
@@ -395,6 +387,15 @@ struct Composer: View {
 
     private var field: some View {
         HStack(alignment: .bottom, spacing: Theme.Space.xxs) {
+            // Whose voice the visitor will hear this in, at the head of the
+            // line: it qualifies the sentence the operator is about to write,
+            // so it is read before the sentence rather than after it. Sitting
+            // by the send button put it where a thumb looks only once the
+            // writing is already done.
+            if let active = activeSayNow {
+                SayNowVoiceButton(model: active, language: language)
+            }
+
             ZStack(alignment: .leading) {
                 if text.isEmpty {
                     Text(effectivePlaceholder)
@@ -409,7 +410,7 @@ struct Composer: View {
                     .lineLimit(1...6)
                     .focused($isWriting)
             }
-            .padding(.leading, Theme.Space.md)
+            .padding(.leading, activeSayNow == nil ? Theme.Space.md : Theme.Space.xs)
             // Sized to match the buttons beside it. A taller text side pushes
             // them down against the pill's edge, which reads as two controls
             // falling out of it rather than one field containing them.
@@ -421,13 +422,6 @@ struct Composer: View {
                     Task { await recorder.start() }
                 }
                 .disabled(isSending)
-            }
-
-            // Whose voice the visitor will hear this in. Inside the field,
-            // beside the send button, because it belongs to the sentence
-            // being written rather than to the screen.
-            if let active = activeSayNow {
-                SayNowVoiceButton(model: active, language: language)
             }
 
             sendButton
@@ -468,24 +462,12 @@ struct Composer: View {
     }
 
     private var sendButton: some View {
-        Button(action: performSend) {
-            Group {
-                if effectiveIsSending {
-                    ProgressView().tint(.white)
-                } else {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-            }
-            .frame(width: 34, height: 34)
-            .background(Circle().fill(Theme.Palette.brand.opacity(effectiveCanSend ? 1 : 0.35)))
-        }
-        .buttonStyle(.plain)
-        .disabled(!effectiveCanSend)
-        .accessibilityLabel(effectiveSendLabel)
-        .accessibilityIdentifier(A11y.composerSend)
-        .animation(Theme.Motion.standard, value: effectiveCanSend)
+        SendButton(
+            isEnabled: effectiveCanSend,
+            isSending: effectiveIsSending,
+            label: effectiveSendLabel,
+            action: performSend
+        )
     }
 }
 

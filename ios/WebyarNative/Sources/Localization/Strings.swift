@@ -17,6 +17,21 @@ enum Str {
         }
     }
 
+    /// The name as the wordmark draws it, which is not always how it is
+    /// written in a sentence.
+    ///
+    /// Latin is capitalised because the mark is letter-spaced and lowercase
+    /// letters track badly. Persian carries kashida — the elongation stroke —
+    /// rather than tracking, because the script is connected and tracking
+    /// would break its joins; the ZWNJ that `appName` uses is replaced by a
+    /// space, since at display size the two halves want air between them.
+    static func brandWordmark(_ l: Language) -> String {
+        switch l {
+        case .en, .tr: "WEBYAR"
+        case .fa: "وبــــ یــار"
+        }
+    }
+
     static func cancel(_ l: Language) -> String {
         switch l {
         case .en: "Cancel"

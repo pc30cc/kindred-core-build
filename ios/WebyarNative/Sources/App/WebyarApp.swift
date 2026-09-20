@@ -53,7 +53,7 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            switch appState.session {
+            switch LaunchView.isHeld ? .restoring : appState.session {
             case .restoring:
                 LaunchView()
                     .transition(.opacity)
@@ -98,22 +98,42 @@ struct RootView: View {
 /// so the handoff from the system launch image is invisible rather than a
 /// flash of a different layout.
 struct LaunchView: View {
+    @Environment(AppState.self) private var appState
+
+    /// Whether this run was asked to stay on the launch screen.
+    ///
+    /// Restoring a session takes a few hundred milliseconds, which is the
+    /// right amount of time for an operator and far too little to look at:
+    /// every attempt to screenshot this caught either the system's own launch
+    /// image or the inbox behind it. Same shape as `-WebyarNoPromotions`, and
+    /// Debug-only for the same reason — nothing in a shipped build should be
+    /// able to hold the app on a splash screen.
+    static var isHeld: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-WebyarHoldLaunch")
+        #else
+        false
+        #endif
+    }
+
     var body: some View {
         ZStack {
             Color(uiColor: .systemBackground)
                 .ignoresSafeArea()
 
-            VStack(spacing: Theme.Space.xl) {
-                BrandMark(size: 72)
-                ProgressView()
-                    .controlSize(.regular)
-            }
+            // The wordmark is the loading indicator. A spinner under it would
+            // be a second thing saying the same thing, and the pair is what
+            // makes a launch screen look assembled rather than designed.
+            BrandWordmark(language: appState.language, size: 40, isLoading: true)
         }
     }
 }
 
-/// The app's logomark: the first letter of the product name in the current
-/// language, in a rounded square.
+/// A square mark for the places that need one: the icon-shaped fallback
+/// behind a promotion with no artwork of its own.
+///
+/// Not the launch screen and not the login screen any more — both show the
+/// name itself, which says more than a letter in a box.
 struct BrandMark: View {
     @Environment(AppState.self) private var appState
     var size: CGFloat = 64

@@ -78,10 +78,17 @@ struct SayNowVoiceButton: View {
                 }
             }
         } label: {
+            // A filled tint rather than a bare glyph. At the head of the
+            // field a loose symbol reads as decoration on the pill; a chip
+            // reads as a control with a value, which is what it is. Sized
+            // against the send button at the other end so the pill looks
+            // balanced rather than weighted to one side.
             Image(systemName: model.voice.icon)
-                .font(.system(size: 15))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Theme.Palette.brand)
-                .frame(width: 34, height: 34)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(Theme.Palette.brand.opacity(0.12)))
+                .frame(width: Theme.Size.minTouchTarget, height: Theme.Size.minTouchTarget)
                 .contentShape(Rectangle())
         }
         .disabled(model.isSending)

@@ -19,6 +19,7 @@ import {
   recordBackupReport,
   recordRestoreDrill,
 } from '../services/backup/backupService.js';
+import type { BackupReport } from '../services/backup/backupService.js';
 
 export const backupAgentRouter = Router();
 

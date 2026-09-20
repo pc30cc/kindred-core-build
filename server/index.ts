@@ -36,6 +36,7 @@ import { billingRouter, billingWebhookRouter } from './routes/billing.js';
 import { commercePairingRouter } from './routes/commerce/pairing.js';
 import { commerceConnectionsRouter } from './routes/commerce/connections.js';
 import { commerceEventsRouter } from './routes/commerce/events.js';
+import { commercePluginActionsRouter } from './routes/commerce/pluginActions.js';
 import { commerceGuestVerificationRouter } from './routes/commerce/guestVerification.js';
 import { commerceIdentityRouter } from './routes/commerce/identity.js';
 import { internalTestGatewayRouter } from './routes/internalTestGateway.js';
@@ -307,12 +308,18 @@ app.use('/api/billing/webhook', billingWebhookRouter);
 // express.raw() parser. See docs/commerce/SECURITY.md §Request signing.
 app.use('/api/commerce/events', commerceEventsRouter);
 
+// Connection actions the plugin triggers itself (test / sync / disconnect).
+// Same signed-request trust model as event ingestion, and likewise mounted
+// before express.json() so the raw bytes survive for verification.
+app.use('/api/commerce/connection', commercePluginActionsRouter);
+
 // JSON / cookies for everything else. Skip the webhook path explicitly so
 // a future re-order can't accidentally consume the raw body.
 app.use((req, res, next) => {
   if (req.path === '/api/calls/livekit/webhook') return next();
   if (req.path.startsWith('/api/billing/webhook')) return next();
   if (req.path.startsWith('/api/commerce/events')) return next();
+  if (req.path.startsWith('/api/commerce/connection')) return next();
   return express.json({ limit: '50mb' })(req, res, next);
 });
 app.use(cookieParser()); // Parse signed visitor cookies (HttpOnly dvsid)

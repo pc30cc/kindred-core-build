@@ -94,6 +94,7 @@ final class ConnectionController {
 				array(
 					'installation_id'     => $result['installationId'],
 					'workspace_id'        => $result['workspaceId'],
+					'connection_id'       => $result['connectionId'],
 					'store_id'            => $result['storeId'],
 					'protocol_version'    => $result['protocolVersion'],
 					'installation_secret' => $result['installationSecret'],
@@ -129,12 +130,17 @@ final class ConnectionController {
 	}
 
 	private function notify_disconnect( array $credential ): void {
-		$path = '/api/workspaces/' . rawurlencode( $credential['workspace_id'] ) . '/commerce/connections/' . rawurlencode( $credential['installation_id'] ) . '/disconnect';
+		$path = '/api/commerce/connection/disconnect';
 		// Best-effort — local secret deletion proceeds unconditionally right
-		// after this call regardless of the outcome.
+		// after this call regardless of the outcome. Signed like every other
+		// machine call, because an unsigned one is simply refused.
 		wp_remote_post(
 			trailingslashit( PairingService::api_base_url() ) . ltrim( $path, '/' ),
-			array( 'timeout' => 5, 'blocking' => false )
+			array(
+				'timeout'  => 5,
+				'blocking' => false,
+				'headers'  => RequestSigner::build_headers( $credential['installation_secret'], $credential['installation_id'], 'POST', $path, '' ),
+			)
 		);
 	}
 
@@ -170,9 +176,16 @@ final class ConnectionController {
 			return;
 		}
 
+		// Signed, store-authenticated route. The dashboard equivalents under
+		// /api/workspaces/... require a logged-in member's session, which a
+		// server-to-server call from WordPress cannot present — they answered
+		// 401 every time. Here the installation secret IS the credential, and
+		// Web Yar resolves the connection from it.
+		$path    = '/api/commerce/connection/' . $action;
+		$headers = RequestSigner::build_headers( $credential['installation_secret'], $credential['installation_id'], 'POST', $path, '' );
 		$response = wp_remote_post(
-			trailingslashit( PairingService::api_base_url() ) . 'api/workspaces/' . rawurlencode( $credential['workspace_id'] ) . '/commerce/connections/' . rawurlencode( $credential['installation_id'] ) . '/' . $action,
-			array( 'timeout' => 10 )
+			trailingslashit( PairingService::api_base_url() ) . ltrim( $path, '/' ),
+			array( 'timeout' => 15, 'headers' => $headers )
 		);
 
 		if ( is_wp_error( $response ) ) {
@@ -196,9 +209,19 @@ final class ConnectionController {
 
 		Logger::error( 'connection action rejected', array( 'action' => $action, 'status' => $status ) );
 		if ( 401 === $status || 403 === $status ) {
+			// The signature was rejected or the connection was revoked — the
+			// same condition the event queue surfaces, so mark it the same way.
+			update_option( \WebYar\WooCommerce\Events\EventDelivery::AUTH_ERROR_OPTION, array( 'status' => $status, 'at' => gmdate( 'c' ) ), false );
 			$this->redirect_with_notice(
 				'error',
-				__( 'وب‌یار این درخواست را نپذیرفت (نیازمند ورود کاربر است). این کار را از داشبورد وب‌یار، بخش یکپارچه‌سازی‌ها ← فروشگاه انجام دهید.', 'webyar-woocommerce' )
+				__( 'وب‌یار اعتبارنامه‌ی این فروشگاه را نپذیرفت. یک بار «قطع اتصال» و دوباره «اتصال به وب‌یار» را بزنید.', 'webyar-woocommerce' )
+			);
+			return;
+		}
+		if ( 404 === $status ) {
+			$this->redirect_with_notice(
+				'error',
+				__( 'نسخه‌ی وب‌یار شما این درخواست را پشتیبانی نمی‌کند. سرور وب‌یار را به‌روز کنید.', 'webyar-woocommerce' )
 			);
 			return;
 		}

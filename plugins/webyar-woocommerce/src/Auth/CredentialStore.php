@@ -23,6 +23,7 @@ final class CredentialStore {
 	 * @param array{
 	 *   installation_id: string,
 	 *   workspace_id: string,
+	 *   connection_id: string,
 	 *   store_id: string,
 	 *   protocol_version: string,
 	 *   installation_secret: string,

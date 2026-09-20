@@ -132,7 +132,7 @@ final class PairingService {
 	 * Completes pairing after the admin's browser is redirected back with
 	 * `code` + `state`. Called from Admin/ConnectionController.php.
 	 *
-	 * @return array{installationId:string,installationSecret:string,workspaceId:string,storeId:string,protocolVersion:string}
+	 * @return array{installationId:string,installationSecret:string,workspaceId:string,connectionId:string,storeId:string,protocolVersion:string}
 	 */
 	public static function complete( string $code, string $state ): array {
 		$pending = get_option( self::STATE_OPTION, null );
@@ -178,6 +178,9 @@ final class PairingService {
 			'installationId'     => (string) $body['installationId'],
 			'installationSecret' => (string) $body['installationSecret'],
 			'workspaceId'        => (string) $body['workspaceId'],
+			// Older Web Yar builds do not send this; an empty value simply
+			// means the connection-scoped URLs fall back to the installation id.
+			'connectionId'       => isset( $body['connectionId'] ) ? (string) $body['connectionId'] : '',
 			'storeId'            => (string) $body['storeId'],
 			'protocolVersion'    => (string) $body['protocolVersion'],
 		);

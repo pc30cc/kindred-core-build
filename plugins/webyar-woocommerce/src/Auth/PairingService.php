@@ -36,6 +36,27 @@ final class PairingService {
 		return self::app_base_url() !== '';
 	}
 
+	/**
+	 * Base URL for machine (server-to-server) calls: pairing register and
+	 * exchange, event delivery, connection actions.
+	 *
+	 * Usually identical to app_base_url() — the documented deployment serves
+	 * the dashboard and proxies /api/ on the SAME origin. But a split
+	 * deployment (SPA on app.example.com, Express on api.example.com) is
+	 * equally valid and is what a Vite build with VITE_API_BASE_URL
+	 * produces, and there the one-URL assumption breaks in both directions:
+	 * the dashboard origin 404s every /api/ path, and the API origin serves
+	 * no authorize page. So the API base is configurable on its own and
+	 * falls back to the dashboard URL when the admin leaves it empty.
+	 */
+	public static function api_base_url(): string {
+		$settings = get_option( 'webyar_wc_settings', array() );
+		$configured = is_array( $settings ) ? trim( (string) ( $settings['api_url'] ?? '' ) ) : '';
+		$url = apply_filters( 'webyar_commerce_api_base_url', $configured );
+		$url = untrailingslashit( (string) $url );
+		return '' !== $url ? $url : self::app_base_url();
+	}
+
 	private static function base64url( string $raw ): string {
 		return rtrim( strtr( base64_encode( $raw ), '+/', '-_' ), '=' ); // phpcs:ignore
 	}
@@ -63,7 +84,7 @@ final class PairingService {
 		);
 
 		$register = wp_remote_post(
-			trailingslashit( self::app_base_url() ) . 'api/commerce/pairing/register',
+			trailingslashit( self::api_base_url() ) . 'api/commerce/pairing/register',
 			array(
 				'timeout' => 10,
 				'headers' => array( 'Content-Type' => 'application/json' ),
@@ -83,7 +104,7 @@ final class PairingService {
 			throw new \RuntimeException( sprintf(
 				/* translators: 1: Web Yar URL, 2: underlying network error message */
 				__( 'اتصال به %1$s برقرار نشد — %2$s', 'webyar-woocommerce' ),
-				self::app_base_url(),
+				self::api_base_url(),
 				$register->get_error_message()
 			) );
 		}
@@ -95,7 +116,7 @@ final class PairingService {
 				/* translators: 1: HTTP status code, 2: Web Yar URL */
 				__( 'وب‌یار درخواست اتصال را رد کرد (کد %1$d) در آدرس %2$s. بررسی کنید آدرس وب‌یار درست و در دسترس باشد.', 'webyar-woocommerce' ),
 				$register_status,
-				self::app_base_url()
+				self::api_base_url()
 			) );
 		}
 
@@ -124,7 +145,7 @@ final class PairingService {
 		}
 
 		$response = wp_remote_post(
-			trailingslashit( self::app_base_url() ) . 'api/commerce/pairing/exchange',
+			trailingslashit( self::api_base_url() ) . 'api/commerce/pairing/exchange',
 			array(
 				'timeout' => 15,
 				'headers' => array( 'Content-Type' => 'application/json' ),

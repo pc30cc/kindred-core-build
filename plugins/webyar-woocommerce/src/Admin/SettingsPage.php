@@ -75,6 +75,17 @@ final class SettingsPage {
 								<p class="description"><?php esc_html_e( 'آدرس داشبورد وب‌یار شما (سرور مشترک واحدی وجود ندارد — همان آدرسی را وارد کنید که با آن وارد حساب کاربری خود می‌شوید، مثلاً https://app.webyar.ai).', 'webyar-woocommerce' ); ?></p>
 							</td>
 						</tr>
+						<tr>
+							<th scope="row"><label for="webyar_wc_api_url"><?php esc_html_e( 'آدرس API (اختیاری)', 'webyar-woocommerce' ); ?></label></th>
+							<td>
+								<input
+									type="url" id="webyar_wc_api_url" name="api_url" class="regular-text" dir="ltr"
+									placeholder="https://api.webyar.ai"
+									value="<?php echo esc_attr( $settings['api_url'] ?? '' ); ?>"
+								/>
+								<p class="description"><?php esc_html_e( 'فقط اگر API وب‌یار روی دامنه‌ی جداگانه‌ای سرو می‌شود این را پر کنید (مثلاً داشبورد روی app.webyar.ai و API روی api.webyar.ai). خالی بگذارید تا همان آدرس بالا استفاده شود.', 'webyar-woocommerce' ); ?></p>
+							</td>
+						</tr>
 					</table>
 					<button type="submit" class="button button-primary button-hero"><?php esc_html_e( 'اتصال به وب‌یار', 'webyar-woocommerce' ); ?></button>
 				</form>
@@ -85,6 +96,19 @@ final class SettingsPage {
 						<tr>
 							<td><?php esc_html_e( 'فروشگاه', 'webyar-woocommerce' ); ?></td>
 							<td dir="ltr" style="text-align:left"><?php echo esc_html( wp_parse_url( home_url(), PHP_URL_HOST ) ); ?></td>
+						</tr>
+						<tr>
+							<td><?php esc_html_e( 'داشبورد وب‌یار', 'webyar-woocommerce' ); ?></td>
+							<td dir="ltr" style="text-align:left"><code><?php echo esc_html( \WebYar\WooCommerce\Auth\PairingService::app_base_url() ); ?></code></td>
+						</tr>
+						<tr>
+							<td><?php esc_html_e( 'آدرس API', 'webyar-woocommerce' ); ?></td>
+							<td dir="ltr" style="text-align:left">
+								<code><?php echo esc_html( \WebYar\WooCommerce\Auth\PairingService::api_base_url() ); ?></code>
+								<?php if ( empty( $settings['api_url'] ) ) : ?>
+									<em style="font-style:normal;color:#646970">&nbsp;(<?php esc_html_e( 'همان داشبورد', 'webyar-woocommerce' ); ?>)</em>
+								<?php endif; ?>
+							</td>
 						</tr>
 						<tr>
 							<td><?php esc_html_e( 'وضعیت', 'webyar-woocommerce' ); ?></td>

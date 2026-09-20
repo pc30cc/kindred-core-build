@@ -47,11 +47,20 @@ final class ConnectionController {
 			$this->redirect_with_notice( 'error', __( 'پیش از اتصال، یک آدرس معتبر وب‌یار وارد کنید (مثلاً https://app.webyar.ai).', 'webyar-woocommerce' ) );
 			return;
 		}
+		// Optional: a separate origin for the machine API. Empty means "same
+		// as the dashboard URL", which is the documented same-origin layout.
+		$raw_api_url = isset( $_POST['api_url'] ) ? trim( (string) esc_url_raw( wp_unslash( $_POST['api_url'] ) ) ) : ''; // phpcs:ignore
+		if ( '' !== $raw_api_url && false === filter_var( $raw_api_url, FILTER_VALIDATE_URL ) ) {
+			$this->redirect_with_notice( 'error', __( 'آدرس API معتبر نیست. یا یک آدرس درست وارد کنید یا خالی بگذارید.', 'webyar-woocommerce' ) );
+			return;
+		}
+
 		$settings = get_option( 'webyar_wc_settings', array() );
 		if ( ! is_array( $settings ) ) {
 			$settings = array();
 		}
 		$settings['app_url'] = untrailingslashit( $raw_app_url );
+		$settings['api_url'] = '' === $raw_api_url ? '' : untrailingslashit( $raw_api_url );
 		update_option( 'webyar_wc_settings', $settings, false );
 
 		try {
@@ -124,7 +133,7 @@ final class ConnectionController {
 		// Best-effort — local secret deletion proceeds unconditionally right
 		// after this call regardless of the outcome.
 		wp_remote_post(
-			trailingslashit( PairingService::app_base_url() ) . ltrim( $path, '/' ),
+			trailingslashit( PairingService::api_base_url() ) . ltrim( $path, '/' ),
 			array( 'timeout' => 5, 'blocking' => false )
 		);
 	}
@@ -162,7 +171,7 @@ final class ConnectionController {
 		}
 
 		$response = wp_remote_post(
-			trailingslashit( PairingService::app_base_url() ) . 'api/workspaces/' . rawurlencode( $credential['workspace_id'] ) . '/commerce/connections/' . rawurlencode( $credential['installation_id'] ) . '/' . $action,
+			trailingslashit( PairingService::api_base_url() ) . 'api/workspaces/' . rawurlencode( $credential['workspace_id'] ) . '/commerce/connections/' . rawurlencode( $credential['installation_id'] ) . '/' . $action,
 			array( 'timeout' => 10 )
 		);
 

@@ -43,7 +43,7 @@ final class EventDelivery {
 		$headers = RequestSigner::build_headers( $credential['installation_secret'], $credential['installation_id'], 'POST', $path, $body );
 
 		$response = wp_remote_post(
-			trailingslashit( PairingService::app_base_url() ) . 'api/commerce/events',
+			trailingslashit( PairingService::api_base_url() ) . 'api/commerce/events',
 			array(
 				'timeout' => 8,
 				'headers' => $headers,

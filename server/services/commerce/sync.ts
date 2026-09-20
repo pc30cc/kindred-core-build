@@ -13,8 +13,8 @@ import { WooCommerceConnector, normalizeWooCommerceProduct } from './connectors/
 import { upsertProductInIndex } from './productIndex.js';
 import { commerceHttpRequest } from './httpClient.js';
 import { buildSignedHeaders } from './signing.js';
+import { catalogExportPaths } from './catalogPaths.js';
 
-const PAGE_SIZE = 50;
 const MAX_PAGES_PER_RUN = 20; // bounds one worker tick to <= 1000 products
 const MAX_ATTEMPTS = 5;
 
@@ -53,28 +53,6 @@ export async function claimNextSyncJob(config: ServerConfig, workerId: string): 
   if (error) throw new Error(`sync job claim failed: ${error.message}`);
   const row = Array.isArray(data) ? data[0] : data;
   return (row as SyncJobRow | null) ?? null;
-}
-
-/**
- * Catalog-export URLs, split into the path that gets SIGNED and the path
- * that gets REQUESTED.
- *
- * These differ on purpose. The plugin's canonical path is
- * `'/wp-json' . WP_REST_Request::get_route()` (Auth/ReplayGuard.php), which
- * never carries the query string, and every call in
- * connectors/woocommerce.ts already signs a query-less path. Signing the
- * full URL here instead made catalog export the one caller that disagreed,
- * so every sync page came back 401 bad_signature. Keeping the two apart in
- * one place — and asserting it in signing.test.ts — stops that returning.
- */
-export function catalogExportPaths(
-  page: number,
-  modifiedAfter: string | null,
-): { signedPath: string; requestPath: string } {
-  const signedPath = '/wp-json/webyar/v1/catalog/export';
-  const query = new URLSearchParams({ page: String(page), per_page: String(PAGE_SIZE) });
-  if (modifiedAfter) query.set('modified_after', modifiedAfter);
-  return { signedPath, requestPath: `${signedPath}?${query.toString()}` };
 }
 
 async function fetchProductPage(

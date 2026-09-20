@@ -15,7 +15,7 @@ import {
   CLOCK_SKEW_SECONDS,
 } from '../../../server/services/commerce/signing.js';
 import { COMMERCE_PROTOCOL_VERSION } from '../../../shared/commerce/types.js';
-import { catalogExportPaths } from '../../../server/services/commerce/sync.js';
+import { catalogExportPaths } from '../../../server/services/commerce/catalogPaths.js';
 
 describe('commerce request signing', () => {
   it('produces headers that verify against a hand-computed signature', () => {

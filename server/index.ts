@@ -482,6 +482,14 @@ app.use('/api/email-inbox', emailInboxRouter);
 // to browsers or included in the public CORS surface.
 app.use('/internal/channels', internalChannelsRouter);
 
+// Workspace telephony configuration (browser surface, JWT + workspace role).
+app.use('/api/telephony', telephonyRouter);
+
+// Core ⇄ WEBYAR Telephony Control Service. Server-to-server only, gated by
+// TELEPHONY_INTERNAL_SECRET — a dedicated credential, never the channels or
+// AI secret. Deliberately outside /api so no browser CORS surface reaches it.
+app.use('/internal/telephony', createInternalTelephonyRouter(config));
+
 // Gmail Pub/Sub push. NOT under /api (no CORS/browser auth applies — Google
 // Pub/Sub authenticates with its own OIDC bearer token, verified inside the
 // router) and NOT under /internal/channels (that boundary is

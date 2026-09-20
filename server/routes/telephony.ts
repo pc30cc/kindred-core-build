@@ -70,7 +70,6 @@ async function buildStatus(config: any, workspaceId: string) {
   }
 
   const parsed = parseTelephonySettings(installation.settings ?? {});
-  const settings = parsed.ok ? parsed.settings : parseTelephonySettings({}).ok ? parseTelephonySettings({}) : null;
   const effective = parsed.ok ? parsed.settings : null;
   const registration = await getRegistration(config, installation.id);
   const passwordSaved = await hasSipPassword(config, installation.id);
@@ -110,8 +109,7 @@ async function buildStatus(config: any, workspaceId: string) {
           extension: registration.sip_extension,
         }
       : null,
-    // Never present: the SIP password, in any form.
-    settingsUnused: settings ? undefined : undefined,
+    // Never present in this payload, in any form: the SIP password.
   };
 }
 

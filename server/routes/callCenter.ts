@@ -89,6 +89,8 @@ interface CallRatingRow {
 }
 interface CallSessionRow {
   id?: string;
+  /** 'call_widget' (website widget) or 'telephony' (PSTN via the gateway). */
+  entry_source?: string | null;
   state?: string | null;
   assigned_agent_id?: string | null;
   provider?: string | null;

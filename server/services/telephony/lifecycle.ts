@@ -23,8 +23,8 @@ export type ClaimFailureReason =
   | 'gateway_unavailable';
 
 export type ClaimResult =
-  | { ok: true; callSessionId: string; roomName: string }
-  | { ok: false; reason: ClaimFailureReason };
+  | { ok: true; callSessionId: string; roomName: string; reason?: undefined }
+  | { ok: false; callSessionId?: undefined; roomName?: undefined; reason: ClaimFailureReason };
 
 export async function getTelephonyCallBySession(
   config: ServerConfig,

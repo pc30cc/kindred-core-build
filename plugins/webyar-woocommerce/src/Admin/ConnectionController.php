@@ -135,27 +135,72 @@ final class ConnectionController {
 		// The actual health probe runs server-side on Web Yar (it calls
 		// THIS plugin's /health route) — this button just asks Web Yar to
 		// run it now.
-		$credential = CredentialStore::get();
-		if ( $credential ) {
-			wp_remote_post(
-				trailingslashit( PairingService::app_base_url() ) . 'api/workspaces/' . rawurlencode( $credential['workspace_id'] ) . '/commerce/connections/' . rawurlencode( $credential['installation_id'] ) . '/test',
-				array( 'timeout' => 10 )
-			);
-		}
-		$this->redirect_with_notice( 'success', __( 'درخواست تست اتصال ارسال شد.', 'webyar-woocommerce' ) );
+		$this->relay_connection_action( 'test', __( 'درخواست تست اتصال ارسال شد.', 'webyar-woocommerce' ) );
 	}
 
 	public function sync_now(): void {
 		$this->require_manage_capability();
 		check_admin_referer( 'webyar_wc_sync_now' );
+		$this->relay_connection_action( 'sync', __( 'درخواست همگام‌سازی ارسال شد.', 'webyar-woocommerce' ) );
+	}
+
+	/**
+	 * Asks Web Yar to run a connection-management action, and reports what
+	 * ACTUALLY happened.
+	 *
+	 * These endpoints are guarded by a logged-in workspace member's session,
+	 * while this call is server-to-server from WordPress with no session to
+	 * offer — so it currently comes back 401. Announcing "sent" regardless,
+	 * as this used to, left the admin believing a sync had started when
+	 * nothing had; a button that cannot work must at least say so.
+	 */
+	private function relay_connection_action( string $action, string $success_message ): void {
 		$credential = CredentialStore::get();
-		if ( $credential ) {
-			wp_remote_post(
-				trailingslashit( PairingService::app_base_url() ) . 'api/workspaces/' . rawurlencode( $credential['workspace_id'] ) . '/commerce/connections/' . rawurlencode( $credential['installation_id'] ) . '/sync',
-				array( 'timeout' => 10 )
-			);
+		if ( null === $credential ) {
+			$this->redirect_with_notice( 'error', __( 'فروشگاه به وب‌یار متصل نیست.', 'webyar-woocommerce' ) );
+			return;
 		}
-		$this->redirect_with_notice( 'success', __( 'درخواست همگام‌سازی ارسال شد.', 'webyar-woocommerce' ) );
+
+		$response = wp_remote_post(
+			trailingslashit( PairingService::app_base_url() ) . 'api/workspaces/' . rawurlencode( $credential['workspace_id'] ) . '/commerce/connections/' . rawurlencode( $credential['installation_id'] ) . '/' . $action,
+			array( 'timeout' => 10 )
+		);
+
+		if ( is_wp_error( $response ) ) {
+			Logger::error( 'connection action failed', array( 'action' => $action, 'error' => $response->get_error_message() ) );
+			$this->redirect_with_notice(
+				'error',
+				sprintf(
+					/* translators: %s: underlying network error message */
+					__( 'ارتباط با وب‌یار برقرار نشد — %s', 'webyar-woocommerce' ),
+					$response->get_error_message()
+				)
+			);
+			return;
+		}
+
+		$status = wp_remote_retrieve_response_code( $response );
+		if ( $status >= 200 && $status < 300 ) {
+			$this->redirect_with_notice( 'success', $success_message );
+			return;
+		}
+
+		Logger::error( 'connection action rejected', array( 'action' => $action, 'status' => $status ) );
+		if ( 401 === $status || 403 === $status ) {
+			$this->redirect_with_notice(
+				'error',
+				__( 'وب‌یار این درخواست را نپذیرفت (نیازمند ورود کاربر است). این کار را از داشبورد وب‌یار، بخش یکپارچه‌سازی‌ها ← فروشگاه انجام دهید.', 'webyar-woocommerce' )
+			);
+			return;
+		}
+		$this->redirect_with_notice(
+			'error',
+			sprintf(
+				/* translators: %d: HTTP status code Web Yar replied with */
+				__( 'وب‌یار این درخواست را رد کرد (کد %d).', 'webyar-woocommerce' ),
+				$status
+			)
+		);
 	}
 
 	public function save_settings(): void {

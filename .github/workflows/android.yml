@@ -86,8 +86,26 @@ jobs:
             sed -n 's/.*<testsuite name="\([^"]*\)" tests="\([0-9]*\)" skipped="\([0-9]*\)" failures="\([0-9]*\)" errors="\([0-9]*\)".*/\1: \2 tests, \4 failures, \5 errors/p' "$f"
           done
 
+      - name: Lint
+        working-directory: android
+        run: ./gradlew lintDebug --stacktrace
+
       - name: APK
         working-directory: android
         run: |
           set -eu
           find app/build/outputs/apk -name '*.apk' -exec ls -lh {} \;
+
+# NO EMULATOR JOB YET, and that is a measurement rather than an omission.
+#
+# ADR-003 §6 reserves instrumented tests for what Robolectric genuinely cannot
+# answer — real IME behaviour, which is the hardest part of the iOS suite. The
+# host cannot host one today: the JVM build alone peaks at 1537MB of ci.slice's
+# 2048MB ceiling, with ~18k reclaim events and 2.3GB of swap in use, and an
+# emulator wants ~4GB more on top of that while Supabase is the other thing in
+# the room.
+#
+# It is not a missing feature of the runner: /dev/kvm is present and works.
+# It is RAM. When this host has more, the job is a separate `runs-on` entry
+# with `reactivecircus/android-emulator-runner`, on a schedule and never on a
+# push.

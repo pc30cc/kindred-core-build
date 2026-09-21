@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Deliberately empty.
+
+  The whole composition — mark and field — is the BACKGROUND layer, because
+  the mark cannot be separated from the field it is drawn on; see the note in
+  scripts/android/icon-from-ios.py. An adaptive icon still wants both layers
+  declared, so this is the transparent one.
+
+  When someone supplies the W as a vector, it belongs here and the background
+  becomes a plain gradient.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@android:color/transparent" />
+</shape>

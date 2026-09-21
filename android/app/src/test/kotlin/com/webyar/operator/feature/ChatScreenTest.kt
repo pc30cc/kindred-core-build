@@ -26,13 +26,32 @@ class ChatScreenTest {
 
     @get:Rule val compose = createComposeRule()
 
+    /**
+     * A transcript opens on its NEWEST message, not its oldest.
+     *
+     * This test asserted `m-1` first and failed, which was the test being
+     * wrong rather than the screen: `m-1` is the oldest of thirteen, a
+     * LazyColumn never composes what is scrolled away, and an inbox that
+     * opened two weeks up the thread would be useless. So the assertion is
+     * the behaviour that is actually wanted.
+     */
     @Test
-    fun `the transcript shows both sides of the conversation`() = runTest {
+    fun `the transcript opens on the newest message`() = runTest {
         val messages = SampleApi().messages("c-1")
         assertTrue(messages.size > 5)
         compose.setContent { ChatScreen(ChatState.Loaded(messages), Language.FA, {}) }
         compose.onNodeWithTag(A11y.CHAT_TRANSCRIPT).assertIsDisplayed()
-        compose.onNodeWithTag(A11y.messageRow("m-1")).assertIsDisplayed()
+        compose.onNodeWithTag(A11y.messageRow(messages.last().id)).assertIsDisplayed()
+    }
+
+    /** A thread short enough to fit shows its first message too. */
+    @Test
+    fun `a short transcript shows all of itself`() = runTest {
+        val messages = SampleApi().messages("c-4")
+        assertTrue(messages.size in 1..4)
+        compose.setContent { ChatScreen(ChatState.Loaded(messages), Language.TR, {}) }
+        compose.onNodeWithTag(A11y.messageRow(messages.first().id)).assertIsDisplayed()
+        compose.onNodeWithTag(A11y.messageRow(messages.last().id)).assertIsDisplayed()
     }
 
     /** An empty draft must not be sendable — that is a message of "" to a visitor. */

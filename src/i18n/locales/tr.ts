@@ -7982,6 +7982,9 @@ const tr: TranslationKeys = {
         disabled: 'Devre dışı',
       },
       error: {
+        not_installed: 'Önce eklentiyi bu çalışma alanına kurun.',
+        save_failed: 'Ayarlar kaydedilemedi. Lütfen tekrar deneyin.',
+        registration_sync_unavailable: 'Ayarlar kaydedildi, ancak telefon servisi henüz güncellenemedi.',
         not_configured: 'Önce SIP bilgilerini girin.',
         gateway_not_configured: 'Telefon servisi henüz kurulmadı.',
         gateway_unavailable: 'Telefon servisi erişilemiyor.',

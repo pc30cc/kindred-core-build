@@ -7979,6 +7979,9 @@ const fa: TranslationKeys = {
         disabled: 'غیرفعال',
       },
       error: {
+        not_installed: 'ابتدا افزونه را برای این فضای کاری نصب کنید.',
+        save_failed: 'تنظیمات ذخیره نشد. دوباره تلاش کنید.',
+        registration_sync_unavailable: 'تنظیمات ذخیره شد، اما هنوز سرویس تلفن به‌روزرسانی نشد.',
         not_configured: 'ابتدا اطلاعات SIP را وارد کنید.',
         gateway_not_configured: 'سرویس تلفنی هنوز راه‌اندازی نشده است.',
         gateway_unavailable: 'سرویس تلفنی در دسترس نیست.',

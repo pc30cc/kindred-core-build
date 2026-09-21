@@ -7997,6 +7997,9 @@ const en = {
         disabled: 'Disabled',
       },
       error: {
+        not_installed: 'Install the plugin for this workspace first.',
+        save_failed: 'The settings could not be saved. Please try again.',
+        registration_sync_unavailable: 'Settings saved, but the telephony service could not be updated yet.',
         not_configured: 'Enter the SIP credentials first.',
         gateway_not_configured: 'The telephony gateway is not deployed yet.',
         gateway_unavailable: 'The telephony gateway is unavailable.',

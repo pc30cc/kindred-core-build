@@ -1301,11 +1301,37 @@ export async function adminGetUserPhoneVerification(userId: string) {
   });
 }
 
+/**
+ * Super-admin-only diagnostic carried alongside the error code. The backend
+ * sends it on THIS route only (server/routes/adminPhoneVerification.ts); the
+ * public phone-verification routes never do.
+ */
+export interface PhoneVerificationFailure extends Error {
+  detail?: string;
+  providerErrorCode?: string;
+}
+
 export async function adminResendUserPhoneVerification(userId: string) {
-  return request<{ success: true; phoneMasked: string; expiresInSeconds: number; resendAfterSeconds: number }>(
-    `/api/admin/users/${userId}/phone-verification/resend`,
-    { method: 'POST' },
-  );
+  // Not `request()`: that helper collapses the body to `body.error`, and for
+  // this action the whole point is that `phone_verification_unavailable` on
+  // its own cannot tell an operator whether the server is missing a pepper or
+  // the SMS provider refused the template.
+  const res = await authFetch(`${API_BASE}/api/admin/users/${userId}/phone-verification/resend`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({ error: res.statusText }))) as {
+      error?: string; detail?: string; providerErrorCode?: string;
+    };
+    const err = new Error(body.error || `API error: ${res.status}`) as PhoneVerificationFailure;
+    if (body.detail) err.detail = body.detail;
+    if (body.providerErrorCode) err.providerErrorCode = body.providerErrorCode;
+    throw err;
+  }
+  return res.json() as Promise<{
+    success: true; phoneMasked: string; expiresInSeconds: number; resendAfterSeconds: number;
+  }>;
 }
 
 export async function adminManualVerifyUserPhone(userId: string, reason: string) {

@@ -110,3 +110,68 @@ describe('admin resend fail-closed ordering', () => {
     expect(result.phoneMasked).not.toContain('9121234567');
   });
 });
+
+/**
+ * `phone_verification_unavailable` covers a missing server pepper, a database
+ * fault and a provider refusal — causes with entirely different fixes. The
+ * super-admin route returns `detail` so an operator is not left guessing.
+ */
+describe('super-admin diagnostic detail', () => {
+  it('reports a missing pepper without ever contacting the provider', async () => {
+    const saved = process.env.PHONE_VERIFICATION_PEPPER;
+    delete process.env.PHONE_VERIFICATION_PEPPER;
+    try {
+      await expect(runResend()).rejects.toMatchObject({
+        code: 'phone_verification_unavailable',
+        status: 503,
+        detail: 'pepper_missing',
+      });
+      // The whole point: this failure looks like a broken SMS provider but
+      // never reaches one.
+      expect(smsSend).not.toHaveBeenCalled();
+      expect(calls).not.toContain('sms:send');
+    } finally {
+      process.env.PHONE_VERIFICATION_PEPPER = saved;
+    }
+  });
+
+  it('reports a rejected send with the provider error code', async () => {
+    smsSend.mockImplementationOnce(async () => {
+      calls.push('sms:send');
+      return { success: false, provider: 'smsir', errorCode: 'sms_template_not_found' } as never;
+    });
+    await expect(runResend()).rejects.toMatchObject({
+      code: 'phone_verification_unavailable',
+      status: 502,
+      detail: 'provider_rejected',
+      providerErrorCode: 'sms_template_not_found',
+    });
+  });
+
+  it('reports a failed pre-send audit as an audit fault, not a provider fault', async () => {
+    rpcHandlers.phone_verification_admin_resend_requested = () => ({
+      data: { error: 'phone_challenge_not_found' },
+      error: null,
+    });
+    await expect(runResend()).rejects.toMatchObject({ detail: 'audit_write_failed' });
+    expect(smsSend).not.toHaveBeenCalled();
+  });
+
+  it('reports a database fault when the start RPC errors', async () => {
+    rpcHandlers.phone_verification_start = () => ({ data: null, error: { message: 'boom' } });
+    await expect(runResend()).rejects.toMatchObject({ status: 500, detail: 'database_error' });
+    expect(smsSend).not.toHaveBeenCalled();
+  });
+
+  it('carries no provider name, raw error or OTP on the diagnostic itself', async () => {
+    smsSend.mockImplementationOnce(async () => {
+      calls.push('sms:send');
+      return { success: false, provider: 'smsir', errorCode: 'sms_auth_failed' } as never;
+    });
+    const err = await runResend().catch((e: unknown) => e) as Error & Record<string, unknown>;
+    // `providerErrorCode` is the closed SmsErrorCode union — a vendor-free
+    // string — and nothing else rides along.
+    expect(err.providerErrorCode).toBe('sms_auth_failed');
+    expect(JSON.stringify({ ...err, message: err.message })).not.toMatch(/smsir|mid-1/i);
+  });
+});

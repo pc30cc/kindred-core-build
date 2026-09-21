@@ -1919,6 +1919,14 @@ const tr: TranslationKeys = {
     resendIn: '{{seconds}} sn sonra yeniden gönder',
     changeNumber: 'Numarayı değiştir',
     codeSent: 'Doğrulama kodu gönderildi',
+    // Super-admin only: why an "unavailable" actually happened.
+    adminFailure: {
+      pepper_missing: 'Sunucuda PHONE_VERIFICATION_PEPPER tanımlı değil (en az 16 karakter). Tanımlanana kadar hiç SMS denenmez.',
+      database_error: 'Doğrulama kaydı oluşturulurken veritabanı hatası. Migration\'ların uygulandığını kontrol edin.',
+      provider_rejected: 'SMS sağlayıcısı gönderimi reddetti. Sağlayıcı ayarlarını ve şablonu kontrol edin.',
+      delivery_bookkeeping_failed: 'Kod gönderildi ancak teslim kaydı yazılamadı, bu yüzden iptal edildi. Tekrar deneyin.',
+      audit_write_failed: 'Gönderim öncesi denetim kaydı yazılamadı, bu yüzden SMS gönderilmedi.',
+    },
     verifiedTitle: 'Telefon numarası doğrulandı',
     statusVerified: 'Doğrulandı',
     statusUnverified: 'Doğrulanmadı',

@@ -1915,6 +1915,14 @@ const fa: TranslationKeys = {
     resendIn: 'ارسال دوباره تا {{seconds}} ثانیه',
     changeNumber: 'تغییر شماره',
     codeSent: 'کد تأیید ارسال شد',
+    // Super-admin only: why an "unavailable" actually happened.
+    adminFailure: {
+      pepper_missing: 'متغیر PHONE_VERIFICATION_PEPPER روی سرور تنظیم نشده (حداقل ۱۶ کاراکتر). تا تنظیم نشود هیچ پیامکی ارسال نمی‌شود.',
+      database_error: 'خطای پایگاه داده هنگام ساخت چالش. مهاجرت‌های دیتابیس را بررسی کنید.',
+      provider_rejected: 'سرویس‌دهنده پیامک درخواست را رد کرد. تنظیمات پروایدر و قالب را بررسی کنید.',
+      delivery_bookkeeping_failed: 'کد ارسال شد ولی ثبت وضعیت تحویل ناموفق بود؛ کد باطل شد. دوباره تلاش کنید.',
+      audit_write_failed: 'ثبت ردّ ممیزی پیش از ارسال ناموفق بود، بنابراین هیچ پیامکی ارسال نشد.',
+    },
     verifiedTitle: 'شماره موبایل تأیید شد',
     statusVerified: 'تأییدشده',
     statusUnverified: 'تأییدنشده',

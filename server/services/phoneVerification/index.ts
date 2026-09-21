@@ -245,7 +245,11 @@ export async function issueChallenge(
   config: ServerConfig,
   input: IssueChallengeInput,
 ): Promise<PhoneChallengeResponse> {
-  if (!hasPepper()) throw new PhoneVerificationError('phone_verification_unavailable', 503);
+  if (!hasPepper()) {
+    throw new PhoneVerificationError('phone_verification_unavailable', 503, undefined, {
+      detail: 'pepper_missing',
+    });
+  }
 
   const client = sb(config);
   let ipHash: string | null = null;
@@ -253,7 +257,9 @@ export async function issueChallenge(
     ipHash = hashIpForRateLimit(input.clientIp ?? null);
   } catch (err) {
     if (err instanceof PhoneVerificationPepperMissing) {
-      throw new PhoneVerificationError('phone_verification_unavailable', 503);
+      throw new PhoneVerificationError('phone_verification_unavailable', 503, undefined, {
+        detail: 'pepper_missing',
+      });
     }
     throw err;
   }
@@ -281,7 +287,11 @@ export async function issueChallenge(
     _created_ip_hash: ipHash,
     _max_attempts: MAX_ATTEMPTS,
   });
-  if (error) throw new PhoneVerificationError('phone_verification_unavailable', 500);
+  if (error) {
+    throw new PhoneVerificationError('phone_verification_unavailable', 500, undefined, {
+      detail: 'database_error',
+    });
+  }
 
   const result = asRecord(data);
   const errCode = str(result.error);
@@ -295,7 +305,9 @@ export async function issueChallenge(
     throw new PhoneVerificationError(code2, status, retry);
   }
   if (str(result.challengeId) !== challengeId) {
-    throw new PhoneVerificationError('phone_verification_unavailable', 500);
+    throw new PhoneVerificationError('phone_verification_unavailable', 500, undefined, {
+      detail: 'database_error',
+    });
   }
 
   const isAdminResend = input.createdBy === 'admin';
@@ -324,7 +336,9 @@ export async function issueChallenge(
           { challengeId, targetUserId: input.subjectUserId },
         );
       }
-      throw new PhoneVerificationError('phone_verification_unavailable', 500);
+      throw new PhoneVerificationError('phone_verification_unavailable', 500, undefined, {
+        detail: 'audit_write_failed',
+      });
     }
   } else {
     await audit(config, {
@@ -377,9 +391,19 @@ export async function issueChallenge(
           targetUserId: input.subjectUserId,
         });
       }
-      throw new PhoneVerificationError('phone_verification_unavailable', 500);
+      throw new PhoneVerificationError('phone_verification_unavailable', 500, undefined, {
+        detail: 'delivery_bookkeeping_failed',
+      });
     }
-    if (!sent.success) throw new PhoneVerificationError('phone_verification_unavailable', 502);
+    if (!sent.success) {
+      // The provider was reached and refused. `sent.errorCode` is the closed
+      // SmsErrorCode union (sms_template_not_found, sms_auth_failed, ...) —
+      // the one thing that actually tells an operator what to fix.
+      throw new PhoneVerificationError('phone_verification_unavailable', 502, undefined, {
+        detail: 'provider_rejected',
+        ...(sent.errorCode ? { providerErrorCode: sent.errorCode } : {}),
+      });
+    }
     return {
       success: true,
       challengeId,
@@ -412,7 +436,12 @@ export async function issueChallenge(
     },
   });
 
-  if (!sent.success) throw new PhoneVerificationError('phone_verification_unavailable', 502);
+  if (!sent.success) {
+    throw new PhoneVerificationError('phone_verification_unavailable', 502, undefined, {
+      detail: 'provider_rejected',
+      ...(sent.errorCode ? { providerErrorCode: sent.errorCode } : {}),
+    });
+  }
 
   // Provider accepted the message but we could not record it: the OTP must not
   // stay usable, and the caller must not be told the send succeeded.
@@ -428,7 +457,9 @@ export async function issueChallenge(
       workspaceId: input.workspaceId,
       details: { purpose: input.purpose, phone_masked: maskE164(input.phoneE164) },
     });
-    throw new PhoneVerificationError('phone_verification_unavailable', 500);
+    throw new PhoneVerificationError('phone_verification_unavailable', 500, undefined, {
+      detail: 'delivery_bookkeeping_failed',
+    });
   }
 
   return {
@@ -531,7 +562,11 @@ export async function checkVerification(
     code: string;
   },
 ): Promise<CheckResult> {
-  if (!hasPepper()) throw new PhoneVerificationError('phone_verification_unavailable', 503);
+  if (!hasPepper()) {
+    throw new PhoneVerificationError('phone_verification_unavailable', 503, undefined, {
+      detail: 'pepper_missing',
+    });
+  }
   const ctx = await resolvePurposeContext(config, input);
   if (!ctx.actorIsSubject) throw new PhoneVerificationError('phone_verification_not_allowed', 403);
 

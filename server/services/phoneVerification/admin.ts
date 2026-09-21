@@ -108,7 +108,11 @@ export async function adminManualVerify(
     _admin_id: input.adminUserId,
     _reason: reason,
   });
-  if (error) throw new PhoneVerificationError('phone_verification_unavailable', 500);
+  if (error) {
+    throw new PhoneVerificationError('phone_verification_unavailable', 500, undefined, {
+      detail: 'database_error',
+    });
+  }
   const row = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
   if (typeof row.error === 'string') {
     throw new PhoneVerificationError(

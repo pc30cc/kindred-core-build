@@ -1927,6 +1927,14 @@ const en = {
     resendIn: 'Resend in {{seconds}}s',
     changeNumber: 'Change number',
     codeSent: 'Verification code sent',
+    // Super-admin only: why an "unavailable" actually happened.
+    adminFailure: {
+      pepper_missing: 'PHONE_VERIFICATION_PEPPER is not set on the server (minimum 16 characters). No SMS is attempted until it is.',
+      database_error: 'The database failed while creating the challenge. Check that migrations are applied.',
+      provider_rejected: 'The SMS provider refused the send. Check the provider settings and template.',
+      delivery_bookkeeping_failed: 'The code went out but the delivery record failed, so it was invalidated. Try again.',
+      audit_write_failed: 'The pre-send audit row could not be committed, so no SMS was sent.',
+    },
     verifiedTitle: 'Mobile number verified',
     statusVerified: 'Verified',
     statusUnverified: 'Not verified',

@@ -23,17 +23,62 @@ export const PHONE_VERIFICATION_ERRORS = [
 
 export type PhoneVerificationErrorCode = (typeof PHONE_VERIFICATION_ERRORS)[number];
 
+/**
+ * Why a `phone_verification_unavailable` happened. That one code covers
+ * causes with completely different fixes — a missing server pepper, a
+ * database fault, and a provider that rejected the send are all "unavailable"
+ * to the end user — which leaves an operator with nothing to act on.
+ *
+ * SUPER-ADMIN ONLY. `server/routes/adminPhoneVerification.ts` returns it;
+ * the public `server/routes/phoneVerification.ts` never does, because an
+ * unauthenticated caller must not learn whether this deployment is
+ * misconfigured, out of SMS credit, or merely unlucky.
+ *
+ * Every value is drawn from this closed set or from `SmsErrorCode` (itself a
+ * closed union of vendor-free strings — see server/services/sms/types.ts), so
+ * no credential, provider payload or OTP can ride out on it.
+ */
+export const PHONE_VERIFICATION_DETAILS = [
+  /** PHONE_VERIFICATION_PEPPER is unset or shorter than 16 chars. */
+  'pepper_missing',
+  /** A `phone_verification_*` RPC failed or answered in an unexpected shape. */
+  'database_error',
+  /** The SMS provider was reached and refused; see `providerErrorCode`. */
+  'provider_rejected',
+  /** The code went out but the delivery record could not be written. */
+  'delivery_bookkeeping_failed',
+  /** The pre-send audit row could not be committed, so nothing was sent. */
+  'audit_write_failed',
+] as const;
+
+export type PhoneVerificationDetail = (typeof PHONE_VERIFICATION_DETAILS)[number];
+
 export class PhoneVerificationError extends Error {
   readonly code: PhoneVerificationErrorCode;
   readonly status: number;
   readonly retryAfterSeconds?: number;
+  /** Super-admin-only diagnostic. Never returned by the public routes. */
+  readonly detail?: PhoneVerificationDetail;
+  /** Set only with `detail: 'provider_rejected'`. A closed-union SMS code. */
+  readonly providerErrorCode?: string;
 
-  constructor(code: PhoneVerificationErrorCode, status = 400, retryAfterSeconds?: number) {
+  constructor(
+    code: PhoneVerificationErrorCode,
+    status = 400,
+    retryAfterSeconds?: number,
+    diagnostic?: { detail: PhoneVerificationDetail; providerErrorCode?: string },
+  ) {
     super(code);
     this.name = 'PhoneVerificationError';
     this.code = code;
     this.status = status;
     if (retryAfterSeconds !== undefined) this.retryAfterSeconds = retryAfterSeconds;
+    if (diagnostic) {
+      this.detail = diagnostic.detail;
+      if (diagnostic.providerErrorCode !== undefined) {
+        this.providerErrorCode = diagnostic.providerErrorCode;
+      }
+    }
   }
 }
 

@@ -23,6 +23,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { toast } from '@/hooks/use-toast';
+import type { PhoneVerificationFailure } from '@/lib/api';
 import { ExternalLink, Loader2, Pencil, Send, ShieldCheck, Smartphone, Trash2 } from 'lucide-react';
 import {
   adminGetUserPhoneVerification,
@@ -94,7 +95,25 @@ export function AdminPhoneVerificationCard({
   const resend = useMutation({
     mutationFn: () => adminResendUserPhoneVerification(userId),
     onSuccess: () => { toast({ title: t('phoneVerification.codeSent') }); invalidate(); },
-    onError: (e: Error) => toast({ title: e.message, variant: 'destructive' }),
+    // `phone_verification_unavailable` alone sends an operator hunting through
+    // server logs, so show the super-admin-only `detail` the backend sends:
+    // a missing pepper and a rejected SMS template are the same code but
+    // completely different fixes.
+    onError: (e: PhoneVerificationFailure) => {
+      const key = e.detail ? `phoneVerification.adminFailure.${e.detail}` : '';
+      const description = key ? t(key as any) : '';
+      toast({
+        title: e.message,
+        ...(description && description !== key
+          ? {
+              description: e.providerErrorCode
+                ? `${description} (${e.providerErrorCode})`
+                : description,
+            }
+          : {}),
+        variant: 'destructive',
+      });
+    },
   });
 
   const manual = useMutation({

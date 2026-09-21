@@ -242,8 +242,7 @@ export async function searchIndexedProducts(
       'id, external_id, product_type, sku, title, short_description, canonical_url, image_url, currency, regular_price_minor, sale_price_minor, effective_price_minor, stock_state, stock_quantity, categories, tags, attributes, is_virtual, is_downloadable, updated_at',
       { count: 'exact' },
     )
-    .eq('connection_id', connectionId)
-    .is('deleted_at', null);
+    .eq('connection_id', connectionId);
 
   const terms = buildSearchTerms(filters.text);
   if (terms.length) {
@@ -309,7 +308,6 @@ export async function listIndexedCategories(
     .from('commerce_products')
     .select('categories')
     .eq('connection_id', connectionId)
-    .is('deleted_at', null)
     .limit(CATEGORY_SCAN_ROWS);
   if (error) throw new Error(`category read failed: ${error.message}`);
 
@@ -343,8 +341,7 @@ export async function getIndexedProductsByIds(
       'id, external_id, product_type, sku, title, short_description, canonical_url, image_url, currency, regular_price_minor, sale_price_minor, effective_price_minor, stock_state, stock_quantity, categories, tags, attributes, is_virtual, is_downloadable, updated_at',
     )
     .eq('connection_id', connectionId)
-    .in('external_id', externalIds.slice(0, 20))
-    .is('deleted_at', null);
+    .in('external_id', externalIds.slice(0, 20));
   if (error) throw new Error(`product lookup failed: ${error.message}`);
   return (data ?? []) as IndexedProductRow[];
 }

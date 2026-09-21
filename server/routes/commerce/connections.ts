@@ -62,7 +62,7 @@ commerceConnectionsRouter.get('/:workspaceId/commerce/connections/:connectionId'
   if (!data) return res.status(404).json({ error: 'not_found' });
 
   const [{ count: productCount }, { data: syncJobs }] = await Promise.all([
-    sb.from('commerce_products').select('id', { count: 'exact', head: true }).eq('connection_id', data.id).is('deleted_at', null),
+    sb.from('commerce_products').select('id', { count: 'exact', head: true }).eq('connection_id', data.id),
     sb.from('commerce_sync_jobs').select('job_type, status, created_at').eq('connection_id', data.id).order('created_at', { ascending: false }).limit(1),
   ]);
 

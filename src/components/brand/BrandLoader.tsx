@@ -5,6 +5,7 @@
  */
 import { cn } from '@/lib/utils';
 import { BrandLogo } from './BrandLogo';
+import webyarMark from '@/assets/webyar-mark.png';
 
 const SIZES = {
   sm: { box: 48, pad: 8, label: 'text-[10px] tracking-[0.34em]' },
@@ -44,13 +45,36 @@ export function BrandLoader({
           aria-hidden
         />
         <span className="absolute inset-0 rounded-full border border-primary/15" aria-hidden />
-        {/* Inset so the ring reads as orbiting the mark, not touching it.
-            Explicit size: an <img> keeps its intrinsic size under `inset`. */}
-        <BrandLogo
-          src={logoUrl}
-          className="absolute rounded-[24%] shadow-[var(--shadow-card)]"
-          style={{ top: s.pad, left: s.pad, width: s.box - s.pad * 2, height: s.box - s.pad * 2 }}
-        />
+        {/* Bare W mark — no plate/rectangle behind it. Painted through a
+            CSS mask so the glyph inherits the theme's primary colour and
+            stays legible in both light and dark. Operator branding (logoUrl)
+            still renders as its own bitmap. */}
+        {logoUrl ? (
+          <BrandLogo
+            src={logoUrl}
+            className="absolute rounded-[24%]"
+            style={{ top: s.pad, left: s.pad, width: s.box - s.pad * 2, height: s.box - s.pad * 2 }}
+          />
+        ) : (
+          <span
+            aria-hidden
+            className="absolute bg-primary"
+            style={{
+              top: s.pad,
+              left: s.pad,
+              width: s.box - s.pad * 2,
+              height: s.box - s.pad * 2,
+              WebkitMaskImage: `url(${webyarMark})`,
+              maskImage: `url(${webyarMark})`,
+              WebkitMaskRepeat: 'no-repeat',
+              maskRepeat: 'no-repeat',
+              WebkitMaskPosition: 'center',
+              maskPosition: 'center',
+              WebkitMaskSize: 'contain',
+              maskSize: 'contain',
+            }}
+          />
+        )}
       </div>
       {showLabel && (
         <span className={cn('font-display font-semibold uppercase text-muted-foreground', s.label)}>

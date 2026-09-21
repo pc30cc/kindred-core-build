@@ -62,7 +62,7 @@ export function createApp(deps: AppDeps): Express {
     const parsed = parseProvisionRequest(String(req.params.installationId || ''), req.body ?? {});
     if (!parsed.ok) {
       // Field names only — never the offending value (it may be the password).
-      return res.status(400).json({ error: 'invalid_request', error_code: 'not_configured', fields: parsed.errors });
+      return res.status(400).json({ error: 'invalid_request', error_code: 'not_configured', fields: 'errors' in parsed ? parsed.errors : [] });
     }
     try {
       log('telephony.registration.started', { installationId: parsed.value.installationId });

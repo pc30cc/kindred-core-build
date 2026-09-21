@@ -107,19 +107,39 @@ export function parseRealtimeBackendUp(output: string): boolean {
   return /connected to /i.test(output) && !/unable to connect/i.test(output);
 }
 
-/** Pure parser — unit tested without Asterisk. */
+/**
+ * Pure parser — unit tested without Asterisk.
+ *
+ * Reads ONLY the status row. `pjsip show registration <id>` prints that row
+ * and then dumps every configured parameter, and that dump always contains
+ * `forbidden_retry_interval`, `auth_rejection_permanent` and
+ * `fatal_retry_interval`. Matching keywords against the whole output therefore
+ * reported a perfectly healthy trunk as `invalid_credentials` — surfaced to
+ * the operator as "the provider did not accept these SIP credentials" — every
+ * time the status was momentarily `Unregistered`. That is exactly what Test
+ * Connection reads, a few hundred milliseconds after it asks Asterisk to
+ * re-register, and `waitForRegistration` treats any non-`registering` answer
+ * as terminal, so it gave up before the REGISTER had even been answered.
+ */
 export function parseRegistrationState(output: string): RegistrationOutcome {
-  const text = output.toLowerCase();
-  if (!text.trim() || /no objects found|unable to find/.test(text)) return 'not_found';
-  if (/failed to resolve|dns|name resolution/.test(text)) return 'dns_failure';
-  if (/\bregistered\b/.test(text) && !/unregistered/.test(text)) return 'registered';
-  if (/rejected \(permanent\)|403|forbidden|unauthorized|auth failed|no auth/.test(text)) {
+  const text = String(output ?? '');
+  if (!text.trim()) return 'not_found';
+
+  // Everything from the `ParameterName` header onwards is configuration, not
+  // state. A bare status string (no dump at all) passes through unchanged.
+  const status = text.split(/^[ \t]*ParameterName\b/im)[0].toLowerCase();
+
+  if (/no objects found|unable to find/.test(status)) return 'not_found';
+  if (/failed to resolve|name resolution/.test(status)) return 'dns_failure';
+  if (/unsupported transport|transport not found/.test(status)) return 'transport_unsupported';
+  if (/rejected \(permanent\)|\b403\b|forbidden|unauthorized|auth failed|no auth/.test(status)) {
     return 'invalid_credentials';
   }
-  if (/rejected/.test(text)) return 'provider_rejected';
-  if (/unsupported transport|transport.*not found/.test(text)) return 'transport_unsupported';
-  if (/registering|in progress|sent/.test(text)) return 'registering';
-  if (/unregistered|never/.test(text)) return 'registering';
+  if (/rejected/.test(status)) return 'provider_rejected';
+  // `unregistered` is a transient step on the way to `registered`, never a
+  // terminal answer — reporting it as such is what ends the wait early.
+  if (/\bunregistered\b|\bnever\b/.test(status)) return 'registering';
+  if (/\bregistered\b/.test(status)) return 'registered';
   return 'registering';
 }
 

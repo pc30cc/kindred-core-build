@@ -386,6 +386,65 @@ describe('ARI event stream reconnect', () => {
   });
 });
 
+describe('registration state parser', () => {
+  // Verbatim shape of `pjsip show registration <id>`: a status row, then a
+  // dump of every configured parameter. Captured from Asterisk 20.6.
+  const showRegistration = (status: string) => [
+    '',
+    ' <Registration/ServerURI..............................>  <Auth....................>  <Status.......>',
+    '==========================================================================================',
+    '',
+    ` wby310dea9d/sip:ext.example.com  wby310dea9d-auth  ${status}`,
+    '',
+    ' ParameterName            : ParameterValue',
+    ' ===================================================================',
+    ' auth_rejection_permanent : true',
+    ' client_uri               : sip:453121100@ext.example.com:4443',
+    ' expiration               : 300',
+    ' fatal_retry_interval     : 0',
+    ' forbidden_retry_interval : 600',
+    ' line                     : true',
+    ' outbound_auth            : wby310dea9d-auth',
+    ' server_uri               : sip:ext.example.com:4443',
+    ' transport                : transport-tls',
+    '',
+  ].join('\n');
+
+  it('reads a registered trunk', () => {
+    expect(parseRegistrationState(showRegistration('Registered        (exp. 210s)'))).toBe('registered');
+  });
+
+  /**
+   * Regression: the parameter dump always contains `forbidden_retry_interval`
+   * and `auth_rejection_permanent`. Matching keywords against the whole blob
+   * turned a healthy trunk mid-refresh into "the provider did not accept these
+   * SIP credentials", and because that is a terminal answer
+   * `waitForRegistration` gave up before the REGISTER was even answered.
+   */
+  it('treats Unregistered as still registering, not as rejected credentials', () => {
+    const out = showRegistration('Unregistered');
+    expect(out).toMatch(/forbidden_retry_interval/);
+    expect(parseRegistrationState(out)).toBe('registering');
+  });
+
+  it('still reports a genuine rejection', () => {
+    expect(parseRegistrationState(showRegistration('Rejected'))).toBe('provider_rejected');
+    expect(parseRegistrationState(showRegistration('Rejected (permanent)'))).toBe('invalid_credentials');
+  });
+
+  it('does not mistake a port for a 403', () => {
+    // server_uri carries :4443; a bare /403/ would also match ports like 5403.
+    expect(parseRegistrationState(showRegistration('Registered        (exp. 5403s)'))).toBe('registered');
+  });
+
+  it('handles a bare status string and an absent object', () => {
+    expect(parseRegistrationState('Registered')).toBe('registered');
+    expect(parseRegistrationState('Unregistered')).toBe('registering');
+    expect(parseRegistrationState('Unable to find object wby1')).toBe('not_found');
+    expect(parseRegistrationState('')).toBe('not_found');
+  });
+});
+
 describe('realtime backend status parser', () => {
   it('reads a live connection', () => {
     expect(parseRealtimeBackendUp(

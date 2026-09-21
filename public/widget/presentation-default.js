@@ -33,6 +33,9 @@
       // keeps `javascript:` out of an href belongs in exactly one place.
       linkifyHtml: env.linkifyHtml || null,
     };
+    // Core supplies the localized label too, so the button reads the same
+    // whichever surface renders it.
+    var linkLabel = env.linkLabel || null;
     var ctx = {
       config: config,
       locale: env.locale,
@@ -43,7 +46,9 @@
     function esc(v) { return Util.escapeHtml(v); }
     /** Escaped message text, with ordinary web links made clickable. */
     function escLinked(v) {
-      return Util.linkifyHtml ? Util.linkifyHtml(v) : Util.escapeHtml(v);
+      return Util.linkifyHtml
+        ? Util.linkifyHtml(v, linkLabel || tf('msgOpenLink', 'Open link'))
+        : Util.escapeHtml(v);
     }
     function isRtl() { return String(ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa'; }
     function tf(key, fallback) {

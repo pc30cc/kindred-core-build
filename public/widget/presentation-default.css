@@ -694,9 +694,9 @@ a.wy-powered:hover { color: var(--wy-text); }
 /* A link in a message is a button, not a wall of text.
    A product URL arrives percent-encoded and can run past 100 characters as a
    single unbreakable token; printed inline it stretched its own bubble and
-   was unreadable besides. As a chip it has a bounded width of its own, and
-   `overflow-wrap: anywhere` means even a label with no spaces in it — which
-   a URL is — wraps inside the chip instead of pushing the layout wider. */
+   was unreadable besides. The chip carries a short label instead, so its
+   width no longer follows the address at all; `overflow-wrap` stays as a
+   floor under a long translation. */
 .msg-link {
   display: inline-flex;
   align-items: center;

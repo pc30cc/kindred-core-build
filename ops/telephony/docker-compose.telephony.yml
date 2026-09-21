@@ -94,10 +94,14 @@ services:
       - "5080"
       - "5080/udp"
       - "8080"
-    ports:
-      # RTP towards Asterisk stays on the internal network; published only if
-      # LiveKit SIP runs on a different host than Asterisk.
-      - "${LIVEKIT_SIP_RTP_MIN:-20000}-${LIVEKIT_SIP_RTP_MAX:-20100}:20000-20100/udp"
+    # NOT published to the host. Asterisk and LiveKit SIP share this Docker
+    # network, so their RTP never leaves it — publishing 20000-20100/udp would
+    # expose 101 UDP ports for nothing, and it makes redeploys fail with
+    # "port is already allocated" while the previous container still holds the
+    # range. Publish it only when LiveKit SIP runs on a DIFFERENT host than
+    # Asterisk, by adding a compose override:
+    #   ports:
+    #     - "${LIVEKIT_SIP_RTP_MIN:-20000}-${LIVEKIT_SIP_RTP_MAX:-20100}:20000-20100/udp"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ >/dev/null || exit 1"]
       interval: 30s

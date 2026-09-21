@@ -91,6 +91,11 @@ the repository root and build the wrong Dockerfile.
 Redis are reachable on — Coolify attaches the stack to that network in addition
 to the one it creates for the resource.
 
+Turn ON **Consistent Container Names** for this resource. Without it Coolify
+appends a fresh timestamp to every container name, so on redeploy the new
+container is created before the old one is removed and the published SIP/RTP
+ports fail to bind with "port is already allocated".
+
 ### Plain Docker Compose
 
 ```bash
@@ -117,7 +122,7 @@ curl -H "x-telephony-internal-secret: $TELEPHONY_INTERNAL_SECRET" \
 | 5061 | TCP | SIP TLS (optional) |
 | 16384–16584 | UDP | RTP media (must match `TELEPHONY_RTP_PORT_MIN/MAX`) |
 | 5080 | UDP/TCP | Asterisk → LiveKit SIP, internal only |
-| 20000–20100 | UDP | LiveKit SIP RTP, internal unless split across hosts |
+| 20000–20100 | UDP | LiveKit SIP RTP — internal only, NOT published to the host; publish via a compose override only if LiveKit SIP runs on a different host |
 | 8088 | TCP | ARI — **internal only, never publish** |
 | 8089 | TCP | control API — **internal only, never publish** |
 

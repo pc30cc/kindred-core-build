@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="skeleton_title">Araç zinciri</string>
+    <string name="skeleton_body">Bu metin Farsçada sağdan sola, İngilizcede soldan sağa okunuyorsa, yerleşim yönü doğru bağlanmıştır.</string>
+    <string name="skeleton_direction_label">Yerleşim yönü</string>
+</resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The same launch colour the iOS app uses (capacitor.config.ts and
+         WebyarNative's LaunchBackground colour set), so the two platforms
+         open on the same shade rather than nearly the same one. -->
+    <color name="launch_background">#0b1220</color>
+</resources>

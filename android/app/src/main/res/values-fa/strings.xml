@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="skeleton_title">زنجیره‌ی ابزار</string>
+    <string name="skeleton_body">اگر این متن در فارسی راست‌به‌چپ و در انگلیسی چپ‌به‌راست خوانده شود، جهت چیدمان درست وصل شده است.</string>
+    <string name="skeleton_direction_label">جهت چیدمان</string>
+</resources>

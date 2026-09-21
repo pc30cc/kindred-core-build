@@ -1,0 +1,75 @@
+name: Android
+
+# Not on every push. This runs on hardware that also serves the Supabase
+# stack (ADR-003 §5), so it is scoped to the paths that can actually break it,
+# plus a manual trigger and a weekly sweep to catch drift in the toolchain
+# rather than in the code.
+on:
+  push:
+    paths:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (self-hosted)
+    runs-on: [self-hosted, linux, x64, android]
+    timeout-minutes: 30
+
+    env:
+      ANDROID_HOME: /opt/android-sdk
+      ANDROID_SDK_ROOT: /opt/android-sdk
+      JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+      # No daemon in CI: this host has 2GB from ci.slice and nothing should
+      # outlive the job holding any of it.
+      GRADLE_OPTS: -Dorg.gradle.daemon=false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          set -eu
+          "$JAVA_HOME/bin/java" -version
+          echo "SDK: $(ls $ANDROID_HOME)"
+          echo "platforms: $(ls $ANDROID_HOME/platforms)"
+          echo "build-tools: $(ls $ANDROID_HOME/build-tools)"
+
+      # Google's Maven answers 404 over this host's IPv6 route and 200 over
+      # IPv4 — see the note in android/gradle.properties, which sets
+      # -Djava.net.preferIPv4Stack=true for the build JVM. This step fails
+      # loudly and early if that ever stops being true, because the symptom
+      # further down is "Could not find androidx.core:core-ktx", which reads
+      # like a wrong version rather than a network fault.
+      - name: Google Maven is reachable
+        run: |
+          set -eu
+          code=$(curl -4 -sSL -o /dev/null -w '%{http_code}' \
+            https://dl.google.com/dl/android/maven2/androidx/core/core-ktx/1.12.0/core-ktx-1.12.0.pom)
+          echo "IPv4 -> $code"
+          [ "$code" = "200" ] || { echo "Google Maven unreachable over IPv4"; exit 1; }
+
+      - name: Build debug
+        working-directory: android
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: APK
+        working-directory: android
+        run: |
+          set -eu
+          find app/build/outputs/apk -name '*.apk' -exec ls -lh {} \;

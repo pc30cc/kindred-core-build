@@ -81,6 +81,26 @@ export function isValidSmsIrParameterName(value: unknown): value is string {
 }
 
 /**
+ * Accept a parameter name in either of the two forms an admin plausibly has
+ * in front of them, and return the ONE form the API takes.
+ *
+ * An SMS.ir template delimits its placeholders with `#` (`#code#`), so that
+ * is what an admin copies out of the panel — but `/v1/send/verify` wants the
+ * bare name: the vendor's own docs specify "کلید تعیین شده در قالب (بدون در
+ * نظر گرفتن # در ابتدا و انتهای آن)". Rejecting the pasted `#code#` teaches
+ * nothing; stripping the delimiters is unambiguous, because `#` can never be
+ * part of a name that `SMSIR_PARAMETER_NAME_PATTERN` would accept anyway.
+ *
+ * Returns null when what is left is not a usable name, so the caller still
+ * fails closed.
+ */
+export function normalizeSmsIrParameterName(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const stripped = value.trim().replace(/^#+/, '').replace(/#+$/, '').trim();
+  return isValidSmsIrParameterName(stripped) ? stripped : null;
+}
+
+/**
  * Map an SMS.ir failure to a normalized internal error code.
  * The SDK throws `Error("HTTP error! status: <code> - <message>")`, so both the
  * HTTP status and the message text are considered — never re-exposed.

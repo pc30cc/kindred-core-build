@@ -39,6 +39,7 @@ import {
   isValidSmsIrLineNumber,
   isValidSmsIrParameterName,
   isValidSmsIrTemplateId,
+  normalizeSmsIrParameterName,
   type SmsIrAdapter,
   type SmsIrAdapterOptions,
 } from './providers/smsir.js';
@@ -210,9 +211,10 @@ export async function saveSmsProviderConfig(
     if (!isValidSmsIrTemplateId(input.verifyTemplateId)) {
       throw new SmsConfigValidationError('invalid_verify_template_id');
     }
-    const parameterName =
-      typeof input.verifyParameterName === 'string' ? input.verifyParameterName.trim() : '';
-    if (!isValidSmsIrParameterName(parameterName)) {
+    // Accepts the `#code#` form copied straight out of the SMS.ir panel and
+    // stores the bare `code` the send API expects.
+    const parameterName = normalizeSmsIrParameterName(input.verifyParameterName);
+    if (parameterName === null) {
       throw new SmsConfigValidationError('invalid_verify_parameter_name');
     }
     nextConfig.lineNumber = lineNumber;

@@ -29,6 +29,16 @@ import {
 const VERIFY_TEMPLATE_PATTERN = /^[A-Za-z0-9]{1,64}$/;
 const LINE_NUMBER_PATTERN = /^[0-9]{1,20}$/;
 const PARAMETER_NAME_PATTERN = /^[A-Za-z0-9_]{1,50}$/;
+/**
+ * An SMS.ir template writes its placeholder as `#code#`, so that is what an
+ * admin copies out of the panel — but the send API wants the bare `code`.
+ * Mirrors `normalizeSmsIrParameterName` on the server, which is the
+ * authority; this only spares the admin a pointless round trip and a
+ * rejection for pasting exactly what the panel showed them.
+ */
+function normalizeParameterName(raw: string): string {
+  return raw.trim().replace(/^#+/, '').replace(/#+$/, '').trim();
+}
 
 type RuntimeVendor = 'kavenegar' | 'smsir';
 
@@ -123,10 +133,10 @@ export function AdminSmsProviderCard() {
         });
         return;
       }
-      if (!PARAMETER_NAME_PATTERN.test(verifyParameterName.trim())) {
+      if (!PARAMETER_NAME_PATTERN.test(normalizeParameterName(verifyParameterName))) {
         toast({
           title: 'Invalid parameter name',
-          description: 'Letters, digits and underscores only.',
+          description: 'Letters, digits and underscores only. Paste the template placeholder with or without its # delimiters — #code# and code both work.',
           variant: 'destructive',
         });
         return;
@@ -160,7 +170,7 @@ export function AdminSmsProviderCard() {
               ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
               lineNumber: lineNumber.trim(),
               verifyTemplateId: Number(verifyTemplateId.trim()),
-              verifyParameterName: verifyParameterName.trim(),
+              verifyParameterName: normalizeParameterName(verifyParameterName),
             },
       );
       setInfo(next);
@@ -463,7 +473,8 @@ export function AdminSmsProviderCard() {
                 placeholder="CODE"
               />
               <p className="text-[11px] text-muted-foreground">
-                The template placeholder that receives the verification code.
+                The template placeholder that receives the verification code, without its
+                # delimiters — for a template reading #code#, enter code.
               </p>
             </div>
             </>

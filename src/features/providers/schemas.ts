@@ -1471,7 +1471,7 @@ const smsVendors: ProviderVendor[] = [
       { key: 'api_key', label: 'کلید API', type: 'password', required: true },
       { key: 'line_number', label: 'شماره خط', type: 'text', required: true, placeholder: '30007732', hint: 'شماره خط اختصاصی پنل SMS.ir — فقط عدد' },
       { key: 'verify_template_id', label: 'شناسه الگوی تأیید (OTP)', type: 'text', required: true, placeholder: '100000', hint: 'Template ID تعریف‌شده در پنل SMS.ir — فقط عدد' },
-      { key: 'verify_parameter_name', label: 'نام پارامتر کد تأیید', type: 'text', required: true, placeholder: 'CODE', hint: 'نام پارامتر الگو که کد تأیید در آن قرار می‌گیرد' },
+      { key: 'verify_parameter_name', label: 'نام پارامتر کد تأیید', type: 'text', required: true, placeholder: 'code', hint: 'نام پارامتر الگو، بدون # ابتدا و انتها — اگر در قالب #code# نوشته‌اید، اینجا code وارد کنید' },
     ],
   },
   {

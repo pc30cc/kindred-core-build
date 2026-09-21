@@ -3,6 +3,7 @@ namespace WebYar\WooCommerce;
 
 use WebYar\WooCommerce\Admin\SettingsPage;
 use WebYar\WooCommerce\Admin\ConnectionController;
+use WebYar\WooCommerce\Admin\PluginsScreen;
 use WebYar\WooCommerce\Events\WooEventSubscriber;
 use WebYar\WooCommerce\Events\EventDelivery;
 use WebYar\WooCommerce\Rest\ProductController;
@@ -35,6 +36,7 @@ final class Plugin {
 	public function boot(): void {
 		( new SettingsPage() )->register();
 		( new ConnectionController() )->register();
+		( new PluginsScreen() )->register();
 		( new Router() )->register();
 		ProductController::register_query_filters();
 		( new WooEventSubscriber() )->register();

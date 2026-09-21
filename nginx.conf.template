@@ -237,6 +237,34 @@ server {
         try_files $uri =404;
     }
 
+    # ─────────────────────────────────────────────────────────────────────
+    # WooCommerce plugin download + its update manifest.
+    #
+    # These two files are read as a PAIR: webyar-woocommerce.json advertises
+    # a version and the installed plugin then downloads the .zip beside it.
+    # They live at fixed paths, so whatever an edge holds is what every store
+    # gets until it expires — and Cloudflare caches a .zip by default while
+    # leaving a .json alone, which makes the pair disagree: the manifest
+    # announces a release the archive does not contain yet. WordPress then
+    # installs the OLD build, still reads the old version afterwards, and —
+    # with auto-updates on — tries again on every cron run.
+    #
+    # So neither is cached anywhere. This is a once-a-release download; the
+    # bytes saved are worth nothing next to shipping the wrong plugin.
+    # ─────────────────────────────────────────────────────────────────────
+    location ^~ /downloads/ {
+        root /usr/share/nginx/html;
+        expires -1;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        # Cloudflare honours these even where it ignores Cache-Control.
+        add_header CDN-Cache-Control "no-store" always;
+        add_header Cloudflare-CDN-Cache-Control "no-store" always;
+        # Hard 404 — a store must never receive the SPA's index.html and try
+        # to unzip it.
+        try_files $uri =404;
+    }
+
     # Cache other static assets
     location /assets/ {
         expires 30d;

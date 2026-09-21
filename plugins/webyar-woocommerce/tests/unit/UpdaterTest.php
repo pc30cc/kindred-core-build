@@ -153,8 +153,10 @@ final class UpdaterTest extends TestCase {
 		$GLOBALS['__webyar_test_options']['webyar_wc_settings'] = array();
 		$GLOBALS['__webyar_test_transients'] = array();
 		$GLOBALS['__webyar_test_fetched']    = array();
-		( new Updater() )->inject_update( (object) array( 'response' => array(), 'no_update' => array() ) );
+		$out = ( new Updater() )->inject_update( (object) array( 'response' => array(), 'no_update' => array() ) );
 		$this->assertSame( array(), $GLOBALS['__webyar_test_fetched'] );
+		// …and it still lists itself, so the toggle is there from day one.
+		$this->assertSame( '1.1.0', $out->no_update[ $this->key() ]->new_version );
 	}
 
 	public function test_repeated_checks_ask_the_server_once(): void {

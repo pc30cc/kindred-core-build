@@ -101,6 +101,7 @@ async function buildStatus(config: any, workspaceId: string) {
     hasSipPassword: passwordSaved,
     cryptoReady: telephonyCryptoReady(config),
     gatewayConfigured: isTelephonyGatewayConfigured(config),
+    registrationStoreUnavailable: registrationUnavailable,
     readiness: {
       // Four independent flags: a saved password alone never reads as connected.
       configured: Boolean(effective && parsed.ok && parsed.complete && passwordSaved),

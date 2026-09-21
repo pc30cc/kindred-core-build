@@ -20,11 +20,24 @@ object A11y {
     const val INBOX_LIST = "inbox.list"
     const val INBOX_EMPTY = "inbox.empty"
     const val INBOX_SEARCH = "inbox.search"
+    const val INBOX_FILTER = "inbox.filter"
+    const val INBOX_TITLE_MENU = "inbox.title.menu"
+
+    /** Absent from the tree when the search is closed, which several tests
+     *  are about — see `SearchState`. */
+    const val SEARCH_FIELD = "search.field"
+    const val TAB_BAR = "tab.bar"
 
     const val COMPOSER_FIELD = "composer.field"
     const val COMPOSER_SEND = "composer.send"
     const val CHAT_TRANSCRIPT = "chat.transcript"
+    const val CHAT_MENU = "chat.menu"
+    const val COMPOSER_ATTACH = "composer.attach"
+    const val COMPOSER_SHORTCUTS = "composer.shortcuts"
+    const val SAY_NOW_VOICE = "sayNow.voice"
 
     fun conversationRow(id: String) = "conversation.$id"
     fun messageRow(id: String) = "message.$id"
+    fun workspaceRow(id: String) = "settings.workspace.$id"
+    fun shortcutRow(id: String) = "shortcut.$id"
 }

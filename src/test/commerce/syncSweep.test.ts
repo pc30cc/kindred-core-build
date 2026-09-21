@@ -26,8 +26,8 @@ type Row = Record<string, any>;
 
 /** What the fake store returns, one entry per page. */
 let storePages: Array<{ products: any[]; has_more: boolean }> = [];
-/** Rows the sweep query finds (live and not seen since the epoch). */
-let staleRows: Row[] = [];
+/** How many rows the sweep's SQL reports removing. */
+let sweptCount = 0;
 let cursorRow: Row | null = null;
 let connectionRow: Row | null = null;
 /** Simulates a database that has not had migration 198 applied yet. */
@@ -36,9 +36,9 @@ let sweepColumnMissing = false;
 const seen = {
   upserted: [] as string[],
   stampedIds: [] as string[][],
-  sweepFilters: [] as string[],
-  productsTombstoned: [] as string[][],
-  variantsTombstoned: [] as string[][],
+  rpcCalls: [] as Array<{ fn: string; args: Row }>,
+  /** Any surviving soft-delete write — there must never be one again. */
+  softDeleted: [] as string[],
   cursorWrites: [] as Row[],
   jobUpdates: [] as Row[],
   requestedPaths: [] as string[],
@@ -54,7 +54,7 @@ function fakeClient() {
       eq: () => b,
       is: () => b,
       in: (_col: string, vals: string[]) => { b._in = vals; return b; },
-      or: (expr: string) => { seen.sweepFilters.push(expr); return b; },
+      or: () => b,
       update: (patch: Row) => { b._patch = patch; return b; },
       upsert: async (row: Row) => {
         if (table === 'commerce_sync_cursors') seen.cursorWrites.push(row);
@@ -72,17 +72,23 @@ function fakeClient() {
       then: (resolve: any) => {
         if (table === 'commerce_products') {
           if (b._patch?.last_seen_at) seen.stampedIds.push(b._in ?? []);
-          else if (b._patch?.deleted_at) seen.productsTombstoned.push(b._in ?? []);
-          else if (b._selecting) return resolve({ data: staleRows, error: null });
+          else if (b._patch?.deleted_at) seen.softDeleted.push(table);
+          else if (b._selecting) return resolve({ data: [], error: null });
         }
-        if (table === 'commerce_product_variants' && b._patch) seen.variantsTombstoned.push(b._in ?? []);
+        if (table === 'commerce_product_variants' && b._patch?.deleted_at) seen.softDeleted.push(table);
         if (table === 'commerce_sync_jobs' && b._patch) seen.jobUpdates.push(b._patch);
         return resolve({ data: null, error: null });
       },
     };
     return b;
   };
-  return { from: (t: string) => make(t), rpc: async () => ({ data: null, error: null }) };
+  return {
+    from: (t: string) => make(t),
+    rpc: async (fn: string, args: Row) => {
+      seen.rpcCalls.push({ fn, args });
+      return { data: fn === 'commerce_sweep_absent_products' ? sweptCount : null, error: null };
+    },
+  };
 }
 
 vi.mock('../../../server/supabase.js', () => ({ getServiceClient: () => fakeClient() }));
@@ -115,7 +121,7 @@ const job = (o: Partial<Row> = {}): any => ({
 
 beforeEach(() => {
   storePages = [{ products: [product('1'), product('2')], has_more: false }];
-  staleRows = [];
+  sweptCount = 0;
   cursorRow = null;
   sweepColumnMissing = false;
   connectionRow = { id: CONN, workspace_id: WS, installation_id: 'inst-1', approved_origin: 'https://shop.example.com', revoked_at: null };
@@ -136,28 +142,34 @@ describe('a full sync sweeps what the store no longer has', () => {
     expect(seen.stampedIds).toEqual([['1', '2'], ['3']]);
   });
 
-  it('tombstones the rows it never met, and their variants', async () => {
-    staleRows = [{ id: 'gone-a' }, { id: 'gone-b' }];
+  it('hands the whole removal to one statement, with this sync\u2019s epoch', async () => {
+    // Read-then-write-twice could half-apply and cost a round trip per
+    // batch; the matching, the delete and the gravestone now happen inside
+    // commerce_sweep_absent_products (see migration
+    // 20260921180000_commerce_hard_delete_products.sql).
+    sweptCount = 2;
     await runSyncJobOnce(CONFIG, job());
 
-    expect(seen.productsTombstoned).toEqual([['gone-a', 'gone-b']]);
-    expect(seen.variantsTombstoned).toEqual([['gone-a', 'gone-b']]);
+    const sweeps = seen.rpcCalls.filter((c) => c.fn === 'commerce_sweep_absent_products');
+    expect(sweeps).toHaveLength(1);
+    expect(sweeps[0].args.p_connection_id).toBe(CONN);
+    expect(sweeps[0].args.p_sweep_epoch).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
-  it('matches rows never stamped as well as rows stamped before this sync', async () => {
-    // "never stamped" carries the first sweep after deploy, when no row has a
-    // last_seen_at yet; without it that sweep would find nothing at all.
+  it('never soft-deletes anything', async () => {
+    // A deleted product leaves the index for good: the row is gone, and what
+    // stays is one line in commerce_deleted_entities. A `deleted_at` write
+    // from here would mean the old, growing tombstones are back.
+    sweptCount = 2;
     await runSyncJobOnce(CONFIG, job());
 
-    expect(seen.sweepFilters).toHaveLength(1);
-    expect(seen.sweepFilters[0]).toMatch(/^last_seen_at\.is\.null,last_seen_at\.lt\.\d{4}-\d{2}-\d{2}T/);
+    expect(seen.softDeleted).toEqual([]);
   });
 
-  it('does nothing when the store still has everything', async () => {
-    staleRows = [];
+  it('still finishes the job when the store has everything', async () => {
+    sweptCount = 0;
     await runSyncJobOnce(CONFIG, job());
 
-    expect(seen.productsTombstoned).toEqual([]);
     expect(seen.jobUpdates).toContainEqual({ status: 'succeeded' });
   });
 
@@ -171,7 +183,8 @@ describe('a full sync sweeps what the store no longer has', () => {
     await runSyncJobOnce(CONFIG, job());
 
     expect(seen.cursorWrites[0].sweep_epoch).toBe('2026-09-20T20:00:00.000Z');
-    expect(seen.sweepFilters[0]).toContain('last_seen_at.lt.2026-09-20T20:00:00.000Z');
+    const sweeps = seen.rpcCalls.filter((c) => c.fn === 'commerce_sweep_absent_products');
+    expect(sweeps[0].args.p_sweep_epoch).toBe('2026-09-20T20:00:00.000Z');
   });
 
   it('clears the epoch once the sync completes', async () => {
@@ -188,14 +201,14 @@ describe('an incremental sync must never sweep', () => {
   for (const job_type of ['incremental_sync', 'reconciliation'] as const) {
     it(`${job_type} stamps nothing and tombstones nothing`, async () => {
       cursorRow = { page: 1, modified_after: '2026-09-20T18:00:00.000Z', sweep_epoch: null };
-      staleRows = [{ id: 'would-have-been-wiped' }];
+      sweptCount = 99; // if the sweep ran at all, it would take the catalogue with it
 
       await runSyncJobOnce(CONFIG, job({ job_type }));
 
       expect(seen.upserted).toEqual(['1', '2']); // it still indexes what changed
       expect(seen.stampedIds).toEqual([]);
-      expect(seen.sweepFilters).toEqual([]);
-      expect(seen.productsTombstoned).toEqual([]);
+      expect(seen.rpcCalls.filter((c) => c.fn === 'commerce_sweep_absent_products')).toEqual([]);
+      expect(seen.softDeleted).toEqual([]);
     });
   }
 
@@ -227,12 +240,12 @@ describe('a database without migration 198', () => {
     for (const write of seen.cursorWrites) expect(write).not.toHaveProperty('sweep_epoch');
   });
 
-  it('sweeps nothing, so no row is tombstoned by mistake', async () => {
-    staleRows = [{ id: 'must-not-be-touched' }];
+  it('sweeps nothing, so no row is removed by mistake', async () => {
+    sweptCount = 99; // the sweep must not run at all, whatever it would report
     await runSyncJobOnce(CONFIG, job());
 
-    expect(seen.sweepFilters).toEqual([]);
-    expect(seen.productsTombstoned).toEqual([]);
+    expect(seen.rpcCalls.filter((c) => c.fn === 'commerce_sweep_absent_products')).toEqual([]);
+    expect(seen.softDeleted).toEqual([]);
   });
 
   it('still resumes from the stored page', async () => {

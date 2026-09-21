@@ -1206,7 +1206,7 @@ pluginsRouter.get('/gmail/oauth/callback', async (req: any, res) => {
   } catch (err) {
     const code2 = isGmailError(err) ? err.code : 'gmail_unexpected_error';
     // The redirect only ever carries the normalized code (never a credential
-    // or raw provider payload — see channels/providers/gmail/client.ts's file
+    // or raw provider payload — see channels/mail/gmail/client.ts's file
     // header), so this is the ONLY place an operator can see WHY a
     // connection attempt failed instead of the user's generic toast.
     console.error(`[gmail] oauth callback failed: ${code2}${isGmailError(err) ? '' : ` (${(err as Error)?.message || 'no message'})`}`);

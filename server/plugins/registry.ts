@@ -230,7 +230,7 @@ export const PLUGIN_REGISTRY: readonly PluginDefinition[] = Object.freeze([
   {
     // Yahoo Mail — feeds the SAME Email Inbox schema/UI as Gmail
     // (email_threads/email_messages/email_attachments), but via IMAP+SMTP
-    // XOAUTH2 (server/services/channels/yahoo/, channels/providers/yahoo/)
+    // XOAUTH2 (server/services/channels/yahoo/, channels/mail/yahoo/)
     // instead of a REST API + Pub/Sub push: Yahoo exposes no equivalent
     // webhook for third-party apps, so inbound is a self-rescheduling IMAP
     // poll (worker/channels/index.ts's `yahoo_poll_inbox`, mirroring

@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { BrandLogo } from '@/components/brand/BrandLogo';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 
@@ -24,11 +25,6 @@ export default function ResetPasswordPage() {
 
   const passwordsMatch = confirmPassword.length > 0 && password === confirmPassword;
   const token = searchParams.get('token');
-
-  const brandLetter = useMemo(() => {
-    const name = brand?.platform_name || 'App';
-    return name.charAt(0);
-  }, [brand]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,9 +74,7 @@ export default function ResetPasswordPage() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4" dir={dir}>
       <div className="w-full max-w-md space-y-8">
         <div className="text-center space-y-2">
-          <div className="w-14 h-14 rounded-xl bg-primary mx-auto flex items-center justify-center">
-            <span className="text-2xl font-black text-primary-foreground">{brandLetter}</span>
-          </div>
+          <BrandLogo className="w-14 h-14 rounded-xl mx-auto" />
           <h1 className="text-2xl font-bold text-foreground">{t('auth.resetTitle')}</h1>
           <p className="text-sm text-muted-foreground">{t('auth.resetSubtitle')}</p>
         </div>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { BrandLogo } from '@/components/brand/BrandLogo';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
@@ -57,7 +58,6 @@ export default function LoginPage() {
   const emailValid = useMemo(() => EMAIL_RE.test(email.trim()), [email]);
 
   const brandName = useMemo(() => brand?.platform_name || '', [brand]);
-  const brandLetter = useMemo(() => brandName.charAt(0) || '', [brandName]);
 
   const forgotHref = useMemo(
     () => (emailValid ? `/auth/forgot-password?email=${encodeURIComponent(email.trim().toLowerCase())}` : '/auth/forgot-password'),
@@ -147,9 +147,7 @@ export default function LoginPage() {
         <div className="flex items-center justify-between px-8 py-5 shrink-0">
           {brandName ? (
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
-                <span className="text-sm font-black text-primary-foreground">{brandLetter}</span>
-              </div>
+              <BrandLogo className="w-9 h-9 rounded-lg" />
               <span className="text-lg font-semibold text-foreground">{brandName}</span>
             </div>
           ) : (

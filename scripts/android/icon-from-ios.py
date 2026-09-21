@@ -49,6 +49,9 @@ ADAPTIVE = {"mdpi": 108, "hdpi": 162, "xhdpi": 216, "xxhdpi": 324, "xxxhdpi": 43
 LEGACY = {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}
 
 INNER = 0.68          # how much of the canvas the artwork occupies
+MONO_SCALE = 0.60     # the themed-icon silhouette, inside the same safe zone
+MONO_SAT = 0.28       # a silhouette wants a generous threshold, not a precise one
+MIN_STROKE = 5000     # the W is three ribbons; keeping one gave a W in fragments
 R0, R1 = 0.82, 1.02   # opaque through the mark, gone before the corners
 # Sampled from the source's own field, excluding the mark and the pale corner.
 FIELD_BOTTOM_LEFT = (5, 56, 205)
@@ -86,8 +89,71 @@ def layer(src: Image.Image, size: int) -> Image.Image:
     return out
 
 
+def silhouette(src: Image.Image) -> Image.Image:
+    """The W as a solid shape, for Android 13's themed icons.
+
+    This is the one thing the mark CAN be reduced to. A silhouette does not
+    care that the ribbons are shaded — only where their outline is — so the
+    threshold can be generous where a colour lift could not be. All three
+    strokes are kept, which is exactly what the failed colour attempt got
+    wrong by keeping only the largest.
+    """
+    from collections import deque
+
+    a = np.asarray(src.convert("RGB")).astype(np.float32)
+    mx, mn = a.max(axis=2), a.min(axis=2)
+    solid = np.where(mx == 0, 0.0, (mx - mn) / np.maximum(mx, 1e-6)) < MONO_SAT
+    h, w = solid.shape
+
+    seen = np.zeros_like(solid)
+    keep = np.zeros_like(solid)
+    for sy in range(h):
+        for sx in range(w):
+            if not solid[sy, sx] or seen[sy, sx]:
+                continue
+            q, comp = deque([(sy, sx)]), []
+            seen[sy, sx] = True
+            while q:
+                y, x = q.popleft()
+                comp.append((y, x))
+                for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < h and 0 <= nx < w and solid[ny, nx] and not seen[ny, nx]:
+                        seen[ny, nx] = True
+                        q.append((ny, nx))
+            if len(comp) >= MIN_STROKE:
+                ys, xs = zip(*comp)
+                keep[np.array(ys), np.array(xs)] = True
+
+    outside = np.zeros_like(keep)
+    q = deque()
+    for x in range(w):
+        for y in (0, h - 1):
+            if not keep[y, x] and not outside[y, x]:
+                outside[y, x] = True
+                q.append((y, x))
+    for y in range(h):
+        for x in (0, w - 1):
+            if not keep[y, x] and not outside[y, x]:
+                outside[y, x] = True
+                q.append((y, x))
+    while q:
+        y, x = q.popleft()
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < h and 0 <= nx < w and not keep[ny, nx] and not outside[ny, nx]:
+                outside[ny, nx] = True
+                q.append((ny, nx))
+
+    mask = Image.fromarray(((keep | ~outside) * 255).astype(np.uint8), "L")
+    shape = Image.new("RGBA", src.size, (255, 255, 255, 0))
+    shape.putalpha(mask)
+    return shape.crop(mask.getbbox())
+
+
 def main() -> None:
     src = Image.open(SOURCE)
+    mono = silhouette(src)
     for density, size in ADAPTIVE.items():
         out = RES / f"mipmap-{density}"
         out.mkdir(parents=True, exist_ok=True)
@@ -98,6 +164,15 @@ def main() -> None:
         for stale in ("ic_launcher_foreground.png",):
             (out / stale).unlink(missing_ok=True)
 
+        # Android 13 tints this with the wallpaper's palette, so it must be a
+        # shape on transparency and nothing else — no colour, no field.
+        canvas = Image.new("RGBA", (size, size), (255, 255, 255, 0))
+        target = int(size * MONO_SCALE)
+        shape = mono.copy()
+        shape.thumbnail((target, target), Image.LANCZOS)
+        canvas.paste(shape, ((size - shape.width) // 2, (size - shape.height) // 2), shape)
+        canvas.save(out / "ic_launcher_monochrome.png")
+
     for density, size in LEGACY.items():
         out = RES / f"mipmap-{density}"
         out.mkdir(parents=True, exist_ok=True)
@@ -105,7 +180,7 @@ def main() -> None:
         # is the right shape there and the source goes in as it is.
         src.resize((size, size), Image.LANCZOS).convert("RGB").save(out / "ic_launcher.png")
 
-    print("wrote adaptive background + legacy icons for " + ", ".join(ADAPTIVE))
+    print("wrote adaptive background + monochrome + legacy icons for " + ", ".join(ADAPTIVE))
 
 
 if __name__ == "__main__":

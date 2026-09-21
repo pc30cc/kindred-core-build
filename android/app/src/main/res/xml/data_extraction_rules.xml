@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Nothing leaves this device.
+
+  `android:allowBackup="false"` already says so for cloud backup, and is
+  deprecated from Android 12; this is the replacement, and it also governs
+  device-to-device transfer, which allowBackup never did.
+
+  It matters more here than the boilerplate suggests. The session token lives
+  in DataStore, encrypted under a key generated inside the Android Keystore —
+  and that key is not exportable, so a transferred copy would be ciphertext
+  nothing can read. Excluding it means the new device asks the operator to
+  sign in, which is the honest outcome, rather than restoring a session that
+  silently cannot work.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+    </device-transfer>
+</data-extraction-rules>

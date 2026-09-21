@@ -96,6 +96,7 @@ struct NotificationSettingsView: View {
                 if !model.prefs.disableAll {
                     scopeSection
                     contentSection
+                    presenceSection
                     quietHoursSection
                 }
 
@@ -236,6 +237,30 @@ struct NotificationSettingsView: View {
             ))
         } footer: {
             Text(Str.pushShowPreviewFooter(language))
+        }
+    }
+
+    // MARK: - Where the operator is
+
+    /// The one question this screen asks that the phone cannot answer for
+    /// itself: whether the operator is also sitting in front of the web
+    /// console right now. The server can see that — it is the same presence
+    /// the team list is drawn from — so it is the server that decides, and
+    /// these two switches are how the operator tells it what to do with the
+    /// answer.
+    private var presenceSection: some View {
+        Section {
+            Toggle(Str.pushWhenOnline(language), isOn: Binding(
+                get: { model.prefs.pushWhenOnline },
+                set: { value in model.change(appState: appState) { $0.pushWhenOnline = value } }
+            ))
+
+            Toggle(Str.pushWhenOffline(language), isOn: Binding(
+                get: { model.prefs.pushWhenOffline },
+                set: { value in model.change(appState: appState) { $0.pushWhenOffline = value } }
+            ))
+        } footer: {
+            Text(Str.pushPresenceFooter(language))
         }
     }
 

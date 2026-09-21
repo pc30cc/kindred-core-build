@@ -9,10 +9,15 @@ import Foundation
 /// not survive reinstalling the app, does not apply to the operator's other
 /// devices, and still wakes the phone up in the night.
 ///
-/// Only the fields this screen owns are listed. The row carries email
-/// preferences too, and a `PATCH` that named them would overwrite choices
-/// made in the web console — so the encoder sends these and nothing else.
+/// These are the PHONE's preferences, not the operator's only ones. The web
+/// console keeps its own set under its own surface, so silencing this app at
+/// midnight leaves the browser exactly as it was — they were one row until
+/// the surfaces were split, and turning one off turned both off.
 struct NotificationPrefs: Codable, Equatable, Sendable {
+
+    /// Which set of preferences this app reads and writes. Named on every
+    /// request; the server answers 'web' to anything that does not say.
+    static let surface = "mobile"
 
     /// Which conversations are worth a notification at all.
     enum Scope: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -41,6 +46,16 @@ struct NotificationPrefs: Codable, Equatable, Sendable {
     var pushInternalNotes: Bool = true
     var playSound: Bool = true
 
+    /// Whether to reach this phone while the operator is also at their desk.
+    ///
+    /// Off is the setting of somebody who works with the console open all
+    /// day and does not want the phone buzzing beside it. The server decides
+    /// it, from live presence, not the phone — the phone cannot know whether
+    /// a browser somewhere else is connected.
+    var pushWhenOnline: Bool = true
+    /// And the opposite: off means the phone is for desk hours only.
+    var pushWhenOffline: Bool = true
+
     var quietHoursEnabled: Bool = false
     /// "HH:mm", 24-hour. The server's own regex.
     var quietHoursStart: String?
@@ -54,6 +69,8 @@ struct NotificationPrefs: Codable, Equatable, Sendable {
         case pushPreview = "push_preview"
         case pushInternalNotes = "push_internal_notes"
         case playSound = "play_sound"
+        case pushWhenOnline = "push_when_online"
+        case pushWhenOffline = "push_when_offline"
         case quietHoursEnabled = "quiet_hours_enabled"
         case quietHoursStart = "quiet_hours_start"
         case quietHoursEnd = "quiet_hours_end"
@@ -76,6 +93,8 @@ struct NotificationPrefs: Codable, Equatable, Sendable {
         pushPreview = try c.decodeIfPresent(Bool.self, forKey: .pushPreview) ?? true
         pushInternalNotes = try c.decodeIfPresent(Bool.self, forKey: .pushInternalNotes) ?? true
         playSound = try c.decodeIfPresent(Bool.self, forKey: .playSound) ?? true
+        pushWhenOnline = try c.decodeIfPresent(Bool.self, forKey: .pushWhenOnline) ?? true
+        pushWhenOffline = try c.decodeIfPresent(Bool.self, forKey: .pushWhenOffline) ?? true
         quietHoursEnabled = try c.decodeIfPresent(Bool.self, forKey: .quietHoursEnabled) ?? false
         quietHoursStart = try c.decodeIfPresent(String.self, forKey: .quietHoursStart)
         quietHoursEnd = try c.decodeIfPresent(String.self, forKey: .quietHoursEnd)

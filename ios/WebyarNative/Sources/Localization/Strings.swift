@@ -405,6 +405,33 @@ enum Str {
         }
     }
 
+    /// The two presence switches. Phrased as what the operator wants, not as
+    /// the state being tested: "while I am at my desk" is a thing somebody
+    /// recognises about their own day; "push when online" is a column name.
+    static func pushWhenOnline(_ l: Language) -> String {
+        switch l {
+        case .en: "While I am at my desk"
+        case .fa: "وقتی پشت میزم هستم"
+        case .tr: "Masamdayken"
+        }
+    }
+
+    static func pushWhenOffline(_ l: Language) -> String {
+        switch l {
+        case .en: "While I am away"
+        case .fa: "وقتی دور از میزم هستم"
+        case .tr: "Uzaktayken"
+        }
+    }
+
+    static func pushPresenceFooter(_ l: Language) -> String {
+        switch l {
+        case .en: "Webyar knows you are at your desk while the web console is open. Turn the first off to keep the phone quiet while you are already answering there."
+        case .fa: "وب\u{200C}یار وقتی کنسول وب باز است می\u{200C}داند پشت میزتان هستید. اولی را خاموش کنید تا وقتی همان\u{200C}جا پاسخ می\u{200C}دهید، گوشی ساکت بماند."
+        case .tr: "Web konsolu açıkken masanızda olduğunuz bilinir. Orada zaten yanıtlarken telefonun sessiz kalması için ilkini kapatın."
+        }
+    }
+
     static func pushQuietHours(_ l: Language) -> String {
         switch l {
         case .en: "Quiet hours"

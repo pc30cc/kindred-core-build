@@ -80,6 +80,7 @@ import {
   getOperatorMessageSoundEnabled,
   setOperatorMessageSoundEnabled,
 } from '@/features/notifications/operatorMessageSound';
+import { useOperatorBrowserNotifications } from '@/features/notifications/operatorBrowserNotification';
 import { Volume2, VolumeX } from 'lucide-react';
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
@@ -547,6 +548,18 @@ export default function InboxPage() {
   // workspace). Honors per-device localStorage override + server
   // notification prefs (disable_all / play_sound / quiet hours).
   useOperatorMessageChime(workspace?.id);
+
+  // And the other half of it: an actual banner, for the operator who is in
+  // another window. The settings page has asked for the browser's permission
+  // since the day it shipped and nothing ever used it — a chime is no use to
+  // a tab nobody is looking at.
+  useOperatorBrowserNotifications({
+    workspaceId: workspace?.id,
+    viewerId: user?.id,
+    title: t('notifications.browserTitle'),
+    fallbackBody: t('notifications.browserFallback'),
+    onOpenConversation: (conversationId) => updateUrl({ c: conversationId }),
+  });
 
   // Header mute toggle (per-device).
   const [soundOn, setSoundOn] = useState<boolean>(() => getOperatorMessageSoundEnabled());

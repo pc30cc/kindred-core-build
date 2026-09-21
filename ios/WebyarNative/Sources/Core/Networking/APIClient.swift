@@ -1073,14 +1073,40 @@ actor APIClient {
         throw APIError.server(status: http.statusCode, message: message)
     }
 
+    /// The phone's own preferences, named as such.
+    ///
+    /// Without the surface the server answers with the browser's row — which
+    /// is what it did when there was only one, and is why turning push off
+    /// here also turned off the operator's desk.
     func notificationPrefs() async throws -> NotificationPrefs {
-        let request = try makeRequest("GET", "/api/notifications/prefs")
+        let request = try makeRequest(
+            "GET",
+            "/api/notifications/prefs?platform=\(NotificationPrefs.surface)"
+        )
         return try await perform(request, as: NotificationPrefsResponse.self).prefs
     }
 
     func updateNotificationPrefs(_ prefs: NotificationPrefs) async throws -> NotificationPrefs {
-        let request = try makeRequest("PATCH", "/api/notifications/prefs", body: prefs)
+        let request = try makeRequest("PATCH", "/api/notifications/prefs", body: PrefsPatch(prefs: prefs))
         return try await perform(request, as: NotificationPrefsResponse.self).prefs
+    }
+
+    /// The preference fields plus the surface they belong to, in one flat
+    /// object — which is the shape the endpoint reads.
+    ///
+    /// Encoding both into the same keyed container rather than nesting is
+    /// what keeps `NotificationPrefs` a description of the settings and
+    /// nothing else: the surface is a fact about the client, not a setting.
+    private struct PrefsPatch: Encodable {
+        let prefs: NotificationPrefs
+
+        private enum SurfaceKey: String, CodingKey { case platform }
+
+        func encode(to encoder: Encoder) throws {
+            try prefs.encode(to: encoder)
+            var container = encoder.container(keyedBy: SurfaceKey.self)
+            try container.encode(NotificationPrefs.surface, forKey: .platform)
+        }
     }
 
     // MARK: - Human guidance (operator → AI, private)

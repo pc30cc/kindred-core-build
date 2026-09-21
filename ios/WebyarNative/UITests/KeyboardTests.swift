@@ -93,7 +93,7 @@ final class KeyboardTests: UITestCase {
 
         // And down.
         XCTAssertTrue(
-            dismissKeyboardByTapping(transcript, above: keyboard),
+            dismissKeyboardByTapping(above: keyboard),
             "tapping beside the messages did not dismiss the keyboard"
         )
         Thread.sleep(forTimeInterval: 0.8)

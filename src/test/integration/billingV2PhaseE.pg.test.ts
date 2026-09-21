@@ -54,6 +54,10 @@ const CHAIN = [
   'database/migrations/119_billing_v2_entitlement_cycles.sql',
   'database/migrations/120_billing_v2_wallet_deposit_checkout.sql',
   'database/migrations/122_billing_v2_dunning.sql',
+  // 201 brings six of these functions up to the definitions the live
+  // database runs. Without it this suite would be proving the behaviour
+  // of code the chain no longer produces.
+  'database/migrations/201_billing_v2_align_with_live.sql',
 ];
 
 let client: any;

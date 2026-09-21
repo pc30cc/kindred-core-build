@@ -113,14 +113,21 @@ export function DaftareShomaConfigPanel({ workspaceId }: { workspaceId: string }
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: statusKey });
 
+  // Server error codes are short machine strings; show the translated text
+  // when we have one and fall back to the raw message otherwise.
+  const describe = (raw: string) => {
+    const translated = t(`plugins.daftareshoma.error.${raw}` as never);
+    return translated === `plugins.daftareshoma.error.${raw}` ? raw : translated;
+  };
+
   const fail = (err: unknown) => toast({
     title: t('plugins.daftareshoma.toast.failed'),
-    description: err instanceof Error ? err.message : String(err),
+    description: describe(err instanceof Error ? err.message : String(err)),
     variant: 'destructive',
   });
 
   const saveMutation = useMutation({
-    mutationFn: () => api<TelephonyStatus>('/api/telephony/daftareshoma/settings', {
+    mutationFn: () => api<TelephonyStatus & { warning?: string | null }>('/api/telephony/daftareshoma/settings', {
       method: 'PUT',
       body: JSON.stringify({
         workspace_id: workspaceId,

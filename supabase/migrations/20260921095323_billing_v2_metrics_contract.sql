@@ -5,6 +5,10 @@
 -- This is the half that actually reaches the live database: applying it is
 -- what stops the super-admin dunning panel rendering five blanks.
 --
+-- Already applied there on 2026-09-21 and recorded under this exact version,
+-- so the filename and supabase_migrations.schema_migrations agree and a later
+-- push does not see it as outstanding.
+--
 -- 201 took six billing functions from the live database, where it was ahead.
 -- These are the other two, and they go the other way: the live versions are
 -- stale and this chain has the correct ones.

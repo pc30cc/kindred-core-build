@@ -397,9 +397,12 @@ suite('Billing Engine V2 — Phase E dunning, grace and free fallback (PostgreSQ
     expect(sr.grace_period_ends_at).toBeNull();
     expect((await audits(ws)).map((a: any) => a.event)).toContain('subscription_restored');
 
-    // And the grace worker now finds nothing to do.
+    // And the grace worker now finds nothing to do. Since 201 the reason says
+    // which of the two ways it is: the subscription is not past due at all,
+    // rather than past due with no grace window recorded.
     const res = (await one(`SELECT public.billing_v2_apply_free_fallback($1) AS r`, [ws])).r;
-    expect(res.skipped).toBe('not_in_grace');
+    expect(res.skipped).toBe('not_past_due:active');
+    expect(res.free_fallback).toBeUndefined();
   });
 
   // ── Fallback ────────────────────────────────────────────────────────────

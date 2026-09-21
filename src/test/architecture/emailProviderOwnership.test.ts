@@ -49,7 +49,40 @@ describe('the email provider resolves from platform config only', () => {
     // The strongest form of "no workspace override": the function cannot
     // express one. If this signature grows a workspace argument back, the
     // override is one line away again.
-    expect(code).toMatch(/async function resolveProviderConfig\(\s*supabase: \w+,?\s*\)/);
+    //
+    // It takes one other argument now, and it is deliberately NOT a
+    // workspace: `overrideKey` names another row of `app_runtime_config` —
+    // platform infrastructure, chosen by a platform admin in Super Admin →
+    // Notifications, so operator notification emails can leave by a
+    // different transport than password resets. A key is not a tenant, and
+    // the assertion still refuses anything that looks like one.
+    expect(code).toMatch(
+      /async function resolveProviderConfig\(\s*supabase: \w+,\s*overrideKey\?: string,?\s*\)/,
+    );
+    expect(code).not.toMatch(/resolveProviderConfig\([^)]*workspace/i);
+  });
+
+  it('and only the platform can name the override', () => {
+    // The override travels as `providerConfigKey` on an `EmailRequest`. A
+    // workspace admin has no way to set it: the only senders that pass one
+    // are the platform's own, and the value they pass comes from the
+    // singleton settings row rather than from any request body.
+    const callers: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(path);
+          continue;
+        }
+        if (!entry.name.endsWith('.ts') || entry.name.endsWith('.test.ts')) continue;
+        if (path === SERVICE) continue;
+        if (stripTs(read(path)).includes('providerConfigKey')) callers.push(path);
+      }
+    };
+    walk('server');
+
+    expect(callers).toEqual(['server/services/notificationEmail/dispatcher.ts']);
   });
 
   it('no other email module reaches for a workspace provider', () => {

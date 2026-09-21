@@ -22,9 +22,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from '@/i18n';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
+  fetchNotificationEmailPrefs,
   fetchNotificationPrefs,
   notificationPlatform,
+  updateNotificationEmailPrefs,
   updateNotificationPrefs,
+  type NotificationEmailType,
   type NotificationPrefs,
   type NotificationScope,
 } from '@/lib/notifications-api';
@@ -41,6 +44,7 @@ import {
   Check,
   CheckCircle2,
   Loader2,
+  Mail,
   Moon,
   Smartphone,
 } from 'lucide-react';
@@ -187,6 +191,74 @@ function localTimezone(): string {
   } catch {
     return 'UTC';
   }
+}
+
+/**
+ * The email switches, drawn from what the platform offers.
+ *
+ * `available` comes from the server and decides which rows exist at all.
+ * That is the whole point: six email switches used to sit here with no
+ * sender behind any of them, and a switch an operator turns off and
+ * believes is worse than one that was never offered. Nothing renders here
+ * unless Super Admin has turned that type on.
+ */
+function EmailSection() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+
+  const { data } = useQuery({
+    queryKey: ['notification-email-prefs'],
+    queryFn: fetchNotificationEmailPrefs,
+  });
+
+  const mutation = useMutation({
+    mutationFn: updateNotificationEmailPrefs,
+    onSuccess: (resp) => qc.setQueryData(['notification-email-prefs'], resp),
+    onError: (err: Error) => {
+      qc.invalidateQueries({ queryKey: ['notification-email-prefs'] });
+      toast({ title: t('notifications.saveFailed'), description: err.message, variant: 'destructive' });
+    },
+  });
+
+  if (!data) return null;
+
+  const LABELS: Record<NotificationEmailType, { label: string; description?: string }> = {
+    unread_messages: {
+      label: t('notifications.emailUnreadMessages'),
+      description: t('notifications.emailUnreadMessagesHelp'),
+    },
+    transcripts: {
+      label: t('notifications.emailTranscripts'),
+      description: t('notifications.emailTranscriptsHelp'),
+    },
+    paid_invoices: {
+      label: t('notifications.emailPaidInvoices'),
+      description: t('notifications.emailPaidInvoicesHelp'),
+    },
+    weekly_summary: { label: t('notifications.emailWeeklySummary') },
+    product_updates: { label: t('notifications.emailProductUpdates') },
+  };
+
+  return (
+    <Card className="p-6">
+      <SectionHeader icon={Mail} title={t('notifications.emailTitle')} hint={t('notifications.emailHint')} />
+      {data.available.length === 0 ? (
+        <p className="mt-3 text-[12.5px] text-muted-foreground">{t('notifications.emailNone')}</p>
+      ) : (
+        <div className="mt-3 divide-y divide-border/60">
+          {data.available.map((type) => (
+            <ToggleRow
+              key={type}
+              label={LABELS[type].label}
+              description={LABELS[type].description}
+              checked={data.prefs[type] !== false}
+              onChange={(v) => mutation.mutate({ [type]: v })}
+            />
+          ))}
+        </div>
+      )}
+    </Card>
+  );
 }
 
 export default function SettingsNotificationsPage() {
@@ -386,6 +458,8 @@ export default function SettingsNotificationsPage() {
           />
         </div>
       </Card>
+
+      <EmailSection />
 
       {/* Quiet hours */}
       <Card className="p-6">

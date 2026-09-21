@@ -40,6 +40,21 @@ export interface EmailRequest {
   templateSlug?: string;
   templateData?: Record<string, string>;
   locale?: string;
+  /**
+   * Send through a provider chosen for this KIND of mail rather than the
+   * platform default.
+   *
+   * There is one default transport and the platform admin owns it. This is
+   * the one deliberate exception: Super Admin → Notifications may point the
+   * operator notification emails — digests, transcripts, announcements — at
+   * a second configured provider, so a burst of them cannot cost a platform
+   * the reputation its password resets and verification codes depend on.
+   * The key names an `app_runtime_config` row holding the same shape as
+   * `default_email_provider`; anything missing or disabled falls back to the
+   * default rather than failing, because the mail matters more than which
+   * wire it went down.
+   */
+  providerConfigKey?: string;
 }
 
 export interface ProviderConfig {
@@ -90,7 +105,24 @@ export interface SendResult {
  * templates, recipients and `email_logs` — it just no longer selects the
  * infrastructure.
  */
-async function resolveProviderConfig(supabase: SupabaseClient): Promise<ProviderConfig | null> {
+async function resolveProviderConfig(
+  supabase: SupabaseClient,
+  overrideKey?: string,
+): Promise<ProviderConfig | null> {
+  if (overrideKey && overrideKey !== 'default_email_provider') {
+    const { data, error } = await supabase
+      .from('app_runtime_config')
+      .select('value')
+      .eq('key', overrideKey)
+      .maybeSingle();
+    if (error) console.warn('[email] override provider lookup failed:', error.message);
+    const override = normalizeProviderConfig((data as { value?: unknown } | null)?.value);
+    // A named-but-unconfigured override falls through to the default. The
+    // alternative is a silent stop on mail somebody asked for, because an
+    // admin picked a provider and never filled in its key.
+    if (override) return override;
+  }
+
   const { data, error } = await supabase
     .from('app_runtime_config')
     .select('value')
@@ -279,7 +311,7 @@ export async function sendEmail(
   }
 
   // --- Resolve provider config ---
-  const providerConfig = await resolveProviderConfig(supabase);
+  const providerConfig = await resolveProviderConfig(supabase, request.providerConfigKey);
   const providerName = providerConfig?.provider_name || 'stub';
 
   // --- Resolve template if slug provided ---

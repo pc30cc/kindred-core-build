@@ -38,7 +38,10 @@ interface DbTemplate {
 const CATEGORIES = [
   { key: 'auth', icon: Shield, slugs: ['email_verify', 'password_reset', 'magic_link', 'welcome'] },
   { key: 'transactional', icon: CreditCard, slugs: ['invite_member', 'invite_otp', 'payment_success', 'payment_failed', 'subscription_renewed', 'subscription_cancelled'] },
-  { key: 'notification', icon: Bell, slugs: ['new_conversation', 'task_assigned', 'account_expiry', 'system_alert'] },
+  // The operator notification emails, plus the four placeholder slugs that
+  // were here before them. `operator_*` are the ones a sender exists for:
+  // `services/notificationEmail/producers.ts` renders through each of them.
+  { key: 'notification', icon: Bell, slugs: ['operator_unread_digest', 'operator_conversation_transcript', 'operator_invoice_paid', 'operator_weekly_summary', 'operator_product_update', 'new_conversation', 'task_assigned', 'account_expiry', 'system_alert'] },
   { key: 'billing', icon: Receipt, slugs: ['invoice_issued', 'invoice_reminder', 'invoice_due', 'invoice_past_due', 'wallet_autopay_insufficient', 'payment_received', 'subscription_restored', 'subscription_free_fallback'] },
 ] as const;
 

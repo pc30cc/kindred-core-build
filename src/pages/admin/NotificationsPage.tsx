@@ -12,7 +12,7 @@
  * only reports whether it is present and which Firebase project it targets.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Bell, SlidersHorizontal, Send, Layers, Languages, Activity, Loader2 } from 'lucide-react';
+import { Bell, SlidersHorizontal, Send, Layers, Languages, Mail, Activity, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -30,6 +30,7 @@ import { NotificationDeliveryTab } from '@/components/admin/notifications/Notifi
 import { NotificationCategoriesTab } from '@/components/admin/notifications/NotificationCategoriesTab';
 import { NotificationTemplatesTab } from '@/components/admin/notifications/NotificationTemplatesTab';
 import { NotificationDiagnosticsTab } from '@/components/admin/notifications/NotificationDiagnosticsTab';
+import { NotificationEmailTab } from '@/components/admin/notifications/NotificationEmailTab';
 
 const TABS = [
   { value: 'status', icon: Send },
@@ -37,6 +38,7 @@ const TABS = [
   { value: 'delivery', icon: Bell },
   { value: 'categories', icon: Layers },
   { value: 'templates', icon: Languages },
+  { value: 'email', icon: Mail },
   { value: 'diagnostics', icon: Activity },
 ] as const;
 
@@ -144,6 +146,9 @@ export default function AdminNotificationsPage() {
         </TabsContent>
         <TabsContent value="templates" className="space-y-4">
           <NotificationTemplatesTab draft={draft} set={set} />
+        </TabsContent>
+        <TabsContent value="email" className="space-y-4">
+          <NotificationEmailTab />
         </TabsContent>
         <TabsContent value="diagnostics" className="space-y-4">
           <NotificationDiagnosticsTab active={tab === 'diagnostics'} />

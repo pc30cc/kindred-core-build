@@ -76,3 +76,45 @@ export function updateNotificationPrefs(updates: Partial<NotificationPrefs>) {
     body: JSON.stringify({ ...updates, platform: notificationPlatform() }),
   });
 }
+
+// ─────────────────────────── email ───────────────────────────
+
+/**
+ * The operator's EMAIL preferences, which are not per-surface.
+ *
+ * Push is sent to a device, so it has a browser row and a phone row. An
+ * email is sent to a person, once — so it has its own endpoint, its own
+ * table and no platform in sight.
+ */
+export const NOTIFICATION_EMAIL_TYPES = [
+  'unread_messages',
+  'transcripts',
+  'paid_invoices',
+  'weekly_summary',
+  'product_updates',
+] as const;
+
+export type NotificationEmailType = (typeof NOTIFICATION_EMAIL_TYPES)[number];
+
+export type NotificationEmailPrefs = Record<NotificationEmailType, boolean>;
+
+export interface NotificationEmailState {
+  /**
+   * The types the PLATFORM currently offers. The page draws only these: a
+   * switch for something Super Admin has turned off is exactly the kind of
+   * control that used to save and change nothing.
+   */
+  available: NotificationEmailType[];
+  prefs: NotificationEmailPrefs;
+}
+
+export function fetchNotificationEmailPrefs() {
+  return request<NotificationEmailState>('/api/notifications/email');
+}
+
+export function updateNotificationEmailPrefs(updates: Partial<NotificationEmailPrefs>) {
+  return request<NotificationEmailState>('/api/notifications/email', {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+}

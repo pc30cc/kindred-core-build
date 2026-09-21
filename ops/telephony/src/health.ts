@@ -30,13 +30,22 @@ export async function collectHealth(deps: {
 }): Promise<HealthReport> {
   const errors: string[] = [];
 
-  const [info, sipUp, dbUp, livekit, coreUp] = await Promise.all([
+  const [info, sipUp, storeUp, asteriskDbUp, livekit, coreUp] = await Promise.all([
     deps.asterisk.info(),
     deps.asterisk.sipStackUp().catch(() => false),
     deps.store.ping().then(() => true).catch((e) => { errors.push(`db:${(e as Error).message}`); return false; }),
+    deps.asterisk.realtimeBackendUp().catch(() => false),
     deps.livekit.ready(),
     deps.core.health(),
   ]);
+
+  // BOTH connections must be up. The control service pool being healthy says
+  // nothing about res_config_pgsql, and a realtime backend that is silently
+  // down presents exactly like a workspace that was never configured.
+  const dbUp = storeUp && asteriskDbUp;
+  if (storeUp && !asteriskDbUp) {
+    errors.push('db:asterisk realtime backend not connected (check res_pgsql.conf)');
+  }
 
   if (!info.ok && info.error) errors.push(`ari:${info.error}`);
   if (!livekit.ok && livekit.error) errors.push(`livekit_sip:${livekit.error}`);

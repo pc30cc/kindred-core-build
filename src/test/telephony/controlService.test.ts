@@ -10,7 +10,7 @@ import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 
 import { createApp } from '../../../ops/telephony/src/app.js';
-import { parseRegistrationState } from '../../../ops/telephony/src/asteriskAri.js';
+import { parseRegistrationState, parseRealtimeBackendUp } from '../../../ops/telephony/src/asteriskAri.js';
 import {
   objectIdFor,
   outcomeToState,
@@ -52,6 +52,7 @@ function fakeAsterisk(state = 'Registered', overrides: Record<string, any> = {})
   return {
     info: vi.fn(async () => ({ ok: true, version: '20.0.0' })),
     sipStackUp: vi.fn(async () => true),
+    realtimeBackendUp: vi.fn(async () => true),
     cli: vi.fn(async () => ''),
     reloadRegistration: vi.fn(async () => undefined),
     registrationState: vi.fn(async () => parseRegistrationState(state)),
@@ -294,6 +295,41 @@ describe('control service — dependency failures', () => {
       gateway_healthy: true, asterisk_ari: true, asterisk_sip: true,
       realtime_db: true, livekit_sip_ready: true,
     });
+  });
+
+  // Regression: res_config_pgsql keeps its OWN connection. When it is
+  // misconfigured it silently falls back to a localhost socket while the
+  // control service's pool stays perfectly healthy — PJSIP then has no
+  // endpoints and no registrations, and every Test Connection reports
+  // `not_configured` as though the workspace had never been set up.
+  it('realtime_db is false when ASTERISK cannot reach the database, even if the service pool can', async () => {
+    const asterisk = fakeAsterisk('Registered', {
+      realtimeBackendUp: vi.fn(async () => false),
+    });
+    const { app } = buildApp({ asterisk });
+    const res = await request(app).get('/internal/telephony/health')
+      .set('authorization', `Bearer ${SECRET}`);
+    expect(res.body.realtime_db).toBe(false);
+    expect(res.body.gateway_healthy).toBe(false);
+    expect(res.body.error).toContain('realtime backend not connected');
+  });
+});
+
+describe('realtime backend status parser', () => {
+  it('reads a live connection', () => {
+    expect(parseRealtimeBackendUp(
+      'Connected to postgres@db.example.com, port 5432 with username webyar_asterisk for 61 seconds',
+    )).toBe(true);
+  });
+
+  it('reads the silent-fallback failure', () => {
+    expect(parseRealtimeBackendUp(
+      'Unable to connect asterisk on socket file /tmp with username asterisk',
+    )).toBe(false);
+  });
+
+  it('treats empty output as down', () => {
+    expect(parseRealtimeBackendUp('')).toBe(false);
   });
 });
 

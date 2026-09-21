@@ -35,6 +35,15 @@ export interface AsteriskControl {
   info(): Promise<{ ok: boolean; version?: string; error?: string }>;
   /** SIP stack liveness (`pjsip show transports` via CLI). */
   sipStackUp(): Promise<boolean>;
+  /**
+   * Whether ASTERISK ITSELF is connected to the realtime database. This is a
+   * different question from whether the control service can reach Postgres:
+   * res_config_pgsql has its own connection, and when it is misconfigured it
+   * falls back to a localhost socket and fails silently while the Node pool
+   * stays perfectly healthy. PJSIP then has no endpoints and no
+   * registrations, which is indistinguishable from "not configured yet".
+   */
+  realtimeBackendUp(): Promise<boolean>;
   cli(command: string): Promise<string>;
   /** Narrowest possible reload: re-read outbound registrations, then kick one. */
   reloadRegistration(objectId: string): Promise<void>;
@@ -88,6 +97,16 @@ function runCli(command: string): Promise<string> {
   });
 }
 
+/**
+ * Pure parser — unit tested without Asterisk.
+ *
+ * Connected looks like "Connected to <db>@<host>, port <n> with username <u>
+ * for <t> seconds"; a broken connection reports "Unable to connect ...".
+ */
+export function parseRealtimeBackendUp(output: string): boolean {
+  return /connected to /i.test(output) && !/unable to connect/i.test(output);
+}
+
 /** Pure parser — unit tested without Asterisk. */
 export function parseRegistrationState(output: string): RegistrationOutcome {
   const text = output.toLowerCase();
@@ -119,6 +138,14 @@ export function createAsteriskControl(opts: AriHttpOptions, cliRunner = runCli):
       try {
         const out = await cliRunner('pjsip show transports');
         return /transport:/i.test(out);
+      } catch {
+        return false;
+      }
+    },
+
+    async realtimeBackendUp() {
+      try {
+        return parseRealtimeBackendUp(await cliRunner('realtime show pgsql status'));
       } catch {
         return false;
       }

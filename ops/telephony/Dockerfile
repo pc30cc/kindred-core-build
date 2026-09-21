@@ -13,12 +13,17 @@ COPY src ./src
 RUN npm run build && npm prune --omit=dev
 
 # ── Stage 2: runtime ────────────────────────────────────────────────────────
-FROM node:22-bookworm-slim
+# Ubuntu 24.04 LTS, deliberately NOT Debian: Debian dropped `asterisk` from the
+# archive after bullseye, so `apt-get install asterisk` fails outright on
+# bookworm and trixie ("Package asterisk has no installation candidate").
+# Ubuntu noble carries Asterisk 20 (an LTS branch) with res_config_pgsql in
+# asterisk-modules, which is exactly what PJSIP Realtime needs.
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 # asterisk            → core, PJSIP (chan_pjsip), ARI
 # asterisk-modules    → res_config_pgsql (PostgreSQL realtime) + extra codecs
-# asterisk-opus/-core-sounds → codecs DaftareShoma / LiveKit SIP negotiate
+# asterisk-core-sounds → codecs DaftareShoma / LiveKit SIP negotiate
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       asterisk \
@@ -31,6 +36,11 @@ RUN apt-get update \
       procps \
  && rm -rf /var/lib/apt/lists/* \
  && rm -f /etc/asterisk/*.conf
+
+# Node 22 runtime only (no npm/corepack): the service is already compiled in
+# stage 1, so a single glibc-linked binary from the official image is all the
+# runtime needs and it keeps the Node version identical to the build stage.
+COPY --from=build /usr/local/bin/node /usr/local/bin/node
 
 WORKDIR /opt/webyar/app
 COPY --from=build /opt/webyar/app/node_modules ./node_modules

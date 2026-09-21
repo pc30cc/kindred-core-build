@@ -61,9 +61,37 @@ image.
    SIP is required, there is no fallback media path. If it is unreachable the
    service reports `livekit_sip_ready: false` and stays unhealthy rather than
    switching to another media architecture.
-4. `TELEPHONY_INTERNAL_SECRET` and `TELEPHONY_INTERNAL_BASE_URL` set on Core.
+4. A Redis instance reachable from BOTH `livekit` and `livekit-sip`, with the
+   same address configured on each (`LIVEKIT_REDIS_ADDRESS` here,
+   `LIVEKIT_REDIS_ADDRESS` on the LiveKit deployment). This is not optional and
+   not the same thing as multi-node LiveKit: livekit-sip registers itself with
+   livekit-server over Redis and nothing else, so with Redis missing on either
+   side the trunk exists but no call ever reaches a room.
+5. `TELEPHONY_INTERNAL_SECRET` and `TELEPHONY_INTERNAL_BASE_URL` set on Core.
 
 ## Deploy
+
+### Coolify
+
+Deploy as a **Docker Compose** resource, with the base directory pointed at
+this folder so the relative build context resolves:
+
+```text
+Build Pack              : Docker Compose
+Base Directory          : /ops/telephony
+Docker Compose Location : /docker-compose.telephony.yml
+```
+
+Setting `Base Directory: /` and `Docker Compose Location:
+/ops/telephony/docker-compose.telephony.yml` does NOT work: Coolify passes
+`--project-directory <base directory>`, so `build.context: .` would resolve to
+the repository root and build the wrong Dockerfile.
+
+`WEBYAR_NETWORK` must name an existing Docker network that Core, LiveKit and
+Redis are reachable on — Coolify attaches the stack to that network in addition
+to the one it creates for the resource.
+
+### Plain Docker Compose
 
 ```bash
 cp telephony.env.example .env      # fill in real values, never commit

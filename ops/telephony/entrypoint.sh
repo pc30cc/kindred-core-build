@@ -46,14 +46,48 @@ fi
 : "${ASTERISK_DB_NAME:?ASTERISK_DB_URL or ASTERISK_DB_NAME is required}"
 export ASTERISK_DB_PORT="${ASTERISK_DB_PORT:-5432}"
 
+# ── Locate the Asterisk module layout ───────────────────────────────────────
+# Distributions disagree: Debian used /usr/lib/asterisk/modules, Ubuntu ships
+# /usr/lib/<triplet>/asterisk/modules, RPM distros use /usr/lib64/... . Detect
+# it instead of baking one path into asterisk.conf, or Asterisk starts with no
+# modules at all and PJSIP/ARI silently never come up.
+if [[ -z "${ASTERISK_MODULES_DIR:-}" ]]; then
+  for candidate in /usr/lib/*/asterisk/modules /usr/lib/asterisk/modules /usr/lib64/asterisk/modules; do
+    if [[ -d "$candidate" ]]; then
+      ASTERISK_MODULES_DIR="$candidate"
+      break
+    fi
+  done
+fi
+: "${ASTERISK_MODULES_DIR:?could not locate the Asterisk modules directory}"
+export ASTERISK_MODULES_DIR
+
+# Opus is packaged as codec_opus.so on some distros and as
+# codec_opus_open_source.so on Ubuntu. Naming the wrong one logs a module load
+# error on every start, so resolve it from what is actually installed.
+if [[ -z "${ASTERISK_CODEC_OPUS:-}" ]]; then
+  if [[ -f "${ASTERISK_MODULES_DIR}/codec_opus.so" ]]; then
+    ASTERISK_CODEC_OPUS="codec_opus.so"
+  elif [[ -f "${ASTERISK_MODULES_DIR}/codec_opus_open_source.so" ]]; then
+    ASTERISK_CODEC_OPUS="codec_opus_open_source.so"
+  else
+    ASTERISK_CODEC_OPUS="codec_opus.so"
+  fi
+fi
+export ASTERISK_CODEC_OPUS
+
 # ── Render configuration templates ──────────────────────────────────────────
 mkdir -p /etc/asterisk
+# Substitute ONLY these names. Bare `envsubst` expands every ${VAR} it sees,
+# which would blank out Asterisk's own dialplan variables (${EXTEN} and
+# friends) because they are valid shell identifiers that are unset here.
+TEMPLATE_VARS='${ASTERISK_ARI_PASSWORD} ${ASTERISK_ARI_USER} ${ASTERISK_CODEC_OPUS} ${ASTERISK_DB_HOST} ${ASTERISK_DB_NAME} ${ASTERISK_DB_PASSWORD} ${ASTERISK_DB_PORT} ${ASTERISK_DB_USER} ${ASTERISK_MODULES_DIR} ${LIVEKIT_SIP_HOST} ${LIVEKIT_SIP_URI} ${TELEPHONY_PUBLIC_SIP_HOST} ${TELEPHONY_RTP_PORT_MAX} ${TELEPHONY_RTP_PORT_MIN}'
 for template in /opt/webyar/asterisk/*.conf; do
   name="$(basename "$template")"
-  envsubst < "$template" > "/etc/asterisk/${name}"
+  envsubst "$TEMPLATE_VARS" < "$template" > "/etc/asterisk/${name}"
 done
 chown -R asterisk:asterisk /etc/asterisk /var/lib/asterisk /var/log/asterisk /var/spool/asterisk /var/run/asterisk 2>/dev/null || true
-echo '{"event":"telephony.container.config_rendered"}'
+echo "{\"event\":\"telephony.container.config_rendered\",\"modules_dir\":\"${ASTERISK_MODULES_DIR}\",\"opus_module\":\"${ASTERISK_CODEC_OPUS}\"}"
 
 # ── Start Asterisk ──────────────────────────────────────────────────────────
 asterisk -U asterisk -G asterisk -f &

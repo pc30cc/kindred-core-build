@@ -12,7 +12,7 @@ import { getServiceClient } from '../../../supabase.js';
 import type { ReadOnlyToolResult } from '../actions/readOnly.js';
 import { CommerceError, type CommerceErrorCode } from '../../../../shared/commerce/types.js';
 import { getActiveConnectionForWorkspace, withCommerceConnector, assertPermission, assertCommerceModuleEntitled, type CommerceConnectionRow } from '../../commerce/gateway.js';
-import { searchIndexedProducts, listIndexedCategories, type IndexedProductRow } from '../../commerce/productIndex.js';
+import { searchIndexedProducts, listIndexedCategories, buildSearchTerms, type IndexedProductRow } from '../../commerce/productIndex.js';
 import { detectCommerceIntent } from './intent.js';
 import { MAX_COMMERCE_CALLS_PER_TURN, MAX_RESULTS_PER_TOOL, COMMERCE_TOOL_DEADLINE_MS } from './limits.js';
 import { randomUUID } from 'node:crypto';
@@ -106,13 +106,42 @@ async function resolveVerifiedCustomer(
  */
 export async function runCommerceToolStage(config: ServerConfig, input: CommerceStageInput): Promise<CommerceStageResult> {
   const empty: CommerceStageResult = { toolResults: [], toolsUsed: [] };
+  /** Rows the catalogue probe already fetched, so the search below does not re-run it. */
+  let catalogueProbe: { rows: IndexedProductRow[]; startedAt: number } | null = null;
   try {
-    const intent = detectCommerceIntent(input.question);
-    if (intent.kind === 'none') return empty;
+    const keywordIntent = detectCommerceIntent(input.question);
 
     const connection = await getActiveConnectionForWorkspace(config, input.workspaceId);
     if (!connection) return empty;
     await assertCommerceModuleEntitled(config, input.workspaceId); // plan gate — throws CommerceError, caught below
+
+    /**
+     * When no phrasing rule matched, ask the CATALOGUE whether this was a
+     * product question.
+     *
+     * The keyword list could not keep up with how people actually type.
+     * «تی شرت هم داری ؟» and «پاور بانک چی داشتی» both produced no intent at
+     * all — the informal singular «داری» is deliberately not a stock word
+     * («دوست داری» is not about the shop) and the past tense «داشتی» was in
+     * no list — so the commerce stage never ran and the assistant answered
+     * about a t-shirt the shop very much sells with "I have no information".
+     *
+     * Every missing phrasing is a new rule, and the rules will never be
+     * finished. The catalogue is the thing that actually knows: if the words
+     * in a message name something the shop stocks, it is a product question,
+     * whatever verb it was asked with. It is self-limiting — a message that
+     * matches nothing adds nothing — and it costs one bounded index query.
+     */
+    let intent = keywordIntent;
+    if (intent.kind === 'none') {
+      if (!buildSearchTerms(input.question).length) return empty;
+      const probeStartedAt = Date.now();
+      const { rows } = await searchIndexedProducts(config, connection.id, { text: input.question, limit: MAX_RESULTS_PER_TOOL })
+        .catch(() => ({ rows: [] as IndexedProductRow[] }));
+      if (!rows.length) return empty;
+      intent = { kind: 'search_products', filters: { text: input.question, limit: MAX_RESULTS_PER_TOOL } };
+      catalogueProbe = { rows, startedAt: probeStartedAt };
+    }
 
     const deadlineAt = Date.now() + COMMERCE_TOOL_DEADLINE_MS;
     const results: ReadOnlyToolResult[] = [];
@@ -215,8 +244,12 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
       }
       case 'search_products': {
         assertPermission(connection, 'products'); // throws commerce_permission_denied if not granted — caught below
-        const searchStartedAt = Date.now();
-        const { rows } = await searchIndexedProducts(config, connection.id, intent.filters).catch(() => ({ rows: [] as IndexedProductRow[] }));
+        const searchStartedAt = catalogueProbe?.startedAt ?? Date.now();
+        // The probe above already ran exactly this search; running it twice
+        // would double the cost of every question it rescued.
+        const { rows } = catalogueProbe
+          ? { rows: catalogueProbe.rows }
+          : await searchIndexedProducts(config, connection.id, intent.filters).catch(() => ({ rows: [] as IndexedProductRow[] }));
         const bounded = rows.slice(0, MAX_RESULTS_PER_TOOL);
         for (const row of bounded) results.push({ name: 'commerce.search_products', data: productRowToToolData(row, connection) });
         toolsUsed.push('commerce.search_products');

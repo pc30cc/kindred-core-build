@@ -227,6 +227,28 @@ describe('what the model receives for a store question', () => {
     expect(renderToolResults(toolResults)).toContain('remedy=sign_in_to_store');
   });
 
+  it('answers «تی شرت هم داری ؟» — the verb a real shopper uses', async () => {
+    // From the live store. The informal singular «داری» is deliberately not a
+    // stock word («دوست داری» is not about the shop) and no rule covered this
+    // phrasing, so no intent matched, the commerce stage never ran, and the
+    // assistant said it had no information about a t-shirt the shop sells.
+    // The catalogue knows better than the keyword list: the words name a
+    // product, so it is a product question.
+    const { toolResults } = await ask('تی شرت هم داری ؟');
+    const hits = toolResults.filter((r) => r.name === 'commerce.search_products');
+
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits[0].data.title).toBe('تی‌شرت نخی وب‌یار');
+  });
+
+  it('and «پاور بانک چی داشتی» — past tense, spaced compound, still a product question', async () => {
+    const { toolResults } = await ask('پاور بانک چی داشتی');
+    const hits = toolResults.filter((r) => r.name === 'commerce.search_products');
+
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits[0].data.title).toBe('پاوربانک ۲۰۰۰۰ میلی‌آمپر ولت‌مکس');
+  });
+
   it('stays out of the way of a question that is not about the shop', async () => {
     const { toolResults, toolsUsed } = await ask('سلام خوبی؟');
     expect(toolResults).toEqual([]);

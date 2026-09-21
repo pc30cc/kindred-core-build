@@ -139,6 +139,28 @@ describe('what it costs', () => {
   });
 });
 
+describe('the shop’s own front page', () => {
+  it('survives — it needs no product to vouch for it', async () => {
+    // From the live store: «لینک صفحه فروشگاه وب‌یار همینه:» arrived with
+    // nothing after the colon. The front page has no path to match a product
+    // with, so it scored zero against every candidate and was dropped like an
+    // invented link.
+    const answer = `لینک صفحه فروشگاه وب‌یار همینه: ${STORE}`;
+
+    expect(await verify(answer)).toBe(answer);
+  });
+
+  it('in either spelling', async () => {
+    const answer = `فروشگاه: ${STORE}/ — ببینید`;
+    expect(await verify(answer)).toBe(answer);
+  });
+
+  it('but a made-up path on the same host is still dropped', async () => {
+    const out = await verify(`${STORE}/product/nova-12`);
+    expect(out).not.toContain('nova-12');
+  });
+});
+
 describe('links that are not the shop’s', () => {
   it('are left exactly as they are', async () => {
     const answer = 'راهنما: https://docs.example.com/guide و https://wordpress.org/plugins/';

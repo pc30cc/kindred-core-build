@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -33,6 +32,8 @@ android {
         }
     }
 
+    // AGP 9's built-in Kotlin takes its jvmTarget from here, so there is no
+    // separate Kotlin block to keep in step with it.
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -54,14 +55,6 @@ android {
             // this every Compose test on the JVM fails looking for them.
             isIncludeAndroidResources = true
         }
-    }
-}
-
-// The Kotlin Gradle Plugin's own block, deliberately outside `android {}`:
-// the nested `kotlinOptions` spelling is gone in AGP 9.
-kotlin {
-    compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 

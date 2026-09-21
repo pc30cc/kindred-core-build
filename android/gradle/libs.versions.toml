@@ -28,7 +28,7 @@ androidx-compose-material-icons-core = { group = "androidx.compose.material", na
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 # Compose's compiler ships with Kotlin itself since 2.0, so it is never
-# versioned separately from the language.
+# versioned separately from the language. This is the ONLY Kotlin plugin the
+# project applies; AGP 9 compiles Kotlin on its own.
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

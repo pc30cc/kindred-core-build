@@ -53,7 +53,7 @@ function row(external_id: string, product_type: string, sku: string, title: stri
 const CONNECTION: any = {
   id: CONN, workspace_id: WS, installation_id: 'inst-1', provider_type: 'woocommerce',
   store_id: 'https://p.webyar.ai', approved_origin: 'https://p.webyar.ai',
-  capabilities: ['store.read', 'products.read', 'availability.read', 'orders.read'],
+  capabilities: ['store.read', 'products.read', 'availability.read', 'reviews.read', 'orders.read'],
   permissions: { stock: true, orders: true, prices: true, products: true, tracking: true, order_status: true, customer_history: true },
   health: 'connected', catalog_ready: true, revoked_at: null, protocol_version: 'webyar-commerce/1',
 };
@@ -105,6 +105,15 @@ vi.mock('../../../server/services/commerce/gateway.js', async (orig) => {
           };
         },
         getStoreInfo: async () => ({ name: 'فروشگاه آزمایشی وب‌یار', currency: 'IRT', url: 'https://p.webyar.ai', catalogReady: true, productCount: 11 }),
+        getProductReviews: async (_ctx: any, input: any) => ({
+          productExternalId: input.productExternalId,
+          averageRating: 4.5,
+          reviewCount: 4,
+          reviews: [
+            { author: 'مریم کریمی', rating: 5, verified: true, date: '2026-09-18T00:00:00Z', text: 'کیفیتش واقعاً بالاتر از قیمتشه.' },
+            { author: 'حسین مرادی', rating: 3, verified: false, date: '2026-09-11T00:00:00Z', text: 'بد نیست ولی انتظار بیشتری داشتم.' },
+          ],
+        }),
       };
       return fn(connector, { correlationId: opts.correlationId ?? 'test' });
     },
@@ -227,6 +236,33 @@ describe('what the model receives for a store question', () => {
     const { toolResults } = await ask('یه هدفون خوب معرفی کن');
 
     expect(toolResults).toEqual([{ name: 'commerce_status', data: { error_code: 'catalog_syncing' } }]);
+  });
+
+  it('reads the shop’s own reviews back, instead of claiming it has no access', async () => {
+    // Live: «نظرات در مورد این محصول چیه» → «بدون دسترسی به داده‌های نظرات
+    // نمی‌توانم». It was telling the truth — the plugin sent no rating or
+    // review at all, so a shop with dozens of them looked like one with none.
+    const { toolResults } = await ask('نظرات در مورد ساعت هوشمند پالس چیه؟');
+    const summary = toolResults.find((r) => r.name === 'commerce.get_reviews')!;
+    const quotes = toolResults.filter((r) => r.name === 'commerce.review');
+
+    expect(summary.data.product).toBe('ساعت هوشمند پالس ۳');
+    expect(summary.data.average_rating).toBe(4.5);
+    expect(summary.data.review_count).toBe(4);
+    expect(quotes).toHaveLength(2);
+    expect(quotes[0].data).toMatchObject({ author: 'مریم کریمی', rating: 5, verified: true });
+    // The model is handed the words themselves, so it can summarise honestly.
+    expect(renderToolResults(toolResults)).toContain('کیفیتش واقعاً بالاتر از قیمتشه.');
+  });
+
+  it('says so plainly when the product a review question names is not stocked', async () => {
+    const { toolResults } = await ask('نظرات درباره‌ی تلویزیون چیه؟');
+    expect(toolResults).toContainEqual({ name: 'commerce.get_reviews', data: { error_code: 'product_not_found' } });
+  });
+
+  it('does not turn a price question into a review question', async () => {
+    const { toolResults } = await ask('قیمت ساعت هوشمند پالس چنده؟');
+    expect(toolResults.some((r) => r.name === 'commerce.get_reviews')).toBe(false);
   });
 
   it('refuses to reveal an order to an unverified visitor, and says how to fix that', async () => {

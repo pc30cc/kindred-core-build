@@ -33,6 +33,7 @@ import {
   type CommerceOrderSummary,
   CommerceError,
 } from '../../../../shared/commerce/types.js';
+import type { ProductReviewsResult } from '../../../../shared/commerce/types.js';
 import { commerceHttpRequest } from '../httpClient.js';
 import { buildSignedHeaders } from '../signing.js';
 import { sanitizeCommerceText, sanitizeUrl, boundedArray } from '../sanitize.js';
@@ -241,6 +242,34 @@ export class WooCommerceConnector implements CommerceConnector {
       effectivePrice: toMoney(data.effective_price, data.currency ?? 'USD'),
       asOf: new Date().toISOString(),
       source: 'live',
+    };
+  }
+
+  async getProductReviews(
+    ctx: CommerceConnectorContext,
+    input: { productExternalId: string; limit?: number },
+  ): Promise<ProductReviewsResult> {
+    const data = await this.call(ctx, 'POST', '/wp-json/webyar/v1/products/reviews', {
+      product_id: input.productExternalId,
+      limit: input.limit ?? 5,
+    });
+    if (!data || data.found === false) throw new CommerceError('product_not_found', 'product not found');
+    const average = Number(data.average_rating);
+    return {
+      productExternalId: String(data.product_id ?? input.productExternalId),
+      // WooCommerce reports "0" for a product nobody has rated; that is an
+      // absence, not a score of zero.
+      averageRating: Number.isFinite(average) && average > 0 ? average : null,
+      reviewCount: Number.isFinite(Number(data.review_count)) ? Number(data.review_count) : 0,
+      reviews: Array.isArray(data.reviews)
+        ? data.reviews.slice(0, 10).map((r: any) => ({
+            author: String(r?.author ?? '').slice(0, 80),
+            rating: Number.isFinite(Number(r?.rating)) ? Number(r.rating) : null,
+            verified: !!r?.verified,
+            date: String(r?.date ?? ''),
+            text: String(r?.text ?? '').slice(0, 600),
+          }))
+        : [],
     };
   }
 

@@ -252,6 +252,42 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
         auditIndexRead('commerce.browse_products', browseStartedAt, { resultCount: rows.length });
         break;
       }
+      case 'product_reviews': {
+        // Which product the visitor means comes from the index, exactly as
+        // the availability branch resolves it; the reviews themselves are
+        // read live, because a review posted this morning should be readable
+        // this morning and there is no review column in the index.
+        assertPermission(connection, 'products');
+        const reviewsStartedAt = Date.now();
+        const { rows } = await searchIndexedProducts(config, connection.id, { text: intent.text, limit: 1 })
+          .catch(() => ({ rows: [] as IndexedProductRow[] }));
+        const subject = rows[0];
+        if (!subject) {
+          results.push({ name: 'commerce.get_reviews', data: { error_code: 'product_not_found' } });
+          auditIndexRead('commerce.get_reviews', reviewsStartedAt, { resultCount: 0, errorCode: 'product_not_found' });
+          break;
+        }
+        const reviews = await callGateway<any>('commerce.get_reviews', 'products', 'reviews.read', (c: any, ctx: any) =>
+          (c.getProductReviews
+            ? c.getProductReviews(ctx, { productExternalId: subject.external_id, limit: MAX_RESULTS_PER_TOOL })
+            : Promise.resolve(null)));
+        if (!reviews) break; // the gateway already pushed a safe error result
+        results.push({ name: 'commerce.get_reviews', data: {
+          product: subject.title,
+          average_rating: reviews.averageRating,
+          review_count: reviews.reviewCount,
+        } });
+        for (const r of reviews.reviews ?? []) {
+          results.push({ name: 'commerce.review', data: {
+            product: subject.title,
+            author: r.author,
+            rating: r.rating,
+            verified: r.verified,
+            text: r.text,
+          } });
+        }
+        break;
+      }
       case 'list_categories': {
         assertPermission(connection, 'products');
         const categoriesStartedAt = Date.now();

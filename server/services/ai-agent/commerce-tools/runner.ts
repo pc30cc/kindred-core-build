@@ -11,10 +11,12 @@ import type { ServerConfig } from '../../../config.js';
 import { getServiceClient } from '../../../supabase.js';
 import type { ReadOnlyToolResult } from '../actions/readOnly.js';
 import { CommerceError, type CommerceErrorCode } from '../../../../shared/commerce/types.js';
-import { getActiveConnectionForWorkspace, withCommerceConnector, assertPermission, assertCommerceModuleEntitled } from '../../commerce/gateway.js';
+import { getActiveConnectionForWorkspace, withCommerceConnector, assertPermission, assertCommerceModuleEntitled, type CommerceConnectionRow } from '../../commerce/gateway.js';
 import { searchIndexedProducts, listIndexedCategories, type IndexedProductRow } from '../../commerce/productIndex.js';
 import { detectCommerceIntent } from './intent.js';
 import { MAX_COMMERCE_CALLS_PER_TURN, MAX_RESULTS_PER_TOOL, COMMERCE_TOOL_DEADLINE_MS } from './limits.js';
+import { randomUUID } from 'node:crypto';
+import { recordCommerceToolAudit } from '../../commerce/audit.js';
 
 export interface CommerceStageInput {
   workspaceId: string;
@@ -33,7 +35,32 @@ function moneyToToman(amountMinor: number | null): string | null {
   return String(amountMinor);
 }
 
-function productRowToToolData(row: IndexedProductRow): Record<string, unknown> {
+/**
+ * A link the model can actually reproduce.
+ *
+ * The canonical permalink of a Persian-named product is percent-encoded —
+ * the only form that survives HTTP — and a model handed one does not copy
+ * it, it retypes it. On the live store it produced a URL that decoded to
+ * «میليياٟمپر» instead of «میلی‌آمپر», and, asked for a link a turn later,
+ * simply invented `/product/nova-12`. Both answer 404.
+ *
+ * WordPress resolves `?p=<id>` for any public post and redirects to the
+ * canonical permalink, so this is the SAME page behind thirty ASCII
+ * characters. Checked against the live store: `?p=17` answers 200 and lands
+ * on the canonical URL.
+ *
+ * The visitor never sees this form — `verifyStoreLinks` turns it back into
+ * the canonical permalink after generation, and the widget renders a button
+ * either way. It exists purely so the model has something it can copy.
+ */
+function modelSafeProductUrl(connection: CommerceConnectionRow, row: IndexedProductRow): string | null {
+  if (connection.provider_type !== 'woocommerce') return row.canonical_url;
+  const store = String(connection.store_id || '').replace(/\/+$/, '');
+  if (!store || !row.external_id) return row.canonical_url;
+  return `${store}/?p=${encodeURIComponent(row.external_id)}`;
+}
+
+function productRowToToolData(row: IndexedProductRow, connection: CommerceConnectionRow): Record<string, unknown> {
   return {
     external_id: row.external_id,
     title: row.title,
@@ -43,7 +70,7 @@ function productRowToToolData(row: IndexedProductRow): Record<string, unknown> {
     currency: row.currency,
     stock_state: row.stock_state,
     stock_quantity: row.stock_quantity,
-    url: row.canonical_url,
+    url: modelSafeProductUrl(connection, row),
   };
 }
 
@@ -91,6 +118,40 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
     const results: ReadOnlyToolResult[] = [];
     const toolsUsed: string[] = [];
     let calls = 0;
+    // ONE id for the whole turn, so the audit rows of a single question can
+    // be read together. Without it each gateway call minted its own and the
+    // trail could not be joined back into a turn.
+    const correlationId = input.correlationId ?? randomUUID();
+
+    /**
+     * COMPLIANCE_AUDIT_LOGGING for the tools served from Web Yar's OWN index.
+     *
+     * `withCommerceConnector` already audits everything that reaches the
+     * store, but a catalogue search, a browse and a category listing never
+     * go through it — they read the index instead. They are still an AI
+     * agent reading a merchant's catalogue, and they were the only commerce
+     * tools leaving no trace at all. `cacheHit` says exactly which side
+     * answered: true here, false for a call that went to the store.
+     */
+    const auditIndexRead = (
+      toolName: string,
+      startedAt: number,
+      outcome: { resultCount?: number | null; errorCode?: string | null },
+    ) => {
+      void recordCommerceToolAudit(config, {
+        workspaceId: input.workspaceId,
+        connectionId: connection.id,
+        conversationId: input.conversationId,
+        correlationId,
+        toolName,
+        durationMs: Date.now() - startedAt,
+        success: !outcome.errorCode,
+        safeErrorCode: outcome.errorCode ?? null,
+        cacheHit: true,
+        liveRevalidated: false,
+        resultCount: outcome.resultCount ?? null,
+      });
+    };
 
     const callGateway = async <T>(toolName: string, permission: Parameters<typeof assertPermission>[1], capability: any, fn: any): Promise<T | null> => {
       if (calls >= MAX_COMMERCE_CALLS_PER_TURN || Date.now() >= deadlineAt) return null;
@@ -98,7 +159,7 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
       toolsUsed.push(toolName);
       try {
         return await withCommerceConnector(config, input.workspaceId, connection.id, {
-          capability, permission, toolName, conversationId: input.conversationId, correlationId: input.correlationId,
+          capability, permission, toolName, conversationId: input.conversationId, correlationId,
         }, fn);
       } catch (err) {
         const code: CommerceErrorCode = err instanceof CommerceError ? err.code : 'commerce_invalid_response';
@@ -109,6 +170,7 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
 
     if (!connection.catalog_ready) {
       results.push({ name: 'commerce_status', data: { error_code: 'catalog_syncing' } });
+      auditIndexRead('commerce.catalog_status', Date.now(), { errorCode: 'catalog_syncing' });
       return { toolResults: results, toolsUsed };
     }
 
@@ -124,15 +186,18 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
         // most recently updated rows, which is the closest thing to "what we
         // sell" that the catalogue can answer without inventing a ranking.
         assertPermission(connection, 'products');
+        const browseStartedAt = Date.now();
         const { rows, totalMatched } = await searchIndexedProducts(config, connection.id, { limit: MAX_RESULTS_PER_TOOL })
           .catch(() => ({ rows: [] as IndexedProductRow[], totalMatched: 0 }));
-        for (const row of rows) results.push({ name: 'commerce.search_products', data: productRowToToolData(row) });
+        for (const row of rows) results.push({ name: 'commerce.search_products', data: productRowToToolData(row, connection) });
         results.push({ name: 'commerce.catalog_size', data: { total_products: totalMatched } });
         toolsUsed.push('commerce.browse_products');
+        auditIndexRead('commerce.browse_products', browseStartedAt, { resultCount: rows.length });
         break;
       }
       case 'list_categories': {
         assertPermission(connection, 'products');
+        const categoriesStartedAt = Date.now();
         const categories = await listIndexedCategories(config, connection.id).catch(() => []);
         if (!categories.length) {
           results.push({ name: 'commerce.list_categories', data: { error_code: 'no_categories' } });
@@ -142,14 +207,20 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
           }
         }
         toolsUsed.push('commerce.list_categories');
+        auditIndexRead('commerce.list_categories', categoriesStartedAt, {
+          resultCount: categories.length,
+          errorCode: categories.length ? null : 'no_categories',
+        });
         break;
       }
       case 'search_products': {
         assertPermission(connection, 'products'); // throws commerce_permission_denied if not granted — caught below
+        const searchStartedAt = Date.now();
         const { rows } = await searchIndexedProducts(config, connection.id, intent.filters).catch(() => ({ rows: [] as IndexedProductRow[] }));
         const bounded = rows.slice(0, MAX_RESULTS_PER_TOOL);
-        for (const row of bounded) results.push({ name: 'commerce.search_products', data: productRowToToolData(row) });
+        for (const row of bounded) results.push({ name: 'commerce.search_products', data: productRowToToolData(row, connection) });
         toolsUsed.push('commerce.search_products');
+        auditIndexRead('commerce.search_products', searchStartedAt, { resultCount: bounded.length });
 
         // Live revalidation of the top candidates before the AI states
         // price/stock as fact (spec §25) — never trust the index alone for
@@ -164,10 +235,12 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
         break;
       }
       case 'get_availability': {
+        const availabilityStartedAt = Date.now();
         const { rows } = await searchIndexedProducts(config, connection.id, { text: intent.text, limit: 1 }).catch(() => ({ rows: [] as IndexedProductRow[] }));
         const top = rows[0];
         if (!top) {
           results.push({ name: 'commerce.get_availability', data: { error_code: 'product_not_found' } });
+          auditIndexRead('commerce.get_availability', availabilityStartedAt, { resultCount: 0, errorCode: 'product_not_found' });
           break;
         }
         const avail = await callGateway<any>('commerce.get_availability', 'stock', 'availability.read', (c: any, ctx: any) => c.getAvailability(ctx, { productExternalId: top.external_id }));
@@ -181,7 +254,14 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
         if (!externalCustomerId) {
           // Order number alone (or "my last order" with no verified
           // identity) is never sufficient — spec §28/§43. No order data leaks.
-          results.push({ name: 'commerce.order_lookup', data: { error_code: 'identity_required' } });
+          // Naming the remedy, not just the refusal: this store verifies a
+          // customer by them being signed in to it, so "sign in and ask
+          // again" is an answer the visitor can act on, where a bare
+          // `identity_required` left the model to invent one.
+          results.push({ name: 'commerce.order_lookup', data: { error_code: 'identity_required', remedy: 'sign_in_to_store' } });
+          // A refusal is part of the record: it says an order was asked for
+          // and that nothing was disclosed.
+          auditIndexRead('commerce.order_lookup', Date.now(), { errorCode: 'identity_required' });
           break;
         }
         if (intent.kind === 'order_status') {

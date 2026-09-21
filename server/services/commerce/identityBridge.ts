@@ -11,6 +11,7 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { CommerceError } from '../../../shared/commerce/types.js';
 import { readInstallationSecret } from './credentials.js';
+import { ensureVisitorContact } from '../widget/anonymousContact.js';
 
 const ASSERTION_MAX_AGE_MS = 2 * 60 * 1000; // the plugin issues a fresh one every load — matches spec's "short-lived (2 minute)"
 const LINK_TTL_MS = 24 * 60 * 60 * 1000;
@@ -18,6 +19,14 @@ const LINK_TTL_MS = 24 * 60 * 60 * 1000;
 export interface CustomerContextAssertion {
   installation_id: string;
   external_customer_id: string;
+  /**
+   * Who the shopper is, as the store knows them. Signed with everything
+   * else, so a browser can read these but cannot change them. Absent from
+   * assertions issued by plugin builds older than this field.
+   */
+  email?: string;
+  name?: string;
+  phone?: string;
   issued_at: number; // epoch seconds
   expires_at: number; // epoch seconds
   nonce: string;
@@ -101,6 +110,22 @@ export async function verifyAndBindCustomerContext(
     expires_at: expiresAt,
   });
   if (error) throw new Error(`customer link write failed: ${error.message}`);
+
+  // Being signed in to the shop IS the verification — the store already
+  // knows this person — so the conversation is filed under the real customer
+  // instead of an anonymous visitor. Best effort on purpose: the link above
+  // is what makes order questions answerable, and it must not be undone
+  // because a contact row could not be written.
+  await ensureVisitorContact(sb, {
+    workspaceId,
+    visitorId,
+    name: payload.name ?? null,
+    email: payload.email ?? null,
+    phone: payload.phone ?? null,
+  }).catch((err) => {
+    console.warn('[commerce.identity] contact upsert failed:', err instanceof Error ? err.message : err);
+    return null;
+  });
 
   return { externalCustomerId: payload.external_customer_id };
 }

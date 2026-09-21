@@ -35,6 +35,7 @@ let connections: Row[] = [];
 let nonceError: Row | null = null;
 
 const seen = {
+  contacts: [] as Row[],
   links: [] as Row[],
   nonces: [] as Row[],
   /** Filters the connection lookup applied, so the workspace/revoked guards are visible. */
@@ -76,6 +77,9 @@ vi.mock('../../../server/services/commerce/credentials.js', () => ({
   readInstallationSecret: async (_c: any, installationId: string) =>
     installationId === INSTALL ? SECRET : null,
 }));
+vi.mock('../../../server/services/widget/anonymousContact.js', () => ({
+  ensureVisitorContact: async (_sb: any, input: Row) => { seen.contacts.push(input); return 'contact-1'; },
+}));
 
 const { verifyAndBindCustomerContext } = await import('../../../server/services/commerce/identityBridge.js');
 
@@ -89,6 +93,9 @@ function assertion(over: Record<string, any> = {}, secret = SECRET) {
   const payload = b64url(JSON.stringify({
     installation_id: INSTALL,
     external_customer_id: '2',
+    email: 'shopper@example.com',
+    name: 'رضا محمدی',
+    phone: '09120000000',
     issued_at: now,
     expires_at: now + 120,
     nonce: Math.random().toString(16).slice(2),
@@ -104,6 +111,7 @@ const bind = (connectionId: string | null, raw = assertion()) =>
 beforeEach(() => {
   connections = [{ id: CONN_NEW, workspace_id: WS, installation_id: INSTALL, revoked_at: null, created_at: '2026-09-01T00:00:00Z' }];
   nonceError = null;
+  seen.contacts.length = 0;
   seen.links.length = 0;
   seen.nonces.length = 0;
   seen.connectionFilters.length = 0;
@@ -202,5 +210,42 @@ describe('what still has to be true about the assertion', () => {
     await expect(bind(null, 'not-an-assertion')).rejects.toMatchObject({ code: 'identity_expired' });
     expect(seen.connectionFilters).toEqual([]);
     expect(seen.links).toEqual([]);
+  });
+});
+
+describe('being signed in to the shop is the verification', () => {
+  it('files the conversation under the real customer, not an anonymous visitor', async () => {
+    // The store already knows who this is, so the details ride along inside
+    // the signed payload and the contact stops being "Visitor".
+    await bind(null);
+
+    expect(seen.contacts).toHaveLength(1);
+    expect(seen.contacts[0]).toMatchObject({
+      workspaceId: WS,
+      visitorId: VISITOR,
+      name: 'رضا محمدی',
+      email: 'shopper@example.com',
+      phone: '09120000000',
+    });
+  });
+
+  it('accepts an assertion from an older plugin that carries no details', async () => {
+    // A store running a build from before these claims existed must keep
+    // working — the link is what makes order questions answerable.
+    const bare = assertion({ email: undefined, name: undefined, phone: undefined });
+
+    await expect(bind(null, bare)).resolves.toMatchObject({ externalCustomerId: '2' });
+    expect(seen.links).toHaveLength(1);
+    expect(seen.contacts[0]).toMatchObject({ name: null, email: null, phone: null });
+  });
+
+  it('and a contact that cannot be written does not undo the link', async () => {
+    // The link is the thing that matters; a contact row is bookkeeping.
+    const anonymousContact = await import('../../../server/services/widget/anonymousContact.js');
+    const spy = vi.spyOn(anonymousContact, 'ensureVisitorContact').mockRejectedValueOnce(new Error('db down'));
+
+    await expect(bind(null)).resolves.toMatchObject({ externalCustomerId: '2' });
+    expect(seen.links).toHaveLength(1);
+    spy.mockRestore();
   });
 });

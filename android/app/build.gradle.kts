@@ -11,22 +11,18 @@ android {
     // app's own vocabulary supplies the replacement: every screen in the iOS
     // source calls its user "the operator".
     namespace = "com.webyar.operator"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.webyar.operator"
         // Android 7.0. The market this ships to keeps devices far longer than
         // the Play Store's own charts suggest (ADR-003).
         minSdk = 24
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // Persian and Turkish are shipped, not merely tolerated: without this
-        // the resource shrinker can drop the very translations the language
-        // picker offers.
-        resourceConfigurations += setOf("en", "fa", "tr")
     }
 
     buildTypes {
@@ -42,15 +38,15 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlin {
-        compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-        }
+    androidResources {
+        // Persian and Turkish are shipped, not merely tolerated: without this
+        // the resource shrinker can drop the very translations the language
+        // picker offers. (`resourceConfigurations` was the AGP 8 spelling.)
+        localeFilters += setOf("en", "fa", "tr")
     }
 
     buildFeatures { compose = true }
 
-    sourceSets["main"].java.srcDirs("src/main/kotlin")
 
     testOptions {
         unitTests {
@@ -58,6 +54,14 @@ android {
             // this every Compose test on the JVM fails looking for them.
             isIncludeAndroidResources = true
         }
+    }
+}
+
+// The Kotlin Gradle Plugin's own block, deliberately outside `android {}`:
+// the nested `kotlinOptions` spelling is gone in AGP 9.
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 

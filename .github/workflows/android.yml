@@ -33,14 +33,14 @@ jobs:
     env:
       ANDROID_HOME: /opt/android-sdk
       ANDROID_SDK_ROOT: /opt/android-sdk
-      JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+      JAVA_HOME: /usr/lib/jvm/java-21-openjdk-amd64
       # No daemon in CI: this host has 2GB from ci.slice and nothing should
       # outlive the job holding any of it.
       GRADLE_OPTS: -Dorg.gradle.daemon=false
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Toolchain
         run: |

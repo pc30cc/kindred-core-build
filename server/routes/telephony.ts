@@ -71,7 +71,17 @@ async function buildStatus(config: any, workspaceId: string) {
 
   const parsed = parseTelephonySettings(installation.settings ?? {});
   const effective = parsed.ok ? parsed.settings : null;
-  const registration = await getRegistration(config, installation.id);
+  // The registration mirror is a diagnostics surface: if its table is missing
+  // (self-host deployment that has not run migration 200 yet) the panel must
+  // still render the saved settings instead of failing the whole request.
+  let registration = null as Awaited<ReturnType<typeof getRegistration>>;
+  let registrationUnavailable = false;
+  try {
+    registration = await getRegistration(config, installation.id);
+  } catch (err) {
+    registrationUnavailable = true;
+    console.error('[telephony] registration mirror unavailable:', (err as Error).message);
+  }
   const passwordSaved = await hasSipPassword(config, installation.id);
 
   let gatewayHealthy = false;

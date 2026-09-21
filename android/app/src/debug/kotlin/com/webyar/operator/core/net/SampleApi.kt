@@ -2,22 +2,48 @@ package com.webyar.operator.core.net
 
 import com.webyar.operator.core.model.Account
 import com.webyar.operator.core.model.AccountProfile
+import com.webyar.operator.core.model.AccountSession
+import com.webyar.operator.core.model.AccountSessionsResponse
+import com.webyar.operator.core.model.AvailabilityPrefs
+import com.webyar.operator.core.model.AvailabilityResponse
+import com.webyar.operator.core.model.AvailabilityStatus
+import com.webyar.operator.core.model.AvailabilityUpdate
+import com.webyar.operator.core.model.CallChannel
+import com.webyar.operator.core.model.CallInvitation
+import com.webyar.operator.core.model.CallToken
+import com.webyar.operator.core.model.CannedResponse
+import com.webyar.operator.core.model.ChannelInbox
+import com.webyar.operator.core.model.Colleague
+import com.webyar.operator.core.model.ColleaguesResponse
 import com.webyar.operator.core.model.Contact
 import com.webyar.operator.core.model.Conversation
 import com.webyar.operator.core.model.ConversationContact
+import com.webyar.operator.core.model.ConversationNote
 import com.webyar.operator.core.model.ConversationPriority
 import com.webyar.operator.core.model.ConversationStatus
+import com.webyar.operator.core.model.EmailAddress
+import com.webyar.operator.core.model.EmailMessageView
+import com.webyar.operator.core.model.EmailThreadResponse
+import com.webyar.operator.core.model.EmailThreadSummary
 import com.webyar.operator.core.model.Entitlements
+import com.webyar.operator.core.model.GmailConnection
 import com.webyar.operator.core.model.InboxCounts
 import com.webyar.operator.core.model.InboxFilter
+import com.webyar.operator.core.model.MemberProfile
 import com.webyar.operator.core.model.Message
 import com.webyar.operator.core.model.MessagePreview
+import com.webyar.operator.core.model.Promotions
+import com.webyar.operator.core.model.SayNowVoice
 import com.webyar.operator.core.model.SenderType
+import com.webyar.operator.core.model.TeamMessage
+import com.webyar.operator.core.model.TeamThreadResponse
 import com.webyar.operator.core.model.User
+import com.webyar.operator.core.model.VisitorProfile
 import com.webyar.operator.core.model.Workspace
+import com.webyar.operator.core.model.WorkspaceMember
+import java.time.Instant
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import java.time.Instant
 
 /**
  * A backend that answers from memory.
@@ -139,6 +165,234 @@ class SampleApi : WebyarApi {
         profile = AccountProfile(id = OPERATOR.id, fullName = OPERATOR.fullName, preferredLocale = "fa"),
     )
 
+
+    // MARK: - Conversation actions
+    //
+    // Accepted and forgotten. The sample backend exists to lay screens out,
+    // not to model a workflow: a take-over that changed state here would have
+    // to model assignment, presence and the AI's own view of the thread, and
+    // every screenshot would then depend on the order the shots were taken in.
+
+    override suspend fun takeOverConversation(conversationId: String, workspaceId: String) {}
+    override suspend fun claim(conversationId: String, workspaceId: String) {}
+    override suspend fun aiSayNow(conversationId: String, body: String, voice: SayNowVoice) {}
+
+    override suspend fun updateConversation(
+        conversationId: String,
+        workspaceId: String,
+        status: ConversationStatus?,
+        priority: ConversationPriority?,
+        assignedTo: Assignee?,
+        tags: List<String>?,
+    ) {
+        // Status is the one that shows on a list row, so it is the one worth
+        // remembering across a screenshot pass.
+        status?.let { lock.withLock { statuses[conversationId] = it } }
+    }
+
+    // MARK: - Attachments
+
+    override suspend fun uploadAttachment(
+        conversationId: String?,
+        workspaceId: String,
+        fileName: String,
+        mimeType: String,
+        bytes: ByteArray,
+    ): String = "att-sample"
+
+    override suspend fun attachmentData(id: String): ByteArray = ByteArray(0)
+
+    // MARK: - Canned responses
+    //
+    // The first reply carries TWO placeholders, one that resolves and one that
+    // cannot — which is the pair that matters, because the rule is that an
+    // unresolvable name keeps its braces so the operator sees it before they
+    // send it.
+
+    override suspend fun cannedResponses(
+        workspaceId: String,
+        locale: String,
+        query: String,
+    ): List<CannedResponse> {
+        val all = CANNED
+        val q = query.trim().lowercase()
+        if (q.isEmpty()) return all
+        return all.filter { q in it.shortcut.lowercase() || q in it.title.lowercase() }
+    }
+
+    override suspend fun trackCannedResponseUse(id: String, workspaceId: String) {}
+
+    // MARK: - Notes
+
+    override suspend fun notes(conversationId: String, workspaceId: String): List<ConversationNote> =
+        lock.withLock { notesByConversation[conversationId].orEmpty().toList() }
+
+    override suspend fun addNote(conversationId: String, workspaceId: String, body: String) {
+        lock.withLock {
+            notesByConversation.getOrPut(conversationId) { mutableListOf() }.add(
+                ConversationNote(
+                    id = "note-${System.nanoTime()}",
+                    body = body,
+                    authorId = OPERATOR.id,
+                    author = MemberProfile(id = OPERATOR.id, fullName = OPERATOR.fullName, email = OPERATOR.email),
+                    createdAt = Instant.now(),
+                )
+            )
+        }
+    }
+
+    override suspend fun deleteNote(conversationId: String, workspaceId: String, noteId: String) {
+        lock.withLock { notesByConversation[conversationId]?.removeAll { it.id == noteId } }
+    }
+
+    // MARK: - People
+
+    override suspend fun workspaceMembers(workspaceId: String): List<WorkspaceMember> = MEMBERS
+
+    override suspend fun visitorIntelByConversation(
+        workspaceId: String,
+        conversationIds: List<String>,
+    ): Map<String, VisitorProfile> = conversationIds.mapNotNull { id ->
+        INTEL[id]?.let { id to it }
+    }.toMap()
+
+    override suspend fun visitorIntelByContact(
+        workspaceId: String,
+        contactIds: List<String>,
+    ): Map<String, VisitorProfile> = contactIds.mapNotNull { id ->
+        INTEL_BY_CONTACT[id]?.let { id to it }
+    }.toMap()
+
+    // MARK: - Team chat
+
+    override suspend fun colleagues(workspaceId: String): ColleaguesResponse =
+        ColleaguesResponse(colleagues = COLLEAGUES, totalUnread = 2, me = OPERATOR.id)
+
+    override suspend fun teamThread(workspaceId: String, peerId: String): TeamThreadResponse =
+        TeamThreadResponse(
+            messages = lock.withLock { teamMessages[peerId].orEmpty().toList() },
+            me = OPERATOR.id,
+        )
+
+    override suspend fun sendTeamMessage(
+        workspaceId: String,
+        recipientId: String,
+        body: String,
+        attachmentId: String?,
+    ) {
+        lock.withLock {
+            teamMessages.getOrPut(recipientId) { mutableListOf() }.add(
+                TeamMessage(
+                    id = "tm-${System.nanoTime()}",
+                    senderId = OPERATOR.id,
+                    recipientId = recipientId,
+                    body = body,
+                    createdAt = Instant.now(),
+                )
+            )
+        }
+    }
+
+    override suspend fun markTeamThreadRead(workspaceId: String, peerId: String) {}
+
+    // MARK: - Channels and email
+
+    override suspend fun channelInboxes(workspaceId: String): List<ChannelInbox> =
+        listOf(ChannelInbox("telegram"), ChannelInbox("bale"), ChannelInbox("whatsapp"))
+
+    override suspend fun emailThreads(workspaceId: String, search: String?): List<EmailThreadSummary> {
+        val q = search?.trim()?.lowercase().orEmpty()
+        if (q.isEmpty()) return EMAIL_THREADS
+        return EMAIL_THREADS.filter { q in it.subject.orEmpty().lowercase() }
+    }
+
+    override suspend fun emailThread(workspaceId: String, threadId: String): EmailThreadResponse =
+        EmailThreadResponse(
+            thread = EMAIL_THREADS.firstOrNull { it.id == threadId } ?: EMAIL_THREADS.first(),
+            messages = EMAIL_MESSAGES,
+        )
+
+    override suspend fun setEmailThreadRead(workspaceId: String, threadId: String, isRead: Boolean) {}
+    override suspend fun setEmailThreadStarred(workspaceId: String, threadId: String, starred: Boolean) {}
+    override suspend fun sendEmail(
+        workspaceId: String,
+        threadId: String?,
+        to: List<String>,
+        subject: String,
+        body: String,
+    ) {}
+
+    override suspend fun gmailConnection(workspaceId: String): GmailConnection? =
+        GmailConnection(connected = true, emailAddress = "support@webyar.app", status = "active")
+
+    // MARK: - Availability and promotions
+
+    override suspend fun availability(): AvailabilityResponse = AVAILABILITY
+
+    override suspend fun updateAvailability(update: AvailabilityUpdate): AvailabilityResponse = AVAILABILITY
+
+    /**
+     * Off.
+     *
+     * A promotion that lands mid-screenshot ruins the shot, and the card has
+     * its own screenshot path. `PromotionCenter`'s own rules are unit-tested
+     * rather than exercised here.
+     */
+    override suspend fun promotions(workspaceId: String, locale: String): Promotions = Promotions.NONE
+
+    // MARK: - Calls
+
+    override suspend fun inviteToCall(
+        conversationId: String,
+        workspaceId: String,
+        channel: CallChannel,
+    ): CallInvitation = CallInvitation(
+        id = "inv-1",
+        status = "pending",
+        channel = channel.wire,
+        conversationId = conversationId,
+        expiresAt = Instant.now().plusSeconds(120),
+    )
+
+    override suspend fun cancelInvitation(id: String) {}
+
+    override suspend fun invitation(id: String): CallInvitation =
+        CallInvitation(id = id, status = "pending", channel = "audio")
+
+    /**
+     * There is no room to join, and saying so is the honest answer.
+     *
+     * A fabricated token would send the call screen into a connection attempt
+     * against a signalling URL that does not exist, and the failure would
+     * arrive seconds later looking like a network fault rather than like the
+     * sample backend having no media server.
+     */
+    override suspend fun callToken(callSessionId: String, displayName: String?): CallToken =
+        throw ApiError.Server(status = 501, serverMessage = "sample backend has no media server")
+
+    override suspend fun hangUp(callSessionId: String) {}
+
+    // MARK: - Account
+
+    override suspend fun updateProfile(fullName: String?, preferredLocale: String?): Account = account()
+
+    override suspend fun uploadAvatar(
+        bytes: ByteArray,
+        contentType: String,
+        fileName: String?,
+    ): AccountProfile? = AccountProfile(id = OPERATOR.id, fullName = OPERATOR.fullName)
+
+    override suspend fun deleteAvatar() {}
+
+    override suspend fun sessions(): AccountSessionsResponse = SESSIONS
+
+    override suspend fun revokeSession(id: String) {}
+
+    override suspend fun changePassword(current: String, new: String) {}
+
+    private val notesByConversation = mutableMapOf<String, MutableList<ConversationNote>>()
+    private val teamMessages = mutableMapOf<String, MutableList<TeamMessage>>()
+
     private companion object {
         val OPERATOR = User(
             id = "u-1",
@@ -148,6 +402,191 @@ class SampleApi : WebyarApi {
         )
 
         fun ago(minutes: Long): Instant = Instant.now().minusSeconds(minutes * 60)
+
+        // MARK: - The awkward cases
+        //
+        // Every list below is chosen to break a layout that only works on
+        // tidy rows: a saved reply whose placeholder cannot resolve, a
+        // colleague with no name at all, an email subject long enough to wrap
+        // twice, a session from a device nobody recognises.
+
+        val CANNED = listOf(
+            CannedResponse(
+                id = "cr-1",
+                shortcut = "hi",
+                title = "Greeting",
+                // Two placeholders: one that resolves and one that cannot,
+                // which is exactly the pair the interpolation rule is about.
+                body = "سلام {{contact.name}} عزیز، به {{workspace.name}} خوش آمدید.",
+                locale = "fa",
+                usageCount = 128,
+            ),
+            CannedResponse(
+                id = "cr-2",
+                shortcut = "wait",
+                title = "Looking into it",
+                body = "همین الان بررسی می‌کنم و خبر می‌دهم.",
+                locale = "fa",
+                usageCount = 41,
+            ),
+            CannedResponse(
+                id = "cr-3",
+                shortcut = "bye",
+                title = "Closing",
+                body = "Thanks for getting in touch — {{agent.first_name}}",
+                locale = "en",
+                usageCount = 7,
+            ),
+        )
+
+        val MEMBERS = listOf(
+            WorkspaceMember(
+                id = "m-1", userId = "u-1", role = "owner",
+                profile = MemberProfile(id = "u-1", fullName = "Sara Karimi", email = "operator@webyar.app"),
+                departmentNames = listOf("پشتیبانی"),
+            ),
+            WorkspaceMember(
+                id = "m-2", userId = "u-2", role = "agent",
+                profile = MemberProfile(id = "u-2", fullName = "Reza Ahmadi", email = "reza@webyar.app"),
+            ),
+            // Suspended: the transfer list must show them and refuse to hand
+            // them work, rather than pretending they are not there.
+            WorkspaceMember(
+                id = "m-3", userId = "u-3", role = "agent",
+                suspendedAt = ago(60 * 24 * 30),
+                profile = MemberProfile(id = "u-3", fullName = "Mehdi Tavakoli", email = "mehdi@webyar.app"),
+            ),
+        )
+
+        val INTEL = mapOf(
+            "c-1" to VisitorProfile(
+                geo = VisitorProfile.Geo(countryCode = "IR", country = "Iran", city = "Tehran"),
+                device = VisitorProfile.Device(browser = "Chrome", os = "Windows", device = "desktop"),
+            ),
+            "c-2" to VisitorProfile(
+                geo = VisitorProfile.Geo(countryCode = "DE", country = "Germany", city = "Berlin"),
+                device = VisitorProfile.Device(browser = "Safari", os = "macOS", device = "desktop"),
+            ),
+            // No geo at all — a visitor behind a VPN, or an IP the privacy
+            // policy would not resolve. The row still has to render.
+            "c-4" to VisitorProfile(
+                device = VisitorProfile.Device(browser = "Firefox", os = "Android", device = "mobile"),
+            ),
+        )
+
+        val INTEL_BY_CONTACT = mapOf(
+            "p-1" to INTEL.getValue("c-1"),
+            "p-4" to INTEL.getValue("c-4"),
+        )
+
+        val COLLEAGUES = listOf(
+            Colleague(
+                userId = "u-2", role = "agent", fullName = "Reza Ahmadi",
+                email = "reza@webyar.app", unread = 2,
+                lastMessage = Colleague.LastTeamMessage(
+                    body = "اون تیکت رو دیدی؟", createdAt = ago(14), outgoing = false,
+                ),
+            ),
+            Colleague(
+                userId = "u-3", role = "agent", fullName = "Mehdi Tavakoli",
+                email = "mehdi@webyar.app", unread = 0,
+                lastMessage = Colleague.LastTeamMessage(
+                    body = null, createdAt = ago(300), outgoing = true, attachmentKind = "image",
+                ),
+            ),
+            // Name absent entirely: `displayName` has to fall through to the
+            // email, and the avatar has to draw initials from that.
+            Colleague(userId = "u-9", role = "agent", email = "newcomer@webyar.app", unread = 0),
+        )
+
+        val EMAIL_THREADS = listOf(
+            EmailThreadSummary(
+                id = "t-1",
+                provider = "gmail",
+                subject = "Invoice #2026-0914 and the renewal terms we discussed last week",
+                participants = listOf(
+                    EmailAddress("billing@example.com"),
+                    EmailAddress("support@webyar.app"),
+                ),
+                lastMessageAt = ago(45),
+                isRead = false,
+                isStarred = true,
+                lastMessageSnippet = "Please find attached the invoice for…",
+            ),
+            EmailThreadSummary(
+                id = "t-2",
+                provider = "gmail",
+                subject = "سؤال درباره‌ی افزونه‌ی تلگرام",
+                participants = listOf(EmailAddress("maryam@example.com")),
+                lastMessageAt = ago(60 * 20),
+                isRead = true,
+                isStarred = false,
+                lastMessageSnippet = "سلام، می‌خواستم بدانم…",
+            ),
+        )
+
+        val EMAIL_MESSAGES = listOf(
+            EmailMessageView(
+                id = "em-1",
+                direction = "inbound",
+                fromAddress = "billing@example.com",
+                toAddresses = listOf(EmailAddress("support@webyar.app")),
+                textBody = "Please find attached the invoice for September.",
+                sentAt = ago(90),
+                isRead = true,
+            ),
+            // HTML only, which is the common case and the one that proves
+            // `EmailBody.plainText` is doing something.
+            EmailMessageView(
+                id = "em-2",
+                direction = "outbound",
+                fromAddress = "support@webyar.app",
+                toAddresses = listOf(EmailAddress("billing@example.com")),
+                htmlBody = "<div><p>Thanks &mdash; received.</p><p>We&#39;ll process it today.</p></div>",
+                sentAt = ago(45),
+                deliveryStatus = "sent",
+            ),
+        )
+
+        val AVAILABILITY = AvailabilityResponse(
+            prefs = AvailabilityPrefs(
+                forceOffline = false,
+                availableWhenUsingApp = true,
+                scheduleEnabled = false,
+                timezone = "Asia/Tehran",
+            ),
+            status = AvailabilityStatus(state = "online"),
+        )
+
+        val SESSIONS = AccountSessionsResponse(
+            sessions = listOf(
+                AccountSession(
+                    id = "s-1",
+                    browser = "Webyar",
+                    os = "Android 16",
+                    device = "Pixel 6",
+                    city = "Tehran",
+                    country = "Iran",
+                    countryCode = "IR",
+                    isCurrent = true,
+                    createdAt = ago(60 * 24 * 3),
+                    lastActiveAt = ago(1),
+                ),
+                // No location at all, which is what a privacy-restricted IP
+                // gives back — the row has to render without a place.
+                AccountSession(
+                    id = "s-2",
+                    browser = "Chrome 141",
+                    os = "macOS",
+                    device = "desktop",
+                    isCurrent = false,
+                    createdAt = ago(60 * 24 * 40),
+                    lastActiveAt = ago(60 * 26),
+                ),
+            ),
+            currentSessionId = "s-1",
+        )
+
 
         val CONVERSATIONS: List<Conversation> = listOf(
             Conversation(

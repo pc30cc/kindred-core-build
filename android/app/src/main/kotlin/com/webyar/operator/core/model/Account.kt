@@ -68,3 +68,14 @@ data class AccountSessionsResponse(
     val sessions: List<AccountSession> = emptyList(),
     @SerialName("current_session_id") val currentSessionId: String? = null,
 )
+
+/**
+ * What comes back from uploading an avatar.
+ *
+ * The profile is echoed rather than re-fetched so the screen can show the new
+ * picture without a second round trip — and so it shows the URL the server
+ * actually stored, which carries a cache-busting suffix the client could not
+ * have guessed.
+ */
+@Serializable
+data class AccountAvatarResponse(val profile: AccountProfile? = null)

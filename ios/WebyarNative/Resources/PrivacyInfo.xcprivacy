@@ -124,6 +124,30 @@
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
 			</array>
 		</dict>
+		<!--
+		  The push address, and the id of this install.
+
+		  Two things, one category. The APNs device token is what a
+		  notification is sent to, and it identifies a device rather than a
+		  person; `push.deviceId` is a UUID this app generates on first launch
+		  so the server keeps one row per install as the token rotates.
+		  Neither is read from the system — `identifierForVendor` and the IDFA
+		  are never touched — and neither leaves the platform: they are held
+		  in `mobile_push_devices` against the operator's own account, which
+		  is why this is linked.
+		-->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeDeviceID</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
 		<!-- Internal notes, files of other kinds, email replies, team messages. -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>

@@ -73,6 +73,22 @@ enum NotificationPrimer {
         UserDefaults.standard.bool(forKey: key)
     }
 
+    /// Whether this run was asked not to interrupt.
+    ///
+    /// The same argument the promotion card honours, for the same reason and
+    /// with the same fence: this is a full-screen interruption whose timing
+    /// depends on how quickly the inbox loads, so it lands over some runs of
+    /// a UI suite and not others. It took two `ShortcutTests` down the first
+    /// time it shipped. Debug-only, so no shipped build can be told to skip
+    /// asking.
+    static var isSuppressed: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-WebyarNoPromotions")
+        #else
+        false
+        #endif
+    }
+
     static func markShown() {
         UserDefaults.standard.set(true, forKey: key)
     }

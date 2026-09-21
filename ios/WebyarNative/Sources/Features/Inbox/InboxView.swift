@@ -66,8 +66,17 @@ struct InboxView: View {
             // they would be told about, and iOS has not been asked yet. The
             // one system prompt an app ever gets is not spent until somebody
             // says yes to this.
-            .task(id: "primer|\(model.state.isLoaded)") {
-                guard model.state.isLoaded, !NotificationPrimer.hasBeenShown else { return }
+            .task(id: "primer|\(model.state.isLoaded)|\(path.isEmpty)") {
+                guard model.state.isLoaded,
+                      // Not over a conversation the operator has already
+                      // opened. The inbox owns this sheet but stays alive
+                      // under whatever is pushed on top of it, so without
+                      // this the question arrives over a chat — or, in a UI
+                      // run that deep-links straight to one, over the screen
+                      // being tested.
+                      path.isEmpty,
+                      !NotificationPrimer.isSuppressed,
+                      !NotificationPrimer.hasBeenShown else { return }
                 await push.refreshAuthorization()
                 guard push.authorization == .notDetermined else { return }
                 // After the promotion has had its turn, so the two never land

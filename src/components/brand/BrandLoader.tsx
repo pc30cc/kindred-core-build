@@ -7,9 +7,9 @@ import { cn } from '@/lib/utils';
 import { BrandLogo } from './BrandLogo';
 
 const SIZES = {
-  sm: { box: 48, pad: 8, label: 'text-[10px] tracking-[0.34em]' },
-  md: { box: 72, pad: 11, label: 'text-xs tracking-[0.38em]' },
-  lg: { box: 104, pad: 16, label: 'text-sm tracking-[0.42em]' },
+  sm: { box: 56, pad: 8, label: 'text-[9px] tracking-[0.06em]' },
+  md: { box: 84, pad: 11, label: 'text-xs tracking-[0.08em]' },
+  lg: { box: 120, pad: 16, label: 'text-base tracking-[0.08em]' },
 } as const;
 
 export function BrandLoader({
@@ -44,18 +44,16 @@ export function BrandLoader({
           aria-hidden
         />
         <span className="absolute inset-0 rounded-full border border-primary/15" aria-hidden />
-        {/* The real app mark bitmap — operator branding (logoUrl) overrides it. */}
-        <BrandLogo
-          src={logoUrl}
-          className="absolute rounded-[26%]"
-          style={{ top: s.pad, left: s.pad, width: s.box - s.pad * 2, height: s.box - s.pad * 2 }}
-        />
-      </div>
-      {showLabel && (
-        <span className={cn('font-display font-semibold uppercase text-muted-foreground', s.label)}>
+        {/* Wordmark sits inside the ring. */}
+        <span
+          className={cn(
+            'absolute inset-0 flex items-center justify-center font-display font-semibold lowercase text-primary',
+            s.label,
+          )}
+        >
           {label}
         </span>
-      )}
+      </div>
       <span className="sr-only">Loading</span>
     </div>
   );

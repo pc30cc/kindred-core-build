@@ -215,9 +215,16 @@ describe('what the model receives for a store question', () => {
     expect(toolResults).toEqual([{ name: 'commerce_status', data: { error_code: 'catalog_syncing' } }]);
   });
 
-  it('refuses to reveal an order to an unverified visitor', async () => {
+  it('refuses to reveal an order to an unverified visitor, and says how to fix that', async () => {
+    // The refusal alone left the model to invent a remedy. This store
+    // verifies a customer by them being signed in to it, so that is what the
+    // visitor is told to do.
     const { toolResults } = await ask('وضعیت سفارش ۱۲۳۴۵ چی شد؟');
-    expect(toolResults).toEqual([{ name: 'commerce.order_lookup', data: { error_code: 'identity_required' } }]);
+
+    expect(toolResults).toEqual([
+      { name: 'commerce.order_lookup', data: { error_code: 'identity_required', remedy: 'sign_in_to_store' } },
+    ]);
+    expect(renderToolResults(toolResults)).toContain('remedy=sign_in_to_store');
   });
 
   it('stays out of the way of a question that is not about the shop', async () => {

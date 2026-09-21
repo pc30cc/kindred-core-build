@@ -19,7 +19,22 @@
  * from the knowledge base or from the operator's own text is left alone.
  */
 
+import type { ServerConfig } from '../../../config.js';
+import { getServiceClient } from '../../../supabase.js';
+import { getActiveConnectionForWorkspace } from '../../commerce/gateway.js';
+
 const URL_PATTERN = /https?:\/\/[^\s<>"'`)\]]+/gi;
+const TRAILING_PUNCTUATION = /[.,;:!?؟،؛"'»]+$/;
+/**
+ * How much of a catalogue is loaded to check an answer's links. Only reached
+ * when an answer carries a store link that is not already canonical.
+ */
+const CATALOGUE_WINDOW = 500;
+
+function withoutTrailingPunctuation(url: string): string {
+  const trailing = url.match(TRAILING_PUNCTUATION)?.[0] ?? '';
+  return trailing ? url.slice(0, -trailing.length) : url;
+}
 
 /**
  * Percent-decoding that survives a broken escape.
@@ -110,7 +125,7 @@ export function repairCommerceLinks(text: string, allowedUrls: readonly string[]
 
   return source.replace(URL_PATTERN, (match) => {
     // Sentence punctuation is not part of the address.
-    const trailing = match.match(/[.,;:!?؟،؛"'»]+$/)?.[0] ?? '';
+    const trailing = match.match(TRAILING_PUNCTUATION)?.[0] ?? '';
     const url = trailing ? match.slice(0, -trailing.length) : match;
 
     if (allowedSet.has(url)) return match;
@@ -129,6 +144,85 @@ export function repairCommerceLinks(text: string, allowedUrls: readonly string[]
     // the sentence around it still answers the question.
     return trailing;
   });
+}
+
+/**
+ * Every store link in an answer is a real product page, or it is not there.
+ *
+ * `repairCommerceLinks` can only check the links the tools produced THIS
+ * turn, and that is not enough: «لینکشو بده» carries no commerce intent at
+ * all, so no tool ran, nothing was in the allowed set — and the model,
+ * asked for a link to a product it had described a turn earlier, answered
+ * with `https://p.webyar.ai/product/nova-12`. An invented English slug for
+ * a Persian-named product. It answers 404.
+ *
+ * So the catalogue itself is the authority, not the turn. Any URL on the
+ * store's own host has to BE a product in the index, and what the visitor
+ * gets is always the canonical permalink — including when the model was
+ * handed the `?p=<id>` form, which is resolved back here.
+ *
+ * Costs nothing on the common path: an answer with no link returns before
+ * any query, and an answer whose links are already canonical is settled by
+ * one indexed lookup.
+ */
+export async function verifyStoreLinks(
+  config: ServerConfig,
+  workspaceId: string,
+  text: string,
+): Promise<string> {
+  const source = String(text ?? '');
+  if (!source || source.indexOf('http') === -1) return source;
+
+  const connection = await getActiveConnectionForWorkspace(config, workspaceId).catch(() => null);
+  if (!connection) return source;
+  const storeHost = hostOf(String(connection.store_id || ''));
+  if (!storeHost) return source;
+
+  const found = source.match(URL_PATTERN) ?? [];
+  const onStore = [...new Set(found.map(withoutTrailingPunctuation).filter((u) => hostOf(u) === storeHost))];
+  if (!onStore.length) return source;
+
+  const sb = getServiceClient(config);
+  // Fast path: the links are already the canonical ones the index holds.
+  const { data: exact } = await sb
+    .from('commerce_products')
+    .select('canonical_url')
+    .eq('connection_id', connection.id)
+    .is('deleted_at', null)
+    .in('canonical_url', onStore);
+  const verified = new Set((exact ?? []).map((r: { canonical_url: string }) => r.canonical_url));
+  if (onStore.every((u) => verified.has(u))) return source;
+
+  // Something needs resolving or repairing, so the catalogue comes out. The
+  // row window is bounded: a shop with more products than this still gets
+  // its links checked, just against the most recently updated slice.
+  const { data: rows } = await sb
+    .from('commerce_products')
+    .select('external_id, canonical_url')
+    .eq('connection_id', connection.id)
+    .is('deleted_at', null)
+    .not('canonical_url', 'is', null)
+    .order('updated_at', { ascending: false })
+    .limit(CATALOGUE_WINDOW);
+
+  const catalogue = (rows ?? []) as Array<{ external_id: string; canonical_url: string }>;
+  if (!catalogue.length) return source;
+
+  // `?p=<id>` is the form the model was given to copy; map it straight back
+  // to the permalink rather than making the matcher guess at it.
+  const byExternalId = new Map(catalogue.map((r) => [String(r.external_id), r.canonical_url]));
+  const store = String(connection.store_id || '').replace(/\/+$/, '');
+  const resolved = source.replace(URL_PATTERN, (match) => {
+    const trailing = match.match(TRAILING_PUNCTUATION)?.[0] ?? '';
+    const url = trailing ? match.slice(0, -trailing.length) : match;
+    if (hostOf(url) !== storeHost) return match;
+    let id: string | null = null;
+    try { id = new URL(url).searchParams.get('p'); } catch { /* not parseable */ }
+    const canonical = id ? byExternalId.get(id) : undefined;
+    return canonical ? canonical + trailing : match;
+  });
+
+  return repairCommerceLinks(resolved, [...byExternalId.values(), `${store}/`]);
 }
 
 /** Every URL this turn's commerce tools put in front of the model. */

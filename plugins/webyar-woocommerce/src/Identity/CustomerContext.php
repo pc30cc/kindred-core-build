@@ -35,10 +35,24 @@ final class CustomerContext {
 			return null;
 		}
 
+		// Who the shopper IS, not just which id they have.
+		//
+		// Being signed in to the shop is the store's own verification — it
+		// already knows this person — so the details travel with the proof
+		// and Web Yar files the conversation under the real customer instead
+		// of under an anonymous visitor. They are INSIDE the signed payload:
+		// the browser can read them (it is the customer's own data, already
+		// on every page of their account) but cannot change them without the
+		// installation secret.
+		$user    = wp_get_current_user();
+		$phone   = get_user_meta( (int) $customer_id, 'billing_phone', true );
 		$now     = time();
 		$payload = array(
 			'installation_id'      => $credential['installation_id'],
 			'external_customer_id' => $customer_id,
+			'email'                => is_object( $user ) ? (string) $user->user_email : '',
+			'name'                 => is_object( $user ) ? (string) ( $user->display_name ?: $user->user_login ) : '',
+			'phone'                => is_string( $phone ) ? $phone : '',
 			'issued_at'            => $now,
 			'expires_at'           => $now + self::TTL_SECONDS,
 			'nonce'                => bin2hex( random_bytes( 12 ) ),

@@ -420,7 +420,7 @@ table, no claim/lease/heartbeat, no polling. `requestVerificationChallenge`/
    `attemptToken` (rotated on every fresh AND resumed prepare call).
 2. **Send** — Express derives the OTP deterministically from the committed
    challenge's own handle/generation/destination-hash/key-version and calls
-   `sendEmail`/`sendPlatformEmail`/`sendSms` directly.
+   `sendEmail`/`sendPlatformEmail`/`sendSmsVerification` directly.
 3. **Finalize** (`gv_finalize_verification_delivery`) — requires and
    validates the SAME `attemptToken` from step 1, atomically records what
    the provider actually did, and moves the idempotency ledger to
@@ -428,6 +428,33 @@ table, no claim/lease/heartbeat, no polling. `requestVerificationChallenge`/
 
 Provider success is recorded as `provider_accepted` — never `delivered` —
 because this system has no delivery receipt channel from the provider.
+
+### SMS uses the vendor's verification template, not a rendered body
+
+An SMS OTP is submitted with `sendSmsVerification`, which routes to the
+vendor's verification endpoint — SMS.ir `POST /v1/send/verify` with
+`{mobile, templateId, parameters}`, Kavenegar VerifyLookup — never the bulk
+endpoint. This is deliberate and not interchangeable:
+
+- Verification templates are sent on a **service line**, at high priority,
+  and are still delivered to recipients who have blocked advertising SMS.
+  A bulk send is filtered for exactly the users most likely to be mid-signup.
+- Consequently the **message wording lives in the vendor panel's template**,
+  not in `templates.ts`. Only the code is substituted, into the
+  admin-configured `verifyParameterName` (SMS.ir) / template (Kavenegar).
+  `renderOtpSms` is kept as reference wording for the Super Admin preview,
+  which flags it `providerTemplated` — it is not what the recipient receives.
+- The adapter boundary is handed the **local-format** number
+  (`toProviderFormat`: `+989121234567` -> `09121234567`); the database still
+  stores E.164 in `destination_normalized`.
+
+Because the template is external configuration, a send that fails with
+`sms_provider_not_configured`, `sms_provider_disabled`,
+`sms_template_not_found`, `sms_template_not_approved` or
+`sms_template_invalid` is finalized as `unconfigured` (challenge ->
+`delivery_failed`), matching the email branch: resending the same challenge
+could never succeed. Transient faults (timeout, network, credit, bad number,
+unclassified vendor error) stay `retryable_failure`.
 
 ### Delivery-attempt ownership token
 

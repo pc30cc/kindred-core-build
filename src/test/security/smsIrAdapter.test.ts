@@ -65,6 +65,9 @@ describe('error mapping', () => {
     expect(mapSmsIrFailure(402, 'no credit')).toBe('sms_insufficient_credit');
     expect(mapSmsIrFailure(null, 'Insufficient credit')).toBe('sms_insufficient_credit');
     expect(mapSmsIrFailure(null, 'template not found')).toBe('sms_template_not_found');
+    // SMS.ir replies in Persian — the hint must match there too, because the
+    // verification core treats a template fault as terminal, not retryable.
+    expect(mapSmsIrFailure(400, 'قالب مورد نظر یافت نشد')).toBe('sms_template_not_found');
     expect(mapSmsIrFailure(null, 'invalid mobile')).toBe('sms_invalid_receptor');
     expect(mapSmsIrFailure(503, 'gateway')).toBe('sms_network_error');
     expect(mapSmsIrFailure(null, 'unexpected')).toBe('sms_provider_error');

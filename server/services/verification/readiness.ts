@@ -109,8 +109,23 @@ async function getEmailProviderStatus(config: ServerConfig): Promise<ProviderRea
 export function classifySmsProviderInfo(info: SmsProviderInfo): ProviderReadinessState {
   if (info.providerName === 'disabled') return 'unconfigured';
   if (!info.hasApiKey) return 'invalid';
-  if (info.providerName === 'kavenegar' && !info.sender) return 'invalid';
-  if (info.providerName === 'smsir' && (!info.lineNumber || info.verifyTemplateId == null)) return 'invalid';
+  // The required set must mirror `resolveProvider` in
+  // server/services/sms/index.ts EXACTLY — anything it throws on must read
+  // as 'invalid' here, or the admin sees "configured" for a provider whose
+  // every OTP send fails. OTPs go out through the vendor's VERIFICATION
+  // template, so the template fields are what a real send needs:
+  //   kavenegar — `verifyTemplate` (the VerifyLookup template). `sender` is
+  //               OPTIONAL there (bulk-send override only) and must not gate
+  //               readiness.
+  //   smsir     — `lineNumber` + `verifyTemplateId` + `verifyParameterName`;
+  //               a template id with no parameter name cannot carry the code.
+  if (info.providerName === 'kavenegar' && !info.verifyTemplate) return 'invalid';
+  if (
+    info.providerName === 'smsir' &&
+    (!info.lineNumber || info.verifyTemplateId == null || !info.verifyParameterName)
+  ) {
+    return 'invalid';
+  }
   return 'configured';
 }
 

@@ -105,7 +105,12 @@ export interface AuditRow {
 export interface TemplatePreview {
   locale: Locale;
   email: { subject: string; text: string; html: string };
-  sms: { text: string };
+  /**
+   * `providerTemplated` is always true: a real SMS OTP is sent through the
+   * vendor's own verification template (high-priority service line), so
+   * `text` is the platform's reference wording, not what the recipient gets.
+   */
+  sms: { text: string; providerTemplated: boolean };
 }
 
 class VerificationAdminApiError extends Error {

@@ -10,9 +10,9 @@
  * like every other `.pg.test.ts` file in this repo:
  *   - `getServiceClient()` becomes a direct query against this same real
  *     database instead of a real PostgREST/HTTP round trip.
- *   - `sendEmail`/`sendPlatformEmail`/`sendSms` are captured instead of
- *     actually contacting a vendor — every DB write, RPC, lock, ACL
- *     decision, and crypto digest is real.
+ *   - `sendEmail`/`sendPlatformEmail`/`sendSmsVerification` are captured
+ *     instead of actually contacting a vendor — every DB write, RPC, lock,
+ *     ACL decision, and crypto digest is real.
  *
  * DATABASE-LAYER DORMANCY — `gv_is_purpose_enabled` ships hardcoded to
  * reject every purpose (see the migration). Test X1 proves that SHIPPED
@@ -95,7 +95,9 @@ vi.mock('../../../server/services/email/index.js', async (importOriginal) => {
 });
 vi.mock('../../../server/services/sms/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../server/services/sms/index.js')>();
-  return { ...actual, sendSms: (...args: unknown[]) => smsSendMock(...args) };
+  // SMS OTPs go out through the vendor's VERIFICATION template, so the core
+  // calls sendSmsVerification({ to, code }) — not sendSms({ to, body }).
+  return { ...actual, sendSmsVerification: (...args: unknown[]) => smsSendMock(...args) };
 });
 
 function makePgServiceClient(pg: PgTestClient) {
@@ -389,6 +391,48 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
     const rows = await db.query(`SELECT count(*)::int AS n FROM public.verification_challenges WHERE handle = $1`, [handle]);
     expect(rows.rows[0].n).toBe(1);
     expect(smsSendMock.mock.calls.length).toBeLessThanOrEqual(1);
+  });
+
+  // ── C2. SMS OTPs use the vendor verification template, in local format ──
+  it('C2: an SMS OTP is submitted via the verification template with a local-format number', async () => {
+    __setPurposePolicyOverrideForTests('signup_phone', { enabled: true });
+    // Typed in E.164; the database stores E.164 — but SMS.ir / Kavenegar want
+    // the local form, so the adapter boundary must receive `09...`, never
+    // `+98...`, or the vendor rejects the send outright.
+    const req = await svc.requestVerificationChallenge(config, {
+      purpose: 'signup_phone', channel: 'sms', destination: '+989121230199', subjectKind: 'pending_account',
+      idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.25' },
+    });
+    expect(req.deliveryOutcome).toBe('provider_accepted');
+
+    expect(smsSendMock).toHaveBeenCalledTimes(1);
+    const sent = smsSendMock.mock.calls[0][1] as { to?: string; code?: string; body?: string };
+    expect(sent.to).toBe('09121230199');
+    // The template substitutes the code as a parameter — no rendered body is
+    // sent, which is what keeps this on the high-priority service line.
+    expect(sent.body).toBeUndefined();
+    expect(sent.code).toMatch(/^\d{6}$/);
+
+    const stored = await db.query(
+      `SELECT destination_normalized FROM public.verification_challenges WHERE handle = $1`,
+      [req.handle],
+    );
+    expect(stored.rows[0].destination_normalized).toBe('+989121230199');
+  });
+
+  // ── C3. an unusable verification template is a config fault, not a retry ──
+  it('C3: a missing vendor template finalizes as unconfigured, not retryable', async () => {
+    __setPurposePolicyOverrideForTests('signup_phone', { enabled: true });
+    smsSendMock.mockResolvedValueOnce({ success: false, provider: 'smsir', errorCode: 'sms_template_not_found' });
+
+    const req = await svc.requestVerificationChallenge(config, {
+      purpose: 'signup_phone', channel: 'sms', destination: '09121230198', subjectKind: 'pending_account',
+      idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.26' },
+    });
+    expect(req.deliveryOutcome).toBe('unconfigured');
+
+    const row = await db.query(`SELECT status FROM public.verification_challenges WHERE handle = $1`, [req.handle]);
+    expect(row.rows[0].status).toBe('delivery_failed');
   });
 
   // ── D. resend invalidates old generation ──────────────────────────────
@@ -696,8 +740,8 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
 
     expect(result.handle).toBe(handle);
     expect(smsSendMock).toHaveBeenCalledTimes(1);
-    const sentBody = String(smsSendMock.mock.calls[0][1]?.body ?? '');
-    expect(sentBody.includes(code)).toBe(true);
+    const sentCode = String(smsSendMock.mock.calls[0][1]?.code ?? '');
+    expect(sentCode).toBe(code);
 
     const rows = await db.query(`SELECT count(*)::int AS n FROM public.verification_challenges WHERE destination_hash = $1`, [destinationHash]);
     expect(rows.rows[0].n).toBe(1);
@@ -916,7 +960,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       expect(JSON.stringify(r.safe_result ?? {}).includes(code)).toBe(false);
     }
 
-    const smsBody = smsSendMock.mock.calls.find((c) => String(c[1]?.body ?? '').includes(code));
+    const smsBody = smsSendMock.mock.calls.find((c) => String(c[1]?.code ?? '') === code);
     expect(smsBody).toBeTruthy();
   });
 
@@ -981,7 +1025,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       purpose: 'signup_phone', channel: 'sms', destination: '09121230140', subjectKind: 'pending_account',
       idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.30' },
     });
-    const code = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+    const code = String(smsSendMock.mock.calls.at(-1)?.[1]?.code ?? '');
     const requestId = newRequestId();
 
     const r1 = await svc.verifyVerificationChallenge(config, { handle: req.handle, code, purpose: 'signup_phone', channel: 'sms', requestId, requester: { ipAddress: '203.0.113.30' } });
@@ -1003,7 +1047,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       purpose: 'signup_phone', channel: 'sms', destination: '09121230141', subjectKind: 'pending_account',
       idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.31' },
     });
-    const code = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+    const code = String(smsSendMock.mock.calls.at(-1)?.[1]?.code ?? '');
     const requestId = newRequestId();
     const differentCode = code === '111111' ? '222222' : '111111';
 
@@ -1051,7 +1095,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       purpose: 'signup_phone', channel: 'sms', destination: '09121230144', subjectKind: 'pending_account',
       idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.34' },
     });
-    const code = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+    const code = String(smsSendMock.mock.calls.at(-1)?.[1]?.code ?? '');
     const requestId = newRequestId();
 
     const [r1, r2, r3] = await Promise.all([
@@ -1075,7 +1119,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       purpose: 'signup_phone', channel: 'sms', destination: '09121230145', subjectKind: 'pending_account',
       idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.35' },
     });
-    const code = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+    const code = String(smsSendMock.mock.calls.at(-1)?.[1]?.code ?? '');
     const requestId = newRequestId();
 
     forceVerifyResponseLossOnce = true;
@@ -1326,7 +1370,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       purpose: 'signup_phone', channel: 'sms', destination: '09121230160', subjectKind: 'pending_account',
       idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.100' },
     });
-    const capturedCode = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+    const capturedCode = String(smsSendMock.mock.calls.at(-1)?.[1]?.code ?? '');
     const result = await svc.verifyVerificationChallenge(config, {
       handle: req.handle, code: capturedCode, purpose: 'signup_phone', channel: 'sms',
       requestId: newRequestId(), requester: { ipAddress: '203.0.113.100' },
@@ -1341,14 +1385,14 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       purpose: 'signup_phone', channel: 'sms', destination, subjectKind: 'pending_account',
       idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.101' },
     });
-    const firstCode = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+    const firstCode = String(smsSendMock.mock.calls.at(-1)?.[1]?.code ?? '');
     await db.query(`UPDATE public.verification_challenges SET created_at = now() - interval '90 seconds' WHERE handle = $1`, [first.handle]);
 
     const second = await svc.resendVerificationChallenge(config, {
       handle: first.handle, purpose: 'signup_phone', channel: 'sms', subjectKind: 'pending_account',
       idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.101' },
     });
-    const secondCode = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+    const secondCode = String(smsSendMock.mock.calls.at(-1)?.[1]?.code ?? '');
     expect(secondCode).not.toBe(firstCode);
 
     const oldRejected = await svc.verifyVerificationChallenge(config, {
@@ -1425,7 +1469,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       purpose: 'signup_phone', channel: 'sms', destination: '09121230162', subjectKind: 'pending_account',
       idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.104' },
     });
-    const capturedCode = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+    const capturedCode = String(smsSendMock.mock.calls.at(-1)?.[1]?.code ?? '');
 
     process.env.GENERIC_VERIFICATION_KEY_VERSION = '2';
     __resetVerificationCryptoCacheForTests();
@@ -1577,7 +1621,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       purpose: 'signup_phone', channel: 'sms', destination: '09121230171', subjectKind: 'pending_account',
       idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.142' },
     });
-    const code = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+    const code = String(smsSendMock.mock.calls.at(-1)?.[1]?.code ?? '');
     const requestId = newRequestId();
 
     forceVerifyResponseLossOnce = true;
@@ -1606,7 +1650,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       purpose: 'signup_phone', channel: 'sms', destination: '09121230172', subjectKind: 'pending_account',
       idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.143' },
     });
-    const code = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+    const code = String(smsSendMock.mock.calls.at(-1)?.[1]?.code ?? '');
     const verified = await svc.verifyVerificationChallenge(config, {
       handle: req.handle, code, purpose: 'signup_phone', channel: 'sms', requestId: newRequestId(), requester: { ipAddress: '203.0.113.143' },
     });
@@ -1688,7 +1732,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       purpose: 'signup_phone', channel: 'sms', destination: '09121230180', subjectKind: 'pending_account',
       idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.170' },
     });
-    const code = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+    const code = String(smsSendMock.mock.calls.at(-1)?.[1]?.code ?? '');
     const originalPepper = process.env.GENERIC_VERIFICATION_PEPPER!;
 
     // Genuinely REMOVE v1 (not merely supersede it) — GENERIC_VERIFICATION_PEPPER
@@ -1755,7 +1799,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       purpose: 'signup_phone', channel: 'sms', destination: '09121230190', subjectKind: 'pending_account',
       idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.181' },
     });
-    const capturedCode = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+    const capturedCode = String(smsSendMock.mock.calls.at(-1)?.[1]?.code ?? '');
     const verified = await svc.verifyVerificationChallenge(config, {
       handle: req.handle, code: capturedCode, purpose: 'signup_phone', channel: 'sms',
       requestId: newRequestId(), requester: { ipAddress: '203.0.113.181' },
@@ -1808,7 +1852,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       purpose: 'change_phone', channel: 'sms', destination: '09121230195', subjectKind: 'user',
       subjectRef: subjectId, idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.183', authenticatedUserId: subjectId },
     });
-    const capturedCode = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+    const capturedCode = String(smsSendMock.mock.calls.at(-1)?.[1]?.code ?? '');
     const verified = await svc.verifyVerificationChallenge(config, {
       handle: req.handle, code: capturedCode, purpose: 'change_phone', channel: 'sms', subjectRef: subjectId,
       requestId: newRequestId(), requester: { ipAddress: '203.0.113.183', authenticatedUserId: subjectId },
@@ -2051,7 +2095,7 @@ suite('Generic Verification Core v1 — real PostgreSQL acceptance', () => {
       purpose: 'signup_phone', channel: 'sms', destination: '09121230210', subjectKind: 'pending_account',
       idempotencyKey: newIdempotencyKey(), requester: { ipAddress: '203.0.113.210' },
     });
-    const code = extractCode(String(smsSendMock.mock.calls.at(-1)?.[1]?.body ?? ''));
+    const code = String(smsSendMock.mock.calls.at(-1)?.[1]?.code ?? '');
 
     const chalRow = await db.query(
       `SELECT id, generation, key_version, destination_hash FROM public.verification_challenges WHERE handle = $1`,

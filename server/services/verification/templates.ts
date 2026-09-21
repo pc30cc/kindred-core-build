@@ -45,6 +45,14 @@ const EMAIL_OTP: Record<VerificationLocale, (code: string, minutes: number) => R
   }),
 };
 
+/**
+ * Reference wording only — a real OTP is NOT sent with this text. SMS OTPs go
+ * through the vendor's verification template (see the `sms` branch of
+ * service.ts's sendOtpDirect), where only the code is substituted. Kept as the
+ * canonical phrasing the Super Admin preview shows alongside its
+ * `providerTemplated` flag, and as the wording to mirror when defining the
+ * template in the vendor panel.
+ */
 const SMS_OTP: Record<VerificationLocale, (code: string, minutes: number) => RenderedMessage> = {
   fa: (code, minutes) => ({ text: `کد تأیید: ${code} (تا ${minutes} دقیقه معتبر)` }),
   tr: (code, minutes) => ({ text: `Doğrulama kodu: ${code} (${minutes} dk geçerli)` }),

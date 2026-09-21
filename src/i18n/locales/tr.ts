@@ -5421,6 +5421,7 @@ const tr: TranslationKeys = {
         emailHtml: 'E-posta (HTML)',
         iframeTitle: 'Korumalı e-posta önizlemesi (betik yok, sağlayıcı çağrısı yok)',
         smsText: 'SMS metni',
+        smsProviderTemplatedNotice: 'Gerçek SMS metni, sağlayıcı panelinizdeki doğrulama şablonundan gelir (kod, şablonun parametresine yerleştirilir); böylece yüksek öncelikli servis hattından gönderilir ve reklam SMS’lerini engelleyen alıcılara da ulaşır. Aşağıdaki metin yalnızca referanstır.',
         loading: 'Önizleme oluşturuluyor…',
       },
       audit: {

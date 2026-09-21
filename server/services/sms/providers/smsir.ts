@@ -91,7 +91,12 @@ export function mapSmsIrFailure(status: number | null, message: string): SmsErro
   if (status === 402) return 'sms_insufficient_credit';
   if (text.includes('credit') || text.includes('اعتبار')) return 'sms_insufficient_credit';
   if (text.includes('api key') || text.includes('apikey') || text.includes('unauthor')) return 'sms_auth_failed';
-  if (text.includes('template')) return 'sms_template_not_found';
+  // SMS.ir answers in Persian, so the template hint needs `قالب` as well as
+  // the English word. The generic verification core finalizes a template
+  // fault as a TERMINAL `unconfigured` delivery rather than inviting an
+  // endless retry, so a Persian "template not found" that fell through to
+  // `sms_provider_error` would be misreported as transient.
+  if (text.includes('template') || text.includes('قالب')) return 'sms_template_not_found';
   if (text.includes('mobile') || text.includes('receptor') || text.includes('شماره')) {
     return 'sms_invalid_receptor';
   }

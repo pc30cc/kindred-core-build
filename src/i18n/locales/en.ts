@@ -5435,6 +5435,7 @@ const en = {
         emailHtml: 'Email (HTML)',
         iframeTitle: 'Sandboxed email preview (no scripts, no provider call)',
         smsText: 'SMS text',
+        smsProviderTemplatedNotice: 'The real SMS body comes from your provider panel\'s verification template (the code is substituted into its parameter), so it is sent on a high-priority service line and still reaches recipients who have blocked advertising SMS. The text below is reference wording only.',
         loading: 'Rendering preview…',
       },
       audit: {

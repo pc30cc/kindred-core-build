@@ -26,7 +26,12 @@ final class KeyboardDismissalTests: UITestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 10), "the search field never opened")
         focus(field)
 
-        row.tap()
+        // By coordinate rather than `tap()`. The identifier lands on the
+        // `NavigationLink` in the row, which surfaces as its chevron — seven
+        // points wide, and never `isHittable`, because a hit test at its
+        // centre resolves to the cell around it rather than to the chevron
+        // itself. Tapping the point is the same tap a finger makes.
+        row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 
         XCTAssertTrue(
             composerField(timeout: 20).exists,

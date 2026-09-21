@@ -51,9 +51,11 @@ final class AccountDeletionTests: UITestCase {
         reveal(submit)
         submit.tap()
 
-        // It asks rather than proceeding...
+        // It asks rather than proceeding. Not `app.buttons[deleteFinal]` —
+        // the button that was just pressed carries those words itself, so
+        // that query is true whether or not anything was presented.
         XCTAssertFalse(
-            app.buttons[deleteFinal].waitForExistence(timeout: 2),
+            app.sheets.firstMatch.waitForExistence(timeout: 2) || app.alerts.firstMatch.exists,
             "an empty password got as far as the confirmation"
         )
         // ...and it says so, where the field is.
@@ -76,10 +78,7 @@ final class AccountDeletionTests: UITestCase {
         submit.tap()
 
         let confirm = confirmationButton()
-        XCTAssertTrue(
-            confirm.waitForExistence(timeout: 10),
-            "the confirmation never appeared, so the request is never made"
-        )
+        XCTAssertTrue(confirm.exists, "the confirmation never offered a way to go through with it")
         confirm.tap()
 
         // The sample operator owns both sample workspaces, so this is the
@@ -117,24 +116,28 @@ final class AccountDeletionTests: UITestCase {
 
     /// The destructive button inside the confirmation.
     ///
-    /// By identifier if it survived the trip — a `confirmationDialog` is
-    /// bridged to `UIAlertController`, which takes a title and a role from
-    /// each button and may not carry anything else — and by its words if it
-    /// did not. Scoped to the presented sheet either way, because the button
-    /// that opened it carries the same words.
+    /// Scoped to the presented container, always: the button that opened the
+    /// confirmation carries the same words, so an unscoped query for them is
+    /// answered by the screen underneath and says nothing about whether
+    /// anything was presented at all.
+    ///
+    /// A `confirmationDialog` is bridged to `UIAlertController` — a sheet on
+    /// a phone — which takes a title and a role from each button and need not
+    /// carry the identifier across, so that is tried first and the words are
+    /// the fallback rather than the other way round.
     private func confirmationButton() -> XCUIElement {
-        let byID = app.buttons[A11yID.deleteAccountConfirm]
-        if byID.waitForExistence(timeout: 3) { return byID }
+        let sheet = app.sheets.firstMatch
+        let alert = app.alerts.firstMatch
+        let appeared = sheet.waitForExistence(timeout: 5) || alert.waitForExistence(timeout: 5)
+        if !appeared {
+            print("NO-CONFIRMATION\n\(app.debugDescription)\nEND-NO-CONFIRMATION")
+            XCTFail("the confirmation never appeared, so the request is never made")
+            return sheet
+        }
 
-        let inSheet = app.sheets.buttons[deleteFinal]
-        if inSheet.exists { return inSheet }
-
-        let inAlert = app.alerts.buttons[deleteFinal]
-        if inAlert.exists { return inAlert }
-
-        // Last resort: the newest one on screen, which is the presented one.
-        let all = app.buttons.matching(identifier: deleteFinal)
-        return all.count > 1 ? all.element(boundBy: all.count - 1) : all.firstMatch
+        let container = sheet.exists ? sheet : alert
+        let byID = container.buttons[A11yID.deleteAccountConfirm]
+        return byID.exists ? byID : container.buttons[deleteFinal]
     }
 
     /// An element by identifier, whatever kind of element it turned out to be.

@@ -45,16 +45,36 @@ export function BrandLoader({
           aria-hidden
         />
         <span className="absolute inset-0 rounded-full border border-primary/15" aria-hidden />
-        {/* Wordmark sits inside the ring. */}
-        <span
-          className={cn(
-            'absolute inset-0 flex items-center justify-center font-display font-semibold lowercase text-primary',
-            s.label,
+        {/* Bare W mark inside the ring, painted through a CSS mask so it takes
+            the theme's primary colour. Operator branding (logoUrl) wins. */}
+        <span className="absolute inset-0 flex items-center justify-center">
+          {logoUrl ? (
+            <BrandLogo src={logoUrl} className="rounded-[26%]" style={{ width: s.mark, height: s.mark }} />
+          ) : (
+            <span
+              aria-hidden
+              className="bg-primary"
+              style={{
+                width: s.mark,
+                height: s.mark,
+                WebkitMaskImage: `url(${webyarW})`,
+                maskImage: `url(${webyarW})`,
+                WebkitMaskRepeat: 'no-repeat',
+                maskRepeat: 'no-repeat',
+                WebkitMaskPosition: 'center',
+                maskPosition: 'center',
+                WebkitMaskSize: 'contain',
+                maskSize: 'contain',
+              }}
+            />
           )}
-        >
-          {label}
         </span>
       </div>
+      {showLabel && (
+        <span className={cn('font-display font-semibold uppercase text-muted-foreground', s.label)}>
+          {label}
+        </span>
+      )}
       <span className="sr-only">Loading</span>
     </div>
   );

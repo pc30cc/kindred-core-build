@@ -68,6 +68,24 @@ jobs:
         working-directory: android
         run: ./gradlew assembleDebug --stacktrace
 
+      # The JVM layer, which is where most of the suite lives: no device, no
+      # KVM, no emulator (ADR-003 §5). Instrumented tests are a separate job
+      # on a schedule, because the emulator's ~4GB does not coexist with a
+      # build and Supabase at once.
+      - name: Unit tests (JVM)
+        working-directory: android
+        run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: Test report
+        if: ${{ !cancelled() }}
+        working-directory: android
+        run: |
+          set -eu
+          for f in app/build/test-results/testDebugUnitTest/*.xml; do
+            [ -e "$f" ] || continue
+            sed -n 's/.*<testsuite name="\([^"]*\)" tests="\([0-9]*\)" skipped="\([0-9]*\)" failures="\([0-9]*\)" errors="\([0-9]*\)".*/\1: \2 tests, \4 failures, \5 errors/p' "$f"
+          done
+
       - name: APK
         working-directory: android
         run: |

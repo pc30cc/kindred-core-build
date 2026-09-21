@@ -9,4 +9,5 @@ plugins {
     // build classpath, above the 2.2.10 AGP would otherwise supply, and keeps
     // the compiler plugin and the language on the same version.
     alias(libs.plugins.kotlin.compose) apply false
+    alias(libs.plugins.kotlin.serialization) apply false
 }

@@ -108,22 +108,40 @@ function copyLocale(locale: string | null | undefined): CopyLocale {
 }
 
 /**
- * U+200F RIGHT-TO-LEFT MARK.
+ * U+200F RIGHT-TO-LEFT MARK, where it is actually needed.
  *
  * A notification banner has no direction of its own: iOS lays the text out by
- * the first strong character it finds. Persian copy usually starts with a
- * Persian letter and comes out right-aligned on its own — but the titles here
- * start with the CUSTOMER'S NAME, which is as often "Ali" or "Sarah" as it is
- * Persian. One Latin first letter and the whole Persian line flips to
- * left-aligned, with the punctuation stranded on the wrong end.
+ * the FIRST STRONG character it finds. Persian copy that starts with a
+ * Persian letter comes out right-aligned on its own and needs nothing. The
+ * case that breaks is Persian copy that starts with the CUSTOMER'S NAME,
+ * which is as often "Ali" or "Sarah" as it is Persian — one Latin first
+ * letter and the whole line flips to left-aligned, with the punctuation
+ * stranded on the wrong end.
  *
- * The mark is invisible, costs two bytes, and fixes the paragraph direction
- * before the name can decide it.
+ * So the mark goes on exactly that: a line with Persian in it whose first
+ * strong character is Latin. Putting it on everything would also right-align
+ * "Webyar" on its own, which is a Latin word with no reason to move.
  */
 const RLM = '\u200F';
 
+/** Hebrew, Arabic, Persian and the Arabic presentation forms. */
+const RTL_LETTER = /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/;
+/** Latin, including the accented ranges Turkish needs. */
+const LTR_LETTER = /[A-Za-z\u00C0-\u024F]/;
+
+/** Which way iOS will read this line, or null when nothing in it is strong. */
+function firstStrongDirection(value: string): 'ltr' | 'rtl' | null {
+  for (const character of value) {
+    if (RTL_LETTER.test(character)) return 'rtl';
+    if (LTR_LETTER.test(character)) return 'ltr';
+  }
+  return null;
+}
+
 function directed(locale: CopyLocale, value: string): string {
-  return locale === 'fa' && value ? `${RLM}${value}` : value;
+  if (locale !== 'fa' || !value) return value;
+  if (!RTL_LETTER.test(value)) return value;
+  return firstStrongDirection(value) === 'ltr' ? `${RLM}${value}` : value;
 }
 
 export async function notifyInboundMessage(

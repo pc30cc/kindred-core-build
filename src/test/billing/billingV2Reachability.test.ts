@@ -211,11 +211,14 @@ describe('billing_v2 is reachable from the product, so neither chain may drop it
       const restFile = names.find((f) => f.includes('billing_engine_constraints_and_functions'));
       expect(tablesFile, 'part 1 must exist').toBeDefined();
       expect(restFile, 'part 2 must exist').toBeDefined();
-      // Part 1 before the migration that needs it, part 2 after every
-      // migration that creates a table it points a foreign key at.
-      expect(tablesFile! < '20260904112112').toBe(true);
-      expect(restFile! > names[names.indexOf(restFile!) - 1]).toBe(true);
-      expect(names.filter((f) => f > restFile! && !f.includes('function_execute_acl'))).toEqual([]);
+      // The ordering that matters, stated as itself rather than as a list of
+      // what may follow: part 1 has to land before the migration that first
+      // needs a table, and part 2 after it, because that same migration is
+      // where billing_coupons is created and billing_invoices points a
+      // foreign key at billing_coupons. Anything may be added after part 2.
+      const NEEDS_THE_TABLES = '20260904112112';
+      expect(tablesFile! < NEEDS_THE_TABLES).toBe(true);
+      expect(restFile! > NEEDS_THE_TABLES).toBe(true);
 
       const part1 = readFileSync(join(HOSTED, tablesFile!), 'utf8');
       const part2 = readFileSync(join(HOSTED, restFile!), 'utf8');

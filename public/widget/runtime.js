@@ -48,6 +48,7 @@
       // the escaping are security, and every presentation has to inherit
       // them rather than reimplement them.
       linkifyHtml: Util.linkifyHtml,
+      linkLabel: t('msgOpenLink'),
       config: ctx.config,
       locale: ctx.locale,
       primaryColor: ctx.primaryColor,
@@ -82,46 +83,28 @@
     },
 
     /**
-     * What a person should SEE for a link.
+     * The exact destination, in a form a person can actually read.
      *
      * A Persian product URL reaches the widget percent-encoded, because that
      * is the only form that survives HTTP:
      *
      *   https://p.webyar.ai/product/%d8%a7%d8%b3%d9%be%db%8c%da%a9%d8%b1-…/
      *
-     * Printed raw that is unreadable, and it is one unbreakable token that
-     * stretches its bubble. Decoded it is simply
-     * «p.webyar.ai/product/اسپیکر-بلوتوثی-رزونانس».
-     *
-     * The host is kept rather than shown as a bare title: a visitor is being
-     * asked to leave the page, so where the link goes stays visible. Over
-     * `max` characters the middle is dropped instead of the end, because the
-     * end is the part that says WHAT the link is.
-     *
-     * `humanize` additionally turns the slug's hyphens into spaces, which is
-     * for the visible label only — never for the `title`, which has to stay
-     * the exact destination. It is not cosmetic: a Persian slug inside an
-     * otherwise Latin URL is a right-to-left run inside a left-to-right one,
-     * and when a hyphenated run like «اسپیکر-بلوتوثی-رزونانس» wraps mid-way,
-     * bidi reordering scatters the hyphens to the wrong ends of the lines.
-     * Spaces give the line breaker somewhere sane to break, and each line
-     * then holds one whole word.
+     * This is what the link's `title` shows, so a visitor who wants to check
+     * where a button goes sees «p.webyar.ai/product/اسپیکر-بلوتوثی-رزونانس»
+     * rather than a line of escapes. The scheme is dropped and the host kept:
+     * where it goes is the part that matters.
      */
-    readableUrl: function (href, max, humanize) {
+    readableUrl: function (href) {
       var u;
       try { u = new URL(String(href == null ? '' : href)); } catch (_) { return String(href == null ? '' : href); }
       var decode = function (v) {
         try { return decodeURIComponent(v); } catch (_) { return v; }
       };
-      var host = u.host.replace(/^www\./i, '');
-      var path = decode(u.pathname || '').replace(/\/+$/, '');
-      if (humanize) path = path.replace(/[-_]+/g, ' ');
-      var full = host + path + decode(u.search || '') + decode(u.hash || '');
-      if (!max || full.length <= max) return full;
-      var segments = path.split('/').filter(Boolean);
-      var tail = segments.length ? segments[segments.length - 1] : '';
-      var shortened = tail ? host + '/…/' + tail : host;
-      return shortened.length <= max ? shortened : shortened.slice(0, Math.max(1, max - 1)) + '…';
+      return u.host.replace(/^www\./i, '')
+        + decode(u.pathname || '').replace(/\/+$/, '')
+        + decode(u.search || '')
+        + decode(u.hash || '');
     },
 
     /**
@@ -135,9 +118,15 @@
      * href already passed `safeHttpUrl`, so a message can never inject HTML
      * or a script URL no matter who wrote it.
      */
-    linkifyHtml: function (text) {
+    linkifyHtml: function (text, label) {
       var src = text == null ? '' : String(text);
       if (!src) return '';
+      // The address is never printed. A product URL is long, percent-encoded
+      // and unreadable — and worse, a model asked to repeat one retypes it
+      // and gets it wrong, so what was printed was not even a working
+      // address. The button says what it does; `title` carries the real
+      // destination for anyone who wants to check it.
+      var linkText = label ? String(label) : 'Open link';
       if (src.indexOf('http') === -1 && src.indexOf('www.') === -1) return Util.escapeHtml(src);
       var pattern = /(?:https?:\/\/|www\.)[^\s<>"'`]+/gi;
       var out = '';
@@ -155,8 +144,8 @@
         if (href) {
           out += '<a class="msg-link" href="' + Util.escapeHtml(href) + '"' +
             ' target="_blank" rel="noopener noreferrer nofollow" dir="auto"' +
-            ' title="' + Util.escapeHtml(Util.readableUrl(href, 0)) + '">' +
-            Util.escapeHtml(Util.readableUrl(href, 60, true)) + '</a>';
+            ' title="' + Util.escapeHtml(Util.readableUrl(href)) + '">' +
+            Util.escapeHtml(linkText) + '</a>';
           out += Util.escapeHtml(raw.slice(candidate.length));
         } else {
           out += Util.escapeHtml(raw);
@@ -232,8 +221,8 @@
   // the same reason Policy is: reachable without holding the instance
   // closure, and testable as the contract rather than as an implementation
   // detail of one template.
-  __gs_runtime.linkifyHtml = function (text) { return Util.linkifyHtml(text); };
-  __gs_runtime.readableUrl = function (href, max, humanize) { return Util.readableUrl(href, max, humanize); };
+  __gs_runtime.linkifyHtml = function (text, label) { return Util.linkifyHtml(text, label); };
+  __gs_runtime.readableUrl = function (href) { return Util.readableUrl(href); };
   __gs_runtime.safeHttpUrl = function (raw) { return Util.safeHttpUrl(raw); };
 
   // ════════════════════════════════════════════════════════════════════
@@ -1051,6 +1040,10 @@
         convJustNow: 'now',
         convLoadError: "Couldn't load conversations",
         convRetry: 'Retry',
+        // Label for a link inside a message. The address itself is never shown:
+        // a product URL is long, percent-encoded and unreadable, and printing
+        // it told the visitor nothing they could act on.
+        msgOpenLink: 'Open link',
 
       },
       fa: {
@@ -1272,6 +1265,7 @@
         convJustNow: 'هم‌اکنون',
         convLoadError: 'بارگذاری گفتگوها انجام نشد',
         convRetry: 'تلاش مجدد',
+        msgOpenLink: 'باز کردن لینک',
 
       },
       tr: {
@@ -1493,6 +1487,7 @@
         convJustNow: 'şimdi',
         convLoadError: 'Konuşmalar yüklenemedi',
         convRetry: 'Tekrar dene',
+        msgOpenLink: 'Bağlantıyı aç',
 
       },
     };
@@ -3022,7 +3017,7 @@
      */
     function revealFinalText(el, fullText) {
       if (!el) return;
-      el.innerHTML = Util.linkifyHtml(fullText);
+      el.innerHTML = Util.linkifyHtml(fullText, t('msgOpenLink'));
     }
 
     // finish=true instantly completes whatever was mid-reveal instead of

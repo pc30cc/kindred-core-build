@@ -28,19 +28,20 @@ const read = (p: string) => readFileSync(resolve(process.cwd(), p), 'utf8');
 /** Verbatim from the live conversation. */
 const PRODUCT_URL =
   'https://p.webyar.ai/product/%d8%a7%d8%b3%d9%be%db%8c%da%a9%d8%b1-%d8%a8%d9%84%d9%88%d8%aa%d9%88%d8%ab%db%8c-%d8%b1%d8%b2%d9%88%d9%86%d8%a7%d9%86%d8%b3/';
-/** Hyphens become spaces in the LABEL only — see the bidi note in readableUrl. */
-const PRODUCT_LABEL = 'p.webyar.ai/product/اسپیکر بلوتوثی رزونانس';
+/** What the button says. The address itself is never printed. */
+const LABEL = 'باز کردن لینک';
+/** What `title` shows — the exact destination, decoded so it can be read. */
 const PRODUCT_TITLE = 'p.webyar.ai/product/اسپیکر-بلوتوثی-رزونانس';
 
 let linkify: (t: string) => string;
-let readable: (href: string, max?: number, humanize?: boolean) => string;
+let readable: (href: string) => string;
 let safeUrl: (raw: string) => string | null;
 
 beforeAll(() => {
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
   new Function(read('public/widget/runtime.js')).call(window);
   const rt = (window as any).__gs_runtime;
-  linkify = rt.linkifyHtml;
+  linkify = (text: string) => rt.linkifyHtml(text, LABEL);
   readable = rt.readableUrl;
   safeUrl = rt.safeHttpUrl;
 });
@@ -66,22 +67,24 @@ describe('a link the assistant sends', () => {
     expect(a.getAttribute('href')).toBe(PRODUCT_URL);
   });
 
-  it('is READ in Persian, not in percent-escapes', async () => {
-    const [a] = anchors(linkify(`لینک محصول: ${PRODUCT_URL}`));
+  it('shows a label, and never the address', async () => {
+    // Printing the address was useless twice over: percent-escapes are
+    // unreadable, and a model asked to repeat one retypes it and gets it
+    // wrong, so what was printed was not even a working address.
+    const [a] = anchors(linkify(`لینک خرید: ${PRODUCT_URL}`));
 
-    expect(a.textContent).toBe(PRODUCT_LABEL);
+    expect(a.textContent).toBe(LABEL);
     expect(a.textContent).not.toContain('%d8');
-    // The host stays visible: the visitor is being asked to leave the page.
-    expect(a.textContent!.startsWith('p.webyar.ai/')).toBe(true);
+    expect(a.textContent).not.toContain('p.webyar.ai');
   });
 
-  it('keeps the exact address on hover, hyphens and all', async () => {
-    // Only the visible label is loosened for wrapping; what the visitor
-    // inspects has to be the real destination, not a prettied-up version.
+  it('but the exact destination is one hover away, decoded', async () => {
+    // A visitor is being asked to leave the page, so checking where a button
+    // goes has to be possible — in Persian, not in escapes.
     const [a] = anchors(linkify(PRODUCT_URL));
 
     expect(a.getAttribute('title')).toBe(PRODUCT_TITLE);
-    expect(readable(PRODUCT_URL, 0)).toBe(PRODUCT_TITLE);
+    expect(readable(PRODUCT_URL)).toBe(PRODUCT_TITLE);
   });
 
   it('opens away from the shop without handing over the opener', async () => {
@@ -93,16 +96,15 @@ describe('a link the assistant sends', () => {
     expect(rel).toContain('noreferrer');
   });
 
-  it('keeps the full address within reach when the label is shortened', async () => {
+  it('reads the same however long the address is', async () => {
+    // The label no longer grows with the URL, so a hundred-character link
+    // cannot stretch its bubble — which is what it used to do.
     const long = 'https://shop.example.com/category/electronics/audio/wireless/2026/review/a-very-long-product-slug-indeed';
     const [a] = anchors(linkify(long));
 
     expect(a.getAttribute('href')).toBe(long);
-    // Shortened in the MIDDLE: the host says where it goes and the tail says
-    // what it is — dropping either end loses the useful half.
-    expect(a.textContent!.startsWith('shop.example.com/')).toBe(true);
-    expect(a.textContent!.length).toBeLessThanOrEqual(60);
-    expect(a.getAttribute('title')).toBe(readable(long, 0));
+    expect(a.textContent).toBe(LABEL);
+    expect(a.getAttribute('title')).toBe(readable(long));
   });
 });
 
@@ -173,7 +175,8 @@ describe('the message bubble itself', () => {
         d.textContent = v == null ? '' : String(v);
         return d.innerHTML;
       },
-      linkifyHtml: linkify,
+      linkifyHtml: (text: string, label?: string) => (window as any).__gs_runtime.linkifyHtml(text, label),
+      linkLabel: LABEL,
       config: {},
       locale: 'fa',
       primaryColor: '#1f93ff',
@@ -194,7 +197,7 @@ describe('the message bubble itself', () => {
     expect(a).toBeTruthy();
     expect(a.className).toBe('msg-link');
     expect(a.getAttribute('href')).toBe(PRODUCT_URL);
-    expect(a.textContent).toBe(PRODUCT_LABEL);
+    expect(a.textContent).toBe(LABEL);
   });
 
   it('leaves the text plain while it is still being typed out', async () => {

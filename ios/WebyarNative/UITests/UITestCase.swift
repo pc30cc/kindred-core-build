@@ -204,15 +204,26 @@ class UITestCase: XCTestCase {
         let ceiling = max(bounds.minY, chrome.exists ? chrome.frame.maxY : 0)
         // The composer's own top, when it can be trusted.
         //
-        // `exists` is not enough. A query can resolve against a snapshot the
-        // layout has since replaced and hand back a frame of zero, and a
-        // floor of zero is above the ceiling — at which point this returned
-        // false without tapping anything, which is a test failing for a
-        // reason the operator would never see. So the composer is only
-        // believed when it is where a composer can be; otherwise the keyboard
-        // is the floor, which is where this started.
-        let composer = app.textFields[A11yID.composerField].firstMatch
-        let composerTop = composer.exists ? composer.frame.minY : 0
+        // Two ways this went wrong, both of them mine, both of them silent.
+        //
+        // It asked `app.textFields` only. The composer is a `textField` or a
+        // `textView` depending on the iOS build and on whether it has grown
+        // past one line — which is the whole reason `composerField()` polls
+        // for either — so on a run where it surfaced as a `textView` this
+        // found nothing, fell back to the keyboard as the floor, and then
+        // picked a message row sitting BEHIND the composer. Two taps on the
+        // composer's own bar, no dismissal, and a failure saying tapping
+        // beside the messages did not work.
+        //
+        // And `exists` alone is not proof of a usable frame: a query can
+        // resolve against a snapshot the layout has since replaced and hand
+        // back a frame of zero, which is above the ceiling and made this
+        // return false without tapping anything at all.
+        //
+        // So: either kind of element, and believed only when it is somewhere
+        // a composer can be. Otherwise the keyboard is the floor, which is
+        // where this started and is always a real number.
+        let composerTop = composerNow?.frame.minY ?? 0
         let floor = composerTop > ceiling
             ? min(composerTop, keyboard.frame.minY)
             : keyboard.frame.minY
@@ -237,6 +248,20 @@ class UITestCase: XCTestCase {
             }
         }
         return false
+    }
+
+    /// The composer as it is right now, whichever element kind, without
+    /// waiting for it.
+    ///
+    /// `composerField()` polls for up to twenty-five seconds, which is right
+    /// while a screen is opening and wrong here: this is asked with the
+    /// keyboard already up, so the field is either on screen or this screen
+    /// has no composer at all.
+    private var composerNow: XCUIElement? {
+        let asField = app.textFields[A11yID.composerField].firstMatch
+        if asField.exists { return asField }
+        let asView = app.textViews[A11yID.composerField].firstMatch
+        return asView.exists ? asView : nil
     }
 
     /// Where the messages are right now, asked once.

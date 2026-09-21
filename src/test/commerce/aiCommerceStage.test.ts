@@ -135,6 +135,20 @@ describe('what the model receives for a store question', () => {
     expect(block).toContain('6480000');
   });
 
+  it('names the currency unit, so a price is not read as the wrong one', async () => {
+    // Live: with only `currency=IRT` in front of it, the model told a shopper
+    // «۱٬۹۸۰٬۰۰۰ ریال» for a price the store reports in Toman — wrong by a
+    // factor of ten, in the direction that makes the shop look cheap. The
+    // amount is untouched; only the unit it was already in is now spelled out.
+    const { toolResults } = await ask('قیمت ساعت هوشمند پالس چنده؟');
+    const top = toolResults.find((r) => r.name === 'commerce.search_products')!;
+
+    expect(top.data.currency).toBe('IRT');
+    expect(top.data.currency_name).toBe('Toman');
+    expect(top.data.price).toBe('6480000'); // unchanged — a label, not a conversion
+    expect(renderToolResults(toolResults)).toContain('currency_name=Toman');
+  });
+
   it('recommends from the catalogue for an open-ended request', async () => {
     const { toolResults } = await ask('یه هدفون خوب معرفی کن');
     const hits = toolResults.filter((r) => r.name === 'commerce.search_products');

@@ -131,6 +131,14 @@ export function buildSystemPrompt(
 
   lines.push('If the sources disagree about a business-specific fact, do not pick one: say the information is inconsistent and offer to confirm with a human.');
   lines.push('KNOWLEDGE BASE: the sources are supporting context, not permission to speak. A missing knowledge-base result never means the conversation must be handed off.');
+  // A workspace's business description is written once, about the COMPANY.
+  // A connected shop's catalogue is the live truth about what it SELLS, and
+  // the two disagree: asked for a television, an assistant whose description
+  // said the business "focuses on tools for online presence" volunteered that
+  // as the reason it had none — while the same shop's catalogue was full of
+  // phones, speakers and powerbanks. Saying what the shop does not stock is
+  // fine; explaining it with a theory about the business is not.
+  lines.push('COMMERCE SCOPE: when commerce tool results are present, the store catalogue is what this business sells. Do not describe the business\'s focus, market or product range from the business description instead — if something is not in the catalogue, say just that it is not available, and offer to check a specific product or show what is stocked.');
   lines.push('COMMERCE: a tool result named commerce.* is real store data (products, stock, orders) — never invent product names, prices, or order status beyond it. If a commerce result has error_code=identity_required or order_access_denied, do NOT reveal any order details; ask the visitor to verify their identity instead. If error_code=catalog_syncing, say the store catalog is still being set up. If error_code=commerce_not_connected or commerce_live_unavailable, say you cannot check that right now rather than guessing.');
 
   // ── HANDOFF ──────────────────────────────────────────────────────────

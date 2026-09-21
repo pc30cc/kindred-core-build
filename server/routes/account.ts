@@ -957,3 +957,88 @@ accountRouter.get('/provider-defaults', async (req, res) => {
   }
   return res.json({ defaults });
 });
+
+/**
+ * DELETE /api/account — the operator removes their own account.
+ *
+ * Apple requires this to be startable from inside the app (App Store Review
+ * Guideline 5.1.1(v)); it is also simply the right thing for somebody who
+ * hands their phone back at the end of a job.
+ *
+ * Three properties, all of them load-bearing:
+ *
+ * RE-AUTHENTICATION. The current password, checked against the same Argon2id
+ * hash `change-password` checks. A signed-in phone left on a desk is not
+ * consent to destroy an account.
+ *
+ * IT REFUSES FOR AN OWNER. `workspaces.owner_id` references `profiles` with
+ * ON DELETE CASCADE, so deleting an owner's profile deletes their workspaces
+ * — and with them every conversation, contact, invoice and colleague inside.
+ * That is a company's data, not one operator's, and it is not something a
+ * phone should be able to do behind a password field. The response names the
+ * workspaces so the operator knows exactly what to hand over first.
+ *
+ * WHAT ACTUALLY GOES. One DELETE of the profile row. Everything personal
+ * cascades from it — credentials, workspace memberships, notification
+ * preferences, availability, push devices, roles, phone verifications — which
+ * is why this is one statement rather than a list that would drift from the
+ * schema. What does NOT go is the work: `conversations.assigned_to` and the
+ * AI guidance tables are ON DELETE SET NULL, so a customer's thread survives
+ * the operator who happened to answer it, unattributed.
+ */
+accountRouter.delete('/', async (req: Request, res: Response) => {
+  try {
+    const config = (req as AuthedRequest).serverConfig;
+    const user = (req as AuthedRequest).authUser;
+
+    const parsed = z.object({ password: z.string().min(1) }).safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'password is required' });
+    }
+
+    const sb = getServiceClient(config);
+
+    const { data: cred, error: credErr } = await sb
+      .from('user_credentials')
+      .select('password_hash')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (credErr) return res.status(500).json({ error: credErr.message });
+    if (!cred?.password_hash || !(await verifyPassword(cred.password_hash, parsed.data.password))) {
+      return res.status(400).json({ error: 'Password is incorrect' });
+    }
+
+    const { data: owned, error: ownedErr } = await sb
+      .from('workspaces')
+      .select('id, name')
+      .eq('owner_id', user.id);
+    if (ownedErr) return res.status(500).json({ error: ownedErr.message });
+
+    if ((owned ?? []).length) {
+      return res.status(409).json({
+        error: 'owns_workspaces',
+        workspaces: (owned as Array<{ id: string; name: string }>).map((w) => w.name),
+      });
+    }
+
+    // Sessions first. If the delete then fails, the operator is signed out of
+    // an account that still exists — recoverable. The other order can leave a
+    // deleted account with live session rows pointing at nothing.
+    await revokeAllSessions(config, user.id, 'account_deleted');
+
+    // `mobile_push_devices.user_id` carries no foreign key to `profiles`, so
+    // nothing cascades it. Left behind, the rows are an address list for an
+    // account that no longer exists — harmless, because recipients are
+    // resolved through `workspace_members` which DOES cascade, and still
+    // somebody's device tokens sitting in a table after they asked to be
+    // removed.
+    await sb.from('mobile_push_devices').delete().eq('user_id', user.id);
+
+    const { error: deleteErr } = await sb.from('profiles').delete().eq('id', user.id);
+    if (deleteErr) return res.status(500).json({ error: deleteErr.message });
+
+    return res.json({ deleted: true });
+  } catch (err) {
+    return res.status(500).json({ error: errorMessage(err, 'Failed to delete account') });
+  }
+});

@@ -461,6 +461,84 @@ enum Str {
         }
     }
 
+    // MARK: - Deleting the account
+
+    static func deleteAccount(_ l: Language) -> String {
+        switch l {
+        case .en: "Delete account"
+        case .fa: "حذف حساب"
+        case .tr: "Hesabı sil"
+        }
+    }
+
+    static func deleteAccountBody(_ l: Language) -> String {
+        switch l {
+        case .en: "Your profile, your password, your workspace memberships, your notification preferences and every device you have signed in on are removed. This cannot be undone."
+        case .fa: "نمایه، رمز عبور، عضویت‌هایتان در فضاهای کاری، تنظیمات اعلان و همه‌ی دستگاه‌هایی که با آن‌ها وارد شده‌اید پاک می‌شوند. این کار برگشت‌پذیر نیست."
+        case .tr: "Profiliniz, parolanız, çalışma alanı üyelikleriniz, bildirim tercihleriniz ve giriş yaptığınız her cihaz kaldırılır. Bu işlem geri alınamaz."
+        }
+    }
+
+    /// Said plainly, because it is the part people worry about and the part
+    /// that is genuinely reassuring.
+    static func deleteAccountKeeps(_ l: Language) -> String {
+        switch l {
+        case .en: "Conversations you handled stay with the workspace — they belong to the customer, not to you — but they stop being attributed to you."
+        case .fa: "گفتگوهایی که رسیدگی کرده‌اید در فضای کاری می‌مانند — آن‌ها مال مشتری‌اند، نه شما — ولی دیگر به نام شما ثبت نمی‌شوند."
+        case .tr: "İlgilendiğiniz konuşmalar çalışma alanında kalır — müşteriye aittir, size değil — ancak artık size atfedilmez."
+        }
+    }
+
+    static func deleteAccountConfirmPassword(_ l: Language) -> String {
+        switch l {
+        case .en: "Enter your password to confirm"
+        case .fa: "برای تأیید، رمز عبورتان را وارد کنید"
+        case .tr: "Onaylamak için parolanızı girin"
+        }
+    }
+
+    static func deleteAccountFinal(_ l: Language) -> String {
+        switch l {
+        case .en: "Delete my account"
+        case .fa: "حساب من را حذف کن"
+        case .tr: "Hesabımı sil"
+        }
+    }
+
+    static func deleteAccountWrongPassword(_ l: Language) -> String {
+        switch l {
+        case .en: "That password is not right."
+        case .fa: "این رمز عبور درست نیست."
+        case .tr: "Bu parola doğru değil."
+        }
+    }
+
+    /// The one case the server refuses, and the only one worth a screen of
+    /// its own: an owner's profile cascades to their workspaces.
+    static func deleteAccountOwnsTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Hand these over first"
+        case .fa: "اول این‌ها را واگذار کنید"
+        case .tr: "Önce bunları devredin"
+        }
+    }
+
+    static func deleteAccountOwnsBody(_ l: Language, workspaces: String) -> String {
+        switch l {
+        case .en: "You still own \(workspaces). Deleting your account would delete the workspace and everything in it — every conversation, contact and invoice — so transfer ownership or close the workspace in the web console first."
+        case .fa: "هنوز مالک \(workspaces) هستید. حذف حسابتان فضای کاری و هر چیزی که در آن است — هر گفتگو، مخاطب و صورتحساب — را هم پاک می‌کند، پس اول در کنسول وب مالکیت را واگذار کنید یا فضای کاری را ببندید."
+        case .tr: "Hâlâ \(workspaces) alanının sahibisiniz. Hesabınızı silmek çalışma alanını ve içindeki her şeyi — her konuşmayı, kişiyi ve faturayı — silerdi; bu yüzden önce web konsolundan sahipliği devredin veya çalışma alanını kapatın."
+        }
+    }
+
+    static func accountDeleted(_ l: Language) -> String {
+        switch l {
+        case .en: "Your account has been deleted."
+        case .fa: "حساب شما حذف شد."
+        case .tr: "Hesabınız silindi."
+        }
+    }
+
     // MARK: - Tabs
 
     static func tabInbox(_ l: Language) -> String {

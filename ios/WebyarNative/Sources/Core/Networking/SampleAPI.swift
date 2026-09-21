@@ -580,6 +580,12 @@ actor SampleAPI: WebyarAPI {
 
     func unregisterPushDevice(deviceID: String) async throws {}
 
+    /// The sample operator owns both sample workspaces, so this is the
+    /// blocked branch — which is the one worth being able to look at.
+    func deleteAccount(password: String) async throws -> AccountDeletion {
+        .blockedByOwnedWorkspaces(["Sample Workspace", "Second Workspace"])
+    }
+
     func notificationPrefs() async throws -> NotificationPrefs {
         samplePrefs
     }

@@ -136,6 +136,19 @@ struct SecurityView: View {
             } header: {
                 Text(Str.activeSessions(language))
             }
+
+            // Last, and on the security screen rather than the root: it is
+            // the other thing you do to your own account, it belongs beside
+            // the password and the sessions, and nothing should meet it on
+            // the way to something else.
+            Section {
+                NavigationLink {
+                    DeleteAccountView()
+                } label: {
+                    Text(Str.deleteAccount(language))
+                        .foregroundStyle(Theme.Palette.danger)
+                }
+            }
         }
         .listStyle(.insetGrouped)
         .dismissesKeyboardOnTap()

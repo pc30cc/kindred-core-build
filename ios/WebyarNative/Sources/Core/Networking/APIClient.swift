@@ -1035,6 +1035,44 @@ actor APIClient {
         try await performIgnoringBody(request)
     }
 
+    private struct PasswordOnlyBody: Encodable, Sendable {
+        let password: String
+    }
+
+    private struct DeletionRefusal: Decodable, Sendable {
+        let error: String
+        let workspaces: [String]?
+    }
+
+    /// Its own response handling rather than `perform`, because the one
+    /// answer this screen most needs to show — "you still own these
+    /// workspaces" — arrives as a 409 with a list in it, and `perform` turns
+    /// every non-2xx into a thrown `APIError` with the list discarded.
+    func deleteAccount(password: String) async throws -> AccountDeletion {
+        let request = try makeRequest("DELETE", "/api/account", body: PasswordOnlyBody(password: password))
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw APIError.transport
+        }
+        guard let http = response as? HTTPURLResponse else { throw APIError.transport }
+
+        if (200..<300).contains(http.statusCode) { return .deleted }
+        if http.statusCode == 401 { throw APIError.unauthorized }
+
+        if http.statusCode == 409,
+           let refusal = try? decoder.decode(DeletionRefusal.self, from: data),
+           refusal.error == "owns_workspaces" {
+            return .blockedByOwnedWorkspaces(refusal.workspaces ?? [])
+        }
+
+        let message = (try? decoder.decode(DeletionRefusal.self, from: data))?.error
+        throw APIError.server(status: http.statusCode, message: message)
+    }
+
     func notificationPrefs() async throws -> NotificationPrefs {
         let request = try makeRequest("GET", "/api/notifications/prefs")
         return try await perform(request, as: NotificationPrefsResponse.self).prefs

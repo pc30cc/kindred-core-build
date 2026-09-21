@@ -199,6 +199,18 @@ final class AppState {
         return true
     }
 
+    /// The operator deleted their own account.
+    ///
+    /// Not a sign-out: there is no account left to sign out of, and the
+    /// server has already revoked every session including this one. So the
+    /// token is simply discarded and the login screen is told why it is
+    /// being looked at.
+    func accountWasDeleted() async {
+        await api.discardSession()
+        sessionEndedMessage = Str.accountDeleted(language)
+        reset()
+    }
+
     /// Called when any screen's request comes back 401: the session is gone,
     /// so stop pretending otherwise.
     func handleUnauthorized() async {

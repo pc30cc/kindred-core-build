@@ -102,3 +102,15 @@ struct PushRegistration: Decodable, Sendable {
         case voipEnabled = "voip_enabled"
     }
 }
+
+/// What came back from asking to delete the account.
+///
+/// Not an error for the blocked case: `workspaces.owner_id` cascades, so
+/// deleting an owner would take the company's whole workspace — every
+/// conversation, contact and invoice in it — with them. The server refuses,
+/// and the operator needs to be told which workspaces to hand over rather
+/// than shown a failure.
+enum AccountDeletion: Equatable, Sendable {
+    case deleted
+    case blockedByOwnedWorkspaces([String])
+}

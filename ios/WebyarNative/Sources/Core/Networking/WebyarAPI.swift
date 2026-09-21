@@ -123,6 +123,12 @@ protocol WebyarAPI: Sendable {
     /// device only — their other phone keeps working.
     func unregisterPushDevice(deviceID: String) async throws
 
+    /// Removes this operator's own account.
+    ///
+    /// Answers rather than throws when the account cannot go yet, because
+    /// "you still own a workspace" is something to explain, not an error.
+    func deleteAccount(password: String) async throws -> AccountDeletion
+
     func notificationPrefs() async throws -> NotificationPrefs
     func updateNotificationPrefs(_ prefs: NotificationPrefs) async throws -> NotificationPrefs
 }

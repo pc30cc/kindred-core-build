@@ -202,11 +202,20 @@ class UITestCase: XCTestCase {
         let bounds = transcript.frame
         let chrome = app.navigationBars.firstMatch
         let ceiling = max(bounds.minY, chrome.exists ? chrome.frame.maxY : 0)
+        // The composer's own top, when it can be trusted.
+        //
+        // `exists` is not enough. A query can resolve against a snapshot the
+        // layout has since replaced and hand back a frame of zero, and a
+        // floor of zero is above the ceiling — at which point this returned
+        // false without tapping anything, which is a test failing for a
+        // reason the operator would never see. So the composer is only
+        // believed when it is where a composer can be; otherwise the keyboard
+        // is the floor, which is where this started.
         let composer = app.textFields[A11yID.composerField].firstMatch
-        let floor = min(
-            composer.exists ? composer.frame.minY : .greatestFiniteMagnitude,
-            keyboard.frame.minY
-        )
+        let composerTop = composer.exists ? composer.frame.minY : 0
+        let floor = composerTop > ceiling
+            ? min(composerTop, keyboard.frame.minY)
+            : keyboard.frame.minY
         guard floor > ceiling else { return false }
 
         // Rows lying wholly in the clear band, newest last on screen first.

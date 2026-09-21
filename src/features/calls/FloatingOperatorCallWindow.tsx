@@ -181,7 +181,7 @@ export function FloatingOperatorCallWindow() {
     return { right: 24, bottom: 24 };
   }, [pos]);
 
-  const stop = (fn: () => void | Promise<void>) => (e: React.MouseEvent<HTMLButtonElement>) => {
+  const stop = (fn: () => unknown) => (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     e.stopPropagation();
     void fn();

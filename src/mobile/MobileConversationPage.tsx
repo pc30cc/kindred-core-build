@@ -115,7 +115,7 @@ export default function MobileConversationPage() {
   const { data: conversations } = useConversations(workspace?.id, undefined, 'main');
   const conversation = useMemo(
     () =>
-      ((conversations ?? []) as unknown as TimelineConversation[]).find(
+      ((conversations ?? []) as unknown as (TimelineConversation & Record<string, any>)[]).find(
         (c) => c.id === conversationId,
       ),
     [conversations, conversationId],
@@ -296,7 +296,7 @@ export default function MobileConversationPage() {
   const isOnline = conversation?.visitor_status === 'online' || conversation?.contacts?.is_online;
   const canSend = !!(draft.trim() || pending?.id) && !pending?.uploading;
 
-  const list = messages ?? [];
+  const list = (messages ?? []) as (typeof messages extends undefined ? never : any)[];
 
   return (
     <div className="fixed inset-0 z-30 flex flex-col bg-muted/40">

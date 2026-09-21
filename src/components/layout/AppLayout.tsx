@@ -1,5 +1,7 @@
 import { Outlet, useLocation } from 'react-router-dom';
 import { AppSidebar } from './AppSidebar';
+import { AppShellSkeleton } from './AppShellSkeleton';
+import { useAppShellReady } from '@/features/workspace/useAppShellReady';
 import { AppTopBar } from './AppTopBar';
 import { CommandPalette } from './CommandPalette';
 import { MobileBottomNav } from './MobileBottomNav';
@@ -265,6 +267,8 @@ export function AppLayout() {
   const { t, dir } = useI18n();
   const { user } = useAuth();
   const { workspace, notFound, isLoading } = useActiveWorkspace();
+  // Boot gate: user + workspace + plan only. See useAppShellReady.
+  const shellReady = useAppShellReady(workspace?.id, isLoading);
   const showVerificationBanner = user && !user.emailVerified;
   // Presence heartbeat → powers the "Operator activity" report.
   useOperatorHeartbeat(workspace?.id);
@@ -291,6 +295,12 @@ export function AppLayout() {
   // Strict: if slug doesn't match any workspace, show 404
   if (!isLoading && notFound) {
     return <WorkspaceNotFound />;
+  }
+
+  // Hold the chrome back until the workspace and its plan are known, so the
+  // sidebar never paints gated items that disappear a moment later.
+  if (!shellReady) {
+    return <AppShellSkeleton />;
   }
 
   return (

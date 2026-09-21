@@ -7,9 +7,9 @@ import { cn } from '@/lib/utils';
 import { BrandLogo } from './BrandLogo';
 
 const SIZES = {
-  sm: { box: 48, pad: 4, label: 'text-[10px] tracking-[0.34em]' },
-  md: { box: 72, pad: 5, label: 'text-xs tracking-[0.38em]' },
-  lg: { box: 104, pad: 6, label: 'text-sm tracking-[0.42em]' },
+  sm: { box: 48, pad: 8, label: 'text-[10px] tracking-[0.34em]' },
+  md: { box: 72, pad: 11, label: 'text-xs tracking-[0.38em]' },
+  lg: { box: 104, pad: 16, label: 'text-sm tracking-[0.42em]' },
 } as const;
 
 export function BrandLoader({
@@ -30,21 +30,20 @@ export function BrandLoader({
   return (
     <div className={cn('flex flex-col items-center gap-3', className)} role="status" aria-live="polite">
       <div className="relative" style={{ width: s.box, height: s.box }}>
-        {/* Rotating ring — a conic sweep masked into a thin band. */}
+        {/* Rotating ring — a conic sweep masked into a thin circular band.
+            Circular (not rounded-square) on purpose: a radial mask on a square
+            leaves the corners unmasked, which shows up as four colour blobs. */}
         <span
-          className="absolute inset-0 rounded-[28%] motion-safe:animate-[brand-spin_1.5s_linear_infinite]"
+          className="absolute inset-0 rounded-full motion-safe:animate-brand-spin"
           style={{
             background:
-              'conic-gradient(from 0deg, transparent 0deg, transparent 190deg, hsl(var(--primary) / 0.35) 250deg, hsl(var(--primary)) 350deg, transparent 360deg)',
-            WebkitMask: `radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px))`,
-            mask: `radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px))`,
+              'conic-gradient(from 0deg, transparent 0deg, transparent 180deg, hsl(var(--primary) / 0.25) 250deg, hsl(var(--primary)) 352deg, transparent 360deg)',
+            WebkitMask: 'radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px))',
+            mask: 'radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px))',
           }}
           aria-hidden
         />
-        <span
-          className="absolute inset-0 rounded-[28%] border border-primary/15"
-          aria-hidden
-        />
+        <span className="absolute inset-0 rounded-full border border-primary/15" aria-hidden />
         {/* Inset so the ring reads as orbiting the mark, not touching it. */}
         <BrandLogo
           src={logoUrl}

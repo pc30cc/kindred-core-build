@@ -3,10 +3,12 @@ namespace WebYar\WooCommerce;
 
 use WebYar\WooCommerce\Admin\SettingsPage;
 use WebYar\WooCommerce\Admin\ConnectionController;
+use WebYar\WooCommerce\Admin\PluginsScreen;
 use WebYar\WooCommerce\Events\WooEventSubscriber;
 use WebYar\WooCommerce\Events\EventDelivery;
 use WebYar\WooCommerce\Rest\ProductController;
 use WebYar\WooCommerce\Rest\Router;
+use WebYar\WooCommerce\Support\Updater;
 use WebYar\WooCommerce\Support\WidgetLoader;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -34,10 +36,12 @@ final class Plugin {
 	public function boot(): void {
 		( new SettingsPage() )->register();
 		( new ConnectionController() )->register();
+		( new PluginsScreen() )->register();
 		( new Router() )->register();
 		ProductController::register_query_filters();
 		( new WooEventSubscriber() )->register();
 		( new EventDelivery() )->register();
 		( new WidgetLoader() )->register();
+		( new Updater() )->register();
 	}
 }

@@ -251,6 +251,34 @@ export const PLUGIN_REGISTRY: readonly PluginDefinition[] = Object.freeze([
     planModuleKey: null,
     planChannelKey: 'yahoomail',
   },
+  {
+    // DaftareShoma — first provider of the provider-neutral WEBYAR Telephony
+    // layer (server/services/telephony/**). A workspace connects its OWN
+    // registration-based SIP account; Asterisk/PJSIP holds the registration
+    // server-side and LiveKit SIP bridges the audio into the SAME Call Center
+    // room the operator already joins. See docs/TELEPHONY_ARCHITECTURE.md.
+    //
+    // Plan gating: `isPluginAllowedByPlan` gives planChannelKey precedence and
+    // returns before planModuleKey, so installation availability is gated on
+    // the module `call_center` ONLY. The `voice` channel entitlement is
+    // enforced at the real call boundary by the existing entitlement composer,
+    // not here — see server/services/telephony/ingress.ts.
+    id: 'daftareshoma',
+    slug: 'daftareshoma',
+    version: '1.0.0',
+    category: 'channels',
+    status: 'available',
+    capabilities: ['telephony_inbound', 'sip_registration', 'pstn_audio'],
+    workspaceInstallable: true,
+    hasSettings: true,
+    hasSecrets: true,
+    supportsInbox: false,
+    supportsAI: false,
+    supportsMedia: true,
+    supportsWebhook: false,
+    planModuleKey: 'call_center',
+    planChannelKey: null,
+  },
   comingSoon('slack', 'channels'),
   comingSoon('discord', 'channels'),
   comingSoon('sms', 'channels'),

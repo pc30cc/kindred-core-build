@@ -25,7 +25,17 @@
     var t = env.t || function (k) { return k; };
     var config = env.config || {};
     var workspaceName = String(config.workspaceName || config.brandName || '');
-    var Util = { escapeHtml: env.escapeHtml || function (v) { return String(v == null ? '' : v); } };
+    var Util = {
+      escapeHtml: env.escapeHtml || function (v) { return String(v == null ? '' : v); },
+      // Core supplies this. The fallback escapes and links nothing, which is
+      // the behaviour this template had before links were rendered at all —
+      // never a hand-rolled linkifier, because the scheme allow-list that
+      // keeps `javascript:` out of an href belongs in exactly one place.
+      linkifyHtml: env.linkifyHtml || null,
+    };
+    // Core supplies the localized label too, so the button reads the same
+    // whichever surface renders it.
+    var linkLabel = env.linkLabel || null;
     var ctx = {
       config: config,
       locale: env.locale,
@@ -34,6 +44,12 @@
     };
 
     function esc(v) { return Util.escapeHtml(v); }
+    /** Escaped message text, with ordinary web links made clickable. */
+    function escLinked(v) {
+      return Util.linkifyHtml
+        ? Util.linkifyHtml(v, linkLabel || tf('msgOpenLink', 'Open link'))
+        : Util.escapeHtml(v);
+    }
     function isRtl() { return String(ctx.locale || 'en').toLowerCase().split('-')[0] === 'fa'; }
     function tf(key, fallback) {
       var v = t(key);
@@ -683,9 +699,11 @@
         // While revealing, the target span MUST exist even at zero revealed
         // tokens — otherwise the reveal timer finds no node and the bubble
         // stays visibly empty until the next full re-render.
+        // Mid-reveal the text stays plain: half a URL is not a link yet, and
+        // Core swaps in the linked markup on the reveal's final frame.
         var textHtml = (isRevealing || (displayText && String(displayText).length))
           ? '<span class="msg-text"' + (isRevealing ? ' data-typing-id="' + esc(m.__id) + '"' : '') + '>' +
-              esc(displayText) + '</span>'
+              (isRevealing ? esc(displayText) : escLinked(displayText)) + '</span>'
           : '';
 
 

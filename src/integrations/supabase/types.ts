@@ -7892,6 +7892,7 @@ export type Database = {
           image_url: string | null
           is_downloadable: boolean
           is_virtual: boolean
+          last_seen_at: string | null
           product_type: string
           regular_price_minor: number | null
           sale_price_minor: number | null
@@ -7920,6 +7921,7 @@ export type Database = {
           image_url?: string | null
           is_downloadable?: boolean
           is_virtual?: boolean
+          last_seen_at?: string | null
           product_type?: string
           regular_price_minor?: number | null
           sale_price_minor?: number | null
@@ -7948,6 +7950,7 @@ export type Database = {
           image_url?: string | null
           is_downloadable?: boolean
           is_virtual?: boolean
+          last_seen_at?: string | null
           product_type?: string
           regular_price_minor?: number | null
           sale_price_minor?: number | null
@@ -7985,6 +7988,7 @@ export type Database = {
           cursor_type: string
           modified_after: string | null
           page: number
+          sweep_epoch: string | null
           updated_at: string
         }
         Insert: {
@@ -7993,6 +7997,7 @@ export type Database = {
           cursor_type: string
           modified_after?: string | null
           page?: number
+          sweep_epoch?: string | null
           updated_at?: string
         }
         Update: {
@@ -8001,6 +8006,7 @@ export type Database = {
           cursor_type?: string
           modified_after?: string | null
           page?: number
+          sweep_epoch?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -14189,6 +14195,123 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      telephony_calls: {
+        Row: {
+          asterisk_channel_id: string | null
+          call_session_id: string | null
+          called_number: string | null
+          caller_number: string | null
+          created_at: string
+          external_call_id: string | null
+          id: string
+          installation_id: string
+          lifecycle: string
+          metadata: Json
+          provider: string
+          room_name: string | null
+          sip_call_id: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          asterisk_channel_id?: string | null
+          call_session_id?: string | null
+          called_number?: string | null
+          caller_number?: string | null
+          created_at?: string
+          external_call_id?: string | null
+          id?: string
+          installation_id: string
+          lifecycle?: string
+          metadata?: Json
+          provider: string
+          room_name?: string | null
+          sip_call_id: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          asterisk_channel_id?: string | null
+          call_session_id?: string | null
+          called_number?: string | null
+          caller_number?: string | null
+          created_at?: string
+          external_call_id?: string | null
+          id?: string
+          installation_id?: string
+          lifecycle?: string
+          metadata?: Json
+          provider?: string
+          room_name?: string | null
+          sip_call_id?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
+      telephony_registrations: {
+        Row: {
+          created_at: string
+          id: string
+          installation_id: string
+          last_error_at: string | null
+          last_error_code: string | null
+          last_inbound_call_at: string | null
+          last_registered_at: string | null
+          outgoing_line: string | null
+          provider: string
+          sip_domain_tcp: string | null
+          sip_domain_udp: string | null
+          sip_domain_webrtc: string | null
+          sip_extension: string | null
+          sip_username: string | null
+          state: string
+          transport: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          installation_id: string
+          last_error_at?: string | null
+          last_error_code?: string | null
+          last_inbound_call_at?: string | null
+          last_registered_at?: string | null
+          outgoing_line?: string | null
+          provider?: string
+          sip_domain_tcp?: string | null
+          sip_domain_udp?: string | null
+          sip_domain_webrtc?: string | null
+          sip_extension?: string | null
+          sip_username?: string | null
+          state?: string
+          transport?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          installation_id?: string
+          last_error_at?: string | null
+          last_error_code?: string | null
+          last_inbound_call_at?: string | null
+          last_registered_at?: string | null
+          outgoing_line?: string | null
+          provider?: string
+          sip_domain_tcp?: string | null
+          sip_domain_udp?: string | null
+          sip_domain_webrtc?: string | null
+          sip_extension?: string | null
+          sip_username?: string | null
+          state?: string
+          transport?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: []
       }
       translations: {
         Row: {
@@ -20445,6 +20568,14 @@ export type Database = {
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
       sla_reliability_rollup_and_prune: { Args: never; Returns: Json }
+      telephony_claim_call: {
+        Args: {
+          p_agent_id: string
+          p_call_session_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       user_phone_verified: { Args: { _user_id: string }; Returns: boolean }
       visitor_touch_liveness: {
         Args: {

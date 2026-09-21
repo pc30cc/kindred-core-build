@@ -48,7 +48,8 @@
 import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { sendEmail, sendPlatformEmail } from '../email/index.js';
-import { sendSms } from '../sms/index.js';
+import { sendSmsVerification } from '../sms/index.js';
+import { toProviderFormat } from '../phoneVerification/phone.js';
 import {
   assertChannelAllowed,
   assertPolicyBindings,
@@ -68,7 +69,9 @@ import {
 } from './types.js';
 import { normalizeDestination } from './destination.js';
 import { resolveEffectiveLocale } from './locale.js';
-import { renderOtpEmail, renderOtpSms } from './templates.js';
+// SMS bodies are NOT rendered here: the OTP goes out through the vendor's
+// own verification template (see the `sms` branch of sendOtpDirect).
+import { renderOtpEmail } from './templates.js';
 import {
   candidateOtpDigest,
   currentVerificationKeyVersion,
@@ -125,6 +128,24 @@ function throwForPrepareError(message: string): never {
 type DeliveryOutcome = 'provider_accepted' | 'retryable_failure' | 'permanent_failure' | 'unconfigured' | 'ambiguous' | 'derivation_key_unavailable';
 
 /**
+ * SMS failures that mean the PLATFORM is misconfigured, not that the vendor
+ * had a bad moment: a missing/disabled provider, or a verification template
+ * that does not exist, is unapproved, or cannot carry the code. Resending the
+ * same challenge can never clear any of these, so they finalize as
+ * `unconfigured` (challenge -> delivery_failed) exactly like the email
+ * branch's no-provider case, instead of inviting an endless retry loop.
+ * Everything else — timeout, network, credit, bad number, unclassified vendor
+ * error — stays `retryable_failure`.
+ */
+const SMS_CONFIG_FAULT_CODES: ReadonlySet<string> = new Set([
+  'sms_provider_not_configured',
+  'sms_provider_disabled',
+  'sms_template_not_found',
+  'sms_template_not_approved',
+  'sms_template_invalid',
+]);
+
+/**
  * Sends one OTP directly through the existing email/SMS provider
  * abstractions — the SAME functions server/services/phoneVerification and
  * server/services/invitations use, called synchronously in this request,
@@ -146,10 +167,29 @@ async function sendOtpDirect(
 ): Promise<{ outcome: DeliveryOutcome; providerName?: string; providerMessageId?: string; errorCode?: string; errorMessage?: string }> {
   try {
     if (input.channel === 'sms') {
-      const rendered = renderOtpSms(input.locale, input.code, input.ttlSeconds);
-      const result = await sendSms(config, { to: input.destinationNormalized, body: rendered.text });
+      // OTPs go out through the vendor's VERIFICATION template
+      // (SMS.ir `/v1/send/verify`, Kavenegar VerifyLookup) — never the bulk
+      // endpoint. Those templates are sent on a service line: high priority,
+      // and still delivered to recipients who have blocked advertising SMS.
+      // The message wording therefore lives in the vendor panel's template,
+      // not in templates.ts — only the code is substituted into it (the
+      // template's parameter name is the admin-configured
+      // `verifyParameterName`). This is the same delivery path
+      // server/services/phoneVerification/index.ts already uses, per
+      // docs/GENERIC_VERIFICATION_CORE.md's "delivery model" section.
+      //
+      // `toProviderFormat` converts the stored E.164 (`+989121234567`) to the
+      // local form the Iranian vendors expect (`09121234567`); the database
+      // keeps E.164 either way.
+      const result = await sendSmsVerification(config, {
+        to: toProviderFormat(input.destinationNormalized),
+        code: input.code,
+      });
       if (result.success) return { outcome: 'provider_accepted', providerName: result.provider, providerMessageId: result.messageId };
-      return { outcome: 'retryable_failure', providerName: result.provider, errorCode: result.errorCode };
+      const outcome: DeliveryOutcome = result.errorCode && SMS_CONFIG_FAULT_CODES.has(result.errorCode)
+        ? 'unconfigured'
+        : 'retryable_failure';
+      return { outcome, providerName: result.provider, errorCode: result.errorCode };
     }
 
     // Workspace-less (pre-account) email path — server/services/email/index.js's

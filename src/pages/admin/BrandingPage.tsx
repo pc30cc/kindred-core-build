@@ -406,10 +406,10 @@ function SettingsSection() {
 
   useEffect(() => {
     if (settings) {
-      setDefaultLocale(settings.default_locale || 'en');
-      setActiveLocales(settings.active_locales || ['en']);
-      setTimezone(settings.timezone || 'UTC');
-      setSiteMode(settings.site_mode || 'multi_language');
+      setDefaultLocale((settings.default_locale as string) || 'en');
+      setActiveLocales((settings.active_locales as string[]) || ['en']);
+      setTimezone((settings.timezone as string) || 'UTC');
+      setSiteMode((settings.site_mode as string) || 'multi_language');
       setRegionMode(isRegionMode(settings.region_mode) ? (settings.region_mode as RegionMode) : 'multi');
       setMaintenanceMode(settings.maintenance_mode ?? false);
       setMaintenanceMessage(settings.maintenance_message ?? '');
@@ -497,7 +497,7 @@ function SettingsSection() {
   if (brandingLoading || settingsLoading) return <LoadingCard />;
 
   const current = forms[activeLocale] ?? {};
-  const localeLabel = (code: string) => t(`admin.brandingPage.languages.${code}`);
+  const localeLabel = (code: string) => t(`admin.brandingPage.languages.${code}` as never);
   const regionTitle = (mode: RegionMode) => t(`admin.brandingPage.settings.region.modes.${mode}.title`);
   const regionDescription = (mode: RegionMode) => t(`admin.brandingPage.settings.region.modes.${mode}.description`);
   const regionCurrency = (mode: RegionMode) => t(`admin.brandingPage.settings.region.modes.${mode}.currency`);
@@ -762,8 +762,8 @@ function SettingsSection() {
                   <TabsContent key={code} value={code} className="mt-4">
                     <div className="grid gap-5 md:grid-cols-2">
                       {LOCALIZED_FIELDS.map((f) => {
-                        const label = t(`admin.brandingPage.settings.localized.fields.${f.key}.label`);
-                        return <FieldRow key={f.key} label={label} desc={f.hasDescription ? t(`admin.brandingPage.settings.localized.fields.${f.key}.hint`) : undefined} value={(current as Record<string, unknown> | undefined)?.[f.key] as string ?? ''} onChange={(v) => setField(code, f.key, v)} placeholder={t('admin.brandingPage.settings.localized.placeholder', { field: label })} />;
+                        const label = t(`admin.brandingPage.settings.localized.fields.${f.key}.label` as never);
+                        return <FieldRow key={f.key} label={label} desc={f.hasDescription ? t(`admin.brandingPage.settings.localized.fields.${f.key}.hint` as never) : undefined} value={(current as Record<string, unknown> | undefined)?.[f.key] as string ?? ''} onChange={(v) => setField(code, f.key, v)} placeholder={t('admin.brandingPage.settings.localized.placeholder', { field: label })} />;
                       })}
                     </div>
                   </TabsContent>
@@ -826,7 +826,7 @@ function DomainUrlsSection() {
       <CardContent>
         <div className="grid gap-5 md:grid-cols-2">
           {DOMAIN_FIELDS.map((f) => (
-            <FieldRow key={f.key} label={t(`admin.brandingPage.domains.fields.${f.key}.label`)} desc={t(`admin.brandingPage.domains.fields.${f.key}.hint`)} value={(form as Record<string, unknown>)?.[f.key] as string ?? ''} onChange={(v) => set(f.key, v)} placeholder={f.placeholder} />
+            <FieldRow key={f.key} label={t(`admin.brandingPage.domains.fields.${f.key}.label` as never)} desc={t(`admin.brandingPage.domains.fields.${f.key}.hint` as never)} value={(form as Record<string, unknown>)?.[f.key] as string ?? ''} onChange={(v) => set(f.key, v)} placeholder={f.placeholder} />
           ))}
         </div>
       </CardContent>

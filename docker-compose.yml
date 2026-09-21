@@ -76,6 +76,18 @@ services:
       - INVITATION_LINK_SECRET_RING=${INVITATION_LINK_SECRET_RING:-}
       - INVITATION_LINK_KEY_VERSION=${INVITATION_LINK_KEY_VERSION:-1}
       - INVITATION_OTP_PEPPER=${INVITATION_OTP_PEPPER}
+      # ── Verification peppers ───────────────────────────────────────
+      # Server-only HMAC peppers for one-time codes. Each fails CLOSED:
+      # unset (or under its minimum length) and the matching flow answers
+      # "unavailable" WITHOUT ever contacting a provider — which looks
+      # exactly like a broken SMS/email vendor but is not one.
+      #   PHONE_VERIFICATION_PEPPER   phone OTP, incl. the Super Admin
+      #                               "resend code" action. Min 16 chars.
+      #   GENERIC_VERIFICATION_PEPPER Generic Verification Core (signup
+      #                               email OTP, guest order lookup).
+      #                               Min 32 chars.
+      - PHONE_VERIFICATION_PEPPER=${PHONE_VERIFICATION_PEPPER:-}
+      - GENERIC_VERIFICATION_PEPPER=${GENERIC_VERIFICATION_PEPPER:-}
       - SELF_HOST_SEAT_LIMIT=${SELF_HOST_SEAT_LIMIT:-}
     volumes:
       # Persistent GeoIP data volume. The backend reads the .mmdb file from

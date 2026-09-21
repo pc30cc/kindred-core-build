@@ -44,6 +44,7 @@ import type { AutomationStageResult } from './automationStage.js';
 import type { RuntimeDecisionStageResult } from './runtimeDecisionStage.js';
 import type { RetrievalStageResult } from './retrievalStage.js';
 import type { AnswerStageResult } from './answerStage.js';
+import { repairCommerceLinks, urlsFromToolResults, verifyStoreLinks } from '../commerce-tools/answerLinks.js';
 
 export interface GenerationStageResult {
   aiResult: Awaited<ReturnType<typeof executeAICompletion>>;
@@ -210,6 +211,7 @@ export async function runGenerationStage(
   const commerceStage = await runCommerceToolStage(config, {
     workspaceId, conversationId: conversationId || null, question,
   }).catch(() => ({ toolResults: [], toolsUsed: [] }));
+  const commerceUrls = urlsFromToolResults(commerceStage.toolResults);
   if (commerceStage.toolResults.length) {
     const commerceBlock = renderToolResults(commerceStage.toolResults);
     toolResultsBlock = [toolResultsBlock, commerceBlock].filter(Boolean).join('\n');
@@ -370,6 +372,23 @@ export async function runGenerationStage(
   const parsedControl = parseAiControl(aiResult.text || '');
   aiResult = { ...aiResult, text: parsedControl.text };
   const aiControl = parsedControl.control;
+
+  // A store link the model RETYPED instead of copying is a 404 presented as
+  // fact. Done here, before the action pipeline and before anything is
+  // logged, so every downstream consumer sees the same repaired text.
+  //
+  // Two passes, because the turn's own tool results are not enough: asked
+  // «لینکشو بده» — which carries no commerce intent, so no tool runs — the
+  // model invented a link to a product it had described a turn earlier. The
+  // second pass answers to the catalogue rather than to the turn, and costs
+  // nothing when the answer has no link in it.
+  if (commerceUrls.length) {
+    aiResult = { ...aiResult, text: repairCommerceLinks(aiResult.text || '', commerceUrls) };
+  }
+  aiResult = {
+    ...aiResult,
+    text: await verifyStoreLinks(config, workspaceId, aiResult.text || '').catch(() => aiResult.text || ''),
+  };
 
   // Fold model-reported state into the deterministic memory patch. Model
   // input is advisory: bounded fields only, never counters or authorization.

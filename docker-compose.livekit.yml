@@ -38,7 +38,13 @@
 # Optional environment variables:
 #   LIVEKIT_LOG_LEVEL          - debug | info | warn | error  (default info)
 #   LIVEKIT_WEBHOOK_API_KEY    - same value as LIVEKIT_API_KEY, for webhooks
-#   LIVEKIT_REDIS_ADDRESS      - "host:port", multi-node only
+#   LIVEKIT_REDIS_ADDRESS      - "host:port". Optional for a single standalone
+#                                node, REQUIRED once LiveKit SIP is deployed:
+#                                livekit-server and livekit-sip discover each
+#                                other only through this shared Redis.
+#   LIVEKIT_REDIS_USERNAME     - optional Redis ACL user
+#   LIVEKIT_REDIS_PASSWORD     - optional Redis password
+#   LIVEKIT_REDIS_DB           - optional Redis database index (default 0)
 #   LIVEKIT_TURN_DOMAIN        - reserved for future TURN/TLS rollout
 #
 # Ports (host firewall must allow):
@@ -103,7 +109,20 @@ services:
           empty_timeout: 300
           departure_timeout: 20
         EOF
-        echo "[livekit-bootstrap] generated /tmp/livekit.yaml (log_level=$${LOG_LEVEL}, node_ip=$${LIVEKIT_NODE_IP})"
+        # Redis is OPTIONAL for a single standalone node, but REQUIRED as soon
+        # as LiveKit SIP is deployed: livekit-server and livekit-sip find each
+        # other over this Redis bus and nothing else. Appending the block only
+        # when an address is configured keeps single-node deployments untouched.
+        if [ -n "$${LIVEKIT_REDIS_ADDRESS:-}" ]; then
+          {
+            echo "redis:"
+            echo "  address: $${LIVEKIT_REDIS_ADDRESS}"
+            if [ -n "$${LIVEKIT_REDIS_USERNAME:-}" ]; then echo "  username: $${LIVEKIT_REDIS_USERNAME}"; fi
+            if [ -n "$${LIVEKIT_REDIS_PASSWORD:-}" ]; then echo "  password: $${LIVEKIT_REDIS_PASSWORD}"; fi
+            echo "  db: $${LIVEKIT_REDIS_DB:-0}"
+          } >> /tmp/livekit.yaml
+        fi
+        echo "[livekit-bootstrap] generated /tmp/livekit.yaml (log_level=$${LOG_LEVEL}, node_ip=$${LIVEKIT_NODE_IP}, redis=$${LIVEKIT_REDIS_ADDRESS:-none})"
         exec /livekit-server --config /tmp/livekit.yaml
 
     # Signaling reaches LiveKit via Coolify's reverse proxy on the internal
@@ -125,8 +144,13 @@ services:
       # --- Optional: webhook signing (only if used) ---------------------
       LIVEKIT_WEBHOOK_API_KEY: ${LIVEKIT_WEBHOOK_API_KEY:-}
 
-      # --- Optional: multi-node Redis (leave unset for single-node) -----
+      # --- Redis: required for LiveKit SIP, optional for a single node ---
+      # livekit-sip talks to livekit-server over this Redis bus. It MUST be the
+      # same instance both services point at, or SIP calls never reach a room.
       LIVEKIT_REDIS_ADDRESS: ${LIVEKIT_REDIS_ADDRESS:-}
+      LIVEKIT_REDIS_USERNAME: ${LIVEKIT_REDIS_USERNAME:-}
+      LIVEKIT_REDIS_PASSWORD: ${LIVEKIT_REDIS_PASSWORD:-}
+      LIVEKIT_REDIS_DB: ${LIVEKIT_REDIS_DB:-0}
 
       # --- Optional: reserved for future TURN/TLS rollout ---------------
       LIVEKIT_TURN_DOMAIN: ${LIVEKIT_TURN_DOMAIN:-}

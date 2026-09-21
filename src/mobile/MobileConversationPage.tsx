@@ -115,7 +115,7 @@ export default function MobileConversationPage() {
   const { data: conversations } = useConversations(workspace?.id, undefined, 'main');
   const conversation = useMemo(
     () =>
-      ((conversations ?? []) as unknown as TimelineConversation[]).find(
+      ((conversations ?? []) as unknown as (TimelineConversation & Record<string, any>)[]).find(
         (c) => c.id === conversationId,
       ),
     [conversations, conversationId],
@@ -293,10 +293,10 @@ export default function MobileConversationPage() {
 
   const BackIcon = dir === 'rtl' ? ChevronRight : ChevronLeft;
   const isResolved = conversation?.status === 'resolved' || conversation?.status === 'closed';
-  const isOnline = conversation?.visitor_status === 'online' || conversation?.contacts?.is_online;
+  const isOnline = (conversation as any)?.visitor_status === 'online' || (conversation?.contacts as any)?.is_online;
   const canSend = !!(draft.trim() || pending?.id) && !pending?.uploading;
 
-  const list = messages ?? [];
+  const list = (messages ?? []) as Array<Record<string, any>>;
 
   return (
     <div className="fixed inset-0 z-30 flex flex-col bg-muted/40">
@@ -314,17 +314,17 @@ export default function MobileConversationPage() {
         <button
           type="button"
           onClick={() =>
-            conversation?.contacts?.id && navigate(`/${slug}/contacts/${conversation.contacts.id}`)
+            (conversation?.contacts as any)?.id && navigate(`/${slug}/contacts/${(conversation.contacts as any).id}`)
           }
           className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-0.5 py-0.5 text-start active:opacity-70"
         >
           <span className="relative shrink-0">
             <ContactAvatar
-              name={conversation?.contacts?.name}
-              email={conversation?.contacts?.email}
-              avatarUrl={conversation?.contacts?.avatar_url}
-              os={conversation?.visitor_os ?? conversation?.contacts?.metadata?.os}
-              device={conversation?.visitor_device ?? conversation?.contacts?.metadata?.device}
+              name={(conversation?.contacts as any)?.name}
+              email={(conversation?.contacts as any)?.email}
+              avatarUrl={(conversation?.contacts as any)?.avatar_url}
+              os={conversation?.visitor_os ?? (conversation?.contacts as any)?.metadata?.os}
+              device={conversation?.visitor_device ?? (conversation?.contacts as any)?.metadata?.device}
               countryCode={conversation?.visitor_country_code}
               countryName={conversation?.visitor_country_name}
               size="sm"
@@ -337,7 +337,7 @@ export default function MobileConversationPage() {
             <span className="block truncate text-[14px] font-semibold leading-tight text-foreground">
               {name || '…'}
             </span>
-            {conversation?.contacts?.email && (
+            {(conversation?.contacts as any)?.email && (
               // `plaintext` keeps the address itself LTR while the line stays
               // aligned to the reading direction (right, under the name, in fa).
               <span
@@ -362,9 +362,9 @@ export default function MobileConversationPage() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56 rounded-2xl">
-            {conversation?.contacts?.id && (
+            {(conversation?.contacts as any)?.id && (
               <DropdownMenuItem
-                onClick={() => navigate(`/${slug}/contacts/${conversation.contacts.id}`)}
+                onClick={() => navigate(`/${slug}/contacts/${(conversation.contacts as any).id}`)}
               >
                 <User className="me-2 h-4 w-4" /> {t('nav.profile')}
               </DropdownMenuItem>
@@ -409,7 +409,7 @@ export default function MobileConversationPage() {
             ))}
           </div>
         ) : (
-          (list as unknown as TimelineMessage[]).map((m, i) => {
+          (list as unknown as Array<TimelineMessage & Record<string, any>>).map((m, i) => {
             const isOutbound = m.sender_type === 'agent' || m.sender_type === 'ai' || m.sender_type === 'bot';
             const prev = (list as unknown as TimelineMessage[])[i - 1];
             const showDay =

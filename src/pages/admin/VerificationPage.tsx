@@ -245,6 +245,9 @@ export default function AdminVerificationPage() {
                   </div>
                   <div className="space-y-2">
                     <div className="text-sm font-medium">{t('admin.verification.preview.smsText' as any)}</div>
+                    {preview.data.sms.providerTemplated ? (
+                      <p className="text-xs text-muted-foreground">{t('admin.verification.preview.smsProviderTemplatedNotice' as any)}</p>
+                    ) : null}
                     <div className="rounded border p-2 text-sm" dir={previewLocale === 'fa' ? 'rtl' : 'ltr'}>{preview.data.sms.text}</div>
                   </div>
                 </div>

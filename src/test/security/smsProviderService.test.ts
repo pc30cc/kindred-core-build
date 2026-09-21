@@ -309,6 +309,23 @@ describe('SMS.ir configuration', () => {
     ).rejects.toMatchObject({ reason: 'invalid_verify_parameter_name' });
   });
 
+  // An admin copies `#code#` out of the SMS.ir panel; the send API wants the
+  // bare name, so the delimiters are stripped rather than rejected.
+  it('stores a #-delimited parameter name as the bare name the API takes', async () => {
+    await svc.saveSmsProviderConfig(
+      CONFIG,
+      { providerName: 'smsir', enabled: true, apiKey: 'k', lineNumber: '30007732', verifyTemplateId: 1, verifyParameterName: '  #code#  ' },
+      ADMIN,
+    );
+    expect(upserts[0].config?.verifyParameterName).toBe('code');
+  });
+
+  it('still rejects a #-delimited name that is unusable once stripped', async () => {
+    await expect(
+      svc.saveSmsProviderConfig(CONFIG, { providerName: 'smsir', enabled: true, apiKey: 'k', lineNumber: '30007732', verifyTemplateId: 1, verifyParameterName: '#my code#' }, ADMIN),
+    ).rejects.toMatchObject({ reason: 'invalid_verify_parameter_name' });
+  });
+
   it('requires a fresh API key when switching vendors', async () => {
     row = configured();
     await expect(

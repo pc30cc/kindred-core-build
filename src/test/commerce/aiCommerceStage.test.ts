@@ -22,24 +22,30 @@ const WS = 'ws-1';
 const CONN = 'conn-1';
 
 /** Verbatim from the live store, via normalizeWooCommerceProduct. */
+const MOBILE = [{ id: '16', name: 'موبایل و تبلت', slug: 'mobile' }];
+const AUDIO = [{ id: '17', name: 'صوتی و تصویری', slug: 'audio' }];
+const ACCESSORIES = [{ id: '18', name: 'لوازم جانبی', slug: 'accessories' }];
+const HOME = [{ id: '19', name: 'لوازم خانگی هوشمند', slug: 'home' }];
+const UNCATEGORIZED = [{ id: '15', name: 'Uncategorized', slug: 'uncategorized' }];
+
 const INDEX_ROWS = [
-  row('11', 'simple', 'WY-NOVA12-128', 'گوشی هوشمند نوا ۱۲', 'نمایشگر ۶.۷ اینچی AMOLED، تراشه‌ی هشت‌هسته‌ای و باتری ۵۰۰۰ میلی‌آمپرساعت.', 28500000, 26900000, 26900000, 'in_stock', 13),
-  row('13', 'simple', 'WY-ECHO-PRO', 'هدفون بی‌سیم اکو پرو', 'حذف نویز فعال، ۴۰ ساعت پخش و اتصال هم‌زمان به دو دستگاه.', 4350000, null, 4350000, 'in_stock', 41),
-  row('15', 'simple', 'WY-PULSE3', 'ساعت هوشمند پالس ۳', 'پایش ضربان قلب و اکسیژن خون، GPS داخلی و مقاومت ۵ ATM.', 7200000, 6480000, 6480000, 'in_stock', 4),
-  row('17', 'simple', 'WY-VMAX-20K', 'پاوربانک ۲۰۰۰۰ میلی‌آمپر ولت‌مکس', 'خروجی ۶۵ وات USB-C، مناسب شارژ لپ‌تاپ و گوشی.', 1250000, null, 1250000, 'out_of_stock', 0),
-  row('19', 'simple', 'WY-RESON-BT', 'اسپیکر بلوتوثی رزونانس', 'توان ۳۰ وات، ضدآب IPX7 و ۱۸ ساعت پخش مداوم.', 2890000, 2490000, 2490000, 'in_stock', 23),
-  row('21', 'simple', 'WY-HOME-RGB', 'لامپ هوشمند رنگی هوم‌لایت', '۱۶ میلیون رنگ، کنترل با اپلیکیشن و سازگار با دستیار صوتی.', 480464, null, 480464, 'in_stock', 148),
-  row('23', 'variable', 'WY-TSHIRT', 'تی‌شرت نخی وب‌یار', 'سه سایز، نخ پنبه، دوخت ایرانی.', null, null, 450000, 'in_stock', null),
+  row('11', 'simple', 'WY-NOVA12-128', 'گوشی هوشمند نوا ۱۲', 'نمایشگر ۶.۷ اینچی AMOLED، تراشه‌ی هشت‌هسته‌ای و باتری ۵۰۰۰ میلی‌آمپرساعت.', 28500000, 26900000, 26900000, 'in_stock', 13, MOBILE),
+  row('13', 'simple', 'WY-ECHO-PRO', 'هدفون بی‌سیم اکو پرو', 'حذف نویز فعال، ۴۰ ساعت پخش و اتصال هم‌زمان به دو دستگاه.', 4350000, null, 4350000, 'in_stock', 41, AUDIO),
+  row('15', 'simple', 'WY-PULSE3', 'ساعت هوشمند پالس ۳', 'پایش ضربان قلب و اکسیژن خون، GPS داخلی و مقاومت ۵ ATM.', 7200000, 6480000, 6480000, 'in_stock', 4, ACCESSORIES),
+  row('17', 'simple', 'WY-VMAX-20K', 'پاوربانک ۲۰۰۰۰ میلی‌آمپر ولت‌مکس', 'خروجی ۶۵ وات USB-C، مناسب شارژ لپ‌تاپ و گوشی.', 1250000, null, 1250000, 'out_of_stock', 0, ACCESSORIES),
+  row('19', 'simple', 'WY-RESON-BT', 'اسپیکر بلوتوثی رزونانس', 'توان ۳۰ وات، ضدآب IPX7 و ۱۸ ساعت پخش مداوم.', 2890000, 2490000, 2490000, 'in_stock', 23, AUDIO),
+  row('21', 'simple', 'WY-HOME-RGB', 'لامپ هوشمند رنگی هوم‌لایت', '۱۶ میلیون رنگ، کنترل با اپلیکیشن و سازگار با دستیار صوتی.', 480464, null, 480464, 'in_stock', 148, HOME),
+  row('23', 'variable', 'WY-TSHIRT', 'تی‌شرت نخی وب‌یار', 'سه سایز، نخ پنبه، دوخت ایرانی.', null, null, 450000, 'in_stock', null, UNCATEGORIZED),
 ];
 
 function row(external_id: string, product_type: string, sku: string, title: string, short_description: string,
   regular_price_minor: number | null, sale_price_minor: number | null, effective_price_minor: number | null,
-  stock_state: string, stock_quantity: number | null) {
+  stock_state: string, stock_quantity: number | null, categories: Array<{ id: string; name: string; slug: string }> = []) {
   return {
     id: external_id, external_id, product_type, sku, title, short_description,
     canonical_url: `https://p.webyar.ai/product/${sku}/`, image_url: null, currency: 'IRT',
     regular_price_minor, sale_price_minor, effective_price_minor, stock_state, stock_quantity,
-    categories: [], tags: [], attributes: [], is_virtual: false, is_downloadable: false,
+    categories, tags: [], attributes: [], is_virtual: false, is_downloadable: false,
     updated_at: '2026-09-20T17:31:57+00:00',
   };
 }
@@ -47,7 +53,7 @@ function row(external_id: string, product_type: string, sku: string, title: stri
 const CONNECTION: any = {
   id: CONN, workspace_id: WS, installation_id: 'inst-1', provider_type: 'woocommerce',
   store_id: 'https://p.webyar.ai', approved_origin: 'https://p.webyar.ai',
-  capabilities: ['store.read', 'products.read', 'availability.read', 'orders.read'],
+  capabilities: ['store.read', 'products.read', 'availability.read', 'reviews.read', 'orders.read'],
   permissions: { stock: true, orders: true, prices: true, products: true, tracking: true, order_status: true, customer_history: true },
   health: 'connected', catalog_ready: true, revoked_at: null, protocol_version: 'webyar-commerce/1',
 };
@@ -61,6 +67,7 @@ function fakeClient() {
     select: () => builder, eq: () => builder, is: () => builder, in: () => builder,
     gte: () => builder, lte: () => builder, contains: () => builder,
     textSearch: (_c: string, q: string) => { builder._q = q; return builder; },
+    _q: undefined as string | undefined,
     order: () => builder, limit: () => builder,
     maybeSingle: async () => ({ data: null, error: null }),
     then: (resolve: any) => {
@@ -98,6 +105,15 @@ vi.mock('../../../server/services/commerce/gateway.js', async (orig) => {
           };
         },
         getStoreInfo: async () => ({ name: 'فروشگاه آزمایشی وب‌یار', currency: 'IRT', url: 'https://p.webyar.ai', catalogReady: true, productCount: 11 }),
+        getProductReviews: async (_ctx: any, input: any) => ({
+          productExternalId: input.productExternalId,
+          averageRating: 4.5,
+          reviewCount: 4,
+          reviews: [
+            { author: 'مریم کریمی', rating: 5, verified: true, date: '2026-09-18T00:00:00Z', text: 'کیفیتش واقعاً بالاتر از قیمتشه.' },
+            { author: 'حسین مرادی', rating: 3, verified: false, date: '2026-09-11T00:00:00Z', text: 'بد نیست ولی انتظار بیشتری داشتم.' },
+          ],
+        }),
       };
       return fn(connector, { correlationId: opts.correlationId ?? 'test' });
     },
@@ -126,6 +142,20 @@ describe('what the model receives for a store question', () => {
     expect(top.data.price).toBe('6480000');
     expect(top.data.currency).toBe('IRT');
     expect(block).toContain('6480000');
+  });
+
+  it('names the currency unit, so a price is not read as the wrong one', async () => {
+    // Live: with only `currency=IRT` in front of it, the model told a shopper
+    // «۱٬۹۸۰٬۰۰۰ ریال» for a price the store reports in Toman — wrong by a
+    // factor of ten, in the direction that makes the shop look cheap. The
+    // amount is untouched; only the unit it was already in is now spelled out.
+    const { toolResults } = await ask('قیمت ساعت هوشمند پالس چنده؟');
+    const top = toolResults.find((r) => r.name === 'commerce.search_products')!;
+
+    expect(top.data.currency).toBe('IRT');
+    expect(top.data.currency_name).toBe('Toman');
+    expect(top.data.price).toBe('6480000'); // unchanged — a label, not a conversion
+    expect(renderToolResults(toolResults)).toContain('currency_name=Toman');
   });
 
   it('recommends from the catalogue for an open-ended request', async () => {
@@ -168,6 +198,39 @@ describe('what the model receives for a store question', () => {
     expect(live.every((r) => r.data.price !== null)).toBe(true);
   });
 
+  it('answers «چی دارید؟» with the catalogue instead of searching for the word "products"', async () => {
+    // Live transcript: «محصولات الان چی دارید ؟» → "لیست دقیق و به‌روز
+    // محصولات وب‌یار در دسترس من نیست". The question matched the product
+    // keyword «محصول» and was run as a NAME search for the shopper's whole
+    // sentence, and no product is called «محصولات» — so a fully populated,
+    // correctly priced index returned nothing.
+    const { toolResults, toolsUsed } = await ask('محصولات الان چی دارید ؟');
+    const hits = toolResults.filter((r) => r.name === 'commerce.search_products');
+
+    expect(toolsUsed).toContain('commerce.browse_products');
+    expect(hits.length).toBeGreaterThan(1);
+    expect(hits.every((h) => h.data.title)).toBe(true);
+    expect(toolResults.find((r) => r.name === 'commerce.catalog_size')!.data.total_products).toBe(INDEX_ROWS.length);
+  });
+
+  it('answers «دسته‌بندی‌ها رو بیار» from the catalogue, not from the model’s imagination', async () => {
+    // Live transcript: asked for the categories, the assistant replied with
+    // "ابزارهای هوش مصنوعی برای ساخت و مدیریت وب‌سایت" and four more — a
+    // plausible-sounding list of things this store does not sell. There was
+    // no category tool at all, so commerce never ran and the model answered
+    // from what it assumed the business was.
+    const { toolResults, toolsUsed } = await ask('دسته بندی هارو بیار');
+    const cats = toolResults.filter((r) => r.name === 'commerce.list_categories');
+
+    expect(toolsUsed).toContain('commerce.list_categories');
+    expect(cats.map((c) => c.data.category)).toEqual(
+      expect.arrayContaining(['لوازم جانبی', 'صوتی و تصویری', 'موبایل و تبلت', 'لوازم خانگی هوشمند']),
+    );
+    // Counted from the rows, not guessed: three products are accessories.
+    expect(cats.find((c) => c.data.category === 'لوازم جانبی')!.data.product_count).toBe(2);
+    expect(renderToolResults(toolResults)).toContain('لوازم جانبی');
+  });
+
   it('says the catalogue is still syncing rather than answering from an empty index', async () => {
     connection = { ...CONNECTION, catalog_ready: false };
     const { toolResults } = await ask('یه هدفون خوب معرفی کن');
@@ -175,9 +238,65 @@ describe('what the model receives for a store question', () => {
     expect(toolResults).toEqual([{ name: 'commerce_status', data: { error_code: 'catalog_syncing' } }]);
   });
 
-  it('refuses to reveal an order to an unverified visitor', async () => {
+  it('reads the shop’s own reviews back, instead of claiming it has no access', async () => {
+    // Live: «نظرات در مورد این محصول چیه» → «بدون دسترسی به داده‌های نظرات
+    // نمی‌توانم». It was telling the truth — the plugin sent no rating or
+    // review at all, so a shop with dozens of them looked like one with none.
+    const { toolResults } = await ask('نظرات در مورد ساعت هوشمند پالس چیه؟');
+    const summary = toolResults.find((r) => r.name === 'commerce.get_reviews')!;
+    const quotes = toolResults.filter((r) => r.name === 'commerce.review');
+
+    expect(summary.data.product).toBe('ساعت هوشمند پالس ۳');
+    expect(summary.data.average_rating).toBe(4.5);
+    expect(summary.data.review_count).toBe(4);
+    expect(quotes).toHaveLength(2);
+    expect(quotes[0].data).toMatchObject({ author: 'مریم کریمی', rating: 5, verified: true });
+    // The model is handed the words themselves, so it can summarise honestly.
+    expect(renderToolResults(toolResults)).toContain('کیفیتش واقعاً بالاتر از قیمتشه.');
+  });
+
+  it('says so plainly when the product a review question names is not stocked', async () => {
+    const { toolResults } = await ask('نظرات درباره‌ی تلویزیون چیه؟');
+    expect(toolResults).toContainEqual({ name: 'commerce.get_reviews', data: { error_code: 'product_not_found' } });
+  });
+
+  it('does not turn a price question into a review question', async () => {
+    const { toolResults } = await ask('قیمت ساعت هوشمند پالس چنده؟');
+    expect(toolResults.some((r) => r.name === 'commerce.get_reviews')).toBe(false);
+  });
+
+  it('refuses to reveal an order to an unverified visitor, and says how to fix that', async () => {
+    // The refusal alone left the model to invent a remedy. This store
+    // verifies a customer by them being signed in to it, so that is what the
+    // visitor is told to do.
     const { toolResults } = await ask('وضعیت سفارش ۱۲۳۴۵ چی شد؟');
-    expect(toolResults).toEqual([{ name: 'commerce.order_lookup', data: { error_code: 'identity_required' } }]);
+
+    expect(toolResults).toEqual([
+      { name: 'commerce.order_lookup', data: { error_code: 'identity_required', remedy: 'sign_in_to_store' } },
+    ]);
+    expect(renderToolResults(toolResults)).toContain('remedy=sign_in_to_store');
+  });
+
+  it('answers «تی شرت هم داری ؟» — the verb a real shopper uses', async () => {
+    // From the live store. The informal singular «داری» is deliberately not a
+    // stock word («دوست داری» is not about the shop) and no rule covered this
+    // phrasing, so no intent matched, the commerce stage never ran, and the
+    // assistant said it had no information about a t-shirt the shop sells.
+    // The catalogue knows better than the keyword list: the words name a
+    // product, so it is a product question.
+    const { toolResults } = await ask('تی شرت هم داری ؟');
+    const hits = toolResults.filter((r) => r.name === 'commerce.search_products');
+
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits[0].data.title).toBe('تی‌شرت نخی وب‌یار');
+  });
+
+  it('and «پاور بانک چی داشتی» — past tense, spaced compound, still a product question', async () => {
+    const { toolResults } = await ask('پاور بانک چی داشتی');
+    const hits = toolResults.filter((r) => r.name === 'commerce.search_products');
+
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits[0].data.title).toBe('پاوربانک ۲۰۰۰۰ میلی‌آمپر ولت‌مکس');
   });
 
   it('stays out of the way of a question that is not about the shop', async () => {

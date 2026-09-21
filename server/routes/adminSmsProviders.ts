@@ -85,7 +85,12 @@ const smsIrSaveSchema = z
     apiKey: z.string().max(512).optional(),
     lineNumber: z.string().regex(/^[0-9]{1,20}$/),
     verifyTemplateId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-    verifyParameterName: z.string().regex(/^[A-Za-z0-9_]{1,50}$/),
+    // Also accepts the `#code#` form copied verbatim out of the SMS.ir panel;
+    // `saveSmsProviderConfig` strips the delimiters and is the authority on
+    // what is actually a usable name (it answers
+    // `invalid_verify_parameter_name`, which is far more useful to the caller
+    // than this schema's blanket `invalid_sms_config`).
+    verifyParameterName: z.string().regex(/^#?[A-Za-z0-9_]{1,50}#?$/),
   })
   .strict();
 

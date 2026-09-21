@@ -145,6 +145,9 @@ export interface IndexedProductRow {
  * present in the row. Left in, one filler word is enough to match nothing:
  * "هدفون" finds two products, "هدفون & خوب" finds none.
  */
+/** Row window for category aggregation — bounded so a big catalogue cannot turn it into a scan. */
+const CATEGORY_SCAN_ROWS = 500;
+
 const QUESTION_WORDS = new Set([
   // Persian fillers, pronouns, particles and question words.
   'یه', 'یک', 'این', 'اون', 'آن', 'رو', 'را', 'از', 'با', 'به', 'در', 'که', 'تا', 'و', 'یا',
@@ -186,10 +189,27 @@ export function buildSearchTerms(text: string | null | undefined): string[] {
   // Shoppers type both spellings, and so do store owners, so search for
   // both: whichever side used the joiner, the other still matches.
   const out: string[] = [];
+  const push = (term: string) => { if (term && !out.includes(term)) out.push(term); };
   for (const t of kept) {
-    if (!out.includes(t)) out.push(t);
-    const flat = t.replace(new RegExp(ZWNJ, 'g'), '');
-    if (flat && flat !== t && !out.includes(flat)) out.push(flat);
+    push(t);
+    push(t.replace(new RegExp(ZWNJ, 'g'), ''));
+  }
+
+  // Persian compounds are written with a space as often as without one, and
+  // `to_tsvector` splits on the space — so «پاور بانک» is two tokens that
+  // appear in no row, while the catalogue holds the single token «پاوربانک».
+  // Measured against the live index: `to_tsquery('simple','پاور | بانک')`
+  // matched 0 rows, `'پاوربانک'` matched 1. The shopper asked «پاور بانک
+  // دارید ؟» and was told the stock could not be verified.
+  //
+  // So each adjacent pair is also searched joined. Pairs only, and only over
+  // the terms already kept, so the query stays bounded; the re-rank below
+  // then decides which row actually wins. The reverse direction — a shopper
+  // typing «پاوربانک» when the store wrote «پاور بانک» — cannot be done this
+  // way, since splitting a compound needs a dictionary we do not have.
+  for (let i = 0; i + 1 < kept.length; i += 1) {
+    const joined = (kept[i] + kept[i + 1]).replace(new RegExp(ZWNJ, 'g'), '');
+    if (joined !== kept[i] && joined !== kept[i + 1]) push(joined);
   }
   return out;
 }
@@ -265,6 +285,50 @@ export async function searchIndexedProducts(
     .map((x) => x.r);
 
   return { rows: ranked, totalMatched: count ?? ranked.length };
+}
+
+/**
+ * The catalogue's categories, counted from the index.
+ *
+ * A shopper asking «دسته‌بندی‌ها رو بیار» had no tool at all: the question
+ * matched no intent, commerce never ran, and the assistant answered from the
+ * model's own idea of what the business sells — which for this store was a
+ * list of AI website products that do not exist in its catalogue.
+ *
+ * Aggregated here rather than in SQL because `categories` is a jsonb array on
+ * each product row and there is no category table to join; the row window is
+ * bounded so this never grows into a scan of a large catalogue.
+ */
+export async function listIndexedCategories(
+  config: ServerConfig,
+  connectionId: string,
+  limit = 12,
+): Promise<Array<{ name: string; slug: string | null; productCount: number }>> {
+  const sb = getServiceClient(config);
+  const { data, error } = await sb
+    .from('commerce_products')
+    .select('categories')
+    .eq('connection_id', connectionId)
+    .is('deleted_at', null)
+    .limit(CATEGORY_SCAN_ROWS);
+  if (error) throw new Error(`category read failed: ${error.message}`);
+
+  const counts = new Map<string, { name: string; slug: string | null; productCount: number }>();
+  for (const row of (data ?? []) as Array<{ categories: unknown }>) {
+    if (!Array.isArray(row.categories)) continue;
+    for (const raw of row.categories) {
+      if (!raw || typeof raw !== 'object') continue;
+      const cat = raw as { name?: unknown; slug?: unknown };
+      const name = typeof cat.name === 'string' ? cat.name.trim() : '';
+      const slug = typeof cat.slug === 'string' ? cat.slug : null;
+      const key = slug ?? name;
+      if (!name || !key) continue;
+      const existing = counts.get(key);
+      if (existing) existing.productCount += 1;
+      else counts.set(key, { name, slug, productCount: 1 });
+    }
+  }
+  return [...counts.values()].sort((a, b) => b.productCount - a.productCount || a.name.localeCompare(b.name)).slice(0, limit);
 }
 
 export async function getIndexedProductsByIds(

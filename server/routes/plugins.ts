@@ -52,6 +52,9 @@ import {
   isYahooPlatformConfigured,
 } from '../services/channels/yahoo/oauth.js';
 import { isYahooError } from '../services/channels/yahoo/types.js';
+import { DAFTARESHOMA_PROVIDER_ID } from '../services/telephony/providers/daftareshoma/index.js';
+import { deprovisionRegistration } from '../services/telephony/registrations.js';
+import { deleteSipPassword } from '../services/telephony/secrets.js';
 
 import {
   buildWebhookUrl,
@@ -234,6 +237,12 @@ pluginsRouter.post('/uninstall', async (req: any, res) => {
     if (isBotProvider(pluginId)) {
       await requestTelegramDisconnect(config, installation.id, auth.userId);
       await deletePluginSecret(config, installation.id, botProvider(pluginId).secretKeys.live);
+    }
+    // Telephony: stop the SIP registration at the gateway BEFORE forgetting
+    // the credential, so no orphan endpoint keeps receiving PSTN calls.
+    if (pluginId === DAFTARESHOMA_PROVIDER_ID) {
+      await deprovisionRegistration(config, installation.id);
+      await deleteSipPassword(config, installation.id);
     }
     await setInstallationStatus(config, installation.id, 'uninstalled');
     res.json({ ok: true });

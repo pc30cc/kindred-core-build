@@ -80,4 +80,19 @@ describe('phone normalization and masking', () => {
   it('keeps E.164 canonical while giving adapters the local form', () => {
     expect(toProviderFormat('+989121234567')).toBe('09121234567');
   });
+
+  it('is idempotent and leaves a non-+98 number alone', () => {
+    // Every SMS path routes through this, and some do so twice; converting an
+    // already-local number must never mangle it.
+    expect(toProviderFormat('09121234567')).toBe('09121234567');
+    expect(toProviderFormat(toProviderFormat('+989121234567'))).toBe('09121234567');
+    expect(toProviderFormat('+905321234567')).toBe('+905321234567');
+  });
+
+  it('passes a missing number straight through instead of throwing', () => {
+    // Notification callers read the number out of an untyped job payload and
+    // rely on their own "no recipient" handling.
+    expect(toProviderFormat(null as unknown as string)).toBeNull();
+    expect(toProviderFormat(undefined as unknown as string)).toBeUndefined();
+  });
 });

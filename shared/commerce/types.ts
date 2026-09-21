@@ -192,6 +192,28 @@ export type AuthorizedCustomerLookup = {
   limit?: number;
 };
 
+/**
+ * What the shop's own product page already shows, read back as data.
+ *
+ * Only APPROVED reviews and only the display name a reviewer already appears
+ * under publicly — never their email, IP or user id. This is the same thing
+ * any visitor sees by scrolling, so it discloses nothing new.
+ */
+export interface ProductReview {
+  author: string;
+  rating: number | null;
+  verified: boolean;
+  date: string;
+  text: string;
+}
+
+export interface ProductReviewsResult {
+  productExternalId: string;
+  averageRating: number | null;
+  reviewCount: number;
+  reviews: ProductReview[];
+}
+
 // ── Connector capabilities ─────────────────────────────────────────────
 
 export const COMMERCE_CAPABILITIES = [
@@ -199,6 +221,7 @@ export const COMMERCE_CAPABILITIES = [
   'products.read',
   'catalog.export',
   'availability.read',
+  'reviews.read',
   'orders.read',
   'tracking.read',
   'customer_context',
@@ -271,6 +294,16 @@ export interface CommerceConnector {
     ctx: CommerceConnectorContext,
     input: AvailabilityInput,
   ): Promise<AvailabilityResult>;
+
+  /**
+   * Optional: a store whose plugin predates this simply does not implement
+   * it, and the tool that calls it degrades to "no review data" rather than
+   * failing the turn.
+   */
+  getProductReviews?(
+    ctx: CommerceConnectorContext,
+    input: { productExternalId: string; limit?: number },
+  ): Promise<ProductReviewsResult>;
 
   getOrder(
     ctx: CommerceConnectorContext,

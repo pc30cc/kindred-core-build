@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { BrandLogo } from '@/components/brand/BrandLogo';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';
@@ -37,7 +38,6 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
 
   const brandName = useMemo(() => brand?.platform_name || 'App', [brand]);
-  const brandLetter = useMemo(() => brandName.charAt(0), [brandName]);
 
   // Step 1: validate & go to step 2
   const handleStep1 = (e: React.FormEvent) => {
@@ -140,9 +140,7 @@ export default function SignupPage() {
         {/* Top bar */}
         <div className="flex items-center justify-between px-8 py-5 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
-              <span className="text-sm font-black text-primary-foreground">{brandLetter}</span>
-            </div>
+            <BrandLogo className="w-9 h-9 rounded-lg" />
             <span className="text-lg font-semibold text-foreground">{brandName}</span>
           </div>
           <LanguageSelector />

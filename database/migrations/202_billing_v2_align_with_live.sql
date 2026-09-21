@@ -1,5 +1,5 @@
 -- ============================================================
--- 201 — SIX BILLING FUNCTIONS THE LIVE DATABASE HAD MOVED PAST
+-- 202 — SIX BILLING FUNCTIONS THE LIVE DATABASE HAD MOVED PAST
 --
 -- Comparing this chain against the live hosted database function by function
 -- turned up 30 with differing bodies. Hashing them with comments stripped and
@@ -520,7 +520,7 @@ $function$;
 
 -- ---------- ACLs: the two new trigger functions ----------
 -- Triggers fire as the table's owner without consulting the session user's
--- EXECUTE privilege, so taking PUBLIC away costs them nothing — and 200 and
+-- EXECUTE privilege, so taking PUBLIC away costs them nothing — and 201 and
 -- the CI security script both refuse a SECURITY DEFINER function that PUBLIC
 -- can call.
 REVOKE ALL ON FUNCTION public.billing_v2_invoice_paid_recovery()  FROM PUBLIC;
@@ -551,16 +551,16 @@ BEGIN
   END LOOP;
 
   IF bad <> '' THEN
-    RAISE EXCEPTION '201: these are not the live definitions — %', bad;
+    RAISE EXCEPTION '202: these are not the live definitions — %', bad;
   END IF;
 
   -- And the two triggers that carry the split, without which adopting the
   -- slimmer notification_sync would simply delete the recovery behaviour.
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_billing_v2_invoice_paid_recovery')
      OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_billing_v2_payment_after_fallback') THEN
-    RAISE EXCEPTION '201: the recovery triggers are missing';
+    RAISE EXCEPTION '202: the recovery triggers are missing';
   END IF;
 
-  RAISE NOTICE '201: eight billing functions now match the live database byte for byte';
+  RAISE NOTICE '202: eight billing functions now match the live database byte for byte';
 END
 $verify$;

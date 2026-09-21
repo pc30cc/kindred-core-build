@@ -1,5 +1,5 @@
 -- ============================================================
--- 200 — EIGHT SECURITY DEFINER FUNCTIONS THAT ANYONE COULD EXECUTE
+-- 201 — EIGHT SECURITY DEFINER FUNCTIONS THAT ANYONE COULD EXECUTE
 --
 -- PostgreSQL grants EXECUTE on a new function to PUBLIC unless told
 -- otherwise, and PUBLIC includes `anon` — the role an unauthenticated
@@ -90,17 +90,17 @@ BEGIN
      AND has_function_privilege('public', p.oid, 'EXECUTE');
 
   IF n > 0 THEN
-    RAISE EXCEPTION '200: % SECURITY DEFINER functions are still PUBLIC-executable — %', n, offenders;
+    RAISE EXCEPTION '201: % SECURITY DEFINER functions are still PUBLIC-executable — %', n, offenders;
   END IF;
 
   -- And the grant the RLS policy in 084 depends on. Without it the revoke
   -- above turns an owner/admin write into a function-permission error.
   IF NOT has_function_privilege(
        'authenticated', 'public.workspace_owner_phone_verified(uuid)', 'EXECUTE') THEN
-    RAISE EXCEPTION '200: authenticated cannot execute workspace_owner_phone_verified — '
+    RAISE EXCEPTION '201: authenticated cannot execute workspace_owner_phone_verified — '
                     '084''s policy will fail closed for every owner and admin';
   END IF;
 
-  RAISE NOTICE '200: no SECURITY DEFINER function this chain owns is executable by PUBLIC';
+  RAISE NOTICE '201: no SECURITY DEFINER function this chain owns is executable by PUBLIC';
 END
 $verify$;

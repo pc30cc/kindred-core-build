@@ -1,7 +1,7 @@
 -- ============================================================
 -- SIX BILLING FUNCTIONS THE LIVE DATABASE HAD MOVED PAST
 --
--- Hosted mirror of database/migrations/201_billing_v2_align_with_live.sql.
+-- Hosted mirror of database/migrations/202_billing_v2_align_with_live.sql.
 -- Every body here is copied from this database's own live definitions, so
 -- applying it to production is a no-op: the md5 proof at the end is the same
 -- check either way.

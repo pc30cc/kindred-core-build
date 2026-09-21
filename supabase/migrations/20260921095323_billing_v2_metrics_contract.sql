@@ -1,7 +1,7 @@
 -- ============================================================
 -- THE TWO REPORTING FUNCTIONS THE LIVE DATABASE WAS BEHIND ON
 --
--- Hosted mirror of database/migrations/202_billing_v2_metrics_contract.sql.
+-- Hosted mirror of database/migrations/203_billing_v2_metrics_contract.sql.
 -- This is the half that actually reaches the live database: applying it is
 -- what stops the super-admin dunning panel rendering five blanks.
 --

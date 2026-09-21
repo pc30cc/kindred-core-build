@@ -1,7 +1,7 @@
 -- ============================================================
--- 202 — THE TWO REPORTING FUNCTIONS THE LIVE DATABASE WAS BEHIND ON
+-- 203 — THE TWO REPORTING FUNCTIONS THE LIVE DATABASE WAS BEHIND ON
 --
--- 201 took six billing functions from the live database, where it was ahead.
+-- 202 took six billing functions from the live database, where it was ahead.
 -- These are the other two, and they go the other way: the live versions are
 -- stale and this chain has the correct ones.
 --
@@ -117,11 +117,11 @@ BEGIN
   SELECT md5(pg_get_functiondef(to_regprocedure('public.billing_v2_scheduler_health()'))) INTO got_health;
 
   IF got_metrics IS DISTINCT FROM want_metrics THEN
-    RAISE EXCEPTION '202: billing_v2_dunning_metrics is not the chain definition (want %, got %)',
+    RAISE EXCEPTION '203: billing_v2_dunning_metrics is not the chain definition (want %, got %)',
       want_metrics, COALESCE(got_metrics, 'ABSENT');
   END IF;
   IF got_health IS DISTINCT FROM want_health THEN
-    RAISE EXCEPTION '202: billing_v2_scheduler_health is not the chain definition (want %, got %)',
+    RAISE EXCEPTION '203: billing_v2_scheduler_health is not the chain definition (want %, got %)',
       want_health, COALESCE(got_health, 'ABSENT');
   END IF;
 
@@ -135,9 +135,9 @@ BEGIN
    WHERE NOT (public.billing_v2_dunning_metrics() ? k);
 
   IF missing IS NOT NULL THEN
-    RAISE EXCEPTION '202: dunning metrics still missing what DunningMetrics declares: %', missing;
+    RAISE EXCEPTION '203: dunning metrics still missing what DunningMetrics declares: %', missing;
   END IF;
 
-  RAISE NOTICE '202: both reporting functions match the chain, and dunning metrics answers every key the server declares';
+  RAISE NOTICE '203: both reporting functions match the chain, and dunning metrics answers every key the server declares';
 END
 $verify$;

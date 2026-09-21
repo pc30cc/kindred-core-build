@@ -11,7 +11,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -19,7 +18,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -39,7 +37,7 @@ import com.webyar.operator.i18n.Language
 import com.webyar.operator.ui.AppState
 import com.webyar.operator.ui.ConversationViewModel
 import com.webyar.operator.ui.Session
-import com.webyar.operator.ui.WebyarTheme
+import com.webyar.operator.ui.design.WebyarTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,16 +51,15 @@ class MainActivity : ComponentActivity() {
             val appState: AppState = viewModel(factory = factory { AppState(api, cache) })
             val language by appState.language.collectAsState()
 
-            // Everything the app draws follows this: rows, stacks, alignment,
-            // padding's leading and trailing edges, and which way a transcript
-            // mirrors. On iOS the same thing needs a window-level override and
-            // a UIKit appearance proxy, because menus are drawn in a window
-            // SwiftUI's environment never reaches; Compose has no such split.
-            CompositionLocalProvider(LocalLayoutDirection provides language.layoutDirection) {
-                WebyarTheme {
-                    Surface(Modifier.fillMaxSize()) {
-                        RootScreen(appState, api, language)
-                    }
+            // The theme takes the language and sets the layout direction from
+            // it — rows, stacks, alignment, which edge padding's leading side
+            // is on, and which way a transcript mirrors all follow. On iOS the
+            // same thing needs a window-level override AND a UIKit appearance
+            // proxy, because menus are drawn in a window SwiftUI's environment
+            // never reaches; Compose has no such split.
+            WebyarTheme(language = language) {
+                Surface(Modifier.fillMaxSize()) {
+                    RootScreen(appState, api, language)
                 }
             }
         }
@@ -135,33 +132,47 @@ private inline fun <reified T : ViewModel> factory(crossinline create: () -> T) 
 @Preview(name = "login — fa", locale = "fa", showBackground = true)
 @Composable
 private fun LoginPersianPreview() {
-    CompositionLocalProvider(LocalLayoutDirection provides Language.FA.layoutDirection) {
-        WebyarTheme { Surface { LoginScreen(Language.FA, { _, _ -> Result.success(Unit) }) } }
+    WebyarTheme(Language.FA) {
+        Surface { LoginScreen(Language.FA, { _, _ -> Result.success(Unit) }) }
+    }
+}
+
+@Preview(name = "login — fa, dark", locale = "fa", showBackground = true)
+@Composable
+private fun LoginPersianDarkPreview() {
+    WebyarTheme(Language.FA, dark = true) {
+        Surface { LoginScreen(Language.FA, { _, _ -> Result.success(Unit) }) }
     }
 }
 
 @Preview(name = "login — en", locale = "en", showBackground = true)
 @Composable
 private fun LoginEnglishPreview() {
-    WebyarTheme { Surface { LoginScreen(Language.EN, { _, _ -> Result.success(Unit) }) } }
+    WebyarTheme(Language.EN) {
+        Surface { LoginScreen(Language.EN, { _, _ -> Result.success(Unit) }) }
+    }
+}
+
+@Preview(name = "login — tr", locale = "tr", showBackground = true)
+@Composable
+private fun LoginTurkishPreview() {
+    WebyarTheme(Language.TR) {
+        Surface { LoginScreen(Language.TR, { _, _ -> Result.success(Unit) }) }
+    }
 }
 
 @Preview(name = "inbox empty — fa", locale = "fa", showBackground = true)
 @Composable
 private fun InboxEmptyPersianPreview() {
-    CompositionLocalProvider(LocalLayoutDirection provides Language.FA.layoutDirection) {
-        WebyarTheme {
-            Surface { InboxScreen(InboxState.Loaded(emptyList()), Language.FA, {}) }
-        }
+    WebyarTheme(Language.FA) {
+        Surface { InboxScreen(InboxState.Loaded(emptyList()), Language.FA, {}) }
     }
 }
 
 @Preview(name = "chat empty — fa", locale = "fa", showBackground = true)
 @Composable
 private fun ChatPersianPreview() {
-    CompositionLocalProvider(LocalLayoutDirection provides Language.FA.layoutDirection) {
-        WebyarTheme {
-            Surface { ChatScreen(ChatState.Loaded(emptyList()), Language.FA, {}) }
-        }
+    WebyarTheme(Language.FA) {
+        Surface { ChatScreen(ChatState.Loaded(emptyList()), Language.FA, {}) }
     }
 }

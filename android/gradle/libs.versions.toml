@@ -17,6 +17,7 @@ robolectric = "4.17"
 androidxTestJunit = "1.3.0"
 junit = "4.13.2"
 desugar = "2.1.5"
+coil = "3.6.3"
 
 [libraries]
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugar" }
@@ -47,6 +48,12 @@ ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-conte
 ktor-serialization-kotlinx-json = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+
+# Coil rather than a hand-rolled loader: RemoteImage.swift is 236 lines of
+# cache, placeholder and cancellation, and all three are things an image
+# library has already got right. Resolved from Maven Central 2026-09-21.
+coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
+coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
 
 # Tests. Robolectric is what keeps the majority of the suite on the JVM and
 # off an emulator, which is what keeps CI inside this host's budget.

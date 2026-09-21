@@ -23,6 +23,7 @@ import { useTranslation } from '@/i18n';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   fetchNotificationPrefs,
+  notificationPlatform,
   updateNotificationPrefs,
   type NotificationPrefs,
   type NotificationScope,
@@ -193,6 +194,12 @@ export default function SettingsNotificationsPage() {
   const qc = useQueryClient();
   const { permission, request: requestPermission } = useBrowserNotificationPermission();
 
+  // The same bundle is the browser console and the inside of the phone
+  // shell. Which one it is decides whose preferences this page edits — and
+  // what it can honestly say about the other surface and about a browser
+  // permission that means nothing inside a native app.
+  const isNativeShell = notificationPlatform() === 'mobile';
+
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['notification-prefs'],
     queryFn: fetchNotificationPrefs,
@@ -234,7 +241,7 @@ export default function SettingsNotificationsPage() {
   };
 
   const masterDisabled = !!prefs?.disable_all;
-  const pushDisabled = masterDisabled || permission === 'denied';
+  const pushDisabled = masterDisabled || (!isNativeShell && permission === 'denied');
 
   const headerStatus = useMemo(() => {
     if (mutation.isPending || savingKey) {
@@ -290,7 +297,7 @@ export default function SettingsNotificationsPage() {
             {t('notifications.title')}
           </h1>
           <p className="mt-1 text-[13.5px] text-muted-foreground">
-            {t('notifications.subtitle')}
+            {isNativeShell ? t('notifications.subtitleNative') : t('notifications.subtitle')}
           </p>
         </div>
         {headerStatus}
@@ -298,7 +305,7 @@ export default function SettingsNotificationsPage() {
 
       {/* Browser permission banner. It means something now: the app draws a
           real notification when this is granted. */}
-      {permission !== 'granted' && permission !== 'unsupported' && (
+      {!isNativeShell && permission !== 'granted' && permission !== 'unsupported' && (
         <Card className="border-destructive/30 bg-destructive/5 p-4">
           <div className="flex items-start gap-3">
             <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-destructive/15 text-destructive">
@@ -331,7 +338,7 @@ export default function SettingsNotificationsPage() {
           <p className="text-[13px] text-muted-foreground">{t('notifications.intro')}</p>
           <p className="mt-1 flex items-center gap-1.5 text-[12.5px] text-muted-foreground/80">
             <Smartphone className="h-3.5 w-3.5 shrink-0" />
-            {t('notifications.introWarn')}
+            {isNativeShell ? t('notifications.introWarnNative') : t('notifications.introWarn')}
           </p>
         </div>
         <div className="px-6">
@@ -348,8 +355,8 @@ export default function SettingsNotificationsPage() {
       <Card className="p-6">
         <SectionHeader
           icon={Bell}
-          title={t('notifications.pushTitle')}
-          hint={t('notifications.pushHint')}
+          title={isNativeShell ? t('notifications.pushTitleApp') : t('notifications.pushTitle')}
+          hint={isNativeShell ? t('notifications.pushHintApp') : t('notifications.pushHint')}
         />
         <div className="mt-3 divide-y divide-border/60" role="radiogroup" aria-label={t('notifications.scopeTitle')}>
           {scopes.map((scope) => (

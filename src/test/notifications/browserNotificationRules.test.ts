@@ -138,3 +138,24 @@ describe('the preview', () => {
     expect(previewText({ payload: { text: '   ' } }, true)).toBeNull();
   });
 });
+
+describe('which surface the shared bundle speaks for', () => {
+  it('is the browser on the web, and the phone inside the app shell', async () => {
+    // The SAME bundle is the browser console and the inside of the Capacitor
+    // shell — and the shell is a phone: it registers in
+    // `mobile_push_devices`, and the dispatcher reads the phone's row before
+    // sending to it. Hardcoding 'web' here let an operator set preferences on
+    // their phone that the thing sending to their phone never read.
+    const { notificationPlatform } = await import('../../lib/notifications-api');
+
+    const original = (globalThis as any).window?.Capacitor;
+    try {
+      expect(notificationPlatform()).toBe('web');
+      (globalThis as any).window = (globalThis as any).window ?? {};
+      (globalThis as any).window.Capacitor = { isNativePlatform: () => true };
+      expect(notificationPlatform()).toBe('mobile');
+    } finally {
+      if ((globalThis as any).window) (globalThis as any).window.Capacitor = original;
+    }
+  });
+});

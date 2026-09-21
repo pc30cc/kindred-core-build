@@ -1,16 +1,29 @@
 import { API_BASE as RESOLVED_API_BASE } from '@/lib/apiBase';
+import { isNativePlatform } from '@/lib/native';
 /**
  * Notification preferences API — self-hosted Express endpoint.
  * Auth is the first-party gs_session HttpOnly cookie (credentials: 'include').
  *
- * These are the BROWSER's preferences. The phone app keeps its own set under
- * its own surface, and every request here says so: they were one row, so an
- * operator who silenced their phone at midnight silenced this too.
+ * These are one SURFACE's preferences. The browser and the phone keep
+ * separate sets, and every request here says which it is speaking for: they
+ * were one row, so an operator who silenced their phone at midnight silenced
+ * their desk too.
  */
 const API_BASE = RESOLVED_API_BASE;
 
-/** The surface this client speaks for. */
-export const PLATFORM = 'web';
+/**
+ * Which surface this runtime is.
+ *
+ * The same bundle is the browser console AND the inside of the Capacitor
+ * shell, and the shell is a phone — it is registered in
+ * `mobile_push_devices` and the dispatcher reads the phone's row before
+ * sending to it. A hardcoded 'web' here would have let an operator set
+ * preferences on their phone that the thing sending to their phone never
+ * read.
+ */
+export function notificationPlatform(): 'web' | 'mobile' {
+  return isNativePlatform() ? 'mobile' : 'web';
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
@@ -53,13 +66,13 @@ export interface NotificationPrefs {
 
 export function fetchNotificationPrefs() {
   return request<{ platform: string; prefs: NotificationPrefs }>(
-    `/api/notifications/prefs?platform=${PLATFORM}`,
+    `/api/notifications/prefs?platform=${notificationPlatform()}`,
   );
 }
 
 export function updateNotificationPrefs(updates: Partial<NotificationPrefs>) {
   return request<{ platform: string; prefs: NotificationPrefs }>('/api/notifications/prefs', {
     method: 'PATCH',
-    body: JSON.stringify({ ...updates, platform: PLATFORM }),
+    body: JSON.stringify({ ...updates, platform: notificationPlatform() }),
   });
 }

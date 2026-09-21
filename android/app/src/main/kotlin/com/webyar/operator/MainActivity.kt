@@ -4,109 +4,164 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.runtime.collectAsState
+import com.webyar.operator.core.model.Conversation
+import com.webyar.operator.core.net.Backend
+import com.webyar.operator.core.net.WebyarApi
+import com.webyar.operator.core.storage.SecureStore
+import com.webyar.operator.core.storage.SessionCache
+import com.webyar.operator.feature.auth.LoginScreen
+import com.webyar.operator.feature.chat.ChatScreen
+import com.webyar.operator.feature.chat.ChatState
+import com.webyar.operator.feature.inbox.InboxScreen
+import com.webyar.operator.feature.inbox.InboxState
+import com.webyar.operator.i18n.Language
+import com.webyar.operator.ui.AppState
+import com.webyar.operator.ui.ConversationViewModel
+import com.webyar.operator.ui.Session
 import com.webyar.operator.ui.WebyarTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+
+        val api = Backend.create(applicationContext)
+        val cache = SessionCache(SecureStore(applicationContext))
+
         setContent {
-            WebyarTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    ToolchainProof()
+            val appState: AppState = viewModel(factory = factory { AppState(api, cache) })
+            val language by appState.language.collectAsState()
+
+            // Everything the app draws follows this: rows, stacks, alignment,
+            // padding's leading and trailing edges, and which way a transcript
+            // mirrors. On iOS the same thing needs a window-level override and
+            // a UIKit appearance proxy, because menus are drawn in a window
+            // SwiftUI's environment never reaches; Compose has no such split.
+            CompositionLocalProvider(LocalLayoutDirection provides language.layoutDirection) {
+                WebyarTheme {
+                    Surface(Modifier.fillMaxSize()) {
+                        RootScreen(appState, api, language)
+                    }
                 }
             }
         }
     }
 }
 
-/**
- * The whole app, for now — and it has one job.
- *
- * ADR-003 sequences this first so the toolchain is proven end to end before
- * anything depends on it: Gradle resolves, Kotlin compiles, Compose renders,
- * the resource qualifiers pick the right language, and the layout turns
- * around when that language reads right-to-left.
- *
- * That last one is why the row below is a `Row` with a leading icon rather
- * than a lone paragraph. Text alone reads correctly in either direction and
- * so proves nothing; a row mirrors, and the icon moving to the other edge is
- * the thing you can actually see. Compose resolves `Arrangement.Start` and
- * padding against `LocalLayoutDirection`, so Persian should put the icon on
- * the right with no conditional anywhere in this file.
- *
- * On iOS the equivalent took a window-level override and an appearance proxy
- * — see `WindowDirection.swift`, and the bug where "Language" came out
- * "egaugnaL". Android supplies it from `android:supportsRtl` and the locale.
- */
+/** Chooses the login screen or the app, and holds while it does not yet know. */
 @Composable
-fun ToolchainProof(modifier: Modifier = Modifier) {
-    val direction = when (LocalLayoutDirection.current) {
-        LayoutDirection.Rtl -> "RTL"
-        LayoutDirection.Ltr -> "LTR"
-    }
+private fun RootScreen(appState: AppState, api: WebyarApi, language: Language) {
+    val session by appState.session.collectAsState()
 
-    Column(
-        modifier = modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
-    ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // An auto-mirrored icon, so the proof is doubled: the Row
-            // moves it to the other edge, and the glyph itself turns
-            // around. A symmetrical icon would have shown only the first.
-            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null)
-            Text(
-                text = stringResource(R.string.skeleton_title),
-                style = MaterialTheme.typography.headlineSmall,
-            )
+    when (val current = session) {
+        is Session.Restoring -> Box(Modifier.fillMaxSize(), Alignment.Center) {
+            CircularProgressIndicator()
         }
 
-        Text(
-            text = stringResource(R.string.skeleton_body),
-            style = MaterialTheme.typography.bodyMedium,
+        is Session.SignedOut -> LoginScreen(
+            language = language,
+            onSubmit = appState::logIn,
+            modifier = Modifier.statusBarsPadding(),
         )
 
-        Text(
-            text = "${stringResource(R.string.skeleton_direction_label)}: $direction",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
+        is Session.SignedIn -> SignedInScreen(appState, api, language)
+    }
+}
+
+@Composable
+private fun SignedInScreen(appState: AppState, api: WebyarApi, language: Language) {
+    val conversations: ConversationViewModel =
+        viewModel(factory = factory { ConversationViewModel(api) { language } })
+    val workspace by appState.selectedWorkspace.collectAsState()
+    val inbox by conversations.inbox.collectAsState()
+    val chat by conversations.chat.collectAsState()
+    var open by remember { mutableStateOf<Conversation?>(null) }
+
+    LaunchedEffect(workspace?.id) {
+        workspace?.let { conversations.loadInbox(it.id) }
+    }
+
+    val current = open
+    if (current == null) {
+        InboxScreen(
+            state = inbox,
+            language = language,
+            onOpen = {
+                open = it
+                conversations.openConversation(it)
+            },
+            modifier = Modifier.statusBarsPadding(),
+        )
+    } else {
+        ChatScreen(
+            state = chat,
+            language = language,
+            onSend = { body ->
+                workspace?.let { conversations.send(current, body, it.id) }
+            },
+            modifier = Modifier.statusBarsPadding(),
         )
     }
 }
 
-// The Persian preview is the one that matters: it is the case the product
-// ships in, and the only one where a layout built the wrong way round shows
-// up in the canvas rather than on a device.
-@Preview(name = "fa — RTL", locale = "fa", showBackground = true)
+/** A one-off factory, so a view model can take what it needs in its constructor. */
+private inline fun <reified T : ViewModel> factory(crossinline create: () -> T) =
+    object : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <V : ViewModel> create(modelClass: Class<V>): V = create() as V
+    }
+
+@Preview(name = "login — fa", locale = "fa", showBackground = true)
 @Composable
-private fun ToolchainProofPersian() {
-    WebyarTheme { Surface { ToolchainProof() } }
+private fun LoginPersianPreview() {
+    CompositionLocalProvider(LocalLayoutDirection provides Language.FA.layoutDirection) {
+        WebyarTheme { Surface { LoginScreen(Language.FA, { _, _ -> Result.success(Unit) }) } }
+    }
 }
 
-@Preview(name = "en — LTR", locale = "en", showBackground = true)
+@Preview(name = "login — en", locale = "en", showBackground = true)
 @Composable
-private fun ToolchainProofEnglish() {
-    WebyarTheme { Surface { ToolchainProof() } }
+private fun LoginEnglishPreview() {
+    WebyarTheme { Surface { LoginScreen(Language.EN, { _, _ -> Result.success(Unit) }) } }
+}
+
+@Preview(name = "inbox empty — fa", locale = "fa", showBackground = true)
+@Composable
+private fun InboxEmptyPersianPreview() {
+    CompositionLocalProvider(LocalLayoutDirection provides Language.FA.layoutDirection) {
+        WebyarTheme {
+            Surface { InboxScreen(InboxState.Loaded(emptyList()), Language.FA, {}) }
+        }
+    }
+}
+
+@Preview(name = "chat empty — fa", locale = "fa", showBackground = true)
+@Composable
+private fun ChatPersianPreview() {
+    CompositionLocalProvider(LocalLayoutDirection provides Language.FA.layoutDirection) {
+        WebyarTheme {
+            Surface { ChatScreen(ChatState.Loaded(emptyList()), Language.FA, {}) }
+        }
+    }
 }

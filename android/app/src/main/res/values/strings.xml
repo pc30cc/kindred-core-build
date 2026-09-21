@@ -1,7 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Webyar</string>
-    <string name="skeleton_title">Toolchain</string>
-    <string name="skeleton_body">If this reads right-to-left in Persian and left-to-right in English, the layout direction is wired correctly.</string>
-    <string name="skeleton_direction_label">Layout direction</string>
 </resources>

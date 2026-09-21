@@ -25,6 +25,15 @@
 -- difference between two replayed schemas, not a reading of the SQL. Types and
 -- defaults are copied from the self-host side.
 --
+-- WHERE IT SITS
+--
+-- After every table in this directory exists and before the function backfill
+-- that reads the columns. The obvious place looked like beside the table
+-- backfill at 20260904112111, and a replay said otherwise: commerce_products
+-- is not created until later, so the ALTER for it failed there. These columns
+-- belong to tables spread across the whole chain, so the only position that
+-- works for all of them is after the last of them.
+--
 -- Every statement is ADD COLUMN IF NOT EXISTS, so this is a no-op on any
 -- database that already has them, the live one included. No column is made NOT
 -- NULL here: where the self-host chain has that, it sets it after a backfill

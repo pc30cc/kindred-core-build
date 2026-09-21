@@ -241,13 +241,31 @@ class UITestCase: XCTestCase {
     /// The composer, whichever kind of element this iOS decided it is.
     ///
     /// A `TextField(axis: .vertical)` is a `textField` to XCUITest on iOS 26
-    /// and a `textView` on some other releases, and neither is worth pinning a
-    /// test to. The field is asked for first, since that is what it is here;
-    /// the other is the fallback.
+    /// and a `textView` on some other releases, and a `TextField` that has
+    /// grown past one line surfaces as a `TextView` on any of them. Neither is
+    /// worth pinning a test to, so both have to be allowed for.
+    ///
+    /// This used to choose between them *before* the app had drawn: called
+    /// straight after `launch()`, `exists` was false on the `TextField` query,
+    /// so it handed back the `TextView` one and the caller then spent its
+    /// whole 25-second budget waiting on a query that cannot match an empty
+    /// composer. Which screen lost the race varied by machine load, which is
+    /// why this suite failed on a different test every run and looked like
+    /// flake.
+    ///
+    /// So: wait for either, and return the one that arrived.
     func composerField(timeout: TimeInterval = 25) -> XCUIElement {
-        let asField = app.textFields[A11yID.composerField].firstMatch
-        if asField.waitForExistence(timeout: timeout) { return asField }
-        return app.textViews[A11yID.composerField].firstMatch
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let asField = app.textFields[A11yID.composerField].firstMatch
+            if asField.exists { return asField }
+            let asView = app.textViews[A11yID.composerField].firstMatch
+            if asView.exists { return asView }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        // Nothing came. Hand back the field query so the caller's own
+        // assertion is the one that reports it.
+        return app.textFields[A11yID.composerField].firstMatch
     }
 
     /// Waits for an element to go away, which `waitForExistence` cannot do.

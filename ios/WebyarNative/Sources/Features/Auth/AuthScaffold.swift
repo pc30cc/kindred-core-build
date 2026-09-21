@@ -14,7 +14,8 @@ import SwiftUI
 /// What both auth screens sit on.
 ///
 /// The same colour and the same pool of brand light as `LaunchView`, anchored
-/// nearer the top because that is where the wordmark is here. The app opens on
+/// nearer the top because that is where the form is here — the light falls on
+/// what you came to use, not on the mark signed at the foot. The app opens on
 /// the launch screen and then becomes this one, so the two sharing a backdrop
 /// is the difference between a transition and a cut.
 struct AuthBackdrop: View {

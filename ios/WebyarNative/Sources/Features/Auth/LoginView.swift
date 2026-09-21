@@ -64,6 +64,8 @@ struct LoginView: View {
                         .padding(.top, Theme.Space.xs)
 
                         Spacer(minLength: Theme.Space.huge)
+
+                        footerMark
                     }
                     .padding(.horizontal, Theme.screenInset)
                     // Lets the two spacers do their work on a tall screen,
@@ -88,29 +90,47 @@ struct LoginView: View {
 
     // MARK: - Pieces
 
-    /// The wordmark, then what this screen is.
+    /// What this screen is, and nothing else.
     ///
     /// The greeting used to be set at `largeTitle`/bold, which on a phone is
-    /// 34 points of "Welcome back" — bigger than the product's own name
-    /// directly above it, and the loudest thing on a screen whose job is two
-    /// fields and a button. It is a greeting, so it is sized like one: the
-    /// wordmark is the mark, the greeting is a line of text under it.
+    /// 34 points of "Welcome back" — the loudest thing on a screen whose job
+    /// is two fields and a button. It is a greeting, so it is sized like one.
+    ///
+    /// The wordmark used to sit above it and now sits at the foot of the
+    /// screen: see `footerMark`.
     private var header: some View {
-        VStack(spacing: Theme.Space.lg) {
-            BrandWordmark(language: language, size: 30)
+        VStack(spacing: Theme.Space.xxs) {
+            Text(Str.loginTitle(language))
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Theme.Palette.label)
 
-            VStack(spacing: Theme.Space.xxs) {
-                Text(Str.loginTitle(language))
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(Theme.Palette.label)
-
-                Text(Str.loginSubtitle(language))
-                    .font(.footnote)
-                    .foregroundStyle(Theme.Palette.labelSecondary)
-            }
-            .multilineTextAlignment(.center)
+            Text(Str.loginSubtitle(language))
+                .font(.footnote)
+                .foregroundStyle(Theme.Palette.labelSecondary)
         }
+        .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
+    }
+
+    /// The mark, small and quiet, at the bottom of the screen.
+    ///
+    /// A wordmark over the fields is a sign above a door: it tells you where
+    /// you are before you are anywhere. But everyone here has already opened
+    /// this app — they saw the mark on the icon they tapped and again on the
+    /// launch screen — so a third, large one directly above the form is the
+    /// biggest thing on the screen saying the thing you already know, and it
+    /// pushes the two fields you came for down under it.
+    ///
+    /// So it moves to the foot: still present, signed rather than announced,
+    /// the way a name is set at the bottom of a card. Small enough to be a
+    /// signature (the login screen's mark was 30 points; this is half that),
+    /// dimmed so it sits behind the form in the eye's order, and last in the
+    /// scroll so the keyboard pushes it away instead of covering it.
+    private var footerMark: some View {
+        BrandWordmark(language: language, size: 15)
+            .opacity(0.45)
+            .padding(.top, Theme.Space.xxl)
+            .padding(.bottom, Theme.Space.xs)
     }
 
     private var fields: some View {

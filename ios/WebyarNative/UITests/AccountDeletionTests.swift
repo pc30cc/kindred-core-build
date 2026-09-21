@@ -71,7 +71,14 @@ final class AccountDeletionTests: UITestCase {
         let field = passwordField
         reveal(field)
         field.tap()
+        let keyboard = waitForKeyboard()
         field.typeText("not-the-real-one")
+
+        // Put the keyboard away first: on a phone the button sits under it
+        // once the caret is in the field. Tapping the explanation is how an
+        // operator does it, and it is the dismisser doing its job.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).tap()
+        XCTAssertTrue(waitForDisappearance(keyboard), "the keyboard would not go away")
 
         let submit = control(A11yID.deleteAccountSubmit)
         reveal(submit)

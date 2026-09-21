@@ -73,8 +73,12 @@ struct DeleteAccountView: View {
                         .textContentType(.password)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                        .submitLabel(.done)
+                        .submitLabel(.go)
                         .focused($passwordFocused)
+                        // The button is below the keyboard on a phone once
+                        // the field has the caret in it, so the keyboard's
+                        // own key has to reach the same place.
+                        .onSubmit(askToConfirm)
                         .environment(\.layoutDirection, .leftToRight)
                         .multilineTextAlignment(.leading)
                         .frame(minHeight: Theme.Size.minTouchTarget - 10)
@@ -139,12 +143,13 @@ struct DeleteAccountView: View {
 
     /// The red button's job: either say what is missing, or ask.
     ///
-    /// The hop before presenting is deliberate. Putting the keyboard away and
-    /// raising a dialog in the same turn of the run loop asks UIKit to present
-    /// over a view that is mid-way through resigning first responder, and the
-    /// presentation is sometimes dropped on the floor — the keyboard goes
-    /// down, nothing comes up, and the button looks broken. Letting the
-    /// dismissal land first costs one frame.
+    /// It does not put the keyboard away itself, and it does not defer the
+    /// presentation by a turn of the run loop. Both were tried, and both left
+    /// a button that looked broken: a `confirmationDialog` raised in the same
+    /// breath as a first-responder change — or one turn after it, while the
+    /// keyboard is still animating out — is quietly dropped, and nothing
+    /// appears at all. Tapping anywhere already takes the keyboard down, so
+    /// this only has to ask.
     private func askToConfirm() {
         guard !password.isEmpty else {
             passwordFocused = true
@@ -154,8 +159,7 @@ struct DeleteAccountView: View {
             return
         }
 
-        passwordFocused = false
-        Task { @MainActor in isConfirming = true }
+        isConfirming = true
     }
 
     private func submit() {

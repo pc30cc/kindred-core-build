@@ -3,6 +3,7 @@ package com.webyar.operator.feature.inbox
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -46,6 +47,14 @@ fun InboxScreen(
     language: Language,
     onOpen: (Conversation) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Room at the foot of the list for whatever floats over it.
+     *
+     * The tab bar hovers rather than occupying layout space, so without this
+     * the last conversation in the list sits permanently underneath it — and
+     * the one row an operator cannot reach is always the oldest unread.
+     */
+    contentPadding: PaddingValues = PaddingValues(),
 ) {
     when (state) {
         is InboxState.Loading -> Box(modifier.fillMaxSize(), Alignment.Center) {
@@ -67,7 +76,10 @@ fun InboxScreen(
                 }
             }
         } else {
-            LazyColumn(modifier.fillMaxSize().testTag(A11y.INBOX_LIST)) {
+            LazyColumn(
+                modifier = modifier.fillMaxSize().testTag(A11y.INBOX_LIST),
+                contentPadding = contentPadding,
+            ) {
                 items(state.conversations, key = { it.id }) { conversation ->
                     ConversationRow(conversation, language) { onOpen(conversation) }
                     HorizontalDivider()

@@ -11,11 +11,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
@@ -23,20 +19,20 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.collectAsState
-import com.webyar.operator.core.model.Conversation
 import com.webyar.operator.core.net.Backend
 import com.webyar.operator.core.net.WebyarApi
 import com.webyar.operator.core.storage.SecureStore
 import com.webyar.operator.core.storage.SessionCache
 import com.webyar.operator.feature.auth.LoginScreen
+import com.webyar.operator.feature.inbox.InboxScreen
 import com.webyar.operator.feature.chat.ChatScreen
 import com.webyar.operator.feature.chat.ChatState
-import com.webyar.operator.feature.inbox.InboxScreen
 import com.webyar.operator.feature.inbox.InboxState
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.ui.AppState
 import com.webyar.operator.ui.ConversationViewModel
 import com.webyar.operator.ui.Session
+import com.webyar.operator.ui.nav.AppShell
 import com.webyar.operator.ui.design.WebyarTheme
 
 class MainActivity : ComponentActivity() {
@@ -88,38 +84,17 @@ private fun RootScreen(appState: AppState, api: WebyarApi, language: Language) {
 
 @Composable
 private fun SignedInScreen(appState: AppState, api: WebyarApi, language: Language) {
+    // Held here rather than inside a route: the inbox and the chat are two
+    // views of the same thing, and a view model per route would make the chat
+    // re-fetch a list the inbox already has.
     val conversations: ConversationViewModel =
         viewModel(factory = factory { ConversationViewModel(api) { language } })
-    val workspace by appState.selectedWorkspace.collectAsState()
-    val inbox by conversations.inbox.collectAsState()
-    val chat by conversations.chat.collectAsState()
-    var open by remember { mutableStateOf<Conversation?>(null) }
 
-    LaunchedEffect(workspace?.id) {
-        workspace?.let { conversations.loadInbox(it.id) }
-    }
-
-    val current = open
-    if (current == null) {
-        InboxScreen(
-            state = inbox,
-            language = language,
-            onOpen = {
-                open = it
-                conversations.openConversation(it)
-            },
-            modifier = Modifier.statusBarsPadding(),
-        )
-    } else {
-        ChatScreen(
-            state = chat,
-            language = language,
-            onSend = { body ->
-                workspace?.let { conversations.send(current, body, it.id) }
-            },
-            modifier = Modifier.statusBarsPadding(),
-        )
-    }
+    AppShell(
+        appState = appState,
+        conversations = conversations,
+        language = language,
+    )
 }
 
 /** A one-off factory, so a view model can take what it needs in its constructor. */

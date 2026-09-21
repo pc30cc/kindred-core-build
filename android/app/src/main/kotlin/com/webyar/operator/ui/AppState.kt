@@ -2,6 +2,7 @@ package com.webyar.operator.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.webyar.operator.core.model.EntitlementsState
 import com.webyar.operator.core.model.User
 import com.webyar.operator.core.model.Workspace
 import com.webyar.operator.core.net.ApiError
@@ -11,6 +12,9 @@ import com.webyar.operator.i18n.Language
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
@@ -44,6 +48,44 @@ class AppState(
 
     private val _selectedWorkspace = MutableStateFlow<Workspace?>(null)
     val selectedWorkspace: StateFlow<Workspace?> = _selectedWorkspace.asStateFlow()
+
+    private val _entitlements = MutableStateFlow<EntitlementsState>(EntitlementsState.Loading)
+    val entitlements: StateFlow<EntitlementsState> = _entitlements.asStateFlow()
+
+    /**
+     * Which tab is open, held here rather than in the shell.
+     *
+     * A language change rebuilds the shell from scratch. Without somewhere
+     * outside to keep this, changing the language would drop the operator back
+     * on the inbox from wherever they were.
+     */
+    private val _selectedTab = MutableStateFlow(AppTab.INBOX)
+    val selectedTab: StateFlow<AppTab> = _selectedTab.asStateFlow()
+
+    /**
+     * The tabs this account actually has.
+     *
+     * Inbox and Settings are core and always present. Contacts is plan-gated,
+     * and **while the plan is still resolving it is left out** — a tab that
+     * appears a few seconds after launch and then vanishes reads as a bug, and
+     * the plan resolves long enough after a cold start for the operator to be
+     * reading something when it lands.
+     */
+    val tabs: StateFlow<List<AppTab>> = entitlements
+        .map { plan ->
+            buildList {
+                add(AppTab.INBOX)
+                if (plan.isResolved && plan.value?.moduleInPlan("contacts") == true) {
+                    add(AppTab.CONTACTS)
+                }
+                add(AppTab.SETTINGS)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), listOf(AppTab.INBOX, AppTab.SETTINGS))
+
+    fun selectTab(tab: AppTab) {
+        _selectedTab.value = tab
+    }
 
     init {
         viewModelScope.launch { restore() }
@@ -107,11 +149,35 @@ class AppState(
     private suspend fun loadWorkspaces() {
         runCatching { api.workspaces() }.onSuccess { list ->
             _workspaces.value = list
-            if (_selectedWorkspace.value == null) _selectedWorkspace.value = list.firstOrNull()
+            if (_selectedWorkspace.value == null) {
+                _selectedWorkspace.value = list.firstOrNull()
+                loadEntitlements()
+            }
         }
     }
 
     fun selectWorkspace(workspace: Workspace) {
+        if (workspace.id == _selectedWorkspace.value?.id) return
         _selectedWorkspace.value = workspace
+        // A different workspace is a different plan, so the old answer is
+        // wrong rather than merely stale. Back to Loading, which is what keeps
+        // a gated tab from lingering across the switch.
+        _entitlements.value = EntitlementsState.Loading
+        loadEntitlements()
+    }
+
+    private fun loadEntitlements() {
+        val workspaceId = _selectedWorkspace.value?.id ?: return
+        viewModelScope.launch {
+            _entitlements.value = runCatching { api.entitlements(workspaceId) }
+                .fold(
+                    onSuccess = { EntitlementsState.Loaded(it) },
+                    // Failed, not Loading: the difference is the whole point of
+                    // the state. Staying in Loading would hide the gated tab
+                    // for ever on a flaky network; Failed resolves, and a
+                    // fail-closed plan simply grants nothing.
+                    onFailure = { EntitlementsState.Failed },
+                )
+        }
     }
 }

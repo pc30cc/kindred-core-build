@@ -20,6 +20,10 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -37,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.webyar.operator.core.model.Message
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
+import com.webyar.operator.i18n.StrAndroid
 import com.webyar.operator.ui.A11y
 
 /**
@@ -62,8 +67,18 @@ fun ChatScreen(
     language: Language,
     onSend: (String) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Null when the transcript is not something you came into from somewhere.
+     *
+     * The system Back gesture always works — the navigation graph sees to
+     * that — so this is the visible affordance, not the mechanism. A screen
+     * with no way back ON SCREEN is still reachable by gesture; a screen that
+     * draws a back arrow which does nothing is not.
+     */
+    onBack: (() -> Unit)? = null,
 ) {
     Column(modifier.fillMaxSize().imePadding()) {
+        if (onBack != null) ChatTopBar(language = language, onBack = onBack)
         Box(Modifier.weight(1f)) {
             when (state) {
                 is ChatState.Loading -> Box(Modifier.fillMaxSize(), Alignment.Center) {
@@ -169,4 +184,27 @@ sealed interface ChatState {
     data object Loading : ChatState
     data class Loaded(val messages: List<Message>) : ChatState
     data class Failed(val message: String) : ChatState
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChatTopBar(language: Language, onBack: () -> Unit) {
+    TopAppBar(
+        title = {},
+        navigationIcon = {
+            IconButton(onClick = onBack) {
+                Icon(
+                    // AutoMirrored: a back arrow points the way you came, and
+                    // in Persian that is the other way. This is the one family
+                    // of icons that MUST mirror, as against the bubble beak
+                    // and the flag badge, which must not.
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = StrAndroid.back(language),
+                )
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        ),
+    )
 }

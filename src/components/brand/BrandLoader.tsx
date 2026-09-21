@@ -44,18 +44,16 @@ export function BrandLoader({
           aria-hidden
         />
         <span className="absolute inset-0 rounded-full border border-primary/15" aria-hidden />
-        {/* The real app mark bitmap — operator branding (logoUrl) overrides it. */}
-        <BrandLogo
-          src={logoUrl}
-          className="absolute rounded-[26%]"
-          style={{ top: s.pad, left: s.pad, width: s.box - s.pad * 2, height: s.box - s.pad * 2 }}
-        />
-      </div>
-      {showLabel && (
-        <span className={cn('font-display font-semibold uppercase text-muted-foreground', s.label)}>
+        {/* Wordmark sits inside the ring. */}
+        <span
+          className={cn(
+            'absolute inset-0 flex items-center justify-center font-display font-semibold lowercase text-primary',
+            s.label,
+          )}
+        >
           {label}
         </span>
-      )}
+      </div>
       <span className="sr-only">Loading</span>
     </div>
   );

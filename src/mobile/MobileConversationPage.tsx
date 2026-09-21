@@ -296,7 +296,7 @@ export default function MobileConversationPage() {
   const isOnline = conversation?.visitor_status === 'online' || conversation?.contacts?.is_online;
   const canSend = !!(draft.trim() || pending?.id) && !pending?.uploading;
 
-  const list = (messages ?? []) as (typeof messages extends undefined ? never : any)[];
+  const list = (messages ?? []) as Array<Record<string, any>>;
 
   return (
     <div className="fixed inset-0 z-30 flex flex-col bg-muted/40">

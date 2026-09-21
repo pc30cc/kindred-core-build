@@ -7,6 +7,14 @@ struct InboxView: View {
     /// The tab's navigation stack, so the title menu can push the mailbox.
     @Binding var path: NavigationPath
 
+    /// Whether this tab is the one being looked at.
+    ///
+    /// A `TabView` keeps every tab alive, so "the inbox is on screen" is not
+    /// something the inbox can tell from its own state. It has to be told,
+    /// and the notification primer is why: it belongs to this screen but
+    /// presents over whatever the app is showing.
+    var isSelectedTab: Bool = true
+
     @Environment(AppState.self) private var appState
     @Environment(PromotionCenter.self) private var promotions
     @Environment(\.locale) private var locale
@@ -66,15 +74,16 @@ struct InboxView: View {
             // they would be told about, and iOS has not been asked yet. The
             // one system prompt an app ever gets is not spent until somebody
             // says yes to this.
-            .task(id: "primer|\(model.state.isLoaded)|\(path.isEmpty)") {
+            .task(id: "primer|\(model.state.isLoaded)|\(path.isEmpty)|\(isSelectedTab)") {
                 guard model.state.isLoaded,
-                      // Not over a conversation the operator has already
-                      // opened. The inbox owns this sheet but stays alive
-                      // under whatever is pushed on top of it, so without
-                      // this the question arrives over a chat — or, in a UI
-                      // run that deep-links straight to one, over the screen
-                      // being tested.
+                      // Only while the inbox is what is actually on screen.
+                      // It owns this sheet but stays alive under whatever is
+                      // pushed on top of it AND under every other tab, so
+                      // without both of these the question arrives over a
+                      // chat, or over Settings — which is where it was found,
+                      // presenting itself on top of the profile editor.
                       path.isEmpty,
+                      isSelectedTab,
                       !NotificationPrimer.isSuppressed,
                       !NotificationPrimer.hasBeenShown else { return }
                 await push.refreshAuthorization()

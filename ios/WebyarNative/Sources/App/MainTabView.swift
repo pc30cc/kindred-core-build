@@ -94,7 +94,7 @@ struct MainTabView: View {
     var body: some View {
         TabView(selection: $selection) {
             NavigationStack(path: $inboxPath) {
-                InboxView(path: $inboxPath)
+                InboxView(path: $inboxPath, isSelectedTab: selection == .inbox)
             }
             .toolbar(.hidden, for: .tabBar)
             .tag(Tab.inbox)

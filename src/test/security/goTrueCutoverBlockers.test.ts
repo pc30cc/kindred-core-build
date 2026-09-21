@@ -35,6 +35,7 @@ interface FakeBuilder {
   eq: (col: string, val: unknown) => FakeBuilder;
   is: (col: string, val: unknown) => FakeBuilder;
   ilike: (col: string, val: string) => FakeBuilder;
+  gte: (col?: string, val?: unknown) => FakeBuilder;
   like: (col?: string, val?: string) => FakeBuilder;
   order: (col: string, opts?: { ascending?: boolean }) => FakeBuilder;
   limit: (n: number) => FakeBuilder;
@@ -49,8 +50,8 @@ interface FakeBuilder {
 
 interface FakeTerminal {
   eq: (col: string, val: unknown) => FakeTerminal;
-  is: (col: string, val: unknown) => FakeTerminal;
-  select: (columns?: string) => any;
+  is?: (col: string, val: unknown) => FakeTerminal;
+  select?: (columns?: string) => any;
   then: (resolve: Resolve) => unknown;
 }
 const db: Record<string, Row[]> = {};

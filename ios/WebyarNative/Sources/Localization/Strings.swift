@@ -1205,6 +1205,17 @@ enum Str {
         }
     }
 
+    /// The button on a device row. Short, because it sits at the end of a
+    /// line that already says which device — `revokeSession` is the swipe
+    /// action's label and says the whole sentence.
+    static func signOutDevice(_ l: Language) -> String {
+        switch l {
+        case .en: "Sign out"
+        case .fa: "خروج"
+        case .tr: "Çıkış"
+        }
+    }
+
     static func revokeSession(_ l: Language) -> String {
         switch l {
         case .en: "Sign out this device"

@@ -40,4 +40,18 @@ enum A11y {
     static let attachButton = "composer.attach"
     /// One message in a transcript, visitor or internal.
     static func messageRow(_ id: String) -> String { "message.\(id)" }
+    /// The row at the foot of Security that opens account deletion.
+    static let deleteAccountRow = "settings.deleteAccount"
+    /// The password field on the deletion screen.
+    static let deleteAccountPassword = "deleteAccount.password"
+    /// The red button on the deletion screen, which asks for confirmation.
+    static let deleteAccountSubmit = "deleteAccount.submit"
+    /// The destructive button inside that confirmation. Best effort: a
+    /// `confirmationDialog` is bridged to `UIAlertController`, which takes a
+    /// title and a role from each button and need not carry anything else, so
+    /// the test that drives it falls back to the button's words.
+    static let deleteAccountConfirm = "deleteAccount.confirm"
+    /// What the screen becomes when the server refuses because this operator
+    /// still owns workspaces.
+    static let deleteAccountBlocked = "deleteAccount.blocked"
 }

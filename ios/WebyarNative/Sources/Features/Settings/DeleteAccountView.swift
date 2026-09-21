@@ -63,6 +63,7 @@ struct DeleteAccountView: View {
                     .font(.footnote)
                     .foregroundStyle(Theme.Palette.label)
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier(A11y.deleteAccountBlocked)
                 } header: {
                     Text(Str.deleteAccountOwnsTitle(language))
                 }
@@ -77,6 +78,7 @@ struct DeleteAccountView: View {
                         .environment(\.layoutDirection, .leftToRight)
                         .multilineTextAlignment(.leading)
                         .frame(minHeight: Theme.Size.minTouchTarget - 10)
+                        .accessibilityIdentifier(A11y.deleteAccountPassword)
                 } header: {
                     Text(Str.deleteAccountConfirmPassword(language))
                 } footer: {
@@ -87,17 +89,24 @@ struct DeleteAccountView: View {
                 }
 
                 Section {
-                    Button(role: .destructive) {
-                        passwordFocused = false
-                        isConfirming = true
-                    } label: {
+                    Button(role: .destructive, action: askToConfirm) {
                         HStack {
                             Text(Str.deleteAccountFinal(language))
                             Spacer(minLength: Theme.Space.sm)
                             if isDeleting { ProgressView() }
                         }
+                        .frame(minHeight: Theme.Size.minTouchTarget - 10)
                     }
-                    .disabled(password.isEmpty || isDeleting)
+                    // Only while the request is in flight. It used to be
+                    // disabled until a password was typed as well, which is
+                    // the one thing a button on a screen with a single
+                    // control must not be: the password field is under a
+                    // paragraph of explanation, so somebody who has not
+                    // scrolled to it sees a red button that does nothing at
+                    // all when pressed, and concludes the feature is broken.
+                    // It says what it wants instead.
+                    .disabled(isDeleting)
+                    .accessibilityIdentifier(A11y.deleteAccountSubmit)
                 }
             }
         }
@@ -106,6 +115,13 @@ struct DeleteAccountView: View {
         .navigationTitle(Str.deleteAccount(language))
         .navigationBarTitleDisplayMode(.inline)
         .animation(Theme.Motion.standard, value: blockedBy)
+        // Typing is the answer to both things this screen says in red — "you
+        // have not entered it" and "that one is wrong" — so the complaint
+        // goes as soon as it is being answered.
+        .onChange(of: password) { _, _ in
+            guard errorMessage != nil else { return }
+            withAnimation(Theme.Motion.standard) { errorMessage = nil }
+        }
         // A destructive action gets the system's own confirmation, because
         // that is the one people have learned to read.
         .confirmationDialog(
@@ -114,10 +130,32 @@ struct DeleteAccountView: View {
             titleVisibility: .visible
         ) {
             Button(Str.deleteAccountFinal(language), role: .destructive) { submit() }
+                .accessibilityIdentifier(A11y.deleteAccountConfirm)
             Button(Str.cancel(language), role: .cancel) {}
         } message: {
             Text(Str.deleteAccountBody(language))
         }
+    }
+
+    /// The red button's job: either say what is missing, or ask.
+    ///
+    /// The hop before presenting is deliberate. Putting the keyboard away and
+    /// raising a dialog in the same turn of the run loop asks UIKit to present
+    /// over a view that is mid-way through resigning first responder, and the
+    /// presentation is sometimes dropped on the floor — the keyboard goes
+    /// down, nothing comes up, and the button looks broken. Letting the
+    /// dismissal land first costs one frame.
+    private func askToConfirm() {
+        guard !password.isEmpty else {
+            passwordFocused = true
+            withAnimation(Theme.Motion.standard) {
+                errorMessage = Str.deleteAccountConfirmPassword(language)
+            }
+            return
+        }
+
+        passwordFocused = false
+        Task { @MainActor in isConfirming = true }
     }
 
     private func submit() {

@@ -325,4 +325,9 @@ enum A11yID {
     static let conversationMenu = "chat.menu"
     static let composerSend = "composer.send"
     static let sayNowVoice = "sayNow.voice"
+    static let deleteAccountRow = "settings.deleteAccount"
+    static let deleteAccountPassword = "deleteAccount.password"
+    static let deleteAccountSubmit = "deleteAccount.submit"
+    static let deleteAccountConfirm = "deleteAccount.confirm"
+    static let deleteAccountBlocked = "deleteAccount.blocked"
 }

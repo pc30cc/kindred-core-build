@@ -28,6 +28,10 @@ enum SettingsRoute: Hashable {
     case profile
     case notifications
     case security
+    /// Pushed from Security rather than from here — it is the far end of the
+    /// account section, not a top-level setting — but it is on this type so
+    /// that the whole stack travels through one path.
+    case deleteAccount
 }
 
 struct SettingsView: View {
@@ -191,6 +195,7 @@ struct SettingsView: View {
             case .profile: ProfileView()
             case .notifications: NotificationSettingsView()
             case .security: SecurityView()
+            case .deleteAccount: DeleteAccountView()
             }
         }
         .navigationTitle(Str.tabSettings(language))

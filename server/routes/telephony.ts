@@ -158,26 +158,35 @@ telephonyRouter.put('/daftareshoma/settings', async (req: any, res) => {
       await storeSipPassword(config, installation.id, password);
     }
 
-    // Settings row holds NON-SECRET values only.
+    // Settings row holds NON-SECRET values only. This is the part of the save
+    // that MUST succeed; everything after it is mirror/provisioning work that
+    // depends on the telephony runtime and must not fail the whole save.
     await updateInstallationSettings(config, installation.id, { ...validated.settings });
-    await upsertRegistration(config, {
-      installationId: installation.id,
-      workspaceId,
-      provider: DAFTARESHOMA_PROVIDER_ID,
-      settings: validated.settings,
-    });
 
-    // Re-provision so an edited credential takes effect without a restart.
-    if (validated.complete && (await hasSipPassword(config, installation.id))) {
-      await syncRegistration(config, {
+    let warning: string | null = null;
+    try {
+      await upsertRegistration(config, {
         installationId: installation.id,
         workspaceId,
         provider: DAFTARESHOMA_PROVIDER_ID,
         settings: validated.settings,
       });
+
+      // Re-provision so an edited credential takes effect without a restart.
+      if (validated.complete && (await hasSipPassword(config, installation.id))) {
+        await syncRegistration(config, {
+          installationId: installation.id,
+          workspaceId,
+          provider: DAFTARESHOMA_PROVIDER_ID,
+          settings: validated.settings,
+        });
+      }
+    } catch (err) {
+      warning = 'registration_sync_unavailable';
+      console.error('[telephony] registration sync failed:', (err as Error).message);
     }
 
-    res.json(await buildStatus(config, workspaceId));
+    res.json({ ...(await buildStatus(config, workspaceId)), warning });
   } catch (err) {
     console.error('[telephony] save failed:', (err as Error).message);
     res.status(500).json({ error: 'save_failed' });

@@ -10,6 +10,7 @@ import {
   isValidSmsIrLineNumber,
   isValidSmsIrTemplateId,
   isValidSmsIrParameterName,
+  normalizeSmsIrParameterName,
   type SmsIrClient,
 } from '../../../server/services/sms/providers/smsir.js';
 import type { SmsIrSmsConfig } from '../../../server/services/sms/types.js';
@@ -56,6 +57,24 @@ describe('validators', () => {
     expect(isValidSmsIrParameterName('code value')).toBe(false);
     expect(isValidSmsIrParameterName('')).toBe(false);
   });
+
+  // An SMS.ir template writes its placeholder as `#code#`, so that is what an
+  // admin copies out of the panel — but the send API wants the bare name.
+  it('strips the # delimiters an SMS.ir template placeholder carries', () => {
+    expect(normalizeSmsIrParameterName('#code#')).toBe('code');
+    expect(normalizeSmsIrParameterName('  #CODE#  ')).toBe('CODE');
+    expect(normalizeSmsIrParameterName('code')).toBe('code');
+    expect(normalizeSmsIrParameterName('#verify_code1#')).toBe('verify_code1');
+  });
+
+  it('still fails closed on a name that is unusable once stripped', () => {
+    expect(normalizeSmsIrParameterName('#my code#')).toBeNull();
+    expect(normalizeSmsIrParameterName('##')).toBeNull();
+    expect(normalizeSmsIrParameterName('#')).toBeNull();
+    expect(normalizeSmsIrParameterName('')).toBeNull();
+    expect(normalizeSmsIrParameterName(undefined)).toBeNull();
+    expect(normalizeSmsIrParameterName(123)).toBeNull();
+  });
 });
 
 describe('error mapping', () => {
@@ -65,6 +84,9 @@ describe('error mapping', () => {
     expect(mapSmsIrFailure(402, 'no credit')).toBe('sms_insufficient_credit');
     expect(mapSmsIrFailure(null, 'Insufficient credit')).toBe('sms_insufficient_credit');
     expect(mapSmsIrFailure(null, 'template not found')).toBe('sms_template_not_found');
+    // SMS.ir replies in Persian — the hint must match there too, because the
+    // verification core treats a template fault as terminal, not retryable.
+    expect(mapSmsIrFailure(400, 'قالب مورد نظر یافت نشد')).toBe('sms_template_not_found');
     expect(mapSmsIrFailure(null, 'invalid mobile')).toBe('sms_invalid_receptor');
     expect(mapSmsIrFailure(503, 'gateway')).toBe('sms_network_error');
     expect(mapSmsIrFailure(null, 'unexpected')).toBe('sms_provider_error');

@@ -87,7 +87,19 @@ export function maskE164(phone: string | null | undefined): string | null {
   return `+${head}${'*'.repeat(digits.length - 7)}${tail}`;
 }
 
-/** Adapter-facing local format. The database always keeps E.164. */
+/**
+ * Adapter-facing local format. The database always keeps E.164.
+ *
+ * EVERY path that hands a phone number to the SMS service must go through
+ * this: the Iranian vendors reject `+989121234567` and want `09121234567`.
+ * That applies to plain notifications (invitations, billing) just as much as
+ * to OTPs -- a rejected send is a rejected send.
+ *
+ * The `typeof` guard is deliberate. Some callers read the number straight out
+ * of an untyped job payload, where it can be null; returning it untouched
+ * lets their own "no recipient" handling deal with it instead of throwing
+ * here.
+ */
 export function toProviderFormat(e164: string): string {
-  return e164.startsWith('+98') ? `0${e164.slice(3)}` : e164;
+  return typeof e164 === 'string' && e164.startsWith('+98') ? `0${e164.slice(3)}` : e164;
 }

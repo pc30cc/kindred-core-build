@@ -83,6 +83,20 @@ https://api.example.com/api → https://api.example.com/api/...
 | `SMTP_PORT` | `587` | ❌ |
 | `SMTP_USER` | | ❌ |
 | `SMTP_PASS` | | ❌ |
+| `PHONE_VERIFICATION_PEPPER` | `openssl rand -hex 32` | ✅ (phone OTP) |
+| `GENERIC_VERIFICATION_PEPPER` | `openssl rand -hex 32` | ✅ (email OTP / guest order lookup) |
+
+> ⚠️ **Verification peppers (fail closed, no fallback).**
+> Unlike `INVITATION_LINK_SECRET` / `INVITATION_OTP_PEPPER` — which
+> self-bootstrap from the database when unset (see
+> `server/services/invitations/secretBootstrap.ts`) — these two have **no
+> fallback**. Leave `PHONE_VERIFICATION_PEPPER` unset and every phone OTP,
+> including Super Admin → user → *resend code*, answers
+> `phone_verification_unavailable` (HTTP 503) **before any SMS is
+> attempted**. From the UI that is indistinguishable from a broken SMS
+> provider, so check this first. Minimum 16 characters
+> (`GENERIC_VERIFICATION_PEPPER`: 32). Use two different values, and never
+> change one afterwards — codes already in flight are HMAC'd with it.
 
 > ⚠️ **Widget asset consistency (critical).**
 > In a split deploy the backend Express container cannot read the frontend

@@ -32,8 +32,24 @@ function adminIdOf(req: Request): string {
   return (req as AdminRequest).adminUser?.id ?? '';
 }
 
+/**
+ * Super-admin error shape. Unlike the public routes this also returns
+ * `detail`/`providerErrorCode`, because `phone_verification_unavailable`
+ * alone cannot distinguish "this server has no PHONE_VERIFICATION_PEPPER"
+ * from "SMS.ir rejected the template" — causes with entirely different
+ * fixes. Both fields are closed unions of vendor-free strings (see
+ * PHONE_VERIFICATION_DETAILS and SmsErrorCode); neither can carry a
+ * credential, a provider payload or an OTP. Everything here is already
+ * behind `requireAdmin`.
+ */
 function fail(res: Response, err: unknown) {
-  if (err instanceof PhoneVerificationError) return res.status(err.status).json({ error: err.code });
+  if (err instanceof PhoneVerificationError) {
+    return res.status(err.status).json({
+      error: err.code,
+      ...(err.detail ? { detail: err.detail } : {}),
+      ...(err.providerErrorCode ? { providerErrorCode: err.providerErrorCode } : {}),
+    });
+  }
   return res.status(500).json({ error: 'phone_verification_unavailable' });
 }
 

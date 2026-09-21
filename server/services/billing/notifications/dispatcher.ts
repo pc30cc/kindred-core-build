@@ -22,6 +22,7 @@ import { getServiceClient } from '../../../supabase.js';
 import { bumpMetric } from '../rollout.js';
 import { sendEmail } from '../../email/index.js';
 import { sendSms } from '../../sms/index.js';
+import { toProviderFormat } from '../../phoneVerification/phone.js';
 import { resolveWorkspaceAppUrl } from '../../auth-email.js';
 import { renderBillingNotification, buildBillingTemplateData, type BillingNotificationType } from './messages.js';
 
@@ -145,7 +146,8 @@ export async function dispatchBillingNotifications(
               html: `<p>${escapeHtml(msg.text).replace(/\n/g, '<br />')}</p>`,
               locale: locale ?? undefined,
             })
-          : await sendSms(config, { to: target, body: `${msg.subject}\n${msg.text}` });
+          // `target` is phone_e164 here; the vendors want the local form.
+          : await sendSms(config, { to: toProviderFormat(target), body: `${msg.subject}\n${msg.text}` });
 
       if (delivery.success) {
         result.sent += 1;

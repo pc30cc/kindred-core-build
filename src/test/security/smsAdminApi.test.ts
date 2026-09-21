@@ -275,6 +275,16 @@ describe('PUT — SMS.ir payloads', () => {
     expect(res.status).toBe(400);
   });
 
+  // An SMS.ir template placeholder reads `#code#`, so the schema must not
+  // reject what the admin copied out of the panel. Stripping the delimiters
+  // is `saveSmsProviderConfig`'s job — it is mocked here, so what this proves
+  // is that the payload now reaches it intact instead of dying at the schema.
+  it('accepts a #-delimited parameter name copied from the SMS.ir panel', async () => {
+    const res = await call('PUT', BASE, { token: ADMIN_TOKEN, body: { ...VALID, verifyParameterName: '#code#' } });
+    expect(res.status).toBe(200);
+    expect(saved[0]).toMatchObject({ verifyParameterName: '#code#' });
+  });
+
   it('rejects a missing line number', async () => {
     const { lineNumber: _drop, ...rest } = VALID;
     const res = await call('PUT', BASE, { token: ADMIN_TOKEN, body: rest });

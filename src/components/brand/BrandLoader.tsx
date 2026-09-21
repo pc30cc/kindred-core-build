@@ -7,9 +7,9 @@ import { cn } from '@/lib/utils';
 import { BrandLogo } from './BrandLogo';
 
 const SIZES = {
-  sm: { box: 48, pad: 8, label: 'text-[10px] tracking-[0.34em]' },
-  md: { box: 72, pad: 11, label: 'text-xs tracking-[0.38em]' },
-  lg: { box: 104, pad: 16, label: 'text-sm tracking-[0.42em]' },
+  sm: { box: 56, pad: 8, label: 'text-[9px] tracking-[0.06em]' },
+  md: { box: 84, pad: 11, label: 'text-xs tracking-[0.08em]' },
+  lg: { box: 120, pad: 16, label: 'text-base tracking-[0.08em]' },
 } as const;
 
 export function BrandLoader({

@@ -163,7 +163,7 @@ vi.mock('../../../server/supabase.js', () => ({
         const ACTIVE_JOB = ['pending', 'storage_cleanup', 'db_cleanup'];
         if (ws.status === 'deleting') {
           const existing = (db.workspace_deletion_jobs || [])
-            .filter((j) => j.workspace_id === args._workspace_id && ACTIVE_JOB.includes(j.status))
+            .filter((j) => j.workspace_id === args._workspace_id && ACTIVE_JOB.includes(String(j.status)))
             .sort((a, b) => String(b.requested_at).localeCompare(String(a.requested_at)))[0];
           if (existing) return { data: { ok: true, started: false, job: existing }, error: null };
           // Deleting with every prior attempt terminal: the caller must go

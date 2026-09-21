@@ -252,16 +252,6 @@ export interface ServerConfig {
    */
   pluginSecretsMasterKey?: string;
 
-  // ── WEBYAR Telephony (provider-neutral SIP layer) ───────────────────
-  /**
-   * Dedicated server-to-server secret for the Core ⇄ Telephony Control
-   * Service boundary. Deliberately NOT the channels or AI secret. Unset ⇒
-   * telephony fails closed: no provisioning, no inbound events accepted.
-   */
-  telephonyInternalSecret?: string;
-  /** Internal address Core uses to reach the Telephony Control Service. */
-  telephonyInternalBaseUrl?: string;
-
   // ── AI Runtime (Provider Network Isolation) ─────────────────────────
   /**
    * Base URL of the AI Runtime service (ai-runtime/server.ts), deployed on a
@@ -312,7 +302,6 @@ export function loadConfig(): ServerConfig {
   const channelsWebhookSigningKey = optional('CHANNELS_WEBHOOK_SIGNING_KEY');
   const pluginSecretsMasterKey = optional('PLUGIN_SECRETS_MASTER_KEY');
   const aiRuntimeInternalSecret = optional('AI_RUNTIME_INTERNAL_SECRET');
-  const telephonyInternalSecret = optional('TELEPHONY_INTERNAL_SECRET');
 
   // Startup guard: these three must be distinct from each other and from the
   // service-role key. A shared value collapses three security boundaries.
@@ -332,21 +321,6 @@ export function loadConfig(): ServerConfig {
   }
   if (pluginSecretsMasterKey && pluginSecretsMasterKey === serviceRoleKey) {
     throw new Error('PLUGIN_SECRETS_MASTER_KEY must not reuse SUPABASE_SERVICE_ROLE_KEY');
-  }
-  // The Telephony Control Service is a distinct trust boundary: its secret must
-  // never double as any other internal credential.
-  if (telephonyInternalSecret) {
-    for (const [name, other] of [
-      ['SUPABASE_SERVICE_ROLE_KEY', serviceRoleKey],
-      ['CORE_INTERNAL_SECRET', coreInternalSecret],
-      ['PLUGIN_SECRETS_MASTER_KEY', pluginSecretsMasterKey],
-      ['CHANNELS_WEBHOOK_SIGNING_KEY', channelsWebhookSigningKey],
-      ['AI_RUNTIME_INTERNAL_SECRET', aiRuntimeInternalSecret],
-    ] as const) {
-      if (other && telephonyInternalSecret === other) {
-        throw new Error(`TELEPHONY_INTERNAL_SECRET must not reuse ${name}`);
-      }
-    }
   }
   // The AI runtime lives OUTSIDE the trusted network. Its secret must never be
   // a credential that also unlocks the database or another internal boundary.
@@ -383,8 +357,6 @@ export function loadConfig(): ServerConfig {
     publicChannelsBaseUrl: normalizeBaseUrl(optional('PUBLIC_CHANNELS_BASE_URL')),
     channelsInternalBaseUrl: normalizeBaseUrl(optional('CHANNELS_INTERNAL_BASE_URL')),
     pluginSecretsMasterKey,
-    telephonyInternalSecret,
-    telephonyInternalBaseUrl: normalizeBaseUrl(optional('TELEPHONY_INTERNAL_BASE_URL')),
     aiRuntimeBaseUrl: normalizeBaseUrl(optional('AI_RUNTIME_URL')),
     aiRuntimeInternalSecret,
   };

@@ -39,9 +39,8 @@
 #   LIVEKIT_LOG_LEVEL          - debug | info | warn | error  (default info)
 #   LIVEKIT_WEBHOOK_API_KEY    - same value as LIVEKIT_API_KEY, for webhooks
 #   LIVEKIT_REDIS_ADDRESS      - "host:port". Optional for a single standalone
-#                                node, REQUIRED once LiveKit SIP is deployed:
-#                                livekit-server and livekit-sip discover each
-#                                other only through this shared Redis.
+#                                node; required for a multi-node deployment,
+#                                where nodes find each other through Redis.
 #   LIVEKIT_REDIS_USERNAME     - optional Redis ACL user
 #   LIVEKIT_REDIS_PASSWORD     - optional Redis password
 #   LIVEKIT_REDIS_DB           - optional Redis database index (default 0)
@@ -109,10 +108,10 @@ services:
           empty_timeout: 300
           departure_timeout: 20
         EOF
-        # Redis is OPTIONAL for a single standalone node, but REQUIRED as soon
-        # as LiveKit SIP is deployed: livekit-server and livekit-sip find each
-        # other over this Redis bus and nothing else. Appending the block only
-        # when an address is configured keeps single-node deployments untouched.
+        # Redis is OPTIONAL for a single standalone node and required only for
+        # a multi-node deployment. Appending the block only when an address is
+        # configured keeps single-node deployments untouched. The variable was
+        # documented but inert before: nothing ever wrote it into the config.
         if [ -n "$${LIVEKIT_REDIS_ADDRESS:-}" ]; then
           {
             echo "redis:"
@@ -144,9 +143,7 @@ services:
       # --- Optional: webhook signing (only if used) ---------------------
       LIVEKIT_WEBHOOK_API_KEY: ${LIVEKIT_WEBHOOK_API_KEY:-}
 
-      # --- Redis: required for LiveKit SIP, optional for a single node ---
-      # livekit-sip talks to livekit-server over this Redis bus. It MUST be the
-      # same instance both services point at, or SIP calls never reach a room.
+      # --- Redis: multi-node only, optional for a single node -------------
       LIVEKIT_REDIS_ADDRESS: ${LIVEKIT_REDIS_ADDRESS:-}
       LIVEKIT_REDIS_USERNAME: ${LIVEKIT_REDIS_USERNAME:-}
       LIVEKIT_REDIS_PASSWORD: ${LIVEKIT_REDIS_PASSWORD:-}

@@ -325,6 +325,7 @@ enum A11yID {
     static let conversationMenu = "chat.menu"
     static let composerSend = "composer.send"
     static let sayNowVoice = "sayNow.voice"
+    static func conversationRow(_ id: String) -> String { "conversation.\(id)" }
     static let deleteAccountRow = "settings.deleteAccount"
     static let deleteAccountPassword = "deleteAccount.password"
     static let deleteAccountSubmit = "deleteAccount.submit"

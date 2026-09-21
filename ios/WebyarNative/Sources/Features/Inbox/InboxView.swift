@@ -236,6 +236,7 @@ struct InboxView: View {
                             )
                         }
                         .listRowInsets(rowInsets)
+                        .accessibilityIdentifier(A11y.conversationRow(conversation.id))
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             swipeAction(for: conversation)
                         }

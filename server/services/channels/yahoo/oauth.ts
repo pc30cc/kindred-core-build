@@ -26,7 +26,7 @@ import {
   type ChannelIntegration,
 } from '../../channels/integrations.js';
 import { getYahooOAuthConfig } from './oauthConfig.js';
-import { buildYahooAuthUrl, createYahooAdapter, type YahooAdapter } from '../../../../channels/providers/yahoo/client.js';
+import { buildYahooAuthUrl, createYahooAdapter, type YahooAdapter } from '../../../../channels/mail/yahoo/client.js';
 import { YahooError, type YahooConnectionInfo } from './types.js';
 import { enqueueChannelJob } from '../jobs.js';
 import { YAHOO_PLUGIN_ID, YAHOO_REFRESH_TOKEN_KEY } from '../../../../shared/channels/yahooKeys.js';

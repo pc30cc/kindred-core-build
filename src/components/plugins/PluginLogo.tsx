@@ -78,7 +78,7 @@ const MARKS: Record<string, Mark> = {
     ),
   },
   email: si(siGmail, '5B61F5'),
-  // Real Gmail-branded plugin (channels/providers/gmail/, server/services/
+  // Real Gmail-branded plugin (channels/mail/gmail/, server/services/
   // channels/gmail/) — distinct from the `email` mark above, which is the
   // pre-existing outbound-only transactional/SMTP channel and only reuses
   // Gmail's glyph with an overridden brand color.

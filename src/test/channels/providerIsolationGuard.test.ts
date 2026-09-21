@@ -15,6 +15,17 @@
  * has its own `downloadFile` (object storage) and `sendMessage` (chat), and
  * flagging those by name would be noise that trains people to disable the
  * guard.
+ *
+ * `channels/providers/**` means the chat providers the Worker owns, and the
+ * hosts below are the ones the restricted network actually drops. It is not
+ * "every third party": the mail channels reach Google and Yahoo, which are
+ * reachable from Core, so their clients are shared Core+Worker code and live
+ * under `channels/mail/**` instead — the same call Core already makes for
+ * Search Console in `server/services/seo/gsc/`. Putting a mail client under
+ * `providers/` would trip this guard for a connection that works, which is
+ * how an allowlist gets added and the guard stops meaning anything. If a mail
+ * host ever does get blocked, the fix is to move that I/O to the Worker, not
+ * to exempt it here.
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';

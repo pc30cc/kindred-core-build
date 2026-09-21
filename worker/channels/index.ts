@@ -40,14 +40,14 @@ import { xDmEventsToBotUpdates } from '../../server/services/channels/x/toBotUpd
 import {
   createGmailAdapter,
   type GmailOutboundMessage,
-} from '../../channels/providers/gmail/client.js';
+} from '../../channels/mail/gmail/client.js';
 import { GMAIL_REFRESH_TOKEN_KEY } from '../../shared/channels/gmailKeys.js';
 import {
   createYahooAdapter,
   pollYahooInbox,
   sendViaYahooSmtp,
   type YahooOutboundMessage,
-} from '../../channels/providers/yahoo/client.js';
+} from '../../channels/mail/yahoo/client.js';
 import { YAHOO_REFRESH_TOKEN_KEY } from '../../shared/channels/yahooKeys.js';
 import { botApiFor } from './botApi.js';
 import {
@@ -134,7 +134,7 @@ function gmailOAuthConfigOrThrow(): { clientId: string; clientSecret: string; re
 
 /**
  * Yahoo's token refresh call includes `redirect_uri` in the request body
- * (per Yahoo's documented OAuth contract — see channels/providers/yahoo/
+ * (per Yahoo's documented OAuth contract — see channels/mail/yahoo/
  * client.ts's header), so unlike Gmail's helper above the Worker needs the
  * REAL YAHOO_OAUTH_REDIRECT_URI, not a placeholder.
  */

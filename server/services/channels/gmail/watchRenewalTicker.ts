@@ -16,7 +16,7 @@ import { getServiceClient } from '../../../supabase.js';
 import { emitLog } from '../../observability/metrics.js';
 import { acquireTickerLease, releaseTickerLease } from '../../observability/tickerLease.js';
 import { updateIntegration, type ChannelIntegration } from '../../channels/integrations.js';
-import { createGmailAdapter } from '../../../../channels/providers/gmail/client.js';
+import { createGmailAdapter } from '../../../../channels/mail/gmail/client.js';
 import { getGmailOAuthConfig } from './oauthConfig.js';
 import { getGmailPubSubTopic, getGmailAccessToken } from './oauth.js';
 

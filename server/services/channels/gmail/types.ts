@@ -2,7 +2,7 @@
  * Gmail channel plugin — shared types and normalized error codes.
  *
  * Mirrors `server/services/seo/gsc/types.ts`'s shape: this + `oauth.ts` +
- * `channels/providers/gmail/client.ts` are the ONLY consumption boundary for
+ * `channels/mail/gmail/client.ts` are the ONLY consumption boundary for
  * Gmail/Google OAuth calls related to the email channel. Vendor SDK/HTTP
  * errors never escape past this layer.
  */

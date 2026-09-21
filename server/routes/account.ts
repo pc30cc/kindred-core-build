@@ -564,26 +564,58 @@ accountRouter.post('/resend-verification', async (req, res) => {
 //
 // `login_attempts` (already in our schema) powers the recent login history.
 
-function parseUserAgent(ua: string | null): { browser: string; os: string; device: string } {
+/**
+ * What to call a session, from the only thing it recorded about itself.
+ *
+ * This feeds one screen — Settings → Security, where an operator looks down
+ * a list of their own sessions for one they do not recognise. Getting a label
+ * wrong there is not cosmetic: "Desktop" against the phone in their hand is
+ * the row they would revoke.
+ */
+export function parseUserAgent(ua: string | null): { browser: string; os: string; device: string } {
   if (!ua) return { browser: 'Unknown', os: 'Unknown', device: 'Unknown' };
   const lower = ua.toLowerCase();
+
+  // The native app first, because it is not a browser and says so only by
+  // naming itself: `WebyarNative/1 CFNetwork/… Darwin/…` carries no
+  // "iphone", no "mobile" and no "ios", so every rule below read it as a
+  // desktop running an unknown browser. The operator's own phone was the top
+  // row of that list, labelled Desktop.
+  if (lower.includes('webyarnative')) {
+    return { browser: 'Webyar', os: 'iOS', device: 'Mobile' };
+  }
+
   let browser = 'Unknown';
-  if (lower.includes('edg/')) browser = 'Edge';
+  // The iOS builds first. Every browser on iOS is WebKit underneath and says
+  // so — Firefox for iOS ships "FxiOS/… Safari/605.1.15" — so the generic
+  // rules below answer "Safari" for all of them.
+  if (lower.includes('edgios/') || lower.includes('edg/')) browser = 'Edge';
+  else if (lower.includes('crios/')) browser = 'Chrome';
+  else if (lower.includes('fxios/')) browser = 'Firefox';
+  else if (lower.includes('opt/') || lower.includes('opr/') || lower.includes('opera')) browser = 'Opera';
   else if (lower.includes('chrome/') && !lower.includes('chromium')) browser = 'Chrome';
   else if (lower.includes('firefox/')) browser = 'Firefox';
-  else if (lower.includes('safari/') && !lower.includes('chrome')) browser = 'Safari';
-  else if (lower.includes('opera') || lower.includes('opr/')) browser = 'Opera';
+  else if (lower.includes('safari/')) browser = 'Safari';
 
   let os = 'Unknown';
-  if (lower.includes('windows nt')) os = 'Windows';
-  else if (lower.includes('mac os x') || lower.includes('macintosh')) os = 'macOS';
+  // iOS BEFORE macOS. An iPhone announces "CPU iPhone OS 18_7 like Mac OS
+  // X", which contains "mac os x" — so testing for the Mac first called
+  // every iPhone a Mac, and the list read "Mobile · macOS · Safari".
+  if (lower.includes('iphone') || lower.includes('ipad') || lower.includes('ipod')) os = 'iOS';
   else if (lower.includes('android')) os = 'Android';
-  else if (lower.includes('iphone') || lower.includes('ipad') || lower.includes('ios')) os = 'iOS';
+  else if (lower.includes('windows nt')) os = 'Windows';
+  else if (lower.includes('mac os x') || lower.includes('macintosh')) os = 'macOS';
   else if (lower.includes('linux')) os = 'Linux';
 
-  let device = 'Desktop';
-  if (lower.includes('mobile') || lower.includes('iphone') || lower.includes('android')) device = 'Mobile';
-  else if (lower.includes('tablet') || lower.includes('ipad')) device = 'Tablet';
+  // Tablet before mobile: an iPad's user agent carries "Mobile/15E148" too.
+  let device = 'Unknown';
+  if (lower.includes('ipad') || lower.includes('tablet')) device = 'Tablet';
+  else if (lower.includes('mobile') || lower.includes('iphone') || lower.includes('android')) device = 'Mobile';
+  // Only something we recognised as a computer is called one. A script, a
+  // curl, anything unrecognised used to be filed under "Desktop", which put
+  // it in the same row as any other unrecognised client — including, before
+  // the rule above, the app itself.
+  else if (os !== 'Unknown') device = 'Desktop';
 
   return { browser, os, device };
 }

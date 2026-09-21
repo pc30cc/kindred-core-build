@@ -128,7 +128,7 @@ struct LoginView: View {
     /// scroll so the keyboard pushes it away instead of covering it.
     private var footerMark: some View {
         BrandWordmark(language: language, size: 15)
-            .opacity(0.45)
+            .opacity(0.55)
             .padding(.top, Theme.Space.xxl)
             .padding(.bottom, Theme.Space.xs)
     }

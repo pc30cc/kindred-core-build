@@ -15,6 +15,18 @@
 -- retyped -- and verified by replaying this chain from empty.
 -- ============================================================
 
+-- WHAT IS DELIBERATELY NOT HERE
+--
+-- Three functions this substrate would otherwise carry are left to the
+-- migrations that already create them, because those are newer:
+-- billing_v2_block_legacy_allowance_grant (20260907081217),
+-- billing_v2_resolve_billing_recipient (20260910181804) and
+-- billing_v2_schedule_invoice_notifications (20260904195630). This file runs
+-- last, so including them would silently replace the hosted chain's own
+-- versions with the self-host ones -- and for
+-- billing_v2_block_legacy_allowance_grant that is a real behavioural
+-- difference, not a reformatting.
+--
 -- ─── foreign keys and check constraints ──────────────────────────────────
 ALTER TABLE public.billing_entitlement_cycles DROP CONSTRAINT IF EXISTS billing_entitlement_cycles_subscription_period_id_fkey;
 ALTER TABLE public.billing_entitlement_cycles ADD CONSTRAINT billing_entitlement_cycles_subscription_period_id_fkey FOREIGN KEY (subscription_period_id) REFERENCES billing_subscription_periods(id) ON DELETE CASCADE;
@@ -1057,39 +1069,6 @@ REVOKE ALL ON FUNCTION public.billing_v2_block_direct_subscription_mutation() FR
 GRANT EXECUTE ON FUNCTION public.billing_v2_block_direct_subscription_mutation() TO anon;
 GRANT EXECUTE ON FUNCTION public.billing_v2_block_direct_subscription_mutation() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.billing_v2_block_direct_subscription_mutation() TO service_role;
-
-CREATE OR REPLACE FUNCTION public.billing_v2_block_legacy_allowance_grant()
- RETURNS trigger
- LANGUAGE plpgsql
- SET search_path TO 'public', 'pg_temp'
-AS $function$
-DECLARE
-  v_owned BOOLEAN;
-BEGIN
-  IF public.billing_purge_active() THEN RETURN COALESCE(NEW, OLD); END IF;
-  IF NEW.source_type <> 'PLAN_ALLOWANCE' THEN RETURN NEW; END IF;
-  IF NEW.billing_cycle_id LIKE 'period:%' THEN RETURN NEW; END IF;
-
-  SELECT (v2_allowance_effective_period_id IS NOT NULL) INTO v_owned
-    FROM public.workspace_subscriptions
-   WHERE workspace_id = NEW.workspace_id;
-
-  IF COALESCE(v_owned, false) THEN
-    INSERT INTO public.billing_v2_audit (workspace_id, event, reason, details)
-    VALUES (NEW.workspace_id, 'billing_v2_legacy_path_rejected',
-            'legacy_calendar_allowance_grant',
-            jsonb_build_object('billing_cycle_id', NEW.billing_cycle_id));
-    RAISE EXCEPTION 'billing_v2_legacy_allowance_grant_forbidden:%', NEW.workspace_id;
-  END IF;
-
-  RETURN NEW;
-END;
-$function$
-;
-REVOKE ALL ON FUNCTION public.billing_v2_block_legacy_allowance_grant() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.billing_v2_block_legacy_allowance_grant() TO anon;
-GRANT EXECUTE ON FUNCTION public.billing_v2_block_legacy_allowance_grant() TO authenticated;
-GRANT EXECUTE ON FUNCTION public.billing_v2_block_legacy_allowance_grant() TO service_role;
 
 CREATE OR REPLACE FUNCTION public.billing_v2_block_period_keyed_grant()
  RETURNS trigger
@@ -2409,64 +2388,6 @@ $function$
 REVOKE ALL ON FUNCTION public.billing_v2_process_due_invoice(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.billing_v2_process_due_invoice(uuid) TO service_role;
 
-CREATE OR REPLACE FUNCTION public.billing_v2_resolve_billing_recipient(p_workspace_id uuid)
- RETURNS jsonb
- LANGUAGE plpgsql
- STABLE SECURITY DEFINER
- SET search_path TO 'public', 'pg_temp'
-AS $function$
-DECLARE
-  v_owner   UUID;
-  v_email   TEXT;
-  v_locale  TEXT;
-  v_phone   TEXT;
-  v_contact JSONB;
-  v_default TEXT;
-BEGIN
-  SELECT metadata->'billing_contact' INTO v_contact
-    FROM public.workspace_subscriptions WHERE workspace_id = p_workspace_id;
-
-  SELECT owner_id INTO v_owner FROM public.workspaces WHERE id = p_workspace_id;
-  IF v_owner IS NOT NULL THEN
-    SELECT email INTO v_email FROM public.profiles WHERE id = v_owner;
-
-    IF EXISTS (
-      SELECT 1 FROM information_schema.columns
-       WHERE table_schema = 'public' AND table_name = 'profiles'
-         AND column_name = 'preferred_locale'
-    ) THEN
-      EXECUTE 'SELECT preferred_locale FROM public.profiles WHERE id = $1'
-        INTO v_locale USING v_owner;
-    END IF;
-  END IF;
-
-  IF to_regclass('public.user_phone_verifications') IS NOT NULL AND v_owner IS NOT NULL THEN
-    EXECUTE 'SELECT phone_e164 FROM public.user_phone_verifications
-              WHERE user_id = $1 AND phone_verified_at IS NOT NULL'
-      INTO v_phone USING v_owner;
-  END IF;
-
-  IF v_phone IS NULL AND v_owner IS NOT NULL AND EXISTS (
-    SELECT 1 FROM information_schema.columns
-     WHERE table_schema = 'public' AND table_name = 'profiles' AND column_name = 'phone'
-  ) THEN
-    EXECUTE 'SELECT phone FROM public.profiles WHERE id = $1' INTO v_phone USING v_owner;
-  END IF;
-
-  SELECT NULLIF(default_locale, '') INTO v_default FROM public.platform_settings LIMIT 1;
-
-  RETURN jsonb_build_object(
-    'user_id', v_owner,
-    'email', NULLIF(COALESCE(v_contact->>'email', v_email), ''),
-    'phone', NULLIF(COALESCE(v_contact->>'phone', v_phone), ''),
-    'locale', COALESCE(NULLIF(v_contact->>'locale', ''), NULLIF(v_locale, ''), v_default, 'en')
-  );
-END;
-$function$
-;
-REVOKE ALL ON FUNCTION public.billing_v2_resolve_billing_recipient(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.billing_v2_resolve_billing_recipient(uuid) TO service_role;
-
 CREATE OR REPLACE FUNCTION public.billing_v2_restore_subscription(p_workspace_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -2940,76 +2861,6 @@ $function$
 ;
 REVOKE ALL ON FUNCTION public.billing_v2_run_wallet_autopay(integer) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.billing_v2_run_wallet_autopay(integer) TO service_role;
-
-CREATE OR REPLACE FUNCTION public.billing_v2_schedule_invoice_notifications(p_invoice_id uuid)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public', 'pg_temp'
-AS $function$
-DECLARE
-  v_inv     public.billing_invoices;
-  v_policy  JSONB;
-  v_days    INTEGER;
-  v_at      TIMESTAMPTZ;
-  v_created INTEGER := 0;
-  v_payload JSONB;
-BEGIN
-  SELECT * INTO v_inv FROM public.billing_invoices WHERE id = p_invoice_id;
-  IF v_inv.id IS NULL THEN RETURN jsonb_build_object('skipped', 'unknown_invoice'); END IF;
-  IF v_inv.status NOT IN ('open', 'partially_paid') THEN
-    RETURN jsonb_build_object('skipped', 'not_open:' || v_inv.status);
-  END IF;
-
-  v_policy := public.billing_v2_policy_for(v_inv.workspace_id);
-  v_payload := jsonb_build_object(
-    'invoice_number', v_inv.invoice_number,
-    'amount_irr', v_inv.amount_due_irr,
-    'due_at', v_inv.due_at
-  );
-
-  IF (v_policy->>'send_invoice_issued_email')::boolean THEN
-    IF public.billing_v2_enqueue_notification(
-         v_inv.workspace_id, 'invoice_issued', 'email', v_inv.id, now(), v_payload,
-         v_inv.id::text) IS NOT NULL THEN v_created := v_created + 1; END IF;
-  END IF;
-  IF (v_policy->>'send_invoice_issued_sms')::boolean THEN
-    IF public.billing_v2_enqueue_notification(
-         v_inv.workspace_id, 'invoice_issued', 'sms', v_inv.id, now(), v_payload,
-         v_inv.id::text) IS NOT NULL THEN v_created := v_created + 1; END IF;
-  END IF;
-
-  IF v_inv.due_at IS NOT NULL THEN
-    FOR v_days IN
-      SELECT DISTINCT (value)::int
-        FROM jsonb_array_elements_text(v_policy->'reminder_days_before_due')
-    LOOP
-      v_at := v_inv.due_at - make_interval(days => GREATEST(v_days, 0));
-      CONTINUE WHEN v_at <= now();   -- no stale reminder floods on catch-up
-      IF public.billing_v2_enqueue_notification(
-           v_inv.workspace_id, 'invoice_reminder', 'email', v_inv.id, v_at,
-           v_payload || jsonb_build_object('days_before_due', v_days),
-           v_inv.id::text || ':d' || v_days::text) IS NOT NULL THEN
-
-        v_created := v_created + 1;
-      END IF;
-    END LOOP;
-  END IF;
-
-  -- Audit ONLY a real state change. A check that scheduled nothing is not an
-  -- event and must not cost a write.
-  IF v_created > 0 THEN
-    INSERT INTO public.billing_v2_audit (workspace_id, event, reason, details)
-    VALUES (v_inv.workspace_id, 'invoice_reminders_scheduled', 'dunning',
-            jsonb_build_object('invoice_id', v_inv.id, 'created', v_created));
-  END IF;
-
-  RETURN jsonb_build_object('invoice_id', v_inv.id, 'created', v_created);
-END;
-$function$
-;
-REVOKE ALL ON FUNCTION public.billing_v2_schedule_invoice_notifications(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.billing_v2_schedule_invoice_notifications(uuid) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.billing_v2_scheduler_health()
  RETURNS jsonb

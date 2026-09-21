@@ -18,6 +18,18 @@
 --   billing_activate_period(uuid)             callable   service_role RPC
 --   billing_apply_invoice_effects(uuid)       callable   service_role RPC
 --
+-- and two more that the chain creates and never locks down, which only
+-- became visible once the substrate stopped covering for them:
+--
+--   billing_v2_resolve_billing_recipient(uuid)       20260910181804
+--   billing_v2_schedule_invoice_notifications(uuid)  20260904195630
+--
+-- The self-host chain grants both to service_role and nothing else, which
+-- matches how they are used: the notification dispatcher calls
+-- billing_v2_resolve_billing_recipient over RPC, and
+-- billing_v2_schedule_invoice_notifications is only ever reached from inside
+-- another SECURITY DEFINER function.
+--
 -- The three trigger functions need nothing back. A trigger fires as the
 -- table's owner and PostgreSQL does not consult the session user's EXECUTE
 -- privilege to do it, so taking PUBLIC away costs them nothing.
@@ -43,6 +55,13 @@ GRANT EXECUTE ON FUNCTION public.billing_activate_period(uuid) TO service_role;
 
 REVOKE ALL ON FUNCTION public.billing_apply_invoice_effects(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.billing_apply_invoice_effects(uuid) TO service_role;
+
+-- ---------- the two the chain creates without locking down ----------
+REVOKE ALL ON FUNCTION public.billing_v2_resolve_billing_recipient(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.billing_v2_resolve_billing_recipient(uuid) TO service_role;
+
+REVOKE ALL ON FUNCTION public.billing_v2_schedule_invoice_notifications(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.billing_v2_schedule_invoice_notifications(uuid) TO service_role;
 
 -- ---------- in-migration proof ----------
 DO $verify$
@@ -72,7 +91,9 @@ BEGIN
   -- And the grants the server depends on, without which settlement and admin
   -- grants fail with a function-permission error instead of doing their work.
   IF NOT has_function_privilege('service_role', 'public.billing_activate_period(uuid)', 'EXECUTE')
-     OR NOT has_function_privilege('service_role', 'public.billing_apply_invoice_effects(uuid)', 'EXECUTE') THEN
+     OR NOT has_function_privilege('service_role', 'public.billing_apply_invoice_effects(uuid)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.billing_v2_resolve_billing_recipient(uuid)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.billing_v2_schedule_invoice_notifications(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'service_role lost EXECUTE on the billing RPCs the server calls';
   END IF;
 

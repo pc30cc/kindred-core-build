@@ -147,9 +147,7 @@ export default function LoginPage() {
         <div className="flex items-center justify-between px-8 py-5 shrink-0">
           {brandName ? (
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
-                <span className="text-sm font-black text-primary-foreground">{brandLetter}</span>
-              </div>
+              <BrandLogo src={brand?.logo_url} className="w-9 h-9 rounded-lg" />
               <span className="text-lg font-semibold text-foreground">{brandName}</span>
             </div>
           ) : (

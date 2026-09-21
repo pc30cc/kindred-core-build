@@ -45,9 +45,7 @@ export default function ForgotPasswordPage() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4" dir={dir}>
       <div className="w-full max-w-md space-y-8">
         <div className="text-center space-y-2">
-          <div className="w-14 h-14 rounded-xl bg-primary mx-auto flex items-center justify-center">
-            <span className="text-2xl font-black text-primary-foreground">{brandLetter}</span>
-          </div>
+          <BrandLogo className="w-14 h-14 rounded-xl mx-auto" />
           <h1 className="text-2xl font-bold text-foreground">{t('auth.forgotTitle')}</h1>
           <p className="text-sm text-muted-foreground">{t('auth.forgotSubtitle')}</p>
         </div>

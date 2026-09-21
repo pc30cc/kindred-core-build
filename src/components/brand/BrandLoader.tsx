@@ -45,11 +45,11 @@ export function BrandLoader({
           className="absolute inset-0 rounded-[28%] border border-primary/15"
           aria-hidden
         />
+        {/* Inset so the ring reads as orbiting the mark, not touching it. */}
         <BrandLogo
           src={logoUrl}
           className="absolute rounded-[24%] shadow-[var(--shadow-card)]"
-          // Inset so the ring reads as orbiting the mark rather than touching it.
-          {...{ style: { inset: s.pad, width: 'auto', height: 'auto' } as React.CSSProperties }}
+          style={{ inset: s.pad }}
         />
       </div>
       {showLabel && (

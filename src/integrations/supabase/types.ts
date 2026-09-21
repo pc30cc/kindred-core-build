@@ -7655,6 +7655,38 @@ export type Database = {
           },
         ]
       }
+      commerce_deleted_entities: {
+        Row: {
+          connection_id: string
+          deleted_at: string
+          entity_version: string
+          external_id: string
+          kind: string
+        }
+        Insert: {
+          connection_id: string
+          deleted_at?: string
+          entity_version: string
+          external_id: string
+          kind: string
+        }
+        Update: {
+          connection_id?: string
+          deleted_at?: string
+          entity_version?: string
+          external_id?: string
+          kind?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commerce_deleted_entities_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "commerce_connections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       commerce_event_receipts: {
         Row: {
           connection_id: string | null
@@ -7797,7 +7829,6 @@ export type Database = {
           connection_id: string
           created_at: string
           currency: string
-          deleted_at: string | null
           effective_price_minor: number | null
           entity_version: string
           external_id: string
@@ -7817,7 +7848,6 @@ export type Database = {
           connection_id: string
           created_at?: string
           currency: string
-          deleted_at?: string | null
           effective_price_minor?: number | null
           entity_version: string
           external_id: string
@@ -7837,7 +7867,6 @@ export type Database = {
           connection_id?: string
           created_at?: string
           currency?: string
-          deleted_at?: string | null
           effective_price_minor?: number | null
           entity_version?: string
           external_id?: string
@@ -7884,7 +7913,6 @@ export type Database = {
           connection_id: string
           created_at: string
           currency: string
-          deleted_at: string | null
           effective_price_minor: number | null
           entity_version: string
           external_id: string
@@ -7913,7 +7941,6 @@ export type Database = {
           connection_id: string
           created_at?: string
           currency: string
-          deleted_at?: string | null
           effective_price_minor?: number | null
           entity_version: string
           external_id: string
@@ -7942,7 +7969,6 @@ export type Database = {
           connection_id?: string
           created_at?: string
           currency?: string
-          deleted_at?: string | null
           effective_price_minor?: number | null
           entity_version?: string
           external_id?: string
@@ -19751,6 +19777,17 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      commerce_purge_expired_deletions: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
+      commerce_sweep_absent_products: {
+        Args: {
+          p_connection_id: string
+          p_sweep_epoch: string
+        }
+        Returns: number
       }
       commerce_tombstone_product: {
         Args: {

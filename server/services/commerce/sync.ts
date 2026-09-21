@@ -194,7 +194,7 @@ export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Pro
     // a missed `product.deleted` is permanent, and the assistant keeps
     // recommending a product whose page 404s.
     if (isFullSync && sweepEpoch) {
-      await sweepUnseenProducts(config, job.connection_id, sweepEpoch, now);
+      await sweepUnseenProducts(config, job.connection_id, sweepEpoch);
     }
 
     await sb.from('commerce_sync_jobs').update({ status: 'succeeded' }).eq('id', job.id);
@@ -212,16 +212,20 @@ export async function runSyncJobOnce(config: ServerConfig, job: SyncJobRow): Pro
 }
 
 /**
- * Tombstones the products a completed FULL sync never met.
+ * Removes the products a completed FULL sync never met.
  *
  * `last_seen_at` is stamped page by page during the run, so "older than the
  * epoch, or never stamped at all" is exactly "absent from the store's
- * catalogue". Rows already tombstoned are skipped, so a repeat sync is a
- * no-op rather than a rewrite of every gravestone.
+ * catalogue". Those rows are deleted outright — what stays is one line per
+ * product in `commerce_deleted_entities`, so a straggling update from the
+ * store's event queue cannot put it back (see the migration).
  *
- * Variants follow their parent: the product rows are what the assistant
- * searches, but leaving a dead product's variants live would keep stale
- * prices in the index for anything that later reads them.
+ * Variants follow their parent through the foreign key's ON DELETE CASCADE:
+ * leaving a dead product's variants behind would keep stale prices in the
+ * index for anything that later read them.
+ *
+ * One statement rather than a read followed by two writes, so a sweep of a
+ * large catalogue is a single round trip and cannot half-apply.
  *
  * Never called for an incremental sync — see the call site.
  */
@@ -229,29 +233,22 @@ async function sweepUnseenProducts(
   config: ServerConfig,
   connectionId: string,
   sweepEpoch: string,
-  nowIso: string,
 ): Promise<void> {
   const sb = getServiceClient(config);
 
-  const { data: stale, error } = await sb
-    .from('commerce_products')
-    .select('id')
-    .eq('connection_id', connectionId)
-    .is('deleted_at', null)
-    .or(`last_seen_at.is.null,last_seen_at.lt.${sweepEpoch}`);
+  const { data, error } = await sb.rpc('commerce_sweep_absent_products', {
+    p_connection_id: connectionId,
+    p_sweep_epoch: sweepEpoch,
+  });
   if (error) {
     // A failed sweep must not fail the sync: the catalogue itself is already
     // written and correct, and the next full sync sweeps again.
-    console.warn('[commerce.sync] sweep query failed:', error.message);
+    console.warn('[commerce.sync] sweep failed:', error.message);
     return;
   }
 
-  const ids = (stale ?? []).map((r: { id: string }) => r.id);
-  if (!ids.length) return;
-
-  await sb.from('commerce_products').update({ deleted_at: nowIso }).in('id', ids);
-  await sb.from('commerce_product_variants').update({ deleted_at: nowIso }).in('product_id', ids).is('deleted_at', null);
-  console.log('[commerce.sync] swept products absent from store', { connectionId, count: ids.length });
+  const count = typeof data === 'number' ? data : 0;
+  if (count) console.log('[commerce.sync] removed products absent from store', { connectionId, count });
 }
 
 async function failJob(config: ServerConfig, job: SyncJobRow, code: string, permanent: boolean): Promise<void> {

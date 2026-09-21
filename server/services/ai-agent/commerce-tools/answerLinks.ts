@@ -206,7 +206,6 @@ export async function verifyStoreLinks(
     .from('commerce_products')
     .select('canonical_url')
     .eq('connection_id', connection.id)
-    .is('deleted_at', null)
     .in('canonical_url', onStore);
   const verified = new Set((exact ?? []).map((r: { canonical_url: string }) => r.canonical_url));
   if (onStore.every((u) => verified.has(u))) return source;
@@ -218,7 +217,6 @@ export async function verifyStoreLinks(
     .from('commerce_products')
     .select('external_id, canonical_url')
     .eq('connection_id', connection.id)
-    .is('deleted_at', null)
     .not('canonical_url', 'is', null)
     .order('updated_at', { ascending: false })
     .limit(CATALOGUE_WINDOW);

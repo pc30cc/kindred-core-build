@@ -44,6 +44,10 @@
     return mod.create({
       t: t,
       escapeHtml: Util.escapeHtml,
+      // Linking is Core's call, not a template's: the scheme allow-list and
+      // the escaping are security, and every presentation has to inherit
+      // them rather than reimplement them.
+      linkifyHtml: Util.linkifyHtml,
       config: ctx.config,
       locale: ctx.locale,
       primaryColor: ctx.primaryColor,
@@ -58,6 +62,108 @@
       var div = document.createElement('div');
       div.textContent = text == null ? '' : String(text);
       return div.innerHTML;
+    },
+    /**
+     * `null` for anything that is not an ordinary web link.
+     *
+     * The scheme check is the security boundary: message bodies can carry an
+     * operator's or a model's text, and `javascript:`/`data:` must never
+     * become an href. `new URL()` also normalizes the value, so what ends up
+     * in the attribute is the parser's output, not the raw substring.
+     */
+    safeHttpUrl: function (raw) {
+      var s = String(raw == null ? '' : raw).trim();
+      if (!s) return null;
+      if (/^www\./i.test(s)) s = 'https://' + s;
+      var u;
+      try { u = new URL(s); } catch (_) { return null; }
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+      return u.href;
+    },
+
+    /**
+     * What a person should SEE for a link.
+     *
+     * A Persian product URL reaches the widget percent-encoded, because that
+     * is the only form that survives HTTP:
+     *
+     *   https://p.webyar.ai/product/%d8%a7%d8%b3%d9%be%db%8c%da%a9%d8%b1-…/
+     *
+     * Printed raw that is unreadable, and it is one unbreakable token that
+     * stretches its bubble. Decoded it is simply
+     * «p.webyar.ai/product/اسپیکر-بلوتوثی-رزونانس».
+     *
+     * The host is kept rather than shown as a bare title: a visitor is being
+     * asked to leave the page, so where the link goes stays visible. Over
+     * `max` characters the middle is dropped instead of the end, because the
+     * end is the part that says WHAT the link is.
+     *
+     * `humanize` additionally turns the slug's hyphens into spaces, which is
+     * for the visible label only — never for the `title`, which has to stay
+     * the exact destination. It is not cosmetic: a Persian slug inside an
+     * otherwise Latin URL is a right-to-left run inside a left-to-right one,
+     * and when a hyphenated run like «اسپیکر-بلوتوثی-رزونانس» wraps mid-way,
+     * bidi reordering scatters the hyphens to the wrong ends of the lines.
+     * Spaces give the line breaker somewhere sane to break, and each line
+     * then holds one whole word.
+     */
+    readableUrl: function (href, max, humanize) {
+      var u;
+      try { u = new URL(String(href == null ? '' : href)); } catch (_) { return String(href == null ? '' : href); }
+      var decode = function (v) {
+        try { return decodeURIComponent(v); } catch (_) { return v; }
+      };
+      var host = u.host.replace(/^www\./i, '');
+      var path = decode(u.pathname || '').replace(/\/+$/, '');
+      if (humanize) path = path.replace(/[-_]+/g, ' ');
+      var full = host + path + decode(u.search || '') + decode(u.hash || '');
+      if (!max || full.length <= max) return full;
+      var segments = path.split('/').filter(Boolean);
+      var tail = segments.length ? segments[segments.length - 1] : '';
+      var shortened = tail ? host + '/…/' + tail : host;
+      return shortened.length <= max ? shortened : shortened.slice(0, Math.max(1, max - 1)) + '…';
+    },
+
+    /**
+     * Escaped message text with its web links turned into anchors.
+     *
+     * Message bodies used to be rendered with `escapeHtml` alone, so a link
+     * the assistant sent — the product URL that answers "قیمت اسپیکر چنده؟" —
+     * arrived as dead text the visitor had to select and copy by hand.
+     *
+     * EVERY branch escapes. The only markup this produces is an anchor whose
+     * href already passed `safeHttpUrl`, so a message can never inject HTML
+     * or a script URL no matter who wrote it.
+     */
+    linkifyHtml: function (text) {
+      var src = text == null ? '' : String(text);
+      if (!src) return '';
+      if (src.indexOf('http') === -1 && src.indexOf('www.') === -1) return Util.escapeHtml(src);
+      var pattern = /(?:https?:\/\/|www\.)[^\s<>"'`]+/gi;
+      var out = '';
+      var cursor = 0;
+      var match;
+      while ((match = pattern.exec(src)) !== null) {
+        var raw = match[0];
+        // Sentence punctuation that happens to follow a URL is not part of
+        // it. A closing bracket only counts as punctuation when the URL has
+        // no opening one, so a genuine …/foo_(bar) link stays whole.
+        var candidate = raw.replace(/[.,;:!?؟،؛"'»\]]+$/, '');
+        if (candidate.indexOf('(') === -1) candidate = candidate.replace(/\)+$/, '');
+        var href = Util.safeHttpUrl(candidate);
+        out += Util.escapeHtml(src.slice(cursor, match.index));
+        if (href) {
+          out += '<a class="msg-link" href="' + Util.escapeHtml(href) + '"' +
+            ' target="_blank" rel="noopener noreferrer nofollow" dir="auto"' +
+            ' title="' + Util.escapeHtml(Util.readableUrl(href, 0)) + '">' +
+            Util.escapeHtml(Util.readableUrl(href, 60, true)) + '</a>';
+          out += Util.escapeHtml(raw.slice(candidate.length));
+        } else {
+          out += Util.escapeHtml(raw);
+        }
+        cursor = match.index + raw.length;
+      }
+      return out + Util.escapeHtml(src.slice(cursor));
     },
     isValidEmail: function (v) {
       if (!v) return false;
@@ -121,6 +227,14 @@
   };
   // Expose for in-file access from nested closures (driver factories etc.).
   __gs_runtime.Policy = Policy;
+  // Link rendering is part of Core's published presentation contract — every
+  // template receives `linkifyHtml` in its env — so it is mirrored here for
+  // the same reason Policy is: reachable without holding the instance
+  // closure, and testable as the contract rather than as an implementation
+  // detail of one template.
+  __gs_runtime.linkifyHtml = function (text) { return Util.linkifyHtml(text); };
+  __gs_runtime.readableUrl = function (href, max, humanize) { return Util.readableUrl(href, max, humanize); };
+  __gs_runtime.safeHttpUrl = function (raw) { return Util.safeHttpUrl(raw); };
 
   // ════════════════════════════════════════════════════════════════════
   // TokenManager — long-lived widget session resilience
@@ -2895,6 +3009,22 @@
       }, { passive: true });
     }
 
+    /**
+     * The last frame of a reveal, which is the one a visitor actually reads.
+     *
+     * The typewriter writes `textContent` frame by frame, so without this the
+     * completed message would keep whatever plain text the last tick wrote
+     * and the links in it would stay dead until some later re-render — which,
+     * for the final message in a conversation, never comes.
+     *
+     * `linkifyHtml` escapes every branch, so this assignment carries no
+     * markup the message itself could have supplied.
+     */
+    function revealFinalText(el, fullText) {
+      if (!el) return;
+      el.innerHTML = Util.linkifyHtml(fullText);
+    }
+
     // finish=true instantly completes whatever was mid-reveal instead of
     // leaving it frozen partway through — used when a second thing (e.g.
     // the handoff pre-chat card's subtitle) claims the single shared
@@ -2908,7 +3038,7 @@
           var body = lastRenderedBody;
           var el = body && body.querySelector ? body.querySelector('[data-typing-id="' + typewriter.id + '"]') : null;
           if (el) {
-            el.textContent = typewriter.tokens.join('');
+            revealFinalText(el, typewriter.tokens.join(''));
             var host = el.closest('[data-typing-host]');
             if (host) host.removeAttribute('data-typing-active');
           }
@@ -2925,7 +3055,10 @@
       var body = lastRenderedBody;
       var el = body && body.querySelector ? body.querySelector('[data-typing-id="' + typewriter.id + '"]') : null;
       if (el) {
-        el.textContent = typewriter.tokens.slice(0, typewriter.revealedCount).join('');
+        // Mid-reveal stays plain text on purpose — half a URL is not a link,
+        // and textContent cannot be fooled by a partially typed one.
+        if (done) revealFinalText(el, typewriter.tokens.join(''));
+        else el.textContent = typewriter.tokens.slice(0, typewriter.revealedCount).join('');
         if (done) {
           var host = el.closest('[data-typing-host]');
           if (host) host.removeAttribute('data-typing-active');

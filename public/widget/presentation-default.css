@@ -691,6 +691,67 @@ a.wy-powered:hover { color: var(--wy-text); }
 .msg.visitor.has-tail { border-bottom-right-radius: 0.25rem; }
 .msg-text { white-space: pre-wrap; }
 
+/* A link in a message is a button, not a wall of text.
+   A product URL arrives percent-encoded and can run past 100 characters as a
+   single unbreakable token; printed inline it stretched its own bubble and
+   was unreadable besides. As a chip it has a bounded width of its own, and
+   `overflow-wrap: anywhere` means even a label with no spaces in it — which
+   a URL is — wraps inside the chip instead of pushing the layout wider. */
+.msg-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  margin: 2px 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-decoration: none;
+  color: inherit;
+  /* The label is a URL: no spaces to break at, so breaking anywhere is the
+     only thing that keeps it inside the bubble. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  /* The chip is a target to hit, so it opts out of the text-selection
+     cursor the surrounding message sets. */
+  -webkit-user-select: none; user-select: none; cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+/* ↗ — always to the right of the label, in RTL too: it means "opens away
+   from here", which is not a direction the writing system reverses. */
+.msg-link::after {
+  content: '↗';
+  font-size: 11px;
+  opacity: 0.75;
+  flex: none;
+}
+/* The operator bubble is --wy-card, so the chip sits on the next surface
+   down rather than disappearing into it. */
+.msg.operator .msg-link {
+  border-color: var(--wy-border);
+  background: var(--wy-hover);
+  color: var(--wy-accent);
+}
+.msg.operator .msg-link:hover,
+.msg.operator .msg-link:focus-visible {
+  border-color: var(--wy-accent);
+  background: var(--wy-hover-2);
+}
+.msg.visitor .msg-link {
+  border-color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+.msg.visitor .msg-link:hover,
+.msg.visitor .msg-link:focus-visible {
+  background: rgba(255, 255, 255, 0.28);
+  border-color: rgba(255, 255, 255, 0.85);
+}
+.msg-link:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
 /* Message text must stay selectable (double-click a word, drag a range) and
    the highlight must be clearly visible inside the shadow root. */
 .msg, .msg-text, .msg-quote, .kb-article, .kb-article-body {

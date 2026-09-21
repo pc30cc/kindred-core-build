@@ -31,6 +31,16 @@ const TRAILING_PUNCTUATION = /[.,;:!?؟،؛"'»]+$/;
  */
 const CATALOGUE_WINDOW = 500;
 
+/** `https://shop.example` and `https://shop.example/` — the shop itself. */
+function isStoreFrontPage(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return (parsed.pathname === '' || parsed.pathname === '/') && !parsed.search;
+  } catch {
+    return false;
+  }
+}
+
 function withoutTrailingPunctuation(url: string): string {
   const trailing = url.match(TRAILING_PUNCTUATION)?.[0] ?? '';
   return trailing ? url.slice(0, -trailing.length) : url;
@@ -179,7 +189,15 @@ export async function verifyStoreLinks(
   if (!storeHost) return source;
 
   const found = source.match(URL_PATTERN) ?? [];
-  const onStore = [...new Set(found.map(withoutTrailingPunctuation).filter((u) => hostOf(u) === storeHost))];
+  // The shop's own front page is always a real page — it needs no product to
+  // vouch for it, and it has no path to match one with. Without this it was
+  // dropped like an invented link, and «لینک صفحه فروشگاه همینه:» reached a
+  // visitor with nothing after the colon.
+  const onStore = [...new Set(
+    found
+      .map(withoutTrailingPunctuation)
+      .filter((u) => hostOf(u) === storeHost && !isStoreFrontPage(u)),
+  )];
   if (!onStore.length) return source;
 
   const sb = getServiceClient(config);
@@ -222,7 +240,9 @@ export async function verifyStoreLinks(
     return canonical ? canonical + trailing : match;
   });
 
-  return repairCommerceLinks(resolved, [...byExternalId.values(), `${store}/`]);
+  // Both spellings of the front page are named, so neither is mistaken for a
+  // product link that failed to match.
+  return repairCommerceLinks(resolved, [...byExternalId.values(), store, `${store}/`]);
 }
 
 /** Every URL this turn's commerce tools put in front of the model. */

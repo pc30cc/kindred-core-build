@@ -16,6 +16,9 @@ final class ProductController {
 
 	private const MAX_LIMIT = 20;
 
+	/** Reviews are context for an answer, not a feed — a handful is enough. */
+	private const MAX_REVIEWS = 10;
+
 	/** Private wc_get_products() query var consumed by apply_price_range(). */
 	private const PRICE_RANGE_QUERY_VAR = 'webyar_price_range';
 
@@ -150,6 +153,69 @@ final class ProductController {
 			}
 		}
 		return new \WP_REST_Response( array( 'products' => $products ), 200 );
+	}
+
+	public static function reviews_schema(): array {
+		return array(
+			'product_id' => array( 'type' => 'string', 'required' => true ),
+			'limit'      => array( 'type' => 'integer', 'required' => false ),
+		);
+	}
+
+	/**
+	 * Approved customer reviews for one product, newest first.
+	 *
+	 * Asked «نظرات در مورد این محصول چیه», the assistant could only answer
+	 * that it had no access to review data — and it was telling the truth:
+	 * nothing in this plugin ever sent a rating or a review, so a shop with
+	 * dozens of them looked like a shop with none.
+	 *
+	 * Only APPROVED reviews leave the store, and only the display name the
+	 * reviewer already appears under on the public product page — never the
+	 * commenter's email, IP or user id. This is the same data any visitor
+	 * can read by scrolling, not a new disclosure.
+	 */
+	public function reviews( \WP_REST_Request $request ): \WP_REST_Response {
+		$product_id = (int) $request->get_param( 'product_id' );
+		$limit      = min( max( (int) $request->get_param( 'limit' ) ?: 5, 1 ), self::MAX_REVIEWS );
+
+		$product = wc_get_product( $product_id );
+		if ( ! $product instanceof \WC_Product ) {
+			return new \WP_REST_Response( array( 'found' => false ), 404 );
+		}
+
+		$comments = get_comments( array(
+			'post_id' => $product_id,
+			'type'    => 'review',
+			'status'  => 'approve',
+			'number'  => $limit,
+			'orderby' => 'comment_date_gmt',
+			'order'   => 'DESC',
+		) );
+
+		$reviews = array();
+		foreach ( $comments as $c ) {
+			$rating = get_comment_meta( $c->comment_ID, 'rating', true );
+			$reviews[] = array(
+				'author'   => $c->comment_author,
+				'rating'   => '' === $rating ? null : (int) $rating,
+				'verified' => (bool) get_comment_meta( $c->comment_ID, 'verified', true ),
+				'date'     => gmdate( 'c', strtotime( $c->comment_date_gmt ) ),
+				// Bounded: a review is evidence for an answer, not an article.
+				'text'     => wp_trim_words( wp_strip_all_tags( $c->comment_content ), 60, '…' ),
+			);
+		}
+
+		return new \WP_REST_Response(
+			array(
+				'found'          => true,
+				'product_id'     => (string) $product_id,
+				'average_rating' => (string) $product->get_average_rating(),
+				'review_count'   => (int) $product->get_review_count(),
+				'reviews'        => $reviews,
+			),
+			200
+		);
 	}
 
 	public function availability( \WP_REST_Request $request ): \WP_REST_Response {

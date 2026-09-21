@@ -64,6 +64,17 @@ final class Router {
 
 		register_rest_route(
 			self::NAMESPACE,
+			'/products/reviews',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( new ProductController(), 'reviews' ),
+				'permission_callback' => array( $this, 'authenticate' ),
+				'args'                => ProductController::reviews_schema(),
+			)
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
 			'/orders/lookup',
 			array(
 				'methods'             => 'POST',

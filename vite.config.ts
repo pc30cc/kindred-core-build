@@ -45,7 +45,12 @@ function pwaBuild(): Plugin {
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const apiTarget = env.VITE_API_BASE_URL?.trim().replace(/\/+$/, '');
+  // Preview/dev only: when VITE_API_BASE_URL is empty (same-origin build),
+  // there is no local Express to answer /api, so login 404s inside the
+  // Lovable preview while the deployed site works through nginx. Fall back
+  // to VITE_DEV_API_PROXY_TARGET so the dev server proxies /api to the real
+  // backend. Never affects production bundles (proxy is dev-server only).
+  const apiTarget = (env.VITE_API_BASE_URL?.trim() || env.VITE_DEV_API_PROXY_TARGET?.trim() || '').replace(/\/+$/, '');
 
   return {
     server: {

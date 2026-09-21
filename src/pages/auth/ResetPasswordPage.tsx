@@ -26,11 +26,6 @@ export default function ResetPasswordPage() {
   const passwordsMatch = confirmPassword.length > 0 && password === confirmPassword;
   const token = searchParams.get('token');
 
-  const brandLetter = useMemo(() => {
-    const name = brand?.platform_name || 'App';
-    return name.charAt(0);
-  }, [brand]);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (password !== confirmPassword) {

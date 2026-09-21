@@ -22,11 +22,6 @@ export default function ForgotPasswordPage() {
   const brand = usePlatformBrandingForLocale(locale);
   const isRtl = dir === 'rtl';
 
-  const brandLetter = useMemo(() => {
-    const name = brand?.platform_name || 'App';
-    return name.charAt(0);
-  }, [brand]);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);

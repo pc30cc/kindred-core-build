@@ -38,7 +38,6 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
 
   const brandName = useMemo(() => brand?.platform_name || 'App', [brand]);
-  const brandLetter = useMemo(() => brandName.charAt(0), [brandName]);
 
   // Step 1: validate & go to step 2
   const handleStep1 = (e: React.FormEvent) => {

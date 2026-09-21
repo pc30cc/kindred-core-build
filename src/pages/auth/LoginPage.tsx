@@ -58,7 +58,6 @@ export default function LoginPage() {
   const emailValid = useMemo(() => EMAIL_RE.test(email.trim()), [email]);
 
   const brandName = useMemo(() => brand?.platform_name || '', [brand]);
-  const brandLetter = useMemo(() => brandName.charAt(0) || '', [brandName]);
 
   const forgotHref = useMemo(
     () => (emailValid ? `/auth/forgot-password?email=${encodeURIComponent(email.trim().toLowerCase())}` : '/auth/forgot-password'),

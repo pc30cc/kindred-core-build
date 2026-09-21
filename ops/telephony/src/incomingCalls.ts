@@ -249,14 +249,30 @@ export function connectAriEvents(input: {
 
   function open(): void {
     if (closed) return;
-    socket = new WS(wsUrl);
-    socket.onopen = () => { retry = 1000; log('telephony.gateway.ari_connected', {}); };
-    socket.onclose = () => {
-      if (closed) return;
+
+    // Retry from BOTH `error` and `close`, at most once per attempt.
+    //
+    // Node's built-in WebSocket fires `error` WITHOUT a following `close` when
+    // the HTTP upgrade itself fails. That is exactly what happens on every
+    // boot: the entrypoint starts the service as soon as Asterisk answers the
+    // CLI, while res_ari is still loading and /ari/events still 404s. Retrying
+    // only from `close` therefore meant the first attempt failed, no retry was
+    // ever scheduled, and the Stasis app stayed unsubscribed for the life of
+    // the container — inbound calls reached `Stasis(webyar,inbound)` with no
+    // application behind it and were dropped, with nothing logged anywhere.
+    let retryScheduled = false;
+    const scheduleRetry = (reason: string) => {
+      if (closed || retryScheduled) return;
+      retryScheduled = true;
+      log('telephony.gateway.ari_disconnected', { reason, retryInMs: retry });
       setTimeout(open, retry);
       retry = Math.min(retry * 2, 30_000);
     };
-    socket.onerror = () => { /* onclose handles the retry */ };
+
+    socket = new WS(wsUrl);
+    socket.onopen = () => { retry = 1000; log('telephony.gateway.ari_connected', {}); };
+    socket.onclose = () => scheduleRetry('close');
+    socket.onerror = () => scheduleRetry('error');
     socket.onmessage = (raw: MessageEvent) => {
       let event: any;
       try { event = JSON.parse(String(raw.data)); } catch { return; }

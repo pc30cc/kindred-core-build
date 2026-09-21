@@ -17,6 +17,7 @@ import {
   parseProvisionRequest,
 } from '../../../ops/telephony/src/registrations.js';
 import {
+  connectAriEvents,
   createCallOrchestrator,
   endpointFromChannelName,
   maskNumber,
@@ -312,6 +313,76 @@ describe('control service — dependency failures', () => {
     expect(res.body.realtime_db).toBe(false);
     expect(res.body.gateway_healthy).toBe(false);
     expect(res.body.error).toContain('realtime backend not connected');
+  });
+});
+
+describe('ARI event stream reconnect', () => {
+  /**
+   * Node's built-in WebSocket fires `error` with NO following `close` when the
+   * HTTP upgrade fails — which is what /ari/events does on every boot while
+   * res_ari is still loading. Retrying only from `close` left the Stasis app
+   * unsubscribed forever and inbound calls were dropped silently.
+   */
+  function fakeWsClass(sockets: any[]) {
+    return class {
+      onopen: any; onclose: any; onerror: any; onmessage: any;
+      close = vi.fn();
+      constructor(public url: string) { sockets.push(this); }
+    } as unknown as typeof WebSocket;
+  }
+
+  const connect = (sockets: any[]) => connectAriEvents({
+    ariUrl: 'http://127.0.0.1:8088/ari',
+    user: 'u', password: 'p', appName: 'webyar',
+    orchestrator: {} as any,
+    WebSocketImpl: fakeWsClass(sockets),
+  });
+
+  it('reconnects after a handshake error that never emits close', () => {
+    vi.useFakeTimers();
+    try {
+      const sockets: any[] = [];
+      connect(sockets);
+      expect(sockets).toHaveLength(1);
+
+      sockets[0].onerror(new Event('error'));
+      vi.advanceTimersByTime(1000);
+
+      expect(sockets).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('schedules only one retry when error and close both fire', () => {
+    vi.useFakeTimers();
+    try {
+      const sockets: any[] = [];
+      connect(sockets);
+
+      sockets[0].onerror(new Event('error'));
+      sockets[0].onclose(new Event('close'));
+      vi.advanceTimersByTime(60_000);
+
+      expect(sockets).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops retrying once closed', () => {
+    vi.useFakeTimers();
+    try {
+      const sockets: any[] = [];
+      const handle = connect(sockets);
+      handle.close();
+      sockets[0].onerror(new Event('error'));
+      vi.advanceTimersByTime(60_000);
+
+      expect(sockets).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

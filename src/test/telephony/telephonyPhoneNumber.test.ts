@@ -26,7 +26,7 @@ describe('telephony caller-ID normalization', () => {
     expect(n.e164).toBe('+982191001234');
     // The SMS-verification normalizer must stay strict — this is the whole
     // reason the telephony layer exists separately.
-    expect((normalizePhoneToE164('02191001234') as { ok: boolean }).ok).toBe(false);
+    expect((normalizePhoneToE164('02191001234', 'IR') as { ok: boolean }).ok).toBe(false);
   });
 
   it('keeps foreign caller IDs usable instead of discarding them', () => {

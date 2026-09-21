@@ -231,7 +231,7 @@ describe('GET /:workspaceId/email-logs — owner/admin only', () => {
   it('owner can read their workspace email logs', async () => {
     const res = await call('GET', `/api/workspace-integrations/${WS_A}/email-logs`, 'owner-a-token');
     expect(res.status).toBe(200);
-    expect(res.json.logs.map((l: { id: string }) => l.id)).toEqual(['l1']);
+    expect((res.json as any).logs.map((l: { id: string }) => l.id)).toEqual(['l1']);
   });
 
   it('plain member (non owner/admin) is denied', async () => {

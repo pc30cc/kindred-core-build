@@ -25,9 +25,9 @@ const INBOX_CODE = INBOX
   .join('\n');
 
 const LOCALES: Record<string, Record<string, string>> = {
-  en: en as Record<string, string>,
-  fa: fa as Record<string, string>,
-  tr: tr as Record<string, string>,
+  en: en as unknown as Record<string, string>,
+  fa: fa as unknown as Record<string, string>,
+  tr: tr as unknown as Record<string, string>,
 };
 
 const KEYS = [

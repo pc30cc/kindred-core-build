@@ -5,11 +5,12 @@
  */
 import { cn } from '@/lib/utils';
 import { BrandLogo } from './BrandLogo';
+import webyarW from '@/assets/webyar-w.png';
 
 const SIZES = {
-  sm: { box: 56, pad: 8, label: 'text-[9px] tracking-[0.06em]' },
-  md: { box: 84, pad: 11, label: 'text-xs tracking-[0.08em]' },
-  lg: { box: 120, pad: 16, label: 'text-base tracking-[0.08em]' },
+  sm: { box: 56, mark: 24, label: 'text-[9px] tracking-[0.28em]' },
+  md: { box: 84, mark: 36, label: 'text-[11px] tracking-[0.32em]' },
+  lg: { box: 120, mark: 52, label: 'text-sm tracking-[0.36em]' },
 } as const;
 
 export function BrandLoader({

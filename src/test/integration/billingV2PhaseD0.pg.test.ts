@@ -49,6 +49,10 @@ const CHAIN = [
   'database/migrations/117_billing_v2_rollout.sql',
   'database/migrations/118_billing_v2_schedulers.sql',
   'database/migrations/119_billing_v2_entitlement_cycles.sql',
+  // 201 brings six of these functions up to the definitions the live
+  // database runs. Without it this suite would be proving the behaviour
+  // of code the chain no longer produces.
+  'database/migrations/202_billing_v2_align_with_live.sql',
 ];
 
 let client: any;

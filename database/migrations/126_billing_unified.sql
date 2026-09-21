@@ -11,31 +11,37 @@
 --   * platform-wide configuration (currencies, gateways, tax, coupons,
 --     usage items) lives in the database and is edited from the super-admin
 --     finance panel;
---   * all existing financial data is reset — this install has no real
---     customers yet and the previous data mixed two engines.
+--   * financial data is left alone. This migration once truncated it, for a
+--     one-time reset when the install had no real customers; see section 1.
 -- ============================================================
 
--- ─── 1. Reset all financial data ─────────────────────────────────────────
-DO $$
-DECLARE t TEXT;
-BEGIN
-  FOREACH t IN ARRAY ARRAY[
-    'billing_invoice_applications','billing_invoice_collections','billing_invoice_lines',
-    'billing_payment_allocations','billing_subscription_applications','billing_notification_jobs',
-    'billing_retention_signals','billing_period_allowance_grants','billing_entitlement_cycles',
-    'billing_wallet_ledger','billing_wallet_deposits','billing_wallet_accounts',
-    'billing_payments','billing_payment_intents','billing_invoices',
-    'billing_subscription_periods','billing_events','plan_change_log',
-    'billing_v2_jobs','billing_v2_audit','entitlement_fanout_jobs',
-    'workspace_ai_balance_lots','workspace_ai_balance_alerts','ai_usage_events',
-    'ai_run_settlements','ai_run_steps','ai_runs','ai_billing_adjustments',
-    'ai_billing_audit_log','ai_billing_commands','ai_usage_event_conflicts'
-  ] LOOP
-    IF to_regclass('public.' || t) IS NOT NULL THEN
-      EXECUTE format('TRUNCATE TABLE public.%I CASCADE', t);
-    END IF;
-  END LOOP;
-END $$;
+-- ─── 1. (removed) Reset all financial data ───────────────────────────────
+--
+-- This step used to TRUNCATE ... CASCADE thirty-one financial tables:
+-- invoices and their lines, payments, allocations, payment intents, wallet
+-- accounts and ledger, subscription periods, entitlement cycles, allowance
+-- grants, the plan change log, and the whole AI usage and settlement history.
+--
+-- It was written as a one-time development reset, for the reason the header
+-- above used to give: the install had no real customers yet and the data left
+-- behind mixed two engines. That reason expired the moment the first workspace
+-- was cut over and began carrying real invoices.
+--
+-- What it can still do is the problem. On a fresh chain replay it does
+-- nothing: every one of those tables is empty when this migration runs --
+-- measured rather than assumed, by applying the 124 migrations before this one
+-- to a pristine supabase/postgres and counting, which came to zero rows across
+-- all thirty of them that exist by this point. So the only database on which
+-- this block has any effect at all is one holding real money, and there its
+-- effect is to destroy it. TRUNCATE also bypasses the append-only triggers
+-- guarding billing_invoice_applications, billing_payment_allocations and
+-- billing_wallet_ledger, so the very history those triggers exist to protect
+-- would go without leaving a trace.
+--
+-- Removing it changes nothing about what this migration produces and takes the
+-- landmine out of the chain. A deliberate reset is still available, and is
+-- where it belongs: public.admin_reset_billing_data(), service_role only,
+-- requiring an explicit confirmation argument.
 
 -- ─── 2. Single engine: every workspace is enrolled, always ───────────────
 INSERT INTO public.billing_v2_rollout (workspace_id, state)

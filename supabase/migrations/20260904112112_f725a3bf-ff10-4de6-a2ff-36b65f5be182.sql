@@ -1,24 +1,27 @@
--- ─── 1. Reset all financial data ─────────────────────────────────────────
-DO $$
-DECLARE t TEXT;
-BEGIN
-  FOREACH t IN ARRAY ARRAY[
-    'billing_invoice_applications','billing_invoice_collections','billing_invoice_lines',
-    'billing_payment_allocations','billing_subscription_applications','billing_notification_jobs',
-    'billing_retention_signals','billing_period_allowance_grants','billing_entitlement_cycles',
-    'billing_wallet_ledger','billing_wallet_deposits','billing_wallet_accounts',
-    'billing_payments','billing_payment_intents','billing_invoices',
-    'billing_subscription_periods','billing_events','plan_change_log',
-    'billing_v2_jobs','billing_v2_audit','entitlement_fanout_jobs',
-    'workspace_ai_balance_lots','workspace_ai_balance_alerts','ai_usage_events',
-    'ai_run_settlements','ai_run_steps','ai_runs','ai_billing_adjustments',
-    'ai_billing_audit_log','ai_billing_commands','ai_usage_event_conflicts'
-  ] LOOP
-    IF to_regclass('public.' || t) IS NOT NULL THEN
-      EXECUTE format('TRUNCATE TABLE public.%I CASCADE', t);
-    END IF;
-  END LOOP;
-END $$;
+-- ─── 1. (removed) Reset all financial data ───────────────────────────────
+--
+-- Hosted mirror of database/migrations/126_billing_unified.sql, which carries
+-- the full reasoning. In short: this step used to TRUNCATE ... CASCADE
+-- thirty-one financial tables — invoices and lines, payments, allocations,
+-- payment intents, wallet accounts and ledger, subscription periods,
+-- entitlement cycles, allowance grants, the plan change log and the whole AI
+-- usage and settlement history — as a one-time development reset, back when
+-- the install had no real customers.
+--
+-- On a fresh replay it is a no-op; measured on a pristine database, the 124
+-- migrations before it leave all thirty of those tables that exist by this
+-- point holding zero rows. The only database it can affect is one holding real
+-- money, and TRUNCATE gets past the append-only triggers that protect
+-- billing_invoice_applications, billing_payment_allocations and
+-- billing_wallet_ledger, so it would leave no trace either.
+--
+-- This database already ran the original on 2026-09-18; the rollout rows and
+-- the empty financial tables it left are the state we have. Editing the file
+-- does not re-run anything here — Supabase applies by version and this version
+-- is recorded — it only stops the block reaching any future replay.
+--
+-- A deliberate reset remains available where it belongs:
+-- public.admin_reset_billing_data(), service_role only, explicit confirmation.
 
 -- ─── 2. Single engine: every workspace is enrolled, always ───────────────
 INSERT INTO public.billing_v2_rollout (workspace_id, state)

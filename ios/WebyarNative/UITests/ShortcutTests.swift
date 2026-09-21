@@ -96,29 +96,6 @@ final class ShortcutTests: UITestCase {
         XCTAssertTrue(composerField().waitForExistence(timeout: 25), "the chat never opened")
     }
 
-    /// The composer's field, whichever element kind it surfaces as.
-    ///
-    /// A `TextField` that has grown to more than one line surfaces as a
-    /// `TextView`, so both have to be allowed for. This used to choose
-    /// between them *before* the app had drawn: called straight after
-    /// `launch()`, `exists` was false on the `TextField` query, so it handed
-    /// back the `TextView` one and the caller then spent its whole 25-second
-    /// budget waiting on a query that cannot match an empty composer. Which
-    /// screen lost the race varied by machine load, which is why this suite
-    /// failed on a different test every run and looked like flake.
-    ///
-    /// So: wait for either, and return the one that arrived.
-    private func composerField(timeout: TimeInterval = 25) -> XCUIElement {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            let asField = app.textFields[A11yID.composerField].firstMatch
-            if asField.exists { return asField }
-            let asView = app.textViews[A11yID.composerField].firstMatch
-            if asView.exists { return asView }
-            Thread.sleep(forTimeInterval: 0.25)
-        }
-        // Nothing came. Hand back the field query so the caller's own
-        // assertion is the one that reports it.
-        return app.textFields[A11yID.composerField].firstMatch
-    }
+    // `composerField()` is `UITestCase`'s now: it started here, and every
+    // screen in this suite wants the same answer to the same question.
 }

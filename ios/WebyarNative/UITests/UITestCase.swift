@@ -168,26 +168,59 @@ class UITestCase: XCTestCase {
     /// Messages behaves: you tap beside a message to dismiss, not on it. That
     /// is easy to miss while the sample conversation is short enough to leave
     /// the middle of the screen empty, and it stops being true the moment the
-    /// transcript fills up. So this walks the gutters up both edges, where the
-    /// space beside a bubble always is, and stops as soon as the keyboard
-    /// goes.
+    /// transcript fills up. So the tap goes in a gutter, up either edge, where
+    /// the space beside a bubble always is.
     ///
-    /// It starts below the navigation bar and works upwards from the keyboard.
-    /// A scroll view's frame reaches under the status bar, and a tap on the
-    /// status bar means "scroll to the top" to iOS — so a candidate up there
-    /// dismisses nothing and throws the transcript back to the beginning of
-    /// the conversation, which then fails the next assertion for a reason that
-    /// has nothing to do with keyboards.
+    /// WHICH gutter, though, is the whole of this. It used to be a ladder of
+    /// coordinates counted upwards from the top of the keyboard, and the first
+    /// two rungs of that ladder were never on the transcript at all: the
+    /// composer sits between the two, and it is attached as a
+    /// `safeAreaInset`, which shrinks a scroll view's CONTENT and leaves its
+    /// FRAME running the whole way down behind it. So `transcript.frame`
+    /// agreed that 30 points above the keyboard was inside the transcript,
+    /// and the tap landed on the composer's `.bar` background, which absorbs
+    /// a tap and dismisses nothing. Both gutters at that height, three
+    /// seconds a run, every run, teaching nothing. A composer one line taller
+    /// — a two-line draft, the emoji strip open, a device with a deeper home
+    /// indicator — would have eaten the next pair as well, and a transcript
+    /// full enough to cover its gutters would have eaten the rest and
+    /// returned false.
+    ///
+    /// A message row is the one thing on this screen that is certainly inside
+    /// the scroll view and certainly above the composer, so the rows are what
+    /// this aims between, newest first — which is also where the operator's
+    /// own thumb would be.
+    ///
+    /// The floor is the composer's own top, not the keyboard's. The ceiling
+    /// is the navigation bar: a scroll view's frame reaches under the status
+    /// bar, and a tap on the status bar means "scroll to the top" to iOS — so
+    /// a candidate up there dismisses nothing and throws the transcript back
+    /// to the beginning of the conversation, which then fails the next
+    /// assertion for a reason that has nothing to do with keyboards.
     @discardableResult
     func dismissKeyboardByTapping(_ transcript: XCUIElement, above keyboard: XCUIElement) -> Bool {
-        let frame = transcript.frame
+        let bounds = transcript.frame
         let chrome = app.navigationBars.firstMatch
-        let top = max(frame.minY, chrome.exists ? chrome.frame.maxY : 0) + 20
-        let bottom = keyboard.frame.minY - 30
-        guard bottom > top else { return false }
+        let ceiling = max(bounds.minY, chrome.exists ? chrome.frame.maxY : 0)
+        let composer = app.textFields[A11yID.composerField].firstMatch
+        let floor = min(
+            composer.exists ? composer.frame.minY : .greatestFiniteMagnitude,
+            keyboard.frame.minY
+        )
+        guard floor > ceiling else { return false }
 
-        for y in stride(from: bottom, to: top, by: -60) {
-            for x in [frame.maxX - 12, frame.minX + 12] {
+        // Rows lying wholly in the clear band, newest last on screen first.
+        var heights = visibleMessageFrames()
+            .filter { $0.height > 0 && $0.minY >= ceiling && $0.maxY <= floor }
+            .sorted { $0.midY > $1.midY }
+            .map(\.midY)
+        // A transcript can hold one message too tall to fit the band — a long
+        // note, a photo. The band itself is still scroll view and still not
+        // composer, so aim at the middle of it rather than giving up.
+        if heights.isEmpty { heights = [(ceiling + floor) / 2] }
+
+        for y in heights {
+            for x in [bounds.maxX - 12, bounds.minX + 12] {
                 app.coordinate(withNormalizedOffset: .zero)
                     .withOffset(CGVector(dx: x, dy: y))
                     .tap()
@@ -195,6 +228,44 @@ class UITestCase: XCTestCase {
             }
         }
         return false
+    }
+
+    /// Where the messages are right now, asked once.
+    ///
+    /// `messageRows()` walks two queries; calling it per candidate would put
+    /// the cost back that `messageRows()`'s own note is about.
+    func visibleMessageFrames() -> [CGRect] {
+        messageRows().filter(\.exists).map(\.frame)
+    }
+
+    /// The composer, whichever kind of element this iOS decided it is.
+    ///
+    /// A `TextField(axis: .vertical)` is a `textField` to XCUITest on iOS 26
+    /// and a `textView` on some other releases, and a `TextField` that has
+    /// grown past one line surfaces as a `TextView` on any of them. Neither is
+    /// worth pinning a test to, so both have to be allowed for.
+    ///
+    /// This used to choose between them *before* the app had drawn: called
+    /// straight after `launch()`, `exists` was false on the `TextField` query,
+    /// so it handed back the `TextView` one and the caller then spent its
+    /// whole 25-second budget waiting on a query that cannot match an empty
+    /// composer. Which screen lost the race varied by machine load, which is
+    /// why this suite failed on a different test every run and looked like
+    /// flake.
+    ///
+    /// So: wait for either, and return the one that arrived.
+    func composerField(timeout: TimeInterval = 25) -> XCUIElement {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let asField = app.textFields[A11yID.composerField].firstMatch
+            if asField.exists { return asField }
+            let asView = app.textViews[A11yID.composerField].firstMatch
+            if asView.exists { return asView }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        // Nothing came. Hand back the field query so the caller's own
+        // assertion is the one that reports it.
+        return app.textFields[A11yID.composerField].firstMatch
     }
 
     /// Waits for an element to go away, which `waitForExistence` cannot do.

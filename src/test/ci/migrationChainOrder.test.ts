@@ -156,13 +156,96 @@ describe('supabase migration chain — dependency order', () => {
   it('creates public.platform_settings before its first ALTER', () => {
     const origin = created.get('platform_settings');
     expect(origin).toBeDefined();
-    expect(origin! < '20260414134641').toBe(true);
+    // Either a hosted migration creates it early enough, or it is already
+    // there because the self-host chain did — which is what BASELINE means
+    // and, since 100a, is the case.
+    expect(origin === BASELINE || origin! < '20260414134641').toBe(true);
   });
 
   it('creates public.workspace_domains_extended before its first policy', () => {
     const origin = created.get('workspace_domains_extended');
     expect(origin).toBeDefined();
     expect(origin! < '20260415082424').toBe(true);
+  });
+
+  it('never references a table before the migration that creates it', () => {
+    expect(violations).toEqual([]);
+  });
+});
+
+describe('self-host migration chain — dependency order', () => {
+  // The same walk the hosted chain gets above, over `database/migrations`.
+  //
+  // It was never run here, and six tables went missing because of it:
+  // workspace_usage_counters, call_center_settings, platform_branding,
+  // billing_payments, platform_settings and plan_change_log were altered,
+  // inserted into and read by this chain and created by none of it. A real
+  // install stopped at 101 on `relation "public.call_center_settings" does
+  // not exist`; the integration suite did not, because its fixture created
+  // three of the six itself.
+  //
+  // The baseline here is empty on purpose. The hosted chain may lean on this
+  // one — that is what `baselineTables()` above is for — but this chain runs
+  // against a database holding nothing but the `auth` schema GoTrue brings,
+  // so `public` starts bare and every table it touches must be its own.
+  const dir = 'database/migrations';
+  const files = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
+
+  const created = new Map<string, string>();
+  const violations: string[] = [];
+
+  for (const file of files) {
+    const sql = readFileSync(`${dir}/${file}`, 'utf8').replace(/--[^\n]*/g, '');
+
+    for (const m of sql.matchAll(
+      /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?"?([a-z0-9_]+)"?/gi,
+    )) {
+      const t = m[1].toLowerCase();
+      if (!created.has(t)) created.set(t, file);
+    }
+
+    // Only the forms that fail at apply time. A reference inside a plpgsql
+    // body resolves when the function is called, not when it is created —
+    // 016a reaches workspace_usage_counters that way and applied cleanly for
+    // as long as nobody ended a call.
+    const refs: Array<[RegExp, string]> = [
+      [/ALTER\s+TABLE\s+(?:ONLY\s+)?(?:IF\s+EXISTS\s+)?public\.([a-z0-9_]+)/gi, 'ALTER TABLE'],
+      [/CREATE\s+POLICY[^;]*?\sON\s+(?:public\.)?([a-z0-9_"]+)/gi, 'CREATE POLICY'],
+      [/CREATE\s+(?:OR\s+REPLACE\s+)?TRIGGER[^;]*?\sON\s+public\.([a-z0-9_]+)/gi, 'CREATE TRIGGER'],
+    ];
+
+    for (const [re, kind] of refs) {
+      for (const m of sql.matchAll(re)) {
+        const t = m[1].replace(/"/g, '').toLowerCase();
+        if (!created.has(t)) violations.push(`${file}: ${kind} public.${t} before its creation`);
+      }
+    }
+  }
+
+  it('creates the hosted-parity tables before anything alters them', () => {
+    for (const [table, firstUser] of [
+      ['call_center_settings', '101'],
+      ['platform_branding', '104'],
+      ['billing_payments', '105'],
+      ['user_notification_prefs', '136'],
+      ['platform_settings', '152'],
+      ['plan_change_log', '154'],
+    ] as const) {
+      const origin = created.get(table);
+      expect(origin, `${table} is created by no migration in this chain`).toBeDefined();
+      expect(
+        origin! < firstUser,
+        `${table} is created by ${origin}, after ${firstUser} already uses it`,
+      ).toBe(true);
+    }
+  });
+
+  it('creates workspace_usage_counters, which only a function body reaches', () => {
+    // 016a increments this table from inside plpgsql, so it resolves at call
+    // time and the walk above cannot see it. That is precisely why it stayed
+    // missing: the chain applied clean and the first operator to end a call
+    // got the error instead.
+    expect(created.get('workspace_usage_counters')).toBeDefined();
   });
 
   it('never references a table before the migration that creates it', () => {
@@ -267,7 +350,9 @@ export function analyzeChain(dir: string, files: string[]) {
   const snapshots = new Map<string, TableState>();
 
   for (const file of files) {
-    const sql = readFileSync(`${dir}/${file}`, 'utf8').replace(/--[^\n]*/g, '');
+    const sql = withoutDynamicSql(
+      readFileSync(`${dir}/${file}`, 'utf8').replace(/--[^\n]*/g, ''),
+    );
 
     // --- CREATE TABLE ---
     for (const m of sql.matchAll(
@@ -388,6 +473,27 @@ export function analyzeChain(dir: string, files: string[]) {
   }
 
   return { tables, problems, snapshots };
+}
+
+
+/**
+ * Blank out the inside of `EXECUTE '...'` strings.
+ *
+ * A statement built at runtime is not a static reference to a column, and in
+ * this chain it is usually the opposite: the one place that deliberately
+ * tolerates a column being absent. billing_v2_grant_cycle_allowance checks
+ * information_schema for workspace_ai_balance_lots.metadata and only then
+ * EXECUTEs an UPDATE naming it, precisely because the column exists in the
+ * self-host chain and not in the hosted one. Reading that quoted text as a
+ * real UPDATE reports a break that cannot happen.
+ *
+ * Only the string contents go; the quotes and the surrounding statement stay,
+ * so offsets and the rest of the scan are unaffected.
+ */
+function withoutDynamicSql(sql: string): string {
+  return sql.replace(/\bEXECUTE\s+'((?:[^']|'')*)'/gi, (whole, body: string) =>
+    whole.replace(body, ' '.repeat(body.length)),
+  );
 }
 
 describe('supabase migration chain — column contract', () => {

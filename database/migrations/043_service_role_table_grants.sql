@@ -37,6 +37,32 @@
 -- note). Granting anon/authenticated here would open exactly the direct
 -- browser/PostgREST seat-creation path that boundary exists to close, so
 -- this migration grants service_role only.
+-- REVOKE first, and this is the part that was missing.
+--
+-- The comment above says 000 is explicit that service_role gets no implicit
+-- privileges. That is true of 000 and false of the database 000 runs on.
+-- The documented self-host image, supabase/postgres, ships
+--
+--     ALTER DEFAULT PRIVILEGES IN SCHEMA public
+--       GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role
+--
+-- for both the `postgres` and `supabase_admin` grantors, so every table this
+-- chain creates arrives with ALL already granted to all three roles — and
+-- nothing in 000 takes it back. The verification block below caught it
+-- honestly and stopped the chain here, which is why no self-host deployment
+-- has ever reached migration 044.
+--
+-- Granting the exact set is therefore not enough; the implicit set has to be
+-- removed. These three tables are the ones this migration governs, and its
+-- model for them is already written down above: service_role only, and on
+-- accounts / account_members read-only. anon and authenticated get nothing —
+-- leaving them the image's ALL would open the direct browser/PostgREST
+-- seat-creation path that 042's trust boundary exists to close, with RLS as
+-- the only thing left in the way.
+REVOKE ALL ON public.accounts FROM anon, authenticated, service_role;
+REVOKE ALL ON public.account_members FROM anon, authenticated, service_role;
+REVOKE ALL ON public.workspace_invitations FROM anon, authenticated, service_role;
+
 GRANT SELECT ON public.accounts TO service_role;
 GRANT SELECT ON public.account_members TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.workspace_invitations TO service_role;

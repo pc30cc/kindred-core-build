@@ -331,7 +331,24 @@ jobs:
         uses: supabase/setup-cli@v1
         with:
           # Pinned: `latest` would make this proof non-reproducible.
-          version: 2.34.3
+          #
+          # Was 2.34.3, which cannot parse this repo's own SQL. Its statement
+          # splitter (pkg/parser/state.go) starts a BEGIN ATOMIC function body
+          # whenever the six characters it just read spell "atomic", with no
+          # word-boundary check -- the file's own comment admits the hazard for
+          # a column named ATOMIC. We have a *function* named
+          # `public.wi_fail_otp_job_atomic`, so from its opening paren the
+          # splitter swallows every `;` until some later text happens to spell
+          # "end" (it does, inside `wi_otp_job_sendable`), by which point three
+          # CREATE FUNCTIONs are one chunk and Postgres answers "cannot insert
+          # multiple commands into a prepared statement".
+          #
+          # The SQL is valid: the self-host job applies the same statements
+          # through psql without complaint. It is the tool that cannot read it,
+          # and the function's name is in migration history we do not rewrite.
+          # Reproduced on 2.34.3 and confirmed fixed on 2.117.0, which is also
+          # closer to the 17.6 Postgres production actually runs.
+          version: 2.117.0
 
       - name: Fail if the Supabase CLI or Docker is unavailable
         run: |

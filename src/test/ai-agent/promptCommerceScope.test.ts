@@ -46,3 +46,42 @@ describe('a connected catalogue outranks the business description about what is 
     expect(prompt()).toContain('a tool result named commerce.* is real store data');
   });
 });
+
+/**
+ * Three claims from one live conversation, none of them true:
+ *
+ *   «صفحه محصول … را باز کردم»                    — it cannot open a page
+ *   «آن را به سبد خرید اضافه کنم؟»                 — it cannot add to a cart
+ *   «کدی که به شماره همراه شما ارسال می‌شود را …»  — no such flow exists
+ *
+ * The last is the worst: the visitor had just said they would verify, and
+ * the assistant walked them into a one-time-password flow it invented,
+ * leaving them waiting for an SMS that was never going to arrive.
+ */
+describe('the assistant reads and tells; it does not drive the shop', () => {
+  const p = () => buildSystemPrompt(makeSettings({ business_description: ONLINE_PRESENCE }) as any, 'fa');
+
+  it('cannot open or navigate to a page', () => {
+    expect(p()).toMatch(/you cannot open, load or navigate to a page/);
+  });
+
+  it('cannot touch a cart or an order', () => {
+    const text = p();
+    expect(text).toContain('add anything to a cart');
+    expect(text).toContain('place, change or cancel an order');
+  });
+
+  it('cannot start a verification or a one-time-password flow', () => {
+    expect(p()).toMatch(/start a verification, a login or a one-time-password flow/);
+  });
+
+  it('and must not merely avoid doing them — it must not offer either', () => {
+    // Offering is what pulled the visitor along: every refusal ended with
+    // "shall I open the page / add it to the basket?".
+    expect(p()).toContain('Never say you have done any of these and never offer to');
+  });
+
+  it('while still being told what it CAN do instead', () => {
+    expect(p()).toContain('Give the product link and let the visitor open it');
+  });
+});

@@ -23,6 +23,7 @@ export type CommerceIntent =
   | { kind: 'order_status' }
   | { kind: 'order_lookup'; orderNumber: string }
   | { kind: 'browse_products' }
+  | { kind: 'product_reviews'; text: string }
   | { kind: 'list_categories' }
   | { kind: 'store_info' };
 
@@ -46,6 +47,15 @@ const STORE_INFO_KEYWORDS = /ساعا?ت کاری|فروشگاه شما کجاس
 // The question is a request to browse, and browsing needs no text filter at
 // all. Both of these are checked before the search branches below, because
 // «چی دارید» also contains the availability word «دارید».
+// «نظرات در مورد این محصول چیه» / «ریویو بخون» / «چند ستاره گرفته». Checked
+// before the product branches, because a review question names a product too
+// and would otherwise come back as a price.
+// No `\b` anywhere in here: JavaScript word boundaries are ASCII-only, so
+// «نظرات» followed by a space is NOT a boundary and the pattern silently
+// missed the most obvious phrasing of all — «نظرات در مورد این محصول چیه».
+// The plural/compound forms are listed instead, which also keeps «نظرت چیه»
+// (the visitor asking the ASSISTANT's opinion) out of it.
+const REVIEW_KEYWORDS = /نظرات|نظرها|نظرهای|نظر مشتری|نظر کاربر|ریویو|reviews?|امتیاز|چند ستاره|ستاره گرفته|rating/i;
 const BROWSE_KEYWORDS = /چی\s*(?:دارید|دارین|داری)|چیا\s*(?:دارید|دارین)|چه\s*محصولات|لیست\s*محصولات|همه[\s\u200c]*محصولات|محصولات\s*(?:شما|تون|خودتون)|what\s+(?:do\s+you\s+)?(?:have|sell)|product\s+list|show\s+me\s+(?:your\s+)?products/i;
 // «دسته بندی», «دسته‌بندی» and «دسته‌بندی‌ها» — the space and the ZWNJ are
 // both ordinary spellings of the same word.
@@ -127,6 +137,7 @@ export function detectCommerceIntent(question: string): CommerceIntent {
 
   if (STORE_INFO_KEYWORDS.test(scan)) return { kind: 'store_info' };
 
+  if (REVIEW_KEYWORDS.test(scan)) return { kind: 'product_reviews', text };
   if (CATEGORY_KEYWORDS.test(scan)) return { kind: 'list_categories' };
   if (BROWSE_KEYWORDS.test(scan)) return { kind: 'browse_products' };
 

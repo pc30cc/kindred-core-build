@@ -21,6 +21,7 @@ final class Capabilities {
 			'products.read',
 			'catalog.export',
 			'availability.read',
+			'reviews.read',
 			'orders.read',
 			'tracking.read',
 			'customer_context',

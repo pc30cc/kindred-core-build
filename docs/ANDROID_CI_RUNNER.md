@@ -4,7 +4,9 @@ How the self-hosted Actions runner host is configured, and why each piece is
 there. The decision to self-host, and the choice of this host over
 `analyticsme.site`, are in `docs/adr/ADR-003-native-android-app.md` §5.
 
-Prepared 2026-09-21. The runner is **not yet registered** — see *Remaining*.
+Prepared and registered 2026-09-21. The runner is live:
+`actions.runner.pc30cc-kindred-core-build.vps-50cc1602-android.service`,
+labels `self-hosted,linux,x64,android`, enabled at boot.
 
 ## The constraint this whole file is about
 
@@ -95,22 +97,39 @@ is equivalent to root — a container can bind-mount `/` — so adding it would
 undo the point above completely. The Android build needs Gradle, a JDK and the
 SDK; it does not need Docker.
 
-## Remaining
+### 5. Registration
 
-Registration needs a token that only a repository admin can mint, so it was
-not done from here. On the host, as root:
+Done via `/home/ubuntu/actions-runner/finish-setup.sh <token>`, which registers
+as `ubuntu`, installs the service, writes the `ci.slice` drop-in and starts it.
+The script is kept on the host for re-registering after a token rotation or a
+rebuild; registration tokens are single-use and expire in about an hour, and
+come from **Settings → Actions → Runners → New self-hosted runner**.
+
+Confirmed at registration: `Connected to GitHub`, `Listening for Jobs`, runner
+2.337.0, `User=ubuntu`, `Slice=ci.slice`, `Nice=10`,
+`IOSchedulingClass=idle`, and `ci.slice` reporting `memory.max=2147483648` /
+`memory.high=1610612736`. The unit is `enabled`, so it returns after a reboot.
+
+### 6. One thing `svc.sh install` gets wrong
+
+`svc.sh install` captures the PATH of whatever shell installed it and writes it
+to `.path`, which the runner then hands to every job. Installed from an
+automation shell, that file began:
 
 ```
-/home/ubuntu/actions-runner/finish-setup.sh <registration-token>
+/root/.npm/_npx/<hash>/node_modules/.bin:/home/ubuntu/node_modules/.bin:...
 ```
 
-The token comes from **Settings → Actions → Runners → New self-hosted runner**
-on `pc30cc/kindred-core-build`, in the `./config.sh --token XXXX` line. It is
-valid for about an hour.
+— root-owned npx directories in the PATH of a service running as `ubuntu`.
+Dead entries rather than a privilege hole, since `ubuntu` cannot use them, but
+they do not belong in a build environment and would be a confusing thing to
+debug later. `.path` was replaced with a plain system PATH:
 
-The script registers as `ubuntu` with labels
-`self-hosted,linux,x64,android`, installs the service, applies the `ci.slice`
-drop-in and starts it.
+```
+/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+```
+
+Worth re-checking after any future `svc.sh install`.
 
 ## Verifying afterwards
 

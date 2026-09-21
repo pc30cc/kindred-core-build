@@ -126,18 +126,6 @@ than a network fault. `android/gradle.properties` therefore sets
 for it in its own step so that the day this changes, the error says what it
 is.
 
-## Two security decisions worth not reversing
-
-**The runner runs as `ubuntu`, never as root.** `config.sh` refuses to run as
-root unless forced, and it is right to: a workflow running as root on this box
-would have the Supabase data directory, the WordPress database and Coolify's
-own credentials.
-
-**`ubuntu` is deliberately not in the `docker` group.** Docker group membership
-is equivalent to root — a container can bind-mount `/` — so adding it would
-undo the point above completely. The Android build needs Gradle, a JDK and the
-SDK; it does not need Docker.
-
 ### 5. Registration
 
 Done via `/home/ubuntu/actions-runner/finish-setup.sh <token>`, which registers
@@ -171,6 +159,18 @@ debug later. `.path` was replaced with a plain system PATH:
 ```
 
 Worth re-checking after any future `svc.sh install`.
+
+## Two security decisions worth not reversing
+
+**The runner runs as `ubuntu`, never as root.** `config.sh` refuses to run as
+root unless forced, and it is right to: a workflow running as root on this box
+would have the Supabase data directory, the WordPress database and Coolify's
+own credentials.
+
+**`ubuntu` is deliberately not in the `docker` group.** Docker group membership
+is equivalent to root — a container can bind-mount `/` — so adding it would
+undo the point above completely. The Android build needs Gradle, a JDK and the
+SDK; it does not need Docker.
 
 ## What the first real build did to the host
 

@@ -17,6 +17,7 @@ import type { ServerConfig } from '../../config.js';
 import { getServiceClient } from '../../supabase.js';
 import { sendEmail } from '../email/index.js';
 import { sendSms } from '../sms/index.js';
+import { toProviderFormat } from '../phoneVerification/phone.js';
 import {
   renderOtpEmail,
   renderInviteEmail,
@@ -384,7 +385,8 @@ async function processJob(config: ServerConfig, job: any): Promise<void> {
   const smsLocale = normalizeNotificationLocale(payload.locale);
   const smsBody = renderInviteSms(smsLocale, payload.workspace_name, payload.email);
   const smsResult = await sendSms(config, {
-    to: payload.phone,
+    // Stored as E.164; the vendors want the local form (see toProviderFormat).
+    to: toProviderFormat(payload.phone),
     body: smsBody,
   } as any);
 

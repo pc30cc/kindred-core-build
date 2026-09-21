@@ -44,11 +44,12 @@ export function BrandLoader({
           aria-hidden
         />
         <span className="absolute inset-0 rounded-full border border-primary/15" aria-hidden />
-        {/* Inset so the ring reads as orbiting the mark, not touching it. */}
+        {/* Inset so the ring reads as orbiting the mark, not touching it.
+            Explicit size: an <img> keeps its intrinsic size under `inset`. */}
         <BrandLogo
           src={logoUrl}
           className="absolute rounded-[24%] shadow-[var(--shadow-card)]"
-          style={{ inset: s.pad }}
+          style={{ top: s.pad, left: s.pad, width: s.box - s.pad * 2, height: s.box - s.pad * 2 }}
         />
       </div>
       {showLabel && (

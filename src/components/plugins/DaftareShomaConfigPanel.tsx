@@ -136,9 +136,12 @@ export function DaftareShomaConfigPanel({ workspaceId }: { workspaceId: string }
         ...(password.trim() ? { sip_password: password.trim() } : {}),
       }),
     }),
-    onSuccess: () => {
+    onSuccess: (res) => {
       setPassword('');
-      toast({ title: t('plugins.daftareshoma.toast.saved') });
+      toast({
+        title: t('plugins.daftareshoma.toast.saved'),
+        description: res.warning ? describe(res.warning) : undefined,
+      });
       invalidate();
     },
     onError: fail,

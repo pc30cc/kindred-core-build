@@ -5,11 +5,12 @@
  */
 import { cn } from '@/lib/utils';
 import { BrandLogo } from './BrandLogo';
+import webyarW from '@/assets/webyar-w.png';
 
 const SIZES = {
-  sm: { box: 56, pad: 8, label: 'text-[9px] tracking-[0.06em]' },
-  md: { box: 84, pad: 11, label: 'text-xs tracking-[0.08em]' },
-  lg: { box: 120, pad: 16, label: 'text-base tracking-[0.08em]' },
+  sm: { box: 56, mark: 24, label: 'text-[9px] tracking-[0.28em]' },
+  md: { box: 84, mark: 36, label: 'text-[11px] tracking-[0.32em]' },
+  lg: { box: 120, mark: 52, label: 'text-sm tracking-[0.36em]' },
 } as const;
 
 export function BrandLoader({
@@ -44,16 +45,36 @@ export function BrandLoader({
           aria-hidden
         />
         <span className="absolute inset-0 rounded-full border border-primary/15" aria-hidden />
-        {/* Wordmark sits inside the ring. */}
-        <span
-          className={cn(
-            'absolute inset-0 flex items-center justify-center font-display font-semibold lowercase text-primary',
-            s.label,
+        {/* Bare W mark inside the ring, painted through a CSS mask so it takes
+            the theme's primary colour. Operator branding (logoUrl) wins. */}
+        <span className="absolute inset-0 flex items-center justify-center">
+          {logoUrl ? (
+            <BrandLogo src={logoUrl} className="rounded-[26%]" style={{ width: s.mark, height: s.mark }} />
+          ) : (
+            <span
+              aria-hidden
+              className="bg-primary"
+              style={{
+                width: s.mark,
+                height: s.mark,
+                WebkitMaskImage: `url(${webyarW})`,
+                maskImage: `url(${webyarW})`,
+                WebkitMaskRepeat: 'no-repeat',
+                maskRepeat: 'no-repeat',
+                WebkitMaskPosition: 'center',
+                maskPosition: 'center',
+                WebkitMaskSize: 'contain',
+                maskSize: 'contain',
+              }}
+            />
           )}
-        >
-          {label}
         </span>
       </div>
+      {showLabel && (
+        <span className={cn('font-display font-semibold uppercase text-muted-foreground', s.label)}>
+          {label}
+        </span>
+      )}
       <span className="sr-only">Loading</span>
     </div>
   );

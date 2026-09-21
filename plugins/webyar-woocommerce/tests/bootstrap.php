@@ -95,6 +95,9 @@ if ( ! defined( 'WEBYAR_WC_VERSION' ) ) {
 if ( ! defined( 'WEBYAR_WC_FILE' ) ) {
 	define( 'WEBYAR_WC_FILE', __DIR__ . '/../webyar-woocommerce.php' );
 }
+if ( ! defined( 'WEBYAR_WC_URL' ) ) {
+	define( 'WEBYAR_WC_URL', 'https://shop.example.com/wp-content/plugins/webyar-woocommerce/' );
+}
 if ( ! function_exists( 'plugin_basename' ) ) {
 	function plugin_basename( string $file ): string {
 		return 'webyar-woocommerce/webyar-woocommerce.php';
@@ -156,6 +159,27 @@ if ( ! function_exists( 'delete_site_transient' ) ) {
 if ( ! function_exists( 'apply_filters' ) ) {
 	function apply_filters( string $hook, $value ) { return $value; }
 }
+
+// Style registration, recorded rather than performed — what the plugins
+// screen test asserts is which CSS was handed to WordPress.
+$GLOBALS['__webyar_test_styles'] = array();
+if ( ! function_exists( 'wp_register_style' ) ) {
+	function wp_register_style( string $handle, $src, array $deps = array(), $ver = false ): bool {
+		$GLOBALS['__webyar_test_styles'][ $handle ] = array( 'src' => $src, 'inline' => array() );
+		return true;
+	}
+}
+if ( ! function_exists( 'wp_enqueue_style' ) ) {
+	function wp_enqueue_style( string $handle ): void {
+		$GLOBALS['__webyar_test_styles'][ $handle ]['enqueued'] = true;
+	}
+}
+if ( ! function_exists( 'wp_add_inline_style' ) ) {
+	function wp_add_inline_style( string $handle, string $css ): bool {
+		$GLOBALS['__webyar_test_styles'][ $handle ]['inline'][] = $css;
+		return true;
+	}
+}
 if ( ! function_exists( '__' ) ) {
 	function __( string $text, string $domain = '' ): string { return $text; }
 }
@@ -165,3 +189,4 @@ require_once __DIR__ . '/../src/Auth/RequestSigner.php';
 require_once __DIR__ . '/../src/Auth/CredentialStore.php';
 require_once __DIR__ . '/../src/Auth/PairingService.php';
 require_once __DIR__ . '/../src/Support/Updater.php';
+require_once __DIR__ . '/../src/Admin/PluginsScreen.php';

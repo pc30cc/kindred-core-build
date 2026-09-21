@@ -43,7 +43,15 @@ function checkForUpdate(opts: {
   appUrl?: string | null;
   networkError?: boolean;
   repeat?: number;
-}): { update: string | null; toggle: string | null; fetches: number; url: string | null } {
+}): {
+  update: string | null;
+  toggle: string | null;
+  fetches: number;
+  url: string | null;
+  updatePackage: string | null;
+  togglePackage: string | null;
+  icon: string | null;
+} {
   const payload = JSON.stringify({
     manifest: opts.manifest ?? null,
     status: opts.status ?? 200,
@@ -67,11 +75,15 @@ function checkForUpdate(opts: {
       $t = $u->inject_update($t);
     }
     $k = "webyar-woocommerce/webyar-woocommerce.php";
+    $item = $t->response[$k] ?? $t->no_update[$k] ?? null;
     echo json_encode([
-      "update"  => isset($t->response[$k]) ? $t->response[$k]->new_version : null,
-      "toggle"  => isset($t->no_update[$k]) ? $t->no_update[$k]->new_version : null,
-      "fetches" => count($GLOBALS["__webyar_test_fetched"]),
-      "url"     => $GLOBALS["__webyar_test_fetched"][0] ?? null,
+      "update"        => isset($t->response[$k]) ? $t->response[$k]->new_version : null,
+      "toggle"        => isset($t->no_update[$k]) ? $t->no_update[$k]->new_version : null,
+      "fetches"       => count($GLOBALS["__webyar_test_fetched"]),
+      "url"           => $GLOBALS["__webyar_test_fetched"][0] ?? null,
+      "updatePackage" => isset($t->response[$k]) ? $t->response[$k]->package : null,
+      "togglePackage" => isset($t->no_update[$k]) ? $t->no_update[$k]->package : null,
+      "icon"          => $item ? ($item->icons["1x"] ?? null) : null,
     ]);
   `;
   return JSON.parse(execFileSync('php', ['-r', script, '--', payload], { cwd: PLUGIN_DIR, encoding: 'utf8' }));
@@ -171,13 +183,19 @@ describe.skipIf(!hasPhp())('what the store is told about a new build', () => {
 
     expect(result.update).toBeNull();
     expect(result.toggle).toBe('1.1.0');
+    // Inert by construction: there is nothing here for WordPress to fetch.
+    expect(result.togglePackage).toBe('');
   });
 
-  it('says nothing at all when the manifest points somewhere else', () => {
+  it('offers nothing to install when the manifest points somewhere else', () => {
+    // The tampered package is discarded, so no update is offered — but the
+    // plugin still reports in, because losing the auto-update toggle is not
+    // the right answer to a bad manifest.
     const result = checkForUpdate({ manifest: { ...MANIFEST, package: 'https://evil.example.net/p.zip' } });
 
     expect(result.update).toBeNull();
-    expect(result.toggle).toBeNull();
+    expect(result.toggle).toBe('1.1.0');
+    expect(result.togglePackage).toBe('');
   });
 
   it('rejects a version string that is not a version', () => {
@@ -193,9 +211,30 @@ describe.skipIf(!hasPhp())('what the store is told about a new build', () => {
       { manifest: { ...MANIFEST, version: undefined } },
     ]) {
       const result = checkForUpdate(broken as never);
+      // Nothing is offered, and nothing is left for WordPress to download.
       expect(result.update).toBeNull();
-      expect(result.toggle).toBeNull();
+      expect(result.togglePackage).toBe('');
     }
+  });
+
+  it('keeps the auto-update toggle even when it cannot reach Web Yar', () => {
+    // A dashboard that is down for an hour must not make the toggle vanish
+    // from the store's plugins screen — the setting is the owner's
+    // intention, not a claim that a newer build was found.
+    for (const broken of [
+      { status: 500, manifest: MANIFEST },
+      { manifest: '<html>oops</html>' },
+      { networkError: true, manifest: MANIFEST },
+    ]) {
+      expect(checkForUpdate(broken as never).toggle).toBe('1.1.0');
+    }
+  });
+
+  it('hands WordPress the logo that is already installed, not one from the network', () => {
+    // An icon URL taken from a fetched manifest would be remote content
+    // rendered inside wp-admin on the say-so of that file.
+    expect(checkForUpdate({ manifest: MANIFEST }).icon)
+      .toBe('https://shop.example.com/wp-content/plugins/webyar-woocommerce/assets/icon-128x128.png');
   });
 
   it('does not reach the network before the store is configured', () => {
@@ -205,6 +244,8 @@ describe.skipIf(!hasPhp())('what the store is told about a new build', () => {
 
     expect(result.fetches).toBe(0);
     expect(result.update).toBeNull();
+    // …and it is still listed, so the toggle is there once it is configured.
+    expect(result.toggle).toBe('1.1.0');
   });
 
   it('asks the configured install, once, however often WordPress checks', () => {

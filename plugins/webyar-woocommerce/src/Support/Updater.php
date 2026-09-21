@@ -47,8 +47,14 @@ final class Updater {
 	 * WordPress asks every plugin what it knows about updates, and then uses
 	 * the answer twice: `response` drives the update notice, and `no_update`
 	 * is what makes the "Enable auto-updates" link appear at all. A plugin
-	 * that reports only when an update EXISTS never gets that toggle, so the
-	 * up-to-date case is filled in deliberately rather than left empty.
+	 * that reports only when an update EXISTS never gets that toggle.
+	 *
+	 * So the up-to-date case is filled in unconditionally — including when
+	 * the manifest could not be read, because a store whose Web Yar install
+	 * is briefly unreachable, or not configured yet, should still be able to
+	 * say "keep this updated". The toggle records an intention; it is not a
+	 * claim that a newer build was found. Nothing is installed from a
+	 * `no_update` entry, so the fallback carries no download URL at all.
 	 *
 	 * @param mixed $transient
 	 * @return mixed
@@ -57,38 +63,67 @@ final class Updater {
 		if ( ! is_object( $transient ) ) {
 			return $transient;
 		}
+		$key      = self::basename();
 		$manifest = $this->manifest();
-		if ( null === $manifest ) {
+
+		if ( null !== $manifest && version_compare( $manifest['version'], WEBYAR_WC_VERSION, '>' ) ) {
+			$transient->response[ $key ] = $this->item( $manifest['version'], $manifest['package'], $manifest );
+			unset( $transient->no_update[ $key ] );
 			return $transient;
 		}
 
-		$item = (object) array(
+		// Same shape, minus the promise of something newer.
+		$transient->no_update[ $key ] = $this->item( WEBYAR_WC_VERSION, '', $manifest );
+		unset( $transient->response[ $key ] );
+
+		return $transient;
+	}
+
+	/**
+	 * @param array<string,string>|null $manifest
+	 * @return object
+	 */
+	private function item( string $version, string $package, ?array $manifest ) {
+		return (object) array(
 			'id'            => 'webyar.ai/' . self::basename(),
 			'slug'          => 'webyar-woocommerce',
 			'plugin'        => self::basename(),
-			'new_version'   => $manifest['version'],
-			'url'           => $manifest['homepage'],
-			'package'       => $manifest['package'],
-			'requires'      => $manifest['requires'],
-			'requires_php'  => $manifest['requires_php'],
-			'tested'        => $manifest['tested'],
-			'icons'         => array(),
+			'new_version'   => $version,
+			'url'           => $manifest['homepage'] ?? 'https://webyar.ai',
+			'package'       => $package,
+			'requires'      => $manifest['requires'] ?? '6.0',
+			'requires_php'  => $manifest['requires_php'] ?? '7.4',
+			'tested'        => $manifest['tested'] ?? '',
+			'icons'         => self::icons(),
 			'banners'       => array(),
 			'banners_rtl'   => array(),
 			'compatibility' => new \stdClass(),
 		);
+	}
 
-		if ( version_compare( $manifest['version'], WEBYAR_WC_VERSION, '>' ) ) {
-			$transient->response[ self::basename() ] = $item;
-			unset( $transient->no_update[ self::basename() ] );
-		} else {
-			// Same shape, minus the promise of something newer.
-			$item->new_version = WEBYAR_WC_VERSION;
-			$transient->no_update[ self::basename() ] = $item;
-			unset( $transient->response[ self::basename() ] );
-		}
-
-		return $transient;
+	/**
+	 * The logo WordPress draws beside an update, taken from the copy that is
+	 * already installed rather than from the manifest. An icon URL supplied
+	 * over the network would be remote content rendered inside wp-admin on
+	 * the say-so of a fetched file; the plugin ships its own, so there is
+	 * nothing to fetch and nothing to trust.
+	 *
+	 * One file answers all three sizes on purpose. WordPress draws this
+	 * plugin at 28px in the installed list and about 64px on the updates
+	 * screen — 128px covers both at 2x — and it never appears in the
+	 * wp.org plugin browser, which is the only place a 256px copy would
+	 * have been used. A second image would be bytes every store downloads
+	 * and nothing ever renders.
+	 *
+	 * @return array<string,string>
+	 */
+	public static function icons(): array {
+		$icon = WEBYAR_WC_URL . 'assets/icon-128x128.png';
+		return array(
+			'1x'      => $icon,
+			'2x'      => $icon,
+			'default' => $icon,
+		);
 	}
 
 	/**

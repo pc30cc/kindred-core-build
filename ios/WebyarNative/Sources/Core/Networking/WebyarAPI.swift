@@ -12,7 +12,7 @@ protocol WebyarAPI: Sendable {
     func currentUser() async throws -> User
     func logOut() async throws
     func discardSession() async
-    func requestPasswordReset(email: String) async throws
+    func requestPasswordReset(email: String, locale: String) async throws
 
     func workspaces() async throws -> [Workspace]
     func conversations(workspaceID: String, filter: InboxFilter) async throws -> [Conversation]

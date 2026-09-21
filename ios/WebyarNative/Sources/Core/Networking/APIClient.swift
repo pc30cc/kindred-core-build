@@ -280,6 +280,7 @@ actor APIClient {
 
     private struct ResetBody: Encodable, Sendable {
         let email: String
+        let locale: String
     }
 
     /// Asks the server to email a reset link.
@@ -288,8 +289,18 @@ actor APIClient {
     /// exists: the endpoint answers the same either way so that it cannot be
     /// used to discover which addresses have accounts, and the UI must not
     /// undo that by reporting a difference.
-    func requestPasswordReset(email: String) async throws {
-        let request = try makeRequest("POST", "/api/auth-email/send-reset", body: ResetBody(email: email))
+    ///
+    /// The locale is the operator's chosen interface language, and it is sent
+    /// because this is the one message the product writes to somebody who is
+    /// not signed in: there is no stored preference to look up on the server
+    /// side, so an app that did not say arrived as English no matter what the
+    /// screen it was requested from was written in.
+    func requestPasswordReset(email: String, locale: String) async throws {
+        let request = try makeRequest(
+            "POST",
+            "/api/auth-email/send-reset",
+            body: ResetBody(email: email, locale: locale)
+        )
         try await performIgnoringBody(request)
     }
 

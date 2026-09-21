@@ -17,20 +17,19 @@ enum Str {
         }
     }
 
-    /// The name as the wordmark draws it, which is not always how it is
-    /// written in a sentence.
+    /// The wordmark, which is the same in every language.
     ///
-    /// Latin is capitalised because the mark is letter-spaced and lowercase
-    /// letters track badly. Persian carries kashida — the elongation stroke —
-    /// rather than tracking, because the script is connected and tracking
-    /// would break its joins; the ZWNJ that `appName` uses is replaced by a
-    /// space, since at display size the two halves want air between them.
-    static func brandWordmark(_ l: Language) -> String {
-        switch l {
-        case .en, .tr: "WEBYAR"
-        case .fa: "وبــــ یــار"
-        }
-    }
+    /// `appName` is translated because it appears inside sentences — a
+    /// Persian sentence saying "Webyar" in Latin letters reads as a foreign
+    /// word dropped into it. A wordmark is not a word in a sentence: it is
+    /// the mark on the product, the same one on the icon, the website and
+    /// the invoice, and translating it would make the app look like a
+    /// different product depending on who opened it. So it is Latin,
+    /// capitalised, everywhere.
+    ///
+    /// Capitalised specifically because the mark is letter-spaced, and
+    /// lowercase letters track badly.
+    static let brandWordmark = "WEBYAR"
 
     static func cancel(_ l: Language) -> String {
         switch l {
@@ -114,21 +113,63 @@ enum Str {
         }
     }
 
-    /// Worded so it does not confirm whether the address has an account —
-    /// the endpoint deliberately answers the same either way.
-    static func resetSentBody(_ l: Language) -> String {
+    // MARK: - Password reset (its own screen)
+    //
+    // `resetSentBody` and `resetNeedsEmail` used to live here and are gone
+    // with the alert and the empty-field refusal they belonged to. The screen
+    // asks for the address instead of demanding one be already typed, and
+    // says where the link went instead of saying that one went somewhere.
+
+    static func resetTitle(_ l: Language) -> String {
         switch l {
-        case .en: "If that address has an account, a reset link is on its way."
-        case .fa: "اگر آن نشانی حسابی داشته باشد، پیوند بازنشانی برایش فرستاده می‌شود."
-        case .tr: "Bu adrese ait bir hesap varsa, sıfırlama bağlantısı yolda."
+        case .en: "Reset your password"
+        case .fa: "بازنشانی رمز عبور"
+        case .tr: "Parolanızı sıfırlayın"
         }
     }
 
-    static func resetNeedsEmail(_ l: Language) -> String {
+    static func resetSubtitle(_ l: Language) -> String {
         switch l {
-        case .en: "Enter your email address first."
-        case .fa: "نخست نشانی ایمیل خود را وارد کنید."
-        case .tr: "Önce e-posta adresinizi girin."
+        case .en: "Enter the email address you sign in with. We will send you a link to choose a new password."
+        case .fa: "نشانی ایمیلی که با آن وارد می‌شوید را بنویسید. پیوندی برایتان می‌فرستیم تا رمز تازه‌ای انتخاب کنید."
+        case .tr: "Giriş yaptığınız e-posta adresini yazın. Yeni bir parola seçmeniz için size bir bağlantı göndereceğiz."
+        }
+    }
+
+    static func sendResetLink(_ l: Language) -> String {
+        switch l {
+        case .en: "Send the link"
+        case .fa: "ارسال پیوند"
+        case .tr: "Bağlantıyı gönder"
+        }
+    }
+
+    static func backToLogin(_ l: Language) -> String {
+        switch l {
+        case .en: "Back to sign in"
+        case .fa: "بازگشت به ورود"
+        case .tr: "Girişe dön"
+        }
+    }
+
+    /// Shown once the request has gone. Still worded so it does not confirm
+    /// whether the address has an account.
+    static func resetSentDetail(_ l: Language, email: String) -> String {
+        switch l {
+        case .en: "If \(email) has an account, a link to choose a new password is on its way. It expires in 24 hours."
+        case .fa: "اگر \(email) حسابی داشته باشد، پیوندی برای انتخاب رمز تازه در راه است. این پیوند تا ۲۴ ساعت اعتبار دارد."
+        case .tr: "\(email) adresine ait bir hesap varsa, yeni parola seçmeniz için bir bağlantı yolda. Bağlantı 24 saat geçerlidir."
+        }
+    }
+
+    /// The nudge under the confirmation. People look in the inbox, find
+    /// nothing, and conclude it is broken — which is what the spam folder
+    /// usually is.
+    static func resetCheckSpam(_ l: Language) -> String {
+        switch l {
+        case .en: "Not there? Check your spam folder."
+        case .fa: "نیامد؟ پوشه‌ی هرزنامه را هم ببینید."
+        case .tr: "Gelmedi mi? Spam klasörünü de kontrol edin."
         }
     }
 

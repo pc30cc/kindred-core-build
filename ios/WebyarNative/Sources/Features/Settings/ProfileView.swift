@@ -133,19 +133,18 @@ struct ProfileView: View {
         List {
             Section {
                 VStack(spacing: Theme.Space.md) {
-                    ZStack {
-                        Avatar(
-                            name: displayName,
-                            imageURL: model.account?.profile?.avatarURL,
-                            size: Theme.Size.avatarLarge
-                        )
-                        if model.isUploadingPhoto {
-                            Circle()
-                                .fill(.black.opacity(0.35))
-                                .frame(width: Theme.Size.avatarLarge, height: Theme.Size.avatarLarge)
-                            ProgressView().tint(.white)
-                        }
-                    }
+                    // Drawn exactly the way the workspace logo two sections
+                    // below it is drawn: one `Avatar`, one layer, no chrome
+                    // of its own. While a new photo is going up the avatar
+                    // shows the skeleton — the same thing every other picture
+                    // in the app shows while it is still coming — instead of
+                    // a scrim and a spinner stacked over the operator's face.
+                    Avatar(
+                        name: displayName,
+                        imageURL: model.account?.profile?.avatarURL,
+                        size: Theme.Size.avatarLarge,
+                        isBusy: model.isUploadingPhoto
+                    )
 
                     ChangePhotoButton(
                         title: Str.changePhoto(language),
@@ -216,6 +215,7 @@ struct ProfileView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .dismissesKeyboardOnTap()
         .navigationTitle(Str.profile(language))
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load(appState: appState) }

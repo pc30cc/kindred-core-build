@@ -25,7 +25,7 @@ actor SampleAPI: WebyarAPI {
     func currentUser() async throws -> User { Self.user }
     func logOut() async throws {}
     func discardSession() {}
-    func requestPasswordReset(email: String) async throws {}
+    func requestPasswordReset(email: String, locale: String) async throws {}
 
     private static let user = User(
         id: "u-1",

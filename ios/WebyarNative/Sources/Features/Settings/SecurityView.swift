@@ -138,6 +138,7 @@ struct SecurityView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .dismissesKeyboardOnTap()
         .navigationTitle(Str.security(language))
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load(appState: appState) }

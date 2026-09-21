@@ -94,11 +94,17 @@ struct RootView: View {
 
 /// The brief moment before we know whether there is a session.
 ///
-/// It deliberately mirrors the launch screen — same background, same mark —
-/// so the handoff from the system launch image is invisible rather than a
-/// flash of a different layout.
+/// It takes over from the system's own launch image, which is a flat fill and
+/// nothing else, so the job is to continue that image rather than to replace
+/// it: same colour underneath, and everything this screen adds arrives by
+/// fading in on top of it. Anything already drawn at the first frame is a cut
+/// between two screens instead of one screen becoming another.
 struct LaunchView: View {
     @Environment(AppState.self) private var appState
+
+    @State private var hasAppeared = false
+    /// Set once the restore has gone on long enough to be worth admitting to.
+    @State private var isTakingAWhile = false
 
     /// Whether this run was asked to stay on the launch screen.
     ///
@@ -118,14 +124,87 @@ struct LaunchView: View {
 
     var body: some View {
         ZStack {
-            Color(uiColor: .systemBackground)
+            // The exact colour the system's launch image is filled with —
+            // `UILaunchScreen.UIColorName` in Info.plist names this asset.
+            //
+            // It used to be `.systemBackground`, which is pure white and pure
+            // black, and this asset is neither: #F4F6F9 and #0C0E14. So the
+            // handoff the comment above claimed to be invisible was in fact a
+            // one-frame change of background colour, on every single launch.
+            Color("LaunchBackground")
                 .ignoresSafeArea()
 
-            // The wordmark is the loading indicator. A spinner under it would
-            // be a second thing saying the same thing, and the pair is what
-            // makes a launch screen look assembled rather than designed.
-            BrandWordmark(language: appState.language, size: 40, isLoading: true)
+            // One soft pool of brand colour behind the mark. A launch screen
+            // has one thing on it and a lot of empty space; lighting the
+            // space is what stops the mark looking dropped onto a blank page.
+            RadialGradient(
+                colors: [Theme.Palette.brand.opacity(0.14), .clear],
+                center: .center,
+                startRadius: 0,
+                endRadius: 260
+            )
+            .ignoresSafeArea()
+            .opacity(hasAppeared ? 1 : 0)
+            .accessibilityHidden(true)
+
+            VStack(spacing: Theme.Space.xl) {
+                // The wordmark is the loading indicator. A spinner under it
+                // would be a second thing saying the same thing.
+                BrandWordmark(language: appState.language, size: 40, isLoading: true)
+
+                // Unless it is genuinely slow. The sweep is a shimmer on a
+                // logo: it reads as branding, and after a second or two of it
+                // an operator starts to wonder whether anything is happening.
+                // A restore that has taken longer than a moment has something
+                // to say, so it says it — and a fast launch, which is nearly
+                // all of them, never shows this at all.
+                LaunchProgress()
+                    .opacity(isTakingAWhile ? 1 : 0)
+            }
         }
+        .task {
+            withAnimation(.easeOut(duration: 0.55)) { hasAppeared = true }
+            try? await Task.sleep(for: .seconds(1.2))
+            withAnimation(.easeOut(duration: 0.35)) { isTakingAWhile = true }
+        }
+    }
+}
+
+/// A thin travelling segment: "still working", said quietly.
+///
+/// Pinned left-to-right like the wordmark above it. It sits under a Latin
+/// mark whose own sweep runs that way, and a bar running the other way in
+/// Persian would have the two moving against each other.
+private struct LaunchProgress: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var travel: CGFloat = -0.34
+
+    private let width: CGFloat = 132
+    private let height: CGFloat = 3
+    private var segment: CGFloat { 0.34 }
+
+    var body: some View {
+        Capsule()
+            .fill(Theme.Palette.brand.opacity(0.16))
+            .frame(width: width, height: height)
+            .overlay(alignment: .leading) {
+                Capsule()
+                    .fill(Theme.Palette.brand.opacity(reduceMotion ? 0.5 : 1))
+                    .frame(width: width * segment, height: height)
+                    // Parked a third of the way along for anyone who has asked
+                    // the system to reduce motion: the shape still reads as a
+                    // progress track rather than as a stray line.
+                    .offset(x: (reduceMotion ? 0.33 : travel) * width)
+            }
+            .clipShape(Capsule())
+            .environment(\.layoutDirection, .leftToRight)
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 1.25).repeatForever(autoreverses: false)) {
+                    travel = 1
+                }
+            }
+            .accessibilityHidden(true)
     }
 }
 
@@ -138,8 +217,11 @@ struct BrandMark: View {
     @Environment(AppState.self) private var appState
     var size: CGFloat = 64
 
+    /// The wordmark's first letter, not the translated name's. Same reason
+    /// `BrandWordmark` does not translate: this is the mark, and a "و" in the
+    /// box where every other surface shows a "W" is a different logo.
     private var letter: String {
-        String(Str.appName(appState.language).prefix(1))
+        String(Str.brandWordmark.prefix(1))
     }
 
     var body: some View {

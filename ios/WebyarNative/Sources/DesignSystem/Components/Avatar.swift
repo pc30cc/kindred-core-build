@@ -17,6 +17,18 @@ struct Avatar: View {
     let imageURL: String?
     var size: CGFloat = Theme.Size.avatarMedium
 
+    /// Something is being done to this picture right now — a new one being
+    /// uploaded, the current one being removed.
+    ///
+    /// It draws the skeleton in place of the face, which is the same thing
+    /// the app already shows for a picture that has not arrived yet. The
+    /// alternative, and what Settings used to do, is to lay a dimming circle
+    /// and a spinner OVER the avatar: three views stacked in one slot, the
+    /// operator's own face dimly visible behind a scrim, and a loading
+    /// vocabulary that appears nowhere else in the app. One layer, one
+    /// vocabulary.
+    var isBusy: Bool = false
+
     /// Visitor operating system, e.g. "Windows", "macOS", "Android".
     var os: String?
     /// Visitor device class — "desktop", "mobile", "tablet".
@@ -128,12 +140,26 @@ struct Avatar: View {
     /// skeleton, no flash.
     @ViewBuilder
     private var face: some View {
-        if let imageURL, let url = URL(string: imageURL) {
-            RemoteImage(url: url) { fallback }
+        if isBusy {
+            SkeletonFill()
+        } else if let imageURL, let url = URL(string: imageURL) {
+            RemoteImage(url: url, maxPixel: pixels) { fallback }
         } else {
             fallback
         }
     }
+
+    /// How large to decode this picture, from how large it will be drawn.
+    ///
+    /// `RemoteImage`'s own default is 256, which its note says suits an
+    /// avatar — and it does, for the 32-to-76 point ones in a list. The call
+    /// screen draws a face at 140 points, which is 420 pixels on a 3× screen,
+    /// so that default was handing it a 256-pixel image to stretch: the one
+    /// avatar in the app big enough to look at was the blurry one. Deriving
+    /// it here means every caller gets the right size without having to know
+    /// that it is a question, and the cache keys on the size, so the same
+    /// face at two sizes is two entries rather than one wrong one.
+    private var pixels: Int { Int((size * 3).rounded(.up)) }
 
     @ViewBuilder
     private var fallback: some View {

@@ -106,27 +106,21 @@ struct RootView: View {
         // after `restore()` because it also has to catch a sign-in on the
         // login screen and a switch of workspace, and the device row carries
         // the workspace so the server can scope the badge count to it.
-        .task(id: PushSessionKey(appState)) {
+        .task(id: pushSessionKey) {
             await PushController.shared.sessionChanged(
                 signedIn: appState.session.user != nil,
                 workspaceID: appState.selectedWorkspace?.id
             )
         }
     }
-}
 
-/// What "a different operator, or a different workspace" looks like to
-/// `.task(id:)`.
-///
-/// Its own type rather than a tuple because `.task(id:)` wants one `Equatable`
-/// value, and a struct says what the two strings are.
-private struct PushSessionKey: Equatable {
-    let userID: String?
-    let workspaceID: String?
-
-    init(_ state: AppState) {
-        userID = state.session.user?.id
-        workspaceID = state.selectedWorkspace?.id
+    /// Changes when a different operator signs in, or the same one moves to
+    /// another workspace. Written as one string for the same reason
+    /// `InboxView.reloadKey` is: `.task(id:)` wants a single value, and a
+    /// view's own computed property can read the environment where a separate
+    /// type's initializer cannot.
+    private var pushSessionKey: String {
+        "\(appState.session.user?.id ?? "-")|\(appState.selectedWorkspace?.id ?? "-")"
     }
 }
 

@@ -33,6 +33,11 @@ export interface TelephonyServiceConfig {
     sipEndpoint: string;
     trunkName: string;
     dispatchRuleName: string;
+    /** Digest credential LiveKit SIP challenges Asterisk's INVITE with. */
+    sipAuthUsername: string;
+    sipAuthPassword: string;
+    /** Optional extra CIDR restriction on the inbound trunk. */
+    sipAllowedAddresses: string[];
   };
   registrationTimeoutMs: number;
 }
@@ -100,6 +105,10 @@ export function loadConfig(): TelephonyServiceConfig {
       sipEndpoint: env('LIVEKIT_SIP_ENDPOINT') ?? 'livekit_sip',
       trunkName: env('LIVEKIT_SIP_TRUNK_NAME') ?? 'webyar-inbound-trunk',
       dispatchRuleName: env('LIVEKIT_SIP_DISPATCH_NAME') ?? 'webyar-callee-dispatch',
+      sipAuthUsername: env('LIVEKIT_SIP_AUTH_USERNAME') ?? 'webyar-telephony',
+      sipAuthPassword: required('LIVEKIT_SIP_AUTH_PASSWORD'),
+      sipAllowedAddresses: (env('LIVEKIT_SIP_ALLOWED_ADDRESSES') ?? '')
+        .split(',').map((v) => v.trim()).filter(Boolean),
     },
     registrationTimeoutMs: int('TELEPHONY_REGISTRATION_TIMEOUT_MS', 15000),
   };

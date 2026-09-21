@@ -26,6 +26,10 @@ async function main(): Promise<void> {
     apiSecret,
     trunkName: process.env.LIVEKIT_SIP_TRUNK_NAME ?? 'webyar-inbound-trunk',
     dispatchRuleName: process.env.LIVEKIT_SIP_DISPATCH_NAME ?? 'webyar-callee-dispatch',
+    authUsername: process.env.LIVEKIT_SIP_AUTH_USERNAME ?? 'webyar-telephony',
+    authPassword: process.env.LIVEKIT_SIP_AUTH_PASSWORD,
+    allowedAddresses: (process.env.LIVEKIT_SIP_ALLOWED_ADDRESSES ?? '')
+      .split(',').map((v) => v.trim()).filter(Boolean),
   });
 
   const ready = await client.ready();

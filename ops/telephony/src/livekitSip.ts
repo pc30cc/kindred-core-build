@@ -20,7 +20,13 @@ export interface LiveKitSipConfig {
   apiSecret: string;
   trunkName: string;
   dispatchRuleName: string;
-  /** Advertised so the trunk only accepts calls from our own Asterisk. */
+  /**
+   * Digest credential LiveKit SIP challenges the inbound INVITE with. Asterisk
+   * answers it through the `livekit_sip` endpoint's outbound_auth.
+   */
+  authUsername?: string;
+  authPassword?: string;
+  /** Optional extra restriction: CIDRs the trunk accepts calls from. */
   allowedAddresses?: string[];
 }
 
@@ -91,14 +97,30 @@ export function createLiveKitSipClient(
       );
       let trunk = (trunks.items ?? []).find((t) => t.name === cfg.trunkName);
       if (!trunk) {
-        trunk = await twirp('CreateSIPInboundTrunk', {
-          trunk: {
-            name: cfg.trunkName,
-            metadata: 'webyar-telephony',
-            allowed_addresses: cfg.allowedAddresses ?? [],
-            krisp_enabled: false,
-          },
-        });
+        // LiveKit refuses to create a wide-open inbound trunk: it requires at
+        // least one of auth credentials, allowed addresses or numbers. Fail
+        // with something an operator can act on instead of forwarding the
+        // opaque `invalid_argument` 400 it would otherwise return.
+        const hasAuth = Boolean(cfg.authUsername && cfg.authPassword);
+        const hasAllowed = (cfg.allowedAddresses ?? []).length > 0;
+        if (!hasAuth && !hasAllowed) {
+          throw new Error(
+            'livekit_sip_trunk_unrestricted: set LIVEKIT_SIP_AUTH_USERNAME and ' +
+            'LIVEKIT_SIP_AUTH_PASSWORD (or LIVEKIT_SIP_ALLOWED_ADDRESSES) — LiveKit ' +
+            'rejects an inbound trunk that accepts calls from anywhere',
+          );
+        }
+        const payload: Record<string, unknown> = {
+          name: cfg.trunkName,
+          metadata: 'webyar-telephony',
+          krisp_enabled: false,
+        };
+        if (hasAuth) {
+          payload.auth_username = cfg.authUsername;
+          payload.auth_password = cfg.authPassword;
+        }
+        if (hasAllowed) payload.allowed_addresses = cfg.allowedAddresses;
+        trunk = await twirp('CreateSIPInboundTrunk', { trunk: payload });
         created.push('trunk');
       }
       const trunkId = String((trunk as any)?.sip_trunk_id ?? (trunk as any)?.sipTrunkId ?? '');

@@ -30,6 +30,9 @@ async function main(): Promise<void> {
     apiSecret: config.livekit.apiSecret,
     trunkName: config.livekit.trunkName,
     dispatchRuleName: config.livekit.dispatchRuleName,
+    authUsername: config.livekit.sipAuthUsername,
+    authPassword: config.livekit.sipAuthPassword,
+    allowedAddresses: config.livekit.sipAllowedAddresses,
   });
   const core = createCoreClient(config.coreBaseUrl, config.internalSecret);
 

@@ -37,6 +37,12 @@ services:
       ASTERISK_DB_SCHEMA: ${ASTERISK_DB_SCHEMA:-asterisk}
       # Media bridge.
       LIVEKIT_SIP_URI: ${LIVEKIT_SIP_URI:-livekit-sip:5080}
+      # LiveKit will not create an inbound trunk that accepts calls from
+      # anywhere, so the trunk is protected with a digest credential that
+      # Asterisk answers through the livekit_sip endpoint's outbound_auth.
+      LIVEKIT_SIP_AUTH_USERNAME: ${LIVEKIT_SIP_AUTH_USERNAME:-webyar-telephony}
+      LIVEKIT_SIP_AUTH_PASSWORD: ${LIVEKIT_SIP_AUTH_PASSWORD:?required}
+      LIVEKIT_SIP_ALLOWED_ADDRESSES: ${LIVEKIT_SIP_ALLOWED_ADDRESSES:-}
       LIVEKIT_URL: ${LIVEKIT_URL:?required}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?required}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?required}
@@ -120,6 +126,9 @@ services:
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?required}
       LIVEKIT_SIP_TRUNK_NAME: ${LIVEKIT_SIP_TRUNK_NAME:-webyar-inbound-trunk}
       LIVEKIT_SIP_DISPATCH_NAME: ${LIVEKIT_SIP_DISPATCH_NAME:-webyar-callee-dispatch}
+      LIVEKIT_SIP_AUTH_USERNAME: ${LIVEKIT_SIP_AUTH_USERNAME:-webyar-telephony}
+      LIVEKIT_SIP_AUTH_PASSWORD: ${LIVEKIT_SIP_AUTH_PASSWORD:?required}
+      LIVEKIT_SIP_ALLOWED_ADDRESSES: ${LIVEKIT_SIP_ALLOWED_ADDRESSES:-}
     networks:
       - webyar
 

@@ -19,6 +19,8 @@ set -euo pipefail
 : "${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}"
 : "${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}"
 : "${LIVEKIT_SIP_URI:?LIVEKIT_SIP_URI is required — LiveKit SIP is the only media path}"
+: "${LIVEKIT_SIP_AUTH_PASSWORD:?LIVEKIT_SIP_AUTH_PASSWORD is required — LiveKit rejects an unrestricted inbound trunk}"
+export LIVEKIT_SIP_AUTH_USERNAME="${LIVEKIT_SIP_AUTH_USERNAME:-webyar-telephony}"
 
 export TELEPHONY_RTP_PORT_MIN="${TELEPHONY_RTP_PORT_MIN:-16384}"
 export TELEPHONY_RTP_PORT_MAX="${TELEPHONY_RTP_PORT_MAX:-16584}"
@@ -81,7 +83,7 @@ mkdir -p /etc/asterisk
 # Substitute ONLY these names. Bare `envsubst` expands every ${VAR} it sees,
 # which would blank out Asterisk's own dialplan variables (${EXTEN} and
 # friends) because they are valid shell identifiers that are unset here.
-TEMPLATE_VARS='${ASTERISK_ARI_PASSWORD} ${ASTERISK_ARI_USER} ${ASTERISK_CODEC_OPUS} ${ASTERISK_DB_HOST} ${ASTERISK_DB_NAME} ${ASTERISK_DB_PASSWORD} ${ASTERISK_DB_PORT} ${ASTERISK_DB_USER} ${ASTERISK_MODULES_DIR} ${LIVEKIT_SIP_HOST} ${LIVEKIT_SIP_URI} ${TELEPHONY_PUBLIC_SIP_HOST} ${TELEPHONY_RTP_PORT_MAX} ${TELEPHONY_RTP_PORT_MIN}'
+TEMPLATE_VARS='${ASTERISK_ARI_PASSWORD} ${ASTERISK_ARI_USER} ${ASTERISK_CODEC_OPUS} ${ASTERISK_DB_HOST} ${ASTERISK_DB_NAME} ${ASTERISK_DB_PASSWORD} ${ASTERISK_DB_PORT} ${ASTERISK_DB_USER} ${ASTERISK_MODULES_DIR} ${LIVEKIT_SIP_AUTH_PASSWORD} ${LIVEKIT_SIP_AUTH_USERNAME} ${LIVEKIT_SIP_HOST} ${LIVEKIT_SIP_URI} ${TELEPHONY_PUBLIC_SIP_HOST} ${TELEPHONY_RTP_PORT_MAX} ${TELEPHONY_RTP_PORT_MIN}'
 for template in /opt/webyar/asterisk/*.conf; do
   name="$(basename "$template")"
   envsubst "$TEMPLATE_VARS" < "$template" > "/etc/asterisk/${name}"

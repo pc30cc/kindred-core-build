@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { BrandLogo } from '@/components/brand/BrandLogo';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/i18n';
 import { useAuth } from '@/features/auth/AuthContext';

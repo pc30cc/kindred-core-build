@@ -525,9 +525,9 @@ enum Str {
 
     static func deleteAccountOwnsBody(_ l: Language, workspaces: String) -> String {
         switch l {
-        case .en: "You still own \(workspaces). Deleting your account would delete the workspace and everything in it — every conversation, contact and invoice — so transfer ownership or close the workspace in the web console first."
-        case .fa: "هنوز مالک \(workspaces) هستید. حذف حسابتان فضای کاری و هر چیزی که در آن است — هر گفتگو، مخاطب و صورتحساب — را هم پاک می‌کند، پس اول در کنسول وب مالکیت را واگذار کنید یا فضای کاری را ببندید."
-        case .tr: "Hâlâ \(workspaces) alanının sahibisiniz. Hesabınızı silmek çalışma alanını ve içindeki her şeyi — her konuşmayı, kişiyi ve faturayı — silerdi; bu yüzden önce web konsolundan sahipliği devredin veya çalışma alanını kapatın."
+        case .en: "You still own \(workspaces). Deleting your account would take the workspace and everything in it — every conversation, contact and invoice — with it, so ownership has to move to somebody else first. Support will do that for you, and then this will go through."
+        case .fa: "هنوز مالک \(workspaces) هستید. حذف حسابتان فضای کاری و هر چیزی که در آن است — هر گفتگو، مخاطب و صورتحساب — را هم با خود می‌برد، پس اول باید مالکیت به شخص دیگری منتقل شود. پشتیبانی این کار را برایتان انجام می‌دهد و بعد از آن حذف انجام می‌شود."
+        case .tr: "Hâlâ \(workspaces) alanının sahibisiniz. Hesabınızı silmek çalışma alanını ve içindeki her şeyi — her konuşmayı, kişiyi ve faturayı — birlikte götürür; bu yüzden önce sahipliğin başka birine geçmesi gerekir. Destek bunu sizin için yapar, sonra silme işlemi tamamlanır."
         }
     }
 
@@ -995,6 +995,16 @@ enum Str {
         case .en: "About"
         case .fa: "درباره"
         case .tr: "Hakkında"
+        }
+    }
+
+    /// Settings → About, and the one way forward for an owner who wants their
+    /// account removed.
+    static func support(_ l: Language) -> String {
+        switch l {
+        case .en: "Support"
+        case .fa: "پشتیبانی"
+        case .tr: "Destek"
         }
     }
 

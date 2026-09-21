@@ -216,11 +216,7 @@ struct SettingsView: View {
     }
 
     private var supportLabel: String {
-        switch language {
-        case .en: "Support"
-        case .fa: "پشتیبانی"
-        case .tr: "Destek"
-        }
+        Str.support(language)
     }
 
     /// The header needs the photo, which the session user does not carry.

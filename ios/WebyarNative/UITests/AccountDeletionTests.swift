@@ -142,9 +142,12 @@ final class AccountDeletionTests: UITestCase {
             return sheet
         }
 
+        // `firstMatch` throughout: a presented `UIAlertController` carries its
+        // buttons twice in the hierarchy, and an unqualified subscript on a
+        // query with two matches is an error rather than a choice.
         let container = sheet.exists ? sheet : alert
-        let byID = container.buttons[A11yID.deleteAccountConfirm]
-        return byID.exists ? byID : container.buttons[deleteFinal]
+        let byID = container.buttons.matching(identifier: A11yID.deleteAccountConfirm).firstMatch
+        return byID.exists ? byID : container.buttons.matching(identifier: deleteFinal).firstMatch
     }
 
     /// An element by identifier, whatever kind of element it turned out to be.

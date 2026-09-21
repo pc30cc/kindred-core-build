@@ -16,6 +16,7 @@ import SwiftUI
 struct DeleteAccountView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
 
     @State private var password = ""
     @State private var isDeleting = false
@@ -64,6 +65,28 @@ struct DeleteAccountView: View {
                     .foregroundStyle(Theme.Palette.label)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier(A11y.deleteAccountBlocked)
+
+                    // Without this the screen is a dead end: there is no way
+                    // to hand a workspace over from anywhere in the product
+                    // yet, so "ask somebody" has to be a tap rather than an
+                    // instruction. Apple's rule is that deletion must be
+                    // startable in the app, not that every case must finish
+                    // there — but it must go somewhere.
+                    if let support = PlatformOrigin.supportURL {
+                        Button {
+                            openURL(support)
+                        } label: {
+                            HStack {
+                                Text(Str.support(language))
+                                    .foregroundStyle(Theme.Palette.brand)
+                                Spacer(minLength: Theme.Space.sm)
+                                Image(systemName: "arrow.up.right")
+                                    .font(.footnote)
+                                    .foregroundStyle(Theme.Palette.labelTertiary)
+                            }
+                            .frame(minHeight: Theme.Size.minTouchTarget - 10)
+                        }
+                    }
                 } header: {
                     Text(Str.deleteAccountOwnsTitle(language))
                 }

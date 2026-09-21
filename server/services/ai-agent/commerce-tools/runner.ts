@@ -30,6 +30,33 @@ export interface CommerceStageResult {
   toolsUsed: string[];
 }
 
+/**
+ * The unit an amount is IN, spelled out.
+ *
+ * The store reports a currency CODE, and the model has to guess what it
+ * means. Asked for powerbank models, it read `currency=IRT` and told the
+ * shopper «۱٬۹۸۰٬۰۰۰ ریال» — the price is in Toman, so that is wrong by a
+ * factor of ten, in the direction that makes the shop look cheap.
+ *
+ * This is a LABEL, never a conversion: the amount is passed through exactly
+ * as the store reported it (spec §68/§69), and this only says which unit it
+ * was already in. An unknown code gets no label rather than a guess.
+ */
+const CURRENCY_LABELS: Record<string, string> = {
+  IRT: 'Toman',
+  IRR: 'Rial',
+  USD: 'US Dollar',
+  EUR: 'Euro',
+  GBP: 'Pound Sterling',
+  AED: 'UAE Dirham',
+  TRY: 'Turkish Lira',
+};
+
+function currencyLabel(code: string | null | undefined): string | null {
+  const key = String(code ?? '').trim().toUpperCase();
+  return CURRENCY_LABELS[key] ?? null;
+}
+
 function moneyToToman(amountMinor: number | null): string | null {
   if (amountMinor === null || amountMinor === undefined) return null;
   return String(amountMinor);
@@ -68,6 +95,7 @@ function productRowToToolData(row: IndexedProductRow, connection: CommerceConnec
     type: row.product_type,
     price: moneyToToman(row.effective_price_minor) ?? moneyToToman(row.regular_price_minor),
     currency: row.currency,
+    ...(currencyLabel(row.currency) ? { currency_name: currencyLabel(row.currency) } : {}),
     stock_state: row.stock_state,
     stock_quantity: row.stock_quantity,
     url: modelSafeProductUrl(connection, row),
@@ -262,7 +290,13 @@ export async function runCommerceToolStage(config: ServerConfig, input: Commerce
           const ids = bounded.slice(0, 5).map((r) => r.external_id);
           const live = await callGateway<any[]>('commerce.get_product', 'stock', 'products.read', (c: any, ctx: any) => c.getProducts(ctx, ids));
           for (const p of live ?? []) {
-            results.push({ name: 'commerce.get_product_live', data: { external_id: p.externalId, stock_state: p.stockState, price: p.effectivePrice?.amountMinor ?? null, currency: p.currency } });
+            results.push({ name: 'commerce.get_product_live', data: {
+              external_id: p.externalId,
+              stock_state: p.stockState,
+              price: p.effectivePrice?.amountMinor ?? null,
+              currency: p.currency,
+              ...(currencyLabel(p.currency) ? { currency_name: currencyLabel(p.currency) } : {}),
+            } });
           }
         }
         break;

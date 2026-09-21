@@ -2,10 +2,10 @@
  * Are the billing_v2 tables reachable from the running product, and may
  * either migration chain drop them?
  *
- * The question was raised because `supabase/migrations` never creates the
- * billing_v2 substrate, so a from-scratch hosted replay dies on
+ * The question was raised because `supabase/migrations` did not create the
+ * billing_v2 substrate, so a from-scratch hosted replay died on
  * `relation "public.billing_v2_rollout" does not exist`. The tempting reading
- * is that the substrate is scaffolding nobody uses. It is not:
+ * was that the substrate is scaffolding nobody uses. It is not:
  *
  *   * Production runs on it. `billing_v2_rollout` holds one workspace in state
  *     `v2_active` — billing v2 is the live engine for it, not a shadow — and
@@ -15,9 +15,10 @@
  *     billing experience the frontend has, and its read model queries
  *     `billing_v2_policy` and `billing_v2_policy_for` on every load.
  *
- * So the substrate stays. What this file locks down is the reachability that
- * makes that true, and the exact size of the hosted chain's debt, so nobody
- * concludes "unused" from a grep again and so the debt cannot quietly grow.
+ * So the substrate stays, and the hosted chain now creates it too
+ * (20260904112111 and 20260921090000). What this file locks down is the
+ * reachability that makes that the right call, and the shape of the backfill,
+ * so nobody concludes "unused" from a grep again.
  *
  * It is deliberately static: the pg suites (billingEngineV2, billingV2Phase*)
  * already prove the engine's behaviour against a real database. What was
@@ -88,38 +89,6 @@ function createsFunction(files: Array<{ file: string; sql: string }>, name: stri
   return files.filter((f) => re.test(f.sql)).map((f) => f.file);
 }
 
-/**
- * The hosted chain's debt, pinned.
- *
- * Every name here is an object the server calls at runtime that
- * supabase/migrations never creates. The list is exact on purpose: add a
- * billing_v2 call the hosted chain cannot satisfy and this test fails; mirror
- * the substrate across and it fails too, telling you to delete the list. It is
- * a ratchet, not a permission slip.
- *
- * Fixing it is not a forward-only migration. The break is mid-chain — the
- * hosted file that first needs billing_v2_rollout is 20260904112112, and 118
- * files still follow it — so the repair has to sort before that, which means
- * back-dating a file into a history the production database has already
- * recorded as applied. That is a decision about production, not a refactor.
- */
-const HOSTED_CHAIN_CANNOT_CREATE = [
-  'billing_v2_activate',
-  'billing_v2_audit',
-  'billing_v2_claim_notification_jobs',
-  'billing_v2_complete_notification_job',
-  'billing_v2_current_entitlement_cycle',
-  'billing_v2_dunning_metrics',
-  'billing_v2_evaluate_cutover',
-  'billing_v2_fail_notification_job',
-  'billing_v2_issue_renewal_invoice',
-  'billing_v2_policy',
-  'billing_v2_policy_for',
-  'billing_v2_rollout',
-  'billing_v2_scheduler_health',
-  'billing_v2_set_state',
-  'billing_v2_wallet_deposit_config',
-] as const;
 
 describe('billing_v2 is reachable from the product, so neither chain may drop it', () => {
   describe('a customer reaches billing_v2_policy in six hops', () => {
@@ -217,34 +186,55 @@ describe('billing_v2 is reachable from the product, so neither chain may drop it
     });
   });
 
-  describe('the hosted chain cannot, and its debt is pinned to this exact list', () => {
+  describe('and so does the hosted chain, now that it creates them', () => {
     const { tables, rpcs } = whatTheServerTouches();
     const files = chain(HOSTED);
 
-    it('no more than the known gap — a new one is new debt', () => {
-      const missing = [
-        ...tables.filter((t) => createsTable(files, t).length === 0),
-        ...rpcs.filter((r) => createsFunction(files, r).length === 0),
-      ].sort();
-      expect(missing).toEqual([...HOSTED_CHAIN_CANNOT_CREATE]);
+    it('every table', () => {
+      const missing = tables.filter((t) => createsTable(files, t).length === 0);
+      expect(missing).toEqual([]);
     });
 
-    it('the one it does create still creates it', () => {
-      // billing_v2_resolve_billing_recipient is the single billing_v2 object
-      // that reached supabase/migrations. It is the proof that the rest were
-      // an omission rather than a deliberate hosted/self-host split.
-      expect(createsFunction(files, 'billing_v2_resolve_billing_recipient').length).toBeGreaterThan(0);
-      expect(HOSTED_CHAIN_CANNOT_CREATE).not.toContain('billing_v2_resolve_billing_recipient');
+    it('every RPC', () => {
+      const missing = rpcs.filter((r) => createsFunction(files, r).length === 0);
+      expect(missing).toEqual([]);
     });
 
-    it('the break is mid-chain, which is why no forward-only migration fixes it', () => {
-      const first = readdirSync(HOSTED)
-        .filter((f) => f.endsWith('.sql'))
-        .sort()
-        .find((f) => /public\.billing_v2_rollout/i.test(readFileSync(join(HOSTED, f), 'utf8')));
-      expect(first).toBe('20260904112112_f725a3bf-ff10-4de6-a2ff-36b65f5be182.sql');
-      const after = readdirSync(HOSTED).filter((f) => f.endsWith('.sql') && f > first!);
-      expect(after.length).toBeGreaterThan(100);
+    it('the substrate is split either side of the migration that first needs it', () => {
+      // 20260904112112 inserts into billing_v2_rollout, so the tables have to
+      // exist before it. It is also where billing_coupons is created, and
+      // billing_invoices carries a foreign key to billing_coupons -- so the
+      // constraints cannot go in the same place. Tables first, everything
+      // else at the end of the chain.
+      const names = readdirSync(HOSTED).filter((f) => f.endsWith('.sql')).sort();
+      const tablesFile = names.find((f) => f.includes('billing_engine_tables'));
+      const restFile = names.find((f) => f.includes('billing_engine_constraints_and_functions'));
+      expect(tablesFile, 'part 1 must exist').toBeDefined();
+      expect(restFile, 'part 2 must exist').toBeDefined();
+      // Part 1 before the migration that needs it, part 2 after every
+      // migration that creates a table it points a foreign key at.
+      expect(tablesFile! < '20260904112112').toBe(true);
+      expect(restFile! > names[names.indexOf(restFile!) - 1]).toBe(true);
+      expect(names.filter((f) => f > restFile! && !f.includes('function_execute_acl'))).toEqual([]);
+
+      const part1 = readFileSync(join(HOSTED, tablesFile!), 'utf8');
+      const part2 = readFileSync(join(HOSTED, restFile!), 'utf8');
+      // Part 1 carries no foreign keys; that is the whole reason for the split.
+      expect(/ADD CONSTRAINT[^;]*FOREIGN KEY/i.test(part1)).toBe(false);
+      expect(/ADD CONSTRAINT[^;]*FOREIGN KEY/i.test(part2)).toBe(true);
+    });
+
+    it('both halves refuse to run where the substrate already exists', () => {
+      // The definitions come from the self-host chain, which has drifted from
+      // the live database. Applying them over an existing substrate would
+      // replace live billing logic, so part 1 raises instead.
+      const names = readdirSync(HOSTED).filter((f) => f.endsWith('.sql'));
+      const part1 = readFileSync(
+        join(HOSTED, names.find((f) => f.includes('billing_engine_tables'))!),
+        'utf8',
+      );
+      expect(part1).toMatch(/to_regclass\('public\.billing_invoices'\) IS NOT NULL/);
+      expect(part1).toMatch(/RAISE EXCEPTION/);
     });
   });
 });

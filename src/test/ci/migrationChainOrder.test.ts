@@ -350,7 +350,9 @@ export function analyzeChain(dir: string, files: string[]) {
   const snapshots = new Map<string, TableState>();
 
   for (const file of files) {
-    const sql = readFileSync(`${dir}/${file}`, 'utf8').replace(/--[^\n]*/g, '');
+    const sql = withoutDynamicSql(
+      readFileSync(`${dir}/${file}`, 'utf8').replace(/--[^\n]*/g, ''),
+    );
 
     // --- CREATE TABLE ---
     for (const m of sql.matchAll(
@@ -471,6 +473,27 @@ export function analyzeChain(dir: string, files: string[]) {
   }
 
   return { tables, problems, snapshots };
+}
+
+
+/**
+ * Blank out the inside of `EXECUTE '...'` strings.
+ *
+ * A statement built at runtime is not a static reference to a column, and in
+ * this chain it is usually the opposite: the one place that deliberately
+ * tolerates a column being absent. billing_v2_grant_cycle_allowance checks
+ * information_schema for workspace_ai_balance_lots.metadata and only then
+ * EXECUTEs an UPDATE naming it, precisely because the column exists in the
+ * self-host chain and not in the hosted one. Reading that quoted text as a
+ * real UPDATE reports a break that cannot happen.
+ *
+ * Only the string contents go; the quotes and the surrounding statement stay,
+ * so offsets and the rest of the scan are unaffected.
+ */
+function withoutDynamicSql(sql: string): string {
+  return sql.replace(/\bEXECUTE\s+'((?:[^']|'')*)'/gi, (whole, body: string) =>
+    whole.replace(body, ' '.repeat(body.length)),
+  );
 }
 
 describe('supabase migration chain — column contract', () => {

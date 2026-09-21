@@ -82,8 +82,49 @@ waiting for an answer.
 
 ### 4. Toolchain and runner
 
-- `openjdk-17-jdk-headless` (17.0.20.1) and `unzip`.
-- `actions-runner` 2.337.0 extracted to `/home/ubuntu/actions-runner`.
+- `openjdk-17-jdk-headless` (17.0.20.1) and `openjdk-21-jdk-headless`. The
+  workflow runs Gradle on 21; the app still compiles to Java 17 bytecode.
+- `unzip` — the SDK's own packages need it.
+- `actions-runner` 2.337.0 in `/home/ubuntu/actions-runner`.
+- Android SDK in `/opt/android-sdk`, owned by `ubuntu`: `platform-tools`,
+  `platforms;android-36`, `platforms;android-37.0`, `build-tools` 36.1.0 and
+  37.0.0. About 950MB in total — far less than the ~14GB first estimated,
+  because that figure was for a full Studio install with emulator images.
+
+API 37 ships **minor platform versions**: the package is
+`platforms;android-37.0`, and `platforms;android-37` does not exist. Asking
+for the latter fails with "Failed to find package", which reads like a
+network problem and is not one.
+
+The bundled `cmdline-tools` also warns that it "only understands SDK XML
+versions up to 3" against the version 4 files Google now serves. It still
+works, but a self-update lands in `cmdline-tools/latest-2` rather than
+replacing `latest`, and has to be moved into place by hand.
+
+### 4a. Google Maven answers only over IPv4
+
+This is the finding most likely to cost someone a day, so it is stated on its
+own.
+
+`dl.google.com` resolves to IPv6 from this host, and **every path under it
+answers 404 over that route** — POMs that certainly exist included. The same
+URL over IPv4 returns 200:
+
+```
+curl -6 …/androidx/core/core-ktx/1.12.0/core-ktx-1.12.0.pom   -> 404  (1449 bytes of Google's error page)
+curl -4 …/androidx/core/core-ktx/1.12.0/core-ktx-1.12.0.pom   -> 200
+```
+
+Maven Central is unaffected; it is Google's edge only. The host is in Quebec
+on OVH, so this is not geographic filtering.
+
+Left alone, Gradle takes the IPv6 route and every AGP, androidx and Compose
+artifact fails to resolve — reported as `Could not find
+androidx.core:core-ktx:…`, which reads like a wrong version number rather
+than a network fault. `android/gradle.properties` therefore sets
+`-Djava.net.preferIPv4Stack=true` for the build JVM, and the workflow probes
+for it in its own step so that the day this changes, the error says what it
+is.
 
 ## Two security decisions worth not reversing
 
@@ -130,6 +171,32 @@ debug later. `.path` was replaced with a plain system PATH:
 ```
 
 Worth re-checking after any future `svc.sh install`.
+
+## What the first real build did to the host
+
+The first green build (`assembleDebug`, cold caches, Compose BOM 2026.09.00)
+was measured rather than assumed:
+
+| | |
+|---|---|
+| `ci.slice` peak | **1537 MB** of the 2048 MB ceiling |
+| `memory.high` events | ~9000 — throttled and reclaimed constantly |
+| `oom_kill` | **0** |
+| Swap in use at peak | **2287 MB** of 4096 MB |
+| Host memory still available | ~2900 MB |
+| Load average | 6.55 on 4 cores |
+| Wall clock | 3m 15s |
+
+Two things follow. The guardrails are not theoretical headroom — the build
+sat against `MemoryHigh` for essentially its whole duration and was held
+there rather than allowed to grow. And the swap was not optional: 2.3GB of it
+was in use at peak, so without it this build would have gone to the OOM
+killer, on a host holding the database.
+
+It also means there is little room above this. A larger app, a second
+concurrent job, or an emulator will not fit as things stand. Raise
+`MemoryMax` only after checking what the host has spare, and keep the
+emulator on its own schedule as ADR-003 §6 requires.
 
 ## Verifying afterwards
 

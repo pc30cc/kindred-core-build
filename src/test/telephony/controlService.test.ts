@@ -180,8 +180,9 @@ describe('control service — registration provisioning', () => {
     });
     expect(attack.ok).toBe(false);
     if (!attack.ok) {
-      expect(attack.errors).toContain('sip_username_invalid');
-      expect(attack.errors).toContain('domain_invalid');
+      const attackErrors = 'errors' in attack ? attack.errors : [];
+      expect(attackErrors).toContain('sip_username_invalid');
+      expect(attackErrors).toContain('domain_invalid');
     }
   });
 

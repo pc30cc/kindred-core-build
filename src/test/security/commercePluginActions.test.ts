@@ -173,7 +173,7 @@ describe('plugin-triggered connection actions', () => {
 
   it('rejects a protocol version it does not speak', async () => {
     const h = sign(SECRET_A, '/api/commerce/connection/sync');
-    h['X-WebYar-Protocol'] = 'webyar-commerce/999';
+    (h as Record<string, string>)['X-WebYar-Protocol'] = 'webyar-commerce/999';
     const r = await post('/api/commerce/connection/sync', h);
     expect(r.status).toBe(400);
     expect(r.body.error).toBe('protocol_mismatch');

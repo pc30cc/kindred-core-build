@@ -43,7 +43,7 @@ describe('telephony gateway client', () => {
     const res = await gatewayHealth(configured);
     expect(res.ok).toBe(true);
 
-    const init = fetchSpy.mock.calls[0][1] as RequestInit;
+    const init = (fetchSpy.mock.calls[0] as unknown as unknown[])[1] as RequestInit;
     const headers = init.headers as Record<string, string>;
     expect(headers.authorization).toBe('Bearer secret-value');
     expect(headers[TELEPHONY_SECRET_HEADER]).toBe('secret-value');

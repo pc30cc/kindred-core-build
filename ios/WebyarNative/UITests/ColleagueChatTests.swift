@@ -64,14 +64,19 @@ final class ColleagueChatTests: UITestCase {
         }
 
         let keyboard = focus(composer)
+        waitUntilStill { frameOfMessage(newest) }
         guard let raised = frameOfMessage(newest) else {
             return XCTFail("the newest message vanished when the keyboard opened")
         }
 
         XCTAssertLessThan(raised.minY, atRest.minY, "the transcript did not move")
+        // Clear of the composer, which sits between the transcript and the
+        // keys; see the same assertion in KeyboardTests.
+        let composerTop = composer.frame.minY
         XCTAssertLessThanOrEqual(
-            raised.maxY, keyboard.frame.minY + 1,
-            "the newest message was left behind the keyboard"
+            raised.maxY, composerTop + 1,
+            "the newest message ends at \(raised.maxY); the composer starts at "
+                + "\(composerTop) and the keyboard at \(keyboard.frame.minY)"
         )
     }
 }

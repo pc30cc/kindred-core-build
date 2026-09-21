@@ -65,8 +65,11 @@ final class KeyboardTests: UITestCase {
             return XCTFail("the newest message went away before the test began")
         }
 
-        // Up.
+        // Up. The transcript re-pins over the keyboard's own duration, so the
+        // frame is still moving when `focus` returns and a measurement taken
+        // then is of the animation rather than of where it ended.
         let keyboard = focus(field)
+        waitUntilStill { frameOfMessage(newest) }
         guard let raised = frameOfMessage(newest) else {
             return XCTFail("the newest message vanished when the keyboard opened")
         }
@@ -75,9 +78,17 @@ final class KeyboardTests: UITestCase {
             raised.minY, atRest.minY,
             "the transcript did not move when the keyboard opened"
         )
+        // Clear of the COMPOSER, not merely of the keys. The composer sits
+        // between the transcript and the keyboard, so a message that clears
+        // the keyboard and not the composer is just as hidden from the
+        // operator — and the keyboard's top is far enough below the
+        // transcript to have been a misleading landmark elsewhere in this
+        // suite, which is what `dismissKeyboardByTapping` is now about.
+        let composerTop = field.frame.minY
         XCTAssertLessThanOrEqual(
-            raised.maxY, keyboard.frame.minY + 1,
-            "the newest message was left behind the keyboard"
+            raised.maxY, composerTop + 1,
+            "the newest message ends at \(raised.maxY); the composer starts at "
+                + "\(composerTop) and the keyboard at \(keyboard.frame.minY)"
         )
 
         // And down.
@@ -94,20 +105,6 @@ final class KeyboardTests: UITestCase {
             settled.minY, atRest.minY, accuracy: 4.0,
             "the transcript did not come back down: \(atRest.minY) -> \(settled.minY)"
         )
-    }
-
-    // MARK: - Finding things
-
-    /// The composer, whichever kind of element this iOS decided it is.
-    ///
-    /// A `TextField(axis: .vertical)` is a `textField` to XCUITest on iOS 26
-    /// and a `textView` on some other releases, and neither is worth pinning a
-    /// test to. The field is asked for first, since that is what it is here;
-    /// the other is the fallback.
-    private func composerField() -> XCUIElement {
-        let asField = app.textFields[A11yID.composerField].firstMatch
-        if asField.waitForExistence(timeout: 25) { return asField }
-        return app.textViews[A11yID.composerField].firstMatch
     }
 
 }

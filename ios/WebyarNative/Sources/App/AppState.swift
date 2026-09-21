@@ -181,6 +181,12 @@ final class AppState {
     /// the request failed, so the UI can say the operator is still signed in
     /// rather than showing a logged-out screen over a live session.
     func signOut() async -> Bool {
+        // BEFORE the session is revoked, because `/api/push/devices/
+        // unregister` is an authenticated call. Done the other way round it
+        // answers 401, the device row stays enabled, and the phone keeps
+        // receiving another operator's notifications until a send happens to
+        // fail. Best effort, and never a reason to keep somebody signed in.
+        await PushController.shared.signOut()
         do {
             try await api.logOut()
         } catch APIError.unauthorized {

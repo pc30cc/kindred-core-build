@@ -189,6 +189,278 @@ enum Str {
         }
     }
 
+    // MARK: - Notifications
+
+    static func notifications(_ l: Language) -> String {
+        switch l {
+        case .en: "Notifications"
+        case .fa: "اعلان‌ها"
+        case .tr: "Bildirimler"
+        }
+    }
+
+    // The buttons on a banner. Registered with iOS in the operator's chosen
+    // language, not the device's — this app never reads the device language.
+
+    static func pushReply(_ l: Language) -> String {
+        switch l {
+        case .en: "Reply"
+        case .fa: "پاسخ"
+        case .tr: "Yanıtla"
+        }
+    }
+
+    static func pushReplyPlaceholder(_ l: Language) -> String {
+        switch l {
+        case .en: "Reply…"
+        case .fa: "پاسخ…"
+        case .tr: "Yanıt…"
+        }
+    }
+
+    static func pushMarkRead(_ l: Language) -> String {
+        switch l {
+        case .en: "Mark as read"
+        case .fa: "خوانده شد"
+        case .tr: "Okundu işaretle"
+        }
+    }
+
+    static func pushOpen(_ l: Language) -> String {
+        switch l {
+        case .en: "Open"
+        case .fa: "باز کردن"
+        case .tr: "Aç"
+        }
+    }
+
+    // Asking for permission, in our own words, before iOS asks in its.
+
+    static func pushPrimerTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Know when a customer writes"
+        case .fa: "وقتی مشتری پیام می‌دهد باخبر شوید"
+        case .tr: "Bir müşteri yazdığında haberiniz olsun"
+        }
+    }
+
+    static func pushPrimerBody(_ l: Language) -> String {
+        switch l {
+        case .en: "Webyar can tell you about new messages, mentions and internal notes — even when the app is closed. You choose exactly which, and you can change it any time in Settings."
+        case .fa: "وب‌یار می‌تواند پیام‌های تازه، نام‌بردن‌ها و یادداشت‌های داخلی را به شما خبر دهد — حتی وقتی برنامه بسته است. خودتان انتخاب می‌کنید کدام‌ها، و هر وقت خواستید از تنظیمات عوضش می‌کنید."
+        case .tr: "Webyar yeni mesajları, bahsetmeleri ve dahili notları — uygulama kapalıyken bile — size bildirebilir. Hangilerini istediğinizi siz seçersiniz ve istediğiniz zaman Ayarlar'dan değiştirebilirsiniz."
+        }
+    }
+
+    static func pushTurnOn(_ l: Language) -> String {
+        switch l {
+        case .en: "Turn on notifications"
+        case .fa: "روشن کردن اعلان‌ها"
+        case .tr: "Bildirimleri aç"
+        }
+    }
+
+    static func pushNotNow(_ l: Language) -> String {
+        switch l {
+        case .en: "Not now"
+        case .fa: "الان نه"
+        case .tr: "Şimdi değil"
+        }
+    }
+
+    // The settings screen.
+
+    static func pushDeniedTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Notifications are off for Webyar"
+        case .fa: "اعلان‌های وب‌یار خاموش است"
+        case .tr: "Webyar için bildirimler kapalı"
+        }
+    }
+
+    /// iOS only ever asks once, so after a refusal the only way back is the
+    /// system's own settings. Saying so is better than a switch that does
+    /// nothing when tapped.
+    static func pushDeniedBody(_ l: Language) -> String {
+        switch l {
+        case .en: "iOS asks only once. Turn them back on in the Settings app to be told about new messages."
+        case .fa: "iOS فقط یک‌بار می‌پرسد. برای باخبر شدن از پیام‌های تازه، آن‌ها را در برنامه‌ی تنظیمات دوباره روشن کنید."
+        case .tr: "iOS yalnızca bir kez sorar. Yeni mesajlardan haberdar olmak için Ayarlar uygulamasından yeniden açın."
+        }
+    }
+
+    static func pushOpenSettings(_ l: Language) -> String {
+        switch l {
+        case .en: "Open Settings"
+        case .fa: "باز کردن تنظیمات"
+        case .tr: "Ayarları aç"
+        }
+    }
+
+    static func pushUnavailable(_ l: Language) -> String {
+        switch l {
+        case .en: "This workspace has no notification service configured, so nothing will arrive on this phone yet."
+        case .fa: "برای این فضای کاری سرویس اعلان تنظیم نشده، پس فعلاً چیزی به این تلفن نمی‌رسد."
+        case .tr: "Bu çalışma alanı için bildirim servisi yapılandırılmamış, bu yüzden bu telefona henüz bir şey ulaşmayacak."
+        }
+    }
+
+    static func pushMuteAll(_ l: Language) -> String {
+        switch l {
+        case .en: "Pause all notifications"
+        case .fa: "توقف همه‌ی اعلان‌ها"
+        case .tr: "Tüm bildirimleri duraklat"
+        }
+    }
+
+    static func pushMuteAllFooter(_ l: Language) -> String {
+        switch l {
+        case .en: "Nothing is sent to any of your devices while this is on."
+        case .fa: "تا وقتی این روشن است، چیزی به هیچ‌کدام از دستگاه‌های شما فرستاده نمی‌شود."
+        case .tr: "Bu açıkken hiçbir cihazınıza bir şey gönderilmez."
+        }
+    }
+
+    static func pushScopeTitle(_ l: Language) -> String {
+        switch l {
+        case .en: "Tell me about"
+        case .fa: "خبرم کن درباره‌ی"
+        case .tr: "Şunları bildir"
+        }
+    }
+
+    static func pushScopeAll(_ l: Language) -> String {
+        switch l {
+        case .en: "Every conversation"
+        case .fa: "همه‌ی گفتگوها"
+        case .tr: "Her konuşma"
+        }
+    }
+
+    static func pushScopeAssigned(_ l: Language) -> String {
+        switch l {
+        case .en: "Conversations assigned to me"
+        case .fa: "گفتگوهایی که به من سپرده شده"
+        case .tr: "Bana atanan konuşmalar"
+        }
+    }
+
+    static func pushScopeMentions(_ l: Language) -> String {
+        switch l {
+        case .en: "Only when I am mentioned"
+        case .fa: "فقط وقتی نام مرا می‌برند"
+        case .tr: "Yalnızca benden bahsedildiğinde"
+        }
+    }
+
+    static func pushScopeNone(_ l: Language) -> String {
+        switch l {
+        case .en: "Nothing"
+        case .fa: "هیچ‌کدام"
+        case .tr: "Hiçbiri"
+        }
+    }
+
+    /// An @mention always gets through the two narrower scopes; saying so
+    /// stops "assigned to me" reading as "and nothing else, ever".
+    static func pushScopeFooter(_ l: Language) -> String {
+        switch l {
+        case .en: "Someone mentioning you by name always gets through."
+        case .fa: "اگر کسی نام شما را ببرد، همیشه به شما می‌رسد."
+        case .tr: "Biri adınızı anarsa her durumda size ulaşır."
+        }
+    }
+
+    static func pushInternalNotes(_ l: Language) -> String {
+        switch l {
+        case .en: "Internal notes"
+        case .fa: "یادداشت‌های داخلی"
+        case .tr: "Dahili notlar"
+        }
+    }
+
+    static func pushShowPreview(_ l: Language) -> String {
+        switch l {
+        case .en: "Show the message"
+        case .fa: "نمایش متن پیام"
+        case .tr: "Mesajı göster"
+        }
+    }
+
+    /// The preview is withheld by the SERVER when this is off, which is the
+    /// only way it can be withheld from a locked screen.
+    static func pushShowPreviewFooter(_ l: Language) -> String {
+        switch l {
+        case .en: "When this is off, the text never leaves the server — the notification only says a message arrived."
+        case .fa: "وقتی خاموش باشد، متن پیام اصلاً از سرور بیرون نمی‌آید — اعلان فقط می‌گوید پیامی رسیده است."
+        case .tr: "Bu kapalıyken metin sunucudan hiç çıkmaz — bildirim yalnızca bir mesaj geldiğini söyler."
+        }
+    }
+
+    static func pushSound(_ l: Language) -> String {
+        switch l {
+        case .en: "Sound"
+        case .fa: "صدا"
+        case .tr: "Ses"
+        }
+    }
+
+    static func pushQuietHours(_ l: Language) -> String {
+        switch l {
+        case .en: "Quiet hours"
+        case .fa: "ساعت‌های سکوت"
+        case .tr: "Sessiz saatler"
+        }
+    }
+
+    static func pushQuietFrom(_ l: Language) -> String {
+        switch l {
+        case .en: "From"
+        case .fa: "از"
+        case .tr: "Başlangıç"
+        }
+    }
+
+    static func pushQuietTo(_ l: Language) -> String {
+        switch l {
+        case .en: "Until"
+        case .fa: "تا"
+        case .tr: "Bitiş"
+        }
+    }
+
+    static func pushQuietFooter(_ l: Language) -> String {
+        switch l {
+        case .en: "Nothing arrives inside this window, except someone mentioning you by name."
+        case .fa: "در این بازه چیزی نمی‌رسد، مگر اینکه کسی نام شما را ببرد."
+        case .tr: "Bu aralıkta, biri adınızı anmadıkça hiçbir şey ulaşmaz."
+        }
+    }
+
+    static func pushThisDevice(_ l: Language) -> String {
+        switch l {
+        case .en: "This phone"
+        case .fa: "همین تلفن"
+        case .tr: "Bu telefon"
+        }
+    }
+
+    static func pushDeviceRegistered(_ l: Language) -> String {
+        switch l {
+        case .en: "Registered and able to receive notifications."
+        case .fa: "ثبت شده و آماده‌ی دریافت اعلان است."
+        case .tr: "Kayıtlı ve bildirim alabilir durumda."
+        }
+    }
+
+    static func pushDeviceNotRegistered(_ l: Language) -> String {
+        switch l {
+        case .en: "Not registered yet."
+        case .fa: "هنوز ثبت نشده است."
+        case .tr: "Henüz kayıtlı değil."
+        }
+    }
+
     // MARK: - Tabs
 
     static func tabInbox(_ l: Language) -> String {

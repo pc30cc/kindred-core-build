@@ -16,6 +16,9 @@ actor SampleAPI: WebyarAPI {
     private var sampleTags: [String: [String]] = [:]
     private var sampleNotes: [String: [ConversationNote]] = [:]
     private var extraMessages: [String: [Message]] = [:]
+    /// Round-tripped in memory so the notification settings screen can be
+    /// laid out and screenshotted with its switches actually working.
+    private var samplePrefs = NotificationPrefs()
 
     var hasToken: Bool { true }
 
@@ -556,6 +559,35 @@ actor SampleAPI: WebyarAPI {
     func revokeSession(id: String) async throws {}
 
     func changePassword(current: String, new: String) async throws {}
+
+    // MARK: - Notifications
+    //
+    // Registration is a no-op: a UI test runs on a simulator that has no APNs
+    // address to give, and a sample run must never put a real device in the
+    // real registry. The preferences round-trip in memory so the settings
+    // screen can be laid out and screenshotted with the switches working.
+
+    func registerPushDevice(
+        token: String,
+        deviceID: String,
+        deviceName: String,
+        appVersion: String,
+        permission: String,
+        workspaceID: String?
+    ) async throws -> PushRegistration {
+        PushRegistration(pushEnabled: true, voipEnabled: true)
+    }
+
+    func unregisterPushDevice(deviceID: String) async throws {}
+
+    func notificationPrefs() async throws -> NotificationPrefs {
+        samplePrefs
+    }
+
+    func updateNotificationPrefs(_ prefs: NotificationPrefs) async throws -> NotificationPrefs {
+        samplePrefs = prefs
+        return prefs
+    }
 
     // MARK: - Fixtures
 

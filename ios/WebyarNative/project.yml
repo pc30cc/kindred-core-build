@@ -94,12 +94,34 @@ targets:
           - en
           - fa
           - tr
+    # Push notifications.
+    #
+    # `aps-environment` is the whole capability: without it iOS refuses to
+    # hand the app a device token at all, and `didFailToRegister` is the only
+    # sign of it. Its value has to match the APNs gateway the token belongs
+    # to — a Debug build's token is a sandbox token and is invalid against
+    # Apple's production endpoint, and the other way round — so it comes from
+    # a build setting rather than being pinned in the file.
+    #
+    # There is deliberately NO `remote-notification` background mode. That
+    # one is for silent pushes (`content-available`), which this app does not
+    # send and does not want; declaring a background mode an app never uses
+    # is something App Review looks for.
+    entitlements:
+      path: Generated/WebyarNative.entitlements
+      properties:
+        aps-environment: $(APS_ENVIRONMENT)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.webyar.native
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+      configs:
+        Debug:
+          APS_ENVIRONMENT: development
+        Release:
+          APS_ENVIRONMENT: production
 
   # Where the keyboard and the search field get tested.
   #

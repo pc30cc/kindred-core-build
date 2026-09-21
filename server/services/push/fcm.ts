@@ -17,6 +17,7 @@
  *    push is best-effort and must never affect message ingestion.
  */
 import jwt from 'jsonwebtoken';
+import type { ApnsDelivery } from './apns.js';
 
 export interface FcmCredentials {
   projectId: string;
@@ -145,31 +146,11 @@ export interface FcmMessage {
   apns?: ApnsDelivery;
 }
 
-/**
- * The APNs-specific half of a send. Every field maps 1:1 to a documented
- * `aps` key or `apns-*` header — nothing here is invented, so a value an
- * operator sets in Super Admin is exactly what Apple receives.
- */
-export interface ApnsDelivery {
-  /** 10 = immediate, 5 = power-considerate, 1 = lowest. */
-  priority?: number;
-  /** Seconds APNs keeps retrying. 0 = deliver now or discard. */
-  ttlSeconds?: number;
-  interruptionLevel?: 'passive' | 'active' | 'time-sensitive' | 'critical';
-  /** 0–1: ranks this notification inside a grouped summary. */
-  relevanceScore?: number;
-  /** Groups notifications in Notification Center (usually the thread id). */
-  threadId?: string;
-  /** Registered `UNNotificationCategory` id; drives the action buttons. */
-  categoryId?: string;
-  /** Custom sound file shipped in the app bundle, or 'default'. */
-  soundName?: string;
-  /** Lets a Notification Service Extension rewrite the payload. */
-  mutableContent?: boolean;
-  /** Critical alerts pierce Silent Mode — requires an Apple entitlement. */
-  critical?: boolean;
-  criticalVolume?: number;
-}
+// `ApnsDelivery` used to be declared here. It describes Apple's contract
+// rather than Google's, and the native app's notifications now go to Apple
+// without passing through Firebase at all, so it lives in `apns.ts` — and is
+// re-exported so that every existing `from './fcm.js'` import still works.
+export type { ApnsDelivery } from './apns.js';
 
 export async function sendFcmMessage(msg: FcmMessage): Promise<FcmSendOutcome> {
   const creds = getFcmCredentials();

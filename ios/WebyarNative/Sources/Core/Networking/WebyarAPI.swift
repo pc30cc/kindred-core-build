@@ -101,6 +101,30 @@ protocol WebyarAPI: Sendable {
     func sessions() async throws -> AccountSessionsResponse
     func revokeSession(id: String) async throws
     func changePassword(current: String, new: String) async throws
+
+    // MARK: - Notifications
+
+    /// Hands this phone's address to the server so it can be reached.
+    ///
+    /// `token` is the raw APNs device token, hex-encoded — not a Firebase
+    /// registration token. The native app has no Firebase in it; the server
+    /// sends to Apple directly, which it already does for a ringing call.
+    /// `transport: "apns"` on the wire is what tells it which.
+    func registerPushDevice(
+        token: String,
+        deviceID: String,
+        deviceName: String,
+        appVersion: String,
+        permission: String,
+        workspaceID: String?
+    ) async throws -> PushRegistration
+
+    /// Signing out, or the operator turning this phone off in Settings. This
+    /// device only — their other phone keeps working.
+    func unregisterPushDevice(deviceID: String) async throws
+
+    func notificationPrefs() async throws -> NotificationPrefs
+    func updateNotificationPrefs(_ prefs: NotificationPrefs) async throws -> NotificationPrefs
 }
 
 extension APIClient: WebyarAPI {}

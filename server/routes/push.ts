@@ -15,6 +15,7 @@ import { requireUser, serverConfigOf } from '../lib/workspaceAuth.js';
 import { registerDevice, disableDevice, touchDevice } from '../services/push/devices.js';
 import { unreadBadgeCount } from '../services/push/recipients.js';
 import { isPushConfigured } from '../services/push/fcm.js';
+import { isApnsConfigured } from '../services/push/apns.js';
 import { isVoipConfigured } from '../services/push/apnsVoip.js';
 
 export const pushRouter = Router();
@@ -30,7 +31,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 const registerSchema = z.object({
   platform: z.enum(['ios', 'android']),
-  // FCM registration tokens are long opaque strings; bound them defensively.
+  // Which service `push_token` addresses. Absent means FCM, because every
+  // client that existed before the native app was one and an old build must
+  // keep registering exactly as it did.
+  transport: z.enum(['fcm', 'apns']).optional(),
+  // An FCM registration token is a long opaque string; an APNs device token
+  // is 64 hex characters. Bounded defensively for both.
   push_token: z.string().min(20).max(4096).regex(/^[\w:.-]+$/).optional().nullable(),
   // PushKit hands out a hex string, and only iOS has one at all. Its own
   // field because it addresses a different transport: APNs direct, never FCM.
@@ -59,6 +65,7 @@ pushRouter.post('/devices', writeLimiter, async (req, res) => {
     workspaceId: parsed.data.workspace_id ?? null,
     platform: parsed.data.platform,
     pushToken: parsed.data.push_token ?? null,
+    transport: parsed.data.transport ?? 'fcm',
     deviceId: parsed.data.device_id,
     deviceName: parsed.data.device_name ?? null,
     appVersion: parsed.data.app_version ?? null,
@@ -66,12 +73,16 @@ pushRouter.post('/devices', writeLimiter, async (req, res) => {
     voipToken: parsed.data.voip_token ?? null,
   });
   if (!result) return res.status(500).json({ error: 'Registration failed' });
+  // So the app can tell the operator why nothing is arriving rather than
+  // leaving them to guess. `push_enabled` answers for the transport THIS
+  // device registered with: a native app told "yes, push is configured"
+  // because somebody set up Firebase would be told a truth about a service it
+  // does not use.
+  const transport = parsed.data.transport ?? 'fcm';
   return res.json({
     ok: true,
     device_id: parsed.data.device_id,
-    push_enabled: isPushConfigured(),
-    // So the app can tell the operator why their phone is not ringing rather
-    // than leaving them to guess.
+    push_enabled: transport === 'apns' ? isApnsConfigured() : isPushConfigured(),
     voip_enabled: isVoipConfigured(),
   });
 });

@@ -26,6 +26,7 @@ enum AppearancePreference: String, CaseIterable, Identifiable, Sendable {
 /// The sub-screens Settings can push to.
 enum SettingsRoute: Hashable {
     case profile
+    case notifications
     case security
 }
 
@@ -136,6 +137,13 @@ struct SettingsView: View {
             // and keeping it in the list is what lets the list end where its
             // content ends.
             Section {
+                // Above security rather than buried at the bottom: it is the
+                // setting an operator goes looking for, and the one that
+                // decides whether the app is any use when it is closed.
+                NavigationLink(value: SettingsRoute.notifications) {
+                    Label(Str.notifications(language), systemImage: "bell.badge")
+                }
+
                 NavigationLink(value: SettingsRoute.security) {
                     Label(Str.security(language), systemImage: "lock.shield")
                 }
@@ -181,6 +189,7 @@ struct SettingsView: View {
         .navigationDestination(for: SettingsRoute.self) { route in
             switch route {
             case .profile: ProfileView()
+            case .notifications: NotificationSettingsView()
             case .security: SecurityView()
             }
         }

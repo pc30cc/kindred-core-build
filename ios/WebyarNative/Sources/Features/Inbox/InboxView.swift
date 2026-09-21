@@ -14,6 +14,9 @@ struct InboxView: View {
     @State private var isSearching = false
     @State private var isFiltering = false
 
+    @State private var push = PushController.shared
+    @State private var isAskingAboutNotifications = false
+
     private var language: Language { appState.language }
     private var workspaceID: String? { appState.selectedWorkspace?.id }
 
@@ -56,6 +59,78 @@ struct InboxView: View {
             .onChange(of: appState.inboxFilters) { _, available in
                 model.reconcileFilter(with: available)
             }
+            // Notifications, asked for here rather than at launch.
+            //
+            // This is the first screen where the question means anything: the
+            // operator is signed in, they are looking at the conversations
+            // they would be told about, and iOS has not been asked yet. The
+            // one system prompt an app ever gets is not spent until somebody
+            // says yes to this.
+            .task(id: "primer|\(model.state.isLoaded)") {
+                guard model.state.isLoaded, !NotificationPrimer.hasBeenShown else { return }
+                await push.refreshAuthorization()
+                guard push.authorization == .notDetermined else { return }
+                // After the promotion has had its turn, so the two never land
+                // on top of each other.
+                try? await Task.sleep(for: .seconds(1.2))
+                guard !Task.isCancelled else { return }
+                isAskingAboutNotifications = true
+            }
+            .sheet(isPresented: $isAskingAboutNotifications) {
+                NotificationPrimerView(
+                    language: language,
+                    onAllow: {
+                        NotificationPrimer.markShown()
+                        isAskingAboutNotifications = false
+                        Task { await push.requestAuthorization() }
+                    },
+                    onDismiss: {
+                        // Marked either way: declining our own sheet twice a
+                        // day would be its own kind of rude, and Settings →
+                        // Notifications is where it lives from now on.
+                        NotificationPrimer.markShown()
+                        isAskingAboutNotifications = false
+                    }
+                )
+            }
+            // A tapped notification, once there is a stack to push onto. The
+            // tap can arrive while the app is still launching — before this
+            // view exists at all — so the controller records it and the inbox
+            // acts on it when it can.
+            .task(id: pendingOpenKey) {
+                await openPendingConversation()
+            }
+    }
+
+    /// Changes when a notification asks for a conversation, and when the list
+    /// it would have to be found in has finished loading.
+    private var pendingOpenKey: String {
+        "\(push.pendingOpen?.conversationID ?? "-")|\(model.state.isLoaded)"
+    }
+
+    /// Takes the operator to the conversation a banner was about.
+    ///
+    /// The notification carries identifiers and nothing else, so the
+    /// conversation has to be found in a loaded list. If it is not there —
+    /// a thread that has since been resolved while the operator is looking at
+    /// the open queue — the workspace is still switched and the inbox is
+    /// still the right place to be left, which beats a dead end or a blank
+    /// screen pushed onto the stack.
+    private func openPendingConversation() async {
+        guard let target = push.pendingOpen else { return }
+
+        if appState.selectedWorkspace?.id != target.workspaceID,
+           let workspace = appState.workspaces.first(where: { $0.id == target.workspaceID }) {
+            appState.select(workspace)
+            // The list reloads on the workspace change; nothing to push at
+            // yet. The key includes `isLoaded`, so this runs again.
+            return
+        }
+
+        guard model.state.isLoaded else { return }
+        _ = push.takePendingOpen()
+        guard let conversation = model.conversation(id: target.conversationID) else { return }
+        path.append(conversation)
     }
 
     /// Any change to this reloads the list: switching filter, switching

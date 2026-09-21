@@ -3,6 +3,10 @@ import SwiftUI
 @main
 struct WebyarApp: App {
     @State private var appState = AppState()
+    // Remote notifications arrive through `UIApplicationDelegate` and
+    // `UNUserNotificationCenterDelegate`; SwiftUI has no equivalent. This is
+    // what puts `AppDelegate` in the responder chain.
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
         WindowGroup {
@@ -79,6 +83,11 @@ struct RootView: View {
             // on. Every screen after this is built with the window already
             // facing the right way.
             WindowDirection.apply(appState.language)
+            // The action buttons on a banner are registered by the app, not
+            // sent in the payload, and their titles are in the operator's
+            // chosen language — so this runs again whenever that changes,
+            // which is exactly what keying the root on `language` gives.
+            PushController.shared.registerCategories(language: appState.language)
             // Counted once per launch, before any screen can ask for a
             // promotion, so "skip the first launches" counts launches rather
             // than the first time something asked.
@@ -89,6 +98,35 @@ struct RootView: View {
             await Backend.current.refreshOrigin()
             await appState.restore()
         }
+        // Who is signed in, and where.
+        //
+        // A push token registered before anybody signed in belongs to nobody,
+        // and one left by the previous operator has to be re-owned — both are
+        // settled by registering again once we know. Keyed rather than called
+        // after `restore()` because it also has to catch a sign-in on the
+        // login screen and a switch of workspace, and the device row carries
+        // the workspace so the server can scope the badge count to it.
+        .task(id: PushSessionKey(appState)) {
+            await PushController.shared.sessionChanged(
+                signedIn: appState.session.user != nil,
+                workspaceID: appState.selectedWorkspace?.id
+            )
+        }
+    }
+}
+
+/// What "a different operator, or a different workspace" looks like to
+/// `.task(id:)`.
+///
+/// Its own type rather than a tuple because `.task(id:)` wants one `Equatable`
+/// value, and a struct says what the two strings are.
+private struct PushSessionKey: Equatable {
+    let userID: String?
+    let workspaceID: String?
+
+    init(_ state: AppState) {
+        userID = state.session.user?.id
+        workspaceID = state.selectedWorkspace?.id
     }
 }
 

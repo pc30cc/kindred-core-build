@@ -20,12 +20,24 @@ import { getServiceClient } from '../../supabase.js';
 
 export type PushPlatform = 'ios' | 'android';
 
+/**
+ * Which service `push_token` addresses.
+ *
+ * `fcm` is the Capacitor build's Firebase registration token. `apns` is the
+ * raw device token iOS hands the native app, sent to Apple directly — same
+ * key and same connection the CallKit ring already uses. The column defaults
+ * to `fcm` because every row that existed before the native app was one.
+ */
+export type PushTransport = 'fcm' | 'apns';
+
 export interface RegisterDeviceInput {
   userId: string;
   workspaceId?: string | null;
   platform: PushPlatform;
-  /** The FCM token. Null on an install that only registered for calls. */
+  /** The notification address. Null on an install that only registered for calls. */
   pushToken: string | null;
+  /** Which service that address belongs to. */
+  transport?: PushTransport;
   deviceId: string;
   deviceName?: string | null;
   appVersion?: string | null;
@@ -39,6 +51,7 @@ export interface PushDeviceRow {
   user_id: string;
   platform: PushPlatform;
   push_token: string;
+  transport: PushTransport;
   device_id: string;
   enabled: boolean;
 }
@@ -77,6 +90,7 @@ export async function registerDevice(
         workspace_id: input.workspaceId ?? null,
         platform: input.platform,
         push_token: input.pushToken ?? null,
+        transport: input.transport ?? 'fcm',
         device_id: input.deviceId,
         device_name: input.deviceName ?? null,
         app_version: input.appVersion ?? null,
@@ -115,7 +129,7 @@ export async function disableDevice(
     .eq('device_id', deviceId);
 }
 
-/** FCM told us the address is dead. Never retried, never deleted blindly. */
+/** The transport told us the address is dead. Never retried, never deleted blindly. */
 export async function disableToken(
   config: ServerConfig,
   pushToken: string,
@@ -136,7 +150,7 @@ export async function listActiveDevices(
   const sb = getServiceClient(config);
   const { data, error } = await sb
     .from('mobile_push_devices')
-    .select('id, user_id, platform, push_token, device_id, enabled')
+    .select('id, user_id, platform, push_token, transport, device_id, enabled')
     .in('user_id', userIds)
     .eq('enabled', true)
     // A call-only device has no notification address, and handing a null to

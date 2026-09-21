@@ -25,6 +25,15 @@ notificationsRouter.use(requireUser);
 
 const DEFAULTS = {
   disable_all: false,
+  // The three the push dispatcher actually reads. They were in the table and
+  // in `services/push/recipients.ts` from the day mobile push shipped, and
+  // absent from this file's schema the whole time — so `GET` returned them
+  // (it selects `*`) and `PATCH` silently dropped them, because a Zod object
+  // strips unknown keys rather than rejecting them. Every attempt to turn
+  // previews off or narrow the scope answered 200 and changed nothing.
+  push_scope: 'all' as 'all' | 'assigned' | 'mentions' | 'none',
+  push_preview: true,
+  push_internal_notes: true,
   push_when_online: true,
   push_when_offline: true,
   push_visitor_browsing: false,
@@ -66,6 +75,11 @@ const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 const updateSchema = z.object({
   disable_all: z.boolean().optional(),
+  // Mirrors the table's own CHECK constraint, so an invalid scope is a 400
+  // here rather than a 500 from Postgres.
+  push_scope: z.enum(['all', 'assigned', 'mentions', 'none']).optional(),
+  push_preview: z.boolean().optional(),
+  push_internal_notes: z.boolean().optional(),
   push_when_online: z.boolean().optional(),
   push_when_offline: z.boolean().optional(),
   push_visitor_browsing: z.boolean().optional(),

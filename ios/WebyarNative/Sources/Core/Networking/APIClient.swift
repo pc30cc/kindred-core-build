@@ -983,6 +983,68 @@ actor APIClient {
         try await performIgnoringBody(request)
     }
 
+    // MARK: - Notifications
+
+    private struct DeviceBody: Encodable, Sendable {
+        let platform = "ios"
+        /// Not "fcm". The server reads this to decide whether `push_token`
+        /// addresses Firebase or Apple, and it defaults to Firebase for every
+        /// client that predates this app.
+        let transport = "apns"
+        let push_token: String
+        let device_id: String
+        let device_name: String
+        let app_version: String
+        let permission_status: String
+        let workspace_id: String?
+    }
+
+    private struct DeviceIDBody: Encodable, Sendable {
+        let device_id: String
+    }
+
+    func registerPushDevice(
+        token: String,
+        deviceID: String,
+        deviceName: String,
+        appVersion: String,
+        permission: String,
+        workspaceID: String?
+    ) async throws -> PushRegistration {
+        let request = try makeRequest(
+            "POST",
+            "/api/push/devices",
+            body: DeviceBody(
+                push_token: token,
+                device_id: deviceID,
+                device_name: deviceName,
+                app_version: appVersion,
+                permission_status: permission,
+                workspace_id: workspaceID
+            )
+        )
+        return try await perform(request, as: PushRegistration.self)
+    }
+
+    func unregisterPushDevice(deviceID: String) async throws {
+        let request = try makeRequest(
+            "POST",
+            "/api/push/devices/unregister",
+            body: DeviceIDBody(device_id: deviceID)
+        )
+        try await performIgnoringBody(request)
+    }
+
+    func notificationPrefs() async throws -> NotificationPrefs {
+        let request = try makeRequest("GET", "/api/notifications/prefs")
+        return try await perform(request, as: NotificationPrefsResponse.self).prefs
+    }
+
+    func updateNotificationPrefs(_ prefs: NotificationPrefs) async throws -> NotificationPrefs {
+        let request = try makeRequest("PATCH", "/api/notifications/prefs", body: prefs)
+        return try await perform(request, as: NotificationPrefsResponse.self).prefs
+    }
+
     // MARK: - Human guidance (operator → AI, private)
 
     /// Take the conversation off the AI and onto this operator.

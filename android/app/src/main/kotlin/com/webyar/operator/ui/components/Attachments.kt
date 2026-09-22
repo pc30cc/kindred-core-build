@@ -1,5 +1,7 @@
 package com.webyar.operator.ui.components
 
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -41,6 +44,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -54,7 +59,6 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import coil3.compose.AsyncImage
 import com.webyar.operator.core.model.MessageAttachment
 import com.webyar.operator.i18n.Format
 import com.webyar.operator.i18n.Language
@@ -73,7 +77,7 @@ import kotlinx.coroutines.withContext
  * and the only way to hear it is to leave the app.
  *
  * Every one of them fetches by hand rather than by URL. The stream endpoint
- * authorizes on the operator's bearer token and neither `AsyncImage` nor
+ * authorizes on the operator's bearer token and neither an image loader nor
  * `MediaPlayer` can carry a header, so the caller hands in a [load] that
  * already knows how — and [AttachmentBytes] makes sure it runs once per file
  * however many views ask.
@@ -110,72 +114,76 @@ private fun ImageAttachment(
     load: suspend (String) -> ByteArray?,
 ) {
     val bytes = rememberAttachmentBytes(attachment.id, load)
+    val photo = rememberDecodedImage(attachment.id, (bytes as? AttachmentBytes.Ready)?.value)
     var open by remember(attachment.id) { mutableStateOf(false) }
 
-    when (bytes) {
-        is AttachmentBytes.Ready -> {
-            AsyncImage(
-                model = bytes.value,
+    when {
+        photo != null -> {
+            Image(
+                bitmap = photo,
                 contentDescription = attachment.displayName ?: Str.photo(language),
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
+                    // The box iOS draws a photo in. `heightIn` is what keeps
+                    // a portrait shot from filling the screen, and the
+                    // aspect ratio comes from the bitmap itself — which is
+                    // why the bytes are decoded here rather than handed to
+                    // an async loader that has no size until it has finished.
                     .widthIn(max = IMAGE_MAX_WIDTH)
+                    .heightIn(max = IMAGE_MAX_HEIGHT)
                     .padding(vertical = Space.xxs)
                     .clip(RoundedCornerShape(Space.md))
                     .clickable { open = true }
                     .testTag(A11y.attachmentImage(attachment.id)),
             )
-            if (open) ImageViewer(bytes.value, language) { open = false }
+            if (open) ImageViewer(photo, language) { open = false }
         }
         // Both the failure and the not-yet keep the card, so nothing jumps
         // when the bytes land.
-        is AttachmentBytes.Failed -> FileCard(attachment, language, Str.attachmentFailed(language))
-        is AttachmentBytes.Loading -> FileCard(attachment, language, Str.receivingFile(language))
+        bytes is AttachmentBytes.Failed ->
+            FileCard(attachment, language, Str.attachmentFailed(language))
+        bytes is AttachmentBytes.Ready ->
+            // Bytes that are not a picture this phone can decode.
+            FileCard(attachment, language, Str.attachmentFailed(language))
+        else -> FileCard(attachment, language, Str.receivingFile(language))
     }
 }
 
-/** Full screen, pinchable, closed by the button or a double tap. */
+/**
+ * The bitmap behind an attachment, decoded once and bounded.
+ *
+ * Bounded because a photo from a modern camera is 4000px on its long edge
+ * and roughly 64 MB as ARGB_8888 — several of those in one transcript is an
+ * `OutOfMemoryError` on exactly the phones this app promised to run well on.
+ * [MAX_DECODED_EDGE] is generous enough for the full-screen viewer on a
+ * high-density display and small enough that a thread of photos fits.
+ */
 @Composable
-private fun ImageViewer(bytes: ByteArray, language: Language, onClose: () -> Unit) {
-    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        var zoom by remember { mutableFloatStateOf(1f) }
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-                .pointerInput(Unit) {
-                    detectTransformGestures { _, _, gestureZoom, _ ->
-                        zoom = (zoom * gestureZoom).coerceIn(1f, 6f)
-                    }
-                }
-                .pointerInput(Unit) {
-                    detectTapGestures(onDoubleTap = { zoom = if (zoom > 1f) 1f else 2.5f })
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            AsyncImage(
-                model = bytes,
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer(scaleX = zoom, scaleY = zoom),
-            )
-            IconButton(
-                onClick = onClose,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(Space.lg)
-                    .testTag(A11y.ATTACHMENT_VIEWER_CLOSE),
-            ) {
-                Icon(
-                    Icons.Filled.Close,
-                    contentDescription = Str.close(language),
-                    tint = Color.White,
-                )
-            }
+private fun rememberDecodedImage(id: String, bytes: ByteArray?): ImageBitmap? {
+    var image by remember(id) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(id, bytes) {
+        if (bytes == null) {
+            image = null
+            return@LaunchedEffect
         }
+        image = withContext(Dispatchers.Default) { decodeBounded(bytes) }
     }
+    return image
+}
+
+private fun decodeBounded(bytes: ByteArray): ImageBitmap? {
+    // Bounds first: this reads the header only and allocates nothing.
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    val longest = maxOf(bounds.outWidth, bounds.outHeight)
+    if (longest <= 0) return null
+
+    var sample = 1
+    while (longest / sample > MAX_DECODED_EDGE) sample *= 2
+
+    val options = BitmapFactory.Options().apply { inSampleSize = sample }
+    return runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) }
+        .getOrNull()?.asImageBitmap()
 }
 
 // MARK: - Voice note
@@ -448,6 +456,12 @@ private fun rememberAttachmentBytes(
 private val VOICE_NOTE_WIDTH = 236.dp
 private val FILE_CARD_MAX_WIDTH = 236.dp
 private val IMAGE_MAX_WIDTH = 240.dp
+
+/** iOS's 260pt cap, so a portrait shot is a photo and not a wall. */
+private val IMAGE_MAX_HEIGHT = 260.dp
+
+/** The longest edge a transcript photo is decoded to. */
+private const val MAX_DECODED_EDGE = 2048
 
 /** The play/pause circle, and the badge on a file card. Both 32pt on iOS. */
 private val TRANSPORT_SIZE = 32.dp

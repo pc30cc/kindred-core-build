@@ -1246,10 +1246,18 @@ object Str {
         Language.TR -> "MB"
     }
 
+    /**
+     * Deliberately not iOS's "Photo or video".
+     *
+     * The server's allowlist (`GLOBAL_ALLOWED_MIMES`) carries no video type
+     * at all, so a menu offering one promises something that can only end in
+     * a refusal. iOS still says it and still refuses the file afterwards;
+     * this is the honest version of the same menu.
+     */
     fun sendPhoto(l: Language): String = when (l) {
-        Language.EN -> "Photo or video"
-        Language.FA -> "تصویر یا ویدیو"
-        Language.TR -> "Fotoğraf veya video"
+        Language.EN -> "Photo"
+        Language.FA -> "تصویر"
+        Language.TR -> "Fotoğraf"
     }
 
     fun sendDocument(l: Language): String = when (l) {

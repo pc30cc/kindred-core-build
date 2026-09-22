@@ -430,3 +430,74 @@ keyboard begins and everything is above it.
 
 The inset goes **outside** the scroll modifier. Inside, the padding travels
 with the content and the field stays under the keyboard.
+
+### `-gpu swiftshader_indirect` is why the app kept "not responding"
+
+The AVD was launched with `-gpu swiftshader_indirect` — software rasterisation
+on the host CPU. Every frame Compose drew went through it, and the symptom was
+an ANR dialog over a screen that had rendered correctly a moment earlier.
+
+The measurement that ruled the app out: `/proc/<pid>/stat` fields 14+15 showed
+the app burning **0 jiffies in 5 seconds** while it was ANR'ing, and `top`
+inside the guest reported `400%cpu 0%user 0%sys 398%idle`. The guest was doing
+nothing. The app was blocked on a host-side renderer that never returned.
+Guest `loadavg` read 21.69 at the same moment, which is not CPU demand — it
+counts tasks parked in uninterruptible sleep.
+
+`hw.gpu.mode=host` (the AVD reports `supportsNativeGLES=1`) changes it:
+
+| | boot to `sys.boot_completed=1` | MemAvailable after boot |
+|---|---|---|
+| `swiftshader_indirect`, 3072 MB | minutes, often with a `system_server` ANR | 141 MB |
+| `host`, 4096 MB | 21 s | 2.9 GB |
+
+The RAM went up in the same change, and it mattered on its own: at 3072 MB the
+guest had paged out 1.6 GB (`pswpout 412293`) and was thrashing. Both settings
+now live in `Webyar_API36.avd/config.ini`.
+
+### The emulator cannot dispatch a drag; it can dispatch a tap
+
+`adb shell input swipe` is not usable on this emulator. A swipe becomes a
+stream of `MOVE` events, the foreground window misses the 5-second input
+deadline, and ActivityManager force-finishes it — which looks exactly like the
+app crashing back to the launcher.
+
+It is not the app. `adb logcat -b crash` holds no exception, and in one session
+the same failure hit three processes, two of them Google's:
+
+```
+ANR in com.google.android.apps.nexuslauncher
+ANR in com.webyar.operator (com.webyar.operator/.MainActivity)
+ANR in com.google.android.googlequicksearchbox:search
+  Reason: Input dispatching timed out ... Waited 12457ms for
+  MotionEvent(... action=MOVE ...)
+```
+
+Discrete taps were reliable throughout. So drive the UI with taps only, and
+remove the need to scroll instead of trying to scroll:
+
+```bash
+# same 411dp-wide phone layout, but a 6400dp-tall window
+adb shell wm size 308x4800   # 4800 is the ceiling; larger values clamp
+adb shell wm density 120
+```
+
+Keep `width_px / (density/160)` at the width in dp you want to test — change
+only the height — or the layout switches to the large-screen one and you are
+measuring a different screen. At density 120 the whole Security screen, about
+forty signed-in sessions, fits in one screenshot with the
+`Sign out on all other devices` button visible at the end of it.
+
+Two smaller things that cost time:
+
+- **`adb exec-out screencap -p > file.png` is not finished when the shell
+  returns.** Reading the file too early gives whatever was there before — in
+  one case an unrelated screenshot from an earlier session, which reads as a
+  stale frame and sends you looking for a compositor bug. Check the byte count
+  before trusting the image.
+- **`uiautomator dump` fails with `ERROR: could not get idle state`** whenever
+  an animation is running, and on a loading screen the shimmer never stops.
+  `window_animation_scale`/`transition_animation_scale`/`animator_duration_scale`
+  set to `0` makes it succeed — though Compose may still hand back a collapsed
+  tree with one `android.view.View`, in which case screenshots plus
+  `adb logcat -s WebyarApi:D` are the more dependable pair.

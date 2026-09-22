@@ -268,10 +268,15 @@ landscape.
 every call against the declared minimum, and it is more thorough than
 clicking around an old emulator.
 
-**API 24 was not run.** The x86_64 system image needs full CPU emulation on
-an Apple Silicon Mac and its QEMU threads hang before boot. Lint covers the
-API surface; what it cannot cover is font and vendor behaviour, which is why
-the flag badge now asks `Paint.hasGlyph` rather than assuming.
+**API 24 was not run,** and the reason was never established. An earlier note
+in this file blamed CPU emulation on an Apple Silicon Mac; that was simply
+wrong, and is corrected here rather than quietly deleted. The machine is an
+Intel Core i9-9880H, so an x86_64 guest runs natively and there is no
+emulation to be slow. Whatever hung it, it was something else.
+
+Lint covers the API surface in the meantime; what it cannot cover is font and
+vendor behaviour, which is why the flag badge asks `Paint.hasGlyph` rather
+than assuming.
 
 ### Speed, and what an emulator can and cannot tell you
 
@@ -290,10 +295,10 @@ or possible, that can do more than compiling every method in the app. It came
 out **12 ms** ahead of compiling nothing at all, inside a spread of 366 ms.
 
 That is not a result about the profile. It is a result about the instrument.
-An x86_64 emulator on an Apple Silicon Mac runs its JIT on a host core with
-the whole app in page cache, so the work AOT removes is work this machine
-barely does. Any number from here about compilation would be noise with a
-decimal point on it.
+The guest is x86_64 on an x86_64 host, so it runs natively on a 2.3GHz Core
+i9 with the whole app in page cache: the JIT keeps up easily and the work AOT
+removes is work this machine barely does. Any number from here about
+compilation would be noise with a decimal point on it.
 
 So the question was put a different way: not *how long did it take*, but *what
 did ART actually compile*. That is measurable and it is not noisy — the files

@@ -31,6 +31,26 @@ object Glyph {
         )
     }
 
+    /**
+     * A smiling face, for the emoji strip.
+     *
+     * `SentimentSatisfied` is `material-icons-extended` only, and pulling in
+     * several megabytes for one shape is the trade this file exists to avoid.
+     */
+    val Mood: ImageVector by lazy {
+        vector(
+            "Mood",
+            "M15.5 11q.63 0 1.06-.44Q17 10.13 17 9.5q0-.63-.44-1.06Q16.13 8 15.5 8q-.63 0-1.06.44Q14 8.87 14 " +
+                "9.5q0 .63.44 1.06.43.44 1.06.44Zm-7 0q.63 0 1.06-.44Q10 10.13 10 9.5q0-.63-.44-1.06Q9.13 8 " +
+                "8.5 8q-.63 0-1.06.44Q7 8.87 7 9.5q0 .63.44 1.06.43.44 1.06.44Zm3.5 6.5q1.7 0 3.11-.96 " +
+                "1.41-.95 2.04-2.54H6.85q.63 1.59 2.04 2.54 1.41.96 3.11.96Zm0 4.5q-2.08 0-3.9-.79-1.83-.79-3.19-2.15" +
+                "-1.36-1.36-2.14-3.18Q2 14.07 2 12t.78-3.9q.78-1.83 2.14-3.19Q6.28 3.55 8.1 2.77 9.92 2 12 " +
+                "2q2.08 0 3.9.77 1.83.78 3.19 2.14 1.36 1.36 2.14 3.19.77 1.82.77 3.9 0 2.07-.77 3.89-.78 " +
+                "1.82-2.14 3.18-1.36 1.36-3.19 2.15-1.82.79-3.9.79Zm0-2q3.35 0 5.67-2.33Q20 15.35 20 12t-2.33-5.67" +
+                "Q15.35 4 12 4T6.33 6.33Q4 8.65 4 12t2.33 5.67Q8.65 20 12 20Z",
+        )
+    }
+
     /** A document. Any attachment that is not a picture. */
     val Document: ImageVector by lazy {
         vector(

@@ -26,7 +26,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Face
-import androidx.compose.material.icons.filled.SentimentSatisfied
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -132,7 +131,7 @@ fun Composer(
             // button was ever drawn. iOS has had the strip since it shipped.
             if (capabilities.canUseEmoji) {
                 ComposerGlyph(
-                    icon = Icons.Filled.SentimentSatisfied,
+                    icon = Glyph.Mood,
                     label = Str.emoji(language),
                     tag = A11y.COMPOSER_EMOJI,
                     onClick = { emojiOpen = !emojiOpen },

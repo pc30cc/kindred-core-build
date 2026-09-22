@@ -271,12 +271,23 @@ class CallSession(
         if (!_phase.value.isLive) return
         _phase.value = CallPhase.Ended(outcome)
         val sessionId = callSessionId
+        val invitation = invitationId
         viewModelScope.launch {
             room.disconnect()
             // Told to the server last and best-effort: the local side is
-            // already over, and a failed hang-up request must not leave the
-            // operator staring at a call they have finished with.
-            if (sessionId != null) runCatchingUnlessCancelled { api.hangUp(sessionId) }
+            // already over, and a failed request must not leave the operator
+            // staring at a call they have finished with.
+            when {
+                // Idempotent server-side, which is what makes it safe to send
+                // even when the visitor hung up first and the call is already
+                // over as far as the server is concerned.
+                sessionId != null -> runCatchingUnlessCancelled { api.hangUp(sessionId) }
+                // Never answered: there is no session to end, only an offer to
+                // withdraw. Leaving it standing is not harmless — the offer
+                // lives five minutes, so a visitor whose widget the operator
+                // has already given up on goes on being rung by it.
+                invitation != null -> runCatchingUnlessCancelled { api.cancelInvitation(invitation) }
+            }
         }
     }
 

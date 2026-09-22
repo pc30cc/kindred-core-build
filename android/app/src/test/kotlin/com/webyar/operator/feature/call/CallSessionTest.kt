@@ -93,6 +93,7 @@ class CallSessionTest {
         var polls = 0; private set
         var invites = 0; private set
         var hungUp: String? = null; private set
+        var cancelled: String? = null; private set
 
         /** Counted, because one call must mean exactly one invitation. */
         override suspend fun inviteToCall(
@@ -130,6 +131,8 @@ class CallSessionTest {
             token ?: throw IllegalStateException("no token")
 
         override suspend fun hangUp(callSessionId: String) { hungUp = callSessionId }
+
+        override suspend fun cancelInvitation(id: String) { cancelled = id }
     }
 
     private fun invitation(status: String, sessionId: String? = null) = CallInvitation(
@@ -402,6 +405,46 @@ class CallSessionTest {
         assertTrue(room.disconnected)
         assertEquals("cs-1", api.hungUp)
     }
+
+    /**
+     * Giving up on a call nobody answered has to reach the server too.
+     *
+     * There is no session to end — only an offer to withdraw, and leaving it
+     * standing is not harmless: an invitation lives five minutes, so a
+     * visitor whose widget the operator has already walked away from goes on
+     * being rung by it.
+     */
+    @Test
+    fun `ending a call nobody answered withdraws the offer`() = runTest(dispatcher) {
+        val api = ScriptedApi(listOf(invitation("pending")))
+        val call = session(api, FakeRoom())
+        call.dial()
+        testScheduler.advanceTimeBy(1)
+
+        call.hangUp()
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(CallPhase.Ended(CallOutcome.HungUp), call.phase.value)
+        assertEquals("inv-1", api.cancelled)
+        // No session was ever created, so there is nothing to hang up.
+        assertNull(api.hungUp)
+    }
+
+    /** An answered call ends as a call, not as a withdrawn offer. */
+    @Test
+    fun `hanging up a connected call does not also withdraw the invitation`() =
+        runTest(dispatcher) {
+            val api = ScriptedApi(listOf(invitation("joined", sessionId = "cs-1")))
+            val call = session(api, FakeRoom())
+            call.dial()
+            testScheduler.advanceUntilIdle()
+
+            call.hangUp()
+            testScheduler.advanceUntilIdle()
+
+            assertEquals("cs-1", api.hungUp)
+            assertNull(api.cancelled)
+        }
 
     /**
      * A second hang-up must not rewrite how the call ended. The operator

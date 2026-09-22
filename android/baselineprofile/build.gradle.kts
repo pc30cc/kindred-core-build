@@ -44,6 +44,17 @@ baselineProfile {
     // system image on first use, which is a gigabyte nobody asked for on a
     // CI host with a 2GB ceiling.
     useConnectedDevices = true
+
+    /**
+     * One profile in `src/main`, not a copy per variant.
+     *
+     * Without this the plugin writes the same 1.6MB of rules into
+     * `src/release/generated` and `src/minified/generated` — two identical
+     * files, in a repository, that a later run can update one of. `minified`
+     * only exists so the R8'd build can be installed and looked at; it has no
+     * business having its own idea of what to compile ahead of time.
+     */
+    mergeIntoMain = true
 }
 
 dependencies {

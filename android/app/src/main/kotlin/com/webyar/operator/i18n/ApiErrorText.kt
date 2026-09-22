@@ -30,11 +30,22 @@ fun ApiError.text(language: Language, unauthorized: String? = null): String = wh
         if (language == Language.EN && !serverMessage.isNullOrEmpty()) {
             serverMessage
         } else when (status) {
-            400, 422 -> Str.errorInvalidInput(language)
+            // 403 is not 401. `ApiClient.orThrow` is careful about that —
+            // signing an operator out of the whole app because one endpoint
+            // refused them is a fault it records in as many words — and this
+            // is the other half of the same care: the session is fine, this
+            // one thing is not allowed, and that is what to say.
+            403 -> Str.errorNotAllowed(language)
             404 -> Str.errorNotFound(language)
             409 -> Str.errorConflict(language)
             429 -> Str.errorTooManyRequests(language)
-            else -> Str.offlineBody(language)
+            in 500..599 -> Str.errorServerProblem(language)
+            // 400 and 422, and the long tail of 4xx nobody has met yet.
+            // NOT the offline text, which is what stood here: the server
+            // ANSWERED, so the connection is the one thing that demonstrably
+            // works, and sending somebody to check it over a 403 is how ten
+            // minutes go into toggling aeroplane mode.
+            else -> Str.errorInvalidInput(language)
         }
     }
 }

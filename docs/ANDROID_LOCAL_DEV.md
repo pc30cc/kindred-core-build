@@ -217,3 +217,58 @@ adb shell cat /proc/$(adb shell pidof com.webyar.operator)/environ | tr '\0' '\n
 
 The property does not survive a reboot of the guest, so it has to be set
 again after every emulator restart.
+
+## What was measured, and on what
+
+Numbers rather than adjectives, all from the Mac's emulator (Pixel-class,
+1080×2400, API 36) on 2026-09-22 unless another device is named.
+
+### Size
+
+R8 and the ABI split together take the app from a 74MB debug APK to what a
+phone actually downloads:
+
+| Build | Size |
+|---|---|
+| `app-debug.apk` (all four ABIs, unminified) | 74.0 MB |
+| `app-armeabi-v7a-minified.apk` | 11.0 MB |
+| `app-arm64-v8a-minified.apk` | 16.4 MB |
+| `app-x86_64-minified.apk` | 20.5 MB |
+| `app-universal-minified.apk` | 53.8 MB |
+
+51MB of the debug APK was native code, and a seventh of that was for mips,
+mips64 and armeabi — architectures Android dropped in 2019. `abiFilters` is
+what removes them; the split is what stops a directly-installed APK carrying
+four copies of WebRTC.
+
+The universal APK exists for the one case that needs it (a workspace handing
+out a single file), and is not what Play serves.
+
+### R8
+
+`assembleMinified` builds with the release rules and the debug signature, so
+what R8 produces can actually be installed and looked at. It was: installed,
+launched, login screen, no `ClassNotFound`, no `NoSuchMethod`, no
+`SerializationException`, fonts intact after resource shrinking.
+
+The failure mode the keep rules exist for is quieter than a crash. The models
+are decoded by name out of JSON and nothing reflects on them, so R8 has every
+reason to rename their fields — and a renamed field decodes to null. The app
+would show an inbox of blank rows and blame the server.
+
+### Compatibility
+
+Swept at 1x and 2x font scale, light and dark, portrait and landscape, and at
+720×1280 @320dpi (a cheap five-inch phone). Two real faults came out of it,
+both now fixed: the flag badge vanished at 2x (an `sp` line height inside a
+`dp` circle), and the floating tab bar stretched across the full width in
+landscape.
+
+`lintDebug` passes, which is the honest answer on minSdk 24 — `NewApi` checks
+every call against the declared minimum, and it is more thorough than
+clicking around an old emulator.
+
+**API 24 was not run.** The x86_64 system image needs full CPU emulation on
+an Apple Silicon Mac and its QEMU threads hang before boot. Lint covers the
+API surface; what it cannot cover is font and vendor behaviour, which is why
+the flag badge now asks `Paint.hasGlyph` rather than assuming.

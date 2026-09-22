@@ -64,6 +64,23 @@ jobs:
           echo "IPv4 -> $code"
           [ "$code" = "200" ] || { echo "Google Maven unreachable over IPv4"; exit 1; }
 
+      # LiveKit depends on `com.github.davidliu:audioswitch` at a commit hash,
+      # which exists only on JitPack. Same reasoning as the check above: when
+      # JitPack is unreachable the symptom is "Could not find
+      # com.github.davidliu:audioswitch:039a35ae…", which reads like a wrong
+      # coordinate rather than a network fault, and somebody spends an hour
+      # on the wrong problem.
+      - name: JitPack is reachable
+        run: |
+          set -eu
+          code=$(curl -4 -sSL -o /dev/null -w '%{http_code}' --max-time 30 \
+            https://jitpack.io/com/github/davidliu/audioswitch/maven-metadata.xml || echo 000)
+          echo "IPv4 -> $code"
+          case "$code" in
+            200|401|403) echo "reachable" ;;
+            *) echo "JitPack unreachable"; exit 1 ;;
+          esac
+
       - name: Build debug
         working-directory: android
         run: ./gradlew assembleDebug --stacktrace
@@ -95,6 +112,25 @@ jobs:
         run: |
           set -eu
           find app/build/outputs/apk -name '*.apk' -exec ls -lh {} \;
+
+      # R8 is the difference between the app that is tested and the app that
+      # ships: it renames, inlines and deletes, and a keep rule that is
+      # missing shows up as an inbox of blank rows rather than a crash. This
+      # is the only thing that checks the rules are still right.
+      #
+      # NOT on push, deliberately. R8 over fifty megabytes of WebRTC is the
+      # heaviest thing this build does, and this host has a 2GB ceiling with
+      # the production Supabase stack in the other half of it. The debug
+      # build alone already peaks at 1537MB. Once a week and on demand is
+      # enough to catch a rule that has gone stale; every push is how you
+      # take the database down to check a ProGuard file.
+      - name: Minified build (R8)
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        working-directory: android
+        run: |
+          set -eu
+          ./gradlew assembleMinified --stacktrace
+          find app/build/outputs/apk/minified -name '*.apk' -exec ls -lh {} \;
 
 # NO EMULATOR JOB YET, and that is a measurement rather than an omission.
 #

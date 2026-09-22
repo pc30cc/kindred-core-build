@@ -27,14 +27,17 @@ android {
 
 baselineProfile {
     /**
-     * Generated against the `minified` build, not `release`.
+     * The plugin builds its own `nonMinifiedRelease` variant to collect
+     * against, and that is right rather than a compromise.
      *
      * A profile is a list of classes and methods BY NAME, and R8 renames
-     * them. One generated against an unminified build names methods that do
-     * not exist in the shipped one, and the installer silently drops every
-     * rule it cannot resolve — leaving a profile that is present, valid and
-     * completely inert. `minified` is R8'd exactly like release and is
-     * installable, which is what makes it the one to profile.
+     * them — so a profile collected from an R8'd APK would name methods that
+     * the NEXT R8 run, with one more class in the app, might call something
+     * else. Collecting from unminified names and letting AGP map them
+     * through the mapping file at package time is what keeps the profile
+     * valid across builds. Getting this the other way round produces a
+     * profile that is present, valid-looking and completely inert, because
+     * the installer silently drops every rule it cannot resolve.
      */
     // A connected device — the emulator on whatever machine is running this
     // — rather than a Gradle-managed one. A managed device downloads its own

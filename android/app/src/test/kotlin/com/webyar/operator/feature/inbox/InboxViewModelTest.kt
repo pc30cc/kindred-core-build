@@ -1,5 +1,6 @@
 package com.webyar.operator.feature.inbox
 
+import com.webyar.operator.core.model.EffectiveBool
 import com.webyar.operator.core.model.Entitlements
 import com.webyar.operator.core.model.InboxFilter
 import com.webyar.operator.core.net.SampleApi
@@ -180,8 +181,9 @@ class InboxViewModelTest {
             listOf(InboxFilter.OPEN, InboxFilter.PENDING, InboxFilter.RESOLVED, InboxFilter.SPAM),
             available,
         )
-        // And the strip is down to one chip, which is why the screen hides it.
-        assertEquals(listOf(InboxFilter.OPEN), InboxFilter.chips(bare))
+        // The strip is the same list, so a queue the plan includes is never
+        // reachable only by knowing that the screen's title is a menu.
+        assertEquals(available, InboxFilter.chips(bare))
     }
 
     /**
@@ -191,6 +193,37 @@ class InboxViewModelTest {
     @Test
     fun `an unresolved plan offers only the core queues`() {
         assertFalse(InboxFilter.available(null).contains(InboxFilter.AI))
-        assertEquals(listOf(InboxFilter.OPEN), InboxFilter.chips(null))
+        assertFalse(InboxFilter.available(null).contains(InboxFilter.NEEDS_HUMAN))
+        assertEquals(InboxFilter.available(null), InboxFilter.chips(null))
+    }
+
+    /**
+     * The strip and the menu are one list, not two.
+     *
+     * They used to differ: the strip carried Open and the AI queue, the menu
+     * carried all six, and four of the six were reachable only by discovering
+     * that the title was a menu. Nobody discovered it.
+     */
+    @Test
+    fun `every queue the plan includes is on the strip`() {
+        val full = Entitlements(
+            workspaceId = "ws-1",
+            features = mapOf(
+                "inbox_ai_queue" to EffectiveBool(value = true),
+                "inbox_needs_human" to EffectiveBool(value = true),
+            ),
+        )
+        assertEquals(InboxFilter.available(full), InboxFilter.chips(full))
+        assertEquals(
+            listOf(
+                InboxFilter.OPEN,
+                InboxFilter.NEEDS_HUMAN,
+                InboxFilter.PENDING,
+                InboxFilter.AI,
+                InboxFilter.RESOLVED,
+                InboxFilter.SPAM,
+            ),
+            InboxFilter.chips(full),
+        )
     }
 }

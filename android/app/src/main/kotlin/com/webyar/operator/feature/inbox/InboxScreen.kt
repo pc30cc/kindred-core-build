@@ -18,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -100,6 +101,8 @@ fun InboxScreen(
     onSelectFilter: (InboxFilter) -> Unit = {},
     onSelectChannel: (String?) -> Unit = {},
     onRefresh: () -> Unit = {},
+    /** Null when the plan has no team chat, which takes the row out. */
+    onOpenColleagues: (() -> Unit)? = null,
 ) {
     Column(modifier.fillMaxSize()) {
         InboxBar(
@@ -112,6 +115,7 @@ fun InboxScreen(
             search = search,
             onSelectFilter = onSelectFilter,
             onSelectChannel = onSelectChannel,
+            onOpenColleagues = onOpenColleagues,
         )
 
         if (search != null && search.isVisible) {
@@ -191,6 +195,7 @@ private fun InboxBar(
     search: SearchState?,
     onSelectFilter: (InboxFilter) -> Unit,
     onSelectChannel: (String?) -> Unit,
+    onOpenColleagues: (() -> Unit)?,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     val channel = channels.firstOrNull { it.key == selectedChannel }
@@ -267,6 +272,21 @@ private fun InboxBar(
                                 selected = option.key == selectedChannel,
                             ) { menuOpen = false; onSelectChannel(option.key) }
                         }
+                    }
+
+                    // The internal inbox. Not a queue and not a channel — it
+                    // is somewhere else entirely — so it goes below a rule of
+                    // its own with no tick, because you do not come back to
+                    // this menu to leave it. You press Back.
+                    if (onOpenColleagues != null) {
+                        HorizontalDivider(Modifier.padding(vertical = Space.xs))
+                        DropdownMenuItem(
+                            text = { Text(Str.colleagues(language)) },
+                            leadingIcon = {
+                                Icon(Icons.Filled.Person, contentDescription = null)
+                            },
+                            onClick = { menuOpen = false; onOpenColleagues() },
+                        )
                     }
                 }
             }

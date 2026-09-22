@@ -41,6 +41,25 @@ data class ComposerCapabilities(
             isAiManaged = false,
         )
 
+        /**
+         * What an internal thread offers.
+         *
+         * There is no AI and no visitor here, so the second question — is a
+         * person the one replying — answers itself. The plan still gates the
+         * controls, because a workspace that cannot attach files to a visitor
+         * conversation cannot attach them to a colleague's thread either:
+         * `conversation_attachments` is one table and one quota.
+         */
+        fun team(entitlements: Entitlements?): ComposerCapabilities {
+            fun plan(key: String) = entitlements?.featureEnabled(key) == true
+            return ComposerCapabilities(
+                canAttach = plan("widget_attachments"),
+                canRecordVoice = plan("widget_voice_notes"),
+                canUseEmoji = plan("widget_emoji"),
+                isAiManaged = false,
+            )
+        }
+
         fun resolve(conversation: Conversation?, entitlements: Entitlements?): ComposerCapabilities {
             if (conversation == null) return NONE
             val aiManaged = AiState.resolve(conversation) == AiState.AI_MANAGED

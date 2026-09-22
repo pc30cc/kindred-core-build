@@ -9,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.unit.dp
 import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
@@ -59,7 +60,14 @@ fun DetailRow(
         if (latin) {
             LatinText(
                 value,
-                style = MaterialTheme.typography.bodyLarge,
+                // A greedy break rather than the balanced one. An address is
+                // one unbreakable token as far as the line breaker is
+                // concerned, so it falls back to breaking mid-token either
+                // way — and the balanced strategy spends that budget leaving
+                // «alexander» alone on a line with half of it empty.
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    lineBreak = LineBreak.Simple,
+                ),
                 color = MaterialTheme.colorScheme.onSurface,
                 // Three lines is every address anyone has; past that the
                 // string is not one a person is going to read off a screen.

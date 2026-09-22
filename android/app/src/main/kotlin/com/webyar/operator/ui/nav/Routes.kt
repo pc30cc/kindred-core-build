@@ -36,6 +36,10 @@ object Route {
     const val CONTACT = "contact/{contactId}"
     fun contact(contactId: String) = "contact/$contactId"
 
+    const val COLLEAGUES = "colleagues"
+    const val TEAM_THREAD = "team/{peerId}"
+    fun teamThread(peerId: String) = "team/$peerId"
+
     const val PROFILE = "settings/profile"
     const val SECURITY = "settings/security"
 

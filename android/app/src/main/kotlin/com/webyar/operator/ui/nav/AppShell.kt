@@ -37,6 +37,7 @@ import com.webyar.operator.core.net.WebyarApi
 import com.webyar.operator.ui.AppTab
 import com.webyar.operator.feature.contacts.ContactsViewModel
 import com.webyar.operator.feature.inbox.InboxViewModel
+import com.webyar.operator.feature.team.ColleaguesViewModel
 import com.webyar.operator.ui.components.FloatingTabBar
 import com.webyar.operator.ui.components.TabItem
 import com.webyar.operator.ui.design.Size
@@ -60,6 +61,7 @@ fun AppShell(
     api: WebyarApi,
     conversations: InboxViewModel,
     contacts: ContactsViewModel,
+    colleagues: ColleaguesViewModel,
     language: Language,
     modifier: Modifier = Modifier,
     navController: NavHostController = rememberNavController(),
@@ -92,6 +94,7 @@ fun AppShell(
                         conversations = conversations,
                         language = language,
                         onOpenConversation = { navController.navigate(Route.chat(it)) },
+                        onOpenColleagues = { navController.navigate(Route.COLLEAGUES) },
                         // The list leaves room for the bar; a pushed screen
                         // does not, because the bar is gone by then.
                         bottomInset = Size.floatingBarHeight + Size.floatingBarBottomGap,
@@ -103,6 +106,29 @@ fun AppShell(
                         appState = appState,
                         api = api,
                         conversations = conversations,
+                        language = language,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+                // The internal inbox lives inside the Inbox graph, not in a
+                // tab of its own — which is where the console keeps it, and
+                // what makes Back from a colleague's thread land on the
+                // conversation list rather than somewhere else.
+                composable(Route.COLLEAGUES) {
+                    ColleaguesRoute(
+                        appState = appState,
+                        colleagues = colleagues,
+                        language = language,
+                        onOpenThread = { navController.navigate(Route.teamThread(it)) },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+                composable(Route.TEAM_THREAD) { entry ->
+                    TeamThreadRoute(
+                        peerId = entry.arguments?.getString("peerId").orEmpty(),
+                        appState = appState,
+                        api = api,
+                        colleagues = colleagues,
                         language = language,
                         onBack = { navController.popBackStack() },
                     )

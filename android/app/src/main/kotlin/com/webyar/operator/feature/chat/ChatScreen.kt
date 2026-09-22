@@ -56,6 +56,9 @@ import com.webyar.operator.ui.components.Avatar
 import com.webyar.operator.ui.components.ChatBubbleShape
 import com.webyar.operator.ui.components.Glyph
 import com.webyar.operator.ui.design.Size
+import com.webyar.operator.ui.components.AttachmentView
+import com.webyar.operator.ui.components.DayHeader
+import com.webyar.operator.ui.components.MessageBubble
 import com.webyar.operator.ui.design.Space
 import com.webyar.operator.ui.design.WebyarTheme
 import java.time.Instant
@@ -242,40 +245,29 @@ private fun Transcript(
             if (row.message.senderType == SenderType.SYSTEM) {
                 SystemRow(row.message, language)
             } else {
-                Bubble(row, language, loadAttachment)
+                val message = row.message
+                MessageBubble(
+                    id = message.id,
+                    outgoing = message.senderType.isOutgoing,
+                    endsRun = row.endsRun,
+                    startsRun = row.startsRun,
+                    time = message.createdAt,
+                    language = language,
+                    senderName = message.senderName.orEmpty(),
+                    senderAvatarUrl = message.senderAvatar,
+                ) {
+                    message.attachments?.forEach {
+                        AttachmentView(it, language, loadAttachment)
+                    }
+                    if (message.body.isNotBlank()) {
+                        Text(message.body, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
             }
         }
     }
 }
 
-@Composable
-private fun DayHeader(instant: Instant, language: Language) {
-    Box(
-        Modifier.fillMaxWidth().padding(vertical = Space.md),
-        contentAlignment = Alignment.Center,
-    ) {
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(Space.md),
-        ) {
-            Text(
-                Format.dayHeader(instant, language),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = Space.md, vertical = Space.xs),
-            )
-        }
-    }
-}
-
-/**
- * A state change, said in the reader's language.
- *
- * The stored body is always English — the server freezes it into the row at
- * insert time — so this rebuilds the sentence from metadata and falls back to
- * the body only when the kind is one this build has never heard of. An English
- * sentence beats an empty row.
- */
 @Composable
 private fun SystemRow(message: Message, language: Language) {
     val text = SystemMessage.text(message.metadata, language) ?: message.body
@@ -293,145 +285,6 @@ private fun SystemRow(message: Message, language: Language) {
             color = WebyarTheme.colors.labelTertiary,
             textAlign = TextAlign.Center,
         )
-    }
-}
-
-@Composable
-private fun Bubble(
-    row: TranscriptRow,
-    language: Language,
-    loadAttachment: (suspend (String) -> ByteArray?)?,
-) {
-    val message = row.message
-    val outgoing = message.senderType.isOutgoing
-    val colors = WebyarTheme.colors
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = if (row.startsRun) Space.md else Space.xxs)
-            .testTag(A11y.messageRow(message.id)),
-        // Start and End resolve against the layout direction, so a Persian
-        // transcript mirrors with no conditional here.
-        horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start,
-        verticalAlignment = Alignment.Bottom,
-    ) {
-        if (!outgoing) {
-            // Only the last of a run carries a face, and the rest reserve its
-            // width — so a run reads as one block rather than as a column of
-            // avatars.
-            Box(Modifier.size(Size.avatarSmall)) {
-                if (row.endsRun) {
-                    Avatar(
-                        name = message.senderName.orEmpty(),
-                        imageUrl = message.senderAvatar,
-                        size = Size.avatarSmall,
-                    )
-                }
-            }
-        }
-
-        Column(
-            Modifier
-                .padding(horizontal = Space.sm)
-                .widthIn(max = 300.dp),
-            horizontalAlignment = if (outgoing) Alignment.End else Alignment.Start,
-        ) {
-            val shape = ChatBubbleShape(
-                hasBeak = row.endsRun,
-                // Physical, not reading-order: the operator sits on the right
-                // of the transcript in every language.
-                pointsRight = outgoing,
-            )
-            Surface(
-                color = if (outgoing) colors.bubbleOutgoing else colors.bubbleIncoming,
-                contentColor = if (outgoing) colors.onBubbleOutgoing else colors.onBubbleIncoming,
-                shape = shape,
-            ) {
-                Column(Modifier.padding(horizontal = Space.md, vertical = Space.sm)) {
-                    message.attachments?.forEach { Attachment(it, language, loadAttachment) }
-                    if (message.body.isNotBlank()) {
-                        Text(message.body, style = MaterialTheme.typography.bodyLarge)
-                    }
-                }
-            }
-            if (row.endsRun) {
-                Text(
-                    Format.bubbleTime(message.createdAt, language),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.labelTertiary,
-                    modifier = Modifier.padding(top = Space.xxs, start = Space.xs, end = Space.xs),
-                )
-            }
-        }
-    }
-}
-
-/**
- * What a message carries besides its words.
- *
- * A picture is shown; everything else is a card with a name and a size on it,
- * because a phone cannot usefully preview a spreadsheet and a card that says
- * what the thing is beats a generic paperclip.
- */
-@Composable
-private fun Attachment(
-    attachment: MessageAttachment,
-    language: Language,
-    loadAttachment: (suspend (String) -> ByteArray?)?,
-) {
-    if (attachment.resolvedKind != MessageAttachment.Kind.IMAGE || loadAttachment == null) {
-        FileCard(attachment, language)
-        return
-    }
-
-    var bytes by remember(attachment.id) { mutableStateOf<ByteArray?>(null) }
-    var failed by remember(attachment.id) { mutableStateOf(false) }
-    LaunchedEffect(attachment.id) {
-        val loaded = runCatching { loadAttachment(attachment.id) }.getOrNull()
-        if (loaded == null) failed = true else bytes = loaded
-    }
-
-    when {
-        failed -> FileCard(attachment, language)
-        bytes == null -> FileCard(attachment, language)
-        else -> AsyncImage(
-            model = bytes,
-            contentDescription = attachment.displayName,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier
-                .widthIn(max = 260.dp)
-                .padding(bottom = Space.xs)
-                .clip(androidx.compose.foundation.shape.RoundedCornerShape(Space.md)),
-        )
-    }
-}
-
-@Composable
-private fun FileCard(attachment: MessageAttachment, language: Language) {
-    Row(
-        Modifier.padding(vertical = Space.xs),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            Glyph.Document,
-            contentDescription = null,
-            modifier = Modifier.size(20.dp),
-        )
-        Column(Modifier.padding(start = Space.sm)) {
-            Text(
-                attachment.displayName ?: Str.attachFile(language),
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            attachment.sizeBytes?.let {
-                Text(
-                    Format.fileSize(it.toLong(), language),
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-        }
     }
 }
 

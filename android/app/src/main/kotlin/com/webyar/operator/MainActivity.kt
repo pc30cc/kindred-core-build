@@ -35,6 +35,7 @@ import com.webyar.operator.i18n.Language
 import com.webyar.operator.ui.AppState
 import com.webyar.operator.feature.contacts.ContactsViewModel
 import com.webyar.operator.feature.inbox.InboxViewModel
+import com.webyar.operator.feature.team.ColleaguesViewModel
 import com.webyar.operator.ui.Session
 import com.webyar.operator.ui.nav.AppShell
 import com.webyar.operator.ui.design.WebyarTheme
@@ -108,12 +109,15 @@ private fun SignedInScreen(appState: AppState, api: WebyarApi, language: Languag
     // and a model scoped to the route would drop it on the way in.
     val contacts: ContactsViewModel =
         viewModel(factory = factory { ContactsViewModel(api) { language } })
+    val colleagues: ColleaguesViewModel =
+        viewModel(factory = factory { ColleaguesViewModel(api) { language } })
 
     AppShell(
         appState = appState,
         api = api,
         conversations = conversations,
         contacts = contacts,
+        colleagues = colleagues,
         language = language,
     )
 }

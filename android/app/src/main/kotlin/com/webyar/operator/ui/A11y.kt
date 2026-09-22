@@ -41,8 +41,13 @@ object A11y {
     const val CONTACTS_SEARCH = "contacts.search"
     const val CONTACT_DETAIL = "contact.detail"
 
+    const val COLLEAGUES_LIST = "colleagues.list"
+    const val COLLEAGUES_EMPTY = "colleagues.empty"
+    const val TEAM_TRANSCRIPT = "team.transcript"
+
     fun conversationRow(id: String) = "conversation.$id"
     fun contactRow(id: String) = "contact.$id"
+    fun colleagueRow(id: String) = "colleague.$id"
     fun messageRow(id: String) = "message.$id"
     fun workspaceRow(id: String) = "settings.workspace.$id"
     fun shortcutRow(id: String) = "shortcut.$id"

@@ -57,6 +57,14 @@ import com.webyar.operator.feature.chat.PrioritySheet
 import com.webyar.operator.feature.chat.StatusSheet
 import com.webyar.operator.feature.chat.TagsSheet
 import com.webyar.operator.feature.chat.TransferSheet
+import com.webyar.operator.feature.team.ColleaguesScreen
+import com.webyar.operator.feature.team.ColleaguesViewModel
+import com.webyar.operator.feature.team.TeamThreadScreen
+import com.webyar.operator.feature.team.TeamThreadViewModel
+import com.webyar.operator.feature.chat.Composer
+import com.webyar.operator.ui.components.SearchState
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.TextButton
 import com.webyar.operator.ui.design.Space
 import android.content.pm.PackageManager
 import androidx.compose.runtime.DisposableEffect
@@ -94,6 +102,7 @@ fun InboxRoute(
     conversations: InboxViewModel,
     language: Language,
     onOpenConversation: (String) -> Unit,
+    onOpenColleagues: () -> Unit,
     bottomInset: Dp,
 ) {
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
@@ -138,6 +147,10 @@ fun InboxRoute(
         onSelectFilter = conversations::select,
         onSelectChannel = conversations::selectChannel,
         onRefresh = conversations::refresh,
+        // Gated on the plan's module, like the Contacts tab: a row that leads
+        // to a screen the server will refuse is worse than no row.
+        onOpenColleagues = onOpenColleagues
+            .takeIf { plan.value?.moduleInPlan("team_chat") == true },
     )
 }
 
@@ -192,14 +205,8 @@ fun ChatRoute(
     // would be holding a handle it is no longer allowed to open.
     val context = LocalContext.current
     val send: (android.net.Uri) -> Unit = { uri ->
-        val resolver = context.contentResolver
-        val bytes = runCatching { resolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
-        if (bytes != null) {
-            chatModel.sendAttachment(
-                bytes = bytes,
-                fileName = uri.lastPathSegment?.substringAfterLast('/') ?: "file",
-                mimeType = resolver.getType(uri) ?: "application/octet-stream",
-            )
+        readPickedFile(context, uri)?.let { (bytes, name, mime) ->
+            chatModel.sendAttachment(bytes = bytes, fileName = name, mimeType = mime)
         }
     }
     val photoPicker = rememberLauncherForActivityResult(
@@ -451,6 +458,182 @@ fun ContactDetailRoute(
 }
 
 @Composable
+fun ColleaguesRoute(
+    appState: AppState,
+    colleagues: ColleaguesViewModel,
+    language: Language,
+    onOpenThread: (String) -> Unit,
+    onBack: () -> Unit,
+) {
+    val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
+    val state by colleagues.state.collectAsStateWithLifecycle()
+    val refreshing by colleagues.refreshing.collectAsStateWithLifecycle()
+
+    val search = rememberSearchState(resetOn = workspace?.id ?: "-")
+    LaunchedEffect(search) {
+        snapshotFlow { search.text }.collect(colleagues::setQuery)
+    }
+    LaunchedEffect(workspace?.id) {
+        workspace?.let { colleagues.bind(it.id) }
+    }
+
+    Scaffold(
+        topBar = {
+            SearchableBar(
+                title = Str.colleagues(language),
+                language = language,
+                search = search,
+                onBack = onBack,
+            )
+        },
+    ) { padding ->
+        ColleaguesScreen(
+            state = state,
+            language = language,
+            onOpen = {
+                // Before navigating, so the badge is gone by the time the
+                // thread is on screen rather than one refresh later.
+                colleagues.markRead(it.userId)
+                onOpenThread(it.userId)
+            },
+            modifier = Modifier.padding(padding),
+            refreshing = refreshing,
+            search = search,
+            onRefresh = colleagues::refresh,
+            onRetry = colleagues::retry,
+        )
+    }
+}
+
+@Composable
+fun TeamThreadRoute(
+    peerId: String,
+    appState: AppState,
+    api: WebyarApi,
+    colleagues: ColleaguesViewModel,
+    language: Language,
+    onBack: () -> Unit,
+) {
+    val thread: TeamThreadViewModel =
+        viewModel(factory = viewModelFactory { TeamThreadViewModel(api) { language } })
+    val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
+    val plan by appState.entitlements.collectAsStateWithLifecycle()
+    val state by thread.state.collectAsStateWithLifecycle()
+    val me by thread.me.collectAsStateWithLifecycle()
+    val draft by thread.draft.collectAsStateWithLifecycle()
+    val sending by thread.sending.collectAsStateWithLifecycle()
+    val sendFailed by thread.sendFailed.collectAsStateWithLifecycle()
+
+    val colleague = remember(peerId) { colleagues.colleague(peerId) }
+    val context = LocalContext.current
+
+    LaunchedEffect(workspace?.id, peerId) {
+        workspace?.let { thread.open(it.id, peerId) }
+    }
+
+    val photoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        readPickedFile(context, uri)?.let { (bytes, name, mime) ->
+            thread.sendAttachment(bytes, name, mime)
+        }
+    }
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        readPickedFile(context, uri)?.let { (bytes, name, mime) ->
+            thread.sendAttachment(bytes, name, mime)
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            BackBar(
+                title = colleague?.displayName ?: Str.colleagues(language),
+                language = language,
+                onBack = onBack,
+            )
+        },
+    ) { padding ->
+        Box(Modifier.padding(padding)) {
+            TeamThreadScreen(
+                state = state,
+                me = me,
+                language = language,
+                loadAttachment = thread::attachment,
+                onRetry = thread::retry,
+            ) {
+                Composer(
+                    language = language,
+                    draft = draft,
+                    onDraftChange = thread::setDraft,
+                    capabilities = ComposerCapabilities.team(plan.value),
+                    sending = sending,
+                    onSend = thread::send,
+                    onAttachPhoto = {
+                        photoPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    onAttachFile = { filePicker.launch(arrayOf("*/*")) },
+                    // An internal thread has no saved replies and no AI voice:
+                    // both are things you say to a customer.
+                    onOpenShortcuts = {},
+                    onStartRecording = {},
+                )
+            }
+
+            if (sendFailed) {
+                Snackbar(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(Space.md),
+                    action = {
+                        TextButton(onClick = thread::dismissSendError) {
+                            Text(Str.cancel(language))
+                        }
+                    },
+                ) { Text(Str.offlineBody(language)) }
+            }
+        }
+    }
+}
+
+/**
+ * A back arrow, a title, and a magnifier that brings the field down.
+ *
+ * The same bar the inbox wears, minus the queue menu — a pushed list still
+ * needs a way back, which is the one thing the inbox's own bar never does.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SearchableBar(
+    title: String,
+    language: Language,
+    search: SearchState,
+    onBack: () -> Unit,
+) {
+    TopAppBar(
+        title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        navigationIcon = {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = StrAndroid.back(language),
+                )
+            }
+        },
+        actions = {
+            IconButton(onClick = { search.toggle() }) {
+                Icon(Icons.Filled.Search, contentDescription = Str.search(language))
+            }
+        },
+    )
+}
+
+@Composable
 fun SettingsRoute(
     appState: AppState,
     api: WebyarApi,
@@ -620,5 +803,30 @@ private fun BackBar(title: String, language: Language, onBack: () -> Unit) {
                 )
             }
         },
+    )
+}
+
+/**
+ * The bytes behind a picked file, with a name and a type for them.
+ *
+ * Read here and now rather than handed on as a URI: the permission a picker
+ * grants is scoped to this callback, so a coroutine that opened the stream
+ * later would be holding a handle it is no longer allowed to open.
+ *
+ * Null when the read fails, which is the ordinary outcome for a file on a
+ * provider that has gone away — a cloud document the user is offline from,
+ * say. The caller sends nothing rather than sending an empty file.
+ */
+private fun readPickedFile(
+    context: android.content.Context,
+    uri: android.net.Uri,
+): Triple<ByteArray, String, String>? {
+    val resolver = context.contentResolver
+    val bytes = runCatching { resolver.openInputStream(uri)?.use { it.readBytes() } }
+        .getOrNull() ?: return null
+    return Triple(
+        bytes,
+        uri.lastPathSegment?.substringAfterLast('/') ?: "file",
+        resolver.getType(uri) ?: "application/octet-stream",
     )
 }

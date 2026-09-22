@@ -16,6 +16,7 @@ import {
   fetchNotificationPrefs,
   updateNotificationPrefs,
   type NotificationPrefs,
+  type PushScope,
 } from '@/lib/notifications-api';
 import { Card } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -93,6 +94,65 @@ function ToggleRow({ label, description, checked, disabled, onChange }: ToggleRo
         )}
       </div>
       <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} />
+    </div>
+  );
+}
+
+/**
+ * Which conversations are worth a push.
+ *
+ * A choice rather than a switch, because the four values are not a scale —
+ * see `pickRecipients` in `server/services/push/recipients.ts`, which is the
+ * only place they mean anything. "Assigned" also notifies on unassigned
+ * threads on purpose, so a new customer never goes unanswered.
+ */
+function ScopeChoice({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: PushScope;
+  disabled?: boolean;
+  onChange: (next: PushScope) => void;
+}) {
+  const { t } = useTranslation();
+  const options: { value: PushScope; label: string }[] = [
+    { value: 'all', label: t('notifications.scopeAll') },
+    { value: 'assigned', label: t('notifications.scopeAssigned') },
+    { value: 'mentions', label: t('notifications.scopeMentions') },
+    { value: 'none', label: t('notifications.scopeNone') },
+  ];
+
+  return (
+    <div className={cn('py-3.5', disabled && 'opacity-50')}>
+      <div className="text-sm font-medium text-foreground">
+        {t('notifications.scopeTitle')}
+      </div>
+      <div className="mt-2.5 grid gap-1.5">
+        {options.map((option) => (
+          <label
+            key={option.value}
+            className={cn(
+              'flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 text-[13px]',
+              option.value === value
+                ? 'border-primary/60 bg-primary/5 text-foreground'
+                : 'border-border/60 text-muted-foreground hover:bg-muted/40',
+              disabled && 'cursor-not-allowed'
+            )}
+          >
+            <input
+              type="radio"
+              className="h-3.5 w-3.5 accent-[hsl(var(--primary))]"
+              name="push-scope"
+              value={option.value}
+              checked={option.value === value}
+              disabled={disabled}
+              onChange={() => onChange(option.value)}
+            />
+            {option.label}
+          </label>
+        ))}
+      </div>
     </div>
   );
 }
@@ -278,6 +338,11 @@ export default function SettingsNotificationsPage() {
           hint={t('notifications.pushHint')}
         />
         <div className="mt-3 divide-y divide-border/60">
+          <ScopeChoice
+            value={prefs.push_scope}
+            disabled={pushDisabled}
+            onChange={(v) => update('push_scope', v)}
+          />
           <ToggleRow
             label={t('notifications.notifyOnline')}
             checked={prefs.push_when_online}
@@ -295,6 +360,19 @@ export default function SettingsNotificationsPage() {
             checked={prefs.push_visitor_browsing}
             disabled={pushDisabled}
             onChange={(v) => update('push_visitor_browsing', v)}
+          />
+          <ToggleRow
+            label={t('notifications.internalNotes')}
+            checked={prefs.push_internal_notes}
+            disabled={pushDisabled}
+            onChange={(v) => update('push_internal_notes', v)}
+          />
+          <ToggleRow
+            label={t('notifications.preview')}
+            description={t('notifications.previewHelp')}
+            checked={prefs.push_preview}
+            disabled={pushDisabled}
+            onChange={(v) => update('push_preview', v)}
           />
           <ToggleRow
             label={t('notifications.playSound')}

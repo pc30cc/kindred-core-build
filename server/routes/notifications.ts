@@ -23,8 +23,22 @@ async function requireUser(req: any, res: any, next: any) {
 
 notificationsRouter.use(requireUser);
 
+/**
+ * The same defaults `pickRecipients` falls back to
+ * (`server/services/push/recipients.ts`), so a user with no row of their own
+ * reads here exactly as the delivery code will treat them.
+ *
+ * `push_scope`, `push_preview` and `push_internal_notes` were missing from
+ * this list, and that was not cosmetic: those three are the keys the delivery
+ * code actually decides on, and with no way to read or write them an operator
+ * could never change who notifies them. The column has existed in
+ * `user_notification_prefs` the whole time.
+ */
 const DEFAULTS = {
   disable_all: false,
+  push_scope: 'all',
+  push_preview: true,
+  push_internal_notes: true,
   push_when_online: true,
   push_when_offline: true,
   push_visitor_browsing: false,
@@ -64,8 +78,18 @@ notificationsRouter.get('/prefs', async (req, res) => {
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/** The four `pickRecipients` knows how to act on; anything else is a typo. */
+export const PUSH_SCOPES = ['all', 'assigned', 'mentions', 'none'] as const;
+
 const updateSchema = z.object({
   disable_all: z.boolean().optional(),
+  // An unrecognised scope is rejected rather than stored: `pickRecipients`
+  // treats anything that is not 'none', 'mentions' or 'assigned' as "notify
+  // me about everything", so a typo here would silently widen someone's
+  // notifications instead of narrowing them.
+  push_scope: z.enum(PUSH_SCOPES).optional(),
+  push_preview: z.boolean().optional(),
+  push_internal_notes: z.boolean().optional(),
   push_when_online: z.boolean().optional(),
   push_when_offline: z.boolean().optional(),
   push_visitor_browsing: z.boolean().optional(),

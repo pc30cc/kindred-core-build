@@ -16,8 +16,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+/** Mirrors `DEFAULTS` in `server/routes/notifications.ts`. */
+export type PushScope = 'all' | 'assigned' | 'mentions' | 'none';
+
 export interface NotificationPrefs {
   disable_all: boolean;
+  /**
+   * Which conversations are worth a push. This is the one the delivery code
+   * actually branches on — see `pickRecipients` in
+   * `server/services/push/recipients.ts`.
+   */
+  push_scope: PushScope;
+  /** Whether the notification may carry the message text itself. */
+  push_preview: boolean;
+  /** Whether a colleague's internal note is worth interrupting someone for. */
+  push_internal_notes: boolean;
   push_when_online: boolean;
   push_when_offline: boolean;
   push_visitor_browsing: boolean;

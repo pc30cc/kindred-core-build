@@ -128,6 +128,14 @@ class ApiClient(
                 }
                 level = LogLevel.ALL
                 sanitizeHeader { name -> name.equals(HttpHeaders.Authorization, ignoreCase = true) }
+                // Auth is not logged AT ALL, and the reason is the request
+                // body rather than the response. `LogLevel.ALL` writes bodies,
+                // and the body of a sign-in is somebody's password in plain
+                // text — in logcat, which every app with READ_LOGS and anyone
+                // holding the phone over adb can read. Redacting the
+                // Authorization header covers the token and does nothing at
+                // all about the password that earned it.
+                filter { request -> !request.url.encodedPath.startsWith("/api/auth") }
             }
         }
         install(HttpTimeout) {

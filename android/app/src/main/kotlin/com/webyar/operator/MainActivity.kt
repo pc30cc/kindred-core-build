@@ -7,7 +7,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -97,10 +96,12 @@ private fun RootScreen(appState: AppState, api: WebyarApi, language: Language) {
             CircularProgressIndicator()
         }
 
+        // No `statusBarsPadding` here: the screen takes `safeDrawing`, which
+        // is the status bar AND the cutout AND the keyboard. Passing the
+        // first as well would pad the top twice.
         is Session.SignedOut -> LoginScreen(
             language = language,
             onSubmit = appState::logIn,
-            modifier = Modifier.statusBarsPadding(),
         )
 
         is Session.SignedIn -> SignedInScreen(appState, api, language)

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -45,6 +46,12 @@ fun ProfileScreen(
     Column(
         modifier
             .fillMaxWidth()
+            // The keyboard only. The Scaffold above has already handed down
+            // the system bars in `modifier`, and it does not include the IME
+            // — its default `contentWindowInsets` is the bars alone. Outside
+            // the scroll so the viewport shortens and the name field can be
+            // scrolled clear of the keyboard rather than sitting under it.
+            .imePadding()
             .verticalScroll(rememberScrollState())
             .padding(Space.screenInset),
         horizontalAlignment = Alignment.CenterHorizontally,

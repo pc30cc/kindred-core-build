@@ -4,7 +4,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -40,6 +43,16 @@ import kotlinx.coroutines.launch
  * sentence, and it says the SAME thing whether the address exists or not. The
  * endpoint answers identically either way so it cannot be used to discover
  * which addresses have accounts, and the UI must not undo that.
+ *
+ * The insets are `safeDrawing` and they go OUTSIDE the scroll, which is the
+ * whole of the keyboard handling here. `enableEdgeToEdge` sets
+ * `decorFitsSystemWindows = false`, and from that moment
+ * `windowSoftInputMode="adjustResize"` resizes nothing: the window is told to
+ * draw behind the keyboard and the app applies the inset itself. Outside the
+ * scroll the viewport shortens, so a field the keyboard now covers can be
+ * scrolled to — and Compose scrolls to it on focus without being asked.
+ * Inside the scroll the padding would travel with the content and the field
+ * would stay underneath.
  */
 @Composable
 fun LoginScreen(
@@ -67,6 +80,7 @@ fun LoginScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing)
             .verticalScroll(rememberScrollState())
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),

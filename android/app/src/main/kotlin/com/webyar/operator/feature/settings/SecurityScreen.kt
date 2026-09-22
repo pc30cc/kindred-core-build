@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
@@ -50,7 +51,10 @@ fun SecurityScreen(
     onRevoke: (AccountSession) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    LazyColumn(modifier.fillMaxWidth()) {
+    // `imePadding` for the two password fields: the Scaffold above passes the
+    // system bars down in `modifier` but never the keyboard. Shortening the
+    // list's viewport is what lets a focused field scroll clear of it.
+    LazyColumn(modifier.fillMaxWidth().imePadding()) {
         item {
             Column(
                 Modifier.fillMaxWidth().padding(Space.screenInset),

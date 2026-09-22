@@ -61,7 +61,9 @@ fun Avatar(
     val osKind = remember(imageUrl, os, device) {
         if (imageUrl.isNullOrBlank()) OsKind.resolve(os, device) else null
     }
-    val flag = remember(countryCode) { flagEmoji(countryCode) }
+    // The flag if this device can draw one, and the country's two letters if
+    // it cannot. See [countryMark].
+    val flag = remember(countryCode) { countryMark(countryCode) }
     val flagSize = maxOf(12.dp, size * 0.38f)
     val separator = MaterialTheme.colorScheme.outlineVariant
 
@@ -106,7 +108,21 @@ fun Avatar(
                 // Flags are emoji: they are already directional images and
                 // must not be mirrored a second time by the layout.
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                    Text(flag, style = glyphStyle(flagSize * 0.62f))
+                    // A flag is one wide glyph; the fallback is two narrow
+                    // letters that have to fit side by side in the same
+                    // circle, so they are set smaller and heavier.
+                    val isLetters = flag.length == 2
+                    Text(
+                        flag,
+                        style = glyphStyle(flagSize * if (isLetters) 0.44f else 0.62f),
+                        fontWeight = if (isLetters) FontWeight.Bold else null,
+                        color = if (isLetters) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            Color.Unspecified
+                        },
+                        maxLines = 1,
+                    )
                 }
             }
         }
@@ -246,3 +262,34 @@ internal fun flagEmoji(countryCode: String?): String? {
         for (char in code) appendCodePoint(0x1F1E6 + (char - 'A'))
     }
 }
+
+/**
+ * What to put in the badge: a flag, or the two letters instead.
+ *
+ * Not every Android device can draw a flag. Several large OEMs ship ROMs with
+ * the flag range removed from the emoji font — it is a legal requirement in
+ * one of this app's larger markets — and on those the regional-indicator pair
+ * renders as two empty boxes. A badge showing tofu is worse than a badge
+ * showing "IR", which at least says something.
+ *
+ * `Paint.hasGlyph` is the question Android provides for exactly this, and it
+ * asks the system font rather than guessing from the API level: a device that
+ * has the glyph gets the flag whatever version it runs, and one that does not
+ * gets the letters whatever version it runs.
+ *
+ * The answer is cached because it cannot change while the app is running —
+ * a font does not appear mid-session — and `hasGlyph` measures text.
+ */
+internal fun countryMark(countryCode: String?): String? {
+    val code = countryCode?.trim()?.uppercase() ?: return null
+    if (code.length != 2 || !code.all { it in 'A'..'Z' }) return null
+    val flag = flagEmoji(code) ?: return null
+    return if (deviceDrawsFlags(flag)) flag else code
+}
+
+private val flagSupport = java.util.concurrent.atomic.AtomicReference<Boolean?>(null)
+
+private fun deviceDrawsFlags(sample: String): Boolean =
+    flagSupport.get() ?: runCatching { android.graphics.Paint().hasGlyph(sample) }
+        .getOrDefault(false)
+        .also { flagSupport.set(it) }

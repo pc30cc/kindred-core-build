@@ -165,11 +165,33 @@ class AppState(
         }
     }
 
+    /**
+     * Sign in, and then get out of the caller's coroutine scope.
+     *
+     * The line that sets [_session] is also the line that replaces the login
+     * screen with the app — and the login screen's `rememberCoroutineScope`
+     * dies with it. Anything still running in that scope is cancelled on the
+     * spot, which is what used to happen to the workspace load:
+     *
+     *     REQUEST /api/workspaces failed with exception:
+     *     ForgottenCoroutineScopeException: rememberCoroutineScope left the
+     *     composition
+     *
+     * So a fresh sign-in reached an app with no workspace, and therefore no
+     * entitlements, no Contacts tab, no AI queues and no conversations — an
+     * app that looked empty rather than broken, silently, because
+     * [loadWorkspaces] swallows its failures. A restored session never showed
+     * it: that path runs in `viewModelScope` already.
+     *
+     * The load is handed to [viewModelScope], which outlives every screen.
+     * The caller learns only whether the credentials were good, which is all
+     * it asked.
+     */
     suspend fun logIn(email: String, password: String): Result<Unit> = runCatching {
         val user = api.logIn(email.trim(), password)
         cache.save(user)
         _session.value = Session.SignedIn(user)
-        loadWorkspaces()
+        viewModelScope.launch { loadWorkspaces() }
     }
 
     fun logOut() {

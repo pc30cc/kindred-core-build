@@ -44,6 +44,9 @@ object Route {
     const val EMAIL_THREAD = "email/{threadId}"
     fun emailThread(threadId: String) = "email/$threadId"
 
+    const val CALL = "call/{conversationId}/{channel}"
+    fun call(conversationId: String, channel: String) = "call/$conversationId/$channel"
+
     const val PROFILE = "settings/profile"
     const val SECURITY = "settings/security"
 

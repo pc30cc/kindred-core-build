@@ -45,6 +45,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import com.webyar.operator.core.model.CallChannel
 import com.webyar.operator.core.model.CallChannels
 import com.webyar.operator.core.model.CannedText
 import com.webyar.operator.feature.chat.CannedResponsePicker
@@ -212,6 +213,7 @@ fun ChatRoute(
     conversations: InboxViewModel,
     language: Language,
     onBack: () -> Unit,
+    onStartCall: (CallChannel) -> Unit,
 ) {
     val chatModel: ChatViewModel =
         viewModel(factory = viewModelFactory { ChatViewModel(api) { language } })
@@ -357,8 +359,8 @@ fun ChatRoute(
                     sheet = wanted
                 },
                 onTakeOver = chatModel::takeOver,
-                onVoiceCall = { /* calls arrive with their own step */ },
-                onVideoCall = { },
+                onVoiceCall = { onStartCall(CallChannel.VOICE) },
+                onVideoCall = { onStartCall(CallChannel.VIDEO) },
             )
         },
     )

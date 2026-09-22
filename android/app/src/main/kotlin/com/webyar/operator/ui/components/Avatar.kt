@@ -24,6 +24,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.webyar.operator.ui.design.Size
@@ -103,12 +104,27 @@ fun Avatar(
                 // Flags are emoji: they are already directional images and
                 // must not be mirrored a second time by the layout.
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                    Text(flag, fontSize = (flagSize.value * 0.62f).sp)
+                    Text(flag, fontSize = fixedSp(flagSize * 0.62f))
                 }
             }
         }
     }
 }
+
+/**
+ * A text size that renders at a given [Dp] whatever the font scale is.
+ *
+ * `12.sp` is not twelve points on a phone set to large text — it is
+ * twenty-four, which is the whole purpose of `sp` and is right for nearly
+ * every string in this app. It is wrong for the two here: a flag and a pair
+ * of initials are glyphs filling a circle measured in `dp`, so scaling them
+ * and not the circle clips them. At 2x the flag badge lost its flag
+ * altogether and left a blank white dot on every row.
+ *
+ * `Dp.toSp()` divides by the font scale, which is what undoes it.
+ */
+@Composable
+private fun fixedSp(value: Dp): TextUnit = with(LocalDensity.current) { value.toSp() }
 
 @Composable
 private fun OsFace(kind: OsKind, size: Dp) {
@@ -148,7 +164,7 @@ private fun InitialsFace(name: String, size: Dp) {
                 // has to fill a fixed circle, so it is one of the very few
                 // places in the app where text does NOT scale with the
                 // reader's font setting — it would overflow the circle.
-                fontSize = (size.value * 0.38f).sp,
+                fontSize = fixedSp(size * 0.38f),
             )
         }
     }

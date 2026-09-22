@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -88,6 +89,15 @@ fun <T> FloatingTabBar(
         border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
         modifier = modifier
             .padding(horizontal = Space.xl)
+            // Capped, because this is a capsule and not a bar.
+            //
+            // Turn the phone and the available width triples; without a cap
+            // the capsule stretches across the whole of it, with the three
+            // items a thumb's-width apart at either end and a great deal of
+            // nothing in between. The same happens on a tablet and on an
+            // opened foldable, which is the more permanent version of the
+            // problem.
+            .widthIn(max = MAX_WIDTH)
             .shadow(12.dp, RoundedCornerShape(Radius.pill), clip = false)
             .testTag(A11y.TAB_BAR),
     ) {
@@ -161,3 +171,12 @@ fun <T> FloatingTabBar(
         }
     }
 }
+
+/**
+ * As wide as the capsule ever gets.
+ *
+ * A little over a large phone's portrait width, so nothing changes on the
+ * device this was designed for and everything wider gets a centred capsule
+ * rather than a stretched one.
+ */
+private val MAX_WIDTH = 420.dp

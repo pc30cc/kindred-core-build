@@ -34,6 +34,7 @@ object A11y {
     const val CHAT_MENU = "chat.menu"
     const val COMPOSER_ATTACH = "composer.attach"
     const val COMPOSER_SHORTCUTS = "composer.shortcuts"
+    const val COMPOSER_EMOJI = "composer.emoji"
     const val SAY_NOW_VOICE = "sayNow.voice"
 
     const val CONTACTS_LIST = "contacts.list"

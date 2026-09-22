@@ -192,12 +192,20 @@ fun InboxRoute(
         onSelectFilter = conversations::select,
         onSelectChannel = conversations::selectChannel,
         onRefresh = conversations::refresh,
-        // Gated on the plan's module, like the Contacts tab: a row that leads
-        // to a screen the server will refuse is worse than no row.
+        // Gated on the plan: a row that leads to a screen the server will
+        // refuse is worse than no row.
+        //
+        // The keys are the registry's own, checked against
+        // `server/services/billing/capabilityRegistry.ts`. They used to be
+        // `team_chat` and `email`, which are not keys at all — and
+        // `moduleInPlan` answers true for a key it has never heard of, so
+        // that a module added server-side does not vanish from an older
+        // build. The effect was both rows showing on every plan, including
+        // the one in front of me whose `email_inbox` is false.
         onOpenColleagues = onOpenColleagues
-            .takeIf { plan.value?.moduleInPlan("team_chat") == true },
+            .takeIf { plan.value?.featureEnabled("inbox_team_chat") == true },
         onOpenEmail = onOpenEmail
-            .takeIf { plan.value?.moduleInPlan("email") == true },
+            .takeIf { plan.value?.moduleEnabled("email_inbox") == true },
         banner = banner?.let { creative ->
             {
                 PromoBanner(
@@ -319,8 +327,17 @@ fun ChatRoute(
         onDraftChange = chatModel::setDraft,
         sending = sending,
         capabilities = capabilities,
-        canUseShortcuts = plan.value?.featureEnabled("canned_responses") == true,
-        sayNowVoice = if (aiManaged) voice else null,
+        // NOT plan-gated, because there is no such entitlement: the registry
+        // has no `canned_responses` key, and fail-closed on a key that
+        // cannot exist hid the button on every plan there is. Whether a
+        // deployment carries the table is a separate question, and the
+        // server answers it with a 501 that `ChatViewModel` already turns
+        // into a "not set up on this server" empty state.
+        canUseShortcuts = true,
+        // The AI's own voice, offered only where the plan carries the AI.
+        // Choosing between "as the specialist" and "as the assistant" on a
+        // workspace with no AI module is a choice with one real option.
+        sayNowVoice = voice.takeIf { aiManaged && plan.value?.moduleEnabled("ai_assistant") == true },
         onSayNowVoiceChange = chatModel::setSayNowVoice,
         onAttachPhoto = {
             photoPicker.launch(

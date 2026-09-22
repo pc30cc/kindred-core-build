@@ -9,6 +9,10 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,6 +26,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.SentimentSatisfied
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -30,19 +35,24 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import com.webyar.operator.core.model.SayNowVoice
 import com.webyar.operator.i18n.Language
@@ -51,6 +61,7 @@ import com.webyar.operator.ui.A11y
 import com.webyar.operator.ui.components.Glyph
 import com.webyar.operator.ui.components.SendButton
 import com.webyar.operator.ui.design.Radius
+import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
 import com.webyar.operator.ui.design.WebyarTheme
 
@@ -93,6 +104,7 @@ fun Composer(
 ) {
     val isSayNow = sayNowVoice != null
     val canSend = draft.isNotBlank() && !sending
+    var emojiOpen by remember { mutableStateOf(false) }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -103,12 +115,28 @@ fun Composer(
             return@Surface
         }
 
+        Column {
+        if (emojiOpen && capabilities.canUseEmoji) {
+            EmojiStrip { onDraftChange(draft + it) }
+        }
+
         Row(
             Modifier.padding(horizontal = Space.sm, vertical = Space.sm),
             verticalAlignment = Alignment.Bottom,
         ) {
             if (capabilities.canAttach) {
                 AttachButton(language, onAttachPhoto, onAttachFile)
+            }
+            // `canUseEmoji` was computed by ComposerCapabilities and read by
+            // nothing: the plan said yes, the capability said yes, and no
+            // button was ever drawn. iOS has had the strip since it shipped.
+            if (capabilities.canUseEmoji) {
+                ComposerGlyph(
+                    icon = Icons.Filled.SentimentSatisfied,
+                    label = Str.emoji(language),
+                    tag = A11y.COMPOSER_EMOJI,
+                    onClick = { emojiOpen = !emojiOpen },
+                )
             }
             if (canUseShortcuts && !isSayNow) {
                 ComposerGlyph(
@@ -194,6 +222,47 @@ fun Composer(
                     label = if (isSayNow) Str.sayNowAction(language) else Str.send(language),
                     onClick = onSend,
                 )
+            }
+        }
+        }
+    }
+}
+
+/**
+ * A compact row of the emoji an operator actually reaches for.
+ *
+ * A full picker is a screen of its own, and the system keyboard already has
+ * one; this covers the handful that appear in support replies without taking
+ * the operator out of the composer. The same twelve as iOS, in the same
+ * order, so a reply written on one platform looks like a reply written on the
+ * other.
+ */
+@Composable
+private fun EmojiStrip(onPick: (String) -> Unit) {
+    val emoji = remember {
+        listOf("\uD83D\uDC4D", "\uD83D\uDE4F", "\uD83D\uDE0A", "\uD83C\uDF89", "\u2705", "\u2764\uFE0F",
+               "\uD83D\uDE05", "\uD83D\uDD25", "\uD83D\uDC4C", "\uD83D\uDE4C", "\uD83D\uDE14", "\u23F3")
+    }
+    // Emoji are not mirrored, and neither is the order they are offered in —
+    // so the strip stays left-to-right even in a Persian thread.
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = Space.sm, vertical = Space.xs),
+            horizontalArrangement = Arrangement.spacedBy(Space.xs),
+        ) {
+            emoji.forEach { character ->
+                Box(
+                    Modifier
+                        .size(Size.minTouchTarget)
+                        .clip(CircleShape)
+                        .clickable { onPick(character) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(character, fontSize = 24.sp)
+                }
             }
         }
     }

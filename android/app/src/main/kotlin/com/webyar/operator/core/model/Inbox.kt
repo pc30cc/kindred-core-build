@@ -58,19 +58,19 @@ enum class InboxFilter(val wire: String) {
         }
 
         /**
-         * The two queues that stay on the strip above the list.
+         * The queues on the strip above the list — all of them.
          *
-         * The rest move into the menu behind the screen's own title, which is
-         * where the console keeps them too: its top strip carries Open and AI
-         * and its sidebar carries the whole list. Four chips across a phone
-         * left no room for the counts, and two of them — Resolved and the AI
-         * handover queue — are places you go now and then rather than switch
-         * between all day.
+         * This used to be Open and AI only, with the other four behind the
+         * screen's title, because four chips across a phone left no room for
+         * the counts. That reasoning was about a fixed row; the strip
+         * scrolls, so the room is there, and the menu stays as the second
+         * way in rather than the only one.
+         *
+         * What it is NOT is a different set from [available]: a queue the
+         * plan includes is a queue you can reach without knowing that a
+         * title is a menu.
          */
-        fun chips(entitlements: Entitlements?): List<InboxFilter> = buildList {
-            add(OPEN)
-            if (entitlements?.featureEnabled("inbox_ai_queue") == true) add(AI)
-        }
+        fun chips(entitlements: Entitlements?): List<InboxFilter> = available(entitlements)
     }
 }
 

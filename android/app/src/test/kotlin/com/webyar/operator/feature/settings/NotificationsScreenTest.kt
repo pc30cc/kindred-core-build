@@ -32,7 +32,11 @@ import org.robolectric.annotation.Config
  * front of the other.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+// A window tall enough to hold the whole list, which is what makes the
+// negative assertions mean anything: in a phone-sized window a `LazyColumn`
+// never composes what is below the fold, so "the email section is not here"
+// would pass just as happily on a screen that simply had not scrolled to it.
+@Config(sdk = [34], qualifiers = "w420dp-h3000dp")
 class NotificationsScreenTest {
 
     @get:Rule val compose = createComposeRule()

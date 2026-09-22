@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -226,21 +227,13 @@ private fun InboxBar(
 
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     allFilters.forEach { option ->
-                        DropdownMenuItem(
-                            text = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        option.title(language),
-                                        fontWeight = if (option == filter) FontWeight.SemiBold else null,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    counts.count(option)?.takeIf { it > 0 }?.let {
-                                        UnreadBadge(it, language, Modifier.padding(start = Space.sm))
-                                    }
-                                }
+                        MenuRow(
+                            label = option.title(language),
+                            selected = option == filter,
+                            badge = counts.count(option)?.takeIf { it > 0 }?.let { count ->
+                                { UnreadBadge(count, language) }
                             },
-                            onClick = { menuOpen = false; onSelectFilter(option) },
-                        )
+                        ) { menuOpen = false; onSelectFilter(option) }
                     }
 
                     // A workspace with no channel plugins installed gets no
@@ -262,12 +255,12 @@ private fun InboxBar(
                         // current item, and a section where the tick can only
                         // ever move sideways and never come off is a trap, so
                         // the way out is spelled.
-                        ChannelItem(
+                        MenuRow(
                             label = Str.allInboxes(language),
                             selected = selectedChannel == null,
                         ) { menuOpen = false; onSelectChannel(null) }
                         channels.forEach { option ->
-                            ChannelItem(
+                            MenuRow(
                                 label = option.title(language),
                                 selected = option.key == selectedChannel,
                             ) { menuOpen = false; onSelectChannel(option.key) }
@@ -290,24 +283,40 @@ private fun InboxBar(
 }
 
 /**
- * One channel in the menu, with a tick rather than a bold weight.
+ * One row of the title menu — a queue or a channel, ticked when it is the one
+ * in force.
  *
- * The queues above carry counts, so weight is already doing work up there;
- * down here there is nothing to confuse a tick with.
+ * Both sections use the same mark. The queues alone could have got by on a
+ * bold weight, but then the menu would say "current" two different ways
+ * depending on how far down you had scrolled, and a weight is a poor signal
+ * next to a count that is already bold.
+ *
+ * The tick's slot is held open whether it is filled or not, so a section's
+ * labels stay in one column instead of stepping sideways as the selection
+ * moves. In Persian that column is on the right, which is where `leadingIcon`
+ * puts it without being told.
  */
 @Composable
-private fun ChannelItem(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun MenuRow(
+    label: String,
+    selected: Boolean,
+    badge: (@Composable () -> Unit)? = null,
+    onClick: () -> Unit,
+) {
     DropdownMenuItem(
         text = { Text(label, fontWeight = if (selected) FontWeight.SemiBold else null) },
-        trailingIcon = {
-            if (selected) {
-                Icon(
-                    Icons.Filled.Check,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+        leadingIcon = {
+            Box(Modifier.size(Size.icon)) {
+                if (selected) {
+                    Icon(
+                        Icons.Filled.Check,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
         },
+        trailingIcon = badge,
         onClick = onClick,
     )
 }

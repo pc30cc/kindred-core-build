@@ -88,6 +88,15 @@ object Size {
 
     /** Stroke for hairline dividers, thin enough not to read as a border. */
     val hairline = 1.dp
+
+    /**
+     * Material's own icon size, named so a layout can reserve the slot.
+     *
+     * A menu that shows a tick beside the current item has to hold the space
+     * whether the tick is there or not, or every label in the section steps
+     * sideways by 24dp as the selection moves.
+     */
+    val icon = 24.dp
 }
 
 /**

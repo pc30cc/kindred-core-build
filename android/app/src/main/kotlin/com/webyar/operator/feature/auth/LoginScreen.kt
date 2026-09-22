@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -17,14 +18,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -54,6 +63,7 @@ import kotlinx.coroutines.launch
  * Inside the scroll the padding would travel with the content and the field
  * would stay underneath.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun LoginScreen(
     language: Language,
@@ -65,9 +75,21 @@ fun LoginScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val emailFocus = remember { FocusRequester() }
+    val passwordFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    // The keyboard comes up with the screen rather than waiting to be asked.
+    // There is exactly one thing to do here and it needs typing, so making
+    // somebody tap a field first is a tap that carries no information.
+    LaunchedEffect(Unit) {
+        emailFocus.requestFocus()
+        keyboard?.show()
+    }
 
     fun submit() {
         if (busy || email.isBlank() || password.isEmpty()) return
+        keyboard?.hide()
         busy = true
         error = null
         scope.launch {
@@ -88,6 +110,10 @@ fun LoginScreen(
         Text(Str.loginTitle(language), style = MaterialTheme.typography.headlineMedium)
         Text(Str.loginSubtitle(language), style = MaterialTheme.typography.bodyMedium)
 
+        // `contentType` is what makes a password manager offer to fill this,
+        // and to offer to SAVE it afterwards. Without it the fields are two
+        // anonymous text boxes: Android has nothing to go on, so nothing is
+        // offered, and every sign-in is typed out by hand.
         OutlinedTextField(
             value = email,
             onValueChange = { email = it },
@@ -97,7 +123,14 @@ fun LoginScreen(
                 keyboardType = KeyboardType.Email,
                 imeAction = ImeAction.Next,
             ),
-            modifier = Modifier.fillMaxWidth().testTag(A11y.LOGIN_EMAIL),
+            // Next moves to the password rather than doing nothing, which is
+            // what an unhandled ImeAction does.
+            keyboardActions = KeyboardActions(onNext = { passwordFocus.requestFocus() }),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(emailFocus)
+                .semantics { contentType = ContentType.EmailAddress }
+                .testTag(A11y.LOGIN_EMAIL),
         )
 
         OutlinedTextField(
@@ -110,7 +143,14 @@ fun LoginScreen(
                 keyboardType = KeyboardType.Password,
                 imeAction = ImeAction.Done,
             ),
-            modifier = Modifier.fillMaxWidth().testTag(A11y.LOGIN_PASSWORD),
+            // Done signs in. Reaching for the button after typing a password
+            // is a trip back across the screen for no reason.
+            keyboardActions = KeyboardActions(onDone = { submit() }),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(passwordFocus)
+                .semantics { contentType = ContentType.Password }
+                .testTag(A11y.LOGIN_PASSWORD),
         )
 
         error?.let {

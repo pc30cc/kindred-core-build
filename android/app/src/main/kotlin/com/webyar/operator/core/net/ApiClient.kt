@@ -216,6 +216,12 @@ class ApiClient(
             http.request(url) {
                 this.method = method
                 header("Accept", "application/json")
+                // The same thing `LoginBody.client` says, said again where a
+                // serializer cannot drop it. `server/routes/auth.ts` accepts
+                // either signal, and one of them living in a header means a
+                // change to the JSON settings can never silently turn this
+                // app back into a cookie client.
+                header("X-Client-Platform", "android")
                 currentTokenHeader(this)
                 if (body != null) {
                     contentType(ContentType.Application.Json)
@@ -257,13 +263,30 @@ class ApiClient(
     private data class LoginBody(
         val email: String,
         val password: String,
-        /** Asks the server for a Bearer-transport session instead of a cookie. */
-        val client: String = "mobile",
+        /**
+         * Asks the server for a Bearer-transport session instead of a cookie.
+         *
+         * NO DEFAULT VALUE, and that is the whole point. `encodeDefaults` is
+         * false — kotlinx's default — so a property that equals its declared
+         * default is left out of the JSON entirely. Written as
+         * `val client: String = "mobile"` this field was never once sent.
+         *
+         * `server/routes/auth.ts` reads it to decide `isMobileClient`, and
+         * puts `sessionToken` in the response body only for a mobile client.
+         * Without it the login SUCCEEDS, returns a user, sets a cookie this
+         * app cannot use, and omits the token — which arrived here as "the
+         * server's answer couldn't be read".
+         */
+        val client: String,
     )
 
     override suspend fun logIn(email: String, password: String): User {
         val result: LoginResponse =
-            build(HttpMethod.Post, "/api/auth/login", body = LoginBody(email, password)).decode()
+            build(
+                HttpMethod.Post,
+                "/api/auth/login",
+                body = LoginBody(email, password, client = "mobile"),
+            ).decode()
         val sessionToken = result.sessionToken
         val user = result.user
         if (sessionToken == null || user == null) throw ApiError.Decoding()
@@ -395,11 +418,15 @@ class ApiClient(
     // MARK: - Conversation actions
 
     @Serializable
-    private data class TakeOverBody(val workspaceId: String, val assign_to_me: Boolean = true)
+    // No default, for the reason spelled out on `LoginBody.client`: one here
+    // would never be serialised. This one happens to be harmless — the server
+    // also defaults `assign_to_me` to true — but the code read as though a
+    // value was being sent when none was.
+    private data class TakeOverBody(val workspaceId: String, val assign_to_me: Boolean)
 
     override suspend fun takeOverConversation(conversationId: String, workspaceId: String) {
         val id = conversationId.urlPath()
-        val body = TakeOverBody(workspaceId)
+        val body = TakeOverBody(workspaceId, assign_to_me = true)
         try {
             build(HttpMethod.Post, "/api/conversations/$id/take-over", body = body).orThrow()
         } catch (e: ApiError.Server) {

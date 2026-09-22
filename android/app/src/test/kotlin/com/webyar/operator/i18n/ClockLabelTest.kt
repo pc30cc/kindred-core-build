@@ -2,6 +2,9 @@ package com.webyar.operator.i18n
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
  * How a quiet-hours time reads back.
@@ -12,7 +15,13 @@ import org.junit.Test
  * time format would show it as 10:00 PM in English, and somebody comparing
  * the app against the console would reasonably conclude one of them was
  * wrong.
+ *
+ * Robolectric rather than a plain JUnit test: the localised digits come from
+ * `android.icu.text.NumberFormat`, which is one of the framework classes the
+ * unmocked android.jar throws from.
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class ClockLabelTest {
 
     @Test

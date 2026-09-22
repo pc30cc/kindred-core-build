@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -39,7 +40,10 @@ class VoiceNotePlayer private constructor(
     var isPlaying by mutableStateOf(false)
         private set
 
-    var elapsedSeconds by mutableStateOf(0.0)
+    // A primitive state rather than a boxed one: this is written twelve
+    // times a second while a note plays, and each write to a `mutableStateOf`
+    // allocates a `java.lang.Double`.
+    var elapsedSeconds by mutableDoubleStateOf(0.0)
         private set
 
     private var focus: AudioFocusRequest? = null

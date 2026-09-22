@@ -30,7 +30,16 @@ import java.time.Instant
  */
 class CallSession(
     private val api: WebyarApi,
-    private val room: CallRoom,
+    /**
+     * Owned here, not remembered by the screen.
+     *
+     * A view model survives a rotation and a `remember` does not, so a room
+     * held by the composable would be rebuilt on every turn of the phone
+     * while the session went on holding the original — and the screen would
+     * then render an empty room nobody had connected. On a video call that
+     * looks exactly like the visitor turning their camera off.
+     */
+    val room: CallRoom,
 ) : ViewModel() {
 
     private val _phase = MutableStateFlow<CallPhase>(CallPhase.Waiting)

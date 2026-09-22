@@ -914,9 +914,15 @@ fun CallRoute(
     onDone: () -> Unit,
 ) {
     val context = LocalContext.current
-    val room = remember(context) { LiveKitRoom(context.applicationContext) }
-    val session: CallSession =
-        viewModel(factory = viewModelFactory { CallSession(api, room) })
+    val session: CallSession = viewModel(
+        // The room is built INSIDE the factory, so it is created exactly once
+        // with the session and turning the phone does not build a second one
+        // beside the one that is actually connected.
+        factory = viewModelFactory {
+            CallSession(api, LiveKitRoom(context.applicationContext))
+        },
+    )
+    val room = session.room as LiveKitRoom
 
     val phase by session.phase.collectAsStateWithLifecycle()
     val connectedAt by session.connectedAt.collectAsStateWithLifecycle()
@@ -981,13 +987,6 @@ fun CallRoute(
             contactAvatarUrl = conversation?.contact?.avatarUrl,
             visitor = intel[conversationId],
         )
-    }
-
-    // Releasing the room is what hands the microphone and camera back. The
-    // view model's own onCleared does it too, but a route popped while the
-    // model is retained by the graph would otherwise hold both.
-    DisposableEffect(room) {
-        onDispose { room.release() }
     }
 
     CallScreen(

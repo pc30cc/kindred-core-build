@@ -6,11 +6,11 @@ import com.webyar.operator.core.model.TeamMessage
 import com.webyar.operator.core.net.WebyarApi
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.displayText
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -56,7 +56,6 @@ class TeamThreadViewModel(
 
     private var workspaceId: String? = null
     private var peerId: String? = null
-    private var polling: Job? = null
 
     fun open(workspaceId: String, peerId: String) {
         if (this.workspaceId == workspaceId && this.peerId == peerId) return
@@ -65,7 +64,6 @@ class TeamThreadViewModel(
         _state.value = TeamThreadState.Loading
         _draft.value = ""
         load()
-        startPolling()
     }
 
     fun setDraft(value: String) {
@@ -116,16 +114,28 @@ class TeamThreadViewModel(
         // ten-second poll will pick it up.
     }
 
-    private fun startPolling() {
-        polling?.cancel()
-        polling = viewModelScope.launch {
-            while (isActive) {
-                delay(POLL_MILLIS)
-                // Not while a send is in flight: the reload that follows it is
-                // the authoritative one, and a poll landing in between can put
-                // the pre-send transcript back for a moment.
-                if (!_sending.value) reload()
-            }
+    /**
+     * Re-reads the thread every ten seconds, for as long as somebody is
+     * looking at it.
+     *
+     * A suspend function the screen runs rather than a job this model starts,
+     * and the difference is not cosmetic. A view model sits in the navigation
+     * back stack: one that started its own loop would go on polling a thread
+     * the operator left twenty minutes ago, from a phone in a pocket. The
+     * caller ties this to the screen being resumed, so it stops when the
+     * screen does.
+     *
+     * It also makes the model testable. An endless `delay` inside
+     * `viewModelScope` never lets a test scheduler go idle, which is a hang
+     * rather than a failure — the worst kind to debug.
+     */
+    suspend fun pollWhileVisible() {
+        while (currentCoroutineContext().isActive) {
+            delay(POLL_MILLIS)
+            // Not while a send is in flight: the reload that follows the send
+            // is the authoritative one, and a poll landing in between puts the
+            // pre-send transcript back for a moment.
+            if (!_sending.value) reload()
         }
     }
 

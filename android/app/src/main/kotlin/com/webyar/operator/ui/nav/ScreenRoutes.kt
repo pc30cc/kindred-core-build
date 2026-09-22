@@ -80,6 +80,9 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.foundation.layout.Column
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.webyar.operator.ui.design.Space
 import android.content.pm.PackageManager
 import androidx.compose.runtime.DisposableEffect
@@ -547,6 +550,17 @@ fun TeamThreadRoute(
 
     LaunchedEffect(workspace?.id, peerId) {
         workspace?.let { thread.open(it.id, peerId) }
+    }
+
+    // Polls only while this screen is resumed. `repeatOnLifecycle` and not a
+    // bare LaunchedEffect: the latter survives the app going to the
+    // background, and a thread being re-read every ten seconds from a phone in
+    // a pocket is somebody's battery and somebody's data.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner, peerId) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            thread.pollWhileVisible()
+        }
     }
 
     val photoPicker = rememberLauncherForActivityResult(

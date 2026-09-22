@@ -134,6 +134,58 @@ class InboxViewModelTest {
         assertTrue(ids(inbox.state.value).size > 1)
     }
 
+    /**
+     * The reported bug: pick a channel, then pick a different queue, and the
+     * bar went on saying "Telegram" over a list that was no longer narrowed to
+     * it — with no way to get the label off. A queue and a channel are
+     * siblings in that menu, so choosing either drops the other, as on iOS.
+     */
+    @Test
+    fun `picking a queue lifts the channel`() = runTest(dispatcher) {
+        val inbox = model()
+        inbox.bind("ws-1")
+        testScheduler.advanceUntilIdle()
+        inbox.selectChannel("telegram")
+        assertEquals("telegram", inbox.channel.value)
+
+        inbox.select(InboxFilter.RESOLVED)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(null, inbox.channel.value)
+        assertEquals(InboxFilter.RESOLVED, inbox.filter.value)
+    }
+
+    /** Even when the queue tapped is the one already open. */
+    @Test
+    fun `re-picking the queue already open still lifts the channel`() = runTest(dispatcher) {
+        val inbox = model()
+        inbox.bind("ws-1")
+        testScheduler.advanceUntilIdle()
+        inbox.selectChannel("telegram")
+
+        inbox.select(InboxFilter.OPEN)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(null, inbox.channel.value)
+        assertTrue(ids(inbox.state.value).size > 1)
+    }
+
+    /** iOS: "A channel inbox shows what is open on it." */
+    @Test
+    fun `picking a channel returns to the open queue`() = runTest(dispatcher) {
+        val inbox = model()
+        inbox.bind("ws-1")
+        testScheduler.advanceUntilIdle()
+        inbox.select(InboxFilter.RESOLVED)
+        testScheduler.advanceUntilIdle()
+
+        inbox.selectChannel("telegram")
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(InboxFilter.OPEN, inbox.filter.value)
+        assertEquals("telegram", inbox.channel.value)
+    }
+
     @Test
     fun `the counts and the channels arrive with the list`() = runTest(dispatcher) {
         val inbox = model()

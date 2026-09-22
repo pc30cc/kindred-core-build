@@ -39,15 +39,8 @@ data class NotificationPrefs(
 
     @SerialName("push_when_online") val pushWhenOnline: Boolean? = null,
     @SerialName("push_when_offline") val pushWhenOffline: Boolean? = null,
-    @SerialName("push_visitor_browsing") val pushVisitorBrowsing: Boolean? = null,
     @SerialName("play_sound") val playSound: Boolean? = null,
 
-    @SerialName("email_unread_messages") val emailUnreadMessages: Boolean? = null,
-    @SerialName("email_transcripts") val emailTranscripts: Boolean? = null,
-    @SerialName("email_user_ratings") val emailUserRatings: Boolean? = null,
-    @SerialName("email_paid_invoices") val emailPaidInvoices: Boolean? = null,
-    @SerialName("email_weekly_summary") val emailWeeklySummary: Boolean? = null,
-    @SerialName("email_product_updates") val emailProductUpdates: Boolean? = null,
 
     @SerialName("quiet_hours_enabled") val quietHoursEnabled: Boolean? = null,
     /** `HH:mm`, 24-hour, or null. The server enforces the shape. */
@@ -129,14 +122,7 @@ data class NotificationPrefsUpdate(
     @SerialName("push_internal_notes") val pushInternalNotes: Boolean? = null,
     @SerialName("push_when_online") val pushWhenOnline: Boolean? = null,
     @SerialName("push_when_offline") val pushWhenOffline: Boolean? = null,
-    @SerialName("push_visitor_browsing") val pushVisitorBrowsing: Boolean? = null,
     @SerialName("play_sound") val playSound: Boolean? = null,
-    @SerialName("email_unread_messages") val emailUnreadMessages: Boolean? = null,
-    @SerialName("email_transcripts") val emailTranscripts: Boolean? = null,
-    @SerialName("email_user_ratings") val emailUserRatings: Boolean? = null,
-    @SerialName("email_paid_invoices") val emailPaidInvoices: Boolean? = null,
-    @SerialName("email_weekly_summary") val emailWeeklySummary: Boolean? = null,
-    @SerialName("email_product_updates") val emailProductUpdates: Boolean? = null,
     @SerialName("quiet_hours_enabled") val quietHoursEnabled: Boolean? = null,
     @SerialName("quiet_hours_start") val quietHoursStart: String? = null,
     @SerialName("quiet_hours_end") val quietHoursEnd: String? = null,

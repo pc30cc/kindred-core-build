@@ -57,7 +57,7 @@ class ApiErrorTextTest {
     @Test
     fun `501 names the administrator rather than inviting a retry`() {
         val text = ApiError.Server(501, null).text(Language.FA)
-        assertEquals(Str.errorFeatureMissing(Language.FA), text)
+        assertEquals(StrManual.errorFeatureMissing(Language.FA), text)
         assertNotEquals(Str.errorServerProblem(Language.FA), text)
         assertTrue(ApiError.Server(501, null).isFeatureMissing)
     }

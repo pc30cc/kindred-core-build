@@ -210,7 +210,18 @@ interface WebyarApi {
 
     // MARK: - Account
 
-    suspend fun updateProfile(fullName: String?, preferredLocale: String?): Account
+    /**
+     * Anything left null is left alone: `explicitNulls = false` drops it from
+     * the body and the route only writes keys that arrived. `phone = ""` is
+     * how the number is cleared, because the route reads `phone || null`.
+     */
+    suspend fun updateProfile(
+        fullName: String? = null,
+        preferredLocale: String? = null,
+        firstName: String? = null,
+        lastName: String? = null,
+        phone: String? = null,
+    ): Account
     suspend fun uploadAvatar(bytes: ByteArray, contentType: String, fileName: String?): AccountProfile?
     suspend fun deleteAvatar()
     suspend fun sessions(): AccountSessionsResponse

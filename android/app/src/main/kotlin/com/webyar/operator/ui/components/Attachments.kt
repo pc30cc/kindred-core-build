@@ -64,6 +64,7 @@ import com.webyar.operator.core.model.MessageAttachment
 import com.webyar.operator.i18n.Format
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
+import com.webyar.operator.i18n.StrManual
 import com.webyar.operator.ui.A11y
 import com.webyar.operator.ui.design.Space
 import kotlinx.coroutines.Dispatchers
@@ -313,7 +314,7 @@ private fun VoiceNote(
                         .clickable(onClick = player::toggle)
                         .semantics {
                             contentDescription =
-                                if (player.isPlaying) Str.pause(language) else Str.play(language)
+                                if (player.isPlaying) StrManual.pause(language) else StrManual.play(language)
                         }
                         .testTag(A11y.attachmentVoicePlay(attachment.id)),
                     contentAlignment = Alignment.Center,

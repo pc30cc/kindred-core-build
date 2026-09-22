@@ -398,7 +398,13 @@ class SampleApi : WebyarApi {
 
     // MARK: - Account
 
-    override suspend fun updateProfile(fullName: String?, preferredLocale: String?): Account = account()
+    override suspend fun updateProfile(
+        fullName: String?,
+        preferredLocale: String?,
+        firstName: String?,
+        lastName: String?,
+        phone: String?,
+    ): Account = account()
 
     override suspend fun uploadAvatar(
         bytes: ByteArray,
@@ -445,14 +451,7 @@ class SampleApi : WebyarApi {
             pushInternalNotes = update.pushInternalNotes ?: prefs.pushInternalNotes,
             pushWhenOnline = update.pushWhenOnline ?: prefs.pushWhenOnline,
             pushWhenOffline = update.pushWhenOffline ?: prefs.pushWhenOffline,
-            pushVisitorBrowsing = update.pushVisitorBrowsing ?: prefs.pushVisitorBrowsing,
             playSound = update.playSound ?: prefs.playSound,
-            emailUnreadMessages = update.emailUnreadMessages ?: prefs.emailUnreadMessages,
-            emailTranscripts = update.emailTranscripts ?: prefs.emailTranscripts,
-            emailUserRatings = update.emailUserRatings ?: prefs.emailUserRatings,
-            emailPaidInvoices = update.emailPaidInvoices ?: prefs.emailPaidInvoices,
-            emailWeeklySummary = update.emailWeeklySummary ?: prefs.emailWeeklySummary,
-            emailProductUpdates = update.emailProductUpdates ?: prefs.emailProductUpdates,
             quietHoursEnabled = update.quietHoursEnabled ?: prefs.quietHoursEnabled,
             quietHoursStart = update.quietHoursStart ?: prefs.quietHoursStart,
             quietHoursEnd = update.quietHoursEnd ?: prefs.quietHoursEnd,

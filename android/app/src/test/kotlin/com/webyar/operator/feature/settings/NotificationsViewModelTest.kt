@@ -51,13 +51,13 @@ class NotificationsViewModelTest {
     @Test
     fun `the operator's saved settings are what the screen shows`() = runTest(dispatcher) {
         val api = StubPrefsApi(
-            initial = LIVE_SHAPED.copy(playSound = false, emailTranscripts = true),
+            initial = LIVE_SHAPED.copy(playSound = false, pushInternalNotes = false),
         )
         val state = model(api).state.value
 
         assertFalse(state.loading)
         assertEquals(false, state.prefs?.playSound)
-        assertEquals(true, state.prefs?.emailTranscripts)
+        assertEquals(false, state.prefs?.pushInternalNotes)
         assertNull(state.loadError)
     }
 
@@ -96,7 +96,7 @@ class NotificationsViewModelTest {
         val sent = api.lastUpdate!!
         assertEquals(false, sent.playSound)
         assertNull("every other key has to stay null", sent.disableAll)
-        assertNull(sent.emailUnreadMessages)
+        assertNull(sent.pushInternalNotes)
         assertNull(sent.quietHoursEnabled)
     }
 
@@ -145,8 +145,8 @@ class NotificationsViewModelTest {
         api.hold = null
         api.patchError = null
         model.set(
-            { it.copy(emailTranscripts = true) },
-            NotificationPrefsUpdate(emailTranscripts = true),
+            { it.copy(pushInternalNotes = false) },
+            NotificationPrefsUpdate(pushInternalNotes = false),
         )
         testScheduler.advanceUntilIdle()
 
@@ -156,7 +156,7 @@ class NotificationsViewModelTest {
 
         val prefs = model.state.value.prefs!!
         assertEquals("the refused switch goes back", true, prefs.playSound)
-        assertEquals("the one that landed stays", true, prefs.emailTranscripts)
+        assertEquals("the one that landed stays", false, prefs.pushInternalNotes)
     }
 
     @Test
@@ -200,8 +200,8 @@ class NotificationsViewModelTest {
         )
         val prefs = model(api).state.value.prefs!!
 
-        assertNull(prefs.emailUnreadMessages)
-        assertNull(prefs.pushVisitorBrowsing)
+        assertNull(prefs.pushInternalNotes)
+        assertNull(prefs.pushPreview)
         assertNull(prefs.pushScope)
         assertNull("a scope that was never sent is not a scope", prefs.scope)
     }
@@ -225,7 +225,7 @@ class NotificationsViewModelTest {
         assertNotNull(model.state.value.saveError)
 
         api.patchError = null
-        model.set({ it.copy(emailTranscripts = true) }, NotificationPrefsUpdate(emailTranscripts = true))
+        model.set({ it.copy(pushInternalNotes = false) }, NotificationPrefsUpdate(pushInternalNotes = false))
         testScheduler.advanceUntilIdle()
 
         assertNull(model.state.value.saveError)
@@ -241,7 +241,6 @@ class NotificationsViewModelTest {
             pushWhenOnline = true,
             pushWhenOffline = true,
             playSound = true,
-            emailTranscripts = false,
             quietHoursEnabled = false,
         )
     }
@@ -287,7 +286,7 @@ class NotificationsViewModelTest {
                 prefs.copy(
                     disableAll = update.disableAll ?: prefs.disableAll,
                     playSound = update.playSound ?: prefs.playSound,
-                    emailTranscripts = update.emailTranscripts ?: prefs.emailTranscripts,
+                    pushInternalNotes = update.pushInternalNotes ?: prefs.pushInternalNotes,
                     quietHoursEnabled = update.quietHoursEnabled ?: prefs.quietHoursEnabled,
                     quietHoursStart = update.quietHoursStart ?: prefs.quietHoursStart,
                     quietHoursEnd = update.quietHoursEnd ?: prefs.quietHoursEnd,

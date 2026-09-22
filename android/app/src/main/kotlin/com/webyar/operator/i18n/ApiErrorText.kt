@@ -44,7 +44,7 @@ fun ApiError.text(language: Language, unauthorized: String? = null): String = wh
             // shortly" is an instruction that can only ever waste somebody's
             // time. `ApiError.isFeatureMissing` is the same distinction for
             // callers that want to draw their own empty state.
-            501 -> Str.errorFeatureMissing(language)
+            501 -> StrManual.errorFeatureMissing(language)
             in 500..599 -> Str.errorServerProblem(language)
             // 400 and 422, and the long tail of 4xx nobody has met yet.
             // NOT the offline text, which is what stood here: the server

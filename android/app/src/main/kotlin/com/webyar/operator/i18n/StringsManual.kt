@@ -121,4 +121,98 @@ object StrManual {
         Language.FA -> "{name} یک فایل ارسال کرد"
         Language.TR -> "{name} bir dosya gönderdi"
     }.replace("{name}", name)
+
+    // MARK: - Android only
+    //
+    // `Strings.kt` is GENERATED from `Strings.swift` — anything written there
+    // by hand is wiped the next time the generator runs, which is exactly how
+    // these came to be missing once already. A string the iOS app has no use
+    // for belongs here instead, where nothing overwrites it.
+
+    /** The wordmark's fallback text, for talkback and for a failed font. */
+    fun brandWordmark(l: Language): String = when (l) {
+        Language.EN -> "Webyar"
+        Language.FA -> "وب یار"
+        Language.TR -> "Webyar"
+    }
+
+    /**
+     * The voice note's two-state button. Android only: iOS draws an SF Symbol
+     * with no label, so `Strings.swift` has neither word to generate from.
+     */
+    fun play(l: Language): String = when (l) {
+        Language.EN -> "Play"
+        Language.FA -> "پخش"
+        Language.TR -> "Oynat"
+    }
+
+    fun pause(l: Language): String = when (l) {
+        Language.EN -> "Pause"
+        Language.FA -> "مکث"
+        Language.TR -> "Duraklat"
+    }
+
+    /** A capability this workspace's plan does not include. */
+    fun errorFeatureMissing(l: Language): String = when (l) {
+        Language.EN -> "Your plan does not include this."
+        Language.FA -> "پلن شما این امکان را ندارد."
+        Language.TR -> "Planınız bunu içermiyor."
+    }
+
+    /**
+     * Ending every other session at once.
+     *
+     * Android only: the endpoint has always existed
+     * (`DELETE /api/account/security/sessions/:id?all=1`) and the iOS app does
+     * not offer it, so there is no iOS copy to generate from.
+     */
+    fun signOutOtherDevices(l: Language): String = when (l) {
+        Language.EN -> "Sign out on all other devices"
+        Language.FA -> "خروج از همهٔ دستگاه‌های دیگر"
+        Language.TR -> "Diğer tüm cihazlardan çık"
+    }
+
+    fun signOutOtherDevicesHelp(l: Language): String = when (l) {
+        Language.EN -> "This device stays signed in."
+        Language.FA -> "این دستگاه وارد می‌ماند."
+        Language.TR -> "Bu cihaz oturumda kalır."
+    }
+
+    // MARK: - Notifications screen (Android only)
+
+    fun notificationsLoadFailed(l: Language): String = when (l) {
+        Language.EN -> "Notification settings could not be loaded."
+        Language.FA -> "تنظیمات اعلان بارگذاری نشد."
+        Language.TR -> "Bildirim ayarları yüklenemedi."
+    }
+
+    fun notificationsIntro(l: Language): String = when (l) {
+        Language.EN -> "Choose how you want to manage your notifications."
+        Language.FA -> "انتخاب کنید اعلان‌ها چطور مدیریت شوند."
+        Language.TR -> "Bildirimlerinizi nasıl yöneteceğinizi seçin."
+    }
+
+    /** The switch itself, under iOS's "Quiet hours" heading. */
+    fun notificationsQuietEnable(l: Language): String = when (l) {
+        Language.EN -> "Enable quiet hours"
+        Language.FA -> "فعال‌سازی ساعت سکوت"
+        Language.TR -> "Sessiz saatleri aç"
+    }
+
+    /**
+     * There is no Save button: a switch writes as it is flipped. Android says
+     * so where iOS does not have to, because iOS settings screens are a
+     * grouped list a person already reads as immediate.
+     */
+    fun notificationsSaving(l: Language): String = when (l) {
+        Language.EN -> "Saving…"
+        Language.FA -> "در حال ذخیره…"
+        Language.TR -> "Kaydediliyor…"
+    }
+
+    fun notificationsAutoSaved(l: Language): String = when (l) {
+        Language.EN -> "Automatically saved"
+        Language.FA -> "به‌صورت خودکار ذخیره می‌شود"
+        Language.TR -> "Otomatik kaydedilir"
+    }
 }

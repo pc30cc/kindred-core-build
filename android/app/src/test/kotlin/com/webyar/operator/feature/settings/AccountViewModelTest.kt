@@ -67,11 +67,31 @@ class AccountViewModelTest {
     fun `a refresh does not overwrite a name being typed`() = runTest(dispatcher) {
         val account = model()
 
-        account.setName("رضا")
+        account.setFirstName("رضا")
+        account.setLastName("نوری")
         account.loadProfile()
         testScheduler.advanceUntilIdle()
 
-        assertEquals("رضا", account.profile.value.name)
+        assertEquals("رضا نوری", account.profile.value.name)
+    }
+
+    /**
+     * Editing one part leaves the other where it was.
+     *
+     * The stored name arrives as one string and is split for the form, so a
+     * refresh landing mid-edit must not re-split the server's copy over the
+     * half the operator has already changed.
+     */
+    @Test
+    fun `changing the first name leaves the family name alone`() = runTest(dispatcher) {
+        val account = model()
+
+        account.setFirstName("رضا")
+        account.loadProfile()
+        testScheduler.advanceUntilIdle()
+
+        assertEquals("رضا", account.profile.value.firstName)
+        assertEquals("Karimi", account.profile.value.lastName)
     }
 
     @Test
@@ -79,7 +99,7 @@ class AccountViewModelTest {
         val api = StubAccountApi()
         val account = model(api)
 
-        account.setName("   ")
+        account.setFirstName("   ")
         account.saveProfile()
         testScheduler.advanceUntilIdle()
 
@@ -94,11 +114,14 @@ class AccountViewModelTest {
         val account = model(api)
         var done = false
 
-        account.setName("  رضا نوری  ")
+        account.setFirstName("  رضا  ")
+        account.setLastName("  نوری  ")
         account.saveProfile { done = true }
         testScheduler.advanceUntilIdle()
 
-        assertEquals("رضا نوری", api.lastSavedName)
+        // The parts are what travels now; the route composes `full_name`.
+        assertEquals("رضا", api.lastSavedFirst)
+        assertEquals("نوری", api.lastSavedLast)
         assertEquals("رضا نوری", account.profile.value.name)
         assertFalse(account.profile.value.busy)
         assertTrue(done)
@@ -110,7 +133,7 @@ class AccountViewModelTest {
         val account = model(api)
         var done = false
 
-        account.setName("رضا")
+        account.setFirstName("رضا")
         account.saveProfile { done = true }
         testScheduler.advanceUntilIdle()
 
@@ -125,12 +148,12 @@ class AccountViewModelTest {
         val api = StubAccountApi(profileError = ApiError.Transport())
         val account = model(api)
 
-        account.setName("رضا")
+        account.setFirstName("رضا")
         account.saveProfile()
         testScheduler.advanceUntilIdle()
         assertNotNull(account.profile.value.error)
 
-        account.setName("رضا ن")
+        account.setFirstName("رضا ن")
         assertNull(account.profile.value.error)
     }
 
@@ -317,14 +340,35 @@ class AccountViewModelTest {
 
         override suspend fun account(): Account = accountAnswer ?: real.account()
 
-        override suspend fun updateProfile(fullName: String?, preferredLocale: String?): Account {
+        var lastSavedFirst: String? = null
+            private set
+        var lastSavedLast: String? = null
+            private set
+        var lastSavedPhone: String? = null
+            private set
+
+        override suspend fun updateProfile(
+            fullName: String?,
+            preferredLocale: String?,
+            firstName: String?,
+            lastName: String?,
+            phone: String?,
+        ): Account {
             profileSaves++
             lastSavedName = fullName
+            lastSavedFirst = firstName
+            lastSavedLast = lastName
+            lastSavedPhone = phone
             profileError?.let { throw it }
+            // What the route does: compose the stored name from the two parts.
+            val composed = listOfNotNull(firstName, lastName)
+                .map { it.trim() }.filter { it.isNotEmpty() }
+                .joinToString(" ").ifEmpty { fullName }
             return Account(
                 id = "u-1",
                 email = "operator@webyar.app",
-                profile = AccountProfile(id = "u-1", fullName = fullName),
+                phone = phone?.ifEmpty { null },
+                profile = AccountProfile(id = "u-1", fullName = composed),
             )
         }
 

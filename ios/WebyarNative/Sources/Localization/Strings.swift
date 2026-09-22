@@ -1130,6 +1130,33 @@ enum Str {
         }
     }
 
+    /// The account form asks for the two parts rather than one "Name": the
+    /// route stores a composed `full_name` but accepts `first_name` and
+    /// `last_name`, and a family name is optional where a given name is not.
+    static func firstName(_ l: Language) -> String {
+        switch l {
+        case .en: "First name"
+        case .fa: "نام"
+        case .tr: "Ad"
+        }
+    }
+
+    static func lastName(_ l: Language) -> String {
+        switch l {
+        case .en: "Last name"
+        case .fa: "نام خانوادگی"
+        case .tr: "Soyad"
+        }
+    }
+
+    static func phoneLabel(_ l: Language) -> String {
+        switch l {
+        case .en: "Phone number"
+        case .fa: "شماره تلفن"
+        case .tr: "Telefon numarası"
+        }
+    }
+
     static func changePhoto(_ l: Language) -> String {
         switch l {
         case .en: "Change photo"

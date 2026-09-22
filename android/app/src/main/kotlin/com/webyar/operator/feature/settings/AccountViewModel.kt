@@ -15,13 +15,46 @@ import kotlinx.coroutines.launch
 
 /** The profile form, as the screen holds it. */
 data class ProfileForm(
-    val name: String = "",
+    val firstName: String = "",
+    val lastName: String = "",
     val email: String? = null,
+    val phone: String = "",
     val avatarUrl: String? = null,
     val busy: Boolean = false,
     val error: String? = null,
     val loaded: Boolean = false,
-)
+    /**
+     * Somebody has edited this form.
+     *
+     * `loaded` used to stand in for this, and with one field it very nearly
+     * worked. With three it does not: typing a first name and letting a
+     * refresh land filled the family name in from the server underneath the
+     * cursor, because only the field being typed was guarded.
+     */
+    val touched: Boolean = false,
+) {
+    /** What the avatar and the rest of the app call this person. */
+    val name: String
+        get() = listOf(firstName, lastName)
+            .map { it.trim() }.filter { it.isNotEmpty() }.joinToString(" ")
+}
+
+/**
+ * The stored name is one string; the screen asks for two.
+ *
+ * The server composes `full_name` from the parts it is given and hands back
+ * only the composed result, so the split has to happen here. The last space
+ * is the seam: "مجتبی داودی" and "Ada Lovelace" both split the way a person
+ * would expect, and a single word is a first name with no family name yet
+ * rather than a family name with no first.
+ */
+internal fun splitFullName(full: String?): Pair<String, String> {
+    val trimmed = full?.trim().orEmpty()
+    if (trimmed.isEmpty()) return "" to ""
+    val cut = trimmed.lastIndexOf(' ')
+    if (cut <= 0) return trimmed to ""
+    return trimmed.substring(0, cut).trim() to trimmed.substring(cut + 1).trim()
+}
 
 /** The security screen's two halves. */
 data class SecurityForm(
@@ -66,9 +99,12 @@ class AccountViewModel(
                     // Only seed the field if the operator has not started
                     // typing: re-reading the account after a save must not
                     // overwrite a name they are halfway through changing.
+                    val (first, last) = splitFullName(account.profile?.fullName)
                     it.copy(
-                        name = if (it.loaded) it.name else account.profile?.fullName.orEmpty(),
+                        firstName = if (it.touched) it.firstName else first,
+                        lastName = if (it.touched) it.lastName else last,
                         email = account.email,
+                        phone = if (it.touched) it.phone else account.phone.orEmpty(),
                         avatarUrl = account.profile?.avatarUrl,
                         loaded = true,
                     )
@@ -77,21 +113,45 @@ class AccountViewModel(
         }
     }
 
-    fun setName(value: String) {
-        _profile.update { it.copy(name = value, error = null) }
+    fun setFirstName(value: String) {
+        _profile.update { it.copy(firstName = value, error = null, touched = true) }
+    }
+
+    fun setLastName(value: String) {
+        _profile.update { it.copy(lastName = value, error = null, touched = true) }
+    }
+
+    fun setPhone(value: String) {
+        _profile.update { it.copy(phone = value, error = null, touched = true) }
     }
 
     fun saveProfile(onDone: () -> Unit = {}) {
-        val name = _profile.value.name.trim()
-        if (name.isEmpty()) return
+        val form = _profile.value
+        val first = form.firstName.trim()
+        val last = form.lastName.trim()
+        // A family name is optional — plenty of people have one name — but a
+        // first name is what everything else in the app labels them by.
+        if (first.isEmpty()) return
         _profile.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
-            runCatching { api.updateProfile(fullName = name, preferredLocale = null) }
+            runCatching {
+                api.updateProfile(
+                    firstName = first,
+                    lastName = last,
+                    // Empty rather than null: the route reads `phone || null`,
+                    // and a null would be dropped from the body entirely and
+                    // leave the old number standing.
+                    phone = form.phone.trim(),
+                )
+            }
                 .onSuccess { account ->
+                    val (storedFirst, storedLast) = splitFullName(account.profile?.fullName)
                     _profile.update {
                         it.copy(
                             busy = false,
-                            name = account.profile?.fullName ?: name,
+                            firstName = storedFirst.ifEmpty { first },
+                            lastName = if (storedFirst.isEmpty()) last else storedLast,
+                            phone = account.phone.orEmpty(),
                             avatarUrl = account.profile?.avatarUrl,
                         )
                     }

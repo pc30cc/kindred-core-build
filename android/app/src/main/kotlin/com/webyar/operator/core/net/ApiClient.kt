@@ -893,11 +893,26 @@ class ApiClient(
     // MARK: - Account
 
     @Serializable
-    private data class ProfileBody(val full_name: String?, val preferred_locale: String?)
+    private data class ProfileBody(
+        val full_name: String? = null,
+        val preferred_locale: String? = null,
+        val first_name: String? = null,
+        val last_name: String? = null,
+        val phone: String? = null,
+    )
 
-    override suspend fun updateProfile(fullName: String?, preferredLocale: String?): Account {
-        build(HttpMethod.Patch, "/api/account/me", body = ProfileBody(fullName, preferredLocale))
-            .orThrow()
+    override suspend fun updateProfile(
+        fullName: String?,
+        preferredLocale: String?,
+        firstName: String?,
+        lastName: String?,
+        phone: String?,
+    ): Account {
+        build(
+            HttpMethod.Patch,
+            "/api/account/me",
+            body = ProfileBody(fullName, preferredLocale, firstName, lastName, phone),
+        ).orThrow()
         // Re-read rather than trust the PATCH's echo: the server normalises a
         // locale and may reject part of the change, and the screen should show
         // what was stored rather than what was asked for.

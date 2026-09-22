@@ -10,9 +10,11 @@ package com.webyar.operator.i18n
 // product never reads the device language — the operator picks one and it
 // sticks — so locale resolution is not wanted here either.
 //
-// 210 of 224 strings are generated.
+// 260 of 276 strings are generated.
 // These are hand-written in StringsManual.kt because they are logic rather
 // than copy:
+//   resetSentDetail — takes more than a language
+//   deleteAccountOwnsBody — takes more than a language
 //   conversationsCount — takes more than a language
 //   activeFilters — takes more than a language
 //   sysTransferred — takes more than a language
@@ -34,22 +36,6 @@ object Str {
         Language.EN -> "Webyar"
         Language.FA -> "وب‌یار"
         Language.TR -> "Webyar"
-    }
-
-    /**
-     * The name as the wordmark draws it, which is not always how it is
-     * written in a sentence.
-     *
-     * Latin is capitalised because the mark is letter-spaced and lowercase
-     * letters track badly. Persian carries kashida — the elongation stroke —
-     * rather than tracking, because the script is connected and tracking
-     * would break its joins; the ZWNJ that `appName` uses is replaced by a
-     * space, since at display size the two halves want air between them.
-     */
-    fun brandWordmark(l: Language): String = when (l) {
-        Language.EN -> "WEBYAR"
-        Language.FA -> "وبــــ یــار"
-        Language.TR -> "WEBYAR"
     }
 
     fun cancel(l: Language): String = when (l) {
@@ -112,20 +98,39 @@ object Str {
         Language.TR -> "E-postanızı kontrol edin"
     }
 
-    /**
-     * Worded so it does not confirm whether the address has an account —
-     * the endpoint deliberately answers the same either way.
-     */
-    fun resetSentBody(l: Language): String = when (l) {
-        Language.EN -> "If that address has an account, a reset link is on its way."
-        Language.FA -> "اگر آن نشانی حسابی داشته باشد، پیوند بازنشانی برایش فرستاده می‌شود."
-        Language.TR -> "Bu adrese ait bir hesap varsa, sıfırlama bağlantısı yolda."
+    fun resetTitle(l: Language): String = when (l) {
+        Language.EN -> "Reset your password"
+        Language.FA -> "بازنشانی رمز عبور"
+        Language.TR -> "Parolanızı sıfırlayın"
     }
 
-    fun resetNeedsEmail(l: Language): String = when (l) {
-        Language.EN -> "Enter your email address first."
-        Language.FA -> "نخست نشانی ایمیل خود را وارد کنید."
-        Language.TR -> "Önce e-posta adresinizi girin."
+    fun resetSubtitle(l: Language): String = when (l) {
+        Language.EN -> "Enter the email address you sign in with. We will send you a link to choose a new password."
+        Language.FA -> "نشانی ایمیلی که با آن وارد می‌شوید را بنویسید. پیوندی برایتان می‌فرستیم تا رمز تازه‌ای انتخاب کنید."
+        Language.TR -> "Giriş yaptığınız e-posta adresini yazın. Yeni bir parola seçmeniz için size bir bağlantı göndereceğiz."
+    }
+
+    fun sendResetLink(l: Language): String = when (l) {
+        Language.EN -> "Send the link"
+        Language.FA -> "ارسال پیوند"
+        Language.TR -> "Bağlantıyı gönder"
+    }
+
+    fun backToLogin(l: Language): String = when (l) {
+        Language.EN -> "Back to sign in"
+        Language.FA -> "بازگشت به ورود"
+        Language.TR -> "Girişe dön"
+    }
+
+    /**
+     * The nudge under the confirmation. People look in the inbox, find
+     * nothing, and conclude it is broken — which is what the spam folder
+     * usually is.
+     */
+    fun resetCheckSpam(l: Language): String = when (l) {
+        Language.EN -> "Not there? Check your spam folder."
+        Language.FA -> "نیامد؟ پوشه‌ی هرزنامه را هم ببینید."
+        Language.TR -> "Gelmedi mi? Spam klasörünü de kontrol edin."
     }
 
     fun ok(l: Language): String = when (l) {
@@ -138,6 +143,290 @@ object Str {
         Language.EN -> "Could not sign you in. Check your email and password."
         Language.FA -> "ورود انجام نشد. ایمیل و رمز عبور را بررسی کنید."
         Language.TR -> "Giriş yapılamadı. E-posta ve parolanızı kontrol edin."
+    }
+
+    fun notifications(l: Language): String = when (l) {
+        Language.EN -> "Notifications"
+        Language.FA -> "اعلان‌ها"
+        Language.TR -> "Bildirimler"
+    }
+
+    fun pushReply(l: Language): String = when (l) {
+        Language.EN -> "Reply"
+        Language.FA -> "پاسخ"
+        Language.TR -> "Yanıtla"
+    }
+
+    fun pushReplyPlaceholder(l: Language): String = when (l) {
+        Language.EN -> "Reply…"
+        Language.FA -> "پاسخ…"
+        Language.TR -> "Yanıt…"
+    }
+
+    fun pushMarkRead(l: Language): String = when (l) {
+        Language.EN -> "Mark as read"
+        Language.FA -> "خوانده شد"
+        Language.TR -> "Okundu işaretle"
+    }
+
+    fun pushOpen(l: Language): String = when (l) {
+        Language.EN -> "Open"
+        Language.FA -> "باز کردن"
+        Language.TR -> "Aç"
+    }
+
+    fun pushPrimerTitle(l: Language): String = when (l) {
+        Language.EN -> "Know when a customer writes"
+        Language.FA -> "وقتی مشتری پیام می‌دهد باخبر شوید"
+        Language.TR -> "Bir müşteri yazdığında haberiniz olsun"
+    }
+
+    fun pushPrimerBody(l: Language): String = when (l) {
+        Language.EN -> "Webyar can tell you about new messages, mentions and internal notes — even when the app is closed. You choose exactly which, and you can change it any time in Settings."
+        Language.FA -> "وب‌یار می‌تواند پیام‌های تازه، نام‌بردن‌ها و یادداشت‌های داخلی را به شما خبر دهد — حتی وقتی برنامه بسته است. خودتان انتخاب می‌کنید کدام‌ها، و هر وقت خواستید از تنظیمات عوضش می‌کنید."
+        Language.TR -> "Webyar yeni mesajları, bahsetmeleri ve dahili notları — uygulama kapalıyken bile — size bildirebilir. Hangilerini istediğinizi siz seçersiniz ve istediğiniz zaman Ayarlar'dan değiştirebilirsiniz."
+    }
+
+    fun pushTurnOn(l: Language): String = when (l) {
+        Language.EN -> "Turn on notifications"
+        Language.FA -> "روشن کردن اعلان‌ها"
+        Language.TR -> "Bildirimleri aç"
+    }
+
+    fun pushNotNow(l: Language): String = when (l) {
+        Language.EN -> "Not now"
+        Language.FA -> "الان نه"
+        Language.TR -> "Şimdi değil"
+    }
+
+    fun pushDeniedTitle(l: Language): String = when (l) {
+        Language.EN -> "Notifications are off for Webyar"
+        Language.FA -> "اعلان‌های وب‌یار خاموش است"
+        Language.TR -> "Webyar için bildirimler kapalı"
+    }
+
+    /**
+     * iOS only ever asks once, so after a refusal the only way back is the
+     * system's own settings. Saying so is better than a switch that does
+     * nothing when tapped.
+     */
+    fun pushDeniedBody(l: Language): String = when (l) {
+        Language.EN -> "iOS asks only once. Turn them back on in the Settings app to be told about new messages."
+        Language.FA -> "iOS فقط یک‌بار می‌پرسد. برای باخبر شدن از پیام‌های تازه، آن‌ها را در برنامه‌ی تنظیمات دوباره روشن کنید."
+        Language.TR -> "iOS yalnızca bir kez sorar. Yeni mesajlardan haberdar olmak için Ayarlar uygulamasından yeniden açın."
+    }
+
+    fun pushOpenSettings(l: Language): String = when (l) {
+        Language.EN -> "Open Settings"
+        Language.FA -> "باز کردن تنظیمات"
+        Language.TR -> "Ayarları aç"
+    }
+
+    fun pushUnavailable(l: Language): String = when (l) {
+        Language.EN -> "This workspace has no notification service configured, so nothing will arrive on this phone yet."
+        Language.FA -> "برای این فضای کاری سرویس اعلان تنظیم نشده، پس فعلاً چیزی به این تلفن نمی‌رسد."
+        Language.TR -> "Bu çalışma alanı için bildirim servisi yapılandırılmamış, bu yüzden bu telefona henüz bir şey ulaşmayacak."
+    }
+
+    fun pushMuteAll(l: Language): String = when (l) {
+        Language.EN -> "Pause all notifications"
+        Language.FA -> "توقف همه‌ی اعلان‌ها"
+        Language.TR -> "Tüm bildirimleri duraklat"
+    }
+
+    fun pushMuteAllFooter(l: Language): String = when (l) {
+        Language.EN -> "Nothing is sent to any of your devices while this is on."
+        Language.FA -> "تا وقتی این روشن است، چیزی به هیچ‌کدام از دستگاه‌های شما فرستاده نمی‌شود."
+        Language.TR -> "Bu açıkken hiçbir cihazınıza bir şey gönderilmez."
+    }
+
+    fun pushScopeTitle(l: Language): String = when (l) {
+        Language.EN -> "Tell me about"
+        Language.FA -> "خبرم کن درباره‌ی"
+        Language.TR -> "Şunları bildir"
+    }
+
+    fun pushScopeAll(l: Language): String = when (l) {
+        Language.EN -> "Every conversation"
+        Language.FA -> "همه‌ی گفتگوها"
+        Language.TR -> "Her konuşma"
+    }
+
+    fun pushScopeAssigned(l: Language): String = when (l) {
+        Language.EN -> "Conversations assigned to me"
+        Language.FA -> "گفتگوهایی که به من سپرده شده"
+        Language.TR -> "Bana atanan konuşmalar"
+    }
+
+    fun pushScopeMentions(l: Language): String = when (l) {
+        Language.EN -> "Only when I am mentioned"
+        Language.FA -> "فقط وقتی نام مرا می‌برند"
+        Language.TR -> "Yalnızca benden bahsedildiğinde"
+    }
+
+    fun pushScopeNone(l: Language): String = when (l) {
+        Language.EN -> "Nothing"
+        Language.FA -> "هیچ‌کدام"
+        Language.TR -> "Hiçbiri"
+    }
+
+    /**
+     * An @mention always gets through the two narrower scopes; saying so
+     * stops "assigned to me" reading as "and nothing else, ever".
+     */
+    fun pushScopeFooter(l: Language): String = when (l) {
+        Language.EN -> "Someone mentioning you by name always gets through."
+        Language.FA -> "اگر کسی نام شما را ببرد، همیشه به شما می‌رسد."
+        Language.TR -> "Biri adınızı anarsa her durumda size ulaşır."
+    }
+
+    fun pushInternalNotes(l: Language): String = when (l) {
+        Language.EN -> "Internal notes"
+        Language.FA -> "یادداشت‌های داخلی"
+        Language.TR -> "Dahili notlar"
+    }
+
+    fun pushShowPreview(l: Language): String = when (l) {
+        Language.EN -> "Show the message"
+        Language.FA -> "نمایش متن پیام"
+        Language.TR -> "Mesajı göster"
+    }
+
+    /**
+     * The preview is withheld by the SERVER when this is off, which is the
+     * only way it can be withheld from a locked screen.
+     */
+    fun pushShowPreviewFooter(l: Language): String = when (l) {
+        Language.EN -> "When this is off, the text never leaves the server — the notification only says a message arrived."
+        Language.FA -> "وقتی خاموش باشد، متن پیام اصلاً از سرور بیرون نمی‌آید — اعلان فقط می‌گوید پیامی رسیده است."
+        Language.TR -> "Bu kapalıyken metin sunucudan hiç çıkmaz — bildirim yalnızca bir mesaj geldiğini söyler."
+    }
+
+    fun pushSound(l: Language): String = when (l) {
+        Language.EN -> "Sound"
+        Language.FA -> "صدا"
+        Language.TR -> "Ses"
+    }
+
+    /**
+     * The two presence switches. Phrased as what the operator wants, not as
+     * the state being tested: "while I am at my desk" is a thing somebody
+     * recognises about their own day; "push when online" is a column name.
+     */
+    fun pushWhenOnline(l: Language): String = when (l) {
+        Language.EN -> "While I am at my desk"
+        Language.FA -> "وقتی پشت میزم هستم"
+        Language.TR -> "Masamdayken"
+    }
+
+    fun pushWhenOffline(l: Language): String = when (l) {
+        Language.EN -> "While I am away"
+        Language.FA -> "وقتی دور از میزم هستم"
+        Language.TR -> "Uzaktayken"
+    }
+
+    fun pushPresenceFooter(l: Language): String = when (l) {
+        Language.EN -> "Webyar knows you are at your desk while the web console is open. Turn the first off to keep the phone quiet while you are already answering there."
+        Language.FA -> "وب\\u{200C}یار وقتی کنسول وب باز است می\\u{200C}داند پشت میزتان هستید. اولی را خاموش کنید تا وقتی همان\\u{200C}جا پاسخ می\\u{200C}دهید، گوشی ساکت بماند."
+        Language.TR -> "Web konsolu açıkken masanızda olduğunuz bilinir. Orada zaten yanıtlarken telefonun sessiz kalması için ilkini kapatın."
+    }
+
+    fun pushQuietHours(l: Language): String = when (l) {
+        Language.EN -> "Quiet hours"
+        Language.FA -> "ساعت‌های سکوت"
+        Language.TR -> "Sessiz saatler"
+    }
+
+    fun pushQuietFrom(l: Language): String = when (l) {
+        Language.EN -> "From"
+        Language.FA -> "از"
+        Language.TR -> "Başlangıç"
+    }
+
+    fun pushQuietTo(l: Language): String = when (l) {
+        Language.EN -> "Until"
+        Language.FA -> "تا"
+        Language.TR -> "Bitiş"
+    }
+
+    fun pushQuietFooter(l: Language): String = when (l) {
+        Language.EN -> "Nothing arrives inside this window, except someone mentioning you by name."
+        Language.FA -> "در این بازه چیزی نمی‌رسد، مگر اینکه کسی نام شما را ببرد."
+        Language.TR -> "Bu aralıkta, biri adınızı anmadıkça hiçbir şey ulaşmaz."
+    }
+
+    fun pushThisDevice(l: Language): String = when (l) {
+        Language.EN -> "This phone"
+        Language.FA -> "همین تلفن"
+        Language.TR -> "Bu telefon"
+    }
+
+    fun pushDeviceRegistered(l: Language): String = when (l) {
+        Language.EN -> "Registered and able to receive notifications."
+        Language.FA -> "ثبت شده و آماده‌ی دریافت اعلان است."
+        Language.TR -> "Kayıtlı ve bildirim alabilir durumda."
+    }
+
+    fun pushDeviceNotRegistered(l: Language): String = when (l) {
+        Language.EN -> "Not registered yet."
+        Language.FA -> "هنوز ثبت نشده است."
+        Language.TR -> "Henüz kayıtlı değil."
+    }
+
+    fun deleteAccount(l: Language): String = when (l) {
+        Language.EN -> "Delete account"
+        Language.FA -> "حذف حساب"
+        Language.TR -> "Hesabı sil"
+    }
+
+    fun deleteAccountBody(l: Language): String = when (l) {
+        Language.EN -> "Your profile, your password, your workspace memberships, your notification preferences and every device you have signed in on are removed. This cannot be undone."
+        Language.FA -> "نمایه، رمز عبور، عضویت‌هایتان در فضاهای کاری، تنظیمات اعلان و همه‌ی دستگاه‌هایی که با آن‌ها وارد شده‌اید پاک می‌شوند. این کار برگشت‌پذیر نیست."
+        Language.TR -> "Profiliniz, parolanız, çalışma alanı üyelikleriniz, bildirim tercihleriniz ve giriş yaptığınız her cihaz kaldırılır. Bu işlem geri alınamaz."
+    }
+
+    /**
+     * Said plainly, because it is the part people worry about and the part
+     * that is genuinely reassuring.
+     */
+    fun deleteAccountKeeps(l: Language): String = when (l) {
+        Language.EN -> "Conversations you handled stay with the workspace — they belong to the customer, not to you — but they stop being attributed to you."
+        Language.FA -> "گفتگوهایی که رسیدگی کرده‌اید در فضای کاری می‌مانند — آن‌ها مال مشتری‌اند، نه شما — ولی دیگر به نام شما ثبت نمی‌شوند."
+        Language.TR -> "İlgilendiğiniz konuşmalar çalışma alanında kalır — müşteriye aittir, size değil — ancak artık size atfedilmez."
+    }
+
+    fun deleteAccountConfirmPassword(l: Language): String = when (l) {
+        Language.EN -> "Enter your password to confirm"
+        Language.FA -> "برای تأیید، رمز عبورتان را وارد کنید"
+        Language.TR -> "Onaylamak için parolanızı girin"
+    }
+
+    fun deleteAccountFinal(l: Language): String = when (l) {
+        Language.EN -> "Delete my account"
+        Language.FA -> "حساب من را حذف کن"
+        Language.TR -> "Hesabımı sil"
+    }
+
+    fun deleteAccountWrongPassword(l: Language): String = when (l) {
+        Language.EN -> "That password is not right."
+        Language.FA -> "این رمز عبور درست نیست."
+        Language.TR -> "Bu parola doğru değil."
+    }
+
+    /**
+     * The one case the server refuses, and the only one worth a screen of
+     * its own: an owner's profile cascades to their workspaces.
+     */
+    fun deleteAccountOwnsTitle(l: Language): String = when (l) {
+        Language.EN -> "Hand these over first"
+        Language.FA -> "اول این‌ها را واگذار کنید"
+        Language.TR -> "Önce bunları devredin"
+    }
+
+    fun accountDeleted(l: Language): String = when (l) {
+        Language.EN -> "Your account has been deleted."
+        Language.FA -> "حساب شما حذف شد."
+        Language.TR -> "Hesabınız silindi."
     }
 
     fun tabInbox(l: Language): String = when (l) {
@@ -470,6 +759,16 @@ object Str {
         Language.TR -> "Hakkında"
     }
 
+    /**
+     * Settings → About, and the one way forward for an owner who wants their
+     * account removed.
+     */
+    fun support(l: Language): String = when (l) {
+        Language.EN -> "Support"
+        Language.FA -> "پشتیبانی"
+        Language.TR -> "Destek"
+    }
+
     fun version(l: Language): String = when (l) {
         Language.EN -> "Version"
         Language.FA -> "نسخه"
@@ -538,6 +837,29 @@ object Str {
         Language.EN -> "Name"
         Language.FA -> "نام"
         Language.TR -> "Ad"
+    }
+
+    /**
+     * The account form asks for the two parts rather than one "Name": the
+     * route stores a composed `full_name` but accepts `first_name` and
+     * `last_name`, and a family name is optional where a given name is not.
+     */
+    fun firstName(l: Language): String = when (l) {
+        Language.EN -> "First name"
+        Language.FA -> "نام"
+        Language.TR -> "Ad"
+    }
+
+    fun lastName(l: Language): String = when (l) {
+        Language.EN -> "Last name"
+        Language.FA -> "نام خانوادگی"
+        Language.TR -> "Soyad"
+    }
+
+    fun phoneLabel(l: Language): String = when (l) {
+        Language.EN -> "Phone number"
+        Language.FA -> "شماره تلفن"
+        Language.TR -> "Telefon numarası"
     }
 
     fun changePhoto(l: Language): String = when (l) {
@@ -622,6 +944,17 @@ object Str {
         Language.EN -> "This device"
         Language.FA -> "همین دستگاه"
         Language.TR -> "Bu cihaz"
+    }
+
+    /**
+     * The button on a device row. Short, because it sits at the end of a
+     * line that already says which device — `revokeSession` is the swipe
+     * action's label and says the whole sentence.
+     */
+    fun signOutDevice(l: Language): String = when (l) {
+        Language.EN -> "Sign out"
+        Language.FA -> "خروج"
+        Language.TR -> "Çıkış"
     }
 
     fun revokeSession(l: Language): String = when (l) {
@@ -778,20 +1111,6 @@ object Str {
         Language.EN -> "The server ran into a problem. Try again shortly."
         Language.FA -> "سرور به مشکل خورد. کمی بعد دوباره تلاش کنید."
         Language.TR -> "Sunucuda bir sorun oluştu. Birazdan tekrar deneyin."
-    }
-
-    /**
-     * 501: the server understood perfectly and has nothing to answer with,
-     * because this deployment does not carry the feature.
-     *
-     * Worded like `shortcutsUnavailableBody` and for the same reason — a
-     * retry can never fix a missing table, so it must not read like one is
-     * worth making, and the person who CAN fix it is named.
-     */
-    fun errorFeatureMissing(l: Language): String = when (l) {
-        Language.EN -> "This server doesn't have that yet. Your administrator can enable it by bringing the database up to date."
-        Language.FA -> "این سرور هنوز این قابلیت را ندارد. مدیر سامانه می‌تواند با به‌روزرسانی پایگاه داده فعالش کند."
-        Language.TR -> "Bu sunucuda bu özellik henüz yok. Yöneticiniz veritabanını güncelleyerek etkinleştirebilir."
     }
 
     fun errorUnreadableAnswer(l: Language): String = when (l) {
@@ -1158,275 +1477,6 @@ object Str {
      * Shown while the bytes are on their way. Taken from the console's
      * `inbox.receivingFile`, so the two read the same.
      */
-    // MARK: - Notifications
-    //
-    // Lifted word for word from the console's own `notifications` block in
-    // `src/i18n/locales/*.ts`, so the same switch reads the same sentence
-    // wherever the operator meets it. Two places that mean the same thing and
-    // say it differently is how people stop trusting either.
-
-    /** Ends every session but this one. Never signs the operator out here. */
-    fun signOutOtherDevices(l: Language): String = when (l) {
-        Language.EN -> "Sign out on all other devices"
-        Language.FA -> "خروج از همهٔ دستگاه‌های دیگر"
-        Language.TR -> "Diğer tüm cihazlardan çıkış yap"
-    }
-
-    fun signOutOtherDevicesHelp(l: Language): String = when (l) {
-        Language.EN -> "This device stays signed in."
-        Language.FA -> "همین دستگاه وارد می‌ماند."
-        Language.TR -> "Bu cihaz oturumda kalır."
-    }
-
-    fun notifications(l: Language): String = when (l) {
-        Language.EN -> "Notifications"
-        Language.FA -> "اعلان‌ها"
-        Language.TR -> "Bildirimler"
-    }
-
-    fun notificationsIntro(l: Language): String = when (l) {
-        Language.EN -> "Choose how you want to manage your notifications."
-        Language.FA -> "انتخاب کنید اعلان‌های خود را چطور مدیریت کنید."
-        Language.TR -> "Bildirimlerinizi nasıl yöneteceğinizi seçin."
-    }
-
-    fun notificationsDisableAll(l: Language): String = when (l) {
-        Language.EN -> "Disable all notifications"
-        Language.FA -> "غیرفعال کردن همهٔ اعلان‌ها"
-        Language.TR -> "Tüm bildirimleri devre dışı bırak"
-    }
-
-    fun notificationsDisableAllHelp(l: Language): String = when (l) {
-        Language.EN -> "Master switch — turning this on silences every push and email below."
-        Language.FA -> "کلید اصلی — با فعال شدن، تمامی اعلان‌های پایین خاموش می‌شوند."
-        Language.TR -> "Ana anahtar — açıldığında aşağıdaki tüm bildirimler susturulur."
-    }
-
-    fun notificationsPushTitle(l: Language): String = when (l) {
-        Language.EN -> "Push notifications"
-        Language.FA -> "اعلان‌های فوری"
-        Language.TR -> "Anlık bildirimler"
-    }
-
-    /**
-     * Deliberately not the console's "Browser-based alerts". On a phone the
-     * alert is the system's own, and telling an operator their browser will
-     * warn them is telling them about a browser they are not using.
-     */
-    fun notificationsPushHint(l: Language): String = when (l) {
-        Language.EN -> "Alerts on this phone when something needs your attention."
-        Language.FA -> "هشدار روی همین گوشی، وقتی چیزی به توجه شما نیاز دارد."
-        Language.TR -> "Dikkatinizi gerektiren bir şey olduğunda bu telefonda uyarı."
-    }
-
-    fun notificationsNotifyOnline(l: Language): String = when (l) {
-        Language.EN -> "Notify me of messages when I am online"
-        Language.FA -> "وقتی آنلاین هستم پیام‌ها را اطلاع بده"
-        Language.TR -> "Çevrimiçiyken mesajları bildir"
-    }
-
-    fun notificationsNotifyOffline(l: Language): String = when (l) {
-        Language.EN -> "Notify me of messages when I am offline"
-        Language.FA -> "وقتی آفلاین هستم پیام‌ها را اطلاع بده"
-        Language.TR -> "Çevrimdışıyken mesajları bildir"
-    }
-
-    fun notificationsNotifyVisitorBrowsing(l: Language): String = when (l) {
-        Language.EN -> "Notify me when a visitor is browsing my website"
-        Language.FA -> "وقتی بازدیدکننده‌ای در حال مرور سایت است اطلاع بده"
-        Language.TR -> "Bir ziyaretçi sitemde gezerken bildir"
-    }
-
-    fun notificationsPlaySound(l: Language): String = when (l) {
-        Language.EN -> "Play notification sounds"
-        Language.FA -> "پخش صدای اعلان"
-        Language.TR -> "Bildirim sesini çal"
-    }
-
-    fun notificationsEmailTitle(l: Language): String = when (l) {
-        Language.EN -> "Email notifications"
-        Language.FA -> "اعلان‌های ایمیلی"
-        Language.TR -> "E-posta bildirimleri"
-    }
-
-    fun notificationsEmailHint(l: Language): String = when (l) {
-        Language.EN -> "Sent to the email address on your account."
-        Language.FA -> "به آدرس ایمیل حساب شما ارسال می‌شود."
-        Language.TR -> "Hesabınızdaki e-posta adresine gönderilir."
-    }
-
-    fun notificationsEmailUnread(l: Language): String = when (l) {
-        Language.EN -> "Email me unread messages"
-        Language.FA -> "ایمیل پیام‌های خوانده‌نشده برایم بفرست"
-        Language.TR -> "Okunmamış mesajları e-postayla gönder"
-    }
-
-    fun notificationsEmailTranscripts(l: Language): String = when (l) {
-        Language.EN -> "Email me transcripts of conversations"
-        Language.FA -> "ایمیل رونوشت گفت‌وگوها برایم بفرست"
-        Language.TR -> "Konuşma dökümlerini e-postayla gönder"
-    }
-
-    fun notificationsEmailRatings(l: Language): String = when (l) {
-        Language.EN -> "Email me user ratings"
-        Language.FA -> "ایمیل امتیازهای کاربران برایم بفرست"
-        Language.TR -> "Kullanıcı puanlarını e-postayla gönder"
-    }
-
-    fun notificationsEmailInvoices(l: Language): String = when (l) {
-        Language.EN -> "Email me paid invoices (only if you use a paid plan)"
-        Language.FA -> "ایمیل فاکتورهای پرداخت‌شده برایم بفرست (فقط در پلن پولی)"
-        Language.TR -> "Ödenmiş faturaları e-postayla gönder (yalnızca ücretli planda)"
-    }
-
-    fun notificationsEmailWeekly(l: Language): String = when (l) {
-        Language.EN -> "Email me a weekly activity summary"
-        Language.FA -> "ایمیل خلاصهٔ فعالیت هفتگی برایم بفرست"
-        Language.TR -> "Haftalık etkinlik özetini e-postayla gönder"
-    }
-
-    fun notificationsEmailProduct(l: Language): String = when (l) {
-        Language.EN -> "Email me product updates and announcements"
-        Language.FA -> "ایمیل اخبار و به‌روزرسانی‌های محصول برایم بفرست"
-        Language.TR -> "Ürün güncellemeleri ve duyurularını e-postayla gönder"
-    }
-
-    /**
-     * The scope picker, and the two switches beside it.
-     *
-     * Written here rather than lifted from the console, because the console
-     * in this repository does not have them: the deployed API answers with
-     * `push_scope`, `push_preview` and `push_internal_notes` and the console
-     * still asks for the six `email_*` keys. The wording follows what
-     * `pickRecipients` actually does with each value.
-     */
-    fun notificationsScopeTitle(l: Language): String = when (l) {
-        Language.EN -> "Which conversations"
-        Language.FA -> "کدام گفت‌وگوها"
-        Language.TR -> "Hangi konuşmalar"
-    }
-
-    fun notificationsScopeAll(l: Language): String = when (l) {
-        Language.EN -> "Every conversation"
-        Language.FA -> "همهٔ گفت‌وگوها"
-        Language.TR -> "Tüm konuşmalar"
-    }
-
-    fun notificationsScopeAssigned(l: Language): String = when (l) {
-        Language.EN -> "Assigned to me, and unassigned"
-        Language.FA -> "آنچه به من سپرده شده، و بی‌صاحب‌ها"
-        Language.TR -> "Bana atananlar ve atanmamışlar"
-    }
-
-    fun notificationsScopeMentions(l: Language): String = when (l) {
-        Language.EN -> "Only where I am mentioned"
-        Language.FA -> "فقط جایی که نام من آمده"
-        Language.TR -> "Yalnızca adımın geçtiği yerler"
-    }
-
-    fun notificationsScopeNone(l: Language): String = when (l) {
-        Language.EN -> "None"
-        Language.FA -> "هیچ‌کدام"
-        Language.TR -> "Hiçbiri"
-    }
-
-    fun notificationsPreview(l: Language): String = when (l) {
-        Language.EN -> "Show the message in the notification"
-        Language.FA -> "متن پیام را در اعلان نشان بده"
-        Language.TR -> "Mesajı bildirimde göster"
-    }
-
-    fun notificationsPreviewHint(l: Language): String = when (l) {
-        Language.EN -> "Off keeps what a customer wrote off your lock screen."
-        Language.FA -> "خاموش، نوشتهٔ مشتری را از صفحهٔ قفل دور نگه می‌دارد."
-        Language.TR -> "Kapalıyken müşterinin yazdığı kilit ekranında görünmez."
-    }
-
-    fun notificationsInternalNotes(l: Language): String = when (l) {
-        Language.EN -> "Notify me of internal notes"
-        Language.FA -> "یادداشت‌های داخلی را هم اطلاع بده"
-        Language.TR -> "Dahili notları da bildir"
-    }
-
-    fun notificationsQuietTitle(l: Language): String = when (l) {
-        Language.EN -> "Quiet hours"
-        Language.FA -> "ساعات سکوت"
-        Language.TR -> "Sessiz saatler"
-    }
-
-    fun notificationsQuietHint(l: Language): String = when (l) {
-        Language.EN -> "Pause push and sound notifications during a window of the day."
-        Language.FA -> "اعلان‌های فوری و صداها را در بازه‌ای از روز بی‌صدا کن."
-        Language.TR -> "Belirli bir zaman aralığında anlık bildirimleri ve sesleri sustur."
-    }
-
-    fun notificationsQuietEnable(l: Language): String = when (l) {
-        Language.EN -> "Enable quiet hours"
-        Language.FA -> "فعال‌سازی ساعات سکوت"
-        Language.TR -> "Sessiz saatleri etkinleştir"
-    }
-
-    fun notificationsQuietStart(l: Language): String = when (l) {
-        Language.EN -> "Start"
-        Language.FA -> "شروع"
-        Language.TR -> "Başlangıç"
-    }
-
-    fun notificationsQuietEnd(l: Language): String = when (l) {
-        Language.EN -> "End"
-        Language.FA -> "پایان"
-        Language.TR -> "Bitiş"
-    }
-
-    fun notificationsAutoSaved(l: Language): String = when (l) {
-        Language.EN -> "Automatically saved"
-        Language.FA -> "به‌صورت خودکار ذخیره شد"
-        Language.TR -> "Otomatik olarak kaydedildi"
-    }
-
-    fun notificationsSaving(l: Language): String = when (l) {
-        Language.EN -> "Saving…"
-        Language.FA -> "در حال ذخیره…"
-        Language.TR -> "Kaydediliyor…"
-    }
-
-    fun notificationsLoadFailed(l: Language): String = when (l) {
-        Language.EN -> "Failed to load notification preferences."
-        Language.FA -> "خواندن تنظیمات اعلان‌ها ممکن نشد."
-        Language.TR -> "Bildirim tercihleri yüklenemedi."
-    }
-
-    /**
-     * The system permission, which no preference here can substitute for.
-     *
-     * Android 13 and up will not deliver a notification to an app the person
-     * has not said yes to, so a screen full of switches that are all on and a
-     * phone that stays silent is the worst outcome this screen can produce.
-     */
-    fun notificationsBlocked(l: Language): String = when (l) {
-        Language.EN -> "This phone is not letting Webyar send notifications."
-        Language.FA -> "این گوشی اجازهٔ ارسال اعلان به وب‌یار را نمی‌دهد."
-        Language.TR -> "Bu telefon Webyar'ın bildirim göndermesine izin vermiyor."
-    }
-
-    fun notificationsBlockedHelp(l: Language): String = when (l) {
-        Language.EN -> "The switches below have no effect until it does."
-        Language.FA -> "تا وقتی اجازه ندهید، کلیدهای پایین اثری ندارند."
-        Language.TR -> "İzin verilene kadar aşağıdaki anahtarların etkisi olmaz."
-    }
-
-    fun notificationsAllow(l: Language): String = when (l) {
-        Language.EN -> "Allow"
-        Language.FA -> "اجازه بده"
-        Language.TR -> "İzin ver"
-    }
-
-    fun notificationsOpenSystemSettings(l: Language): String = when (l) {
-        Language.EN -> "Open phone settings"
-        Language.FA -> "باز کردن تنظیمات گوشی"
-        Language.TR -> "Telefon ayarlarını aç"
-    }
-
     fun receivingFile(l: Language): String = when (l) {
         Language.EN -> "Receiving…"
         Language.FA -> "در حال دریافت…"
@@ -1448,19 +1498,6 @@ object Str {
         Language.EN -> "This format can't be played here."
         Language.FA -> "این قالب اینجا پخش نمی‌شود."
         Language.TR -> "Bu biçim burada oynatılamıyor."
-    }
-
-    /** The transport under a voice note. Announced, never drawn. */
-    fun play(l: Language): String = when (l) {
-        Language.EN -> "Play"
-        Language.FA -> "پخش"
-        Language.TR -> "Oynat"
-    }
-
-    fun pause(l: Language): String = when (l) {
-        Language.EN -> "Pause"
-        Language.FA -> "مکث"
-        Language.TR -> "Duraklat"
     }
 
     fun photo(l: Language): String = when (l) {
@@ -1515,18 +1552,10 @@ object Str {
         Language.TR -> "MB"
     }
 
-    /**
-     * Deliberately not iOS's "Photo or video".
-     *
-     * The server's allowlist (`GLOBAL_ALLOWED_MIMES`) carries no video type
-     * at all, so a menu offering one promises something that can only end in
-     * a refusal. iOS still says it and still refuses the file afterwards;
-     * this is the honest version of the same menu.
-     */
     fun sendPhoto(l: Language): String = when (l) {
-        Language.EN -> "Photo"
-        Language.FA -> "تصویر"
-        Language.TR -> "Fotoğraf"
+        Language.EN -> "Photo or video"
+        Language.FA -> "تصویر یا ویدیو"
+        Language.TR -> "Fotoğraf veya video"
     }
 
     fun sendDocument(l: Language): String = when (l) {

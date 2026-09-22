@@ -8,11 +8,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
 import com.webyar.operator.ui.components.Avatar
@@ -32,17 +34,23 @@ import com.webyar.operator.ui.design.Space
 @Composable
 fun ProfileScreen(
     language: Language,
-    name: String,
+    firstName: String,
+    lastName: String,
     email: String?,
+    phone: String,
     avatarUrl: String?,
     busy: Boolean,
     error: String?,
-    onNameChange: (String) -> Unit,
+    onFirstNameChange: (String) -> Unit,
+    onLastNameChange: (String) -> Unit,
+    onPhoneChange: (String) -> Unit,
     onPickAvatar: () -> Unit,
     onRemoveAvatar: () -> Unit,
     onSave: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val name = listOf(firstName, lastName)
+        .map { it.trim() }.filter { it.isNotEmpty() }.joinToString(" ")
     Column(
         modifier
             .fillMaxWidth()
@@ -71,9 +79,18 @@ fun ProfileScreen(
         }
 
         OutlinedTextField(
-            value = name,
-            onValueChange = onNameChange,
-            label = { Text(Str.displayName(language)) },
+            value = firstName,
+            onValueChange = onFirstNameChange,
+            label = { Text(Str.firstName(language)) },
+            singleLine = true,
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        OutlinedTextField(
+            value = lastName,
+            onValueChange = onLastNameChange,
+            label = { Text(Str.lastName(language)) },
             singleLine = true,
             enabled = !busy,
             modifier = Modifier.fillMaxWidth(),
@@ -94,6 +111,19 @@ fun ProfileScreen(
             }
         }
 
+        OutlinedTextField(
+            value = phone,
+            onValueChange = onPhoneChange,
+            label = { Text(Str.phoneLabel(language)) },
+            singleLine = true,
+            enabled = !busy,
+            // A number, and a Latin one wherever the interface language puts
+            // its own digits: a phone number typed in Persian digits is not a
+            // phone number anyone can dial.
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+            modifier = Modifier.fillMaxWidth(),
+        )
+
         if (error != null) {
             Text(
                 error,
@@ -102,6 +132,12 @@ fun ProfileScreen(
             )
         }
 
-        PrimaryButton(Str.save(language), onSave, busy = busy, enabled = name.isNotBlank())
+        PrimaryButton(
+            Str.save(language),
+            onSave,
+            busy = busy,
+            // A family name is optional; plenty of people have one name.
+            enabled = firstName.isNotBlank(),
+        )
     }
 }

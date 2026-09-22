@@ -78,22 +78,45 @@ class InboxViewModel(
         loadChannels()
     }
 
+    /**
+     * A queue and a channel are siblings in the menu, so they behave as
+     * siblings here: choosing either one drops the other. This is iOS's rule
+     * (`InboxViewModel.open`) and it is the only one that keeps the header
+     * honest — a queue chosen while "Telegram" stayed underneath left the bar
+     * naming a narrowing that the operator had just navigated away from, with
+     * no obvious way back.
+     */
     fun select(filter: InboxFilter) {
-        if (_filter.value == filter) return
+        val queueChanged = _filter.value != filter
+        val channelDropped = _channel.value != null
+        if (!queueChanged && !channelDropped) return
         _filter.value = filter
-        // A different queue is a different question: carrying the search terms
-        // across would silently filter a list nobody searched.
-        _query.value = ""
-        load()
+        _channel.value = null
+        if (queueChanged) {
+            // A different queue is a different question: carrying the search
+            // terms across would silently filter a list nobody searched.
+            _query.value = ""
+            load()
+        } else {
+            // Same queue, channel lifted: the list is already in hand.
+            publish()
+        }
     }
 
     fun selectChannel(key: String?) {
         if (_channel.value == key) return
         _channel.value = key
-        // The channel is a filter laid over the list already in hand, not a
-        // query — the conversations endpoint has no `channel` parameter. So
-        // this republishes rather than reloading.
-        publish()
+        // A channel inbox shows what is open on it, as on iOS. The queue has
+        // to actually change for that to be true, and a queue change is a new
+        // request — the conversations endpoint has no `channel` parameter, so
+        // the channel itself is laid over whatever comes back.
+        if (key != null && _filter.value != InboxFilter.OPEN) {
+            _filter.value = InboxFilter.OPEN
+            _query.value = ""
+            load()
+        } else {
+            publish()
+        }
     }
 
     fun setQuery(value: String) {
@@ -135,7 +158,16 @@ class InboxViewModel(
     private fun loadChannels() {
         val workspace = workspaceId ?: return
         viewModelScope.launch {
-            runCatching { api.channelInboxes(workspace) }.onSuccess { _channels.value = it }
+            runCatching { api.channelInboxes(workspace) }.onSuccess { fresh ->
+                _channels.value = fresh
+                // A channel that has just left the plan must not stay
+                // selected with nothing behind it, or the list is filtered by
+                // a name no row in the menu carries any more.
+                if (_channel.value != null && fresh.none { it.key == _channel.value }) {
+                    _channel.value = null
+                    publish()
+                }
+            }
         }
     }
 

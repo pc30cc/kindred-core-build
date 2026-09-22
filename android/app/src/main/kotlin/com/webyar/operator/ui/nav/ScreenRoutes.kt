@@ -1144,12 +1144,16 @@ fun ProfileRoute(
     ) { padding ->
         ProfileScreen(
             language = language,
-            name = form.name,
+            firstName = form.firstName,
+            lastName = form.lastName,
             email = form.email,
+            phone = form.phone,
             avatarUrl = form.avatarUrl,
             busy = form.busy,
             error = form.error,
-            onNameChange = model::setName,
+            onFirstNameChange = model::setFirstName,
+            onLastNameChange = model::setLastName,
+            onPhoneChange = model::setPhone,
             onPickAvatar = {
                 picker.launch(
                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)

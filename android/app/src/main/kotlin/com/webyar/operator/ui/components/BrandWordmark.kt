@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
+import com.webyar.operator.i18n.StrManual
 import com.webyar.operator.ui.design.Space
 
 /**
@@ -22,7 +23,7 @@ import com.webyar.operator.ui.design.Space
  * The Persian wordmark is written "وبــــ یــار" — with stretched kashida
  * rather than the plain "وب‌یار" the rest of the app uses — because that is
  * the brand's own lettering and a logo is not body copy. It comes from
- * `Str.brandWordmark`, so the three languages stay in one place with the rest
+ * `StrManual.brandWordmark`, so the three languages stay in one place with the rest
  * of the strings.
  *
  * A screen reader gets the ordinary spelling instead: the stretched form is a
@@ -42,7 +43,7 @@ fun BrandWordmark(
         verticalArrangement = Arrangement.spacedBy(Space.xs),
     ) {
         Text(
-            text = Str.brandWordmark(language),
+            text = StrManual.brandWordmark(language),
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary,

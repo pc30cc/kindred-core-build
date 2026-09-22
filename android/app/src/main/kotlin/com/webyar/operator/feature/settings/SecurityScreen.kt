@@ -21,6 +21,7 @@ import com.webyar.operator.core.model.AccountSession
 import com.webyar.operator.i18n.Format
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
+import com.webyar.operator.i18n.StrManual
 import com.webyar.operator.ui.A11y
 import com.webyar.operator.ui.components.PillTone
 import com.webyar.operator.ui.components.PrimaryButton
@@ -142,12 +143,12 @@ fun SecurityScreen(
                             modifier = Modifier.testTag(A11y.SECURITY_REVOKE_OTHERS),
                         ) {
                             Text(
-                                Str.signOutOtherDevices(language),
+                                StrManual.signOutOtherDevices(language),
                                 color = MaterialTheme.colorScheme.error,
                             )
                         }
                         Text(
-                            Str.signOutOtherDevicesHelp(language),
+                            StrManual.signOutOtherDevicesHelp(language),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

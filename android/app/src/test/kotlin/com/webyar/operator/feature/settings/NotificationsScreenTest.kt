@@ -11,6 +11,7 @@ import com.webyar.operator.core.model.NotificationPrefs
 import com.webyar.operator.core.model.NotificationPrefsUpdate
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
+import com.webyar.operator.i18n.StrManual
 import com.webyar.operator.ui.A11y
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -53,19 +54,18 @@ class NotificationsScreenTest {
         quietHoursEnabled = false,
     )
 
-    /** What `server/routes/notifications.ts` in this repository answers. */
-    private val inRepo = NotificationPrefs(
+    /**
+     * A server that answers with only the presence pair.
+     *
+     * The keys are per-surface and the set has changed once already, so the
+     * screen must not assume any particular one is there: it draws a row
+     * where a key came back and nothing where one did not.
+     */
+    private val sparse = NotificationPrefs(
         disableAll = false,
         pushWhenOnline = true,
         pushWhenOffline = true,
-        pushVisitorBrowsing = false,
         playSound = true,
-        emailUnreadMessages = true,
-        emailTranscripts = false,
-        emailUserRatings = true,
-        emailPaidInvoices = true,
-        emailWeeklySummary = false,
-        emailProductUpdates = false,
         quietHoursEnabled = false,
     )
 
@@ -92,29 +92,21 @@ class NotificationsScreenTest {
     fun `the deployed server's keys each get a row`() {
         show(deployed)
 
-        compose.onNodeWithText(Str.notificationsScopeTitle(Language.EN)).assertIsDisplayed()
-        compose.onNodeWithText(Str.notificationsPreview(Language.EN)).assertIsDisplayed()
-        compose.onNodeWithText(Str.notificationsInternalNotes(Language.EN)).assertIsDisplayed()
-        compose.onNodeWithText(Str.notificationsPlaySound(Language.EN)).assertIsDisplayed()
-    }
-
-    @Test
-    fun `no email section where the server has no email keys`() {
-        show(deployed)
-
-        compose.onNodeWithText(Str.notificationsEmailTitle(Language.EN)).assertDoesNotExist()
-        compose.onNodeWithText(Str.notificationsEmailUnread(Language.EN)).assertDoesNotExist()
+        compose.onNodeWithText(Str.pushScopeTitle(Language.EN)).assertIsDisplayed()
+        compose.onNodeWithText(Str.pushShowPreview(Language.EN)).assertIsDisplayed()
+        compose.onNodeWithText(Str.pushInternalNotes(Language.EN)).assertIsDisplayed()
+        compose.onNodeWithText(Str.pushSound(Language.EN)).assertIsDisplayed()
     }
 
     @Test
     fun `no scope control where the server has no scope`() {
-        show(inRepo)
+        show(sparse)
 
-        compose.onNodeWithText(Str.notificationsScopeTitle(Language.EN)).assertDoesNotExist()
-        compose.onNodeWithText(Str.notificationsPreview(Language.EN)).assertDoesNotExist()
+        compose.onNodeWithText(Str.pushScopeTitle(Language.EN)).assertDoesNotExist()
+        compose.onNodeWithText(Str.pushShowPreview(Language.EN)).assertDoesNotExist()
         // …and its own keys are all there.
-        compose.onNodeWithText(Str.notificationsEmailUnread(Language.EN)).assertIsDisplayed()
-        compose.onNodeWithText(Str.notificationsNotifyVisitorBrowsing(Language.EN)).assertIsDisplayed()
+        compose.onNodeWithText(Str.pushWhenOnline(Language.EN)).assertIsDisplayed()
+        compose.onNodeWithText(Str.pushSound(Language.EN)).assertIsDisplayed()
     }
 
     // MARK: - The master switch
@@ -125,7 +117,7 @@ class NotificationsScreenTest {
 
         // Shown, not hidden: somebody who silenced everything should be able
         // to see what they silenced.
-        compose.onNodeWithText(Str.notificationsPlaySound(Language.EN)).assertIsDisplayed()
+        compose.onNodeWithText(Str.pushSound(Language.EN)).assertIsDisplayed()
         compose.onNodeWithTag(A11y.NOTIFICATIONS_PREVIEW).assertIsNotEnabled()
         compose.onNodeWithTag(A11y.NOTIFICATIONS_QUIET_HOURS).assertIsNotEnabled()
         // …and itself stays live, or there would be no way back.
@@ -200,7 +192,7 @@ class NotificationsScreenTest {
         )
 
         compose.onNodeWithTag(A11y.NOTIFICATIONS_PERMISSION).assertIsDisplayed()
-        compose.onNodeWithText(Str.notificationsAllow(Language.EN)).assertIsDisplayed()
+        compose.onNodeWithText(Str.pushTurnOn(Language.EN)).assertIsDisplayed()
     }
 
     /** Android shows that dialog once; after a no, the settings page is the only way. */
@@ -213,8 +205,8 @@ class NotificationsScreenTest {
             ),
         )
 
-        compose.onNodeWithText(Str.notificationsOpenSystemSettings(Language.EN)).assertIsDisplayed()
-        compose.onNodeWithText(Str.notificationsAllow(Language.EN)).assertDoesNotExist()
+        compose.onNodeWithText(Str.pushOpenSettings(Language.EN)).assertIsDisplayed()
+        compose.onNodeWithText(Str.pushTurnOn(Language.EN)).assertDoesNotExist()
     }
 
     @Test

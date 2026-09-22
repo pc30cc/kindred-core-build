@@ -224,26 +224,18 @@ private fun InboxBar(
                         .testTag(A11y.INBOX_TITLE_MENU),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(Modifier.weight(1f, fill = false)) {
-                        Text(
-                            filter.title(language),
-                            style = MaterialTheme.typography.titleLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        // The channel goes underneath rather than into the
-                        // title, so a narrowed list says so without pushing
-                        // the queue's own name off the end of the bar.
-                        if (channel != null) {
-                            Text(
-                                channel.title(language),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
+                    // One line, and the channel REPLACES the queue rather
+                    // than sitting under it — iOS's
+                    // `model.channel?.title ?? model.filter.headerTitle`.
+                    // A queue and a channel are never both in force, so
+                    // naming both was naming a state the app cannot be in.
+                    Text(
+                        channel?.title(language) ?: filter.headerTitle(language),
+                        style = MaterialTheme.typography.titleLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
                     Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
                 }
 
@@ -251,7 +243,9 @@ private fun InboxBar(
                     allFilters.forEach { option ->
                         MenuRow(
                             label = option.title(language),
-                            selected = option == filter,
+                            // iOS: "A queue is current only when no channel is
+                            // laid over it."
+                            selected = option == filter && selectedChannel == null,
                             badge = counts.count(option)?.takeIf { it > 0 }?.let { count ->
                                 { UnreadBadge(count, language) }
                             },
@@ -272,15 +266,10 @@ private fun InboxBar(
                                 vertical = Space.xs,
                             ),
                         )
-                        // iOS has no row for this — picking a queue there is
-                        // what drops the channel. An Android menu ticks its
-                        // current item, and a section where the tick can only
-                        // ever move sideways and never come off is a trap, so
-                        // the way out is spelled.
-                        MenuRow(
-                            label = Str.allInboxes(language),
-                            selected = selectedChannel == null,
-                        ) { menuOpen = false; onSelectChannel(null) }
+                        // No "all inboxes" row: picking any queue above drops
+                        // the channel, so the tick comes off the way it does
+                        // on iOS. A row whose only job was escaping a trap
+                        // that no longer exists is one more thing to read.
                         channels.forEach { option ->
                             MenuRow(
                                 label = option.title(language),
@@ -522,6 +511,15 @@ internal fun Conversation.preview(language: Language): String {
 
     return Format.preview(last.body)
 }
+
+/**
+ * What this queue is called where it names the screen rather than a chip.
+ *
+ * The main queue is simply "the inbox" in that position — nobody calls the
+ * screen they land on "Open". Same rule as iOS's `headerTitle`.
+ */
+private fun InboxFilter.headerTitle(language: Language): String =
+    if (this == InboxFilter.OPEN) Str.tabInbox(language) else title(language)
 
 /** The queue's own name, which lives in the strings rather than in the enum. */
 private fun InboxFilter.title(language: Language): String = when (this) {

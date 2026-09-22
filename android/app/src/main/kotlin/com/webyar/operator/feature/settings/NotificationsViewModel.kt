@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.webyar.operator.core.model.NotificationPrefs
 import com.webyar.operator.core.model.NotificationPrefsUpdate
 import com.webyar.operator.core.net.WebyarApi
-import com.webyar.operator.i18n.ApiErrorText.displayText
+import com.webyar.operator.i18n.displayText
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
 import kotlinx.coroutines.flow.MutableStateFlow

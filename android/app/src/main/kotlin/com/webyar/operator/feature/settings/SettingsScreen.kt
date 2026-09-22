@@ -68,6 +68,7 @@ fun SettingsScreen(
     appVersion: String,
     onOpenProfile: () -> Unit,
     onOpenSecurity: () -> Unit,
+    onOpenNotifications: () -> Unit,
     onSelectWorkspace: (Workspace) -> Unit,
     onSelectLanguage: (Language) -> Unit,
     onSelectAppearance: (Appearance) -> Unit,
@@ -183,6 +184,21 @@ fun SettingsScreen(
                 onSetAvailableWhenUsingApp = onSetAvailableWhenUsingApp,
                 onSetScheduleEnabled = onSetScheduleEnabled,
             )
+        }
+
+        item { SectionHeader(Str.notifications(language)) }
+        item {
+            SettingsRow(
+                onClick = onOpenNotifications,
+                modifier = Modifier.testTag(A11y.SETTINGS_NOTIFICATIONS),
+            ) {
+                Text(
+                    Str.notifications(language),
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.weight(1f),
+                )
+                Chevron()
+            }
         }
 
         item { SectionHeader(Str.security(language)) }

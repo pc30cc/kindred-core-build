@@ -1,5 +1,7 @@
 package com.webyar.operator.core.net
 
+import com.webyar.operator.core.model.NotificationPrefs
+import com.webyar.operator.core.model.NotificationPrefsUpdate
 import com.webyar.operator.core.model.Account
 import com.webyar.operator.core.model.AccountProfile
 import com.webyar.operator.core.model.AccountSessionsResponse
@@ -212,6 +214,18 @@ interface WebyarApi {
     suspend fun uploadAvatar(bytes: ByteArray, contentType: String, fileName: String?): AccountProfile?
     suspend fun deleteAvatar()
     suspend fun sessions(): AccountSessionsResponse
+
+    /**
+     * How this operator wants to be told things.
+     *
+     * Per user, not per workspace: the server's row is keyed on the user with
+     * a null workspace, and an operator who works two workspaces does not
+     * want two sets of switches to keep in step.
+     */
+    suspend fun notificationPrefs(): NotificationPrefs
+
+    /** Sends only what changed; see [NotificationPrefsUpdate]. */
+    suspend fun updateNotificationPrefs(update: NotificationPrefsUpdate): NotificationPrefs
     suspend fun revokeSession(id: String)
     suspend fun changePassword(current: String, new: String)
 }

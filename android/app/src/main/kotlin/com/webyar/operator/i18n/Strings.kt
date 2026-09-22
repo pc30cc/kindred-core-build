@@ -1158,6 +1158,205 @@ object Str {
      * Shown while the bytes are on their way. Taken from the console's
      * `inbox.receivingFile`, so the two read the same.
      */
+    // MARK: - Notifications
+    //
+    // Lifted word for word from the console's own `notifications` block in
+    // `src/i18n/locales/*.ts`, so the same switch reads the same sentence
+    // wherever the operator meets it. Two places that mean the same thing and
+    // say it differently is how people stop trusting either.
+
+    fun notifications(l: Language): String = when (l) {
+        Language.EN -> "Notifications"
+        Language.FA -> "اعلان‌ها"
+        Language.TR -> "Bildirimler"
+    }
+
+    fun notificationsIntro(l: Language): String = when (l) {
+        Language.EN -> "Choose how you want to manage your notifications."
+        Language.FA -> "انتخاب کنید اعلان‌های خود را چطور مدیریت کنید."
+        Language.TR -> "Bildirimlerinizi nasıl yöneteceğinizi seçin."
+    }
+
+    fun notificationsDisableAll(l: Language): String = when (l) {
+        Language.EN -> "Disable all notifications"
+        Language.FA -> "غیرفعال کردن همهٔ اعلان‌ها"
+        Language.TR -> "Tüm bildirimleri devre dışı bırak"
+    }
+
+    fun notificationsDisableAllHelp(l: Language): String = when (l) {
+        Language.EN -> "Master switch — turning this on silences every push and email below."
+        Language.FA -> "کلید اصلی — با فعال شدن، تمامی اعلان‌های پایین خاموش می‌شوند."
+        Language.TR -> "Ana anahtar — açıldığında aşağıdaki tüm bildirimler susturulur."
+    }
+
+    fun notificationsPushTitle(l: Language): String = when (l) {
+        Language.EN -> "Push notifications"
+        Language.FA -> "اعلان‌های فوری"
+        Language.TR -> "Anlık bildirimler"
+    }
+
+    /**
+     * Deliberately not the console's "Browser-based alerts". On a phone the
+     * alert is the system's own, and telling an operator their browser will
+     * warn them is telling them about a browser they are not using.
+     */
+    fun notificationsPushHint(l: Language): String = when (l) {
+        Language.EN -> "Alerts on this phone when something needs your attention."
+        Language.FA -> "هشدار روی همین گوشی، وقتی چیزی به توجه شما نیاز دارد."
+        Language.TR -> "Dikkatinizi gerektiren bir şey olduğunda bu telefonda uyarı."
+    }
+
+    fun notificationsNotifyOnline(l: Language): String = when (l) {
+        Language.EN -> "Notify me of messages when I am online"
+        Language.FA -> "وقتی آنلاین هستم پیام‌ها را اطلاع بده"
+        Language.TR -> "Çevrimiçiyken mesajları bildir"
+    }
+
+    fun notificationsNotifyOffline(l: Language): String = when (l) {
+        Language.EN -> "Notify me of messages when I am offline"
+        Language.FA -> "وقتی آفلاین هستم پیام‌ها را اطلاع بده"
+        Language.TR -> "Çevrimdışıyken mesajları bildir"
+    }
+
+    fun notificationsNotifyVisitorBrowsing(l: Language): String = when (l) {
+        Language.EN -> "Notify me when a visitor is browsing my website"
+        Language.FA -> "وقتی بازدیدکننده‌ای در حال مرور سایت است اطلاع بده"
+        Language.TR -> "Bir ziyaretçi sitemde gezerken bildir"
+    }
+
+    fun notificationsPlaySound(l: Language): String = when (l) {
+        Language.EN -> "Play notification sounds"
+        Language.FA -> "پخش صدای اعلان"
+        Language.TR -> "Bildirim sesini çal"
+    }
+
+    fun notificationsEmailTitle(l: Language): String = when (l) {
+        Language.EN -> "Email notifications"
+        Language.FA -> "اعلان‌های ایمیلی"
+        Language.TR -> "E-posta bildirimleri"
+    }
+
+    fun notificationsEmailHint(l: Language): String = when (l) {
+        Language.EN -> "Sent to the email address on your account."
+        Language.FA -> "به آدرس ایمیل حساب شما ارسال می‌شود."
+        Language.TR -> "Hesabınızdaki e-posta adresine gönderilir."
+    }
+
+    fun notificationsEmailUnread(l: Language): String = when (l) {
+        Language.EN -> "Email me unread messages"
+        Language.FA -> "ایمیل پیام‌های خوانده‌نشده برایم بفرست"
+        Language.TR -> "Okunmamış mesajları e-postayla gönder"
+    }
+
+    fun notificationsEmailTranscripts(l: Language): String = when (l) {
+        Language.EN -> "Email me transcripts of conversations"
+        Language.FA -> "ایمیل رونوشت گفت‌وگوها برایم بفرست"
+        Language.TR -> "Konuşma dökümlerini e-postayla gönder"
+    }
+
+    fun notificationsEmailRatings(l: Language): String = when (l) {
+        Language.EN -> "Email me user ratings"
+        Language.FA -> "ایمیل امتیازهای کاربران برایم بفرست"
+        Language.TR -> "Kullanıcı puanlarını e-postayla gönder"
+    }
+
+    fun notificationsEmailInvoices(l: Language): String = when (l) {
+        Language.EN -> "Email me paid invoices (only if you use a paid plan)"
+        Language.FA -> "ایمیل فاکتورهای پرداخت‌شده برایم بفرست (فقط در پلن پولی)"
+        Language.TR -> "Ödenmiş faturaları e-postayla gönder (yalnızca ücretli planda)"
+    }
+
+    fun notificationsEmailWeekly(l: Language): String = when (l) {
+        Language.EN -> "Email me a weekly activity summary"
+        Language.FA -> "ایمیل خلاصهٔ فعالیت هفتگی برایم بفرست"
+        Language.TR -> "Haftalık etkinlik özetini e-postayla gönder"
+    }
+
+    fun notificationsEmailProduct(l: Language): String = when (l) {
+        Language.EN -> "Email me product updates and announcements"
+        Language.FA -> "ایمیل اخبار و به‌روزرسانی‌های محصول برایم بفرست"
+        Language.TR -> "Ürün güncellemeleri ve duyurularını e-postayla gönder"
+    }
+
+    fun notificationsQuietTitle(l: Language): String = when (l) {
+        Language.EN -> "Quiet hours"
+        Language.FA -> "ساعات سکوت"
+        Language.TR -> "Sessiz saatler"
+    }
+
+    fun notificationsQuietHint(l: Language): String = when (l) {
+        Language.EN -> "Pause push and sound notifications during a window of the day."
+        Language.FA -> "اعلان‌های فوری و صداها را در بازه‌ای از روز بی‌صدا کن."
+        Language.TR -> "Belirli bir zaman aralığında anlık bildirimleri ve sesleri sustur."
+    }
+
+    fun notificationsQuietEnable(l: Language): String = when (l) {
+        Language.EN -> "Enable quiet hours"
+        Language.FA -> "فعال‌سازی ساعات سکوت"
+        Language.TR -> "Sessiz saatleri etkinleştir"
+    }
+
+    fun notificationsQuietStart(l: Language): String = when (l) {
+        Language.EN -> "Start"
+        Language.FA -> "شروع"
+        Language.TR -> "Başlangıç"
+    }
+
+    fun notificationsQuietEnd(l: Language): String = when (l) {
+        Language.EN -> "End"
+        Language.FA -> "پایان"
+        Language.TR -> "Bitiş"
+    }
+
+    fun notificationsAutoSaved(l: Language): String = when (l) {
+        Language.EN -> "Automatically saved"
+        Language.FA -> "به‌صورت خودکار ذخیره شد"
+        Language.TR -> "Otomatik olarak kaydedildi"
+    }
+
+    fun notificationsSaving(l: Language): String = when (l) {
+        Language.EN -> "Saving…"
+        Language.FA -> "در حال ذخیره…"
+        Language.TR -> "Kaydediliyor…"
+    }
+
+    fun notificationsLoadFailed(l: Language): String = when (l) {
+        Language.EN -> "Failed to load notification preferences."
+        Language.FA -> "خواندن تنظیمات اعلان‌ها ممکن نشد."
+        Language.TR -> "Bildirim tercihleri yüklenemedi."
+    }
+
+    /**
+     * The system permission, which no preference here can substitute for.
+     *
+     * Android 13 and up will not deliver a notification to an app the person
+     * has not said yes to, so a screen full of switches that are all on and a
+     * phone that stays silent is the worst outcome this screen can produce.
+     */
+    fun notificationsBlocked(l: Language): String = when (l) {
+        Language.EN -> "This phone is not letting Webyar send notifications."
+        Language.FA -> "این گوشی اجازهٔ ارسال اعلان به وب‌یار را نمی‌دهد."
+        Language.TR -> "Bu telefon Webyar'ın bildirim göndermesine izin vermiyor."
+    }
+
+    fun notificationsBlockedHelp(l: Language): String = when (l) {
+        Language.EN -> "The switches below have no effect until it does."
+        Language.FA -> "تا وقتی اجازه ندهید، کلیدهای پایین اثری ندارند."
+        Language.TR -> "İzin verilene kadar aşağıdaki anahtarların etkisi olmaz."
+    }
+
+    fun notificationsAllow(l: Language): String = when (l) {
+        Language.EN -> "Allow"
+        Language.FA -> "اجازه بده"
+        Language.TR -> "İzin ver"
+    }
+
+    fun notificationsOpenSystemSettings(l: Language): String = when (l) {
+        Language.EN -> "Open phone settings"
+        Language.FA -> "باز کردن تنظیمات گوشی"
+        Language.TR -> "Telefon ayarlarını aç"
+    }
+
     fun receivingFile(l: Language): String = when (l) {
         Language.EN -> "Receiving…"
         Language.FA -> "در حال دریافت…"

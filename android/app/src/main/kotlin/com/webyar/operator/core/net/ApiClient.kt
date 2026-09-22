@@ -1,6 +1,9 @@
 package com.webyar.operator.core.net
 
 import com.webyar.operator.BuildConfig
+import com.webyar.operator.core.model.NotificationPrefs
+import com.webyar.operator.core.model.NotificationPrefsResponse
+import com.webyar.operator.core.model.NotificationPrefsUpdate
 import com.webyar.operator.core.model.Account
 import com.webyar.operator.core.model.AccountAvatarResponse
 import com.webyar.operator.core.model.AccountProfile
@@ -815,6 +818,16 @@ class ApiClient(
             .decode<GmailConnectionResponse>().connection
 
     // MARK: - Availability and promotions
+
+    override suspend fun notificationPrefs(): NotificationPrefs =
+        build(HttpMethod.Get, "/api/notifications/prefs")
+            .decode<NotificationPrefsResponse>().prefs
+
+    override suspend fun updateNotificationPrefs(
+        update: NotificationPrefsUpdate,
+    ): NotificationPrefs =
+        build(HttpMethod.Patch, "/api/notifications/prefs", body = update)
+            .decode<NotificationPrefsResponse>().prefs
 
     override suspend fun availability(): AvailabilityResponse =
         build(HttpMethod.Get, "/api/availability").decode()

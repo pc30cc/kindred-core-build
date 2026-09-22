@@ -49,6 +49,7 @@ object Route {
 
     const val PROFILE = "settings/profile"
     const val SECURITY = "settings/security"
+    const val NOTIFICATIONS = "settings/notifications"
 
     fun graphFor(tab: AppTab): String = when (tab) {
         AppTab.INBOX -> INBOX_GRAPH

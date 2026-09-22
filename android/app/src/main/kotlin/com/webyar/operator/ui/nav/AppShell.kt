@@ -204,6 +204,7 @@ fun AppShell(
                         language = language,
                         onOpenProfile = { navController.navigate(Route.PROFILE) },
                         onOpenSecurity = { navController.navigate(Route.SECURITY) },
+                        onOpenNotifications = { navController.navigate(Route.NOTIFICATIONS) },
                         bottomInset = Size.floatingBarHeight + Size.floatingBarBottomGap,
                     )
                 }
@@ -212,6 +213,13 @@ fun AppShell(
                 }
                 composable(Route.SECURITY) {
                     SecurityRoute(api = api, language = language, onBack = { navController.popBackStack() })
+                }
+                composable(Route.NOTIFICATIONS) {
+                    NotificationsRoute(
+                        api = api,
+                        language = language,
+                        onBack = { navController.popBackStack() },
+                    )
                 }
             }
         }

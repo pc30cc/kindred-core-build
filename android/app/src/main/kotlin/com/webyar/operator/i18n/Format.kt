@@ -156,6 +156,26 @@ object Format {
         return clock(listOf(total / 60, total % 60), padFirst = false, language = language)
     }
 
+    /**
+     * A wall-clock time the server stores as `HH:mm`, in the reader's digits.
+     *
+     * Deliberately not a locale time format: this is a setting the operator
+     * typed, and 22:00 has to read back as 22:00 rather than as 10:00 PM in
+     * one language and ۲۲:۰۰ in another. Only the digits change.
+     *
+     * Anything that is not `HH:mm` comes back untouched — the server enforces
+     * the shape, and inventing a time for a malformed value would hide the
+     * problem rather than show it.
+     */
+    fun clockLabel(value: String, language: Language): String {
+        val parts = value.split(':')
+        if (parts.size != 2) return value
+        val hours = parts[0].toIntOrNull() ?: return value
+        val minutes = parts[1].toIntOrNull() ?: return value
+        if (hours !in 0..23 || minutes !in 0..59) return value
+        return clock(listOf(hours, minutes), padFirst = true, language = language)
+    }
+
     /** How long a call has been running, as a call timer reads it. */
     fun callDuration(start: Instant, now: Instant, language: Language): String {
         val total = maxOf(0L, now.epochSecond - start.epochSecond).toInt()

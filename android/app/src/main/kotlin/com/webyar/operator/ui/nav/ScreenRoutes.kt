@@ -21,6 +21,7 @@ import com.webyar.operator.feature.inbox.InboxState
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Format
 import androidx.activity.compose.rememberLauncherForActivityResult
+import android.os.Build
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
@@ -45,6 +46,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import com.webyar.operator.feature.settings.NotificationsScreen
+import com.webyar.operator.feature.settings.NotificationsViewModel
+import com.webyar.operator.feature.settings.SystemNotificationPermission
 import com.webyar.operator.core.media.AttachmentRules
 import com.webyar.operator.core.model.CallChannel
 import com.webyar.operator.core.model.CallChannels
@@ -97,6 +101,7 @@ import com.webyar.operator.feature.call.LiveKitRoom
 import com.webyar.operator.ui.design.Space
 import android.content.pm.PackageManager
 import androidx.compose.runtime.DisposableEffect
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.webyar.operator.feature.chat.VoiceRecorder
 import com.webyar.operator.i18n.Str
@@ -1049,6 +1054,7 @@ fun SettingsRoute(
     language: Language,
     onOpenProfile: () -> Unit,
     onOpenSecurity: () -> Unit,
+    onOpenNotifications: () -> Unit,
     bottomInset: Dp,
 ) {
     val settings: SettingsViewModel = viewModel(factory = viewModelFactory { SettingsViewModel(api) })
@@ -1078,6 +1084,7 @@ fun SettingsRoute(
         appVersion = BuildConfig.VERSION_NAME,
         onOpenProfile = onOpenProfile,
         onOpenSecurity = onOpenSecurity,
+        onOpenNotifications = onOpenNotifications,
         onSelectWorkspace = appState::selectWorkspace,
         onSelectLanguage = appState::setLanguage,
         onSelectAppearance = appState::setAppearance,
@@ -1153,6 +1160,89 @@ fun ProfileRoute(
             modifier = Modifier.padding(padding),
         )
     }
+}
+
+/**
+ * How this operator wants to be told that something happened.
+ *
+ * The permission is read fresh on every resume rather than remembered: the
+ * operator can leave for the system settings, change it, and come back, and
+ * a banner still claiming they are blocked would be the app arguing with
+ * the phone.
+ */
+@Composable
+fun NotificationsRoute(
+    api: WebyarApi,
+    language: Language,
+    onBack: () -> Unit,
+) {
+    val model: NotificationsViewModel =
+        viewModel(factory = viewModelFactory { NotificationsViewModel(api) { language } })
+    val state by model.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    var granted by remember { mutableStateOf(notificationsAllowed(context)) }
+    var refused by remember { mutableStateOf(false) }
+
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            granted = notificationsAllowed(context)
+        }
+    }
+
+    val ask = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { allowed ->
+        granted = allowed
+        // Android shows the dialog once. A no here means the only way back
+        // is the system settings page, and the banner has to say so.
+        refused = !allowed
+    }
+
+    Scaffold(
+        topBar = { BackBar(Str.notifications(language), language, onBack) },
+    ) { padding ->
+        NotificationsScreen(
+            language = language,
+            state = state,
+            systemPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                SystemNotificationPermission(
+                    granted = granted,
+                    canAsk = !refused,
+                    onAsk = { ask.launch(android.Manifest.permission.POST_NOTIFICATIONS) },
+                    onOpenSettings = { openAppNotificationSettings(context) },
+                )
+            } else {
+                // Below API 33 a notification needs no permission, so there
+                // is nothing here that could be wrong — and a banner that
+                // can never be dismissed is worse than no banner.
+                null
+            },
+            onSet = model::set,
+            onRetry = model::load,
+            modifier = Modifier.padding(padding),
+        )
+    }
+}
+
+/**
+ * Whether this phone will deliver a notification at all.
+ *
+ * `areNotificationsEnabled` rather than a permission check, because they are
+ * different questions: the permission covers API 33 and up, but a person on
+ * any version can turn the app's notifications off in system settings, and
+ * an app that only asks about the permission would call that "allowed".
+ */
+private fun notificationsAllowed(context: android.content.Context): Boolean =
+    NotificationManagerCompat.from(context).areNotificationsEnabled()
+
+/** The system's own page for this app's notifications. */
+private fun openAppNotificationSettings(context: android.content.Context) {
+    val intent = android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { context.startActivity(intent) }
 }
 
 @Composable

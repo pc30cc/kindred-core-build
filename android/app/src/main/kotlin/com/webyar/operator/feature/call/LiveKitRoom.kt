@@ -141,12 +141,14 @@ class LiveKitRoom(private val context: Context) : CallRoom {
     private suspend fun listen(room: Room) {
         room.events.collect { event ->
             when (event) {
+                // `TrackPublished` and `TrackUnpublished` carry a plain
+                // `Participant`, so they cover our own tracks as well as the
+                // visitor's; there is no separate local pair to listen for.
                 is RoomEvent.TrackSubscribed,
                 is RoomEvent.TrackUnsubscribed,
                 is RoomEvent.TrackPublished,
                 is RoomEvent.TrackUnpublished,
-                is RoomEvent.LocalTrackPublished,
-                is RoomEvent.LocalTrackUnpublished,
+                is RoomEvent.LocalTrackSubscribed,
                 is RoomEvent.TrackMuted,
                 is RoomEvent.TrackUnmuted,
                 -> refreshTracks(room)

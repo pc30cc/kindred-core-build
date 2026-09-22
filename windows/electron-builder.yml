@@ -24,6 +24,6 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: Webyar
   runAfterFinish: true
-  installerLanguages: [en_US, fa_IR, tr_TR]
+  installerLanguages: [en_US, tr_TR]
   multiLanguageInstaller: true
   deleteAppDataOnUninstall: false

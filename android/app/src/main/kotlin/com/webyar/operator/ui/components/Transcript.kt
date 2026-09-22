@@ -14,11 +14,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -164,28 +164,48 @@ private val BUBBLE_MAX_WIDTH = 300.dp
  * composer — proved on device with a four-quadrant test image whose top half
  * measured a full 140px and whose bottom half measured 14.
  *
- * So the pin is held rather than fired once. It follows the last row's
- * measured height, and only while that row is the last one visible — which is
- * to say only while the operator is already at the bottom. Scrolled up to read
- * something, they are left alone.
+ * So the pin is held rather than fired once, and it is held against
+ * [LazyListState.canScrollForward] rather than against any one row's height.
+ * That was the second attempt's mistake: watching the last row only works
+ * while the last row is on screen, and an animated scroll past rows that are
+ * still growing undershoots — it stopped one bubble short and then had no way
+ * back, because the row it was watching was no longer visible.
+ *
+ * A drag is the operator taking over, and the pin lets go until the next
+ * message arrives. Reading back through a thread should not be fought.
  */
 @Composable
 fun StickToNewest(listState: LazyListState, rowCount: Int) {
-    LaunchedEffect(listState, rowCount) {
-        if (rowCount == 0) return@LaunchedEffect
-        val last = rowCount - 1
-        listState.animateScrollToItem(last)
-        snapshotFlow {
-            listState.layoutInfo.visibleItemsInfo.lastOrNull()?.takeIf { it.index == last }?.size
-        }.collect { height ->
-            // Its own height is always enough to reach the content's end,
-            // where the list clamps. Anything smaller leaves a tall bubble
-            // half under the composer; anything larger is clamped to the
-            // same place.
-            if (height != null) listState.scrollToItem(last, height)
+    var pinned by remember { mutableStateOf(true) }
+
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) pinned = false
+        }
+    }
+    // A new message re-pins: it is the thing the operator is waiting for.
+    LaunchedEffect(rowCount) { pinned = true }
+
+    LaunchedEffect(listState, rowCount, pinned) {
+        if (rowCount == 0 || !pinned) return@LaunchedEffect
+        // Flips to true whenever the content grows past the viewport —
+        // which is exactly when a bubble has finished decoding a photo — and
+        // to false once there is nothing below. Two states, so this runs
+        // twice per growth rather than on every frame.
+        snapshotFlow { listState.canScrollForward }.collect { more ->
+            if (more) listState.scrollToItem(rowCount - 1, PAST_THE_END)
         }
     }
 }
+
+/**
+ * An offset far beyond any viewport, so the list clamps at its own end.
+ *
+ * `scrollToItem` puts a row's top this far above the viewport top; a lazy
+ * list refuses to scroll past its content, so the result is "the very
+ * bottom" without having to measure what the bottom is.
+ */
+private const val PAST_THE_END = 100_000
 
 /**
  * The date above the first message of a day.

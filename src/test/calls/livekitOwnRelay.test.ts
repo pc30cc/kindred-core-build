@@ -79,47 +79,39 @@ describe('the LiveKit container renders TURN from the same variable', () => {
   });
 
   /**
-   * The TURN hostname belongs to a deployment, not to this repository, so
-   * the Traefik rule reads it from the environment. What must never happen
-   * is a bare `${LIVEKIT_TURN_DOMAIN}`: unset, that is an empty `HostSNI()`,
-   * which is a parse error, and a broken router in a shared proxy takes
-   * every other service on it down with it — a worse outcome than no TURN.
+   * TURN's TLS termination is NOT a label here.
+   *
+   * Under Coolify the environment reaches the container but not the
+   * compose-level interpolation labels use, so `${LIVEKIT_TURN_DOMAIN}`
+   * arrives at Traefik as that literal string. The router is never created
+   * and the only symptom is an "EntryPoint doesn't exist" in the proxy log
+   * every ten seconds. It belongs in the proxy's own watched config, which
+   * the comment block spells out.
    */
-  it('reads the TURN hostname from the environment, never from this file', () => {
-    // The label, not the paragraph above it that explains why — both
-    // mention HostSNI and only one of them is configuration.
-    const rule = compose
+  it('does not try to build a Traefik rule out of an interpolated label', () => {
+    const labels = compose
       .split('\n')
       .map((l) => l.trim())
-      .find((l) => l.startsWith('- "traefik.tcp.routers') && l.includes('HostSNI'));
+      .filter((l) => l.startsWith('- "traefik.'));
 
-    expect(rule).toBeDefined();
-    // No real hostname committed here: the variable supplies it, and the
-    // fallback is a name that cannot resolve. `.invalid` and `.example`
-    // are reserved by RFC 2606 for exactly this.
-    expect(rule).toMatch(
-      /HostSNI\(`\$\{LIVEKIT_TURN_DOMAIN:-[a-z0-9-]+\.(invalid|example)\}`\)/,
-    );
+    expect(labels.some((l) => l.includes('HostSNI'))).toBe(false);
+    expect(labels.some((l) => l.includes('traefik.tcp.'))).toBe(false);
   });
 
-  /**
-   * With TURN off the router still exists, so it must ask for no
-   * certificate — otherwise every deployment that does not use TURN spends
-   * its Let's Encrypt failure budget on a name that cannot resolve.
-   */
-  it('asks for no certificate unless a resolver is named', () => {
-    expect(compose).toContain('certresolver=${LIVEKIT_TURN_CERTRESOLVER:-}');
+  it('documents where the TCP router does belong', () => {
+    expect(compose).toContain('providers.file.directory');
+    expect(compose).toContain('HostSNI(`turn.your-domain.tld`)');
+    // The alias, not the container name: the name carries a deploy timestamp.
+    expect(compose).toContain('address: "livekit:443"');
   });
 
   /**
    * One variable, two jobs: the port LiveKit advertises in the credentials
-   * it mints, and the port the router forwards to. They cannot disagree if
-   * they are the same value.
+   * it mints, and the port the proxy forwards to. They cannot disagree if
+   * they are the same value, which is why the documented router hard-codes
+   * the 443 this renders.
    */
-  it('forwards to the port LiveKit advertises', () => {
-    expect(compose).toContain(
-      'traefik.tcp.services.livekit-turn.loadbalancer.server.port=${LIVEKIT_TURN_TLS_PORT:-5349}',
-    );
+  it('advertises and listens on the same TLS port', () => {
     expect(compose).toContain('echo "  tls_port: $${LIVEKIT_TURN_TLS_PORT:-5349}"');
   });
 });

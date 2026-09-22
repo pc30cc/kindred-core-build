@@ -250,35 +250,39 @@ services:
       # `503 no available server` even while the container itself is running.
       - "traefik.http.services.livekit.loadbalancer.server.port=7880"
       #
-      # TURN over TLS, shared onto the proxy's own 443 by a TCP router that
-      # matches by SNI and hands the decrypted stream to LiveKit. 443 is the
-      # port a locked-down network allows, and therefore the only one that
-      # rescues the visitors TURN exists for.
+      # TURN over TLS is NOT configured here. It needs a TCP router on the
+      # proxy that matches the TURN hostname by SNI, terminates TLS, and
+      # forwards the plain stream to this container — and a Traefik label is
+      # the wrong place for it under Coolify, which passes environment
+      # variables to the container but not to the compose-level
+      # interpolation labels use. `${LIVEKIT_TURN_DOMAIN}` reaches Traefik
+      # as that literal string, which is not a hostname, so the router is
+      # never created and the only sign is an "EntryPoint doesn't exist"
+      # every ten seconds.
       #
-      # The hostname is read from the environment, never written here — it
-      # belongs to a deployment, not to this repository. Set, together:
+      # Put it in the proxy's own watched config instead. Traefik runs with
+      # `--providers.file.directory` and `--providers.file.watch=true`, so a
+      # file dropped there is picked up in seconds with no redeploy, and the
+      # hostname lives on the server rather than in this repository:
       #
-      #   LIVEKIT_TURN_DOMAIN=turn.your-domain.tld
-      #   LIVEKIT_TURN_CERTRESOLVER=letsencrypt   # Coolify's resolver name
-      #   LIVEKIT_TURN_TLS_PORT=443
-      #   LIVEKIT_TURN_EXTERNAL_TLS=true
+      #   # /data/coolify/proxy/dynamic/livekit-turn.yaml
+      #   tcp:
+      #     routers:
+      #       livekit-turn:
+      #         entryPoints: [https]
+      #         rule: "HostSNI(`turn.your-domain.tld`)"
+      #         tls:
+      #           certResolver: letsencrypt
+      #         service: livekit-turn
+      #     services:
+      #       livekit-turn:
+      #         loadBalancer:
+      #           servers:
+      #             - address: "livekit:443"
       #
-      # LIVEKIT_TURN_TLS_PORT is deliberately one variable doing two jobs:
-      # it is the port LiveKit ADVERTISES in the credentials it mints, and
-      # the port it listens on inside its own namespace, which is where the
-      # router below forwards. They cannot disagree if they are the same
-      # value. Inside the container nothing else holds 443.
-      #
-      # With TURN off both variables are empty, and then this router matches
-      # a name that cannot exist and asks for no certificate — `.invalid` is
-      # reserved precisely so it can never resolve, and an empty resolver is
-      # what keeps ACME quiet about it. That is why the default is a
-      # placeholder rather than the domain variable alone: an empty HostSNI
-      # is a parse error, and a broken router in a shared proxy is a worse
-      # failure than no TURN.
-      - "traefik.tcp.routers.livekit-turn.rule=HostSNI(`${LIVEKIT_TURN_DOMAIN:-turn.invalid}`)"
-      - "traefik.tcp.routers.livekit-turn.entrypoints=${LIVEKIT_TURN_ENTRYPOINT:-https}"
-      - "traefik.tcp.routers.livekit-turn.tls=true"
-      - "traefik.tcp.routers.livekit-turn.tls.certresolver=${LIVEKIT_TURN_CERTRESOLVER:-}"
-      - "traefik.tcp.routers.livekit-turn.service=livekit-turn"
-      - "traefik.tcp.services.livekit-turn.loadbalancer.server.port=${LIVEKIT_TURN_TLS_PORT:-5349}"
+      # `livekit` is the container's network alias, which survives a
+      # redeploy where its name — carrying a timestamp — does not. 443 is
+      # LIVEKIT_TURN_TLS_PORT: the port LiveKit advertises AND listens on
+      # inside its own namespace, where nothing else holds it. The proxy
+      # must share a Docker network with this container, which under Coolify
+      # it already does.

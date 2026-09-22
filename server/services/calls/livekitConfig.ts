@@ -195,6 +195,7 @@ export async function saveLiveKitConfig(
     egress_url: string | null;
     region: string | null;
     webhook_secret: string | null;
+    turn_domain: string | null;
     recording_storage: Partial<LiveKitRecordingStorage>;
   }>,
 ): Promise<LiveKitConfig> {
@@ -207,6 +208,11 @@ export async function saveLiveKitConfig(
     ...('egress_enabled' in patch ? { egress_enabled: !!patch.egress_enabled } : {}),
     ...('egress_url' in patch ? { egress_url: patch.egress_url ?? null } : {}),
     ...('region' in patch ? { region: patch.region ?? null } : {}),
+    // Through `asString` rather than straight across, so a field the admin
+    // blanked rather than cleared ("   ") lands as null and not as a
+    // hostname nothing resolves. Every other reader of this value treats
+    // "set" as "a relay exists".
+    ...('turn_domain' in patch ? { turn_domain: asString(patch.turn_domain ?? null) } : {}),
   };
   if ('api_key' in patch) {
     next.api_key = patch.api_key === '' ? null : (patch.api_key ?? current.api_key);

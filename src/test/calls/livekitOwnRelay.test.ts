@@ -91,3 +91,32 @@ describe('the LiveKit container renders TURN from the same variable', () => {
     expect(live).not.toContain('HostSNI');
   });
 });
+
+/**
+ * Every field of the config has to survive a save.
+ *
+ * `saveLiveKitConfig` merges key by key rather than spreading the patch, and
+ * its parameter type is its own literal rather than `Partial<LiveKitConfig>`
+ * — so a field added to the interface and to the route but not to the merge
+ * type-checks, saves, returns 200, and is silently dropped. `turn_domain`
+ * was exactly that for an afternoon. This walks the interface instead of
+ * trusting anyone to remember.
+ */
+describe('saveLiveKitConfig handles every field it is given', () => {
+  const src = readFileSync('server/services/calls/livekitConfig.ts', 'utf8');
+  const fields = Object.keys(base).filter((k) => k !== 'recording_storage');
+
+  it.each(fields)('merges %s', (field) => {
+    // Either the spread form or one of the "" -> null secret blocks.
+    expect(src).toMatch(new RegExp(`'${field}' in patch`));
+  });
+
+  it('names every field in its patch type', () => {
+    const start = src.indexOf('export async function saveLiveKitConfig');
+    const patchType = src.slice(start, src.indexOf('): Promise<LiveKitConfig>', start));
+    for (const field of fields) {
+      expect(patchType).toContain(`${field}:`);
+    }
+  });
+});
+

@@ -198,6 +198,10 @@ dependencies {
     implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
+    // Network logging, installed only when BuildConfig.DEBUG is true. That is
+    // a compile-time constant, so R8 removes the branch and the plugin with
+    // it from the shipped app.
+    implementation(libs.ktor.client.logging)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
 

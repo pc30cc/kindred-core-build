@@ -1,5 +1,6 @@
 package com.webyar.operator.core.net
 
+import com.webyar.operator.BuildConfig
 import com.webyar.operator.core.model.Account
 import com.webyar.operator.core.model.AccountAvatarResponse
 import com.webyar.operator.core.model.AccountProfile
@@ -53,6 +54,9 @@ import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.logging.LogLevel
+import io.ktor.client.plugins.logging.Logger
+import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.header
 import io.ktor.client.request.request
@@ -61,6 +65,7 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.client.statement.readRawBytes
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
@@ -97,6 +102,34 @@ class ApiClient(
     private val http = HttpClient(OkHttp) {
         expectSuccess = false
         install(ContentNegotiation) { json(json) }
+
+        /**
+         * What the app actually said and what actually came back — in the
+         * debug build only.
+         *
+         * Written after an afternoon spent inferring a request body from the
+         * server's source, because the app had no way to show its own
+         * traffic. The bug was a field that a serializer setting silently
+         * dropped, which no amount of reading the Kotlin would reveal: the
+         * code said `client = "mobile"` and the wire did not.
+         *
+         * `BuildConfig.DEBUG` is a compile-time constant, so R8 folds this
+         * branch away and the shipped app neither logs nor carries the
+         * plugin. Headers are logged but `Authorization` is redacted — a
+         * session token in logcat is a session token any app on the device
+         * can read.
+         */
+        if (BuildConfig.DEBUG) {
+            install(Logging) {
+                logger = object : Logger {
+                    override fun log(message: String) {
+                        android.util.Log.d(LOG_TAG, message)
+                    }
+                }
+                level = LogLevel.ALL
+                sanitizeHeader { name -> name.equals(HttpHeaders.Authorization, ignoreCase = true) }
+            }
+        }
         install(HttpTimeout) {
             // A hung request is worse than a failed one: the operator is left
             // staring at a spinner. Fail fast enough to show a retry.
@@ -892,6 +925,9 @@ class ApiClient(
          * truncation, so the client trims instead of finding out.
          */
         const val BATCH_LIMIT = 500
+
+        /** `adb logcat -s WebyarApi` shows every request and its answer. */
+        const val LOG_TAG = "WebyarApi"
     }
 
 }

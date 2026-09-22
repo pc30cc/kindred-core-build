@@ -126,17 +126,27 @@ class AttachmentRulesTest {
             .map { File(it, "server/routes/conversationAttachments.ts") }
             .firstOrNull { it.isFile } ?: return
 
+        // Comments go first. There is one inside the Set literal and it
+        // contains the word "widget's" — an apostrophe that pairs with the
+        // next real quote and drags half a sentence in as a MIME type.
+        val code = source.readText().lines()
+            .joinToString("\n") { it.substringBefore("//") }
+
         val declared = Regex("""GLOBAL_ALLOWED_MIMES\s*=\s*new Set\(\[(.*?)]\)""", RegexOption.DOT_MATCHES_ALL)
-            .find(source.readText())
+            .find(code)
             ?.groupValues?.get(1)
             ?: error("GLOBAL_ALLOWED_MIMES is no longer written as a Set literal")
 
-        val onServer = Regex("""'([^']+)'""").findAll(declared).map { it.groupValues[1] }.toSortedSet()
+        val onServer = Regex("""'([^']+)'""").findAll(declared)
+            .map { it.groupValues[1] }
+            .filterTo(sortedSetOf()) { it.contains('/') }
+        assertTrue("no types found; the literal's shape changed", onServer.size >= 8)
+
         val here = onServer.filterTo(sortedSetOf()) { AttachmentRules.isAllowed(it) }
         assertEquals("a type the server takes that the app refuses", onServer, here)
 
         val cap = Regex("""HARD_MAX_BYTES\s*=\s*(\d+)\s*\*\s*1024\s*\*\s*1024""")
-            .find(source.readText())?.groupValues?.get(1)?.toInt()
+            .find(code)?.groupValues?.get(1)?.toInt()
         assertEquals(cap?.times(1024 * 1024), AttachmentRules.MAX_BYTES)
     }
 }

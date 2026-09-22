@@ -1181,6 +1181,19 @@ object Str {
         Language.TR -> "Bu biçim burada oynatılamıyor."
     }
 
+    /** The transport under a voice note. Announced, never drawn. */
+    fun play(l: Language): String = when (l) {
+        Language.EN -> "Play"
+        Language.FA -> "پخش"
+        Language.TR -> "Oynat"
+    }
+
+    fun pause(l: Language): String = when (l) {
+        Language.EN -> "Pause"
+        Language.FA -> "مکث"
+        Language.TR -> "Duraklat"
+    }
+
     fun photo(l: Language): String = when (l) {
         Language.EN -> "Photo"
         Language.FA -> "تصویر"

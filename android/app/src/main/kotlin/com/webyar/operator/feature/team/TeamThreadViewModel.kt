@@ -54,6 +54,17 @@ class TeamThreadViewModel(
     private val _sendFailed = MutableStateFlow(false)
     val sendFailed: StateFlow<Boolean> = _sendFailed.asStateFlow()
 
+    /**
+     * A problem with something the operator just did, in their own words.
+     *
+     * Separate from [sendFailed], which is one fixed sentence about the
+     * network. "This file is too large" is not that sentence, and telling an
+     * operator their 40 MB video failed because they are offline sends them
+     * to check their connection.
+     */
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice: StateFlow<String?> = _notice.asStateFlow()
+
     private var workspaceId: String? = null
     private var peerId: String? = null
 
@@ -72,6 +83,14 @@ class TeamThreadViewModel(
 
     fun dismissSendError() {
         _sendFailed.value = false
+    }
+
+    fun report(message: String) {
+        _notice.value = message
+    }
+
+    fun dismissNotice() {
+        _notice.value = null
     }
 
     private fun load() {

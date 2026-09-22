@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  What the FileProvider is allowed to hand out.
+
+  Exactly one directory, and one inside the app's own cache: an attachment
+  the operator opens in another app is a temporary copy, and a provider
+  pointed at `.` would let any malformed request read the token store that
+  sits in the same sandbox.
+-->
+<paths>
+    <cache-path name="attachments" path="attachments/" />
+</paths>

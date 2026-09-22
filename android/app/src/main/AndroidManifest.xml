@@ -70,5 +70,25 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          How an attachment reaches the app that can read it.
+
+          Handing another app a `file://` URI has thrown `FileUriExposedException`
+          since API 24, which is this app's floor, so a PDF the operator taps
+          has to go out as a content URI with a one-shot read grant. The
+          authority is namespaced under the package so a debug build installed
+          beside a release one does not collide with it — two providers
+          claiming one authority is an install failure, not a runtime one.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.attachments"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/attachment_paths" />
+        </provider>
     </application>
 </manifest>

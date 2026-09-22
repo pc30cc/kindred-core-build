@@ -66,6 +66,18 @@ object Glyph {
         )
     }
 
+    /**
+     * Two bars. `Icons.Filled.PlayArrow` is in the core set and its partner
+     * is not, which would leave a transport with one drawn icon and one
+     * borrowed shape.
+     */
+    val Pause: ImageVector by lazy {
+        vector(
+            "Pause",
+            "M14 19V5h4v14h-4Zm-8 0V5h4v14H6Z",
+        )
+    }
+
     /** A document. Any attachment that is not a picture. */
     val Document: ImageVector by lazy {
         vector(

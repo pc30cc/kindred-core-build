@@ -69,6 +69,17 @@ object A11y {
     fun emailRow(id: String) = "email.$id"
     fun emailMessage(id: String) = "email.message.$id"
     fun messageRow(id: String) = "message.$id"
+
+    /**
+     * An attachment, by the kind it is drawn as rather than by the kind the
+     * server called it — a test that asks for the voice note is asking
+     * whether it got a player, not whether the MIME type said audio.
+     */
+    fun attachmentImage(id: String) = "attachment.image.$id"
+    fun attachmentVoiceNote(id: String) = "attachment.voice.$id"
+    fun attachmentVoicePlay(id: String) = "attachment.voice.play.$id"
+    fun attachmentFile(id: String) = "attachment.file.$id"
+    const val ATTACHMENT_VIEWER_CLOSE = "attachment.viewer.close"
     fun workspaceRow(id: String) = "settings.workspace.$id"
     fun shortcutRow(id: String) = "shortcut.$id"
 }

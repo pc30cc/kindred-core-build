@@ -45,6 +45,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import com.webyar.operator.core.media.AttachmentRules
 import com.webyar.operator.core.model.CallChannel
 import com.webyar.operator.core.model.CallChannels
 import com.webyar.operator.core.model.CannedText
@@ -270,8 +271,11 @@ fun ChatRoute(
     // would be holding a handle it is no longer allowed to open.
     val context = LocalContext.current
     val send: (android.net.Uri) -> Unit = { uri ->
-        readPickedFile(context, uri)?.let { (bytes, name, mime) ->
-            chatModel.sendAttachment(bytes = bytes, fileName = name, mimeType = mime)
+        when (val picked = readPickedFile(context, uri)) {
+            is PickedFile.Ready -> chatModel.sendAttachment(
+                bytes = picked.bytes, fileName = picked.fileName, mimeType = picked.mimeType,
+            )
+            else -> picked.problemText(language)?.let(chatModel::report)
         }
     }
     val photoPicker = rememberLauncherForActivityResult(
@@ -340,11 +344,14 @@ fun ChatRoute(
         sayNowVoice = voice.takeIf { aiManaged && plan.value?.moduleEnabled("ai_assistant") == true },
         onSayNowVoiceChange = chatModel::setSayNowVoice,
         onAttachPhoto = {
+            // Images only. `ImageAndVideo` offered a kind the server's
+            // allowlist does not carry (`GLOBAL_ALLOWED_MIMES`), so every
+            // video the operator picked was a wait followed by a 415.
             photoPicker.launch(
-                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
             )
         },
-        onAttachFile = { filePicker.launch(arrayOf("*/*")) },
+        onAttachFile = { filePicker.launch(AttachmentRules.PICKABLE_MIME_TYPES) },
         onOpenShortcuts = {
             showShortcuts = true
             chatModel.loadShortcuts()
@@ -597,6 +604,7 @@ fun TeamThreadRoute(
     val draft by thread.draft.collectAsStateWithLifecycle()
     val sending by thread.sending.collectAsStateWithLifecycle()
     val sendFailed by thread.sendFailed.collectAsStateWithLifecycle()
+    val notice by thread.notice.collectAsStateWithLifecycle()
 
     val colleague = remember(peerId) { colleagues.colleague(peerId) }
     val context = LocalContext.current
@@ -616,22 +624,19 @@ fun TeamThreadRoute(
         }
     }
 
+    val sendPicked: (android.net.Uri) -> Unit = { uri ->
+        when (val picked = readPickedFile(context, uri)) {
+            is PickedFile.Ready ->
+                thread.sendAttachment(picked.bytes, picked.fileName, picked.mimeType)
+            else -> picked.problemText(language)?.let(thread::report)
+        }
+    }
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        uri ?: return@rememberLauncherForActivityResult
-        readPickedFile(context, uri)?.let { (bytes, name, mime) ->
-            thread.sendAttachment(bytes, name, mime)
-        }
-    }
+    ) { uri -> uri?.let(sendPicked) }
     val filePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri ?: return@rememberLauncherForActivityResult
-        readPickedFile(context, uri)?.let { (bytes, name, mime) ->
-            thread.sendAttachment(bytes, name, mime)
-        }
-    }
+    ) { uri -> uri?.let(sendPicked) }
 
     Scaffold(
         topBar = {
@@ -662,7 +667,7 @@ fun TeamThreadRoute(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                         )
                     },
-                    onAttachFile = { filePicker.launch(arrayOf("*/*")) },
+                    onAttachFile = { filePicker.launch(AttachmentRules.PICKABLE_MIME_TYPES) },
                     // An internal thread has no saved replies and no AI voice:
                     // both are things you say to a customer.
                     onOpenShortcuts = {},
@@ -670,17 +675,24 @@ fun TeamThreadRoute(
                 )
             }
 
-            if (sendFailed) {
+            // One slot, two sources: the network's own sentence and
+            // whatever the operator just tried that could not be done. The
+            // specific one wins — it is the one they can act on.
+            val problem = notice ?: Str.offlineBody(language).takeIf { sendFailed }
+            if (problem != null) {
                 Snackbar(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(Space.md),
                     action = {
-                        TextButton(onClick = thread::dismissSendError) {
-                            Text(Str.cancel(language))
-                        }
+                        TextButton(
+                            onClick = {
+                                thread.dismissNotice()
+                                thread.dismissSendError()
+                            },
+                        ) { Text(Str.cancel(language)) }
                     },
-                ) { Text(Str.offlineBody(language)) }
+                ) { Text(problem) }
             }
         }
     }
@@ -1205,26 +1217,86 @@ private fun BackBar(title: String, language: Language, onBack: () -> Unit) {
 }
 
 /**
+ * What came back from a picker, or why nothing will be sent.
+ *
+ * A sealed answer rather than a nullable triple because the three ways this
+ * fails are three different sentences to the operator, and a null could only
+ * ever produce one of them.
+ */
+internal sealed interface PickedFile {
+    data class Ready(val bytes: ByteArray, val fileName: String, val mimeType: String) : PickedFile
+
+    /** Larger than the server's `HARD_MAX_BYTES`. */
+    data object TooLarge : PickedFile
+
+    /** A type the server's allowlist does not carry. */
+    data object NotAllowed : PickedFile
+
+    /** The provider would not open it — an offline cloud document, usually. */
+    data object Unreadable : PickedFile
+}
+
+/**
  * The bytes behind a picked file, with a name and a type for them.
  *
  * Read here and now rather than handed on as a URI: the permission a picker
  * grants is scoped to this callback, so a coroutine that opened the stream
  * later would be holding a handle it is no longer allowed to open.
  *
- * Null when the read fails, which is the ordinary outcome for a file on a
- * provider that has gone away — a cloud document the user is offline from,
- * say. The caller sends nothing rather than sending an empty file.
+ * The size and the type are checked here too, against the same numbers the
+ * server enforces. Sending a 40 MB video and letting the upload come back 400
+ * costs the operator the wait and tells them nothing they can act on; iOS has
+ * refused both before the upload since it shipped (`Composer.swift`).
  */
-private fun readPickedFile(
+internal fun readPickedFile(
     context: android.content.Context,
     uri: android.net.Uri,
-): Triple<ByteArray, String, String>? {
+): PickedFile {
     val resolver = context.contentResolver
+    val mime = AttachmentRules.canonicalMime(resolver.getType(uri)) ?: return PickedFile.NotAllowed
+
+    // Asked before the read, so an oversized file is refused without pulling
+    // it through memory first.
+    val declared = runCatching {
+        resolver.openAssetFileDescriptor(uri, "r")?.use { it.length }
+    }.getOrNull()
+    if (declared != null && declared > AttachmentRules.MAX_BYTES) return PickedFile.TooLarge
+
     val bytes = runCatching { resolver.openInputStream(uri)?.use { it.readBytes() } }
-        .getOrNull() ?: return null
-    return Triple(
-        bytes,
-        uri.lastPathSegment?.substringAfterLast('/') ?: "file",
-        resolver.getType(uri) ?: "application/octet-stream",
+        .getOrNull() ?: return PickedFile.Unreadable
+    if (bytes.size > AttachmentRules.MAX_BYTES) return PickedFile.TooLarge
+
+    return PickedFile.Ready(
+        bytes = bytes,
+        fileName = AttachmentRules.sendableFileName(displayName(resolver, uri), mime, "photo"),
+        mimeType = mime,
     )
+}
+
+/**
+ * The name the operator knows the file by.
+ *
+ * `Uri.lastPathSegment` is not it and never was: a document from the
+ * Storage Access Framework answers `primary:Download/report.pdf` and a photo
+ * from the system picker answers `1000000034`, so the attachment arrived in
+ * the thread called "1000000034" with no extension on it. `DISPLAY_NAME` is
+ * the column every `OpenableColumns` provider is required to answer.
+ */
+private fun displayName(
+    resolver: android.content.ContentResolver,
+    uri: android.net.Uri,
+): String? = runCatching {
+    resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+        ?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            cursor.getString(0)?.takeIf { it.isNotBlank() }
+        }
+}.getOrNull()
+
+/** What to tell the operator about a file that will not be sent. */
+internal fun PickedFile.problemText(language: Language): String? = when (this) {
+    is PickedFile.Ready -> null
+    PickedFile.TooLarge -> Str.fileTooLarge(language)
+    PickedFile.NotAllowed -> Str.fileTypeNotAllowed(language)
+    PickedFile.Unreadable -> Str.attachmentFailed(language)
 }

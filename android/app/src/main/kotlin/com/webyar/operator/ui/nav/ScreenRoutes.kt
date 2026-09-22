@@ -93,8 +93,6 @@ import androidx.compose.ui.platform.testTag
 import com.webyar.operator.ui.A11y
 import com.webyar.operator.feature.promo.PromoBanner
 import com.webyar.operator.feature.promo.PromotionCenter
-import com.webyar.operator.feature.call.CallOutcome
-import com.webyar.operator.feature.call.CallPhase
 import com.webyar.operator.feature.call.CallScreen
 import com.webyar.operator.feature.call.CallSession
 import com.webyar.operator.feature.call.LiveKitRoom
@@ -105,7 +103,6 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.webyar.operator.feature.chat.VoiceRecorder
 import com.webyar.operator.i18n.Str
-import com.webyar.operator.i18n.displayText
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -970,8 +967,6 @@ fun CallRoute(
     val localVideo by room.localVideo.collectAsStateWithLifecycle()
 
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
-    var failed by remember { mutableStateOf(false) }
-    var inviteError by remember { mutableStateOf<String?>(null) }
 
     // Who we are calling, out of the list the inbox already holds. There is no
     // by-id endpoint for a conversation — the chat reads it the same way — and
@@ -1004,49 +999,41 @@ fun CallRoute(
         if (missing) permissions.launch(wanted) else permissionsAsked = true
     }
 
-    LaunchedEffect(workspace?.id, conversationId, channel, permissionsAsked) {
+    // Asks the session to call; it does not do the calling. The request
+    // belongs to something that outlives a recomposition, and this effect is
+    // not that: it is keyed on `permissionsAsked`, which its own body sets,
+    // so its first run was always cancelled mid-flight. `start` is
+    // idempotent, so however often this runs again, one call is one
+    // invitation.
+    LaunchedEffect(workspace?.id, permissionsAsked) {
         if (!permissionsAsked) return@LaunchedEffect
         val id = workspace?.id ?: return@LaunchedEffect
-        // Named, because the two ids are both UUID strings and transposing
-        // them is exactly the mistake that made every call fail.
-        val invitation = runCatching {
-            api.inviteToCall(
-                workspaceId = id,
-                conversationId = conversationId,
-                channel = channel,
-            )
-        }.getOrElse { error ->
-            // The reason, not a shrug. "Could not connect" over a 403 sent the
-            // operator looking at their network while the server was telling
-            // them something specific.
-            inviteError = error.displayText(language)
-            failed = true
-            return@LaunchedEffect
-        }
-        session.begin(
-            invitation = invitation,
-            contactName = Format.contactName(
-                name = conversation?.contact?.name,
-                email = conversation?.contact?.email,
-                visitorCode = conversation?.contact?.visitorCode,
-                language = language,
-            ),
-            contactAvatarUrl = conversation?.contact?.avatarUrl,
-            visitor = intel[conversationId],
+        session.start(
+            workspaceId = id,
+            conversationId = conversationId,
+            channel = channel,
+            language = language,
         )
     }
 
-    CallScreen(
-        phase = if (failed) {
-            CallPhase.Ended(CallOutcome.Failed(inviteError.orEmpty()))
-        } else {
-            phase
-        },
-        channel = channel,
-        contactName = session.contactName.ifEmpty { Str.unknownVisitor(language) },
+    // Read as the inbox resolves rather than frozen when the call started:
+    // the list can still be loading at the moment an operator dials, and a
+    // screen that captured the name then would say "visitor" for the whole
+    // call about somebody the app knows perfectly well.
+    val contactName = Format.contactName(
+        name = conversation?.contact?.name,
+        email = conversation?.contact?.email,
+        visitorCode = conversation?.contact?.visitorCode,
         language = language,
-        contactAvatarUrl = session.contactAvatarUrl,
-        visitor = session.visitor,
+    ).ifEmpty { Str.unknownVisitor(language) }
+
+    CallScreen(
+        phase = phase,
+        channel = channel,
+        contactName = contactName,
+        language = language,
+        contactAvatarUrl = conversation?.contact?.avatarUrl,
+        visitor = intel[conversationId],
         connectedAt = connectedAt,
         muted = muted,
         cameraOn = cameraOn,

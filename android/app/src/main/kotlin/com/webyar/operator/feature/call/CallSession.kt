@@ -3,9 +3,10 @@ package com.webyar.operator.feature.call
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.webyar.operator.core.model.CallChannel
-import com.webyar.operator.core.model.CallInvitation
-import com.webyar.operator.core.model.VisitorProfile
 import com.webyar.operator.core.net.WebyarApi
+import com.webyar.operator.core.runCatchingUnlessCancelled
+import com.webyar.operator.i18n.Language
+import com.webyar.operator.i18n.displayText
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -85,33 +86,63 @@ class CallSession(
 
     var channel: CallChannel = CallChannel.AUDIO
         private set
-    var contactName: String = ""
-        private set
-    var contactAvatarUrl: String? = null
-        private set
-    var visitor: VisitorProfile? = null
-        private set
 
     private var invitationId: String? = null
     private var callSessionId: String? = null
     private var started = false
+    private var language: Language = Language.EN
 
-    fun begin(
-        invitation: CallInvitation,
-        contactName: String,
-        contactAvatarUrl: String?,
-        visitor: VisitorProfile?,
+    /**
+     * Invites the visitor, then waits for them.
+     *
+     * The invitation is created HERE, on the session's own scope, and not by
+     * the screen that shows the call. A composition is a fragile place to put
+     * a request: an effect is cancelled whenever one of its keys changes, and
+     * the screen's own permission flag is one of those keys. The invitation
+     * POST really was cancelled mid-flight by that, the cancellation really
+     * was reported as a failed call, and the retry's invitation really did go
+     * on to ring, be answered and connect — behind a screen that had latched
+     * on "the call could not connect" and would never let go. A view model's
+     * scope outlives every recomposition, so there is nothing left to cancel
+     * it but the call ending.
+     *
+     * Idempotent, which matters for the same reason: however many times the
+     * screen recomposes and asks again, one call means one invitation. The
+     * version that asked from a composition sent two of them per call, and
+     * left the spare ringing on the visitor's widget until it expired.
+     */
+    fun start(
+        workspaceId: String,
+        conversationId: String,
+        channel: CallChannel,
+        language: Language,
     ) {
         if (started) return
         started = true
-        this.invitationId = invitation.id
-        this.channel = invitation.kind
-        this.contactName = contactName
-        this.contactAvatarUrl = contactAvatarUrl
-        this.visitor = visitor
-        _cameraOn.value = invitation.kind == CallChannel.VIDEO
+        this.channel = channel
+        this.language = language
+        _cameraOn.value = channel == CallChannel.VIDEO
 
-        viewModelScope.launch { waitForVisitor() }
+        viewModelScope.launch {
+            val invitation = runCatchingUnlessCancelled {
+                // Named, because the two ids are both UUID strings and
+                // transposing them is exactly the mistake that made every
+                // call fail with a 403 nobody ever saw.
+                api.inviteToCall(
+                    workspaceId = workspaceId,
+                    conversationId = conversationId,
+                    channel = channel,
+                )
+            }.getOrElse { error ->
+                // The reason, not a shrug. "Could not connect" over a 403
+                // sent the operator looking at their network while the
+                // server was telling them something specific.
+                _phase.value = CallPhase.Ended(CallOutcome.Failed(error.displayText(language)))
+                return@launch
+            }
+            invitationId = invitation.id
+            waitForVisitor()
+        }
         viewModelScope.launch {
             room.events.collect { event -> onRoomEvent(event) }
         }
@@ -127,7 +158,7 @@ class CallSession(
     private suspend fun waitForVisitor() {
         val id = invitationId ?: return
         while (_phase.value == CallPhase.Waiting) {
-            runCatching { api.invitation(id) }.onSuccess { invitation ->
+            runCatchingUnlessCancelled { api.invitation(id) }.onSuccess { invitation ->
                 val sessionId = invitation.callSessionId
                 if (sessionId != null && invitation.isJoined) {
                     callSessionId = sessionId
@@ -154,11 +185,12 @@ class CallSession(
     private suspend fun join(callSessionId: String) {
         _phase.value = CallPhase.Connecting
 
-        val credentials = runCatching { api.callToken(callSessionId, displayName = null) }
-            .getOrElse {
-                _phase.value = CallPhase.Ended(CallOutcome.Failed(it.message ?: "token"))
-                return
-            }
+        val credentials = runCatchingUnlessCancelled {
+            api.callToken(callSessionId, displayName = null)
+        }.getOrElse { error ->
+            _phase.value = CallPhase.Ended(CallOutcome.Failed(error.displayText(language)))
+            return
+        }
         _relayWarning.value = credentials.warnings?.contains("turn_missing") == true
 
         val url = credentials.signallingUrl
@@ -244,7 +276,7 @@ class CallSession(
             // Told to the server last and best-effort: the local side is
             // already over, and a failed hang-up request must not leave the
             // operator staring at a call they have finished with.
-            if (sessionId != null) runCatching { api.hangUp(sessionId) }
+            if (sessionId != null) runCatchingUnlessCancelled { api.hangUp(sessionId) }
         }
     }
 

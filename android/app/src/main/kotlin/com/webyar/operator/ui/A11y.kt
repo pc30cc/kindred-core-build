@@ -58,6 +58,7 @@ object A11y {
 
     const val CALL_SCREEN = "call.screen"
     const val CALL_STATUS = "call.status"
+    const val CALL_FAILURE_REASON = "call.failureReason"
     const val CALL_MUTE = "call.mute"
     const val CALL_CAMERA = "call.camera"
     const val CALL_SPEAKER = "call.speaker"

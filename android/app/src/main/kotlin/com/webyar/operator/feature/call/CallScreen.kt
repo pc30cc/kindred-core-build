@@ -225,11 +225,18 @@ private fun Identity(
 }
 
 /**
- * The one line under the name.
+ * The line (or two) under the name.
  *
  * A timer once connected, counting from when the two sides actually met —
  * not from when the invitation went out. An operator reading "04:12" on a
  * call that connected thirty seconds ago would rightly distrust the number.
+ *
+ * A failure gets a second line saying what the server actually said. The
+ * session has always carried that reason and the screen used to drop it, so
+ * a 403 and an unreachable network both read "the call could not connect" —
+ * one sentence that sends an operator to check their signal while the server
+ * is telling them something precise. It is the only surface a failed call
+ * has: unlike the console there is no alert behind it to say more.
  */
 @Composable
 private fun Status(phase: CallPhase, connectedAt: Instant?, language: Language) {
@@ -250,13 +257,35 @@ private fun Status(phase: CallPhase, connectedAt: Instant?, language: Language) 
         is CallPhase.Ended -> phase.outcome.title(language)
     }
 
-    Text(
-        text,
-        style = MaterialTheme.typography.titleMedium,
-        color = Color.White.copy(alpha = 0.75f),
-        textAlign = TextAlign.Center,
-        modifier = Modifier.fillMaxWidth().testTag(A11y.CALL_STATUS),
-    )
+    val reason = ((phase as? CallPhase.Ended)?.outcome as? CallOutcome.Failed)
+        ?.reason
+        ?.takeIf { it.isNotBlank() }
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(Space.xs),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.titleMedium,
+            color = Color.White.copy(alpha = 0.75f),
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().testTag(A11y.CALL_STATUS),
+        )
+        if (reason != null) {
+            Text(
+                reason,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.55f),
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Space.lg)
+                    .testTag(A11y.CALL_FAILURE_REASON),
+            )
+        }
+    }
 }
 
 /** Something the operator should know but does not have to act on. */

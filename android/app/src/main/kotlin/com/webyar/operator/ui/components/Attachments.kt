@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.webyar.operator.core.model.MessageAttachment
+import com.webyar.operator.core.runCatchingUnlessCancelled
 import com.webyar.operator.i18n.Format
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
@@ -437,7 +438,12 @@ private fun OpenableFile(
         if (!wanted) return@LaunchedEffect
         opening = true
         failed = false
-        val bytes = runCatching { AttachmentCache.bytes(attachment.id, load) }.getOrNull()
+        // Not `runCatching`: it swallows cancellation too, so an operator who
+        // scrolled away mid-download came back to "could not be opened" about
+        // a file nothing had gone wrong with.
+        val bytes = runCatchingUnlessCancelled {
+            AttachmentCache.bytes(attachment.id, load)
+        }.getOrNull()
         val file = bytes?.let {
             withContext(Dispatchers.IO) { AttachmentFiles.cache(context, attachment, it) }
         }
@@ -520,7 +526,7 @@ private fun rememberAttachmentBytes(
 ): AttachmentBytes {
     var state by remember(id) { mutableStateOf<AttachmentBytes>(AttachmentBytes.Loading) }
     LaunchedEffect(id) {
-        val bytes = runCatching { AttachmentCache.bytes(id, load) }.getOrNull()
+        val bytes = runCatchingUnlessCancelled { AttachmentCache.bytes(id, load) }.getOrNull()
         state = if (bytes == null) AttachmentBytes.Failed else AttachmentBytes.Ready(bytes)
     }
     return state

@@ -322,3 +322,35 @@ real phone.** It should — a mid-range device with slow flash and a weak little
 core is exactly where 5.35 MB of pre-compiled code and a preloaded class image
 pay — but this document does not claim a number it has not taken. That needs
 hardware.
+
+### The keyboard, and why the emulator hides it
+
+Two separate things, found together when the login screen appeared not to
+open a keyboard at all.
+
+**The emulator was the reason nothing appeared.** `Webyar_API36.avd` had
+`hw.keyboard = yes`, which tells Android a physical keyboard is attached — so
+it suppresses the soft one and you type with the Mac's. It is now `no`; the
+old file is at `config.ini.bak`. A change here needs the emulator restarted,
+not just the app.
+
+**The app had a real fault underneath it.** `enableEdgeToEdge` sets
+`decorFitsSystemWindows = false`, and from that moment
+`windowSoftInputMode="adjustResize"` resizes nothing — the window draws behind
+the IME and the app applies the inset. The chat, team and email screens did.
+Login, profile and security — the three screens that are forms — did not.
+
+Measured on the device by dumping the view hierarchy with the field focused:
+
+| | scroll viewport | "Log in" button |
+|---|---|---|
+| before | `[0,128]–[1080,2337]` | y 1544–1603 |
+| after | `[0,128]–[1080,1517]` | y 1134–1193 |
+
+The keyboard's top edge is y=1517. Before, the button sat at 1544 — entirely
+underneath it, on a centred form inside a scroll with nothing to scroll, so
+there was no way to reach it at all. After, the viewport ends where the
+keyboard begins and everything is above it.
+
+The inset goes **outside** the scroll modifier. Inside, the padding travels
+with the content and the field stays under the keyboard.

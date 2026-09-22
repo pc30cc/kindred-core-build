@@ -2,6 +2,9 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    // Consumes the profile the `:baselineprofile` module generates and packs
+    // it into the APK's assets, where ProfileInstaller finds it.
+    alias(libs.plugins.androidx.baselineprofile)
 }
 
 android {
@@ -187,6 +190,15 @@ dependencies {
     implementation(libs.coil.network.okhttp)
 
     implementation(libs.livekit.android)
+
+    // Installs the generated profile at first run. Already on the classpath
+    // transitively through Compose — named here because the app now ships a
+    // profile of its own and depends on it being installed.
+    implementation(libs.androidx.profileinstaller)
+
+    // The generator module. `baselineProfile` rather than a normal
+    // dependency: it is a producer, and nothing from it reaches the APK.
+    baselineProfile(project(":baselineprofile"))
 
     // @Preview renders through this; debug-only so it never ships.
     debugImplementation(libs.androidx.compose.ui.tooling)

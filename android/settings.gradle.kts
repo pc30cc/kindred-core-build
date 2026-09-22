@@ -36,3 +36,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Webyar"
 include(":app")
+include(":baselineprofile")

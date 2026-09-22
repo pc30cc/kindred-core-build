@@ -20,6 +20,10 @@ desugar = "2.1.5"
 coil = "3.6.3"
 navigation = "2.10.1"
 livekit = "2.29.0"
+benchmark = "1.5.0"
+uiautomator = "2.4.0"
+espresso = "3.7.0"
+profileinstaller = "1.4.1"
 
 [libraries]
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugar" }
@@ -66,6 +70,13 @@ androidx-navigation-compose = { group = "androidx.navigation", name = "navigatio
 # Resolved from Maven Central 2026-09-22.
 livekit-android = { group = "io.livekit", name = "livekit-android", version.ref = "livekit" }
 
+# The baseline profile generator's own dependencies. They are in the
+# `:baselineprofile` module and never in the app.
+androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileinstaller" }
+androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "benchmark" }
+androidx-test-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
+androidx-test-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
+
 # Coil rather than a hand-rolled loader: RemoteImage.swift is 236 lines of
 # cache, placeholder and cancellation, and all three are things an image
 # library has already got right. Resolved from Maven Central 2026-09-21.
@@ -88,3 +99,7 @@ android-application = { id = "com.android.application", version.ref = "agp" }
 # ONLY Kotlin plugins the project applies; AGP 9 compiles Kotlin on its own.
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+# The baseline profile's own module is a `com.android.test` project, and the
+# plugin that generates the profile from it.
+android-test = { id = "com.android.test", version.ref = "agp" }
+androidx-baselineprofile = { id = "androidx.baselineprofile", version.ref = "benchmark" }

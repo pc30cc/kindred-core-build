@@ -33,6 +33,7 @@ import com.webyar.operator.core.model.InboxFilter
 import com.webyar.operator.core.model.MemberProfile
 import com.webyar.operator.core.model.Message
 import com.webyar.operator.core.model.MessagePreview
+import com.webyar.operator.core.model.MessageAttachment
 import com.webyar.operator.core.model.Promotions
 import com.webyar.operator.core.model.SayNowVoice
 import com.webyar.operator.core.model.SenderType
@@ -412,7 +413,16 @@ class SampleApi : WebyarApi {
     override suspend fun changePassword(current: String, new: String) {}
 
     private val notesByConversation = mutableMapOf<String, MutableList<ConversationNote>>()
-    private val teamMessages = mutableMapOf<String, MutableList<TeamMessage>>()
+    /**
+     * Seeded, not empty.
+     *
+     * The colleagues list showed a last-message preview for every row and the
+     * thread behind it opened blank, which is the one thing this backend
+     * exists to prevent — the previews were written and the threads they
+     * previewed were not.
+     */
+    private val teamMessages: MutableMap<String, MutableList<TeamMessage>> =
+        TEAM_THREADS.mapValues { it.value.toMutableList() }.toMutableMap()
 
     private companion object {
         val OPERATOR = User(
@@ -561,6 +571,54 @@ class SampleApi : WebyarApi {
             // Name absent entirely: `displayName` has to fall through to the
             // email, and the avatar has to draw initials from that.
             Colleague(userId = "u-9", role = "agent", email = "newcomer@webyar.app", unread = 0),
+        )
+
+        /**
+         * What the previews in [COLLEAGUES] are previews OF.
+         *
+         * Keyed by the peer, which is how `teamThread` reads them. Reza's
+         * thread ends on his question, unanswered, so the badge of 2 on his
+         * row has something behind it; Mehdi's ends on a photo we sent, which
+         * is the attachment-only preview case.
+         */
+        val TEAM_THREADS: Map<String, List<TeamMessage>> = mapOf(
+            "u-2" to listOf(
+                TeamMessage(
+                    id = "tm-1", senderId = "u-2", recipientId = "u-1",
+                    body = "سلام، صبح بخیر", createdAt = ago(60 * 26),
+                ),
+                TeamMessage(
+                    id = "tm-2", senderId = "u-1", recipientId = "u-2",
+                    body = "صبح بخیر رضا جان", createdAt = ago(60 * 25),
+                ),
+                // Yesterday above, today below: the transcript has to draw a
+                // day header between these two.
+                TeamMessage(
+                    id = "tm-3", senderId = "u-2", recipientId = "u-1",
+                    body = "اون تیکت مربوط به پرداخت رو بررسی کردی؟",
+                    createdAt = ago(16),
+                ),
+                TeamMessage(
+                    id = "tm-4", senderId = "u-2", recipientId = "u-1",
+                    body = "اون تیکت رو دیدی؟", createdAt = ago(14),
+                ),
+            ),
+            "u-3" to listOf(
+                TeamMessage(
+                    id = "tm-5", senderId = "u-3", recipientId = "u-1",
+                    body = "این اسکرین‌شات رو برات می‌فرستم", createdAt = ago(320),
+                ),
+                TeamMessage(
+                    id = "tm-6", senderId = "u-1", recipientId = "u-3",
+                    body = null, createdAt = ago(300),
+                    attachment = MessageAttachment(
+                        id = "ta-1", fileName = "screenshot.png",
+                        mimeType = "image/png", sizeBytes = 184_320, kind = "image",
+                    ),
+                ),
+            ),
+            // u-9 has no thread at all: a colleague you have never written to,
+            // which is the empty transcript this screen also has to draw.
         )
 
         val EMAIL_THREADS = listOf(

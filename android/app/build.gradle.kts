@@ -7,6 +7,31 @@ plugins {
     alias(libs.plugins.androidx.baselineprofile)
 }
 
+/**
+ * A release value, from a Gradle property or the environment.
+ *
+ * Property first so `-Pwebyar.versionCode=42` beats a stale shell export,
+ * which is the order somebody debugging a wrong version number expects.
+ */
+fun releaseString(property: String, variable: String): String? =
+    (project.findProperty(property) as String?)?.takeIf { it.isNotBlank() }
+        ?: System.getenv(variable)?.takeIf { it.isNotBlank() }
+
+fun releaseInt(property: String, variable: String): Int? =
+    releaseString(property, variable)?.toIntOrNull()
+
+/**
+ * Whether this invocation is producing an App Bundle rather than APKs.
+ *
+ * Read from the tasks actually asked for, because the two cannot both be
+ * configured: see the note in `splits`. Only the task's own name is matched,
+ * so a path like `:app:bundleRelease` counts and an unrelated `:app:assemble`
+ * does not.
+ */
+val buildingAppBundle: Boolean = gradle.startParameter.taskNames.any {
+    it.substringAfterLast(':').startsWith("bundle")
+}
+
 android {
     // NOT `com.webyar.native`, which is what the iOS app is called.
     // `native` is a reserved word in Java, and the namespace becomes a real
@@ -22,8 +47,16 @@ android {
         // the Play Store's own charts suggest (ADR-003).
         minSdk = 24
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        // Play refuses an upload whose versionCode it has seen before, and
+        // it never forgets one — so the number cannot live only in this file,
+        // where two releases cut from the same commit would collide and a
+        // hotfix would mean editing source to ship it.
+        //
+        // The default is what a developer building locally wants: a stable
+        // number they never have to think about. A release pipeline passes
+        // its own, and `RELEASE.md` says which.
+        versionCode = releaseInt("webyar.versionCode", "WEBYAR_VERSION_CODE") ?: 1
+        versionName = releaseString("webyar.versionName", "WEBYAR_VERSION_NAME") ?: "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -118,7 +151,18 @@ android {
      */
     splits {
         abi {
-            isEnable = true
+            // Off while building a bundle, and AGP is right to insist:
+            // a bundle does its own ABI splitting, and better — Play
+            // delivers one device exactly the native code it can run,
+            // where these APKs make somebody choose. With both on, the
+            // bundle task finds five shrunk-resource files where it
+            // expects one and fails outright
+            // (`buildReleasePreBundle`, issuetracker 402800800), so the
+            // one artifact Play accepts could never be produced.
+            //
+            // They stay on for APK builds, which is what a sideload, the
+            // minified build and CI all want.
+            isEnable = !buildingAppBundle
             reset()
             include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
             isUniversalApk = true

@@ -114,11 +114,14 @@ fun ContactDetailScreen(
             // Less a fact about the contact than about the visit, which is why
             // these sit at the bottom rather than beside the address.
             profile?.geo?.let { geo ->
+                // A Latin comma, not the interface language's: the server
+                // sends these as Latin place names, and «Berlin، Germany»
+                // punctuates an English string with a Persian mark.
                 val place = listOfNotNull(
                     geo.city?.takeIf { it.isNotBlank() },
                     geo.country?.takeIf { it.isNotBlank() },
-                ).joinToString(if (language == Language.FA) "، " else ", ")
-                if (place.isNotEmpty()) add(Fact(placeLabel(language), place))
+                ).joinToString(", ")
+                if (place.isNotEmpty()) add(Fact(placeLabel(language), place, latin = true))
             }
             profile?.device?.let { device ->
                 val what = listOfNotNull(

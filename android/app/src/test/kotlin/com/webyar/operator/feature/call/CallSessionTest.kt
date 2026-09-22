@@ -90,8 +90,18 @@ class CallSessionTest {
         var polls = 0; private set
         var hungUp: String? = null; private set
 
+        /**
+         * Runs out into `expired`, which is not padding.
+         *
+         * The wait loops until the invitation reaches a terminal state, and a
+         * fake that answered "pending" for ever would loop for ever too —
+         * `runTest` drains the scheduler at the end of every test, so that is
+         * a hung suite rather than a failing one. An invitation really does
+         * expire; letting the script end that way is both honest and the
+         * thing that makes these tests terminate.
+         */
         override suspend fun invitation(id: String): CallInvitation {
-            val answer = answers[minOf(polls, answers.lastIndex)]
+            val answer = answers.getOrNull(polls) ?: EXPIRED
             polls++
             return answer
         }
@@ -383,5 +393,6 @@ class CallSessionTest {
 
     private companion object {
         val SAMPLE_TOKEN = CallToken(token = "t", wsUrl = "wss://example.invalid")
+        val EXPIRED = CallInvitation(id = "inv-1", status = "expired", channel = "audio")
     }
 }

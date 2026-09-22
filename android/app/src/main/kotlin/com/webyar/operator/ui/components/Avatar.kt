@@ -211,7 +211,20 @@ internal fun initialsOf(name: String): String {
     val source = name.trim()
     if (source.isEmpty()) return "?"
     val parts = source.split(' ').filter { it.isNotEmpty() }
+
+    // A visitor nobody has named is not a person with a first name and a
+    // surname — the label is a generated one, «بازدیدکننده 4ZTK», a word and
+    // an opaque code. Taking the first letter of each produced «ب4»: two
+    // scripts jammed into one circle, identifying nothing, and every
+    // anonymous visitor in a Persian inbox looked like that.
+    //
+    // The code is the only part that tells one visitor from another, so the
+    // code is what shows. Narrow on purpose: this fires only when a
+    // non-Latin word is followed by a Latin code, which a real name never is.
     if (parts.size >= 2) {
+        val leadsInAnotherScript = parts[0].any { it.isLetter() && it.code > 127 }
+        val code = parts[1].takeIf { it.length >= 2 && it.all { c -> c.isLetterOrDigit() && c.code < 128 } }
+        if (leadsInAnotherScript && code != null) return code.take(2).uppercase()
         return "${parts[0].first()}${parts[1].first()}".uppercase()
     }
     val first = parts.firstOrNull() ?: return "?"

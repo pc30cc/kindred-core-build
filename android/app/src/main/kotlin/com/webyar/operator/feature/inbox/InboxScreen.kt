@@ -16,12 +16,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -58,6 +60,7 @@ import com.webyar.operator.ui.components.SearchField
 import com.webyar.operator.ui.components.SearchState
 import com.webyar.operator.ui.components.StatusPill
 import com.webyar.operator.ui.components.UnreadBadge
+import com.webyar.operator.ui.components.bidiContent
 import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.design.Space
 import com.webyar.operator.ui.design.WebyarTheme
@@ -103,8 +106,11 @@ fun InboxScreen(
             filter = filter,
             allFilters = allFilters,
             counts = counts,
+            channels = channels,
+            selectedChannel = selectedChannel,
             search = search,
             onSelectFilter = onSelectFilter,
+            onSelectChannel = onSelectChannel,
         )
 
         if (search != null && search.isVisible) {
@@ -113,10 +119,6 @@ fun InboxScreen(
 
         if (chipFilters.size > 1) {
             FilterStrip(language, chipFilters, filter, counts, onSelectFilter)
-        }
-
-        if (channels.isNotEmpty()) {
-            ChannelStrip(language, channels, selectedChannel, onSelectChannel)
         }
 
         PullToRefreshBox(
@@ -163,10 +165,16 @@ fun InboxScreen(
 }
 
 /**
- * The title, which is also the menu of every queue.
+ * The title, which is also the menu of every queue and every channel.
  *
  * A title that is a button is unusual, so it wears a chevron — the one
  * affordance that says "there is more behind this word".
+ *
+ * Both axes live in here rather than on strips of their own. A queue strip, a
+ * channel strip and a title bar is three rows of chrome before the first
+ * conversation, which on a 5-inch phone in Persian left four rows visible; a
+ * menu with two sections costs one extra tap for something you change now and
+ * then. The queue that IS switched all day keeps its chips below.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -175,10 +183,14 @@ private fun InboxBar(
     filter: InboxFilter,
     allFilters: List<InboxFilter>,
     counts: InboxCounts,
+    channels: List<ChannelInbox>,
+    selectedChannel: String?,
     search: SearchState?,
     onSelectFilter: (InboxFilter) -> Unit,
+    onSelectChannel: (String?) -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    val channel = channels.firstOrNull { it.key == selectedChannel }
 
     TopAppBar(
         title = {
@@ -189,14 +201,29 @@ private fun InboxBar(
                         .testTag(A11y.INBOX_TITLE_MENU),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        filter.title(language),
-                        style = MaterialTheme.typography.titleLarge,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Column(Modifier.weight(1f, fill = false)) {
+                        Text(
+                            filter.title(language),
+                            style = MaterialTheme.typography.titleLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        // The channel goes underneath rather than into the
+                        // title, so a narrowed list says so without pushing
+                        // the queue's own name off the end of the bar.
+                        if (channel != null) {
+                            Text(
+                                channel.title(language),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
                     Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
                 }
+
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     allFilters.forEach { option ->
                         DropdownMenuItem(
@@ -215,6 +242,37 @@ private fun InboxBar(
                             onClick = { menuOpen = false; onSelectFilter(option) },
                         )
                     }
+
+                    // A workspace with no channel plugins installed gets no
+                    // second section at all, rather than a heading over one
+                    // item that undoes nothing.
+                    if (channels.isNotEmpty()) {
+                        HorizontalDivider(Modifier.padding(vertical = Space.xs))
+                        Text(
+                            Str.otherInboxes(language),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = WebyarTheme.colors.labelTertiary,
+                            modifier = Modifier.padding(
+                                horizontal = Space.md,
+                                vertical = Space.xs,
+                            ),
+                        )
+                        // iOS has no row for this — picking a queue there is
+                        // what drops the channel. An Android menu ticks its
+                        // current item, and a section where the tick can only
+                        // ever move sideways and never come off is a trap, so
+                        // the way out is spelled.
+                        ChannelItem(
+                            label = Str.allInboxes(language),
+                            selected = selectedChannel == null,
+                        ) { menuOpen = false; onSelectChannel(null) }
+                        channels.forEach { option ->
+                            ChannelItem(
+                                label = option.title(language),
+                                selected = option.key == selectedChannel,
+                            ) { menuOpen = false; onSelectChannel(option.key) }
+                        }
+                    }
                 }
             }
         },
@@ -228,6 +286,29 @@ private fun InboxBar(
                 }
             }
         },
+    )
+}
+
+/**
+ * One channel in the menu, with a tick rather than a bold weight.
+ *
+ * The queues above carry counts, so weight is already doing work up there;
+ * down here there is nothing to confuse a tick with.
+ */
+@Composable
+private fun ChannelItem(label: String, selected: Boolean, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(label, fontWeight = if (selected) FontWeight.SemiBold else null) },
+        trailingIcon = {
+            if (selected) {
+                Icon(
+                    Icons.Filled.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        },
+        onClick = onClick,
     )
 }
 
@@ -264,36 +345,6 @@ private fun FilterStrip(
                         }
                     )
                 },
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ChannelStrip(
-    language: Language,
-    channels: List<ChannelInbox>,
-    selected: String?,
-    onSelect: (String?) -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = Space.screenInset, vertical = Space.xs),
-        horizontalArrangement = Arrangement.spacedBy(Space.sm),
-    ) {
-        FilterChip(
-            selected = selected == null,
-            onClick = { onSelect(null) },
-            label = { Text(Str.allInboxes(language)) },
-        )
-        channels.forEach { channel ->
-            FilterChip(
-                selected = channel.key == selected,
-                onClick = { onSelect(channel.key) },
-                label = { Text(channel.title(language)) },
             )
         }
     }
@@ -345,7 +396,7 @@ private fun ConversationRow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         name,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleMedium.bidiContent(),
                         fontWeight = if (unread > 0) FontWeight.Bold else FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -361,10 +412,14 @@ private fun ConversationRow(
                 }
                 Text(
                     conversation.preview(language),
-                    style = MaterialTheme.typography.bodyMedium,
+                    // The preview can arrive in any of the three languages,
+                    // and a Turkish sentence in a Persian list had its full
+                    // stop moved to the front until this went in.
+                    style = MaterialTheme.typography.bodyMedium.bidiContent(),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
 

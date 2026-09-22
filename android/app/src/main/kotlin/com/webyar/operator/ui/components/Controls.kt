@@ -26,10 +26,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.webyar.operator.i18n.Format
 import com.webyar.operator.i18n.Language
@@ -299,6 +302,35 @@ fun LatinText(
         overflow = TextOverflow.Ellipsis,
     )
 }
+
+/**
+ * Reading order from the TEXT, alignment from the LAYOUT.
+ *
+ * [LatinText] forces one direction, which is right for an address or a version
+ * string and wrong for anything that could arrive in any language — a message
+ * preview, a contact's name, a subject line.
+ *
+ * Compose resolves an unspecified `textDirection` from the layout, so a
+ * Turkish sentence inside a Persian list is laid out right-to-left and the
+ * bidi algorithm moves its trailing punctuation to the far end: «Tabii, hemen
+ * kontrol ediyorum.» came out as «.Tabii, hemen kontrol ediyorum», with the
+ * full stop leading. `Content` resolves from the first strong character
+ * instead, which is what every other platform does by default.
+ *
+ * The alignment has to be pinned separately, and absolutely. `TextAlign.Start`
+ * resolves against the text's OWN direction once that is content-derived, so a
+ * Latin row would jump to the left edge of a Persian list while its Persian
+ * neighbours stayed right. Left/Right do not resolve, so the column stays
+ * straight whatever language lands in it.
+ */
+@Composable
+fun TextStyle.bidiContent(): TextStyle = copy(
+    textDirection = TextDirection.Content,
+    textAlign = when (LocalLayoutDirection.current) {
+        LayoutDirection.Rtl -> TextAlign.Right
+        LayoutDirection.Ltr -> TextAlign.Left
+    },
+)
 
 /**
  * A centred, quiet line inside a list — "nothing here yet", said without

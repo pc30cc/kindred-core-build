@@ -442,6 +442,11 @@ class SampleApi : WebyarApi {
         /** The keys a single control inside a screen asks about. */
         val FEATURES = listOf(
             "widget_attachments", "widget_voice_notes", "widget_emoji", "canned_responses",
+            // The two extra inbox queues. Without these the chip strip is one
+            // chip wide and the screen hides it, so the sample build showed
+            // neither the strip nor four of the six queues — in the mode whose
+            // whole job is to show every screen working.
+            "inbox_needs_human", "inbox_ai_queue",
         )
 
         val CHANNELS = listOf("voice", "video", "telegram", "bale", "whatsapp")

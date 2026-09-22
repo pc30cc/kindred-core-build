@@ -140,10 +140,28 @@ object EmailBody {
     private val RUNS_OF_SPACE = Regex("[ \\t]+")
     private val RUNS_OF_BLANK_LINES = Regex("\n{3,}")
 
+    /**
+     * The named entities worth spelling out, and NOT `&amp;` — see below.
+     *
+     * A mail written in a rich-text editor is full of these: the em dash a
+     * word processor inserts for a typed hyphen, the curly quotes it
+     * substitutes, the ellipsis. Leaving them shows the operator
+     * «Thanks &mdash; received.» instead of «Thanks — received.»
+     */
     private val ENTITIES = listOf(
-        "&nbsp;" to " ", "&amp;" to "&", "&lt;" to "<", "&gt;" to ">",
-        "&quot;" to "\"", "&#39;" to "'", "&apos;" to "'", "&zwnj;" to "‌",
+        "&nbsp;" to " ", "&lt;" to "<", "&gt;" to ">",
+        "&quot;" to "\"", "&apos;" to "'", "&zwnj;" to "‌",
+        "&mdash;" to "—", "&ndash;" to "–", "&hellip;" to "…",
+        "&lsquo;" to "‘", "&rsquo;" to "’",
+        "&ldquo;" to "“", "&rdquo;" to "”",
+        "&laquo;" to "«", "&raquo;" to "»",
+        "&middot;" to "·", "&bull;" to "•",
+        "&copy;" to "©", "&reg;" to "®", "&trade;" to "™",
+        "&euro;" to "€", "&pound;" to "£", "&deg;" to "°",
     )
+
+    /** `&#8212;` and `&#x2014;`, which is how much of the world's mail writes a dash. */
+    private val NUMERIC_ENTITY = Regex("&#(x[0-9a-f]+|[0-9]+);", RegexOption.IGNORE_CASE)
 
     fun plainText(html: String): String {
         var text = BLOCKS.replace(html, " ")
@@ -153,6 +171,27 @@ object EmailBody {
         for ((entity, character) in ENTITIES) {
             text = text.replace(entity, character, ignoreCase = true)
         }
+        text = NUMERIC_ENTITY.replace(text) { match ->
+            val digits = match.groupValues[1]
+            val code = if (digits.startsWith("x", ignoreCase = true)) {
+                digits.drop(1).toIntOrNull(16)
+            } else {
+                digits.toIntOrNull()
+            }
+            // A code point outside Unicode is left exactly as it was written.
+            // Showing `&#1114112;` is ugly; showing whatever it truncated to
+            // would be wrong.
+            if (code != null && code in 1..0x10FFFF) {
+                runCatching { String(Character.toChars(code)) }.getOrDefault(match.value)
+            } else {
+                match.value
+            }
+        }
+        // LAST, and that is the point of it being last: a mail that wants to
+        // show the text "&mdash;" writes "&amp;mdash;", and decoding the
+        // ampersand first would turn it into an em dash — quietly changing
+        // what somebody wrote.
+        text = text.replace("&amp;", "&", ignoreCase = true)
         // Three blank lines in a row are an artefact of the markup, not of
         // what anybody wrote.
         text = RUNS_OF_SPACE.replace(text, " ")

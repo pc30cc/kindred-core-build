@@ -57,4 +57,45 @@ class EmailBodyTest {
         assertEquals("", EmailBody.plainText(""))
         assertEquals("", EmailBody.plainText("<div></div>"))
     }
+    /**
+     * The em dash a word processor puts in for a typed hyphen, and the curly
+     * quotes it substitutes. These are in almost every mail written in a rich
+     * editor, and they used to come through as «Thanks &mdash; received.»
+     */
+    @Test fun `the entities a word processor inserts are put back too`() {
+        assertEquals(
+            "Thanks \u2014 received. It\u2019s \u201cdone\u201d\u2026",
+            EmailBody.plainText("<p>Thanks &mdash; received. It&rsquo;s &ldquo;done&rdquo;&hellip;</p>"),
+        )
+    }
+
+    @Test fun `a numeric entity is decoded, in decimal and in hex`() {
+        assertEquals("a \u2014 b", EmailBody.plainText("a &#8212; b"))
+        assertEquals("a \u2014 b", EmailBody.plainText("a &#x2014; b"))
+        // Above the basic plane, so it needs a surrogate pair rather than a char.
+        assertEquals("\ud83d\ude42", EmailBody.plainText("&#128578;"))
+    }
+
+    /**
+     * A code point that is not one is left exactly as written. Showing
+     * `&#1114112;` is ugly; showing whatever it truncated to would be wrong.
+     */
+    @Test fun `a nonsense code point is left alone`() {
+        assertEquals("&#1114112;", EmailBody.plainText("&#1114112;"))
+        assertEquals("&#0;", EmailBody.plainText("&#0;"))
+    }
+
+    /**
+     * The ampersand is decoded LAST, and this is why.
+     *
+     * A mail that wants to SHOW the text "&mdash;" writes "&amp;mdash;".
+     * Decoding the ampersand first turns that into "&mdash;" and then into an
+     * em dash — quietly changing what somebody wrote.
+     */
+    @Test fun `an escaped entity stays text rather than becoming the character`() {
+        assertEquals("&mdash;", EmailBody.plainText("&amp;mdash;"))
+        assertEquals("&#8212;", EmailBody.plainText("&amp;#8212;"))
+        assertEquals("a & b", EmailBody.plainText("a &amp; b"))
+    }
+
 }

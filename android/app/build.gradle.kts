@@ -40,11 +40,53 @@ android {
         }
     }
 
+    signingConfigs {
+        /**
+         * The real one, from the environment.
+         *
+         * No keystore, no password and no alias is committed. A release build
+         * on a machine without them produces an unsigned APK, which is the
+         * correct outcome: an unsigned artifact cannot be installed by
+         * accident, whereas one signed with a key from the repository can be
+         * installed by anybody who has ever cloned it.
+         */
+        create("release") {
+            val store = System.getenv("WEBYAR_KEYSTORE")
+            if (store != null && file(store).exists()) {
+                storeFile = file(store)
+                storePassword = System.getenv("WEBYAR_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("WEBYAR_KEY_ALIAS")
+                keyPassword = System.getenv("WEBYAR_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+
+            signingConfig = signingConfigs.getByName("release").takeIf {
+                it.storeFile != null
+            }
+        }
+
+        /**
+         * A release build that can be installed and looked at.
+         *
+         * R8 is the difference between the app that is tested and the app
+         * that ships: it renames, inlines and deletes, and a keep rule that
+         * is missing shows up as an inbox of blank rows rather than a crash.
+         * This build type is minified exactly like release and signed with
+         * the debug key, so somebody can actually run the thing R8 produced.
+         */
+        create("minified") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            signingConfig = signingConfigs.getByName("debug")
+            applicationIdSuffix = ".minified"
+            isDebuggable = false
         }
     }
 

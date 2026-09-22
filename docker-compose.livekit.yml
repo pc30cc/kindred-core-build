@@ -172,17 +172,28 @@ services:
     # because WebRTC traffic does NOT traverse Coolify's HTTP proxy.
     expose:
       - "7880"
+      # Reachable to the proxy over the Docker network, never to the host.
+      - "${LIVEKIT_TURN_TLS_PORT:-5349}"
     ports:
       - "7881:7881/tcp"
       - "50000-50100:50000-50100/udp"
-      # TURN. Published unconditionally — compose cannot make a port
-      # conditional, and a port with nothing listening behind it simply
-      # refuses connections. Check they are free on the host before the
-      # first deploy: a port already in use fails the whole stack, not just
-      # TURN. They are inert until LIVEKIT_TURN_DOMAIN is set.
+      # TURN's UDP side, which cannot go through an HTTP proxy and so must
+      # reach the host directly. Published unconditionally — compose cannot
+      # make a port conditional — and inert until LIVEKIT_TURN_DOMAIN is
+      # set. Check both are free before the first deploy: a port already in
+      # use fails the whole stack, not just TURN.
       - "${LIVEKIT_TURN_UDP_PORT:-3478}:${LIVEKIT_TURN_UDP_PORT:-3478}/udp"
-      - "${LIVEKIT_TURN_TLS_PORT:-5349}:${LIVEKIT_TURN_TLS_PORT:-5349}/tcp"
       - "${LIVEKIT_TURN_RELAY_PORT_START:-50101}-${LIVEKIT_TURN_RELAY_PORT_END:-50200}:${LIVEKIT_TURN_RELAY_PORT_START:-50101}-${LIVEKIT_TURN_RELAY_PORT_END:-50200}/udp"
+      #
+      # The TLS port is deliberately NOT here. In the mode that is worth
+      # having, the proxy in front terminates TLS on 443 and reaches this
+      # container over the Docker network, so the port needs exposing, not
+      # publishing — and LIVEKIT_TURN_TLS_PORT=443 (what LiveKit advertises
+      # AND listens on inside its own namespace) would collide with the
+      # proxy's own 443 the moment it were published, and take the whole
+      # stack down on deploy. If instead LiveKit holds its own certificate
+      # (LIVEKIT_TURN_CERT_FILE) and nothing fronts it, add the mapping
+      # back here as "5349:5349/tcp".
 
     environment:
       # --- Required: consumed by the startup wrapper above ---------------
@@ -243,21 +254,27 @@ services:
       # actually allows and therefore the only one that rescues those
       # visitors. 443 here already belongs to the HTTP front end, so TURN
       # shares it through a TCP router that matches by SNI and hands the
-      # decrypted stream to LiveKit's tls_port. Uncomment with a real
-      # hostname, set LIVEKIT_TURN_TLS_PORT=5349 and leave
-      # LIVEKIT_TURN_EXTERNAL_TLS=true (Traefik is doing the terminating):
+      # decrypted stream to LiveKit. Set LIVEKIT_TURN_TLS_PORT=443 — that
+      # is both what LiveKit advertises and what it listens on inside its
+      # own namespace, where nothing else holds the port — leave
+      # LIVEKIT_TURN_EXTERNAL_TLS=true, and uncomment with the real
+      # hostname:
       #
       #   - "traefik.tcp.routers.livekit-turn.rule=HostSNI(`turn.example.tld`)"
       #   - "traefik.tcp.routers.livekit-turn.entrypoints=https"
       #   - "traefik.tcp.routers.livekit-turn.tls=true"
       #   - "traefik.tcp.routers.livekit-turn.tls.certresolver=letsencrypt"
       #   - "traefik.tcp.routers.livekit-turn.service=livekit-turn"
-      #   - "traefik.tcp.services.livekit-turn.loadbalancer.server.port=5349"
+      #   - "traefik.tcp.services.livekit-turn.loadbalancer.server.port=443"
+      #
+      # `letsencrypt` is the resolver Coolify's Traefik is started with;
+      # confirm against an existing router if this install differs. It
+      # solves the HTTP-01 challenge on port 80, so the TURN hostname must
+      # resolve to this host and reach the proxy there — which it already
+      # must, for TURN to work at all.
       #
       # Left commented rather than interpolated from LIVEKIT_TURN_DOMAIN on
       # purpose: an empty variable would leave Traefik an unmatchable
       # HostSNI rule and a certificate request for a name that does not
       # exist, and a broken router in the shared proxy is a worse failure
-      # than no TURN. The certresolver name is whatever this Coolify
-      # install calls its issuer — check an existing router before
-      # uncommenting.
+      # than no TURN.

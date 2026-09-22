@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.webyar.operator.core.model.InboxFilter
 import com.webyar.operator.core.net.SampleApi
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
@@ -105,6 +106,27 @@ class ContactsTest {
         testScheduler.advanceUntilIdle()
 
         assertEquals("Windows", contacts.intel.value["p-1"]?.device?.os)
+    }
+
+    /**
+     * The same person, the same mark, on both screens.
+     *
+     * The contacts list showed bare initials for a visitor the inbox drew as a
+     * Mac from Germany, because the sample backend kept two hand-written maps
+     * and only one of them had him. Deriving the second from the first is what
+     * makes this hold; the test is what says it has to.
+     */
+    @Test
+    fun `a visitor looks the same in the inbox and in the address book`() = runTest {
+        val api = SampleApi()
+        val conversation = api.conversations("ws-1", InboxFilter.OPEN).first { it.id == "c-2" }
+        val contactId = requireNotNull(conversation.contactId)
+
+        val byConversation = api.visitorIntelByConversation("ws-1", listOf(conversation.id))
+        val byContact = api.visitorIntelByContact("ws-1", listOf(contactId))
+
+        assertEquals(byConversation[conversation.id], byContact[contactId])
+        assertEquals("macOS", byContact[contactId]?.device?.os)
     }
 
     // MARK: - The screens

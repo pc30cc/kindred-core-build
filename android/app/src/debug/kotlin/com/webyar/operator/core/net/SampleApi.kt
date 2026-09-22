@@ -522,10 +522,26 @@ class SampleApi : WebyarApi {
             ),
         )
 
-        val INTEL_BY_CONTACT = mapOf(
-            "p-1" to INTEL.getValue("c-1"),
-            "p-4" to INTEL.getValue("c-4"),
-        )
+        /**
+         * The same answers, keyed the other way.
+         *
+         * Derived rather than written out, because the two have to agree: a
+         * visitor filed as a Mac in Germany on the inbox and as bare initials
+         * on the contacts list is the exact inconsistency the shared endpoint
+         * exists to prevent, and hand-keeping two maps in step is how that
+         * creeps back in. The link is the conversation's `contactId`.
+         *
+         * `by lazy` rather than a plain initializer: `CONVERSATIONS` is
+         * declared further down, and an object's properties initialize in the
+         * order they are written, so an eager version of this would read a
+         * null the day somebody moved either one.
+         */
+        val INTEL_BY_CONTACT: Map<String, VisitorProfile> by lazy {
+            CONVERSATIONS.mapNotNull { conversation ->
+                val contactId = conversation.contactId ?: return@mapNotNull null
+                INTEL[conversation.id]?.let { contactId to it }
+            }.toMap()
+        }
 
         val COLLEAGUES = listOf(
             Colleague(

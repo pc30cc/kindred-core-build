@@ -21,3 +21,18 @@ gradle/gradle-daemon-jvm.properties
 # this is the one artifact CI cannot rebuild. Listed here as an exception so
 # a future `generated/` rule cannot quietly drop it.
 !app/src/main/generated/baselineProfiles/
+
+# Signing material, never. Play ties the app's identity to this key for as
+# long as the app exists: a committed keystore lets anyone who has cloned the
+# repository sign an update to it, and revoking that is not a thing you can
+# do — the only remedy is a new listing under a new package name, with none
+# of the installs.
+#
+# `tools/make-release-keystore.sh` creates one outside version control and
+# says where to keep it. Passwords never belong in a file at all.
+*.jks
+*.keystore
+*.p12
+*.pepk
+keystore.properties
+signing.properties

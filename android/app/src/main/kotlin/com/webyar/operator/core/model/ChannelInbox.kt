@@ -1,7 +1,6 @@
 package com.webyar.operator.core.model
 
 import com.webyar.operator.i18n.Language
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
@@ -47,13 +46,23 @@ data class ChannelInbox(
  * decoded; the catalog carries a great deal more that only the marketplace
  * needs.
  */
+/**
+ * NOTE THE ABSENCE of `@SerialName` on every field here.
+ *
+ * `/api/plugins/catalog` answers in camelCase — `supportsInbox`,
+ * `planAllowed`, `installationStatus` — while most of this API is snake_case.
+ * These were annotated as `supports_inbox` and `plan_allowed` to match the
+ * rest, so both decoded to null on every item, `isUsableInbox` was false for
+ * every channel, and the switcher was empty on a workspace with Telegram
+ * installed and allowed. Nothing failed; the list was simply always empty.
+ */
 @Serializable
 data class PluginCatalogItem(
     val slug: String? = null,
     val installed: Boolean? = null,
-    @SerialName("supports_inbox") val supportsInbox: Boolean? = null,
-    @SerialName("plan_allowed") val planAllowed: Boolean? = null,
-    @SerialName("installation_status") val installationStatus: String? = null,
+    val supportsInbox: Boolean? = null,
+    val planAllowed: Boolean? = null,
+    val installationStatus: String? = null,
 ) {
     /**
      * Installed, inbox-capable, and still inside the plan.

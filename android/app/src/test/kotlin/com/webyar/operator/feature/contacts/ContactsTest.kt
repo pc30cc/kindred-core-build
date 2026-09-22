@@ -7,6 +7,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.webyar.operator.core.model.InboxFilter
 import com.webyar.operator.core.net.SampleApi
+import com.webyar.operator.core.model.VisitorProfile
+import java.time.Instant
 import com.webyar.operator.i18n.Language
 import com.webyar.operator.i18n.Str
 import com.webyar.operator.ui.A11y
@@ -197,6 +199,32 @@ class ContactsTest {
         compose.onNodeWithText("8F2C").assertIsDisplayed()
         compose.onNodeWithText("First seen").assertIsDisplayed()
         compose.onNodeWithText(Str.emailLabel(Language.EN)).assertDoesNotExist()
+    }
+
+    /**
+     * Where, and when. A country with no date on it is a fact about a visit
+     * that does not say which visit — and the server already picks the newest
+     * session to answer with, so it can say so.
+     */
+    @Test
+    fun `the detail screen names the country and when they were last seen`() = runTest {
+        val contact = SampleApi().contacts("ws-1").first { it.id == "p-3" }
+        compose.setContent {
+            ContactDetailScreen(
+                contact,
+                Language.EN,
+                profile = VisitorProfile(
+                    geo = VisitorProfile.Geo(countryCode = "DE", city = "Berlin"),
+                    device = VisitorProfile.Device(browser = "Safari", os = "macOS"),
+                    lastSeenAt = Instant.parse("2025-03-02T09:12:00Z"),
+                ),
+            )
+        }
+
+        compose.onNodeWithText("Last seen").assertIsDisplayed()
+        // The server knew the country only by its code, and the row says it
+        // rather than showing the city on its own.
+        compose.onNodeWithText("Berlin, DE").assertIsDisplayed()
     }
 
     @Test

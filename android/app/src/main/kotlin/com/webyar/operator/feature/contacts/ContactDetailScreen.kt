@@ -119,9 +119,19 @@ fun ContactDetailScreen(
                 // punctuates an English string with a Persian mark.
                 val place = listOfNotNull(
                     geo.city?.takeIf { it.isNotBlank() },
-                    geo.country?.takeIf { it.isNotBlank() },
+                    // The name when the server resolved one, the ISO code when
+                    // it only had that. Dropping to nothing would leave a
+                    // visitor with a flag on their avatar and no country
+                    // written anywhere.
+                    geo.country?.takeIf { it.isNotBlank() }
+                        ?: geo.countryCode?.takeIf { it.isNotBlank() }?.uppercase(),
                 ).joinToString(", ")
                 if (place.isNotEmpty()) add(Fact(placeLabel(language), place, latin = true))
+            }
+            // When, not just where. The server picks the newest session to
+            // speak for a contact, so this is the date on the facts above it.
+            profile?.lastSeenAt?.let {
+                add(Fact(lastSeenLabel(language), Format.dayHeader(it, language)))
             }
             profile?.device?.let { device ->
                 val what = listOfNotNull(
@@ -166,6 +176,12 @@ private fun firstSeenLabel(l: Language): String = when (l) {
     Language.EN -> "First seen"
     Language.FA -> "نخستین بازدید"
     Language.TR -> "İlk görülme"
+}
+
+private fun lastSeenLabel(l: Language): String = when (l) {
+    Language.EN -> "Last seen"
+    Language.FA -> "آخرین بازدید"
+    Language.TR -> "Son görülme"
 }
 
 private fun placeLabel(l: Language): String = when (l) {

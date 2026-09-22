@@ -568,10 +568,14 @@ class SampleApi : WebyarApi {
             "c-1" to VisitorProfile(
                 geo = VisitorProfile.Geo(countryCode = "IR", country = "Iran", city = "Tehran"),
                 device = VisitorProfile.Device(browser = "Chrome", os = "Windows", device = "desktop"),
+                lastSeenAt = Instant.parse("2025-03-02T09:12:00Z"),
             ),
             "c-2" to VisitorProfile(
-                geo = VisitorProfile.Geo(countryCode = "DE", country = "Germany", city = "Berlin"),
+                // A country the server knew only by its code. The detail has
+                // to name it anyway.
+                geo = VisitorProfile.Geo(countryCode = "DE", city = "Berlin"),
                 device = VisitorProfile.Device(browser = "Safari", os = "macOS", device = "desktop"),
+                lastSeenAt = Instant.parse("2025-03-01T18:40:00Z"),
             ),
             // No geo at all — a visitor behind a VPN, or an IP the privacy
             // policy would not resolve. The row still has to render.

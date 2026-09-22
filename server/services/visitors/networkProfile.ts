@@ -79,6 +79,15 @@ export interface VisitorNetworkProfile {
   ip: VisitorNetworkIp;
   geo: VisitorNetworkGeo;
   device: { browser: string | null; os: string | null; device: string | null };
+  /**
+   * When this visitor was last seen, ISO-8601.
+   *
+   * Already the column every one of these resolvers orders by to decide which
+   * session IS the profile, so it costs nothing to say which one it picked —
+   * and a contact card that names a country without saying when is a fact
+   * with no date on it.
+   */
+  last_seen_at: string | null;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -282,7 +291,7 @@ export const SESSION_NETWORK_COLUMNS =
   'id, visitor_id, workspace_id, contact_id, browser, device, os, country, city, ' +
   'ip_hash, ip_raw, geo_country_code, geo_country_name, geo_region, geo_city, ' +
   'geo_latitude, geo_longitude, geo_timezone, geo_source_provider, ' +
-  'geo_accuracy_level, geo_is_fallback, geo_resolved_at';
+  'geo_accuracy_level, geo_is_fallback, geo_resolved_at, last_seen_at';
 
 /**
  * Build a profile from an already-fetched session row plus (optionally) a
@@ -312,6 +321,7 @@ export function buildNetworkProfile(
       os: session.os ?? null,
       device: session.device ?? null,
     },
+    last_seen_at: session.last_seen_at ?? null,
   };
 }
 

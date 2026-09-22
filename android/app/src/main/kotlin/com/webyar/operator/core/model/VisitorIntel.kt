@@ -1,5 +1,6 @@
 package com.webyar.operator.core.model
 
+import java.time.Instant
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -15,6 +16,16 @@ import kotlinx.serialization.Serializable
 data class VisitorProfile(
     val geo: Geo? = null,
     val device: Device? = null,
+    /**
+     * When this visitor was last seen.
+     *
+     * It is the column the server already orders by to pick WHICH session
+     * speaks for a contact, so the answer names its own date rather than
+     * leaving a country floating with no time attached.
+     */
+    @SerialName("last_seen_at")
+    @Serializable(InstantSerializer::class)
+    val lastSeenAt: Instant? = null,
 ) {
     @Serializable
     data class Geo(

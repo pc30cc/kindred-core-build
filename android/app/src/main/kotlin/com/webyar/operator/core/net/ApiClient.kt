@@ -858,14 +858,18 @@ class ApiClient(
     )
 
     override suspend fun inviteToCall(
-        conversationId: String,
         workspaceId: String,
+        conversationId: String,
         channel: CallChannel,
     ): CallInvitation =
         build(
             HttpMethod.Post,
             "/api/call-invitations",
-            body = InvitationBody(workspaceId, conversationId, channel.wire),
+            body = InvitationBody(
+                workspace_id = workspaceId,
+                conversation_id = conversationId,
+                channel = channel.wire,
+            ),
         ).decode<CallInvitationResponse>().invitation
 
     override suspend fun cancelInvitation(id: String) {

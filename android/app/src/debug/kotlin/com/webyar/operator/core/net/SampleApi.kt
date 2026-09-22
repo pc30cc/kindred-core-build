@@ -367,8 +367,8 @@ class SampleApi : WebyarApi {
     // MARK: - Calls
 
     override suspend fun inviteToCall(
-        conversationId: String,
         workspaceId: String,
+        conversationId: String,
         channel: CallChannel,
     ): CallInvitation = CallInvitation(
         id = "inv-1",

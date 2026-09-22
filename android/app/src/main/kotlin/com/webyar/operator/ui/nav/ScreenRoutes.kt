@@ -105,6 +105,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.webyar.operator.feature.chat.VoiceRecorder
 import com.webyar.operator.i18n.Str
+import com.webyar.operator.i18n.displayText
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -970,6 +971,7 @@ fun CallRoute(
 
     val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
     var failed by remember { mutableStateOf(false) }
+    var inviteError by remember { mutableStateOf<String?>(null) }
 
     // Who we are calling, out of the list the inbox already holds. There is no
     // by-id endpoint for a conversation — the chat reads it the same way — and
@@ -1005,8 +1007,19 @@ fun CallRoute(
     LaunchedEffect(workspace?.id, conversationId, channel, permissionsAsked) {
         if (!permissionsAsked) return@LaunchedEffect
         val id = workspace?.id ?: return@LaunchedEffect
-        val invitation = runCatching { api.inviteToCall(id, conversationId, channel) }.getOrNull()
-        if (invitation == null) {
+        // Named, because the two ids are both UUID strings and transposing
+        // them is exactly the mistake that made every call fail.
+        val invitation = runCatching {
+            api.inviteToCall(
+                workspaceId = id,
+                conversationId = conversationId,
+                channel = channel,
+            )
+        }.getOrElse { error ->
+            // The reason, not a shrug. "Could not connect" over a 403 sent the
+            // operator looking at their network while the server was telling
+            // them something specific.
+            inviteError = error.displayText(language)
             failed = true
             return@LaunchedEffect
         }
@@ -1024,7 +1037,11 @@ fun CallRoute(
     }
 
     CallScreen(
-        phase = if (failed) CallPhase.Ended(CallOutcome.Failed("invite")) else phase,
+        phase = if (failed) {
+            CallPhase.Ended(CallOutcome.Failed(inviteError.orEmpty()))
+        } else {
+            phase
+        },
         channel = channel,
         contactName = session.contactName.ifEmpty { Str.unknownVisitor(language) },
         language = language,

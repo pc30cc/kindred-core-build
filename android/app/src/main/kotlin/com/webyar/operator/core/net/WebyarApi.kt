@@ -198,9 +198,19 @@ interface WebyarApi {
 
     // MARK: - Calls
 
+    /**
+     * Workspace first, as everywhere else in this interface.
+     *
+     * It used to read `(conversationId, workspaceId)` — the Swift order, where
+     * the labels are part of the call and cannot be transposed. Kotlin has no
+     * such protection: both are `String`, both are UUIDs, and the one call
+     * site passed them the other way round. The server saw a conversation id
+     * where it wanted a workspace, answered `403 not_a_workspace_member`, and
+     * every call the operator placed failed.
+     */
     suspend fun inviteToCall(
-        conversationId: String,
         workspaceId: String,
+        conversationId: String,
         channel: CallChannel,
     ): CallInvitation
     suspend fun cancelInvitation(id: String)

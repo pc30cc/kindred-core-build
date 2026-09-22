@@ -68,11 +68,17 @@ services:
     # CC-2H — Image tag is configurable via LIVEKIT_IMAGE_TAG.
     # MUST be compatible with the bundled livekit-client UMD shipped at
     # public/call-widget/vendor/livekit-client.umd.min.js. Modern clients
-    # call /rtc/v1/validate on connect, so the server (and any reverse
-    # proxy in front of it) MUST support the /rtc/v1 path. Older
-    # 1.7.x server tags answered /rtc only and return 404 on /rtc/v1,
-    # which surfaces as "v1 RTC path not found" in the browser.
-    # Default pins a release that supports /rtc/v1.
+    # call /rtc/v1/validate on connect; a server without that path answers
+    # 404, the browser reports "v1 RTC path not found", and the client then
+    # retries on the old /rtc path and connects. The call works; it costs a
+    # dead WebSocket, a dead request and a retry every time.
+    #
+    # The default below does NOT have that path, despite what this comment
+    # used to say. Probed against the containers directly: v1.8.4 gives 404
+    # on /rtc/v1/validate, v1.13.7 gives 401 — the path exists, it just
+    # wants a token. Raising the default is a media-server upgrade across
+    # five minor versions and belongs to whoever owns the deployment, so it
+    # is left where it was with the truth written down.
     image: livekit/livekit-server:${LIVEKIT_IMAGE_TAG:-v1.8.4}
     restart: unless-stopped
 

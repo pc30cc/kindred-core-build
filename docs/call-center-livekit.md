@@ -12,21 +12,28 @@ The standalone Call Center widget loads a self-hosted LiveKit JS SDK from:
 /call-widget/vendor/livekit-client.umd.min.js
 ```
 
-Modern LiveKit clients call `/rtc/v1/validate` on connect. The server
-(and any reverse proxy in front of it) **MUST** answer that path. Older
-LiveKit server tags (e.g. `v1.7.x`) only serve `/rtc/...` and return
-**404** on `/rtc/v1/*` — the browser then reports:
+Modern LiveKit clients call `/rtc/v1/validate` on connect. A server
+without that path answers **404** and the browser reports:
 
 > Initial connection failed: v1 RTC path not found. Consider upgrading
 > your LiveKit server version
 
-Pin the image tag via `LIVEKIT_IMAGE_TAG` in the LiveKit Coolify service:
+The client then retries on the old `/rtc` path and connects, so the call
+works. What it costs is a dead WebSocket, a dead request and a retry on
+every single call — setup latency, and a console full of red on a call
+that succeeded.
 
-```
-LIVEKIT_IMAGE_TAG=v1.8.4
-```
+**`v1.8.4`, the default, does not have the path.** Probed against the
+containers directly, bypassing every proxy:
 
-`docker-compose.livekit.yml` defaults to a tag that supports `/rtc/v1`.
+| tag | `/rtc/v1/validate` | `/rtc/validate` |
+|---|---|---|
+| `v1.8.4` | `404` — no such path | `401` |
+| `v1.13.7` | `401` | `401` |
+
+`401` means the path exists and wants a token. Pin a newer tag via
+`LIVEKIT_IMAGE_TAG` to clear the error; that is a media-server upgrade
+across several minor versions, so test it before rolling it out.
 If you must pin an older server, you must also pin a compatible client
 SDK. Upgrading the server is preferred.
 

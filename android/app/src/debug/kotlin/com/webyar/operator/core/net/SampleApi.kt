@@ -25,6 +25,7 @@ import com.webyar.operator.core.model.EmailAddress
 import com.webyar.operator.core.model.EmailMessageView
 import com.webyar.operator.core.model.EmailThreadResponse
 import com.webyar.operator.core.model.EmailThreadSummary
+import com.webyar.operator.core.model.EffectiveBool
 import com.webyar.operator.core.model.Entitlements
 import com.webyar.operator.core.model.GmailConnection
 import com.webyar.operator.core.model.InboxCounts
@@ -154,9 +155,26 @@ class SampleApi : WebyarApi {
 
     override suspend fun contacts(workspaceId: String): List<Contact> = CONTACTS
 
-    /** Everything on, so no screen is hidden behind a plan while it is being laid out. */
+    /**
+     * Everything on, so no screen is hidden behind a plan while it is being
+     * laid out.
+     *
+     * And it has to be SAID rather than left empty, which is what this used to
+     * do. `moduleInPlan` returns false when `modules` is null and
+     * `featureEnabled` is fail-closed, so an empty snapshot turns everything
+     * OFF — the opposite of what the comment claimed. The symptom was quiet:
+     * the Contacts tab never appeared, and the composer had no paperclip, no
+     * microphone and no saved replies, in the one mode whose whole job is to
+     * show every screen without an account.
+     */
     override suspend fun entitlements(workspaceId: String): Entitlements =
-        Entitlements(workspaceId = workspaceId)
+        Entitlements(
+            workspaceId = workspaceId,
+            modules = ON.associateWith { EffectiveBool(value = true) },
+            features = FEATURES.associateWith { EffectiveBool(value = true) },
+            channels = CHANNELS.associateWith { EffectiveBool(value = true) },
+            plan = Entitlements.PlanSummary(slug = "pro", name = "Pro", tier = "pro"),
+        )
 
     override suspend fun account(): Account = Account(
         id = OPERATOR.id,
@@ -402,6 +420,16 @@ class SampleApi : WebyarApi {
         )
 
         fun ago(minutes: Long): Instant = Instant.now().minusSeconds(minutes * 60)
+
+        /** The keys `AppSidebar.tsx` gates a whole section on. */
+        val ON = listOf("contacts", "email", "team_chat", "voice_video", "canned_responses")
+
+        /** The keys a single control inside a screen asks about. */
+        val FEATURES = listOf(
+            "widget_attachments", "widget_voice_notes", "widget_emoji", "canned_responses",
+        )
+
+        val CHANNELS = listOf("voice", "video", "telegram", "bale", "whatsapp")
 
         // MARK: - The awkward cases
         //

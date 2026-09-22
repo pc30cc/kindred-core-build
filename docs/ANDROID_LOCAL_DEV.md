@@ -204,6 +204,59 @@ WARNING | Software GL rendering will be used due to system memory pressure,
 
 so a slow emulator on a loaded machine is usually this line, scrolled past.
 
+### 2GB inside the guest is not enough for API 36
+
+`hw.ramSize=2048` in `Webyar_API36.avd/config.ini` was the setting that came
+with the AVD, and it holds until a session goes on for a while. Then:
+
+```
+Process system isn't responding      [Close app] [Wait]
+```
+
+and everything stops answering — `uiautomator dump` fails with *"could not
+get idle state"*, `input tap` does nothing, and the screen freezes on
+whatever was last drawn. It looks exactly like an app hang and is not one:
+
+| | before | after `hw.ramSize=3072` |
+|---|---|---|
+| MemTotal (guest) | 2532 MB | 2976 MB |
+| MemAvailable | 141 MB | 2070 MB |
+| guest swap in use | 801 MB | 0 |
+
+The app's own CPU over the same window was **0 jiffies in 5 seconds** — it
+was idle while `system_server` was thrashing. Check that before rebuilding
+anything:
+
+```sh
+P=$(adb shell pidof com.webyar.operator | tr -d '\r')
+adb shell cat /proc/$P/stat | awk '{print $14+$15}'   # twice, 5s apart
+adb shell cat /proc/meminfo | awk '/MemTotal|MemAvailable/{printf "%s %d MB\n", $1, $2/1024}'
+```
+
+Raising the AVD's RAM needs a restart of the emulator, not a wipe — the
+signed-in session survives `adb emu kill` and a plain relaunch. It is only
+`-wipe-data` that takes it.
+
+### Measuring what was actually drawn
+
+`uiautomator` reports a node's **visible** bounds, clipped to the window, so
+a bubble that runs under the composer measures short and looks like a layout
+bug. Two attachment bugs in a row were mis-diagnosed this way.
+
+What settles it is a test image with known regions. A 480×320 PNG in four
+coloured quadrants, sent through the app, gives an unambiguous answer: each
+quadrant's bounding box on a `screencap` says exactly how much of the picture
+reached the screen, and whether it kept its proportions.
+
+```
+top-left  red:    209x140      bottom-left  yellow: 209x140
+top-right green:  210x140      bottom-right blue:   210x140
+```
+
+Four equal quadrants means the whole image, undistorted. A top half of 140
+and a bottom half of 14 — which is what the first attempt produced — means
+the picture was fine and the transcript was not scrolled far enough.
+
 ## Seeing the sample data on a device
 
 `Backend` (in `src/debug`) only reaches `SampleApi` when `webyar.sample` is

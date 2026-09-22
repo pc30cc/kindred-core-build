@@ -139,6 +139,24 @@ Two ways out, in order:
    gRPC rather than drawing a native GL window, and therefore tends to work
    precisely when the standalone window does not.
 
+The AVD is configured that way on purpose, and it does not look like it:
+
+```
+hw.gpu.enabled=yes
+hw.gpu.mode=swiftshader_indirect
+```
+
+`hw.gpu.enabled=no` was there before and reads like an oversight — an idle
+Radeon Pro 5500M in the machine, and acceleration apparently switched off.
+Turning it on with `hw.gpu.mode=host` was tried, and reproduced this section
+exactly: a good `screencap` out of a black window. If the picture is poor,
+the answer is one of the two above or fewer pixels to push
+(`hw.lcd.width`/`height`/`density`), never `-gpu host`.
+
+And check free memory before blaming the renderer at all. Measured while
+this was being chased: 18MB of free pages with 5.3GB inactive. Nothing
+configured in the emulator repairs a host that has run out of room.
+
 ### Android Studio hides the emulator window
 
 If Studio launched the emulator, the process carries `-qt-hide-window`:

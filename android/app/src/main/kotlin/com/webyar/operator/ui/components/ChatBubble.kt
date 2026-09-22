@@ -18,14 +18,15 @@ import com.webyar.operator.ui.design.Radius
  * gets one — the same bubble that gets the avatar — because a tail on every
  * bubble turns a quiet column of messages into a sawtooth.
  *
- * **Which side it points to is a physical question, not a reading-order one.**
- * The operator sits on the right of the transcript in every language, so the
- * caller passes [pointsRight] directly and this shape ignores the
- * `layoutDirection` it is handed. That parameter is the right answer for an
- * arrow or a chevron and the wrong one here: mirroring a decision that was
- * already made physically just undoes it. On iOS the same fix is spelled
- * `layoutDirectionBehavior = .fixed`; in Compose it is simply not reading the
- * argument, which is easy to "tidy up" later — hence this paragraph.
+ * **[pointsRight] is a physical side, and this shape never second-guesses it.**
+ * The caller has already worked out which edge the bubble sits on — a
+ * transcript mirrors in Persian, so an outgoing bubble is on the LEFT there,
+ * the same way Telegram and WhatsApp do it — and the beak belongs on that
+ * same outer edge. Reading the `layoutDirection` here would mirror a decision
+ * that was already made, and put the tail back on the wrong side. On iOS the
+ * same fix is spelled `layoutDirectionBehavior = .fixed`; in Compose it is
+ * simply not reading the argument, which is easy to "tidy up" later — hence
+ * this paragraph.
  */
 data class ChatBubbleShape(
     val radius: Dp = Radius.xl,

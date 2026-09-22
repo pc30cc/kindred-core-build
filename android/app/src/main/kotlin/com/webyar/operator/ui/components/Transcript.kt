@@ -26,6 +26,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.webyar.operator.core.model.MessageAttachment
@@ -74,6 +76,7 @@ fun MessageBubble(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = WebyarTheme.colors
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
 
     Row(
         modifier = modifier
@@ -111,9 +114,15 @@ fun MessageBubble(
                 contentColor = if (outgoing) colors.onBubbleOutgoing else colors.onBubbleIncoming,
                 shape = ChatBubbleShape(
                     hasBeak = endsRun,
-                    // Physical, not reading-order: the operator sits on the
-                    // right of the transcript in every language.
-                    pointsRight = outgoing,
+                    // The beak sits on the bubble's OUTER edge — the side the
+                    // bubble itself is on — and which physical side that is
+                    // depends on the language. `Arrangement.End` puts an
+                    // outgoing bubble on the left in Persian, the same way
+                    // Telegram and WhatsApp do, so its beak belongs on the
+                    // left too. `pointsRight = outgoing` was right-handed in
+                    // both senses: it drew a tail pointing back into the
+                    // middle of the screen.
+                    pointsRight = if (rtl) !outgoing else outgoing,
                 ),
             ) {
                 Column(

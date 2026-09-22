@@ -59,6 +59,7 @@ import com.webyar.operator.ui.design.Size
 import com.webyar.operator.ui.components.AttachmentView
 import com.webyar.operator.ui.components.DayHeader
 import com.webyar.operator.ui.components.MessageBubble
+import com.webyar.operator.ui.components.bidiContent
 import com.webyar.operator.ui.design.Space
 import com.webyar.operator.ui.design.WebyarTheme
 import java.time.Instant
@@ -260,7 +261,19 @@ private fun Transcript(
                         AttachmentView(it, language, loadAttachment)
                     }
                     if (message.body.isNotBlank()) {
-                        Text(message.body, style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            message.body,
+                            // A visitor writes in whatever language they
+                            // like, inside a transcript laid out in the
+                            // operator's. Without this, a Turkish sentence
+                            // in a Persian transcript had its full stop
+                            // moved to the front — the same fault the inbox
+                            // rows had.
+                            // No fillMaxWidth: a bubble hugs its text, and
+                            // stretching the Text would stretch every bubble
+                            // to the 300dp cap.
+                            style = MaterialTheme.typography.bodyLarge.bidiContent(),
+                        )
                     }
                 }
             }

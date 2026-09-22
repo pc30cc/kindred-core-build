@@ -24,6 +24,8 @@ import com.webyar.operator.ui.components.DayHeader
 import com.webyar.operator.ui.components.ErrorState
 import com.webyar.operator.ui.components.MessageBubble
 import com.webyar.operator.ui.components.SkeletonList
+import com.webyar.operator.ui.components.bidiContent
+import androidx.compose.foundation.layout.fillMaxWidth
 import com.webyar.operator.ui.design.Space
 import java.time.Instant
 import java.time.ZoneId
@@ -115,7 +117,10 @@ private fun Transcript(
             ) {
                 row.message.attachment?.let { AttachmentView(it, language, loadAttachment) }
                 row.message.body?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodyLarge.bidiContent(),
+                    )
                 }
             }
         }

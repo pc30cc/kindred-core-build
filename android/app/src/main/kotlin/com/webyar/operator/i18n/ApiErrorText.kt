@@ -39,6 +39,12 @@ fun ApiError.text(language: Language, unauthorized: String? = null): String = wh
             404 -> Str.errorNotFound(language)
             409 -> Str.errorConflict(language)
             429 -> Str.errorTooManyRequests(language)
+            // Before the 500s, which it is numerically inside: 501 means
+            // the deployment does not carry the feature, so "try again
+            // shortly" is an instruction that can only ever waste somebody's
+            // time. `ApiError.isFeatureMissing` is the same distinction for
+            // callers that want to draw their own empty state.
+            501 -> Str.errorFeatureMissing(language)
             in 500..599 -> Str.errorServerProblem(language)
             // 400 and 422, and the long tail of 4xx nobody has met yet.
             // NOT the offline text, which is what stood here: the server

@@ -33,7 +33,7 @@ class ApiErrorTextTest {
     @Test
     fun `a status the server answered never blames the connection`() {
         val offline = Str.offlineBody(Language.FA)
-        for (status in listOf(400, 403, 404, 409, 418, 422, 429, 451, 500, 502, 503)) {
+        for (status in listOf(400, 403, 404, 409, 418, 422, 429, 451, 500, 501, 502, 503)) {
             val text = ApiError.Server(status, null).text(Language.FA)
             assertNotEquals("status $status blamed the connection", offline, text)
         }
@@ -47,6 +47,19 @@ class ApiErrorTextTest {
         // keeps 403 out of `Unauthorized` precisely so one endpoint refusing
         // cannot read as the whole session going.
         assertNotEquals(Str.sessionExpired(Language.FA), text)
+    }
+
+    /**
+     * 501 sits inside the 500s numerically and means something else
+     * entirely: the deployment does not carry the feature. "Try again
+     * shortly" over that is an instruction that can only waste time.
+     */
+    @Test
+    fun `501 names the administrator rather than inviting a retry`() {
+        val text = ApiError.Server(501, null).text(Language.FA)
+        assertEquals(Str.errorFeatureMissing(Language.FA), text)
+        assertNotEquals(Str.errorServerProblem(Language.FA), text)
+        assertTrue(ApiError.Server(501, null).isFeatureMissing)
     }
 
     @Test
@@ -159,7 +172,7 @@ class ApiErrorTextTest {
             ApiError.Unauthorized,
             ApiError.Transport(),
             ApiError.Decoding(),
-        ) + listOf(400, 403, 404, 409, 422, 429, 500, 599).map { ApiError.Server(it, null) }
+        ) + listOf(400, 403, 404, 409, 422, 429, 500, 501, 599).map { ApiError.Server(it, null) }
 
         for (language in Language.entries) {
             for (error in errors) {

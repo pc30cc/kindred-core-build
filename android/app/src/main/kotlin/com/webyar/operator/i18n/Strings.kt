@@ -780,6 +780,20 @@ object Str {
         Language.TR -> "Sunucuda bir sorun oluştu. Birazdan tekrar deneyin."
     }
 
+    /**
+     * 501: the server understood perfectly and has nothing to answer with,
+     * because this deployment does not carry the feature.
+     *
+     * Worded like `shortcutsUnavailableBody` and for the same reason — a
+     * retry can never fix a missing table, so it must not read like one is
+     * worth making, and the person who CAN fix it is named.
+     */
+    fun errorFeatureMissing(l: Language): String = when (l) {
+        Language.EN -> "This server doesn't have that yet. Your administrator can enable it by bringing the database up to date."
+        Language.FA -> "این سرور هنوز این قابلیت را ندارد. مدیر سامانه می‌تواند با به‌روزرسانی پایگاه داده فعالش کند."
+        Language.TR -> "Bu sunucuda bu özellik henüz yok. Yöneticiniz veritabanını güncelleyerek etkinleştirebilir."
+    }
+
     fun errorUnreadableAnswer(l: Language): String = when (l) {
         Language.EN -> "The server's answer couldn't be read. Update the app if this keeps happening."
         Language.FA -> "پاسخ سرور خوانده نشد. اگر تکرار شد، اپ را به‌روز کنید."

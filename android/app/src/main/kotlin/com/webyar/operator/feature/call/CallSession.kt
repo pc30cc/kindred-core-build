@@ -74,7 +74,7 @@ class CallSession(
     private val _degraded = MutableStateFlow<CallDegradation?>(null)
     val degraded: StateFlow<CallDegradation?> = _degraded.asStateFlow()
 
-    var channel: CallChannel = CallChannel.VOICE
+    var channel: CallChannel = CallChannel.AUDIO
         private set
     var contactName: String = ""
         private set

@@ -88,6 +88,11 @@ import androidx.compose.ui.platform.testTag
 import com.webyar.operator.ui.A11y
 import com.webyar.operator.feature.promo.PromoBanner
 import com.webyar.operator.feature.promo.PromotionCenter
+import com.webyar.operator.feature.call.CallOutcome
+import com.webyar.operator.feature.call.CallPhase
+import com.webyar.operator.feature.call.CallScreen
+import com.webyar.operator.feature.call.CallSession
+import com.webyar.operator.feature.call.LiveKitRoom
 import com.webyar.operator.ui.design.Space
 import android.content.pm.PackageManager
 import androidx.compose.runtime.DisposableEffect
@@ -359,7 +364,7 @@ fun ChatRoute(
                     sheet = wanted
                 },
                 onTakeOver = chatModel::takeOver,
-                onVoiceCall = { onStartCall(CallChannel.VOICE) },
+                onVoiceCall = { onStartCall(CallChannel.AUDIO) },
                 onVideoCall = { onStartCall(CallChannel.VIDEO) },
             )
         },
@@ -889,6 +894,109 @@ fun EmailThreadRoute(
             }
         }
     }
+}
+
+/**
+ * A call, from the invitation going out.
+ *
+ * The invitation is created HERE rather than in the chat, so that a route
+ * which survives process death can recreate the call rather than resume a
+ * half-built one — and so the chat never holds a call's state.
+ */
+@Composable
+fun CallRoute(
+    conversationId: String,
+    channel: CallChannel,
+    appState: AppState,
+    api: WebyarApi,
+    language: Language,
+    onDone: () -> Unit,
+) {
+    val context = LocalContext.current
+    val room = remember(context) { LiveKitRoom(context.applicationContext) }
+    val session: CallSession =
+        viewModel(factory = viewModelFactory { CallSession(api, room) })
+
+    val phase by session.phase.collectAsStateWithLifecycle()
+    val connectedAt by session.connectedAt.collectAsStateWithLifecycle()
+    val muted by session.muted.collectAsStateWithLifecycle()
+    val cameraOn by session.cameraOn.collectAsStateWithLifecycle()
+    val speakerOn by session.speakerOn.collectAsStateWithLifecycle()
+    val relayWarning by session.relayWarning.collectAsStateWithLifecycle()
+    val degraded by session.degraded.collectAsStateWithLifecycle()
+    val remoteVideo by room.remoteVideo.collectAsStateWithLifecycle()
+    val localVideo by room.localVideo.collectAsStateWithLifecycle()
+
+    val workspace by appState.selectedWorkspace.collectAsStateWithLifecycle()
+    var failed by remember { mutableStateOf(false) }
+
+    // The permissions are asked for at the moment the call starts, not at
+    // launch. A refusal is not fatal: the session degrades and says which
+    // half of the call the operator is missing.
+    val wanted = remember(channel) {
+        if (channel == CallChannel.VIDEO) {
+            arrayOf(android.Manifest.permission.RECORD_AUDIO, android.Manifest.permission.CAMERA)
+        } else {
+            arrayOf(android.Manifest.permission.RECORD_AUDIO)
+        }
+    }
+    var permissionsAsked by remember { mutableStateOf(false) }
+    val permissions = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissionsAsked = true }
+
+    LaunchedEffect(wanted) {
+        val missing = wanted.any {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing) permissions.launch(wanted) else permissionsAsked = true
+    }
+
+    LaunchedEffect(workspace?.id, conversationId, channel, permissionsAsked) {
+        if (!permissionsAsked) return@LaunchedEffect
+        val id = workspace?.id ?: return@LaunchedEffect
+        val invitation = runCatching { api.inviteToCall(id, conversationId, channel) }.getOrNull()
+        if (invitation == null) {
+            failed = true
+            return@LaunchedEffect
+        }
+        session.begin(
+            invitation = invitation,
+            contactName = Str.unknownVisitor(language),
+            contactAvatarUrl = null,
+            visitor = null,
+        )
+    }
+
+    // Releasing the room is what hands the microphone and camera back. The
+    // view model's own onCleared does it too, but a route popped while the
+    // model is retained by the graph would otherwise hold both.
+    DisposableEffect(room) {
+        onDispose { room.release() }
+    }
+
+    CallScreen(
+        phase = if (failed) CallPhase.Ended(CallOutcome.Failed("invite")) else phase,
+        channel = channel,
+        contactName = session.contactName.ifEmpty { Str.unknownVisitor(language) },
+        language = language,
+        contactAvatarUrl = session.contactAvatarUrl,
+        visitor = session.visitor,
+        connectedAt = connectedAt,
+        muted = muted,
+        cameraOn = cameraOn,
+        speakerOn = speakerOn,
+        relayWarning = relayWarning,
+        degraded = degraded,
+        remoteVideo = remoteVideo,
+        localVideo = localVideo,
+        room = room,
+        onToggleMute = session::toggleMute,
+        onToggleCamera = session::toggleCamera,
+        onToggleSpeaker = session::toggleSpeaker,
+        onHangUp = session::hangUp,
+        onDone = onDone,
+    )
 }
 
 @Composable

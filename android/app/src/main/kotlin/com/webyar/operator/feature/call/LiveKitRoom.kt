@@ -5,6 +5,7 @@ import com.twilio.audioswitch.AudioDevice
 import com.webyar.operator.core.model.CallToken
 import io.livekit.android.ConnectOptions
 import io.livekit.android.LiveKit
+import io.livekit.android.AudioOptions
 import io.livekit.android.LiveKitOverrides
 import io.livekit.android.RoomOptions
 import io.livekit.android.audio.AudioSwitchHandler
@@ -27,7 +28,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import org.webrtc.PeerConnection
+import livekit.org.webrtc.PeerConnection
 
 /**
  * The real room.
@@ -87,7 +88,7 @@ class LiveKitRoom(private val context: Context) : CallRoom {
                     position = CameraPosition.FRONT,
                 ),
             ),
-            overrides = LiveKitOverrides(audioHandler = audio),
+            overrides = LiveKitOverrides(audioOptions = AudioOptions(audioHandler = audio)),
         )
         this.room = room
         audio.preferredDeviceList = SPEAKER_FIRST

@@ -37,6 +37,7 @@ import com.webyar.operator.core.net.WebyarApi
 import com.webyar.operator.ui.AppTab
 import com.webyar.operator.feature.contacts.ContactsViewModel
 import com.webyar.operator.feature.inbox.InboxViewModel
+import com.webyar.operator.core.model.CallChannel
 import com.webyar.operator.feature.email.EmailInboxViewModel
 import com.webyar.operator.feature.promo.PromoFullScreen
 import com.webyar.operator.feature.promo.PromotionCenter
@@ -115,6 +116,19 @@ fun AppShell(
                         conversations = conversations,
                         language = language,
                         onBack = { navController.popBackStack() },
+                        onStartCall = { channel ->
+                            navController.navigate(Route.call(entry.arguments?.getString("conversationId").orEmpty(), channel.wire))
+                        },
+                    )
+                }
+                composable(Route.CALL) { entry ->
+                    CallRoute(
+                        conversationId = entry.arguments?.getString("conversationId").orEmpty(),
+                        channel = CallChannel.from(entry.arguments?.getString("channel")),
+                        appState = appState,
+                        api = api,
+                        language = language,
+                        onDone = { navController.popBackStack() },
                     )
                 }
                 // The internal inbox lives inside the Inbox graph, not in a

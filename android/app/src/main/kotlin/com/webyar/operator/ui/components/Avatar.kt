@@ -22,9 +22,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.webyar.operator.ui.design.Size
@@ -104,7 +106,7 @@ fun Avatar(
                 // Flags are emoji: they are already directional images and
                 // must not be mirrored a second time by the layout.
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                    Text(flag, fontSize = fixedSp(flagSize * 0.62f))
+                    Text(flag, style = glyphStyle(flagSize * 0.62f))
                 }
             }
         }
@@ -112,19 +114,34 @@ fun Avatar(
 }
 
 /**
- * A text size that renders at a given [Dp] whatever the font scale is.
+ * A style for a glyph that has to fit a circle, whatever the font scale is.
  *
  * `12.sp` is not twelve points on a phone set to large text — it is
- * twenty-four, which is the whole purpose of `sp` and is right for nearly
- * every string in this app. It is wrong for the two here: a flag and a pair
- * of initials are glyphs filling a circle measured in `dp`, so scaling them
- * and not the circle clips them. At 2x the flag badge lost its flag
- * altogether and left a blank white dot on every row.
+ * twenty-four, which is the point of `sp` and is right for nearly every
+ * string in this app. It is wrong for the two here: a flag and a pair of
+ * initials are marks filling a circle measured in `dp`, and scaling them
+ * while the circle stays put clips them.
  *
- * `Dp.toSp()` divides by the font scale, which is what undoes it.
+ * Both the size AND the line height have to be pinned, which is the part
+ * that took two goes. Fixing the size alone left the flag invisible at 2x:
+ * the line height came from the ambient text style, was still in `sp`, and
+ * laid the glyph out inside a line box twice the height of the circle
+ * containing it. The trim is what removes the rest of the font's own
+ * leading, so the mark sits in the middle rather than near the top.
  */
 @Composable
-private fun fixedSp(value: Dp): TextUnit = with(LocalDensity.current) { value.toSp() }
+private fun glyphStyle(value: Dp): TextStyle {
+    val size = with(LocalDensity.current) { value.toSp() }
+    return TextStyle(
+        fontSize = size,
+        lineHeight = size,
+        platformStyle = PlatformTextStyle(includeFontPadding = false),
+        lineHeightStyle = LineHeightStyle(
+            alignment = LineHeightStyle.Alignment.Center,
+            trim = LineHeightStyle.Trim.Both,
+        ),
+    )
+}
 
 @Composable
 private fun OsFace(kind: OsKind, size: Dp) {
@@ -164,7 +181,7 @@ private fun InitialsFace(name: String, size: Dp) {
                 // has to fill a fixed circle, so it is one of the very few
                 // places in the app where text does NOT scale with the
                 // reader's font setting — it would overflow the circle.
-                fontSize = fixedSp(size * 0.38f),
+                style = glyphStyle(size * 0.38f),
             )
         }
     }

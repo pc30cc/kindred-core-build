@@ -250,31 +250,35 @@ services:
       # `503 no available server` even while the container itself is running.
       - "traefik.http.services.livekit.loadbalancer.server.port=7880"
       #
-      # TURN over TLS on 443, which is the port a locked-down network
-      # actually allows and therefore the only one that rescues those
-      # visitors. 443 here already belongs to the HTTP front end, so TURN
-      # shares it through a TCP router that matches by SNI and hands the
-      # decrypted stream to LiveKit. Set LIVEKIT_TURN_TLS_PORT=443 — that
-      # is both what LiveKit advertises and what it listens on inside its
-      # own namespace, where nothing else holds the port — leave
-      # LIVEKIT_TURN_EXTERNAL_TLS=true, and uncomment with the real
-      # hostname:
+      # TURN over TLS, shared onto the proxy's own 443 by a TCP router that
+      # matches by SNI and hands the decrypted stream to LiveKit. 443 is the
+      # port a locked-down network allows, and therefore the only one that
+      # rescues the visitors TURN exists for.
       #
-      #   - "traefik.tcp.routers.livekit-turn.rule=HostSNI(`turn.example.tld`)"
-      #   - "traefik.tcp.routers.livekit-turn.entrypoints=https"
-      #   - "traefik.tcp.routers.livekit-turn.tls=true"
-      #   - "traefik.tcp.routers.livekit-turn.tls.certresolver=letsencrypt"
-      #   - "traefik.tcp.routers.livekit-turn.service=livekit-turn"
-      #   - "traefik.tcp.services.livekit-turn.loadbalancer.server.port=443"
+      # The hostname is read from the environment, never written here — it
+      # belongs to a deployment, not to this repository. Set, together:
       #
-      # `letsencrypt` is the resolver Coolify's Traefik is started with;
-      # confirm against an existing router if this install differs. It
-      # solves the HTTP-01 challenge on port 80, so the TURN hostname must
-      # resolve to this host and reach the proxy there — which it already
-      # must, for TURN to work at all.
+      #   LIVEKIT_TURN_DOMAIN=turn.your-domain.tld
+      #   LIVEKIT_TURN_CERTRESOLVER=letsencrypt   # Coolify's resolver name
+      #   LIVEKIT_TURN_TLS_PORT=443
+      #   LIVEKIT_TURN_EXTERNAL_TLS=true
       #
-      # Left commented rather than interpolated from LIVEKIT_TURN_DOMAIN on
-      # purpose: an empty variable would leave Traefik an unmatchable
-      # HostSNI rule and a certificate request for a name that does not
-      # exist, and a broken router in the shared proxy is a worse failure
-      # than no TURN.
+      # LIVEKIT_TURN_TLS_PORT is deliberately one variable doing two jobs:
+      # it is the port LiveKit ADVERTISES in the credentials it mints, and
+      # the port it listens on inside its own namespace, which is where the
+      # router below forwards. They cannot disagree if they are the same
+      # value. Inside the container nothing else holds 443.
+      #
+      # With TURN off both variables are empty, and then this router matches
+      # a name that cannot exist and asks for no certificate — `.invalid` is
+      # reserved precisely so it can never resolve, and an empty resolver is
+      # what keeps ACME quiet about it. That is why the default is a
+      # placeholder rather than the domain variable alone: an empty HostSNI
+      # is a parse error, and a broken router in a shared proxy is a worse
+      # failure than no TURN.
+      - "traefik.tcp.routers.livekit-turn.rule=HostSNI(`${LIVEKIT_TURN_DOMAIN:-turn.invalid}`)"
+      - "traefik.tcp.routers.livekit-turn.entrypoints=${LIVEKIT_TURN_ENTRYPOINT:-https}"
+      - "traefik.tcp.routers.livekit-turn.tls=true"
+      - "traefik.tcp.routers.livekit-turn.tls.certresolver=${LIVEKIT_TURN_CERTRESOLVER:-}"
+      - "traefik.tcp.routers.livekit-turn.service=livekit-turn"
+      - "traefik.tcp.services.livekit-turn.loadbalancer.server.port=${LIVEKIT_TURN_TLS_PORT:-5349}"

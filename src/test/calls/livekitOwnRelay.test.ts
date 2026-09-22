@@ -79,16 +79,39 @@ describe('the LiveKit container renders TURN from the same variable', () => {
   });
 
   /**
-   * An unmatchable `HostSNI()` and a certificate request for a name that
-   * does not exist would break the shared proxy for every other service on
-   * it, which is a worse outcome than no TURN.
+   * The TURN hostname belongs to a deployment, not to this repository, so
+   * the Traefik rule reads it from the environment. What must never happen
+   * is a bare `${LIVEKIT_TURN_DOMAIN}`: unset, that is an empty `HostSNI()`,
+   * which is a parse error, and a broken router in a shared proxy takes
+   * every other service on it down with it — a worse outcome than no TURN.
    */
-  it('does not interpolate the domain into a Traefik rule', () => {
-    const live = compose
-      .split('\n')
-      .filter((l) => !l.trim().startsWith('#'))
-      .join('\n');
-    expect(live).not.toContain('HostSNI');
+  it('reads the TURN hostname from the environment, never from this file', () => {
+    expect(compose).toContain('HostSNI(`${LIVEKIT_TURN_DOMAIN:-');
+    // No real hostname committed here. `.invalid` is reserved by RFC 2606
+    // precisely so it can never resolve, and `.example` likewise.
+    const rule = compose.split('\n').find((l) => l.includes('HostSNI')) ?? '';
+    expect(rule).toMatch(/HostSNI\(`\$\{LIVEKIT_TURN_DOMAIN:-[a-z.]+\.(invalid|example)`\}?`?\)/);
+  });
+
+  /**
+   * With TURN off the router still exists, so it must ask for no
+   * certificate — otherwise every deployment that does not use TURN spends
+   * its Let's Encrypt failure budget on a name that cannot resolve.
+   */
+  it('asks for no certificate unless a resolver is named', () => {
+    expect(compose).toContain('certresolver=${LIVEKIT_TURN_CERTRESOLVER:-}');
+  });
+
+  /**
+   * One variable, two jobs: the port LiveKit advertises in the credentials
+   * it mints, and the port the router forwards to. They cannot disagree if
+   * they are the same value.
+   */
+  it('forwards to the port LiveKit advertises', () => {
+    expect(compose).toContain(
+      'traefik.tcp.services.livekit-turn.loadbalancer.server.port=${LIVEKIT_TURN_TLS_PORT:-5349}',
+    );
+    expect(compose).toContain('echo "  tls_port: $${LIVEKIT_TURN_TLS_PORT:-5349}"');
   });
 });
 

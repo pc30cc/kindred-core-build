@@ -115,12 +115,19 @@ Cloudflare the record must be DNS-only (grey cloud) — the proxy carries
 HTTP and WebSocket, never TURN.
 
 The port that earns its keep is the TLS one, because 443 is what those
-networks allow. Sharing 443 with the Coolify/Traefik front end needs a TCP
-router matching the TURN hostname by SNI; `docker-compose.livekit.yml`
-carries the labels in a comment. On a spare address or port, 5349 is
-conventional. Either way `LIVEKIT_TURN_EXTERNAL_TLS` must say truthfully
-whether something in front terminates TLS, or the port answers with the
-wrong protocol and fails only on the networks TURN exists for.
+networks allow. `docker-compose.livekit.yml` carries a Traefik TCP router
+that shares the proxy's own 443, matching the TURN hostname by SNI — it
+reads that hostname from `LIVEKIT_TURN_DOMAIN`, so nothing is written into
+the file. Set `LIVEKIT_TURN_CERTRESOLVER` to the proxy's resolver
+(`letsencrypt` on Coolify) and `LIVEKIT_TURN_TLS_PORT=443`, which is both
+what LiveKit advertises and where the router forwards.
+
+`LIVEKIT_TURN_EXTERNAL_TLS` must say truthfully whether something in front
+terminates TLS. Get it wrong and the port answers with the wrong protocol,
+which fails only on the networks TURN exists for — the worst place to find
+out. The quick check is `openssl s_client -connect <host>:<port>`: a
+certificate means LiveKit is terminating, "no peer certificate available"
+means it is expecting a proxy to.
 
 LiveKit mints a TURN credential per participant and delivers it over the
 signalling connection. **Nothing goes in the admin RTC endpoint settings** —
